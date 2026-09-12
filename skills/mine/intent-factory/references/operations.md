@@ -161,3 +161,26 @@ an unrelated session's first prompt.
 constraints, outcomes, next action, and open questions, refreshed on
 initialization, run registration, state transitions, `status`, and terminal
 completion; `journal.jsonl` is the append-only, fsynced full narrative.
+
+## Operator seat
+
+The seat is one tmux session, `intent-factory-seat`, with one window per open
+campaign. It hosts the operator's interactive harness and never drives a run:
+state writes stay with the controller, and a dead pane cannot touch `.runs/`.
+The operator harness registry (`src/seat/harnesses.mjs`) declares five entries
+— `claude`, `codex`, `zcode`, `dsh`, `agy` — each with interactive argv, an
+environment marker, and `canRenderAmbient` (true only for claude).
+
+```bash
+node src/cli.mjs seat start <campaign-id> --cwd <dir> [--harness <name>]
+node src/cli.mjs seat attach [<campaign-id>] [--cwd <dir>] [--ssh <host>]
+node src/cli.mjs seat status [--json] [--cwd <dir>]
+node src/cli.mjs seat stop [<campaign-id>] [--cwd <dir>]
+```
+
+`attach` prints the command to paste instead of running `tmux attach`; the
+`--ssh <host>` form prints the remote `ssh -t` line, because attaching from a
+child process nests sessions. `status --json` lists each window's campaign,
+current harness, and whether it renders ambient state. tmux is optional: every
+`seat` function returns an explicit unavailable result when the binary is
+absent, campaign commands keep working, and only reattaching is lost.

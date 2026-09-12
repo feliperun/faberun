@@ -551,3 +551,15 @@ test("a single-node contract validates without warning and contract prune is gon
   assert.match(pruned.stderr, /usage: runner.mjs contract validate/u, "contract prune is not a command any more");
   assert.equal(existsSync(join(directory, "out.json")), false, "no continuation contract is written");
 });
+
+test("seat is a dispatched verb named in the usage line", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-seat-usage-"));
+  const action = spawnSync(process.execPath, [RUNNER_CLI, "seat", "bogus"], { encoding: "utf8" });
+  assert.equal(action.status, 2, "an unknown seat operation is a usage error");
+  assert.match(action.stderr, /seat <start\|attach\|status\|stop>/u);
+  const main = spawnSync(process.execPath, [RUNNER_CLI, "nope"], { encoding: "utf8" });
+  assert.match(main.stderr, /seat <start\|attach\|status\|stop>/u, "the top-level usage names the new verb");
+  const campaigns = spawnSync(process.execPath, [RUNNER_CLI, "campaign", "list", "--cwd", directory], { encoding: "utf8" });
+  assert.equal(campaigns.status, 0, campaigns.stderr);
+  assert.match(campaigns.stdout, /\[campaign\] none/u);
+});
