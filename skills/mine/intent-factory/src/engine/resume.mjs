@@ -12,7 +12,7 @@
  * contract left open, and only from runtimes that are available now: a resume
  * after an exhausted provider is exactly when that matters.
  */
-import { TERMINAL } from "./prompts.mjs";
+import { JUDGE_SCHEMA, TERMINAL } from "./prompts.mjs";
 import { acquire as acquireLock } from "../run/lock.mjs";
 import { applyInvalidWorkerResult, assertRunMutable, handleProviderExhaustion } from "./lifecycle.mjs";
 import { applyJudgeResult } from "./review.mjs";
@@ -32,7 +32,7 @@ import { hasOperationIntent, hasOperationSettlement, operationNeedsRecovery, pro
 import { isUnknownEffectStop, planResumeRetry, renderPreviousAttemptSection } from "./retry.mjs";
 import { join, resolve } from "node:path";
 import { parseDiscoveryResult, parseWorkerResult } from "../contract/worker-result.mjs";
-import { readJson } from "../run/store.mjs";
+import { readJson, writeJsonAtomic } from "../run/store.mjs";
 import { recoverIntegrations } from "../repo/integrate.mjs";
 import { registerRun, resolveCampaign } from "../campaign/index.mjs";
 import { syncAgentSignal } from "../repo/signal.mjs";
@@ -86,6 +86,13 @@ export async function resumeRun(runDirPath, options = {}) {
       unlinkSync(join(runDir, "cancel.request.json"));
       process.stdout.write(`[resume] ${contract.id} · consumed cancel request\n`);
     }
+    // The judge schema is controller code, not run evidence: it is written
+    // once at run start, and a resume used to keep reading that copy. When a
+    // schema defect is what blocked the run -- `required` missing a property,
+    // which OpenAI rejects with 400 before the model runs -- the fix could
+    // not reach the run it was written for, and the only way forward was a
+    // new run paying for the worker a second time. Refresh it here.
+    writeJsonAtomic(join(runDir, "judge.schema.json"), JUDGE_SCHEMA);
     const runsDir = join(runDir, "..");
     const campaign = resolveCampaign(runsDir, contract.campaignId);
     registerRun(campaign.path, contract.id);
