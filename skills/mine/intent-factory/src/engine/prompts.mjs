@@ -36,12 +36,17 @@ export const JUDGE_SCHEMA = {
       },
     },
   },
-  // `findings` is deliberately not required. A clean pass has nothing to
-  // report, and a model that omits the empty array is answering correctly --
-  // requiring it turned a `pass` verdict into a provider exit code 1, which
-  // the run then recorded as `judge_unavailable` for a judge that had in fact
-  // answered. Absent and `[]` mean the same thing; `parseJudge` reads both.
-  required: ["verdict", "maxSeverity", "summary"],
+  // Every property, and it has to be every property: OpenAI's structured
+  // output rejects the schema itself -- `invalid_json_schema`, 400, before the
+  // model runs -- unless `required` lists every key in `properties`. Dropping
+  // `findings` from here to spare Claude an occasional omission took the codex
+  // judge down completely, which is the worse trade: Claude's failure was
+  // intermittent and recoverable, this one was every invocation.
+  //
+  // The tolerance lives in `parseJudge`, which reads an absent `findings` as
+  // `[]`, and in the prompt below, which says out loud that a clean pass still
+  // sends the empty array.
+  required: ["verdict", "maxSeverity", "summary", "findings"],
 };
 
 /**
@@ -139,7 +144,7 @@ export function judgePrompt(node, workerResult, context = {}) {
     `Controller verification:\n${JSON.stringify(verificationResult)}\n\n` +
     (scopeSection ? `${scopeSection}\n\n` : "") +
     (context.previousAttempt ? `${context.previousAttempt}\n\n` : "") +
-    "Return only the JSON object required by the output schema. The verdict is a record, not a report: keep `summary` within " + JUDGE_LIMITS.summaryBytes + " bytes, use at most " + JUDGE_LIMITS.findings + " findings, and keep each finding's `description` within " + JUDGE_LIMITS.descriptionBytes + " bytes and its `evidence` within " + JUDGE_LIMITS.evidenceBytes + " bytes. A verdict that overshoots this envelope is rejected unread, however sound the arbitration. Evidence must be concrete. " +
+    "Return only the JSON object required by the output schema, with every field present: a verdict with nothing to report still carries `findings: []`, never an omitted key. The verdict is a record, not a report: keep `summary` within " + JUDGE_LIMITS.summaryBytes + " bytes, use at most " + JUDGE_LIMITS.findings + " findings, and keep each finding's `description` within " + JUDGE_LIMITS.descriptionBytes + " bytes and its `evidence` within " + JUDGE_LIMITS.evidenceBytes + " bytes. A verdict that overshoots this envelope is rejected unread, however sound the arbitration. Evidence must be concrete. " +
     "Use verdict pass only when findings is empty and maxSeverity is none. " +
     "Use verdict fail whenever findings is non-empty, including advisory findings below failOn. " +
     (node.definitionOfDone.length

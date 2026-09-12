@@ -134,15 +134,22 @@ test("a verdict rejected by its envelope is re-asked with the size rule", () => 
   }
 });
 
-test("a clean pass may omit findings entirely", () => {
-  // Requiring `findings` turned a real `pass` verdict into provider exit 1,
-  // which the run then recorded as `judge_unavailable` for a judge that had
-  // answered (if-p3-delegation-mutation-20260912, bulk-read). Absent and `[]`
-  // are the same claim: nothing to report.
+test("the judge schema asks for every field and the parser forgives a missing findings", () => {
+  // Two providers with opposite demands, learned one campaign apart.
+  // OpenAI rejects the schema itself (400 invalid_json_schema) unless
+  // `required` lists every key in `properties`, so dropping `findings` from
+  // `required` took every codex judge down. Claude occasionally omits the
+  // empty array and its CLI then refuses a verdict that had already been
+  // reached. So: the schema stays strict for the provider that checks it,
+  // and the parser stays lenient for the model that forgets.
+  assert.deepEqual(
+    JUDGE_SCHEMA.required.slice().sort(),
+    Object.keys(JUDGE_SCHEMA.properties).sort(),
+    "OpenAI structured output rejects a schema whose required omits any property",
+  );
   const clean = parseJudge(JSON.stringify({ verdict: "pass", maxSeverity: "none", summary: "all items hold" }));
   assert.equal(clean.verdict, "pass");
   assert.deepEqual(clean.findings, []);
-  assert.equal(JUDGE_SCHEMA.required.includes("findings"), false, "the schema must not ask for what a clean pass has none of");
   assert.throws(() => parseJudge(JSON.stringify({
     verdict: "pass", maxSeverity: "none", summary: "s", findings: "none",
   })), /judge findings must be an array/u);
