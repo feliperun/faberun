@@ -2,11 +2,13 @@
  * Direct notification dispatcher (TECH-SPEC lean, rule 6). On `node.terminal`,
  * `run.terminal` and `attention` the controller renders a one-line message
  * from a fixed per-type template, calls `INTENT_FACTORY_NOTIFY_BIN` with the
- * event as JSON on stdin, and appends a receipt (`delivered` or `failed`, with
- * the timestamp) to `<run-dir>/notify.jsonl`. A failed delivery is retried on
- * the next controller ticks up to three times with backoff. With no
- * transport bound (`INTENT_FACTORY_NOTIFY_BIN` unset) nothing is spawned and a
- * `no_transport` receipt is recorded instead — there is no implicit desktop
+ * event as JSON on stdin, and appends a receipt (`delivered`, `failed` or
+ * `no_transport`, with the timestamp) to `<run-dir>/notify.jsonl`. Delivery is
+ * lossy: an event is attempted once, a failure schedules no further attempt and
+ * is never requeued, and the controller never waits on a retry it will not
+ * make. The next read of the run's own artefacts carries the full state. With
+ * no transport bound (`INTENT_FACTORY_NOTIFY_BIN` unset) nothing is spawned and
+ * a `no_transport` receipt is recorded instead — there is no implicit desktop
  * fallback. The macOS notifier is reachable only by setting
  * `INTENT_FACTORY_NOTIFY_BIN=os-macos`, an explicit opt-in, never a default.
  */
@@ -21,9 +23,14 @@ import { errorMessage } from "../util.mjs";
 const NOTIFY_BIN_ENV = "INTENT_FACTORY_NOTIFY_BIN";
 const MACOS_TRANSPORT = "os-macos";
 export const NOTIFY_LOG_FILE = "notify.jsonl";
+/**
+ * The bounded retry budget the dispatcher used to spend before giving up.
+ * `campaign/metrics.mjs` still reads it through `notifyReceiptRate`: a `failed`
+ * receipt at the final attempt counts as settled. Delivery is lossy now, so no
+ * receipt carries an attempt past the first and a failed delivery no longer
+ * satisfies that indicator — the metric is unchanged and reports the drop.
+ */
 export const MAX_ATTEMPTS = 3;
-/** Wait, in ms, before attempt 2 and attempt 3 of a failed delivery. */
-const DEFAULT_BACKOFF_MS = [5_000, 30_000];
 
 const SUMMARY_CHARS = 200;
 
@@ -152,25 +159,21 @@ function spawnDeliver(bin, event, { spawn = defaultSpawn, timeoutMs = 5_000 } = 
 }
 
 /**
- * Per-run queue of pending notifications with bounded retry. `enqueue`
- * renders the message and attempts delivery immediately; a failed attempt
- * schedules the next one at `now() + backoffMs[attempt - 1]`, and `pump`
- * retries whichever pending entries are due. Every attempt appends one
- * receipt to `<runDir>/notify.jsonl`, so a resume or an audit sees exactly
- * how many tries an event took and when each one happened.
+ * Per-run notification dispatcher. `enqueue` renders the message, attempts
+ * delivery once, and appends one receipt to `<runDir>/notify.jsonl` whatever
+ * the outcome. There is no pending queue to hold a failure and no scheduled
+ * retry: a failed delivery is recorded and dropped. A resume or an audit reads
+ * the receipt log for what happened and `status.json` for the state, which the
+ * next controller re-derives from disk instead of replaying a notify backup.
  */
 export class NotifyQueue {
   /**
-   * @param {{runDir: string, maxAttempts?: number, backoffMs?: number[], deliver?: typeof deliverNotification, now?: () => number}} options
+   * @param {{runDir: string, deliver?: typeof deliverNotification, now?: () => number}} options
    */
-  constructor({ runDir, maxAttempts = MAX_ATTEMPTS, backoffMs, deliver = deliverNotification, now = () => Date.now() }) {
+  constructor({ runDir, deliver = deliverNotification, now = () => Date.now() }) {
     this.runDir = runDir;
-    this.maxAttempts = maxAttempts;
-    this.backoffMs = backoffMs ?? backoffMsFromEnv() ?? DEFAULT_BACKOFF_MS;
     this.deliver = deliver;
     this.now = now;
-    /** @type {{event: NotifyEvent & {summary: string}, attempts: number, nextAttemptAt: number}[]} */
-    this.pending = [];
   }
 
   /**
@@ -178,6 +181,7 @@ export class NotifyQueue {
    * own `status.json`, never the model) before rendering its summary, so
    * `resume <run-dir>` and the run-terminal cost are counters and
    * identifiers the templates can use without the caller supplying them.
+   * Delivery is awaited exactly once; a failure is recorded, not rescheduled.
    *
    * @param {NotifyEvent} event
    * @returns {Promise<void>}
@@ -185,84 +189,28 @@ export class NotifyQueue {
   async enqueue(event) {
     const enriched = { ...event, runDir: this.runDir, costUsd: readRunCostUsd(this.runDir) };
     const summary = renderNotification(enriched);
-    const entry = { event: { ...enriched, summary }, attempts: 0, nextAttemptAt: this.now() };
-    this.pending.push(entry);
-    await this._attempt(entry);
-  }
-
-  /** @returns {Promise<void>} */
-  async pump() {
-    const now = this.now();
-    for (const entry of this.pending.filter((candidate) => candidate.nextAttemptAt <= now)) {
-      await this._attempt(entry);
-    }
-  }
-
-  /**
-   * Drain every pending entry, waiting in real time for each one's backoff, so
-   * a caller with no more ticks left (the controller at run.terminal) still
-   * exhausts the bounded retry budget before returning.
-   *
-   * @param {(ms: number) => Promise<void>} [wait]
-   * @returns {Promise<void>}
-   */
-  async drain(wait = (ms) => new Promise((resolveWait) => setTimeout(resolveWait, ms))) {
-    while (this.pending.length > 0) {
-      const due = Math.min(...this.pending.map((entry) => entry.nextAttemptAt));
-      const remaining = due - this.now();
-      if (remaining > 0) await wait(remaining);
-      await this.pump();
-    }
-  }
-
-  /**
-   * @param {{event: NotifyEvent & {summary: string}, attempts: number, nextAttemptAt: number}} entry
-   */
-  async _attempt(entry) {
-    entry.attempts += 1;
     // Consumers deduplicate by eventId (the Ford adapter rejects an event without
     // one), so every delivery carries a stable id derived from the dedupe key.
-    const eventId = /** @type {string|undefined} */ (entry.event.eventId)
-      ?? createHash("sha256").update(entry.event.dedupeKey ?? JSON.stringify(entry.event)).digest("hex");
-    const result = await this.deliver({ ...entry.event, eventId });
+    const eventId = enriched.eventId
+      ?? createHash("sha256").update(enriched.dedupeKey ?? JSON.stringify(enriched)).digest("hex");
+    const result = await this.deliver({ ...enriched, summary, eventId });
     /** @type {JsonObject} */
     const receipt = {
       eventId,
-      type: entry.event.type,
-      runId: entry.event.runId ?? null,
-      nodeId: entry.event.nodeId ?? null,
-      nodeStatus: entry.event.status ?? null,
-      errorCode: entry.event.errorCode ?? null,
-      done: entry.event.done ?? null,
-      total: entry.event.total ?? null,
-      dedupeKey: entry.event.dedupeKey ?? null,
-      summary: entry.event.summary,
-      attempt: entry.attempts,
+      type: enriched.type,
+      runId: enriched.runId ?? null,
+      nodeId: enriched.nodeId ?? null,
+      nodeStatus: enriched.status ?? null,
+      errorCode: enriched.errorCode ?? null,
+      done: enriched.done ?? null,
+      total: enriched.total ?? null,
+      dedupeKey: enriched.dedupeKey ?? null,
+      summary,
+      attempt: 1,
       status: result.ok ? "delivered" : result.noTransport ? "no_transport" : "failed",
       at: new Date(this.now()).toISOString(),
     };
     if (!result.ok && !result.noTransport) receipt.error = result.error ?? null;
     appendFileSync(join(this.runDir, NOTIFY_LOG_FILE), `${JSON.stringify(receipt)}\n`);
-    if (result.ok || result.noTransport || entry.attempts >= this.maxAttempts) {
-      this.pending = this.pending.filter((candidate) => candidate !== entry);
-    } else {
-      entry.nextAttemptAt = this.now() + (this.backoffMs[entry.attempts - 1] ?? this.backoffMs.at(-1) ?? 0);
-    }
   }
-}
-
-/**
- * An operator (or a test) may override the retry backoff with a
- * comma-separated list of milliseconds, so a slow default never has to be
- * waited out in full. Read fresh on every queue construction rather than
- * baked into a module constant, so the override still applies however late
- * it is set.
- *
- * @returns {number[]|null}
- */
-function backoffMsFromEnv() {
-  const raw = process.env.INTENT_FACTORY_NOTIFY_BACKOFF_MS;
-  if (!raw) return null;
-  const parts = raw.split(",").map((value) => Number(value.trim())).filter((value) => Number.isFinite(value) && value >= 0);
-  return parts.length > 0 ? parts : null;
 }

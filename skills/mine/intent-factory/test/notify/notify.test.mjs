@@ -93,3 +93,36 @@ test("NotifyQueue.enqueue tolerates a missing status.json: no resume cost, no cr
   await queue.enqueue({ type: "run.terminal", runId: "run-a", done: 1, total: 1 });
   assert.equal(/** @type {{summary: string}} */ (delivered[0]).summary, "run run-a done · 1/1 nodes");
 });
+
+test("notify is lossy", async () => {
+  const runDir = mkdtempSync(join(tmpdir(), "notify-lossy-"));
+  let attempts = 0;
+  const queue = new NotifyQueue({
+    runDir,
+    now: () => 1_700_000_000_000,
+    deliver: async () => {
+      attempts += 1;
+      return { ok: false, error: "transport unavailable" };
+    },
+  });
+
+  await queue.enqueue({
+    type: "node.terminal",
+    runId: "run-a",
+    nodeId: "build",
+    status: "failed",
+    attempt: 1,
+    dedupeKey: "node.terminal:run-a:build:failed:1:0",
+  });
+
+  // One attempt: the failure is dropped, never requeued and never rescheduled.
+  assert.equal(attempts, 1, "a failed delivery is attempted exactly once");
+  assert.equal(Object.hasOwn(queue, "pending"), false, "no pending queue exists to hold another attempt");
+  const receipts = readFileSync(join(runDir, "notify.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(receipts.length, 1, "exactly one receipt is written");
+  assert.equal(receipts[0].status, "failed");
+  assert.equal(receipts[0].attempt, 1);
+  assert.equal(receipts[0].error, "transport unavailable");
+  assert.equal(receipts[0].dedupeKey, "node.terminal:run-a:build:failed:1:0");
+});
+

@@ -218,7 +218,6 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
   /** @type {string|null} */
   let notificationFingerprint = null;
   const notifyStateChanges = async () => {
-    await notifyQueue.pump();
     const fingerprint = statesFingerprint(states);
     if (fingerprint === notificationFingerprint) return;
     notificationFingerprint = fingerprint;
@@ -366,9 +365,8 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
       dedupeKey: runDedupeKey,
     });
   }
-  // No more ticks will run to retry a failed delivery: exhaust the bounded
-  // retry budget here, in real time, before the controller returns.
-  await notifyQueue.drain();
+  // Delivery is lossy: there is no retry budget to wait out, so the controller
+  // returns as soon as the terminal notification has been attempted once.
   notifyQueuesByRun.delete(runDir);
   process.stdout.write(`[run] ${contract.id} ${failed.length ? `failed · ${runDir} · findings.json` : `done · ${runDir}`}\n`);
   if ([...states.values()].some((state) => state.usage)) {

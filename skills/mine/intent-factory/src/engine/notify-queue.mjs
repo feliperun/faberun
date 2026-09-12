@@ -19,8 +19,10 @@ import { renderHandoff } from "../campaign/index.mjs";
 /** @typedef {{path: string, campaign: Campaign}} CampaignRef */
 
 /**
- * One notify queue per run, so retries and the notify.jsonl receipt log stay
- * scoped to the run that owns them across the whole controller lifetime.
+ * One notify queue per run, so the notify.jsonl receipt log stays scoped to the
+ * run that owns it across the whole controller lifetime. Delivery is lossy now,
+ * so the queue holds no retry state; the map survives because a run's queue is
+ * still the thing every enqueue goes through while the controller is alive.
  * @type {Map<string, NotifyQueue>}
  */
 export const notifyQueuesByRun = new Map();
