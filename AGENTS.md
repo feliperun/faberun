@@ -71,5 +71,5 @@ When this file governs anything in production:
 Before starting new work here, check `.runs/`: if a campaign is active or a run is not terminal, continue it instead of starting over — read its `HANDOFF.md`/`STATUS.md`, attach to the campaign, and `resume` or `supervise` the run. Active runs are supervised by a deterministic detached process: do not poll `status` in a loop — on resume, check status once and act only on terminal states.
 
 - intent-factory campaign `operator-seat-and-remote-20260912`: active — read `.runs/campaigns/operator-seat-and-remote-20260912/HANDOFF.md`
-- intent-factory run `if-sp1-brief-lossy-20260912`: active (0/2 nodes done) — read `.runs/if-sp1-brief-lossy-20260912/STATUS.md`; `resume` or `supervise` it
+- intent-factory run `if-sp2-operator-seat-20260912`: active (0/2 nodes done) — read `.runs/if-sp2-operator-seat-20260912/STATUS.md`; `resume` or `supervise` it
 <!-- intent-factory-active:end -->
