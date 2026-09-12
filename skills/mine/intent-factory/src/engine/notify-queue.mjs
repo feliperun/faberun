@@ -12,14 +12,17 @@ import { appendJsonl } from "../run/store.mjs";
 import { errorMessage } from "../util.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { renderBrief } from "../campaign/brief.mjs";
 import { renderHandoff } from "../campaign/index.mjs";
 
 /** @typedef {import("../campaign/index.mjs").Campaign} Campaign */
 /** @typedef {{path: string, campaign: Campaign}} CampaignRef */
 
 /**
- * One notify queue per run, so retries and the notify.jsonl receipt log stay
- * scoped to the run that owns them across the whole controller lifetime.
+ * One notify queue per run, so the notify.jsonl receipt log stays scoped to the
+ * run that owns it across the whole controller lifetime. Delivery is lossy now,
+ * so the queue holds no retry state; the map survives because a run's queue is
+ * still the thing every enqueue goes through while the controller is alive.
  * @type {Map<string, NotifyQueue>}
  */
 export const notifyQueuesByRun = new Map();
@@ -65,6 +68,9 @@ export function alreadyNotified(runDir, dedupeKey) {
 export function renderCampaignHandoffSafely(campaign, runsDir, runDir) {
   try {
     renderHandoff(campaign.path, runsDir);
+    // The brief rides the same seam so it exists even when the seat dies
+    // without warning; the journal, not the seat, is what makes it rebuildable.
+    renderBrief(campaign.path, runsDir);
     return true;
   } catch (error) {
     /** @type {Record<string, unknown>} */

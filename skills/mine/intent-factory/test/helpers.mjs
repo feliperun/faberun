@@ -8,21 +8,15 @@ import { createAttemptWorktree } from "../src/repo/worktree.mjs";
 import { campaignDir } from "../src/campaign/layout.mjs";
 
 // The suite must never pop a macOS desktop notification: when
-// INTENT_FACTORY_NOTIFY_BIN is unset the outbox drain falls back to the
-// platform adapter, which spawns osascript. Give every test a no-op
-// transport by default; tests that need a failing or absent transport set
-// INTENT_FACTORY_NOTIFY_BIN explicitly and restore it afterward.
+// INTENT_FACTORY_NOTIFY_BIN is unset the outbox records a no_transport
+// receipt. Give every test a no-op transport by default; tests that need a
+// failing or absent transport set INTENT_FACTORY_NOTIFY_BIN explicitly and
+// restore it afterward.
 if (!process.env.INTENT_FACTORY_NOTIFY_BIN) {
   const path = join(mkdtempSync(join(tmpdir(), "runner-noop-notify-")), "noop-notify.mjs");
   writeFileSync(path, `#!${process.execPath}\nprocess.stdin.resume();\nprocess.stdin.on("end", () => process.exit(0));\n`);
   chmodSync(path, 0o755);
   process.env.INTENT_FACTORY_NOTIFY_BIN = path;
-}
-
-// The default retry backoff (5s, then 30s) is a production value: a suite
-// that ever exercises a failing transport must not wait it out in real time.
-if (!process.env.INTENT_FACTORY_NOTIFY_BACKOFF_MS) {
-  process.env.INTENT_FACTORY_NOTIFY_BACKOFF_MS = "0,0";
 }
 
 /**

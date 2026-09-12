@@ -1,0 +1,69 @@
+{
+  "id": "D22",
+  "title": "lost notifications are dropped, and the next read still carries the whole state",
+  "proves": "notification delivery is lossy (ADR-0035): every node-terminal and the run-terminal notification is attempted exactly once against a transport path that does not exist, so each records a `failed` receipt in notify.jsonl and is immediately dropped instead of re-enqueued or rescheduled. The controller still finishes the run, and a following resume re-reads the persisted node snapshots from disk and reports the whole state — both nodes done, zero revisions, no second worker invocation — rather than replaying a notify queue. A `resume` step is the read that proves the state survives the lost notifications, and the second node depends on the first so the recording's two worker envelopes map to the two nodes in order.",
+  "contract": {
+    "schemaVersion": 3,
+    "contractVersion": "0.3.0",
+    "id": "d22-run",
+    "campaignId": "d22-campaign",
+    "goal": "prove a lost notification is recorded and dropped, and the next read still carries the full state",
+    "runtimeDefaults": { "worker": "replay-worker" },
+    "runtimes": {
+      "replay-worker": { "harness": "replay", "model": "replay-worker-model", "vendor": "replay-worker-vendor", "config": {} }
+    },
+    "pollIntervalMs": 10,
+    "nodes": [
+      {
+        "id": "build",
+        "type": "backend",
+        "phase": "build",
+        "taskPacket": {
+          "mode": "execution",
+          "objective": "write output.txt",
+          "instructions": ["Write output.txt"],
+          "readFiles": ["contract.json"],
+          "writeFiles": ["output.txt"],
+          "symbols": [],
+          "decisions": [],
+          "nonGoals": [],
+          "verification": [{ "argv": ["true"] }]
+        },
+        "gate": false
+      },
+      {
+        "id": "ship",
+        "type": "backend",
+        "phase": "ship",
+        "dependsOn": ["build"],
+        "taskPacket": {
+          "mode": "execution",
+          "objective": "write ship-output.txt",
+          "instructions": ["Write ship-output.txt"],
+          "readFiles": ["contract.json"],
+          "writeFiles": ["ship-output.txt"],
+          "symbols": [],
+          "decisions": [],
+          "nonGoals": [],
+          "verification": [{ "argv": ["true"] }]
+        },
+        "gate": false
+      }
+    ]
+  },
+  "recordings": {
+    "replay-worker": "worker.jsonl"
+  },
+  "setup": [
+    {
+      "type": "run",
+      "env": { "INTENT_FACTORY_NOTIFY_BIN": "/nonexistent/intent-factory-notify-bin" }
+    },
+    { "type": "resume" }
+  ],
+  "discriminator": {
+    "type": "patchContractField",
+    "path": ["nodes", 0, "taskPacket", "verification"],
+    "value": [{ "argv": ["false"] }]
+  }
+}
