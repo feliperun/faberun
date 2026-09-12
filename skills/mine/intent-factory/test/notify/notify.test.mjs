@@ -124,5 +124,36 @@ test("notify is lossy", async () => {
   assert.equal(receipts[0].attempt, 1);
   assert.equal(receipts[0].error, "transport unavailable");
   assert.equal(receipts[0].dedupeKey, "node.terminal:run-a:build:failed:1:0");
+
+  // A transport that rejects is not a special case: it is a failed delivery
+  // too. The receipt is still written, the rejection never escapes enqueue,
+  // and no second attempt is scheduled.
+  const rejectingRunDir = mkdtempSync(join(tmpdir(), "notify-lossy-reject-"));
+  let rejectingAttempts = 0;
+  const rejecting = new NotifyQueue({
+    runDir: rejectingRunDir,
+    now: () => 1_700_000_000_000,
+    deliver: async () => {
+      rejectingAttempts += 1;
+      throw new Error("transport exploded");
+    },
+  });
+
+  await rejecting.enqueue({
+    type: "node.terminal",
+    runId: "run-a",
+    nodeId: "build",
+    status: "failed",
+    attempt: 1,
+    dedupeKey: "node.terminal:run-a:build:failed:1:0",
+  });
+
+  assert.equal(rejectingAttempts, 1, "a rejected delivery is attempted exactly once and never requeued");
+  assert.equal(Object.hasOwn(rejecting, "pending"), false, "no pending queue exists to hold another attempt");
+  const rejectedReceipts = readFileSync(join(rejectingRunDir, "notify.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(rejectedReceipts.length, 1, "a rejected delivery still writes exactly one receipt");
+  assert.equal(rejectedReceipts[0].status, "failed");
+  assert.equal(rejectedReceipts[0].attempt, 1);
+  assert.equal(rejectedReceipts[0].error, "transport exploded");
 });
 

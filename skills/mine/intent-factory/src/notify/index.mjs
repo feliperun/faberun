@@ -193,7 +193,15 @@ export class NotifyQueue {
     // one), so every delivery carries a stable id derived from the dedupe key.
     const eventId = enriched.eventId
       ?? createHash("sha256").update(enriched.dedupeKey ?? JSON.stringify(enriched)).digest("hex");
-    const result = await this.deliver({ ...enriched, summary, eventId });
+    /** @type {DeliveryResult} */
+    let result;
+    try {
+      result = await this.deliver({ ...enriched, summary, eventId });
+    } catch (error) {
+      // A transport that rejects is a failed delivery, not a controller fault:
+      // the receipt is still appended and the failure is dropped like any other.
+      result = { ok: false, error: errorMessage(error) };
+    }
     /** @type {JsonObject} */
     const receipt = {
       eventId,
