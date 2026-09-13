@@ -46,7 +46,7 @@ process.stdin.on("end", () => {
   const judge = request.prompt.startsWith("Review node");
   const result = judge
     ? JSON.stringify({ verdict: "fail", maxSeverity: "minor", summary: "minor advisory", findings: [{ severity: "minor", description: "style on [works]", evidence: "line 1" }] })
-    : JSON.stringify({ status: "done", summary: "jsonl worker complete", changedFiles: [], verification: [], artifacts: [], missingContext: [] });
+    : JSON.stringify({ status: "done", summary: "jsonl worker complete", verification: [], artifacts: [], missingContext: [] });
   console.log(JSON.stringify({ schemaVersion: 1, type: "run.started", continuationId: "jsonl-thread" }));
   console.log(JSON.stringify({ schemaVersion: 1, type: "message", text: "working" }));
   console.log(JSON.stringify({ schemaVersion: 1, type: "run.completed", result, continuationId: "jsonl-thread", usage: { inputTokens: 5, outputTokens: 2, cacheReadInputTokens: 1 }, costUsd: 0.01 }));
@@ -203,7 +203,7 @@ test("resume adoption treats the canonical result file as primary evidence", asy
   // The provider message and its operation settlement both say "worker
   // complete"; the canonical file is rewritten to disagree.
   writeFileSync(join(runDir, "results", "build.json"), JSON.stringify({
-    status: "done", summary: "from canonical file", changedFiles: [], verification: [], artifacts: [], missingContext: [],
+    status: "done", summary: "from canonical file", verification: [], artifacts: [], missingContext: [],
   }));
   orphan(runDir, "build");
 
@@ -224,7 +224,7 @@ test("resume adoption follows the canonical file when the provider stream is gon
   }));
   const runDir = await withFakeCodex(directory, "pass", async () => (await runContract(path)).runDir);
   writeFileSync(join(runDir, "results", "build.json"), JSON.stringify({
-    status: "done", summary: "from canonical file", changedFiles: [], verification: [], artifacts: [], missingContext: [],
+    status: "done", summary: "from canonical file", verification: [], artifacts: [], missingContext: [],
   }));
   // Removing the transcript leaves only the settlement and the file; without
   // the file this would restart completed work instead of adopting it.
@@ -419,7 +419,7 @@ test("provider diagnostics stay bounded and recovery consumes only a bounded tai
   const raw = readFileSync(join(result.runDir, "logs", rawPath));
   assert.ok(raw.length <= 512 * 1024);
   assert.ok(raw.toString().includes("turn.completed"));
-  const boundedInput = `${"x".repeat(700000)}\n${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ status: "done", summary: "tail", changedFiles: [], verification: [], artifacts: [], missingContext: [] }) } })}\n${JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })}\n`;
+  const boundedInput = `${"x".repeat(700000)}\n${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ status: "done", summary: "tail", verification: [], artifacts: [], missingContext: [] }) } })}\n${JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })}\n`;
   const recoveryPath = join(directory, "recovery.jsonl");
   writeFileSync(recoveryPath, boundedInput);
   const recovered = invocationResult({ stdoutPath: recoveryPath }, { harness: "codex", model: "test" }, { preferStructured: false });
@@ -438,7 +438,7 @@ test("a continuation attempt adopts an existing canonical worker result instead 
   // Rewind to a pending continuation boundary with a valid canonical result
   // already on disk, exactly as if the controller planned a continuation
   // after a completed worker turn.
-  const preWritten = { status: "done", summary: "pre-written canonical result", changedFiles: [], verification: [], artifacts: [], missingContext: [] };
+  const preWritten = { status: "done", summary: "pre-written canonical result", verification: [], artifacts: [], missingContext: [] };
   writeFileSync(join(runDir, "results", "build.json"), JSON.stringify(preWritten));
   const nodePath = join(runDir, "nodes", "build.json");
   const persisted = JSON.parse(readFileSync(nodePath, "utf8"));

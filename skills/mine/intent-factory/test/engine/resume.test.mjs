@@ -362,7 +362,7 @@ test("resume adopts a still-live orphan invocation after its stream completes", 
   const stdoutPath = join(runDir, "logs", "active-orphan.jsonl");
   const stream = [
     { type: "thread.started", thread_id: "orphan-thread" },
-    { type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ status: "done", summary: "adopted worker", changedFiles: [], verification: [], artifacts: [], missingContext: [] }) } },
+    { type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ status: "done", summary: "adopted worker", verification: [], artifacts: [], missingContext: [] }) } },
     { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
   ].map((event) => JSON.stringify(event)).join("\n") + "\n";
   const child = spawn(process.execPath, ["-e", `setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(stdoutPath)}, ${JSON.stringify(stream)}), 50); setTimeout(() => {}, 10000)`], {
@@ -577,7 +577,7 @@ test("resume preserves a durable pending judge phase instead of resetting to wor
     status: "pending",
     phase: "judge",
     worktree,
-    result: { status: "done", summary: "worker complete", changedFiles: [], verification: [], artifacts: [], missingContext: [] },
+    result: { status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] },
     gate: null,
   }, null, 2));
 

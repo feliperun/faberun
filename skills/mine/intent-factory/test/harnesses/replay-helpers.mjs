@@ -22,7 +22,7 @@ export function envelope(overrides = {}) {
 
 /** @param {string} summary @returns {Record<string, unknown>} */
 export function workerResult(summary) {
-  return { status: "done", summary, changedFiles: [], verification: [], artifacts: [], missingContext: [] };
+  return { status: "done", summary, verification: [], artifacts: [], missingContext: [] };
 }
 
 /** @param {string} directory @param {unknown[]} lines @param {string} [name] @returns {string} */

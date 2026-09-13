@@ -24,17 +24,17 @@ function initializeGit(directory) {
 
 test("worker result accepts done and blocked_context without prose", () => {
   assert.equal(parseWorkerResult(JSON.stringify({
-    status: "done", summary: "complete", changedFiles: [], verification: [], artifacts: [], missingContext: [],
+    status: "done", summary: "complete", verification: [], artifacts: [], missingContext: [],
   })).status, "done");
   assert.equal(parseWorkerResult(JSON.stringify({
-    status: "blocked_context", summary: "missing input", changedFiles: [], verification: [], artifacts: [], missingContext: ["missing.txt"],
+    status: "blocked_context", summary: "missing input", verification: [], artifacts: [], missingContext: ["missing.txt"],
   })).status, "blocked_context");
   // Unknown provider-added fields are dropped; the normalized pick keeps only
   // the canonical protocol fields.
   assert.deepEqual(parseWorkerResult(JSON.stringify({
-    status: "done", summary: "complete", changedFiles: [], verification: [], artifacts: [], missingContext: [], confidence: 0.9,
+    status: "done", summary: "complete", verification: [], artifacts: [], missingContext: [], confidence: 0.9,
   })), {
-    status: "done", summary: "complete", changedFiles: [], verification: [], artifacts: [], missingContext: [],
+    status: "done", summary: "complete", verification: [], artifacts: [], missingContext: [],
   });
   assert.throws(() => parseWorkerResult("worker complete"), /invalid JSON/u);
 });
@@ -107,7 +107,7 @@ test("discovery and verification aggregate prompt limits fail before spawn", () 
 
 test("worker result and verification output stay within hard caps", async () => {
   const oversized = JSON.stringify({
-    status: "done", summary: "x".repeat(4097), changedFiles: [], verification: [], artifacts: [], missingContext: [],
+    status: "done", summary: "x".repeat(4097), verification: [], artifacts: [], missingContext: [],
   });
   assert.throws(() => parseWorkerResult(oversized), /summary exceeds/u);
   const cwd = mkdtempSync(join(tmpdir(), "runner-verification-cap-"));
@@ -546,7 +546,7 @@ test("discovery result parses exactly one strict execution task packet artifact"
     symbols: [], decisions: [], nonGoals: [], verification: [{ argv: [process.execPath, "-e", "process.exit(0)"] }],
   };
   const result = parseDiscoveryResult({
-    status: "done", summary: "discovered", changedFiles: [], verification: [], artifacts: [JSON.stringify(packet)], missingContext: [],
+    status: "done", summary: "discovered", verification: [], artifacts: [JSON.stringify(packet)], missingContext: [],
   }, cwd);
   assert.equal(result.discoveryPacket.mode, "execution");
   assert.throws(() => parseDiscoveryResult({ ...result, artifacts: [] }, cwd), /exactly one task packet/u);

@@ -11,6 +11,16 @@ const RESULT_LIMITS = Object.freeze({
   missingContextItems: 16,
 });
 
+/**
+ * Worker-result fields the controller measures and derives itself, so the
+ * worker protocol has no owner for them. A result that declares one is
+ * rejected, never dropped: a field accepted after it lost its owner is how it
+ * comes back in the next prompt generation. The PRD's remaining derived fields
+ * -- commit, digest, worktreeIdentity, durationMs, exitCode -- enter this one
+ * list as their nodes land, so rejection stays a single edit.
+ */
+export const DERIVED_WORKER_RESULT_FIELDS = Object.freeze(["changedFiles"]);
+
 /** @typedef {"done"|"blocked_context"} WorkerResultStatus */
 
 /**
@@ -18,7 +28,7 @@ const RESULT_LIMITS = Object.freeze({
  * content of the final worker message. `blocked_context` requires at least one
  * missingContext entry; `done` requires none.
  *
- * @typedef {{status: WorkerResultStatus, summary: string, changedFiles: string[], verification: string[], artifacts: string[], missingContext: string[]}} WorkerResult
+ * @typedef {{status: WorkerResultStatus, summary: string, verification: string[], artifacts: string[], missingContext: string[]}} WorkerResult
  */
 
 /**
@@ -48,10 +58,17 @@ export function validateWorkerResult(value) {
     throw new TypeError("worker result must be an object");
   }
   // Worker output is an external LLM boundary: models add fields beyond the
-  // protocol. Unknown keys are dropped (the normalized pick below keeps only
-  // canonical fields); missing or invalid canonical fields stay fatal.
+  // protocol. Unknown provider extras are dropped (the normalized pick below
+  // keeps only canonical fields), but a field the controller derives is a
+  // protocol failure: silently dropping it is how the worker learns to keep
+  // sending it. Missing or invalid canonical fields stay fatal too.
   const record = /** @type {Record<string, unknown>} */ (value);
-  const expected = new Set(["status", "summary", "changedFiles", "verification", "artifacts", "missingContext"]);
+  for (const field of DERIVED_WORKER_RESULT_FIELDS) {
+    if (Object.hasOwn(record, field)) {
+      throw new TypeError(`worker result.${field} is derived by the controller and must not be declared`);
+    }
+  }
+  const expected = new Set(["status", "summary", "verification", "artifacts", "missingContext"]);
   for (const key of expected) {
     if (!Object.hasOwn(record, key)) throw new TypeError(`worker result.${key} is required`);
   }
@@ -59,7 +76,6 @@ export function validateWorkerResult(value) {
     throw new TypeError("worker result.status must be done or blocked_context");
   }
   requireText(record.summary, "worker result.summary", RESULT_LIMITS.summaryBytes);
-  requireList(record.changedFiles, "worker result.changedFiles", RESULT_LIMITS.arrayItems, RESULT_LIMITS.itemBytes);
   requireList(record.verification, "worker result.verification", RESULT_LIMITS.arrayItems, RESULT_LIMITS.itemBytes);
   requireList(record.artifacts, "worker result.artifacts", RESULT_LIMITS.arrayItems, RESULT_LIMITS.artifactBytes);
   requireList(record.missingContext, "worker result.missingContext", RESULT_LIMITS.missingContextItems, RESULT_LIMITS.itemBytes);
@@ -73,7 +89,6 @@ export function validateWorkerResult(value) {
   const normalized = {
     status: /** @type {WorkerResultStatus} */ (record.status),
     summary: /** @type {string} */ (record.summary),
-    changedFiles: [.../** @type {string[]} */ (record.changedFiles)],
     verification: [.../** @type {string[]} */ (record.verification)],
     artifacts: [.../** @type {string[]} */ (record.artifacts)],
     missingContext: [...missingContext],

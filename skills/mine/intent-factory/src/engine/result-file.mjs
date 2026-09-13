@@ -7,6 +7,10 @@
  * worktree writes into that worktree, so the result has to be materialised back
  * into the run directory -- which is what `materializeAttemptResult` and the
  * result-materialization invocation are for.
+ *
+ * The sidecar carries no `changedFiles`: the controller measures the changed
+ * paths itself and records them as `state.scope.changedPaths`, so nothing here
+ * ever read a worker-declared list to pass along.
  */
 import { attemptWorkspace } from "../repo/worktree.mjs";
 import { errorCode, errorMessage } from "../util.mjs";

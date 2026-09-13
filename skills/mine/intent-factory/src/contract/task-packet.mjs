@@ -111,7 +111,7 @@ export function renderWorkerPrompt(packet, nodeId) {
     ...packet.verification.map((command) => `- ${command.argv.join(" ")}`),
     "",
     "## Required output",
-    'Return exactly one JSON object, with no markdown or prose: {"status":"done"|"blocked_context","summary":"string","changedFiles":["string"],"verification":["string"],"artifacts":["string"],"missingContext":["string"]}. Use blocked_context only when missingContext is non-empty; use done only when missingContext is empty.',
+    'Return exactly one JSON object, with no markdown or prose: {"status":"done"|"blocked_context","summary":"string","verification":["string"],"artifacts":["string"],"missingContext":["string"]}. Use blocked_context only when missingContext is non-empty; use done only when missingContext is empty.',
   ];
   const prompt = `${lines.join("\n")}\n`;
   if (Buffer.byteLength(prompt, "utf8") > PROMPT_MAX_BYTES) {
@@ -440,7 +440,7 @@ function renderAutonomousPrompt(packet, nodeId) {
     ...packet.verification.map((command) => `- ${command.argv.join(" ")}`),
     "",
     "## Required output",
-    'Return exactly one JSON object, with no markdown or prose: {"status":"done"|"blocked_context","summary":"string","changedFiles":["string"],"verification":["string"],"artifacts":["string"],"missingContext":["string"]}. Use blocked_context only when missingContext is non-empty; use done only when missingContext is empty.',
+    'Return exactly one JSON object, with no markdown or prose: {"status":"done"|"blocked_context","summary":"string","verification":["string"],"artifacts":["string"],"missingContext":["string"]}. Use blocked_context only when missingContext is non-empty; use done only when missingContext is empty.',
   ];
   const prompt = `${lines.join("\n")}\n`;
   if (Buffer.byteLength(prompt, "utf8") > PROMPT_MAX_BYTES) throw new TypeError(`worker prompt exceeds ${PROMPT_MAX_BYTES} bytes`);
