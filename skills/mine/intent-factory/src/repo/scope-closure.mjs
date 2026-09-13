@@ -268,8 +268,19 @@ function reverseImportFindings(packet, declared, sources, cwd) {
 /**
  * DETECTOR 2. `symbols` is the packet's own statement of the surface it will
  * touch, so any code that mentions one of those names is dragged along.
- * Mentions inside comments and strings are not references and are removed
- * first, exactly as the import parser removes them.
+ *
+ * Comments are removed first: a mention in prose is not a reference. Strings
+ * are NOT removed, and that is deliberate. Stripping them missed the five
+ * fixtures in `test/helpers.mjs` that build fake worker programs inside
+ * template literals, and removing `changedFiles` from the protocol broke every
+ * one of them -- a real breakage the packet could not see. This repository
+ * embeds generated programs in string literals often enough that the AGENTS.md
+ * extraction-hazard note calls it out by name; a checker that cannot read them
+ * is blind exactly where this tree is dangerous.
+ *
+ * The cost is false positives from prose inside strings. That is the right
+ * trade for a check whose answer is "declare it or acknowledge it": an extra
+ * path to dismiss costs a line, a missed one costs a blocked phase.
  *
  * @param {ValidatedNode["taskPacket"]} packet
  * @param {Set<string>} declared
@@ -283,7 +294,7 @@ function symbolMentionFindings(packet, declared, sources) {
   const findings = [];
   for (const [path, source] of sources) {
     if (declared.has(path)) continue;
-    const code = maskCode(source.text);
+    const code = stripComments(source.text);
     const symbol = symbols.find((name) => new RegExp(`\\b${escapeRegExp(name)}\\b`, "u").test(code));
     if (symbol) findings.push({ path, detector: "symbols", reason: `mentions ${symbol}, which this node declares it will change` });
   }
@@ -424,57 +435,7 @@ function stripComments(text) {
   return text.replace(/\/\*(?:[^*]|\*(?!\/))*\*\//gu, " ").replace(/\/\/[^\n]*/gu, " ");
 }
 
-/**
- * Code with comments and string/template bodies blanked, so a name that only
- * appears in prose or a message is not a mention.
- *
- * @param {string} text
- * @returns {string}
- */
-function maskCode(text) {
-  let masked = "";
-  let index = 0;
-  while (index < text.length) {
-    const char = text[index];
-    if (char === "/" && text[index + 1] === "*") {
-      const end = text.indexOf("*/", index + 2);
-      index = end < 0 ? text.length : end + 2;
-      continue;
-    }
-    if (char === "/" && text[index + 1] === "/") {
-      const end = text.indexOf("\n", index);
-      index = end < 0 ? text.length : end;
-      continue;
-    }
-    if (char === '"' || char === "'" || char === "`") {
-      index = skipString(text, index);
-      masked += " ";
-      continue;
-    }
-    masked += char;
-    index += 1;
-  }
-  return masked;
-}
 
-/**
- * @param {string} text
- * @param {number} start index of the opening quote
- * @returns {number} index just past the closing quote
- */
-function skipString(text, start) {
-  const quote = text[start];
-  let index = start + 1;
-  while (index < text.length) {
-    if (text[index] === "\\") {
-      index += 2;
-      continue;
-    }
-    if (text[index] === quote) return index + 1;
-    index += 1;
-  }
-  return text.length;
-}
 
 /**
  * Modules a file points at, by import or by an executed `new URL`. Both are
