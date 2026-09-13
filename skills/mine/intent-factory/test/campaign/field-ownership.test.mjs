@@ -18,6 +18,11 @@ import { fileURLToPath } from "node:url";
  * `appendJournal` is the persistence funnel and each caller owns the event type
  * it emits.
  *
+ * `ENTRY_SHAPES` keeps retired types readable so an old journal still validates,
+ * and a retired type has no emitter. Only the shapes a caller actually writes
+ * are owned here: the document declares a type only if `src/` writes it, and a
+ * retired shape is never promoted into a declaration by this test.
+ *
  * A field with more than one writer today is a measured ratchet, not a
  * correction: `DOUBLE_WRITER_CEILING` pins the count, and the assertion is an
  * equality so fixing a double writer fails the gate until the document and the
@@ -32,7 +37,7 @@ const DOC_PATH = join(SKILL_DIR, "docs", "FIELD-OWNERSHIP.md");
 const DOUBLE_WRITER_CEILING = 12;
 
 /** @typedef {{writers: string[], fields?: string[]}} DeclaredEntry */
-/** @typedef {{journal?: Record<string, DeclaredEntry>, legacy?: Record<string, DeclaredEntry>, events?: Record<string, DeclaredEntry>}} OwnershipDoc */
+/** @typedef {{journal?: Record<string, DeclaredEntry>, events?: Record<string, DeclaredEntry>}} OwnershipDoc */
 /** @typedef {{path: string, label: string, text: string}} SourceFile */
 /** @typedef {{key: string, value: string}} ObjectEntry */
 
@@ -355,7 +360,13 @@ function deriveOwnership() {
 }
 
 const DERIVED = deriveOwnership();
-const JOURNAL_FIELDS = DERIVED.journalFields;
+/**
+ * The accepted field set of every journal type `src/` actually writes. A shape
+ * in `ENTRY_SHAPES` with no emitter (the retired `liveness`) is dropped rather
+ * than declared with zero writers: this document declares owners, so a field
+ * no one writes has nothing to declare.
+ */
+const JOURNAL_FIELDS = new Map([...DERIVED.journalFields].filter(([type]) => DERIVED.journal.has(type)));
 
 const documentText = readFileSync(DOC_PATH, "utf8");
 const afterMarker = documentText.split("<!-- FIELD-OWNERSHIP-SOURCE -->")[1] ?? "";
@@ -369,11 +380,10 @@ test("single writer per field", () => {
   assert.ok(JOURNAL_FIELDS.size > 10, `derived only ${JOURNAL_FIELDS.size} journal event types`);
 
   const declaredJournal = document.journal ?? {};
-  const declaredLegacy = document.legacy ?? {};
   const declaredEvents = document.events ?? {};
 
   // --- journal.jsonl: one emitter per event type, field set matching the schema.
-  const declaredTypes = new Set([...Object.keys(declaredJournal), ...Object.keys(declaredLegacy)]);
+  const declaredTypes = new Set(Object.keys(declaredJournal));
   assert.deepEqual(
     [...JOURNAL_FIELDS.keys()].filter((type) => !declaredTypes.has(type)).sort(),
     [],
@@ -382,10 +392,10 @@ test("single writer per field", () => {
   assert.deepEqual(
     [...declaredTypes].filter((type) => !JOURNAL_FIELDS.has(type)).sort(),
     [],
-    "journal event type(s) the document invents",
+    "journal event type(s) the document invents, or that nothing writes",
   );
   for (const [type, fields] of JOURNAL_FIELDS) {
-    const declared = declaredJournal[type] ?? declaredLegacy[type];
+    const declared = declaredJournal[type];
     assert.deepEqual(
       [...(declared.fields ?? [])].sort(),
       [...fields].sort(),
@@ -397,13 +407,6 @@ test("single writer per field", () => {
       [...declared.writers].sort(),
       [...(DERIVED.journal.get(type) ?? new Set())].sort(),
       `journal ${type} writer(s) drift from src/`,
-    );
-  }
-  for (const [type, declared] of Object.entries(declaredLegacy)) {
-    assert.deepEqual(
-      [...declared.writers].sort(),
-      [...(DERIVED.journal.get(type) ?? new Set())].sort(),
-      `legacy journal ${type} must stay unwritten`,
     );
   }
 
@@ -426,6 +429,16 @@ test("single writer per field", () => {
       `events.jsonl ${field} writer(s) drift from src/`,
     );
   }
+
+  // --- ownership is real: every declared field has a writer in `src/`. A
+  // declaration with none would be a field this document dresses as owned. The
+  // retired `liveness` shape stays readable in `ENTRY_SHAPES` for old journals,
+  // but it is not declared here because nothing writes it.
+  const unowned = [
+    ...Object.entries(declaredEvents).filter(([, declared]) => declared.writers.length === 0).map(([field]) => `events.jsonl.${field}`),
+    ...Object.entries(declaredJournal).filter(([, declared]) => declared.writers.length === 0).map(([type]) => `journal.jsonl.${type}`),
+  ].sort();
+  assert.deepEqual(unowned, [], "documented field(s) with no writer derived from src/");
 
   // --- the ratchet: multi-writer entries, pinned at the measured count.
   const multiWriter = [

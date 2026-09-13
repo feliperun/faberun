@@ -24,11 +24,14 @@ writer per field` — re-derives every writer from `src/` and fails when the
 derivation disagrees with this document. The document is the declaration; the
 test is what keeps it from becoming fiction on the third change.
 
-**Measured 2026-09-12 against this tree:** 29 `events.jsonl` fields and 14
-`journal.jsonl` event types (13 current, plus the retired `liveness`). Twelve
-entries have more than one writer today. Those twelve are the ratchet at the end
-of this file; they are declared, not fixed, because changing who writes a field
-is a behavior change and belongs to another node.
+**Measured 2026-09-12 against this tree:** 29 `events.jsonl` fields and 13
+`journal.jsonl` event types. Twelve entries have more than one writer today.
+Those twelve are the ratchet at the end of this file; they are declared, not
+fixed, because changing who writes a field is a behavior change and belongs to
+another node.
+
+A type or field nothing writes is not declared here. This document is a
+declaration of owners, and a field with no writer has no owner to declare.
 
 ## `events.jsonl`
 
@@ -94,7 +97,6 @@ cannot drift apart.
 | `open-question` | `note` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when a note of that kind is recorded |
 | `question.resolved` | `resolveQuestion` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when `campaign note --resolve` runs |
 | `retrospective` | `note` | `at`, `type`, `eventId`, `sessionId`, `text` | when a note of that kind is recorded |
-| `liveness` (retired) | — | `at`, `type`, `eventId`, `campaignId`, `runId`, `nodeId`, `phase`, `checkpointsDone`, `checkpointsTotal`, `runtime`, `state`, `lastProgressAt`, `attention` | nothing writes it any more; the shape stays readable so an old journal is not rejected |
 
 ## The ratchet, measured
 
@@ -134,9 +136,6 @@ behavior, and a node that declares must not also move the thing it declares.
     "open-question": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "questionId", "text"] },
     "question.resolved": { "writers": ["resolveQuestion"], "fields": ["at", "type", "eventId", "sessionId", "questionId", "text"] },
     "retrospective": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "text"] }
-  },
-  "legacy": {
-    "liveness": { "writers": [], "fields": ["at", "type", "eventId", "campaignId", "runId", "nodeId", "phase", "checkpointsDone", "checkpointsTotal", "runtime", "state", "lastProgressAt", "attention"] }
   },
   "events": {
     "schemaVersion": { "writers": ["appendTransitionEvent", "assertEnvironmentReady"] },
