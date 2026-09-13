@@ -49,6 +49,14 @@ function isDependencyFailed(state) {
  * @param {{status?: string, error?: {code?: string}|null}} state
  * @returns {boolean}
  */
+function isBlockedContext(state) {
+  return state.status === "blocked" && state.error?.code === "context_missing";
+}
+
+/**
+ * @param {{status?: string, error?: {code?: string}|null}} state
+ * @returns {boolean}
+ */
 export function isUnknownEffectStop(state) {
   return state.status === "blocked" && state.error?.code === "unknown_effect_reconciled";
 }
@@ -95,11 +103,14 @@ function retryTargets(planNodes, nodeId) {
  *
  * @param {{nodes: {id: string, dependsOn?: string[]}[]}} contract
  * @param {Map<string, import("../contract/index.mjs").NodeSnapshot>} states
- * @param {{node?: string, reconcile?: string}} [options]
+ * @param {{node?: string, reconcile?: string, answer?: string}} [options]
  * @returns {{actions: Map<string, "recover"|"retry"|"rejudge"|"hold">, attention: {id: string, reason: string}[], targets: Set<string>|null}}
  */
 export function planResumeRetry(contract, states, options = {}) {
-  const targets = options.node ? retryTargets(contract.nodes, options.node) : null;
+  // `--answer <node>` narrows the retry exactly like `--node <node>`: the named
+  // node plus every node that transitively depends on it.
+  const targetNode = options.node ?? options.answer;
+  const targets = targetNode ? retryTargets(contract.nodes, targetNode) : null;
   /** @type {Map<string, "recover"|"retry"|"rejudge"|"hold">} */
   const actions = new Map();
   /** @type {{id: string, reason: string}[]} */
@@ -117,6 +128,13 @@ export function planResumeRetry(contract, states, options = {}) {
       return options.reconcile === node
         ? "retry"
         : hold(node, "an unknown workspace effect needs an explicit `resume --reconcile`");
+    }
+    if (isBlockedContext(state)) {
+      // A node the operator answered is dispatchable again; every other
+      // `context_missing` node keeps its terminal boundary.
+      return options.answer === node
+        ? "retry"
+        : "recover";
     }
     if (!isRetryableFailure(state)) return "recover";
     if (targets && !targets.has(node)) return hold(node, "it is outside the `--node` retry");

@@ -79,7 +79,7 @@ export function hasDetachedBootstrapNonce() {
 /** @type {Record<string, import("node:util").ParseArgsOptionsConfig>} */
 const COMMAND_OPTIONS = {
   run: { detach: { type: "boolean" } },
-  resume: { detach: { type: "boolean" }, node: { type: "string" }, reconcile: { type: "string" } },
+  resume: { detach: { type: "boolean" }, node: { type: "string" }, reconcile: { type: "string" }, answer: { type: "string" } },
   supervise: { detach: { type: "boolean" }, interval: { type: "string" } },
   cancel: {},
   preflight: { static: { type: "boolean" }, json: { type: "boolean" }, "time-verification": { type: "boolean" } },
@@ -127,12 +127,33 @@ function parseCli(argv, quiet = false) {
  * lock is taken.
  *
  * @param {Record<string, unknown>} values
- * @returns {{node?: string, reconcile?: string}}
+ * @returns {{node?: string, reconcile?: string, answer?: {node: string, path: string}}}
  */
 function resumeOptionsOf(values) {
   const node = typeof values.node === "string" && values.node ? values.node : undefined;
   const reconcile = typeof values.reconcile === "string" && values.reconcile ? values.reconcile : undefined;
-  return { node, reconcile };
+  const answer = answerOf(values.answer);
+  return { node, reconcile, answer };
+}
+
+/**
+ * `--answer <node-id>=<path>`, split on the first `=`. A malformed value —
+ * no `=`, an empty node id, or an empty path — is refused before anything is
+ * spawned.
+ *
+ * @param {unknown} value
+ * @returns {{node: string, path: string}|undefined}
+ */
+function answerOf(value) {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !value) throw new Error("--answer must be <node-id>=<path>");
+  const eq = value.indexOf("=");
+  if (eq < 0) throw new Error("--answer must be <node-id>=<path>");
+  const node = value.slice(0, eq);
+  const path = value.slice(eq + 1);
+  if (!node) throw new Error("--answer node id must not be empty");
+  if (!path) throw new Error("--answer path must not be empty");
+  return { node, path };
 }
 
 /**
@@ -207,6 +228,7 @@ async function main(argv) {
       const extraArgs = [
         ...(resumeOptions.node ? ["--node", resumeOptions.node] : []),
         ...(resumeOptions.reconcile ? ["--reconcile", resumeOptions.reconcile] : []),
+        ...(resumeOptions.answer ? ["--answer", `${resumeOptions.answer.node}=${resumeOptions.answer.path}`] : []),
       ];
       const child = detachSelf("resume", target, extraArgs);
       const pid = child.pid;

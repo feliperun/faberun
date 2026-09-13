@@ -26,6 +26,12 @@ import { validateWorkerResult } from "./worker-result.mjs";
 /** @typedef {import("./index.mjs").RunMetadata} RunMetadata */
 /** @typedef {import("./index.mjs").ValidatedNode} ValidatedNode */
 
+/**
+ * Hard byte ceiling for an operator's answer text, matching the bounded
+ * `Previous attempt` section a retry in place already enforces (retry.mjs).
+ */
+export const OPERATOR_ANSWER_MAX_BYTES = 8 * 1024;
+
 const GATE_VERDICTS = new Set(["pass", "fail", "invalid_judge_output"]);
 const NODE_STATUSES = new Set(["pending", "running", "done", "no-op", "blocked", "failed", "exhausted", "stalled", "canceled"]);
 const NODE_PHASES = new Set(["waiting", "worker", "judge", "complete", "dependency", "canceled"]);
@@ -243,7 +249,7 @@ function validateExecutionOverrides(value, label) {
   const overrides = /** @type {JsonObject[]} */ (value);
   for (const [index, override] of overrides.entries()) {
     assertObject(override, `${label}[${index}]`);
-    rejectUnknown(override, new Set(["kind", "at", "reason", "timeoutSec", "decision", "invocationId", "phase", "result", "usage", "costUsd"]), `${label}[${index}]`);
+    rejectUnknown(override, new Set(["kind", "at", "reason", "timeoutSec", "decision", "invocationId", "phase", "result", "usage", "costUsd", "text"]), `${label}[${index}]`);
     requireString(override.kind, `${label}[${index}].kind`);
     requireTimestamp(override.at, `${label}[${index}].at`);
     requireString(override.reason, `${label}[${index}].reason`);
@@ -254,6 +260,7 @@ function validateExecutionOverrides(value, label) {
     if (override.result !== undefined && override.result !== null) requireString(override.result, `${label}[${index}].result`);
     if (override.usage !== undefined) validateInvocationUsage(override.usage, `${label}[${index}].usage`);
     if (override.costUsd !== undefined && override.costUsd !== null) nonNegativeNumber(override.costUsd, `${label}[${index}].costUsd`);
+    if (override.text !== undefined) boundedString(override.text, `${label}[${index}].text`, OPERATOR_ANSWER_MAX_BYTES);
   }
 }
 /**

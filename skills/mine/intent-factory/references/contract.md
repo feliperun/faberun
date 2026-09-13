@@ -350,6 +350,20 @@ with a bounded `## Previous attempt` section (prior error, judge/scope
 findings, failing commands) appended to the regenerated prompt.
 `resume --node <id>` limits the retry to that node and its dependents.
 
+`resume --answer <node-id>=<path>` records an operator's answer for a node
+`blocked` with `context_missing` and re-dispatches it (and its dependants),
+narrowing the retry exactly like `--node <node-id>`. The file is read once,
+relative to the shell's current working directory rather than `cwd`, and is
+refused above a hard 8 KiB ceiling. The answer is persisted as an
+`operator-answer` execution override on the node snapshot (`kind`, `at`,
+`reason`, and a bounded `text` field); the authored packet and its
+`packetHash` are never touched, and repeated answers append records rather
+than merging them. A malformed value, an unknown node id, an unreadable file,
+a file above the ceiling, or a node not blocked on missing context each refuse
+the resume with its own message. An answer is text only: it is never written
+into the attempt worktree, and the file is not delivered to the worker as a
+file.
+
 `unknown_effect_reconciled` is re-dispatched only with an explicit
 `--reconcile <node-id>`. Resume accepts a current `HEAD` that is a
 descendant of the recorded `gitHead` (workers and the orchestrator commit

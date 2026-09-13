@@ -13,6 +13,7 @@
  * after an exhausted provider is exactly when that matters.
  */
 import { JUDGE_SCHEMA, TERMINAL } from "./prompts.mjs";
+import { Buffer } from "node:buffer";
 import { acquire as acquireLock } from "../run/lock.mjs";
 import { applyInvalidWorkerResult, assertRunMutable, handleProviderExhaustion } from "./lifecycle.mjs";
 import { applyJudgeResult } from "./review.mjs";
@@ -37,7 +38,7 @@ import { recoverIntegrations } from "../repo/integrate.mjs";
 import { registerRun, resolveCampaign } from "../campaign/index.mjs";
 import { syncAgentSignal } from "../repo/signal.mjs";
 import { validateContract } from "../contract/index.mjs";
-import { validateRunMetadata } from "../contract/snapshot.mjs";
+import { validateRunMetadata, OPERATOR_ANSWER_MAX_BYTES } from "../contract/snapshot.mjs";
 import { verificationFailureVerdict } from "./judge-gate.mjs";
 import { verificationFailureWithScope } from "../contract/scope-findings.mjs";
 import { applyRejection, applyVerificationFailure, raiseNodeAttention, settleDone } from "./settle.mjs";
@@ -53,9 +54,11 @@ import { applyRejection, applyVerificationFailure, raiseNodeAttention, settleDon
 
 /**
  * @param {string} runDirPath
- * @param {{node?: string, reconcile?: string, detachedBootstrap?: boolean}} [options]
+ * @param {{node?: string, reconcile?: string, answer?: {node: string, path: string}, detachedBootstrap?: boolean}} [options]
  *   `node` limits the retry in place to one node and its dependants,
- *   `reconcile` acknowledges a node stopped as `unknown_effect_reconciled`, and
+ *   `reconcile` acknowledges a node stopped as `unknown_effect_reconciled`,
+ *   `answer` records an operator's answer for a node blocked on
+ *   `context_missing` and re-dispatches it, and
  *   `detachedBootstrap` is set only by the CLI entry when this process is its
  *   own detached child
  * @returns {Promise<RunOutcome>}
@@ -97,7 +100,22 @@ export async function resumeRun(runDirPath, options = {}) {
     const campaign = resolveCampaign(runsDir, contract.campaignId);
     registerRun(campaign.path, contract.id);
     await recoverIntegrationTransactions(contract, runDir, states, lock, campaign.path);
-    const plan = planResumeRetry(contract, states, { node: options.node, reconcile: options.reconcile });
+    if (options.answer) {
+      const answerNode = contract.nodes.find((node) => node.id === options.answer?.node);
+      if (!answerNode) throw new Error(`unknown node id: ${options.answer.node}`);
+      const answerState = states.get(options.answer.node);
+      if (!answerState || !isBlockedContextTerminal(answerState)) {
+        throw new Error(`node ${options.answer.node} is not blocked on missing context`);
+      }
+      const answerText = readOperatorAnswer(options.answer.path);
+      const answerOverride = /** @type {import("../contract/index.mjs").ExecutionOverride} */ (/** @type {unknown} */ ({
+        kind: "operator-answer",
+        reason: `operator answered missing context for node ${options.answer.node}`,
+        text: answerText,
+      }));
+      recordExecutionOverride(runDir, answerState, answerOverride, lock);
+    }
+    const plan = planResumeRetry(contract, states, { node: options.node, reconcile: options.reconcile, answer: options.answer?.node });
     for (const item of plan.attention) {
       process.stdout.write(`[run] ${contract.id} attention · ${item.id} · ${item.reason}\n`);
     }
@@ -107,7 +125,8 @@ export async function resumeRun(runDirPath, options = {}) {
     for (const node of contract.nodes) {
       const state = states.get(node.id);
       if (!state) continue;
-      if (state.status === "done" || isBlockedContextTerminal(state)) continue;
+      if (state.status === "done") continue;
+      if (isBlockedContextTerminal(state) && node.id !== options.answer?.node) continue;
       const action = plan.actions.get(node.id) ?? "recover";
       // Adoption before retry: an unresolved blocking review is re-judged from
       // the preserved worker result, never reset to a fresh worker attempt.
@@ -461,6 +480,26 @@ export async function resumeRun(runDirPath, options = {}) {
  */
 export function isBlockedContextTerminal(state) {
   return state.status === "blocked" && state.error?.code === "context_missing";
+}
+/**
+ * Read the operator's answer file relative to the current working directory —
+ * the operator's own shell, never `contract.cwd` — enforcing the same hard
+ * byte ceiling the other bounded prompt sections use.
+ *
+ * @param {string} path
+ * @returns {string}
+ */
+function readOperatorAnswer(path) {
+  let text;
+  try {
+    text = readFileSync(resolve(path), "utf8");
+  } catch (error) {
+    throw new Error(`cannot read answer file ${path}: ${errorMessage(error)}`);
+  }
+  if (Buffer.byteLength(text, "utf8") > OPERATOR_ANSWER_MAX_BYTES) {
+    throw new Error(`answer file exceeds ${OPERATOR_ANSWER_MAX_BYTES} bytes`);
+  }
+  return text;
 }
 /**
  * @param {ValidatedContract} contract
