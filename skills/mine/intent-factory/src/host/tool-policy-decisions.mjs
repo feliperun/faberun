@@ -20,11 +20,23 @@
  * `command` wins, and the post-hoc scope gate in `engine/scope.mjs` already
  * catches the effect once the attempt completes.
  */
-import { basename, isAbsolute, relative, resolve } from "node:path";
-import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { closeSync, fstatSync, openSync, readSync, realpathSync } from "node:fs";
 
-/** Tool name to the payload field carrying the path it would write. */
-const WRITE_SCOPE_FIELDS = { Write: "file_path", Edit: "file_path", NotebookEdit: "notebook_path" };
+/**
+ * Tool name to the payload field carrying the path it would write.
+ *
+ * A tool that is not a key here is not judged at all, and Claude Code reads a
+ * hook that says nothing as an allow. That makes the map the enforcement
+ * boundary rather than a lookup table, so `test/host/tool-policy.test.mjs`
+ * pins it against the tool list the adapter actually offers: adding a
+ * write-capable tool to `DEFAULT_CLAUDE_TOOLS` without adding it here fails
+ * the suite instead of silently opening the scope.
+ */
+export const WRITE_SCOPE_FIELDS = { Write: "file_path", Edit: "file_path", NotebookEdit: "notebook_path" };
+
+/** Tools the adapter offers that cannot write, so their absence above is correct. */
+export const READ_ONLY_TOOLS = new Set(["Read", "Bash", "Glob", "Grep", "WebFetch", "WebSearch", "TodoWrite", "Task"]);
 
 /** Bash commands that read a whole file by default. */
 const WHOLE_FILE_READERS = new Set(["cat", "less", "more"]);
@@ -59,11 +71,37 @@ export function writeScopeDecision(policy, payload) {
   const input = payload?.tool_input;
   const rawPath = input && typeof input === "object" ? /** @type {Record<string, unknown>} */ (input)[field] : undefined;
   if (typeof rawPath !== "string" || !rawPath) return null;
-  const rel = workspaceRelativePath(workspace, rawPath);
-  if (rel !== null && (writeFiles.includes(rel) || writeRoots.some((root) => rel === root || rel.startsWith(`${root}/`)))) {
-    return null;
-  }
+  // Both spellings are offered to the match: the path as declared, and the
+  // path the filesystem actually reaches. A symlink pointing elsewhere inside
+  // the workspace is a legitimate scope (git reports the target's spelling,
+  // which is why `repo/workspace.mjs` accepts both too); one pointing outside
+  // is the escape below.
+  const spellings = workspaceSpellings(workspace, rawPath);
+  if (spellings.reachesWorkspace && spellings.readings.some((rel) => inDeclaredScope(rel, writeFiles, writeRoots))) return null;
   return denyPreTool(writeScopeDenialReason(writeFiles, writeRoots));
+}
+
+/**
+ * Whether one workspace-relative spelling sits in the declared scope.
+ * Comparison is Unicode-normalized because a macOS path round-trips between
+ * NFC and NFD and a worker that renormalizes a filename it is entitled to
+ * write should not meet an opaque denial. A declared root keeps matching with
+ * a trailing slash, which is an easy thing to type into a contract and used to
+ * break every write under that root.
+ *
+ * @param {string|null} rel
+ * @param {string[]} writeFiles
+ * @param {string[]} writeRoots
+ * @returns {boolean}
+ */
+function inDeclaredScope(rel, writeFiles, writeRoots) {
+  if (rel === null) return false;
+  const target = rel.normalize("NFC");
+  if (writeFiles.some((file) => file.normalize("NFC") === target)) return true;
+  return writeRoots.some((declared) => {
+    const root = declared.normalize("NFC").replace(/\/+$/u, "");
+    return root !== "" && (target === root || target.startsWith(`${root}/`));
+  });
 }
 
 /**
@@ -169,15 +207,81 @@ function readThresholdDenialReason(lines, maxReadLines, viaBash = false) {
 }
 
 /**
+ * Where a target path actually lands, and the workspace-relative spellings it
+ * can be judged under: the one the caller wrote, and the one the filesystem
+ * reaches through any symlink on the way. A path the filesystem does not
+ * reach inside the workspace is refused whatever it was spelled as; a path
+ * that does is in scope if either spelling is.
+ *
+ * Lexical containment alone was an escape, reproduced 2026-09-13 against the
+ * real provider: declare `writeRoots: ["src/pkg"]` where `src/pkg` is a
+ * symlink to a directory outside the repository, and `Write` to
+ * `src/pkg/new.txt` passed the prefix test and landed outside the workspace.
+ * The provider's own refusal does not cover it either — that one lstats the
+ * exact target, so a symlinked *intermediate directory* never trips it.
+ *
  * @param {string} workspace
  * @param {string} rawPath
- * @returns {string|null} the workspace-relative, forward-slash path, or null when it names a path outside the workspace
+ * @returns {{reachesWorkspace: boolean, readings: (string|null)[]}}
  */
-function workspaceRelativePath(workspace, rawPath) {
+function workspaceSpellings(workspace, rawPath) {
+  const root = realPath(workspace) ?? workspace;
   const absolute = isAbsolute(rawPath) ? rawPath : resolve(workspace, rawPath);
-  const rel = relative(workspace, absolute);
-  if (rel === "" || rel === ".." || rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(rel)) return null;
-  return process.platform === "win32" ? rel.replaceAll("\\", "/") : rel;
+  const resolved = resolveThroughLinks(absolute);
+  const reached = resolved === null ? null : containedRelativePath(root, resolved);
+  // The declared spelling is measured against both readings of the workspace
+  // root. A caller naming an absolute path uses the root it was handed, which
+  // on macOS is routinely a symlink (`/var` to `/private/var`), and measuring
+  // that against the resolved root alone reads every path as an escape.
+  const declared = containedRelativePath(root, absolute) ?? containedRelativePath(workspace, absolute);
+  return { reachesWorkspace: reached !== null, readings: [declared, reached] };
+}
+
+/**
+ * @param {string} root
+ * @param {string} absolute
+ * @returns {string|null} the forward-slash relative path, or null when it is not inside the root
+ */
+function containedRelativePath(root, absolute) {
+  const rel = relative(root, absolute);
+  if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return null;
+  return sep === "\\" ? rel.replaceAll("\\", "/") : rel;
+}
+
+/**
+ * Resolve the longest existing prefix of a path through the filesystem and
+ * re-append the components that do not exist yet, so a file about to be
+ * created is judged at the location it will actually occupy. `null` when
+ * containment cannot be proven — an unreadable component denies rather than
+ * passes, since the whole point is to refuse what cannot be shown to be
+ * inside.
+ *
+ * @param {string} absolute
+ * @returns {string|null}
+ */
+function resolveThroughLinks(absolute) {
+  /** @type {string[]} */
+  const tail = [];
+  let current = absolute;
+  for (;;) {
+    const real = realPath(current);
+    if (real !== null) return tail.length ? resolve(real, ...tail) : real;
+    const parent = dirname(current);
+    if (parent === current) return null;
+    tail.unshift(basename(current));
+    current = parent;
+  }
+}
+
+/** @param {string} path @returns {string|null} */
+function realPath(path) {
+  try {
+    return realpathSync(path);
+  } catch {
+    // Missing, unreadable, or a non-directory component: the caller walks up
+    // to the nearest existing ancestor, and gives up when there is none.
+    return null;
+  }
 }
 
 /**

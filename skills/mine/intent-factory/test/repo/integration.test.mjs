@@ -60,6 +60,36 @@ test("re-sealing an attempt whose only entry is the node_modules link is a no-op
   assert.equal(result.empty, true, "no diff against the base it was sealed at");
 });
 
+test("the target repository's commit hooks cannot block an attempt seal", () => {
+  const repo = mkdtempSync(join(tmpdir(), "runner-seal-hooks-"));
+  /** @param {...string} args */
+  const run = (...args) => execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
+  run("init", "-q");
+  run("config", "user.email", "test@example.test");
+  run("config", "user.name", "test");
+  writeFileSync(join(repo, "source.txt"), "work\n");
+  run("add", "-A");
+  run("-c", "commit.gpgSign=false", "commit", "-qm", "seed");
+
+  // A plain failing `pre-commit`, the shape the Python pre-commit framework
+  // and hand-installed hooks both produce. Measured 2026-09-13: this failed
+  // every seal, and since the seal message never varies between attempts,
+  // every node of every run against such a repository failed identically with
+  // no way out. The seal is the factory's own bookkeeping on a throwaway
+  // branch, so it answers to the factory and not to the repository's
+  // conventions for human commits.
+  const hook = join(repo, ".git", "hooks", "pre-commit");
+  writeFileSync(hook, "#!/bin/sh\necho 'lint failed' >&2\nexit 1\n", { mode: 0o755 });
+
+  const sealed = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  writeFileSync(join(repo, "worker-output.txt"), "written by the attempt\n");
+  const result = sealAttempt({ repo, path: repo, baseSha: sealed, runId: "run", nodeId: "node", attempt: 1 });
+  assert.notEqual(result.sha, sealed, "the attempt's work was committed");
+  assert.equal(result.empty, false);
+  const committed = execFileSync("git", ["-C", repo, "show", "--name-only", "--format=", result.sha], { encoding: "utf8" }).trim();
+  assert.equal(committed, "worker-output.txt");
+});
+
 test("the attempt and integration candidate worktrees get the same environment", () => {
   const repo = mkdtempSync(join(tmpdir(), "runner-parity-"));
   const git = /** @param {...string} args */ (...args) => execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });

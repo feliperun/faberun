@@ -179,7 +179,19 @@ export function sealAttempt({ repo, path, baseSha, runId, nodeId, attempt }) {
       "-c", "user.email=runner@example.test",
       "-c", "user.name=intent-factory",
       "-c", "commit.gpgSign=false",
-      "commit", "-qm", `intent-factory ${runId} ${nodeId} attempt ${attempt}`,
+      // The seal is bookkeeping, not a contribution: it checkpoints one
+      // attempt's worktree onto a throwaway `if/<run>/<node>/<attempt>` branch
+      // so the next attempt can build on it, and nothing here is ever pushed.
+      // Running the target repository's hooks on it is wrong twice over.
+      // Measured 2026-09-13 against a repository with a plain failing
+      // `.git/hooks/pre-commit`: every seal failed, and because the commit
+      // message never varies between attempts, every node of every run failed
+      // the same way with no way out. A lint or test hook is also work the
+      // controller already does deliberately through `verification`, on a
+      // schedule it chose. The identity and signing overrides above are the
+      // same argument: this commit answers to the factory, not to the repo's
+      // conventions for human commits.
+      "commit", "--no-verify", "-qm", `intent-factory ${runId} ${nodeId} attempt ${attempt}`,
     ]);
   }
   const sha = gitHead(path);

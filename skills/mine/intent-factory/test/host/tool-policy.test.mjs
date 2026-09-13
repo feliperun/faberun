@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { hookCommand, hookSettings } from "../../src/host/tool-policy-hook.mjs";
-import { bashReadDecision, readThresholdDecision, writeScopeDecision } from "../../src/host/tool-policy-decisions.mjs";
+import { READ_ONLY_TOOLS, WRITE_SCOPE_FIELDS, bashReadDecision, readThresholdDecision, writeScopeDecision } from "../../src/host/tool-policy-decisions.mjs";
+import { DEFAULT_CLAUDE_TOOLS } from "../../src/harnesses/claude/index.mjs";
 import { harnessCapabilities, providerCommand } from "../../src/harnesses/index.mjs";
 
 /** @param {number} lines @returns {string} */
@@ -69,6 +70,62 @@ test("tool policy write scope", () => {
     null,
     "an empty declared scope is the absence of a scope, not a closed one",
   );
+});
+
+test("a declared write root that is a symlink cannot reach outside the workspace", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-tool-policy-symlink-"));
+  const workspace = join(directory, "workspace");
+  const outside = join(directory, "outside");
+  mkdirSync(join(workspace, "src"), { recursive: true });
+  mkdirSync(join(workspace, "src", "real-pkg"), { recursive: true });
+  mkdirSync(outside, { recursive: true });
+  // `src/pkg` is declared as a write root and is a symlink out of the tree.
+  // Lexically every path under it looks in scope; on disk every one of them
+  // lands in `outside`. Reproduced against the real provider on 2026-09-13:
+  // the write succeeded and left no trace inside the workspace at all.
+  symlinkSync(outside, join(workspace, "src", "pkg"));
+  symlinkSync(join(workspace, "src", "real-pkg"), join(workspace, "src", "linked-pkg"));
+
+  const escaping = { workspace, writeFiles: [], writeRoots: ["src/pkg"] };
+  const denial = writeScopeDecision(escaping, { tool_name: "Write", tool_input: { file_path: join(workspace, "src/pkg/new.txt") } });
+  assert.equal(denial?.hookSpecificOutput.permissionDecision, "deny", "a write through a symlinked root leaves the workspace");
+
+  // A symlink that stays inside the workspace is an ordinary scope: git
+  // reports the target's spelling, so both spellings have to pass.
+  const internal = { workspace, writeFiles: [], writeRoots: ["src/linked-pkg"] };
+  assert.equal(
+    writeScopeDecision(internal, { tool_name: "Write", tool_input: { file_path: join(workspace, "src/linked-pkg/new.mjs") } }),
+    null,
+    "a symlinked root inside the workspace still passes under its declared spelling",
+  );
+  const byTarget = { workspace, writeFiles: [], writeRoots: ["src/real-pkg"] };
+  assert.equal(
+    writeScopeDecision(byTarget, { tool_name: "Write", tool_input: { file_path: join(workspace, "src/linked-pkg/new.mjs") } }),
+    null,
+    "and under the spelling the filesystem actually reaches",
+  );
+
+  // A trailing slash is an easy thing to type into a contract and used to
+  // deny every write under that root.
+  assert.equal(
+    writeScopeDecision({ workspace, writeFiles: [], writeRoots: ["src/real-pkg/"] }, { tool_name: "Write", tool_input: { file_path: join(workspace, "src/real-pkg/new.mjs") } }),
+    null,
+    "a declared root keeps matching with a trailing slash",
+  );
+});
+
+test("every write-capable tool the adapter offers is judged by the write scope", () => {
+  // The hook decides nothing for a tool it does not know, and Claude Code
+  // reads silence as an allow. So the offered tool list and the judged tool
+  // list have to move together: adding a write-capable tool to the adapter
+  // without teaching the hook its path field would open the scope silently.
+  for (const tool of DEFAULT_CLAUDE_TOOLS) {
+    const judged = Object.hasOwn(WRITE_SCOPE_FIELDS, tool);
+    assert.ok(
+      judged || READ_ONLY_TOOLS.has(tool),
+      `${tool} is offered to workers but is neither judged by WRITE_SCOPE_FIELDS nor declared read-only`,
+    );
+  }
 });
 
 test("tool policy read threshold", () => {
