@@ -13,8 +13,8 @@ import { hasOperationSettlement, operationNextState, settleInvocation } from "..
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
 
-import { writeRunTextWithDiskPressureRetry } from "../run/disk-gc.mjs";
-import { validateEvent, validateNodeSnapshot } from "../contract/snapshot.mjs";
+import { writeNodeSnapshot } from "../run/node-store.mjs";
+import { validateEvent } from "../contract/snapshot.mjs";
 
 /** @typedef {ReturnType<typeof import("../run/lock.mjs").acquire>} LockHandle */
 /** @typedef {import("../contract/index.mjs").NodeSnapshot} NodeSnapshot */
@@ -144,9 +144,5 @@ export function recordExecutionOverride(runDir, state, override, lock) {
  * @param {LockHandle|null} [lock]
  */
 export function writeNode(runDir, state, lock = null) {
-  lock?.assert();
-  validateNodeSnapshot(state);
-  const serialized = JSON.stringify(state);
-  if (Buffer.byteLength(serialized, "utf8") > 128 * 1024) throw new Error("node snapshot exceeds 131072 bytes");
-  writeRunTextWithDiskPressureRetry(runDir, join(runDir, "nodes", `${state.id}.json`), `${serialized}\n`);
+  writeNodeSnapshot(runDir, state, lock);
 }

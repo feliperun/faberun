@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { validateContract } from "../contract/index.mjs";
 import { readJson, writeJsonAtomic } from "../run/store.mjs";
@@ -7,6 +7,7 @@ import { scopeFindingsNote } from "../contract/scope-findings.mjs";
 import { reviewNote } from "../contract/review-modes.mjs";
 import { validateNodeSnapshot, validateRunMetadata } from "../contract/snapshot.mjs";
 import { compactCost, compactTokens, finite, truncateChars } from "../util.mjs";
+import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
 
 /** Advisory ceiling for status.json (TECH-SPEC lean, rule 5); never enforced destructively. */
 const STATUS_JSON_MAX_BYTES = 200 * 1024;
@@ -435,14 +436,13 @@ function loadRun(runDir) {
  * @returns {NodeSnapshot[]}
  */
 function readNodes(runDir, contract) {
-  const nodeDir = join(runDir, "nodes");
-  const names = readdirSync(nodeDir).filter((name) => name.endsWith(".json"));
+  const names = listNodeSnapshots(runDir);
   const expected = new Map(contract.nodes.map((node) => [`${node.id}.json`, node]));
   for (const name of names) if (!expected.has(name)) throw new TypeError(`unexpected persisted node snapshot ${name}`);
   return contract.nodes.map((node) => {
     const name = `${node.id}.json`;
     if (!names.includes(name)) throw new TypeError(`missing persisted node snapshot ${name}`);
-    return validateNodeSnapshot(/** @type {import("../contract/index.mjs").JsonObject} */ (JSON.parse(readFileSync(join(nodeDir, name), "utf8"))), node);
+    return validateNodeSnapshot(/** @type {import("../contract/index.mjs").JsonObject} */ (JSON.parse(readFileSync(nodeSnapshotPath(runDir, node.id), "utf8"))), node);
   });
 }
 

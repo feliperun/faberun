@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { syncAgentSignal } from "../repo/signal.mjs";
 import { JUDGE_SCHEMA, TERMINAL, retryPrompt } from "./prompts.mjs";
@@ -32,6 +32,7 @@ import { delay, errorCode } from "../util.mjs";
 import { alreadyNotified, notifyQueueFor, notifyQueuesByRun, renderCampaignHandoffSafely } from "./notify-queue.mjs";
 import { detectStalls, terminateProcess } from "./process.mjs";
 import { transition, writeNode } from "./state.mjs";
+import { listNodeSnapshots, readNodeSnapshot } from "../run/node-store.mjs";
 import { render, renderFinalReport, writeFindingsArtifact } from "../report/final.mjs";
 import { operationNextState, providerReceipts, settleInvocation } from "../run/operations.mjs";
 import { appendUsageRecord, invocationCost, invocationUsage, recordInvocationUsage } from "../run/usage.mjs";
@@ -382,14 +383,13 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
  * @returns {NodeSnapshot[]}
  */
 export function readRunNodes(runDir, contract) {
-  const nodeDir = join(runDir, "nodes");
-  const names = readdirSync(nodeDir).filter((name) => name.endsWith(".json"));
+  const names = listNodeSnapshots(runDir);
   const expected = new Map(contract.nodes.map((node) => [`${node.id}.json`, node]));
   for (const name of names) if (!expected.has(name)) throw new TypeError(`unexpected persisted node snapshot ${name}`);
   return contract.nodes.map((node) => {
     const name = `${node.id}.json`;
     if (!names.includes(name)) throw new TypeError(`missing persisted node snapshot ${name}`);
-    return validateNodeSnapshot(JSON.parse(readFileSync(join(nodeDir, name), "utf8")), node);
+    return validateNodeSnapshot(readNodeSnapshot(runDir, node.id), node);
   });
 }
 

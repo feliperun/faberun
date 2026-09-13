@@ -28,7 +28,7 @@
  * `metrics-report.mjs` decides how the projection is printed.
  */
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { jsonObjectOf, round4, timestampMs } from "./metrics-evals.mjs";
@@ -36,6 +36,7 @@ import { MAX_ATTEMPTS as NOTIFY_MAX_ATTEMPTS } from "../notify/index.mjs";
 import { renderMetricsJson, renderMetricsReport } from "../report/metrics-report.mjs";
 import { campaignDir } from "./layout.mjs";
 import { readCampaign } from "./record.mjs";
+import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
 
 /** Node statuses that are not terminal: everything else settles a logical node. */
 const OPEN_STATUSES = new Set(["pending", "running"]);
@@ -404,7 +405,6 @@ const RUNS_DIR_NAME = ".runs";
 const RUN_EVENTS_FILE = "events.jsonl";
 const USAGE_LOG_FILE = "usage.jsonl";
 const NOTIFY_LOG_FILE = "notify.jsonl";
-const NODES_DIR_NAME = "nodes";
 
 /**
  * @typedef {{
@@ -442,7 +442,7 @@ export function readMetricsSources(campaignPath, { runsDir = join(campaignPath, 
     for (const record of readJsonlRecords(join(runsDir, runId, RUN_EVENTS_FILE))) events.push({ ...jsonObjectOf(record), runId });
     for (const record of readJsonlRecords(join(runsDir, runId, USAGE_LOG_FILE))) usageRecords.push(record);
     for (const record of readJsonlRecords(join(runsDir, runId, NOTIFY_LOG_FILE))) notifications.push(record);
-    for (const node of readRunNodes(join(runsDir, runId, NODES_DIR_NAME))) nodes.push({ ...node, runId });
+    for (const node of readRunNodes(join(runsDir, runId))) nodes.push({ ...node, runId });
   }
   return { campaignId: campaign.id, runIds: [...campaign.linkedRunIds], events, usageRecords, notifications, nodes };
 }
@@ -453,18 +453,16 @@ export function readMetricsSources(campaignPath, { runsDir = join(campaignPath, 
  * dispatched) and of a snapshot that fails to parse (never blocks a report on
  * a torn write).
  *
- * @param {string} nodesDir
+ * @param {string} runDir
  * @returns {Omit<RunNode, "runId">[]}
  */
-function readRunNodes(nodesDir) {
-  if (!existsSync(nodesDir)) return [];
+function readRunNodes(runDir) {
   /** @type {Omit<RunNode, "runId">[]} */
   const nodes = [];
-  for (const name of readdirSync(nodesDir)) {
-    if (!name.endsWith(".json")) continue;
+  for (const name of listNodeSnapshots(runDir)) {
     let record;
     try {
-      record = jsonObjectOf(JSON.parse(readFileSync(join(nodesDir, name), "utf8")));
+      record = jsonObjectOf(JSON.parse(readFileSync(nodeSnapshotPath(runDir, name.slice(0, -".json".length)), "utf8")));
     } catch {
       continue;
     }

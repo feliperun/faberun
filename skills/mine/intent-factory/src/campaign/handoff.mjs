@@ -8,10 +8,11 @@
  * is dropped visibly, never truncated mid-record.
  */
 import { CRITICAL_FLOOR_BYTES, GOAL_TEXT_BYTES, HANDOFF_BYTES, HANDOFF_FILE, HANDOFF_LIMIT, ID_CAP_FLOOR, JOURNAL_TEXT_BYTES, RENDER_NOTE_BYTES } from "./layout.mjs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { boundedText } from "../util.mjs";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { writeTextAtomic } from "../run/store.mjs";
+import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
 
 /** @typedef {import("./index.mjs").Campaign} Campaign */
 /** @typedef {import("./index.mjs").Handoff} Handoff */
@@ -429,14 +430,13 @@ function buildRunsGroups(linkedRuns, noteCap, idCap) {
  */
 function runSummary(runDir) {
   const id = basename(runDir);
-  const nodeDir = join(runDir, "nodes");
+  const nodeDir = dirname(nodeSnapshotPath(runDir, "placeholder"));
   if (!existsSync(nodeDir)) return { id, exists: false, total: 0, summary: "", attention: [], unreadable: null };
   let nodes;
   try {
-    nodes = readdirSync(nodeDir)
-      .filter((name) => name.endsWith(".json"))
+    nodes = listNodeSnapshots(runDir)
       .sort()
-      .map((name) => /** @type {JsonObject} */ (JSON.parse(readFileSync(join(nodeDir, name), "utf8"))));
+      .map((name) => /** @type {JsonObject} */ (JSON.parse(readFileSync(nodeSnapshotPath(runDir, name.slice(0, -".json".length)), "utf8"))));
   } catch (error) {
     return { id, exists: true, total: 0, summary: "unreadable", attention: [], unreadable: `cannot read node states: ${error instanceof Error ? error.message : String(error)}` };
   }

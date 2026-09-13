@@ -1,11 +1,12 @@
 import { basename, dirname, join } from "node:path";
-import { closeSync, existsSync, openSync, readFileSync, readdirSync, readSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 import { discoverCampaigns } from "../campaign/index.mjs";
 import { campaignDir, campaignsDir } from "../campaign/layout.mjs";
 import { readJsonTolerant } from "../util.mjs";
+import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const STREAM_POLL_MS = 700;
@@ -180,7 +181,7 @@ function nowStrip(runsDir, runs) {
     const runDir = join(runsDir, active.id);
     const status = readRunStatus(runDir);
     const runningNode = status?.nodes.find((/** @type {any} */ node) => node.status === "running") ?? null;
-    const startedAt = runningNode ? /** @type {any} */ (readJsonTolerant(join(runDir, "nodes", `${runningNode.id}.json`)))?.startedAt ?? null : null;
+    const startedAt = runningNode ? /** @type {any} */ (readJsonTolerant(nodeSnapshotPath(runDir, runningNode.id)))?.startedAt ?? null : null;
     return {
       state: "active",
       runId: active.id,
@@ -265,7 +266,7 @@ function promptTab(node) {
 
 /** The five drawer tabs for one node. @param {string} runDir @param {string} nodeId @returns {Record<string, unknown>|null} */
 function nodeDetail(runDir, nodeId) {
-  const node = readJsonTolerant(join(runDir, "nodes", `${nodeId}.json`));
+  const node = readJsonTolerant(nodeSnapshotPath(runDir, nodeId));
   if (!node || typeof node !== "object") return null;
   const record = /** @type {Record<string, any>} */ (node);
   return {
@@ -280,7 +281,7 @@ function nodeDetail(runDir, nodeId) {
 
 /** The drawer's node-row summary: `status.json`'s node entry merged with the node JSON's own fields. @param {string} runDir @param {Record<string, any>} statusNode @returns {Record<string, unknown>} */
 function nodeRow(runDir, statusNode) {
-  const node = /** @type {Record<string, any>} */ (readJsonTolerant(join(runDir, "nodes", `${statusNode.id}.json`)) ?? {});
+  const node = /** @type {Record<string, any>} */ (readJsonTolerant(nodeSnapshotPath(runDir, statusNode.id)) ?? {});
   const closed = TERMINAL_STATUSES.has(statusNode.status);
   return {
     id: statusNode.id,
@@ -385,12 +386,12 @@ export function snapshotSignature(runsDir, selection) {
   parts.push(fileSignature([join(entry.path, "HANDOFF.md")]));
   for (const runId of entry.campaign.linkedRunIds) {
     const runDir = join(runsDir, runId);
-    const nodeFiles = existsSync(join(runDir, "nodes")) ? readdirSync(join(runDir, "nodes")).filter((name) => name.endsWith(".json")).sort().map((name) => join(runDir, "nodes", name)) : [];
+    const nodeFiles = listNodeSnapshots(runDir).sort().map((name) => nodeSnapshotPath(runDir, name.slice(0, -".json".length)));
     parts.push(fileSignature([join(runDir, "status.json"), join(runDir, "run.json"), join(runDir, "notify.jsonl"), join(runDir, "events.jsonl"), ...nodeFiles]));
   }
   if (selection.runId && selection.nodeId && entry.campaign.linkedRunIds.includes(selection.runId)) {
     const runDir = join(runsDir, selection.runId);
-    const node = /** @type {Record<string, any>|null} */ (readJsonTolerant(join(runDir, "nodes", `${selection.nodeId}.json`)));
+    const node = /** @type {Record<string, any>|null} */ (readJsonTolerant(nodeSnapshotPath(runDir, selection.nodeId)));
     const worker = node ? lastWorkerInvocation(node.invocations) : null;
     parts.push(fileSignature(/** @type {string[]} */ ([worker?.stdoutPath, worker?.promptPath].filter((value) => typeof value === "string"))));
   }
