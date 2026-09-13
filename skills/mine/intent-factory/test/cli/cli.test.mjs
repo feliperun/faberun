@@ -556,9 +556,16 @@ test("seat is a dispatched verb named in the usage line", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-seat-usage-"));
   const action = spawnSync(process.execPath, [RUNNER_CLI, "seat", "bogus"], { encoding: "utf8" });
   assert.equal(action.status, 2, "an unknown seat operation is a usage error");
-  assert.match(action.stderr, /seat <start\|attach\|status\|stop>/u);
+  // The verb is pinned, the operation list is not. Spelling the whole list
+  // here made this test fail the moment `switch` was added -- by the node
+  // that was required to add it, and which could not edit this file. Assert
+  // that `seat` is dispatched and that the operation you asked for is named.
+  assert.match(action.stderr, /usage: runner\.mjs seat </u);
+  for (const operation of ["start", "attach", "status", "stop"]) {
+    assert.match(action.stderr, new RegExp(`\\b${operation}\\b`, "u"), `the usage names ${operation}`);
+  }
   const main = spawnSync(process.execPath, [RUNNER_CLI, "nope"], { encoding: "utf8" });
-  assert.match(main.stderr, /seat <start\|attach\|status\|stop>/u, "the top-level usage names the new verb");
+  assert.match(main.stderr, /seat </u, "the top-level usage names the new verb");
   const campaigns = spawnSync(process.execPath, [RUNNER_CLI, "campaign", "list", "--cwd", directory], { encoding: "utf8" });
   assert.equal(campaigns.status, 0, campaigns.stderr);
   assert.match(campaigns.stdout, /\[campaign\] none/u);
