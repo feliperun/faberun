@@ -33,13 +33,24 @@
  * surface, and the detector abstains), the one test it follows through an entry
  * point is the test named after that entry, and detector 3 only fires when the
  * written file names the direct child the enumerator reads.
+ *
+ * A fourth obligation only exists between nodes, so it is checked per contract
+ * rather than per packet. Node A writes a test that points at a path node B
+ * also writes; B's correct implementation changes that test, but B's packet
+ * does not permit it. seat-switch is the recorded instance: seat-lifecycle
+ * wrote `test/cli/cli.test.mjs` with an assertion that fixed the usage line,
+ * and seat-switch had to change `src/cli.mjs` without holding the test. Each
+ * packet read alone is fine; the pair is impossible. `crossNodeScopeFindings`
+ * reads the pair together and refuses the contract.
  */
 import { errorCode } from "../util.mjs";
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 
+/** @typedef {import("../contract/index.mjs").TaskPacket} TaskPacket */
 /** @typedef {import("../contract/index.mjs").ValidatedNode} ValidatedNode */
 /** @typedef {{path: string, detector: "imports"|"symbols"|"directory", reason: string}} ScopeClosureFinding */
+/** @typedef {{path: string, detector: "cross-node", reason: string, nodeIndex: number, nodeId: string}} CrossNodeScopeFinding */
 
 /**
  * Directories that hold dependencies, run state, or historical worktree copies
@@ -101,13 +112,7 @@ export function scopeClosureFindings(node, index, cwd) {
   const packet = node.taskPacket;
   const writeFiles = [...(packet.writeFiles ?? [])];
   if (writeFiles.length === 0) return [];
-  /** @type {Set<string>} */
-  const declared = new Set([
-    ...(packet.readFiles ?? []),
-    ...writeFiles,
-    ...(packet.writeRoots ?? []),
-    ...(packet.scopeAcknowledged ?? []),
-  ]);
+  const declared = declaredPaths(packet);
   const sources = repositorySources(cwd);
   const findings = [
     ...reverseImportFindings(packet, declared, sources, cwd),
@@ -121,6 +126,80 @@ export function scopeClosureFindings(node, index, cwd) {
     byPath.set(finding.path, finding);
   }
   return [...byPath.values()];
+}
+
+/**
+ * The paths a packet already covers: what it may read, what it may write, its
+ * write roots, and what its author explicitly acknowledged. One home for the
+ * set, so a detector cannot quietly disagree with another about what "declared"
+ * means.
+ *
+ * @param {TaskPacket} packet
+ * @returns {Set<string>}
+ */
+function declaredPaths(packet) {
+  return new Set([
+    ...(packet.readFiles ?? []),
+    ...(packet.writeFiles ?? []),
+    ...(packet.writeRoots ?? []),
+    ...(packet.scopeAcknowledged ?? []),
+  ]);
+}
+
+/**
+ * DETECTOR 4, the obligation no single packet can show. Node A writes a test
+ * whose content points at a path node B writes, so B's correct implementation
+ * changes that test -- and if B's packet does not permit the test, B is
+ * structurally stuck: the fix breaks a test B may not touch. `readFiles` does
+ * not count, because reading the test cannot repair it; only `writeFiles`, a
+ * covering `writeRoots`, or `scopeAcknowledged` does.
+ *
+ * The reference is read through the same parser the per-node detectors use --
+ * runtime imports and executed `new URL`s -- not by pattern-matching the test's
+ * prose, which is why a test that only asserts on a string surface abstains
+ * here and node-local detector 2 covers the symbol-name case.
+ *
+ * @param {ValidatedNode[]} nodes all nodes of one contract
+ * @param {string} cwd
+ * @returns {CrossNodeScopeFinding[]} one finding per (node, test) pair, naming
+ *   the node whose packet must change
+ */
+export function crossNodeScopeFindings(nodes, cwd) {
+  const sources = repositorySources(cwd);
+  /** @type {CrossNodeScopeFinding[]} */
+  const findings = [];
+  const seen = new Set();
+  for (const [writerIndex, writer] of nodes.entries()) {
+    for (const testPath of writer.taskPacket.writeFiles ?? []) {
+      if (!isTestPath(testPath)) continue;
+      const source = sources.get(testPath);
+      if (!source) continue;
+      const references = referencePaths(source, cwd);
+      if (references.size === 0) continue;
+      for (const [targetIndex, target] of nodes.entries()) {
+        if (targetIndex === writerIndex) continue;
+        const targetWrites = new Set(target.taskPacket.writeFiles ?? []);
+        const rootCovers = (target.taskPacket.writeRoots ?? []).some(
+          (root) => testPath === root || testPath.startsWith(`${root}/`),
+        );
+        const declared = new Set([...(target.taskPacket.scopeAcknowledged ?? []), ...targetWrites]);
+        if (rootCovers || declared.has(testPath)) continue;
+        const reference = [...references].find((path) => targetWrites.has(path));
+        if (reference === undefined) continue;
+        const key = `${targetIndex}:${testPath}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        findings.push({
+          path: testPath,
+          detector: "cross-node",
+          nodeIndex: targetIndex,
+          nodeId: target.id,
+          reason: `this node writes ${reference}, which ${writer.id} wrote a test against; declare ${testPath} in writeFiles or scopeAcknowledged so this node may change the test its work breaks`,
+        });
+      }
+    }
+  }
+  return findings;
 }
 
 /**

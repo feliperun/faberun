@@ -15,7 +15,7 @@ import { validateMetadata } from "./schema-version.mjs";
 import { assertRuntimeExecutesCommands, requireRuntime, validateRuntime } from "./runtime.mjs";
 import { validateSourceIdentity } from "../repo/source-identity.mjs";
 import { commandCoverageWarnings, unsnapshottedWriteWarnings } from "../repo/declared-paths.mjs";
-import { scopeClosureFindings } from "../repo/scope-closure.mjs";
+import { crossNodeScopeFindings, scopeClosureFindings } from "../repo/scope-closure.mjs";
 
 export { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
 
@@ -263,11 +263,21 @@ export function validateContract(raw, contractPath, options = {}) {
   // seat-switch) each cost a node. This runs on every load, replay included: a
   // persisted packet is the same packet, and a scope gap does not heal because
   // it was recorded.
-  const scopeErrors = nodes.flatMap((node, index) =>
-    scopeClosureFindings(node, index, cwd).map(
-      (finding) => `nodes[${index}] (${node.id}): ${finding.path} (${finding.detector}: ${finding.reason})`,
+  //
+  // The per-node detectors cannot see the pair that made seat-switch cost a
+  // node: seat-lifecycle wrote the test, seat-switch wrote the module, and each
+  // packet read alone is clean. `crossNodeScopeFindings` reads all nodes
+  // together and names the node whose packet must gain the test.
+  const scopeErrors = [
+    ...nodes.flatMap((node, index) =>
+      scopeClosureFindings(node, index, cwd).map(
+        (finding) => `nodes[${index}] (${node.id}): ${finding.path} (${finding.detector}: ${finding.reason})`,
+      ),
     ),
-  );
+    ...crossNodeScopeFindings(nodes, cwd).map(
+      (finding) => `nodes[${finding.nodeIndex}] (${finding.nodeId}): ${finding.path} (${finding.detector}: ${finding.reason})`,
+    ),
+  ];
   if (scopeErrors.length) {
     throw new TypeError(`task packet scope does not close; declare in readFiles or writeFiles, or acknowledge in scopeAcknowledged: ${scopeErrors.join("; ")}`);
   }

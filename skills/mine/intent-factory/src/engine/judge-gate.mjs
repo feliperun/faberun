@@ -13,6 +13,7 @@ import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { reviewMode, UNCITED_REJECTION_REASON } from "../contract/review-modes.mjs";
+import { JUDGE_LIMITS } from "../contract/judge-envelope.mjs";
 
 /** @typedef {import("../contract/definition-of-done.mjs").DefinitionOfDoneItem} DefinitionOfDoneItem */
 /** @typedef {import("../contract/definition-of-done.mjs").DefinitionOfDoneProof} DefinitionOfDoneProof */
@@ -233,10 +234,88 @@ export async function deterministicGate(node, cwd, reask, timeoutMs, verificatio
 }
 
 /**
+ * Node's test runner prints `test at <path>:<line>:<column>` immediately before
+ * each failing test. That is the only place the file a suite accused is written
+ * down, so it is read exactly as the runner wrote it -- inventing a format of
+ * our own would lie the first time the runner changed.
+ */
+const NODE_TEST_LOCATION = /^test at (.+?):\d+(?::\d+)?\s*$/gmu;
+
+/** @param {unknown} value @returns {string} */
+function stripAnsi(value) {
+  return String(value ?? "").replace(/\u001b\[[0-9;]*m/gu, "");
+}
+
+/**
+ * Test files named by the captured output of failing verification commands.
+ *
+ * @param {Array<{attempts?: Array<{stdout?: string, stderr?: string}>}>} commands
+ * @returns {string[]}
+ */
+function namedTestFiles(commands) {
+  /** @type {string[]} */
+  const paths = [];
+  const seen = new Set();
+  for (const command of commands) {
+    for (const attempt of command.attempts ?? []) {
+      for (const stream of [attempt.stdout, attempt.stderr]) {
+        for (const match of stripAnsi(stream).matchAll(NODE_TEST_LOCATION)) {
+          const path = match[1].trim();
+          if (!path || seen.has(path)) continue;
+          seen.add(path);
+          paths.push(path);
+        }
+      }
+    }
+  }
+  return paths;
+}
+
+/**
+ * Whether a path named by verification output sits inside the write scope the
+ * node persisted. `state.scope.boundary` is the captured form of the packet's
+ * `writeFiles` plus `writeRoots`, so it is the only copy of the declared scope
+ * available at settlement time; `fileRoots` are exact paths, the rest of
+ * `roots` cover their subtree.
+ *
+ * @param {{scope?: {boundary?: {files?: string[], roots?: string[], fileRoots?: string[]}}|null}|null|undefined} state
+ * @returns {(path: string) => boolean}
+ */
+function declaredWriteCoverage(state) {
+  const boundary = state?.scope?.boundary;
+  const files = new Set(boundary?.files ?? []);
+  const fileRoots = new Set(boundary?.fileRoots ?? []);
+  const directoryRoots = (boundary?.roots ?? []).filter((root) => !fileRoots.has(root));
+  return (path) =>
+    files.has(path) ||
+    fileRoots.has(path) ||
+    directoryRoots.some((root) => path === root || path.startsWith(`${root}/`));
+}
+
+/**
+ * The operator-facing description for a failure that named a test outside the
+ * declared write scope. The defect is not in the worker's code: the worker is
+ * forbidden from touching the test, so the contract that withheld it is what
+ * has to change. The message names the file and says to fix the contract.
+ *
+ * @param {string[]} paths
+ * @returns {string}
+ */
+function undeclaredTestDescription(paths) {
+  const files = paths.join(", ");
+  const noun = paths.length === 1 ? "file" : "files";
+  const pronoun = paths.length === 1 ? "it" : "them";
+  return boundedText(
+    `deterministic verification failed in undeclared test ${noun} ${files}; the node's writeFiles does not include ${pronoun}, so the worker cannot fix the failing test. This is a contract defect, not a worker defect: add ${files} to writeFiles or scopeAcknowledged and re-dispatch`,
+    JUDGE_LIMITS.descriptionBytes,
+  );
+}
+
+/**
  * The deterministic controller-verification failure verdict, kept next to the
  * Definition of Done gate so every deterministic failure settles identically.
  *
- * @param {{verification?: {commands?: Array<{argv: string[], passed?: boolean, attempts?: Array<{exitCode?: number|null, timedOut?: boolean}>}>, error?: unknown}|null}} state
+ * @param {{verification?: {commands?: Array<{argv: string[], passed?: boolean, attempts?: Array<{stdout?: string, stderr?: string, exitCode?: number|null, timedOut?: boolean}>}>, error?: unknown}|null, scope?: {boundary?: {files?: string[], roots?: string[], fileRoots?: string[]}}|null}} state
  * @returns {import("./prompts.mjs").JudgeVerdict}
  */
 export function verificationFailureVerdict(state) {
@@ -244,11 +323,16 @@ export function verificationFailureVerdict(state) {
   const evidence = failedCommands.length
     ? failedCommands.map((command) => `${command.argv.join(" ")}: ${(command.attempts ?? []).map((attempt) => `exit=${attempt.exitCode ?? "-"}${attempt.timedOut ? " timeout" : ""}`).join(", ")}`).join("; ")
     : state.verification?.error ?? "verification controller failed to execute a command";
+  const undeclared = namedTestFiles(failedCommands).filter((path) => !declaredWriteCoverage(state)(path));
   return {
     verdict: "fail",
     maxSeverity: "critical",
     summary: "deterministic verification failed",
-    findings: [{ severity: "critical", description: "deterministic verification failed", evidence: boundedText(evidence) }],
+    findings: [{
+      severity: "critical",
+      description: undeclared.length ? undeclaredTestDescription(undeclared) : "deterministic verification failed",
+      evidence: boundedText(evidence),
+    }],
   };
 }
 
