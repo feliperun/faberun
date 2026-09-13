@@ -14,7 +14,8 @@ import { join, resolve } from "node:path";
 import { OPERATOR_HARNESSES, canRenderAmbient, detectOperatorHarness, detectOperatorHarnessByCommand, launchArgv } from "./harnesses.mjs";
 import { SEAT_SESSION, createSeatWindow, listSeatWindows, respawnSeatWindow, stopSeatSession, stopSeatWindow, tmuxAvailability } from "./tmux.mjs";
 import { BRIEF_FILE } from "../campaign/layout.mjs";
-import { renderBrief } from "../campaign/brief.mjs";
+import { briefFromState, materializeBrief } from "../campaign/brief.mjs";
+import { readProjectionState } from "../campaign/projection.mjs";
 import { resolveCampaign } from "../campaign/index.mjs";
 import { errorMessage } from "../util.mjs";
 
@@ -131,7 +132,8 @@ export function switchSeat(options) {
   }
   const briefPath = join(resolved.path, BRIEF_FILE);
   try {
-    renderBrief(resolved.path, runsDir);
+    const { state } = readProjectionState(resolved.path, resolved.campaign);
+    materializeBrief(resolved.path, briefFromState(resolved.campaign, state, []));
   } catch (error) {
     return switchFailure("brief_failed", campaign, harness, `could not write the operator brief: ${errorMessage(error)}`);
   }
