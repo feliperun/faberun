@@ -11,6 +11,7 @@ import { modelsCommand } from "./harnesses/catalogue.mjs";
 import { bulkReadCommand } from "./engine/bulk-read.mjs";
 import { doctorCommand, environmentPreflight, reachableRuntimes, timeVerificationCommands } from "./host/preflight.mjs";
 import { renderFindings, renderReport, renderReportJson, renderStatus, renderStatusJson } from "./report/render.mjs";
+import { renderNext, renderNextJson } from "./report/next.mjs";
 
 import {
   writeTextAtomic,
@@ -90,6 +91,7 @@ const COMMAND_OPTIONS = {
   doctor: { cwd: { type: "string" }, json: { type: "boolean" }, discover: { type: "boolean" } },
   models: { probe: { type: "boolean" }, json: { type: "boolean" } },
   "bulk-read": { question: { type: "string" }, paths: { type: "string", multiple: true }, json: { type: "boolean" } },
+  next: { cwd: { type: "string" }, json: { type: "boolean" } },
   metrics: METRICS_OPTIONS,
 };
 
@@ -114,7 +116,8 @@ function parseCli(argv, quiet = false) {
   if (parsed.positionals.length > 1) return null;
   if (command === "models" && parsed.positionals.length !== 0) return null;
   if (command === "bulk-read" && parsed.positionals.length !== 0) return null;
-  if (command !== "doctor" && command !== "models" && command !== "bulk-read" && parsed.positionals.length !== 1) return null;
+  if (command === "next" && parsed.positionals.length !== 0) return null;
+  if (command !== "doctor" && command !== "models" && command !== "bulk-read" && command !== "next" && parsed.positionals.length !== 1) return null;
   return {
     command,
     target: parsed.positionals[0],
@@ -204,6 +207,12 @@ async function main(argv) {
   }
   if (command === "bulk-read") {
     await bulkReadCommand({ question: values.question, paths: values.paths, json: values.json === true });
+    return;
+  }
+  if (command === "next") {
+    const cwd = resolve(typeof values.cwd === "string" ? values.cwd : ".");
+    const runsDir = join(cwd, ".runs");
+    process.stdout.write(values.json === true ? renderNextJson(runsDir, cwd) : renderNext(runsDir, cwd));
     return;
   }
   if (!target) { usage(); return; }
@@ -347,6 +356,7 @@ function usage() {
     "<resume|cancel> <run-dir> [--detach] | supervise <run-dir> [--detach] [--interval <sec>] | " +
     "<status|report> <run-dir> [--json] | findings <run-dir> | " +
     "doctor [<contract.json>] [--cwd <dir>] [--discover] [--json] | models [--probe] [--json] | " +
+    "next [--cwd <dir>] [--json] | " +
     "bulk-read --question <text> --paths <a,b,c> [--json] | " +
     "contract validate <contract.json> | " +
     "metrics <campaign-id> [--cwd <dir>] [--json] | " +

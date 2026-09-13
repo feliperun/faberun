@@ -76,8 +76,8 @@ reporting `{available, exhaustedUntil, reason}` per runtime (missing CLI →
 `not_found`; auth failure has no reset; quota keeps its reset, including Z.ai
 code 1310). Omitted `runtimes`/`runtimeDefaults` are composed once and persisted
 in `routing.assignments`; exhaustion re-tiers within the current tier only,
-otherwise the node parks `attention` with `runtime_tier_exhausted`. The failover
-edge and vendor rules: [contract.md](contract.md).
+otherwise the node parks `attention` with `runtime_tier_exhausted`. Failover
+and vendor rules: [contract.md](contract.md).
 
 ## Status
 
@@ -90,7 +90,7 @@ cost, verdict, note, `errorCode`, `blockedBy`) and `.runs/status.json`
 terminal. `status <run-dir>` renders, in order: Needs you (attention nodes
 and orphans), Now (active node, elapsed, cost, or idle), Nodes (one row per
 node), Cost (run totals). `integrations/claude-code/statusline.sh` reads the
-pointer directly for an ambient one-line prompt segment.
+pointer for an ambient prompt segment. `next [--cwd <dir>] [--json]` prints one line per active campaign naming the most urgent action and its command; read-only, no lock, writes nothing.
 
 ## Dashboard
 
@@ -110,7 +110,7 @@ the same token and bind. Reads: `GET /api/campaigns`,
 `/api/campaigns/<id>` (campaign and run rows), `…/brief` (the
 `operator-brief.md` the seat materializes), `/api/seats` (the seat
 registry), and `…/events?after=<cursor>` — one bounded page (≤32 KiB,
-≤100 entries) of the journal from the byte cursor returned as `next`; a
+≤100 entries) of the journal from the returned byte cursor; a
 client starting at zero never drags the whole journal. Every
 write shells out to the runner CLI and touches no state itself:
 `POST …/decisions/<id>` → `campaign resolve`; `…/note` → `campaign note`;
@@ -153,11 +153,8 @@ session's durable cursor, without moving it. `ack` is the only cursor
 writer, keyed by the journal's own event id. `watch --wake` polls every
 linked run's `status.json` every 30s and prints one line per actionable
 change (a run gone terminal, a node in attention, a stale controller lock,
-or twenty idle minutes), exiting once the campaign is closed. `close` refuses until a `retrospective` note exists; a closed campaign rejects
-further attach/note/resolve writes but stays inspectable. It also mirrors its
-active state into a managed `<!-- intent-factory-active:start -->` block at the
-bottom of the target repo's `AGENTS.md`, so an unrelated session sees active
-work before its first prompt.
+or twenty idle minutes), exiting once the campaign is closed. `close` refuses until a `retrospective` note exists; a closed campaign stays
+inspectable but rejects further writes. It also mirrors its active state into a managed `<!-- intent-factory-active:start -->` block at the bottom of the target repo's `AGENTS.md`, so an unrelated session sees active work.
 
 `HANDOFF.md` is an atomic, ≤16 KiB projection of recent intents, decisions,
 constraints, outcomes, next action and open questions, refreshed at

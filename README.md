@@ -79,6 +79,7 @@ node "$INTENT_FACTORY" supervise --detach "$TARGET/.runs/<run-id>"   # unattende
 | Check credentials, models, binaries | `preflight <contract.json>` / `doctor [--cwd <dir>]` |
 | Start without blocking the session | `run --detach <contract.json>` |
 | Read current state | `status <run-dir>` / `status --json <run-dir>` |
+| Name the next action per campaign | `next [--cwd <dir>] [--json]` |
 | View attempts and tokens | `report <run-dir>` |
 | Read what a stopped node needs: gate findings and blocking questions | `findings <run-dir>` |
 | Read the campaign indicators | `metrics <campaign-id> --cwd <repo>` |
