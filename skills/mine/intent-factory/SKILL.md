@@ -5,17 +5,17 @@ description: A harness- and model-agnostic development factory that turns plans 
 
 # Intent Factory
 
-Run a plan outside the main context while keeping the current session as the
-control plane.
+Run a plan outside the main context, with this session as the control plane.
 
-Articles load on demand: read the one whose situation is yours, never all of
-them.
+Articles load on demand: read the rows your action needs — several may be
+yours at once — and nothing else.
 
-| Situation | Read |
+Read [rules](references/rules.md) first: it binds every path below.
+
+| Action | Read |
 | --- | --- |
-| Contract shape, packets, runtimes, fallback, gates | [contract.md](references/contract.md) |
-| Worktrees, integration, lock, status, campaigns | [operations.md](references/operations.md) |
-| Load-bearing rules | [rules.md](references/rules.md) |
-| Verification and the session tools | [engineering.md](references/engineering.md) |
-| Detach, resume, worktrees, scope | [workflow.md](references/workflow.md) |
-| Capsule, brief, settlement | [handoffs.md](references/handoffs.md) |
+| Author a contract (runtimes, fallback, gates) | [contract](references/contract.md), [engineering](references/engineering.md) |
+| Launch, resume, integrate runs | [workflow](references/workflow.md), [operations](references/operations.md) |
+| Dispatch a node to a worker | [handoffs](references/handoffs.md) |
+| Supervise a run, answer attention | [operations](references/operations.md), [handoffs](references/handoffs.md) |
+| Verify, judge, settle results | [engineering](references/engineering.md), [handoffs](references/handoffs.md) |
