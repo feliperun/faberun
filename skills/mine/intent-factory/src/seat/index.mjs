@@ -1,16 +1,22 @@
 /**
  * The seat facade the CLI calls: `startSeat`, `attachSeat`, `seatStatus`,
- * `stopSeat`.
+ * `stopSeat`, `switchSeat`.
  *
  * It composes the tmux session layer with the operator harness registry and
  * executes no tmux itself; every tmux fact comes back from `tmux.mjs` as an
  * explicit result. The seat is where a human talks to a harness, never the
- * engine that drives a run: nothing here writes `.runs/`, so killing a pane
- * cannot touch a run.
+ * engine that drives a run. `switchSeat` does write one durable file -- the
+ * operator brief under the campaign directory -- but nothing here reads or
+ * writes a run's lock, status or node snapshots, so swapping the pane cannot
+ * touch the controller that drives the run.
  */
-import { resolve } from "node:path";
-import { OPERATOR_HARNESSES, canRenderAmbient, detectOperatorHarness, detectOperatorHarnessByCommand } from "./harnesses.mjs";
-import { SEAT_SESSION, createSeatWindow, listSeatWindows, stopSeatSession, stopSeatWindow, tmuxAvailability } from "./tmux.mjs";
+import { join, resolve } from "node:path";
+import { OPERATOR_HARNESSES, canRenderAmbient, detectOperatorHarness, detectOperatorHarnessByCommand, launchArgv } from "./harnesses.mjs";
+import { SEAT_SESSION, createSeatWindow, listSeatWindows, respawnSeatWindow, stopSeatSession, stopSeatWindow, tmuxAvailability } from "./tmux.mjs";
+import { BRIEF_FILE } from "../campaign/layout.mjs";
+import { renderBrief } from "../campaign/brief.mjs";
+import { resolveCampaign } from "../campaign/index.mjs";
+import { errorMessage } from "../util.mjs";
 
 /** `seat status --json` payload version. */
 const SEAT_STATUS_SCHEMA_VERSION = 1;
@@ -18,6 +24,7 @@ const SEAT_STATUS_SCHEMA_VERSION = 1;
 /** @typedef {import("./tmux.mjs").SeatWindow} SeatWindow */
 /** @typedef {{campaign: string, harness: string|null, canRenderAmbient: boolean, command: string|null, index: number|null}} SeatStatusEntry */
 /** @typedef {{ok: boolean, available: boolean, reason: string|null, session: string, campaign: string, harness: string|null, window: string|null, command: string|null, attachCommand: string|null, stderr: string, message: string|null}} SeatStartResult */
+/** @typedef {{ok: boolean, available: boolean, reason: string|null, session: string, campaign: string|null, harness: string|null, window: string|null, command: string|null, brief: string|null, attachCommand: string|null, stderr: string, message: string|null}} SeatSwitchResult */
 
 /**
  * @param {{campaign: string, harness?: string, cwd?: string}} options
@@ -34,7 +41,7 @@ export function startSeat(options) {
   const created = createSeatWindow({
     session: SEAT_SESSION,
     window: campaign,
-    argv: OPERATOR_HARNESSES[harness].argv,
+    argv: /** @type {string[]} */ (launchArgv(harness)),
     harness,
     cwd: resolve(options.cwd ?? "."),
   });
@@ -97,6 +104,62 @@ export function stopSeat(options = {}) {
 }
 
 /**
+ * Swap the harness in a campaign's seat window without touching the run. It
+ * materializes the operator brief from the campaign's durable facts, respawns
+ * the window on the new harness with that brief as its opening instruction,
+ * and returns. The controller lock, the run status and every node snapshot are
+ * never opened for writing: the brief lives under the campaign directory, and
+ * the only process this kills is the pane's.
+ *
+ * @param {{campaign?: string, harness?: string, cwd?: string}} options
+ * @returns {SeatSwitchResult}
+ */
+export function switchSeat(options) {
+  const cwd = resolve(options.cwd ?? ".");
+  const runsDir = join(cwd, ".runs");
+  let resolved;
+  try {
+    resolved = resolveCampaign(runsDir, options.campaign);
+  } catch (error) {
+    return switchFailure("campaign_not_found", options.campaign ?? null, options.harness ?? null, errorMessage(error));
+  }
+  const campaign = resolved.campaign.id;
+  const harness = options.harness;
+  if (!harness || !Object.prototype.hasOwnProperty.call(OPERATOR_HARNESSES, harness)) {
+    const known = Object.keys(OPERATOR_HARNESSES).join(", ");
+    return switchFailure("unknown_harness", campaign, harness ?? null, `unknown harness ${harness ?? "(none)"}; choose one of ${known}`);
+  }
+  const briefPath = join(resolved.path, BRIEF_FILE);
+  try {
+    renderBrief(resolved.path, runsDir);
+  } catch (error) {
+    return switchFailure("brief_failed", campaign, harness, `could not write the operator brief: ${errorMessage(error)}`);
+  }
+  const argv = /** @type {string[]} */ (launchArgv(harness, `Read ${briefPath} before continuing this campaign.`));
+  const respawned = respawnSeatWindow({ session: SEAT_SESSION, window: campaign, argv, harness, cwd });
+  if (!respawned.ok) {
+    const message = respawned.available
+      ? `tmux could not respawn the seat window: ${respawned.reason ?? "tmux_command_failed"}`
+      : "tmux is not available; cannot switch the seat";
+    return { ...switchFailure(respawned.reason ?? "tmux_command_failed", campaign, harness, message), available: respawned.available, stderr: respawned.stderr };
+  }
+  return {
+    ok: true,
+    available: true,
+    reason: null,
+    session: SEAT_SESSION,
+    campaign,
+    harness,
+    window: campaign,
+    command: respawned.command,
+    brief: briefPath,
+    attachCommand: attachCommandLine(SEAT_SESSION, campaign, null),
+    stderr: "",
+    message: null,
+  };
+}
+
+/**
  * The line to paste. `attach` must not run `tmux attach` itself: attaching
  * from a child process nests sessions. The SSH form quotes the whole remote
  * command so it survives the local shell.
@@ -143,6 +206,30 @@ function startFailure(reason, campaign, harness, message) {
     harness,
     window: null,
     command: null,
+    attachCommand: null,
+    stderr: "",
+    message,
+  };
+}
+
+/**
+ * @param {string} reason
+ * @param {string|null} campaign
+ * @param {string|null} harness
+ * @param {string} message
+ * @returns {SeatSwitchResult}
+ */
+function switchFailure(reason, campaign, harness, message) {
+  return {
+    ok: false,
+    available: reason !== "tmux_unavailable",
+    reason,
+    session: SEAT_SESSION,
+    campaign,
+    harness,
+    window: null,
+    command: null,
+    brief: null,
     attachCommand: null,
     stderr: "",
     message,

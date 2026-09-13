@@ -561,7 +561,7 @@ test("seat is a dispatched verb named in the usage line", () => {
   // that was required to add it, and which could not edit this file. Assert
   // that `seat` is dispatched and that the operation you asked for is named.
   assert.match(action.stderr, /usage: runner\.mjs seat </u);
-  for (const operation of ["start", "attach", "status", "stop"]) {
+  for (const operation of ["start", "attach", "status", "stop", "switch"]) {
     assert.match(action.stderr, new RegExp(`\\b${operation}\\b`, "u"), `the usage names ${operation}`);
   }
   const main = spawnSync(process.execPath, [RUNNER_CLI, "nope"], { encoding: "utf8" });

@@ -35,6 +35,22 @@ export function canRenderAmbient(name) {
 }
 
 /**
+ * The argv a seat launches for one harness, with an optional instruction
+ * appended as a single positional argument. `seat switch` passes the operator
+ * brief here so a fresh harness starts by reading what the previous one knew,
+ * and the registry stays the one place that knows each harness's base command.
+ *
+ * @param {string} name
+ * @param {string|null} [instruction]
+ * @returns {string[]|null}
+ */
+export function launchArgv(name, instruction = null) {
+  const harness = /** @type {OperatorHarness|undefined} */ (OPERATOR_HARNESSES[name]);
+  if (!harness) return null;
+  return instruction ? [...harness.argv, instruction] : [...harness.argv];
+}
+
+/**
  * The operator harness this process is running inside, or null. Detection is
  * marker-based on purpose: the markers above are the only environment facts a
  * harness guarantees, and reading them costs nothing.

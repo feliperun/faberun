@@ -113,6 +113,25 @@ function shellCommand(argv) {
 }
 
 /**
+ * Replace the process in an existing seat window with a new harness, keeping
+ * the window, its name and its index. `respawn-window -k` is the kill and the
+ * launch in one tmux verb; the caller materializes the brief before calling,
+ * so a failed brief never tears down a working pane.
+ *
+ * @param {{session: string, window: string, argv: readonly string[], harness: string, cwd: string}} options
+ * @returns {{available: boolean, ok: boolean, respawned: boolean, session: string, window: string, command: string|null, reason: string|null, stderr: string}}
+ */
+export function respawnSeatWindow(options) {
+  const command = shellCommand(options.argv);
+  const result = runTmux(["respawn-window", "-k", "-t", `${options.session}:${options.window}`, "-c", options.cwd, command]);
+  if (!result.ok) {
+    return { available: result.available, ok: false, respawned: false, session: options.session, window: options.window, command, reason: result.reason, stderr: result.stderr };
+  }
+  runTmux(["set-option", "-w", "-t", `${options.session}:${options.window}`, HARNESS_OPTION, options.harness]);
+  return { available: true, ok: true, respawned: true, session: options.session, window: options.window, command, reason: null, stderr: "" };
+}
+
+/**
  * @param {string} session
  * @returns {{available: boolean, windows: SeatWindow[], reason: string|null, stderr: string}}
  */

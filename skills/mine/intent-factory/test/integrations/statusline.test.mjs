@@ -76,11 +76,12 @@ function restrictedEnv() {
  *
  * @param {string} directory
  * @param {NodeJS.ProcessEnv} [env]
+ * @param {Record<string, unknown>} [session] extra session-JSON fields
  * @returns {string} stdout
  */
-function render(directory, env) {
+function render(directory, env, session = {}) {
   const result = spawnSync(scriptPath, [], {
-    input: JSON.stringify({ cwd: directory, workspace: { current_dir: directory } }),
+    input: JSON.stringify({ cwd: directory, workspace: { current_dir: directory }, ...session }),
     encoding: "utf8",
     env,
   });
@@ -155,4 +156,31 @@ test("statusline degrades silently on a pointer larger than the 1 KiB cap, with 
     writeFileSync(path, `${original}${" ".repeat(2048)}`);
     assert.equal(render(directory, runnerEnv), "\n");
   }
+});
+
+test("seat allowance warning", () => {
+  const directory = mkdtempSync(join(tmpdir(), "if-statusline-allowance-"));
+  writePointer(directory);
+  const base = "run-a · attention · node-a 3m05s · $4.2 · needs you: 2";
+  /** @param {number} used @returns {Record<string, unknown>} */
+  const rate = (used) => ({ rate_limits: { five_hour: { used_percentage: used, resets_at: 1_800_000_000 } } });
+
+  const high = singleLine(render(directory, undefined, rate(91.5)));
+  assert.ok(high.startsWith(base), `the run segment stays intact: ${high}`);
+  assert.match(high, /\[warn\]/u, "above the threshold the line warns");
+  assert.match(high, /91\.5%/u, "the warning reports the used percentage");
+  assert.match(high, /85%/u, "the warning names the threshold");
+  assert.match(high, /seat switch --harness/u, "the warning names the switch command");
+
+  assert.equal(singleLine(render(directory, undefined, rate(84.9))), base, "below the threshold nothing is appended");
+  assert.equal(singleLine(render(directory)), base, "no rate signal, no warning");
+
+  // The nested field is not jq-only: the fallback reaches it too.
+  const { binDir, env } = restrictedEnv();
+  assert.equal(existsSync(join(binDir, "jq")), false, "jq must be absent from the degrade PATH");
+  const noJq = singleLine(render(directory, env, rate(91.5)));
+  assert.ok(noJq.startsWith(base), `the run segment stays intact: ${noJq}`);
+  assert.match(noJq, /\[warn\]/u, "the no-jq fallback still warns above the threshold");
+  assert.match(noJq, /seat switch --harness/u, "the no-jq fallback names the switch command");
+  assert.equal(singleLine(render(directory, env, rate(84.9))), base, "the no-jq fallback stays quiet below the threshold");
 });

@@ -1,12 +1,12 @@
 /**
- * `seat` argv: start, attach, status, stop.
+ * `seat` argv: start, attach, status, stop, switch.
  *
  * Per-operation options only, so a flag declared for one operation is rejected
  * for the others. The facade in `src/seat/index.mjs` owns the behavior; this
  * file owns the wire, the same split `campaign.mjs` uses.
  */
 import { parseArgs as parseFlags } from "node:util";
-import { attachSeat, seatStatus, startSeat, stopSeat } from "../seat/index.mjs";
+import { attachSeat, seatStatus, startSeat, stopSeat, switchSeat } from "../seat/index.mjs";
 
 /** @typedef {{cwd?: string, harness?: string, ssh?: string, json?: boolean}} SeatValues */
 
@@ -17,6 +17,7 @@ const OPERATION_OPTIONS = {
   attach: { cwd: { type: "string" }, ssh: { type: "string" } },
   status: { cwd: { type: "string" }, json: { type: "boolean" } },
   stop: { cwd: { type: "string" } },
+  switch: { cwd: { type: "string" }, harness: { type: "string" } },
 };
 
 /**
@@ -46,6 +47,10 @@ export function seatCli(args) {
   }
   if (operation === "attach") return reportAttach(campaign, values);
   if (operation === "stop") return reportStop(campaign);
+  if (operation === "switch") {
+    if (!values.harness) return usage();
+    return reportSwitch(campaign, values);
+  }
   return usage();
 }
 
@@ -113,7 +118,22 @@ function reportStop(campaign) {
   process.stdout.write(campaign ? `[seat] ${campaign} stopped\n` : "[seat] seat session stopped\n");
 }
 
+/**
+ * @param {string|undefined} campaign
+ * @param {SeatValues} values
+ */
+function reportSwitch(campaign, values) {
+  const result = switchSeat({ campaign, harness: values.harness, cwd: values.cwd });
+  if (!result.ok) {
+    process.stderr.write(`[seat] ${result.message ?? result.reason}\n`);
+    process.exitCode = 1;
+    return;
+  }
+  process.stdout.write(`[seat] ${result.campaign} switched to ${result.harness} · ${result.session}:${result.window}\n`);
+  process.stdout.write(`${result.attachCommand}\n`);
+}
+
 function usage() {
-  process.stderr.write("usage: runner.mjs seat <start|attach|status|stop> [<campaign-id>] [--cwd <dir>] ...\n");
+  process.stderr.write("usage: runner.mjs seat <start|attach|status|stop|switch> [<campaign-id>] [--cwd <dir>] ...\n");
   process.exitCode = 2;
 }

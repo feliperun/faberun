@@ -6,6 +6,9 @@ import { delimiter, join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { initializeCampaign, registerRun } from "../../src/campaign/index.mjs";
+import { BRIEF_FILE } from "../../src/campaign/layout.mjs";
+
 /**
  * The seat is a tmux session with one window per campaign, and none of it may
  * bind the run engine to tmux. These four tests pin the lifecycle, the
@@ -139,4 +142,34 @@ test("seat pane death does not touch the run", async () => {
   await exited;
 
   assert.equal(readFileSync(statusPath, "utf8"), before, "the run status is byte-identical after the pane dies");
+});
+
+test("seat switch preserves controller lease", () => {
+  const directory = mkdtempSync(join(tmpdir(), "seat-switch-"));
+  const runsDir = join(directory, ".runs");
+  const { path: campaignPath } = initializeCampaign(runsDir, { campaignId: "campaign-a", goal: "Keep the controller running" });
+  const runDir = join(runsDir, "run-1");
+  mkdirSync(join(runDir, "nodes"), { recursive: true });
+  const lockPath = join(runDir, "controller.lock");
+  const lockBefore = `${JSON.stringify({ schemaVersion: 1, pid: process.pid, processStartToken: null, startedAt: "2026-09-12T00:00:00.000Z", hostname: "fixture" })}\n`;
+  writeFileSync(lockPath, lockBefore);
+  const statusPath = join(runDir, "status.json");
+  const statusBefore = `${JSON.stringify({ schemaVersion: 1, run: "run-1", nodes: [{ id: "build", status: "running" }] })}\n`;
+  writeFileSync(statusPath, statusBefore);
+  registerRun(campaignPath, "run-1");
+
+  const env = envWithFakeTmux(directory, { hasSession: true, windows: [["campaign-a", "0", "claude", "claude"]] });
+  const result = seatCli(["seat", "switch", "campaign-a", "--harness", "codex", "--cwd", directory], env);
+  assert.equal(result.status, 0, result.stderr);
+
+  assert.equal(readFileSync(lockPath, "utf8"), lockBefore, "switch must not touch the controller lock");
+  assert.equal(readFileSync(statusPath, "utf8"), statusBefore, "switch must not touch the run status");
+  const brief = readFileSync(join(campaignPath, BRIEF_FILE), "utf8");
+  assert.match(brief, /Keep the controller running/u, "the operator brief is rendered");
+
+  const calls = readFileSync(join(directory, "tmux.log"), "utf8");
+  assert.match(calls, /respawn-window/u, "the existing window is respawned, not replaced");
+  assert.match(calls, /-k/u, "respawn kills the pane's process");
+  assert.match(calls, /codex/u, "the new harness is launched");
+  assert.match(calls, /operator-brief\.md/u, "the new harness is told to read the brief");
 });
