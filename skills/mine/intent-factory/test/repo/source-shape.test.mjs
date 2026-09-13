@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runtimeImportGraph } from "../../src/repo/scope-closure.mjs";
 
 /**
  * The rules `AGENTS.md` states about the shape of this source tree, enforced.
@@ -68,40 +69,8 @@ test(`no file in the skill exceeds ${LINE_CEILING} lines`, () => {
   );
 });
 
-/**
- * Runtime import edges only, keyed by `src/`-relative module path.
- *
- * A JSDoc `import("./x.mjs").Type` is a type reference erased before the module
- * ever loads; counting those reports cycles that do not exist, as an earlier
- * version of this analysis did.
- *
- * @returns {Map<string, string[]>}
- */
-function runtimeImportGraph() {
-  /** @type {Map<string, string[]>} */
-  const graph = new Map();
-  for (const file of SRC_FILES) {
-    const source = file.text
-      .replace(/\/\*(?:[^*]|\*(?!\/))*\*\//gu, " ")
-      .replace(/\/\/[^\n]*/gu, " ");
-    /** @type {Set<string>} */
-    const specifiers = new Set();
-    for (const match of source.matchAll(/\b(?:import|export)\b[^;]*?\bfrom\s*"(\.[^"]+)"/gsu)) {
-      specifiers.add(match[1]);
-    }
-    for (const match of source.matchAll(/\bimport\s*"(\.[^"]+)"/gu)) specifiers.add(match[1]);
-    graph.set(
-      relative(SRC_DIR, file.path).split(sep).join("/"),
-      [...specifiers]
-        .map((spec) => relative(SRC_DIR, join(file.path, "..", spec)).split(sep).join("/"))
-        .sort(),
-    );
-  }
-  return graph;
-}
-
 test("src/ has no runtime import cycle beyond the ones allowed by name", () => {
-  const graph = runtimeImportGraph();
+  const graph = runtimeImportGraph(SRC_DIR);
   /** @type {Set<string>} */
   const cycles = new Set();
   // Two-colour DFS over one shared colouring: grey is "on the current path", so

@@ -13,6 +13,7 @@ const FIELDS = new Set([
   "writeFiles",
   "writeRoots",
   "symbols",
+  "scopeAcknowledged",
   "decisions",
   "nonGoals",
   "verification",
@@ -24,7 +25,7 @@ const PROMPT_MAX_BYTES = 64 * 1024;
 /**
  * A closed task packet: the durable scope and instructions for one node.
  *
- * @typedef {{mode: "execution"|"discovery"|"autonomous", objective: string, instructions: string[], readFiles: string[], writeFiles?: string[], writeRoots?: string[], symbols: string[], decisions: string[], nonGoals: string[], verification: VerificationCommand[]}} TaskPacket
+ * @typedef {{mode: "execution"|"discovery"|"autonomous", objective: string, instructions: string[], readFiles: string[], writeFiles?: string[], writeRoots?: string[], symbols: string[], scopeAcknowledged?: string[], decisions: string[], nonGoals: string[], verification: VerificationCommand[]}} TaskPacket
  */
 
 /**
@@ -145,6 +146,8 @@ export function validateTaskPacket(packet, index, cwd) {
   const readFiles = record.readFiles === undefined ? [] : record.readFiles;
   requireStringArray(readFiles, `nodes[${index}].taskPacket.readFiles`);
   requireStringArray(record.symbols, `nodes[${index}].taskPacket.symbols`);
+  const scopeAcknowledged = record.scopeAcknowledged === undefined ? [] : record.scopeAcknowledged;
+  requireStringArray(scopeAcknowledged, `nodes[${index}].taskPacket.scopeAcknowledged`);
   requireStringArray(record.decisions, `nodes[${index}].taskPacket.decisions`);
   requireStringArray(record.nonGoals, `nodes[${index}].taskPacket.nonGoals`);
   if (!Array.isArray(record.verification)) {
@@ -191,6 +194,9 @@ export function validateTaskPacket(packet, index, cwd) {
   if (writeFiles !== undefined) /** @type {string[]} */ (writeFiles).forEach((path, pathIndex) => {
     validateRelativePath(path, `nodes[${index}].taskPacket.writeFiles[${pathIndex}]`, cwd, false);
   });
+  /** @type {string[]} */ (scopeAcknowledged).forEach((path, pathIndex) => {
+    validateRelativePath(path, `nodes[${index}].taskPacket.scopeAcknowledged[${pathIndex}]`, cwd, true);
+  });
   for (const [commandIndex, command] of verification.entries()) {
     if (command.cwd !== undefined) {
       validateDirectoryPath(command.cwd, `nodes[${index}].taskPacket.verification[${commandIndex}].cwd`, cwd);
@@ -204,6 +210,10 @@ export function validateTaskPacket(packet, index, cwd) {
     ...(writeFiles === undefined ? {} : { writeFiles: [.../** @type {string[]} */ (writeFiles)] }),
     ...(writeRoots === undefined ? {} : { writeRoots: [.../** @type {string[]} */ (writeRoots)] }),
     symbols: [.../** @type {string[]} */ (record.symbols)],
+    // Kept absent rather than defaulted to [] in the returned packet: the packet
+    // hash of every already-authored contract has to stay identical, and a
+    // resume compares the recomputed hash to the snapshot's.
+    ...(record.scopeAcknowledged === undefined ? {} : { scopeAcknowledged: [.../** @type {string[]} */ (scopeAcknowledged)] }),
     decisions: [.../** @type {string[]} */ (record.decisions)],
     nonGoals: [.../** @type {string[]} */ (record.nonGoals)],
     verification,

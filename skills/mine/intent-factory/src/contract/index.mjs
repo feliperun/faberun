@@ -15,6 +15,7 @@ import { validateMetadata } from "./schema-version.mjs";
 import { assertRuntimeExecutesCommands, requireRuntime, validateRuntime } from "./runtime.mjs";
 import { validateSourceIdentity } from "../repo/source-identity.mjs";
 import { commandCoverageWarnings, unsnapshottedWriteWarnings } from "../repo/declared-paths.mjs";
+import { scopeClosureFindings } from "../repo/scope-closure.mjs";
 
 export { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
 
@@ -41,7 +42,7 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 
 /** @typedef {{argv: string[], cwd?: string, timeoutSec?: number, repeat?: number, env?: string[]}} VerificationCommand */
 
-/** @typedef {{mode: "execution"|"discovery"|"autonomous", objective: string, instructions: string[], readFiles: string[], writeFiles?: string[], writeRoots?: string[], symbols: string[], decisions: string[], nonGoals: string[], verification: VerificationCommand[]}} TaskPacket */
+/** @typedef {{mode: "execution"|"discovery"|"autonomous", objective: string, instructions: string[], readFiles: string[], writeFiles?: string[], writeRoots?: string[], symbols: string[], scopeAcknowledged?: string[], decisions: string[], nonGoals: string[], verification: VerificationCommand[]}} TaskPacket */
 
 /** @typedef {{harness: "claude"|"codex"|"agy"|"dsh"|"zcode"|"exec-jsonl"|"replay", model: string, reasoning?: string, sandbox?: "read-only"|"workspace-write"|"danger-full-access", permissionMode?: string, config?: Record<string, unknown>, printTimeout?: string, tools?: string[], executable?: string, args?: string[], versionArgs?: string[], maxArgvPromptBytes?: number, requiredCapabilities?: CapabilityRequirements, costRank?: number, fallback?: string, vendor: string, tier?: number|string}} ValidatedRuntime */
 
@@ -251,6 +252,24 @@ export function validateContract(raw, contractPath, options = {}) {
       seenFallbacks.add(fallbackId);
       assertRuntimeExecutesCommands(runtimes, fallbackId, index, node.id, "worker fallback runtime");
       fallbackId = runtimes[fallbackId].fallback;
+    }
+  }
+
+  // Scope closure is a refusal, not a warning: the warnings below are for the
+  // author's attention, but a file that must change with the write set and was
+  // neither declared nor acknowledged makes the packet incomplete, and the
+  // node would either break it or be structurally unable to touch it. The
+  // three incidents this catches (p3 bulk-read, sp1 lossy-notify, sp2
+  // seat-switch) each cost a node. Persisted contracts are a record of what was
+  // authored and are not re-litigated on replay.
+  if (!options.persisted) {
+    const scopeErrors = nodes.flatMap((node, index) =>
+      scopeClosureFindings(node, index, cwd).map(
+        (finding) => `nodes[${index}] (${node.id}): ${finding.path} (${finding.detector}: ${finding.reason})`,
+      ),
+    );
+    if (scopeErrors.length) {
+      throw new TypeError(`task packet scope does not close; declare in readFiles or writeFiles, or acknowledge in scopeAcknowledged: ${scopeErrors.join("; ")}`);
     }
   }
 
