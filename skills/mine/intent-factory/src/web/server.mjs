@@ -8,6 +8,7 @@ import { campaignDir, campaignsDir } from "../campaign/layout.mjs";
 import { errorMessage, readJsonTolerant } from "../util.mjs";
 import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
 import { assertPrivateBind, loadBearerToken, resolveBindAddress } from "./boundary.mjs";
+import { handleApiRequest } from "./api.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const STREAM_POLL_MS = 700;
@@ -410,8 +411,8 @@ function selectionOf(url) {
   return { campaignId: safeParam(url, "campaign"), runId: safeParam(url, "run"), nodeId: safeParam(url, "node") };
 }
 
-/** Read-only dashboard server behind its network boundary: the static page, a snapshot endpoint for polling clients and an SSE stream. Every request carries the bearer token in the Authorization header; a token that arrives in the query string is refused unread. The boundary is settled before `listen` — a public or wildcard bind throws and no socket ever opens. @param {{runsDir: string, tokenFile: string, port?: number, host?: string, pollMs?: number}} options @returns {Promise<import("node:http").Server>} */
-export async function startServer({ runsDir, tokenFile, port = 4173, host = "127.0.0.1", pollMs = STREAM_POLL_MS }) {
+/** Read-only dashboard server behind its network boundary: the static page, a snapshot endpoint for polling clients, an SSE stream, and the operator's `/api/*` routes — whose writes all shell out to the runner CLI. Every request carries the bearer token in the Authorization header; a token that arrives in the query string is refused unread. The boundary is settled before `listen` — a public or wildcard bind throws and no socket ever opens. @param {{runsDir: string, tokenFile: string, port?: number, host?: string, pollMs?: number, cliEntry?: string}} options @returns {Promise<import("node:http").Server>} */
+export async function startServer({ runsDir, tokenFile, port = 4173, host = "127.0.0.1", pollMs = STREAM_POLL_MS, cliEntry }) {
   const address = assertPrivateBind(await resolveBindAddress(host));
   const token = loadBearerToken(tokenFile);
   const server = http.createServer((request, response) => {
@@ -422,6 +423,15 @@ export async function startServer({ runsDir, tokenFile, port = 4173, host = "127
       if (url.pathname === "/" || url.pathname === "/index.html") return sendFile(response, join(HERE, "index.html"), "text/html; charset=utf-8");
       if (url.pathname === "/api/snapshot") return sendJson(response, buildSnapshot(runsDir, selectionOf(url)));
       if (url.pathname === "/api/stream") return streamSnapshots(request, response, runsDir, selectionOf(url), pollMs);
+      if (url.pathname.startsWith("/api/")) {
+        // A phone client that hangs up mid-request must not take the daemon
+        // down as an unhandled rejection; the router catches its own errors,
+        // this guards the one write that follows a closed socket.
+        handleApiRequest(request, response, { runsDir, cliEntry }).catch(() => {
+          if (!response.destroyed) response.destroy();
+        });
+        return;
+      }
       response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
       response.end("not found");
     } catch (error) {
