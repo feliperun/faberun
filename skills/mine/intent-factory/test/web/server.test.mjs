@@ -13,6 +13,8 @@ const LATER = "2026-01-01T00:05:00.000Z";
 const CAMPAIGN_ID = "dash-campaign";
 const RUN_ID = "dash-run";
 const ORPHAN_RUN_ID = "dash-run-orphan";
+const TOKEN = "server-test-bearer-1a2b3c4d5e6f7788";
+const AUTH = { authorization: `Bearer ${TOKEN}` };
 
 test("tailJsonl returns the last complete entries and drops a torn line", () => {
   const directory = mkdtempSync(join(tmpdir(), "intent-factory-dashboard-"));
@@ -143,18 +145,17 @@ test("the DOM test renders the snapshot's five sections in order, with the needs
 
 test("server serves the page, a snapshot and a 404 for an unknown route", async () => {
   const world = makeWorld();
-  const server = startServer({ runsDir: world.runsDir, port: 0 });
+  const server = await startServer({ runsDir: world.runsDir, tokenFile: world.tokenFile, port: 0 });
   try {
-    await once(server);
     const { port } = /** @type {{address: () => {port: number}}} */ (server).address();
     const base = `http://127.0.0.1:${port}`;
-    const page = await fetch(`${base}/`);
+    const page = await fetch(`${base}/`, { headers: AUTH });
     assert.equal(page.status, 200);
     assert.match(page.headers.get("content-type") ?? "", /text\/html/u);
     assert.match(await page.text(), /Intent Factory/u);
-    const snapshot = /** @type {any} */ (await (await fetch(`${base}/api/snapshot?campaign=${CAMPAIGN_ID}`)).json());
+    const snapshot = /** @type {any} */ (await (await fetch(`${base}/api/snapshot?campaign=${CAMPAIGN_ID}`, { headers: AUTH })).json());
     assert.equal(snapshot.selectedCampaignId, CAMPAIGN_ID);
-    assert.equal((await fetch(`${base}/nope`)).status, 404);
+    assert.equal((await fetch(`${base}/nope`, { headers: AUTH })).status, 404);
   } finally {
     server.close();
     rmSync(world.directory, { recursive: true, force: true });
@@ -163,11 +164,10 @@ test("server serves the page, a snapshot and a 404 for an unknown route", async 
 
 test("the SSE endpoint emits an update when status.json changes", async () => {
   const world = makeWorld();
-  const server = startServer({ runsDir: world.runsDir, port: 0, pollMs: 40 });
+  const server = await startServer({ runsDir: world.runsDir, tokenFile: world.tokenFile, port: 0, pollMs: 40 });
   try {
-    await once(server);
     const { port } = /** @type {{address: () => {port: number}}} */ (server).address();
-    const response = await fetch(`http://127.0.0.1:${port}/api/stream?campaign=${CAMPAIGN_ID}`);
+    const response = await fetch(`http://127.0.0.1:${port}/api/stream?campaign=${CAMPAIGN_ID}`, { headers: AUTH });
     assert.match(response.headers.get("content-type") ?? "", /text\/event-stream/u);
     const reader = /** @type {ReadableStream<Uint8Array>} */ (response.body).getReader();
     const decoder = new TextDecoder();
@@ -215,11 +215,6 @@ test("snapshotSignature changes when a node snapshot changes and is stable other
   }
 });
 
-/** @param {import("node:http").Server} server @returns {Promise<void>} */
-function once(server) {
-  return new Promise((resolve) => server.on("listening", resolve));
-}
-
 /** @param {string} path @param {unknown} value */
 function writeJson(path, value) {
   writeFileSync(path, JSON.stringify(value));
@@ -231,10 +226,12 @@ function writeJson(path, value) {
  * orphaned run whose controller is gone while a node still claims to run.
  *
  * @param {{longLog?: boolean}} [options]
- * @returns {{directory: string, runsDir: string}}
+ * @returns {{directory: string, runsDir: string, tokenFile: string}}
  */
 function makeWorld({ longLog = false } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "intent-factory-dashboard-"));
+  const tokenFile = join(directory, "dashboard.token");
+  writeFileSync(tokenFile, `${TOKEN}\n`);
   const runsDir = join(directory, ".runs");
   const campaignPath = join(runsDir, "campaigns", CAMPAIGN_ID);
   mkdirSync(campaignPath, { recursive: true });
@@ -300,7 +297,7 @@ function makeWorld({ longLog = false } = {}) {
   writeFileSync(join(orphanDir, "notify.jsonl"), "");
   writeFileSync(join(orphanDir, "usage.jsonl"), "");
 
-  return { directory, runsDir };
+  return { directory, runsDir, tokenFile };
 }
 
 /** A campaign whose only run is terminal with no live controller. @returns {{directory: string, runsDir: string}} */

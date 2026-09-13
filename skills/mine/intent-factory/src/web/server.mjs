@@ -5,8 +5,9 @@ import { fileURLToPath } from "node:url";
 import process from "node:process";
 import { discoverCampaigns } from "../campaign/index.mjs";
 import { campaignDir, campaignsDir } from "../campaign/layout.mjs";
-import { readJsonTolerant } from "../util.mjs";
+import { errorMessage, readJsonTolerant } from "../util.mjs";
 import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
+import { assertPrivateBind, loadBearerToken, resolveBindAddress } from "./boundary.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const STREAM_POLL_MS = 700;
@@ -409,11 +410,15 @@ function selectionOf(url) {
   return { campaignId: safeParam(url, "campaign"), runId: safeParam(url, "run"), nodeId: safeParam(url, "node") };
 }
 
-/** Read-only dashboard server bound to localhost: the static page, a snapshot endpoint for polling clients and an SSE stream. @param {{runsDir: string, port?: number, host?: string, pollMs?: number}} options @returns {import("node:http").Server} */
-export function startServer({ runsDir, port = 4173, host = "127.0.0.1", pollMs = STREAM_POLL_MS }) {
+/** Read-only dashboard server behind its network boundary: the static page, a snapshot endpoint for polling clients and an SSE stream. Every request carries the bearer token in the Authorization header; a token that arrives in the query string is refused unread. The boundary is settled before `listen` — a public or wildcard bind throws and no socket ever opens. @param {{runsDir: string, tokenFile: string, port?: number, host?: string, pollMs?: number}} options @returns {Promise<import("node:http").Server>} */
+export async function startServer({ runsDir, tokenFile, port = 4173, host = "127.0.0.1", pollMs = STREAM_POLL_MS }) {
+  const address = assertPrivateBind(await resolveBindAddress(host));
+  const token = loadBearerToken(tokenFile);
   const server = http.createServer((request, response) => {
     const url = new URL(request.url ?? "/", "http://localhost");
     try {
+      const refusal = admissionFailure(request, url, token);
+      if (refusal) return sendRefusal(response, refusal);
       if (url.pathname === "/" || url.pathname === "/index.html") return sendFile(response, join(HERE, "index.html"), "text/html; charset=utf-8");
       if (url.pathname === "/api/snapshot") return sendJson(response, buildSnapshot(runsDir, selectionOf(url)));
       if (url.pathname === "/api/stream") return streamSnapshots(request, response, runsDir, selectionOf(url), pollMs);
@@ -424,8 +429,30 @@ export function startServer({ runsDir, port = 4173, host = "127.0.0.1", pollMs =
       response.end(error instanceof Error ? error.message : String(error));
     }
   });
-  server.listen(port, host);
+  /** The `Promise<void>` type is the JSDoc hint that lets `resolve()` take no argument under checkJs. @type {Promise<void>} */
+  const listening = new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, address, () => {
+      server.removeListener("error", reject);
+      resolve();
+    });
+  });
+  await listening;
   return server;
+}
+
+/** The one admission rule: the token rides the Authorization header and nowhere else. The query string is inspected for its shape — a `token` key, or any parameter equal to the token — and is never echoed back; no refusal or later message repeats what was sent. @param {import("node:http").IncomingMessage} request @param {URL} url @param {string} token @returns {{status: number, reason: string}|null} why the request is refused, or null when it passes */
+function admissionFailure(request, url, token) {
+  for (const [key, value] of url.searchParams) {
+    if (key.toLowerCase() === "token" || value === token) return { status: 400, reason: "refused: a token in the query string leaks into proxy logs and shell history; send it in the Authorization header" };
+  }
+  return request.headers.authorization === `Bearer ${token}` ? null : { status: 401, reason: "unauthorized: send the dashboard bearer token in the Authorization header" };
+}
+
+/** @param {import("node:http").ServerResponse} response @param {{status: number, reason: string}} refusal */
+function sendRefusal(response, refusal) {
+  response.writeHead(refusal.status, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+  response.end(refusal.reason);
 }
 
 /** Pushes a fresh snapshot on connect and whenever the selection's signature changes. @param {import("node:http").IncomingMessage} request @param {import("node:http").ServerResponse} response @param {string} runsDir @param {Selection} selection @param {number} pollMs */
@@ -467,21 +494,27 @@ function sendJson(response, payload) {
   response.end(JSON.stringify(payload));
 }
 
-function main() {
+async function main() {
   const arguments_ = process.argv.slice(2);
   let port = 4173;
+  let host = "127.0.0.1";
   let cwd = process.cwd();
+  let tokenFile = "";
   for (let index = 0; index < arguments_.length; index += 2) {
     if (arguments_[index] === "--port") port = Number(arguments_[index + 1]);
-    if (arguments_[index] === "--cwd") cwd = arguments_[index + 1];
+    if (arguments_[index] === "--host") host = String(arguments_[index + 1] ?? "");
+    if (arguments_[index] === "--cwd") cwd = String(arguments_[index + 1] ?? "");
+    if (arguments_[index] === "--token-file") tokenFile = String(arguments_[index + 1] ?? "");
   }
   const runsDir = join(cwd, ".runs");
-  const server = startServer({ runsDir, port });
-  server.on("listening", () => {
-    const address = server.address();
-    const actualPort = typeof address === "object" && address ? address.port : port;
-    process.stdout.write(`intent-factory dashboard on http://127.0.0.1:${actualPort} (runs: ${runsDir})\n`);
-  });
+  try {
+    const server = await startServer({ runsDir, tokenFile: tokenFile || join(runsDir, "dashboard.token"), port, host });
+    const address = /** @type {import("node:net").AddressInfo} */ (server.address());
+    process.stdout.write(`intent-factory dashboard on http://${address.address}:${address.port} (runs: ${runsDir})\n`);
+  } catch (error) {
+    process.stderr.write(`${errorMessage(error)}\n`);
+    process.exitCode = 1;
+  }
 }
 
 if (process.argv[1] && import.meta.url === `file://${process.argv[1]}`) main();
