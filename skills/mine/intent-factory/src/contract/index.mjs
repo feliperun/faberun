@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { loadTaskPacket, renderWorkerPrompt } from "./task-packet.mjs";
+import { RESERVED_ARTICLES } from "./articles.mjs";
 import { validateDefinitionOfDone } from "./definition-of-done.mjs";
 import { validateFinalVerification } from "./final-verification.mjs";
 import { VERIFICATION_LIMITS } from "./verification.mjs";
@@ -150,6 +151,13 @@ export function validateContract(raw, contractPath, options = {}) {
       throw new TypeError(`nodes[${index}].dependsOn must be an array of ids`);
     }
     const taskPacket = loadTaskPacket(node, contractDir, cwd, index);
+    // The reserved articles are the common law: a contract adds its own as
+    // references/local-*.md and may never claim a reserved name, at any
+    // directory depth, or a run could overwrite the constitution mid-flight.
+    const reservedClaim = reservedArticleClaim(taskPacket);
+    if (reservedClaim !== undefined) {
+      throw new TypeError(`nodes[${index}] (${node.id}): ${reservedClaim} is a reserved article; declare contract articles as references/local-*.md`);
+    }
     const prompt = renderWorkerPrompt(taskPacket, /** @type {string} */ (node.id));
     const packetHash = hashPacket(taskPacket);
     if (node.packetHash !== undefined && node.packetHash !== packetHash) {
@@ -375,6 +383,26 @@ function validateReplayPolicy(value, label) {
     throw new TypeError(`${label}.replayPolicy must be one of safe, reconcile, never`);
   }
   return /** @type {"safe"|"reconcile"|"never"} */ (value);
+}
+
+/**
+ * The first declared write path that claims a reserved article name, matched
+ * on the trailing `references/<name>` segments so the skill's location inside
+ * the target repository is not hardcoded here. scopeAcknowledged is checked
+ * alongside the write set because an acknowledged path is expected to change.
+ *
+ * @param {TaskPacket} packet
+ * @returns {string|undefined}
+ */
+function reservedArticleClaim(packet) {
+  const declared = [
+    ...(packet.writeFiles ?? []),
+    ...(packet.writeRoots ?? []),
+    ...(packet.scopeAcknowledged ?? []),
+  ];
+  return declared.find((path) =>
+    RESERVED_ARTICLES.some((article) => path === article || path.endsWith(`/${article}`)),
+  );
 }
 
 /**

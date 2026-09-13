@@ -3,9 +3,13 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const SKILL_BYTE_CEILING = 6144;
+const SKILL_BYTE_CEILING = 1024;
 const CONTRACT_BYTE_CEILING = 20480;
 const OPERATIONS_BYTE_CEILING = 10240;
+const RULES_BYTE_CEILING = 2048;
+const ENGINEERING_BYTE_CEILING = 2048;
+const WORKFLOW_BYTE_CEILING = 2048;
+const HANDOFFS_BYTE_CEILING = 2048;
 const BULK_READ_SKILL_BYTE_CEILING = 500;
 
 const skillPath = fileURLToPath(new URL('../../SKILL.md', import.meta.url));
@@ -46,12 +50,30 @@ test('references/contract.md and references/operations.md stay within their byte
   );
 });
 
-test('references/ holds only contract.md and operations.md', () => {
+test('the four reserved articles stay within their byte ceilings', () => {
+  /** @type {[string, number][]} */
+  const ceilings = [
+    ['rules.md', RULES_BYTE_CEILING],
+    ['engineering.md', ENGINEERING_BYTE_CEILING],
+    ['workflow.md', WORKFLOW_BYTE_CEILING],
+    ['handoffs.md', HANDOFFS_BYTE_CEILING],
+  ];
+  for (const [name, ceiling] of ceilings) {
+    const bytes = statSync(fileURLToPath(new URL(`../../references/${name}`, import.meta.url))).size;
+    assert.ok(bytes > 0, `references/${name} must not be empty`);
+    assert.ok(
+      bytes <= ceiling,
+      `references/${name} is ${bytes} bytes; the ceiling is ${ceiling} bytes.`,
+    );
+  }
+});
+
+test('references/ holds the two foundation documents and the four reserved articles', () => {
   const entries = readdirSync(referencesDir).sort();
   assert.deepEqual(
     entries,
-    ['contract.md', 'operations.md'],
-    'the three-document diet keeps exactly contract.md and operations.md under references/',
+    ['contract.md', 'engineering.md', 'handoffs.md', 'operations.md', 'rules.md', 'workflow.md'],
+    'references/ is contract.md, operations.md, and the four reserved constitution articles',
   );
 });
 
