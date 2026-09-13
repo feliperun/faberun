@@ -134,6 +134,8 @@ export function validateContract(raw, contractPath, options = {}) {
   }
   const rawNodes = /** @type {JsonObject[]} */ (raw.nodes);
   const ids = new Set();
+  /** @type {{path: string, label: string}[][]} */
+  const deferredReadsByNode = [];
   const nodes = rawNodes.map((node, index) => {
     assertObject(node, `nodes[${index}]`);
     rejectUnknown(node, NODE_FIELDS, `nodes[${index}]`);
@@ -150,7 +152,15 @@ export function validateContract(raw, contractPath, options = {}) {
     if (!Array.isArray(dependsOn) || dependsOn.some((id) => typeof id !== "string")) {
       throw new TypeError(`nodes[${index}].dependsOn must be an array of ids`);
     }
-    const taskPacket = loadTaskPacket(node, contractDir, cwd, index);
+    // A readFiles entry that names a file no dependency has produced yet is a
+    // missing read today, but the graph is not known until every node is
+    // loaded. Collect the candidate here; the second pass below resolves each
+    // against the node's transitive closure once all packets and dependsOn
+    // edges are in hand.
+    /** @type {{path: string, label: string}[]} */
+    const deferredReads = [];
+    const taskPacket = loadTaskPacket(node, contractDir, cwd, index, { deferMissingReads: true, deferredReads });
+    deferredReadsByNode.push(deferredReads);
     // The reserved articles are the common law: a contract adds its own as
     // references/local-*.md and may never claim a reserved name, at any
     // directory depth, or a run could overwrite the constitution mid-flight.
@@ -210,6 +220,23 @@ export function validateContract(raw, contractPath, options = {}) {
     }
   }
   assertAcyclic(nodes);
+
+  // Second pass: a readFiles entry deferred at packet load is accepted only
+  // when some transitive dependency produces it -- declares the identical path
+  // in its writeFiles, or the path sits under a dependency's directory-shaped
+  // writeRoots entry (a file-shaped entry authorizes exactly that path). Every
+  // other caller of validateTaskPacket keeps rejecting the missing read inline;
+  // this graph-aware deferral is a contract-loading capability only.
+  for (const [index, node] of nodes.entries()) {
+    const deferredReads = deferredReadsByNode[index];
+    if (deferredReads.length === 0) continue;
+    const closure = transitiveDependencyClosure(node, nodes);
+    for (const { path, label } of deferredReads) {
+      if (!dependencyCoversRead(closure, path, cwd)) {
+        throw new TypeError(`${label} does not exist: ${path}`);
+      }
+    }
+  }
 
   // A gated node whose worker and judge share a vendor cannot produce an
   // independent review — the same vendor grading its own output is not a
@@ -423,6 +450,66 @@ function assertAcyclic(nodes) {
     visited.add(id);
   };
   for (const node of nodes) visit(node.id);
+}
+
+/**
+ * Every node reachable from `node` through `dependsOn` (and the dependencies
+ * of those, transitively), itself excluded.
+ *
+ * @param {ValidatedNode} node
+ * @param {ValidatedNode[]} nodes
+ * @returns {Set<ValidatedNode>}
+ */
+function transitiveDependencyClosure(node, nodes) {
+  const byId = new Map(nodes.map((candidate) => [candidate.id, candidate]));
+  const closure = /** @type {Set<ValidatedNode>} */ (new Set());
+  /** @param {string} id */
+  const visit = (id) => {
+    const dependency = byId.get(id);
+    if (!dependency || closure.has(dependency)) return;
+    closure.add(dependency);
+    for (const next of dependency.dependsOn) visit(next);
+  };
+  for (const id of node.dependsOn) visit(id);
+  return closure;
+}
+
+/**
+ * Whether a transitive dependency produces the deferred read: it declares the
+ * identical path in `writeFiles`, or the path sits under a directory-shaped
+ * `writeRoots` entry. A `writeRoots` entry that names an existing regular file
+ * authorizes exactly that path and nothing beneath it, mirroring the
+ * file-root/directory-root rule workspace.mjs's scope comparison applies.
+ *
+ * @param {Set<ValidatedNode>} closure
+ * @param {string} path
+ * @param {string} cwd
+ * @returns {boolean}
+ */
+function dependencyCoversRead(closure, path, cwd) {
+  for (const dependency of closure) {
+    const packet = dependency.taskPacket;
+    if ((packet.writeFiles ?? []).includes(path)) return true;
+    for (const root of packet.writeRoots ?? []) {
+      if (path === root) return true;
+      if (isRegularFileRoot(root, cwd)) continue;
+      if (path.startsWith(`${root}/`)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * @param {string} root
+ * @param {string} cwd
+ * @returns {boolean}
+ */
+function isRegularFileRoot(root, cwd) {
+  try {
+    return statSync(resolve(cwd, root)).isFile();
+  } catch {
+    return false;
+  }
 }
 
 /**

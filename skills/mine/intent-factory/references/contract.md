@@ -76,7 +76,12 @@ it.
 `mode` is `execution`, `discovery`, or `autonomous`. `objective`,
 `instructions`, and `verification` are required and non-empty. An execution
 packet requires non-empty `readFiles` and `writeFiles`; read paths are
-relative to `cwd`, cannot escape it, and must exist at validation time. A
+relative to `cwd`, cannot escape it, and must exist at validation time —
+except contract loading defers a missing `readFiles` entry a transitive
+dependency declares in its `writeFiles`, or that sits under one of that
+dependency's directory-shaped `writeRoots` entries (a file-shaped entry
+authorizes only that exact path); every other caller still rejects the
+missing read. A
 discovery packet has empty `writeFiles`; with an empty `readFiles` it may
 read the repository read-only to produce an execution packet — the one
 exception to closed scope — otherwise it is closed to the listed files. Each

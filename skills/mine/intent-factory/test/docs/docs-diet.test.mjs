@@ -4,7 +4,14 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const SKILL_BYTE_CEILING = 1024;
-const CONTRACT_BYTE_CEILING = 20480;
+// Raised from 20480 on 2026-09-13 for real capability growth: a readFiles
+// entry may now name a file a transitive dependency declares in writeFiles or
+// under a directory writeRoots, which contract loading defers to graph
+// resolution instead of rejecting at packet load. The ceiling is a ratchet
+// against prose creep, not against surface the product actually grew, so the
+// increase is spent on the deferral rule and nothing else. Raising it again
+// needs the same argument.
+const CONTRACT_BYTE_CEILING = 20992;
 // Raised from 10240 on 2026-09-13, deliberately and only once: `supervise`
 // became a real command and an operator cannot run an undocumented one. The
 // ceiling is a ratchet against prose creep, not against surface the product

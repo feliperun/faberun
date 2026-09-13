@@ -20,6 +20,13 @@ const FIELDS = new Set([
 ]);
 const PROMPT_MAX_BYTES = 64 * 1024;
 
+/**
+ * `validateRelativePath`'s answer when a read path is absent and the caller
+ * asked to defer the missing-read verdict rather than throw it. Only contract
+ * loading opts in; every other caller throws the missing-read error in place.
+ */
+const DEFERRED_MISSING = Symbol("deferred-missing");
+
 /** @typedef {import("./verification.mjs").VerificationCommand} VerificationCommand */
 
 /**
@@ -40,9 +47,10 @@ const PROMPT_MAX_BYTES = 64 * 1024;
  * @param {string} contractDir
  * @param {string} cwd
  * @param {number} index
+ * @param {{deferMissingReads?: boolean, deferredReads?: {path: string, label: string}[]}} [options]
  * @returns {TaskPacket}
  */
-export function loadTaskPacket(node, contractDir, cwd, index) {
+export function loadTaskPacket(node, contractDir, cwd, index, options = {}) {
   if (node.prompt !== undefined || node.promptFile !== undefined) {
     throw new TypeError(
       `nodes[${index}] must not use prompt or promptFile; provide exactly one of taskPacket or taskPacketFile`,
@@ -68,7 +76,7 @@ export function loadTaskPacket(node, contractDir, cwd, index) {
       throw error;
     }
   }
-  return validateTaskPacket(packet, index, cwd);
+  return validateTaskPacket(packet, index, cwd, options);
 }
 
 /**
@@ -124,9 +132,10 @@ export function renderWorkerPrompt(packet, nodeId) {
  * @param {unknown} packet
  * @param {number} index
  * @param {string} cwd
+ * @param {{deferMissingReads?: boolean, deferredReads?: {path: string, label: string}[]}} [options]
  * @returns {TaskPacket}
  */
-export function validateTaskPacket(packet, index, cwd) {
+export function validateTaskPacket(packet, index, cwd, options = {}) {
   if (!packet || typeof packet !== "object" || Array.isArray(packet)) {
     throw new TypeError(`nodes[${index}].taskPacket must be a JSON object`);
   }
@@ -188,8 +197,13 @@ export function validateTaskPacket(packet, index, cwd) {
     throw new TypeError(`nodes[${index}].taskPacket.writeFiles must be empty for a discovery packet`);
   }
 
+  const deferMissingReads = options.deferMissingReads === true;
+  /** @type {{path: string, label: string}[]} */
+  const deferredReads = options.deferredReads ?? [];
   normalizedReadFiles.forEach((path, pathIndex) => {
-    validateRelativePath(path, `nodes[${index}].taskPacket.readFiles[${pathIndex}]`, cwd, true);
+    const label = `nodes[${index}].taskPacket.readFiles[${pathIndex}]`;
+    const result = validateRelativePath(path, label, cwd, true, { deferMissing: deferMissingReads });
+    if (result === DEFERRED_MISSING) deferredReads.push({ path, label });
   });
   if (writeFiles !== undefined) /** @type {string[]} */ (writeFiles).forEach((path, pathIndex) => {
     validateRelativePath(path, `nodes[${index}].taskPacket.writeFiles[${pathIndex}]`, cwd, false);
@@ -255,8 +269,11 @@ function validateWriteRoot(path, label, cwd) {
  * @param {string} label
  * @param {string} cwd
  * @param {boolean} mustExist
+ * @param {{deferMissing?: boolean}} [options]
+ * @returns {symbol|undefined} `DEFERRED_MISSING` when the path is absent and the
+ *   caller opted into deferring the missing-read verdict; otherwise nothing.
  */
-function validateRelativePath(path, label, cwd, mustExist) {
+function validateRelativePath(path, label, cwd, mustExist, options = {}) {
   if (isAbsolute(path)) throw new TypeError(`${label} must be relative to cwd`);
   const absolute = resolve(cwd, path);
   if (!pathInside(absolute, cwd)) throw new TypeError(`${label} escapes cwd`);
@@ -277,7 +294,10 @@ function validateRelativePath(path, label, cwd, mustExist) {
   if (!pathInside(realAnchor, realCwd)) throw new TypeError(`${label} escapes cwd`);
 
   if (!mustExist && !existsSync(absolute)) return;
-  if (!existsSync(absolute)) throw new TypeError(`${label} does not exist: ${path}`);
+  if (!existsSync(absolute)) {
+    if (options.deferMissing) return DEFERRED_MISSING;
+    throw new TypeError(`${label} does not exist: ${path}`);
+  }
   const realAbsolute = realpathSync(absolute);
   if (!pathInside(realAbsolute, realCwd)) throw new TypeError(`${label} escapes cwd`);
   if (!statSync(absolute).isFile()) {
