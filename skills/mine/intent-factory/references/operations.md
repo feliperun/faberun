@@ -9,15 +9,12 @@ recorded source `gitHead`. Every worker attempt gets a linked worktree at
 `if/<run-id>/<node-id>/<attempt>`, cut from that ref. The node snapshot
 records `worktree.path`, `.branch`, `.baseSha`, and the sealed `.commit`.
 Provider processes, scope snapshots, controller verification, and judges all
-use that path; `contract.cwd` stays the home of run/control artifacts. When
-the repository root has an installed `node_modules`, every attempt worktree
-links it in as a symlink, never a copy.
+use that path; `contract.cwd` stays the home of run/control artifacts. An installed root `node_modules` is symlinked into every attempt worktree, never copied.
 
 A retried attempt never discards the previous one's edits: the controller
 seals the previous attempt's worktree first, and when that seal has a diff,
 the next attempt is cut from that sealed sha (`worktree.previousAttempt`
-records which) instead of the run ref tip; an empty seal falls back to the
-run ref tip.
+records which); an empty seal falls back to the run ref tip.
 
 `contract.maxParallel` bounds concurrent nodes; each tick the scheduler
 dispatches every `pending` node whose dependencies are `done`, up to the free
@@ -62,7 +59,7 @@ Worker/judge/verification children run detached in their own process group,
 so before dispatching anything new, `resume`'s recovery pass terminates
 (`SIGTERM` then `SIGKILL`, same as `cancel`) every invocation recorded for a
 `running` node — unless it is still inside its deadline, in which case it is
-adopted and its result read instead of thrown away. `cancel <run-dir>`
+adopted and its result read. `cancel <run-dir>`
 signals a live controller to death first, so its own takeover never waits on
 an expiry.
 
@@ -79,31 +76,43 @@ edge and vendor rules.
 
 ## Status
 
-`<run-dir>/status.json` (`status --json`'s payload: `schemaVersion`, `run`,
-`contractId`, `campaignId`, `goal`, `usage`, `controller` state, `summary`,
-and one `nodes[]` entry per node — id, status, phase, runtime, continuation
-mode, attempt, revisions, usage, cost, verdict, note, `scopeFindings`,
-`errorCode`, `blockedBy`) and `.runs/status.json` (a ≤1 KiB pointer:
-`schemaVersion`, `runId`, `campaignId`, `state`, `checkpoints`, `activeNode`,
-`runtime`, `elapsedSec`, `costUsd`, `needsYou`, `attention`, `generatedAt`
-unix seconds) are written atomically every controller tick and at run
+`<run-dir>/status.json` (`status --json`'s payload: `schemaVersion`, run
+identifiers, `goal`, `usage`, `controller` state, `summary`, and one
+`nodes[]` entry per node — id, status, phase, runtime, attempt, revisions,
+cost, verdict, note, `errorCode`, `blockedBy`) and `.runs/status.json`
+(a ≤1 KiB pointer: run and campaign id, `state`, checkpoints, `activeNode`,
+`costUsd`, `needsYou`, `attention`, `generatedAt` unix seconds) are written atomically every controller tick and at run
 terminal. `status <run-dir>` renders, in order: Needs you (attention nodes
 and orphans), Now (active node, elapsed, cost, or idle), Nodes (one row per
-node), Cost (run totals). `integrations/claude-code/statusline.sh` reads the pointer
-directly for an ambient one-line prompt segment.
+node), Cost (run totals). `integrations/claude-code/statusline.sh` reads the
+pointer directly for an ambient one-line prompt segment.
 
 ## Dashboard
 
-`node src/web/server.mjs [--port 4173] [--cwd <repo>]` serves a
-read-only page on `127.0.0.1:4173`, one column, SSE-refreshed, over
-`status.json`, node JSON, `events.jsonl`, `usage.jsonl`, `notify.jsonl`, and
-`HANDOFF.md` only — it never writes campaign state. Sections: a campaign
-picker; **Now** (active run/node/cost or idle); **Needs you** (one line per
-attention item with the resolving command); **Runs** table for the selected
-campaign; a **Run drawer** on row click with per-node tabs (log tail,
-verification, diff, findings, prompt); **Handoff** (the campaign's
-`HANDOFF.md`). The snapshot is bounded to 200 KiB, shrinking the open
-drawer's log/verification tails, then its prompt, then the handoff text.
+`node src/web/server.mjs [--port 4173] [--cwd <repo>]` serves a read-only
+page on `127.0.0.1:4173`, SSE-refreshed, over `status.json`,
+node JSON, `events.jsonl`, `usage.jsonl`, `notify.jsonl`, and `HANDOFF.md`
+only. Sections: campaign picker; **Now**; **Needs you** (one line per
+attention item with the resolving command); **Runs** table; **Run drawer**
+on row click with per-node tabs (log tail, verification, diff, findings,
+prompt); **Handoff**. The snapshot is bounded to 200 KiB, shrinking the open
+drawer's log/verification tails, then its prompt, then the handoff.
+
+## Remote API
+
+The same server exposes the operator's phone surface under `/api/*`, behind
+the same token and bind. Reads: `GET /api/campaigns`,
+`/api/campaigns/<id>` (campaign and run rows), `…/brief` (the
+`operator-brief.md` the seat materializes), `/api/seats` (the seat
+registry), and `…/events?after=<cursor>` — one bounded page (≤32 KiB,
+≤100 entries) of the journal from the byte cursor returned as `next`; a
+client starting at zero never drags the whole journal. Every
+write shells out to the runner CLI and touches no state itself:
+`POST …/decisions/<id>` → `campaign resolve`; `…/note` → `campaign note`;
+`…/pause` and `…/resume` → `cancel` / `resume --detach` once per linked run
+with work in flight; `/api/seats/<id>/switch` → `seat switch`. No replan,
+contract, routing or gate route exists on purpose: the contract is frozen
+with a digest, and the phone's middle ground is a note.
 
 ## Notify
 
@@ -111,12 +120,11 @@ On `node.terminal`, `run.terminal`, and `attention` the controller renders a
 one-line message from counters and identifiers only (node id, run id, state,
 attempt, error code, done/total — never model text), calls the executable
 named by `INTENT_FACTORY_NOTIFY_BIN` with that event as JSON on stdin, and
-appends a receipt (`delivered`, `failed`, or `no_transport`, with the
-timestamp) to `<run-dir>/notify.jsonl`. Exit 0 is the only success signal;
+appends a receipt (`delivered`, `failed`, or `no_transport`, timestamped) to `<run-dir>/notify.jsonl`. Exit 0 is the only success signal;
 anything else retries on a later tick, up to three attempts with backoff
 (`INTENT_FACTORY_NOTIFY_BACKOFF_MS` overrides it). With
 `INTENT_FACTORY_NOTIFY_BIN` unset nothing is spawned and the receipt is
-`no_transport`. `INTENT_FACTORY_NOTIFY_BIN=os-macos` opts into the bundled
+`no_transport`. `INTENT_FACTORY_NOTIFY_BIN=os-macos` selects the bundled
 `osascript` adapter; any other value is an executable path. A resume never
 re-sends a notification already recorded in `notify.jsonl` for the same
 node, attempt, and outcome.
@@ -128,18 +136,11 @@ Every contract requires `campaignId`; campaign state lives at
 `HANDOFF.md`) and can link multiple runs.
 
 ```bash
-node src/cli.mjs campaign list [--cwd <dir>]
-node src/cli.mjs campaign init <id> --cwd <dir> --goal "Goal"
-node src/cli.mjs campaign attach <id> --cwd <dir> --tool codex --session-id <s> \
-  --transcript <path> --format jsonl [--cursor <c>]
-node src/cli.mjs campaign note <id> --cwd <dir> --session-id <s> \
-  --kind <intent|decision|supersede|constraint|outcome|next|open-question|retrospective> --text <t>
-node src/cli.mjs campaign resolve <id> --cwd <dir> --session-id <s> --question-id <q> --text <a>
-node src/cli.mjs campaign sync <id> --cwd <dir> --session-id <s>
-node src/cli.mjs campaign ack <id> --cwd <dir> --session-id <s> --event-id <e>
-node src/cli.mjs campaign watch <id> --cwd <dir> --wake
-node src/cli.mjs campaign close <id> --cwd <dir>
-node src/cli.mjs campaign show <id> --cwd <dir>
+node src/cli.mjs campaign <op> <id> [--cwd <dir>] …flags
+  init --goal "Goal" | attach --tool codex --session-id <s> --transcript <path> --format jsonl
+  note --session-id <s> --kind <intent|decision|supersede|constraint|outcome|next|open-question|retrospective> --text <t>
+  resolve --session-id <s> --question-id <q> --text <a> | sync --session-id <s> | ack --session-id <s> --event-id <e>
+  watch --wake | show | close  ·  list (no id)
 ```
 
 `sync` is the user-pull read: campaign header, the newest linked run's
@@ -153,13 +154,11 @@ refuses until a `retrospective` note exists; a closed campaign rejects
 further attach/note/resolve writes but stays inspectable via `show`/`list`.
 The campaign also mirrors its active state into a managed
 `<!-- intent-factory-active:start -->` block at the bottom of the target
-repo's `AGENTS.md` (read-only for any agent; the runner rewrites it at run
-start/end, resume, and cancel) — the signal that active work exists before
-an unrelated session's first prompt.
+repo's `AGENTS.md` — the signal that active work exists before an unrelated
+session's first prompt.
 
 `HANDOFF.md` is an atomic, ≤16 KiB projection of recent intents, decisions,
-constraints, outcomes, next action, and open questions, refreshed on
-initialization, run registration, state transitions, `status`, and terminal
+constraints, outcomes, next action, and open questions, refreshed at initialization, registration, state transitions and terminal
 completion; `journal.jsonl` is the append-only, fsynced full narrative.
 
 ## Operator seat
@@ -167,9 +166,9 @@ completion; `journal.jsonl` is the append-only, fsynced full narrative.
 The seat is one tmux session, `intent-factory-seat`, with one window per open
 campaign. It hosts the operator's interactive harness and never drives a run:
 state writes stay with the controller, and a dead pane cannot touch `.runs/`.
-The operator harness registry (`src/seat/harnesses.mjs`) declares five entries
+The harness registry (`src/seat/harnesses.mjs`) declares five entries
 — `claude`, `codex`, `zcode`, `dsh`, `agy` — each with interactive argv, an
-environment marker, and `canRenderAmbient` (true only for claude).
+environment marker, and `canRenderAmbient` (claude only).
 
 ```bash
 node src/cli.mjs seat start <campaign-id> --cwd <dir> [--harness <name>]
@@ -178,9 +177,8 @@ node src/cli.mjs seat status [--json] [--cwd <dir>]
 node src/cli.mjs seat stop [<campaign-id>] [--cwd <dir>]
 ```
 
-`attach` prints the command to paste instead of running `tmux attach`; the
-`--ssh <host>` form prints the remote `ssh -t` line, because attaching from a
-child process nests sessions. `status --json` lists each window's campaign,
-current harness, and whether it renders ambient state. tmux is optional: every
-`seat` function returns an explicit unavailable result when the binary is
-absent, campaign commands keep working, and only reattaching is lost.
+`attach` prints the command to paste instead of running `tmux attach` (a
+child process would nest sessions); `--ssh <host>` prints the remote `ssh -t`
+line. `status --json` lists each window's campaign, harness, and ambient
+capability. tmux is optional: every `seat` function returns an explicit
+unavailable result when the binary is absent; only reattaching is lost.
