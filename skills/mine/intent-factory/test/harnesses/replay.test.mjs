@@ -559,12 +559,13 @@ test("a worker exhaustion fails over its declared one-hop fallback, and the atte
 test("a quota exhaustion carrying a scheduled reset resumes the same runtime instead of failing over", async () => {
   const directory = mkdtempSync(join(tmpdir(), "replay-quota-reset-"));
   const recordingDir = mkdtempSync(join(tmpdir(), "replay-quota-reset-rec-"));
-  // Comfortably inside the node's deadline (2_400s by default), and generous
-  // enough that the first worker invocation's own process spawn cannot eat
-  // into it: classifyTransition reads resetAt only once the first envelope
-  // comes back, and it must still be in the future at that moment for the
-  // reset branch (rather than an immediate failover) to fire.
-  const resetAt = new Date(Date.now() + 3_000).toISOString();
+  // Relative, resolved by the replay binary when it emits the envelope. It
+  // used to be `Date.now() + 3_000` computed here, which raced the worker's
+  // own process spawn: classifyTransition reads resetAt only once the first
+  // envelope comes back, and under the full parallel suite the spawn outlasted
+  // the window, flipping the reset branch to failover. Starting the window at
+  // emit removes the race without making the test wait any longer.
+  const resetAt = "+3000";
   const primaryRecording = writeRecording(recordingDir, [
     { envelope: envelope({ status: "exhausted", result: null, error: { code: "quota_exhausted", message: "quota resets shortly", resetAt } }) },
     { envelope: envelope({ result: JSON.stringify(workerResult("build complete after the reset")) }) },

@@ -331,6 +331,45 @@ test("no test bounds a measured duration from above", () => {
   );
 });
 
+/**
+ * The third shape, and the one that actually shipped a flake. A deadline
+ * computed as `Date.now() + N` at the top of a test, then raced against work
+ * the test goes on to do, is a bet that the machine finishes that work inside
+ * N. `replay.test.mjs` bet 3s against a worker process spawn; alone it won,
+ * under the full parallel suite it lost, and the run took the failover branch
+ * instead of the reset branch it was asserting.
+ *
+ * It is not caught by the two gates above: there is no upper bound in an
+ * assertion and no blocking wait. The honest fix is to start the window where
+ * the work ends -- the replay binary now resolves `resetAt: "+3000"` when it
+ * emits -- and the ratchet keeps the remaining three from growing.
+ */
+const FUTURE_DEADLINE = /Date\.now\(\)\s*\+\s*([0-9_]+)/gu;
+const FUTURE_DEADLINE_MS = 60_000;
+const FUTURE_DEADLINE_CEILING = 3;
+
+test(`tests racing a deadline under ${FUTURE_DEADLINE_MS}ms never exceed ${FUTURE_DEADLINE_CEILING}`, () => {
+  const raced = TEST_FILES.flatMap((file) =>
+    file.text.split("\n").flatMap((line, index) => {
+      const text = line.trim();
+      if (text.startsWith("*") || text.startsWith("//")) return [];
+      return [...text.matchAll(FUTURE_DEADLINE)]
+        .filter((match) => Number(match[1].replaceAll("_", "")) < FUTURE_DEADLINE_MS)
+        .map((match) => `${file.label}:${index + 1}  ${match[0]}`);
+    }),
+  );
+  assert.ok(
+    raced.length <= FUTURE_DEADLINE_CEILING,
+    `${raced.length} test deadline(s) under ${FUTURE_DEADLINE_MS}ms, ceiling ${FUTURE_DEADLINE_CEILING}:\n` +
+      raced.map((entry) => `  ${entry}`).join("\n"),
+  );
+  assert.equal(
+    raced.length,
+    FUTURE_DEADLINE_CEILING,
+    `the count fell to ${raced.length}; lower FUTURE_DEADLINE_CEILING to match so it cannot drift back up.`,
+  );
+});
+
 test(`tests blocking on wall-clock time never exceed ${BLOCKING_WAIT_CEILING}`, () => {
   const waits = TEST_FILES.flatMap((file) =>
     [...file.text.matchAll(BLOCKING_WAIT)].map((match) => `${file.label}  ${match[0]}`),

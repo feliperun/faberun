@@ -349,12 +349,38 @@ appendFileSync(
   `${JSON.stringify({ at: new Date().toISOString(), index: cursor, promptBytes: Buffer.byteLength(prompt, "utf8"), args })}\n`,
 );
 
+/**
+ * Resolve an `error.resetAt` written as `+<ms>` into an absolute instant, at
+ * the moment the envelope is emitted rather than when the recording was
+ * written.
+ *
+ * A recording that hardcodes `Date.now() + 3000` is racing the spawn: the
+ * controller only reads `resetAt` when this envelope comes back, and under a
+ * loaded suite the spawn can outlast the window, which flips
+ * `classifyTransition` from the reset branch to failover. That is how
+ * "a quota exhaustion carrying a scheduled reset..." passed alone and failed
+ * in the full run. Emitting the instant here makes the window start where the
+ * test means it to.
+ *
+ * @param {Record<string, unknown>} envelope
+ * @returns {Record<string, unknown>}
+ */
+function resolveRelativeReset(envelope) {
+  const error = envelope.error;
+  if (!error || typeof error !== "object") return envelope;
+  const record = /** @type {Record<string, unknown>} */ (error);
+  const resetAt = record.resetAt;
+  if (typeof resetAt !== "string" || !/^\+\d+$/u.test(resetAt)) return envelope;
+  const at = new Date(Date.now() + Number(resetAt.slice(1))).toISOString();
+  return { ...envelope, error: { ...record, resetAt: at } };
+}
+
 if (record.delayMs !== undefined && record.delayMs > 0) {
   await new Promise((settle) => setTimeout(settle, record.delayMs));
 }
 if (record.stdoutRaw !== undefined) {
   process.stdout.write(record.stdoutRaw);
 } else {
-  process.stdout.write(`${JSON.stringify(record.envelope)}\n`);
+  process.stdout.write(`${JSON.stringify(resolveRelativeReset(record.envelope))}\n`);
 }
 process.exitCode = record.exitCode ?? 0;
