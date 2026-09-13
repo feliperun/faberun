@@ -52,14 +52,6 @@ function isDependencyFailed(state) {
  * @param {{status?: string, error?: {code?: string}|null}} state
  * @returns {boolean}
  */
-function isBlockedContext(state) {
-  return state.status === "blocked" && state.error?.code === "context_missing";
-}
-
-/**
- * @param {{status?: string, error?: {code?: string}|null}} state
- * @returns {boolean}
- */
 export function isUnknownEffectStop(state) {
   return state.status === "blocked" && state.error?.code === "unknown_effect_reconciled";
 }
@@ -132,7 +124,7 @@ export function planResumeRetry(contract, states, options = {}) {
         ? "retry"
         : hold(node, "an unknown workspace effect needs an explicit `resume --reconcile`");
     }
-    if (isBlockedContext(state)) {
+    if (state.status === "blocked" && state.error?.code === "context_missing") {
       // A node the operator answered is dispatchable again; every other
       // `context_missing` node keeps its terminal boundary.
       return options.answer === node
