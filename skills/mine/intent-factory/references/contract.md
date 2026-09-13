@@ -351,18 +351,15 @@ findings, failing commands) appended to the regenerated prompt.
 `resume --node <id>` limits the retry to that node and its dependents.
 
 `resume --answer <node-id>=<path>` records an operator's answer for a node
-`blocked` with `context_missing` and re-dispatches it (and its dependants),
-narrowing the retry exactly like `--node <node-id>`. The file is read once,
-relative to the shell's current working directory rather than `cwd`, and is
-refused above a hard 8 KiB ceiling. The answer is persisted as an
-`operator-answer` execution override on the node snapshot (`kind`, `at`,
-`reason`, and a bounded `text` field); the authored packet and its
-`packetHash` are never touched, and repeated answers append records rather
-than merging them. A malformed value, an unknown node id, an unreadable file,
-a file above the ceiling, or a node not blocked on missing context each refuse
-the resume with its own message. An answer is text only: it is never written
-into the attempt worktree, and the file is not delivered to the worker as a
-file.
+`blocked` with `context_missing`, then re-dispatches it and its dependants,
+narrowed exactly like `--node`. The file is read once, relative to the
+shell's own cwd rather than the contract's, refused above 8 KiB, and
+persisted as an `operator-answer` execution override (`kind`, `at`, `reason`,
+a bounded `text`) — the authored packet and `packetHash` untouched, and a
+repeated answer appends rather than merges. A malformed value, an unknown
+node, an unreadable or oversized file, or a node not blocked on missing
+context each refuse with their own message. The answer is text only, never
+written into the attempt worktree.
 
 `unknown_effect_reconciled` is re-dispatched only with an explicit
 `--reconcile <node-id>`. Resume accepts a current `HEAD` that is a

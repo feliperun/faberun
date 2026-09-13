@@ -11,7 +11,10 @@ const SKILL_BYTE_CEILING = 1024;
 // against prose creep, not against surface the product actually grew, so the
 // increase is spent on the deferral rule and nothing else. Raising it again
 // needs the same argument.
-const CONTRACT_BYTE_CEILING = 20992;
+// Raised again from 20992 the same day: `resume --answer` is a second real
+// command, documented after trimming the paragraph describing it once
+// already.
+const CONTRACT_BYTE_CEILING = 21504;
 // Raised from 10240 on 2026-09-13, deliberately and only once: `supervise`
 // became a real command and an operator cannot run an undocumented one. The
 // ceiling is a ratchet against prose creep, not against surface the product
