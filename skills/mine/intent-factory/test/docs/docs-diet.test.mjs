@@ -5,7 +5,13 @@ import { fileURLToPath } from 'node:url';
 
 const SKILL_BYTE_CEILING = 1024;
 const CONTRACT_BYTE_CEILING = 20480;
-const OPERATIONS_BYTE_CEILING = 10240;
+// Raised from 10240 on 2026-09-13, deliberately and only once: `supervise`
+// became a real command and an operator cannot run an undocumented one. The
+// ceiling is a ratchet against prose creep, not against surface the product
+// actually grew, and the way to honour it is to spend the increase on the new
+// command and pay for part of it — roughly 200 bytes here — by cutting
+// redundancy that was already there. Raising it again needs the same argument.
+const OPERATIONS_BYTE_CEILING = 10496;
 const RULES_BYTE_CEILING = 2048;
 const ENGINEERING_BYTE_CEILING = 2048;
 const WORKFLOW_BYTE_CEILING = 2048;

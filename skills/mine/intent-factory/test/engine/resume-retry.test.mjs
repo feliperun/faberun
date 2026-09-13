@@ -6,8 +6,8 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { resumeRun } from "../../src/engine/resume.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
-import { fakeCodex, fixture, initializeGit, orphan, packet, withFakeCodex, writeContract } from "../helpers.mjs";
-import { nodeState, persistFailure, promptLoggingCodex, withCodexBinary, runMetadata, recoveryDecisions, retryJudgeCodex } from "../runner-helpers.mjs";
+import { ensureAttemptWorktree, fakeCodex, fixture, initializeGit, orphan, packet, withFakeCodex, writeContract } from "../helpers.mjs";
+import { nodeState, persistFailure, promptLoggingCodex, withCodexBinary, runMetadata, recoveryDecisions, retryJudgeCodex, withBrokenGateCodex } from "../runner-helpers.mjs";
 
 
 
@@ -284,4 +284,50 @@ test("resume accepts a descendant head and records it on the run", async () => {
   assert.equal(resumed.ok, true);
   assert.equal(nodeState(resumed).status, "done");
   assert.equal(runMetadata(runDir).sourceIdentity.gitHead, head, "the new head is recorded on the run");
+});
+
+test("a gate rejection adopted on resume spends one attempt, not two", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-resume-rejection-attempt-"));
+  const path = writeContract(directory, fixture({
+    id: "resume-rejection-attempt-run",
+    pollIntervalMs: 10,
+    nodes: [{
+      id: "build",
+      type: "backend",
+      taskPacket: packet(),
+      definitionOfDone: [{ id: "works", text: "It works", judgment: true }],
+      gate: { review: "blocking", failOn: ["major", "critical"], maxRevisions: 1 },
+    }],
+  }));
+  // Attempt 1 runs, its judge rejects, and the live controller retries once —
+  // the ordinary blocking-gate path, which leaves the node exhausted at 2.
+  const runDir = await withBrokenGateCodex(directory, async () => (await runContract(path)).runDir);
+  const nodePath = join(runDir, "nodes", "build.json");
+  /** @type {any} */
+  const settled = JSON.parse(readFileSync(nodePath, "utf8"));
+  assert.equal(settled.status, "exhausted");
+  assert.equal(settled.attempt, 2, "two live attempts, two attempt numbers");
+
+  // Now the crash the counter used to mis-report: the controller dies with a
+  // finished judge on disk and a revision still unspent, so the rejection is
+  // adopted by `resume` instead of dispatched by a live loop.
+  const worktree = ensureAttemptWorktree(runDir, settled);
+  writeFileSync(nodePath, JSON.stringify({
+    ...settled,
+    status: "running",
+    phase: "judge",
+    revisions: 0,
+    error: null,
+    worktree,
+  }, null, 2));
+
+  const resumed = await withFakeCodex(directory, "pass", () => resumeRun(runDir));
+  const final = nodeState(resumed);
+  assert.equal(final.revisions, 1, "the adopted rejection consumed its revision");
+  assert.equal(final.attempt, 3, "one retry, one attempt: 2 plus one, never 2 plus two");
+  assert.equal(
+    existsSync(join(runDir, "logs", `build.${final.attempt}.worker.jsonl`)),
+    true,
+    "the attempt the node reports is the attempt its logs are filed under",
+  );
 });

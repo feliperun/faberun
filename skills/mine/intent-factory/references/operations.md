@@ -9,7 +9,9 @@ recorded source `gitHead`. Every worker attempt gets a linked worktree at
 `if/<run-id>/<node-id>/<attempt>`, cut from that ref. The node snapshot
 records `worktree.path`, `.branch`, `.baseSha`, and the sealed `.commit`.
 Provider processes, scope snapshots, controller verification, and judges all
-use that path; `contract.cwd` stays the home of run/control artifacts. An installed root `node_modules` is symlinked into every attempt worktree, never copied.
+use that path; `contract.cwd` stays the home of run/control artifacts. An
+installed root `node_modules` is symlinked into every attempt worktree, never
+copied.
 
 A retried attempt never discards the previous one's edits: the controller
 seals the previous attempt's worktree first, and when that seal has a diff,
@@ -50,11 +52,9 @@ processStartToken, startedAt, hostname}`. Acquisition is an exclusive
 create; there is no TTL. A contender treats the lock as stale only once it
 can prove the holder dead — the pid is gone, or its process start token no
 longer matches (pid recycled); anything short of that is `controller_active`
-and the contender exits untouched.
-
-Takeover renames the lock file aside, re-checks the captured record is still
-stale, then discards it and installs its own; if the captured record turns
-out live (a race), the capture is handed back under its original name.
+and the contender exits untouched. Takeover renames the lock aside, re-checks
+the captured record is still stale, then installs its own; a capture that
+turns out live is handed back under its original name.
 Worker/judge/verification children run detached in their own process group,
 so before dispatching anything new, `resume`'s recovery pass terminates
 (`SIGTERM` then `SIGKILL`, same as `cancel`) every invocation recorded for a
@@ -63,16 +63,21 @@ adopted and its result read. `cancel <run-dir>`
 signals a live controller to death first, so its own takeover never waits on
 an expiry.
 
+`supervise <run-dir> [--detach] [--interval <sec>]` is the watchdog above that.
+It holds no lock and writes no state: every interval (default 30s) it launches
+`resume --detach` when a node is unfinished and no controller is live, exits 0
+once all are terminal, and stops after three failed launches. An empty run
+directory is never resumed — it has not proved it needs to be.
+
 ## Runtime discovery
 
 `doctor --discover [--json]` performs mutation-free harness discovery,
 reporting `{available, exhaustedUntil, reason}` per runtime (missing CLI →
-`not_found`; auth failure has no reset; quota keeps its reset, including
-Z.ai code 1310). Omitted `runtimes`/`runtimeDefaults` are composed once and
-persisted in `routing.assignments`; exhaustion re-tiers within the current
-tier only, otherwise the node parks `attention` with
-`runtime_tier_exhausted`. See [contract.md](contract.md) for the failover
-edge and vendor rules.
+`not_found`; auth failure has no reset; quota keeps its reset, including Z.ai
+code 1310). Omitted `runtimes`/`runtimeDefaults` are composed once and persisted
+in `routing.assignments`; exhaustion re-tiers within the current tier only,
+otherwise the node parks `attention` with `runtime_tier_exhausted`. The failover
+edge and vendor rules: [contract.md](contract.md).
 
 ## Status
 
@@ -89,14 +94,14 @@ pointer directly for an ambient one-line prompt segment.
 
 ## Dashboard
 
-`node src/web/server.mjs [--port 4173] [--cwd <repo>]` serves a read-only
-page on `127.0.0.1:4173`, SSE-refreshed, over `status.json`,
-node JSON, `events.jsonl`, `usage.jsonl`, `notify.jsonl`, and `HANDOFF.md`
-only. Sections: campaign picker; **Now**; **Needs you** (one line per
-attention item with the resolving command); **Runs** table; **Run drawer**
-on row click with per-node tabs (log tail, verification, diff, findings,
-prompt); **Handoff**. The snapshot is bounded to 200 KiB, shrinking the open
-drawer's log/verification tails, then its prompt, then the handoff.
+`node src/web/server.mjs [--port 4173] [--cwd <repo>]` serves a read-only,
+SSE-refreshed page on `127.0.0.1:4173` over `status.json`, node JSON,
+`events.jsonl`, `usage.jsonl`, `notify.jsonl` and `HANDOFF.md` only. Sections:
+campaign picker; **Now**; **Needs you** (one line per attention item with the
+resolving command); **Runs**; **Run drawer** on row click with per-node tabs
+(log tail, verification, diff, findings, prompt); **Handoff**. The snapshot is
+bounded to 200 KiB, shrinking the open drawer's tails, then its prompt, then
+the handoff.
 
 ## Remote API
 
@@ -116,15 +121,14 @@ with a digest, and the phone's middle ground is a note.
 
 ## Notify
 
-On `node.terminal`, `run.terminal`, and `attention` the controller renders a
+On `node.terminal`, `run.terminal` and `attention` the controller renders a
 one-line message from counters and identifiers only (node id, run id, state,
-attempt, error code, done/total — never model text), calls the executable
-named by `INTENT_FACTORY_NOTIFY_BIN` with that event as JSON on stdin, and
-appends a receipt (`delivered`, `failed`, or `no_transport`, timestamped) to `<run-dir>/notify.jsonl`. Exit 0 is the only success signal;
-anything else retries on a later tick, up to three attempts with backoff
-(`INTENT_FACTORY_NOTIFY_BACKOFF_MS` overrides it). With
-`INTENT_FACTORY_NOTIFY_BIN` unset nothing is spawned and the receipt is
-`no_transport`. `INTENT_FACTORY_NOTIFY_BIN=os-macos` selects the bundled
+attempt, error code, done/total — never model text), calls the executable named
+by `INTENT_FACTORY_NOTIFY_BIN` with that event as JSON on stdin, and appends a
+timestamped receipt (`delivered`, `failed`, `no_transport`) to
+`<run-dir>/notify.jsonl`. Exit 0 is the only success; anything else retries on a
+later tick, three attempts with backoff (`INTENT_FACTORY_NOTIFY_BACKOFF_MS`).
+Unset, nothing is spawned and the receipt is `no_transport`. `INTENT_FACTORY_NOTIFY_BIN=os-macos` selects the bundled
 `osascript` adapter; any other value is an executable path. A resume never
 re-sends a notification already recorded in `notify.jsonl` for the same
 node, attempt, and outcome.
@@ -149,17 +153,16 @@ session's durable cursor, without moving it. `ack` is the only cursor
 writer, keyed by the journal's own event id. `watch --wake` polls every
 linked run's `status.json` every 30s and prints one line per actionable
 change (a run gone terminal, a node in attention, a stale controller lock,
-or twenty idle minutes), exiting once the campaign is closed. `close`
-refuses until a `retrospective` note exists; a closed campaign rejects
-further attach/note/resolve writes but stays inspectable via `show`/`list`.
-The campaign also mirrors its active state into a managed
-`<!-- intent-factory-active:start -->` block at the bottom of the target
-repo's `AGENTS.md` — the signal that active work exists before an unrelated
-session's first prompt.
+or twenty idle minutes), exiting once the campaign is closed. `close` refuses until a `retrospective` note exists; a closed campaign rejects
+further attach/note/resolve writes but stays inspectable. It also mirrors its
+active state into a managed `<!-- intent-factory-active:start -->` block at the
+bottom of the target repo's `AGENTS.md`, so an unrelated session sees active
+work before its first prompt.
 
 `HANDOFF.md` is an atomic, ≤16 KiB projection of recent intents, decisions,
-constraints, outcomes, next action, and open questions, refreshed at initialization, registration, state transitions and terminal
-completion; `journal.jsonl` is the append-only, fsynced full narrative.
+constraints, outcomes, next action and open questions, refreshed at
+initialization, registration, state transitions and terminal completion;
+`journal.jsonl` is the append-only, fsynced full narrative.
 
 ## Operator seat
 
@@ -177,8 +180,8 @@ node src/cli.mjs seat status [--json] [--cwd <dir>]
 node src/cli.mjs seat stop [<campaign-id>] [--cwd <dir>]
 ```
 
-`attach` prints the command to paste instead of running `tmux attach` (a
-child process would nest sessions); `--ssh <host>` prints the remote `ssh -t`
-line. `status --json` lists each window's campaign, harness, and ambient
-capability. tmux is optional: every `seat` function returns an explicit
-unavailable result when the binary is absent; only reattaching is lost.
+`attach` prints the command to paste rather than running `tmux attach`, which
+would nest sessions; `--ssh <host>` prints the remote `ssh -t` line. `status
+--json` lists each window's campaign, harness and ambient capability. tmux is
+optional: every `seat` function returns an explicit unavailable result when the
+binary is absent, and only reattaching is lost.

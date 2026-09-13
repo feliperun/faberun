@@ -31,6 +31,7 @@ import { cancelRun } from "./engine/cancel.mjs";
 import { errorMessage } from "./util.mjs";
 import { validateContract } from "./contract/index.mjs";
 import { detachSelf, waitForBootstrap, writeBootstrapFailure } from "./cli/launch.mjs";
+import { DEFAULT_SUPERVISE_INTERVAL_SEC, superviseRun } from "./engine/supervise.mjs";
 import { preflightContract, reusedDoneWarnings } from "./engine/live-preflight.mjs";
 
 /** @typedef {import("./contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -79,6 +80,7 @@ export function hasDetachedBootstrapNonce() {
 const COMMAND_OPTIONS = {
   run: { detach: { type: "boolean" } },
   resume: { detach: { type: "boolean" }, node: { type: "string" }, reconcile: { type: "string" } },
+  supervise: { detach: { type: "boolean" }, interval: { type: "string" } },
   cancel: {},
   preflight: { static: { type: "boolean" }, json: { type: "boolean" }, "time-verification": { type: "boolean" } },
   validate: {},
@@ -131,6 +133,21 @@ function resumeOptionsOf(values) {
   const node = typeof values.node === "string" && values.node ? values.node : undefined;
   const reconcile = typeof values.reconcile === "string" && values.reconcile ? values.reconcile : undefined;
   return { node, reconcile };
+}
+
+/**
+ * `supervise --interval`, in seconds. Rejected rather than defaulted when it
+ * is not a positive number: a scheduler passing a typo should hear about it,
+ * not silently get a different cadence than the one it asked for.
+ *
+ * @param {unknown} value
+ * @returns {number}
+ */
+function superviseIntervalOf(value) {
+  if (value === undefined) return DEFAULT_SUPERVISE_INTERVAL_SEC;
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) throw new Error(`--interval must be a positive number of seconds: ${String(value)}`);
+  return seconds;
 }
 
 /**
@@ -200,6 +217,32 @@ async function main(argv) {
     }
     const result = await resumeRun(target, { ...resumeOptions, detachedBootstrap: hasDetachedBootstrapNonce() });
     if (!result.ok) process.exitCode = 1;
+    return;
+  }
+  if (command === "supervise") {
+    const runDir = resolve(target);
+    if (!existsSync(join(runDir, "contract.json"))) throw new Error(`not a run directory: ${runDir}`);
+    const intervalSec = superviseIntervalOf(values.interval);
+    if (values.detach === true) {
+      // The supervisor is not a controller: it takes no lock, so there is no
+      // bootstrap handshake to wait on. Spawning and reporting the pid is the
+      // whole contract with the host scheduler that started it.
+      const child = detachSelf("supervise", target, ["--interval", String(intervalSec)]);
+      if (child.pid === undefined) throw new Error("detached child has no pid");
+      process.stdout.write(`[supervise] detached · pid ${child.pid} · every ${intervalSec}s · ${runDir}\n`);
+      return;
+    }
+    const outcome = await superviseRun(runDir, {
+      intervalSec,
+      launch: async (target) => {
+        const child = detachSelf("resume", target);
+        if (child.pid === undefined) throw new Error("detached child has no pid");
+        await waitForBootstrap(target, child.pid, child);
+        process.stdout.write(`[supervise] resumed · pid ${child.pid} · ${target}\n`);
+      },
+    });
+    process.stdout.write(`[supervise] ${outcome.state} · ${outcome.launches} resume${outcome.launches === 1 ? "" : "s"} over ${outcome.ticks} checks${outcome.reason ? ` · ${outcome.reason}` : ""}\n`);
+    if (outcome.state !== "done") process.exitCode = 1;
     return;
   }
   if (command === "cancel") { await cancelRun(target); return; }
@@ -273,7 +316,7 @@ async function main(argv) {
 function usage() {
   process.stderr.write(
     "usage: runner.mjs <run|validate> <contract.json> [--detach] | preflight <contract.json> [--static] [--time-verification] [--json] | " +
-    "<resume|cancel> <run-dir> [--detach] | " +
+    "<resume|cancel> <run-dir> [--detach] | supervise <run-dir> [--detach] [--interval <sec>] | " +
     "<status|report> <run-dir> [--json] | findings <run-dir> | " +
     "doctor [<contract.json>] [--cwd <dir>] [--discover] [--json] | models [--probe] [--json] | " +
     "bulk-read --question <text> --paths <a,b,c> [--json] | " +

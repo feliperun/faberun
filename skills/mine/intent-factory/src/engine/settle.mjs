@@ -46,10 +46,20 @@ export function applyRejection(contract, node, state, runDir, running, lock, sta
   if (node.gate.enabled && state.revisions < (node.gate.maxRevisions ?? 1)) {
     resetPhaseRouting(state);
     state.revisions += 1;
-    state.attempt += 1;
     process.stdout.write(`[${label}] ${node.id} retry · ${verdict.summary}\n`);
-    if (running) startWorker(contract, node, state, runDir, running, retryPrompt(node, verdict), lock, states, campaignPath);
-    else transition(runDir, state, "pending", { phase: "worker", error: null }, lock);
+    if (running) {
+      // Dispatching here owns the increment, because `startWorker` expects the
+      // attempt number it is about to run under.
+      state.attempt += 1;
+      startWorker(contract, node, state, runDir, running, retryPrompt(node, verdict), lock, states, campaignPath);
+      return;
+    }
+    // Handing the node back to the scheduler instead: its dispatch increments
+    // on the way out, so incrementing here too spent two attempt numbers on one
+    // retry. Observed 2026-09-13 on a resume after a killed controller — a node
+    // that ran twice reported attempt 3, with no `…2.*` logs and a
+    // `worktree.previousAttempt` naming an attempt that never existed.
+    transition(runDir, state, "pending", { phase: "worker", error: null }, lock);
     return;
   }
   transition(runDir, state, node.gate.enabled ? "exhausted" : "failed", {

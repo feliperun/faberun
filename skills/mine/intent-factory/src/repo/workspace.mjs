@@ -23,6 +23,9 @@ import { execFileSync } from "node:child_process";
 import { fail, isContained } from "../util.mjs";
 import { normalizeManagedSignalBlock } from "./signal-block.mjs";
 
+/** A `node_modules` directory at any depth, matched as a whole path segment. */
+const NODE_MODULES_SEGMENT = /(?:^|\/)node_modules(?:\/|$)/u;
+
 /**
  * One entry of a workspace snapshot.
  *
@@ -470,7 +473,13 @@ function relevantWorkspacePaths(cwd) {
     // in as (TECH-SPEC lean v0.3 section 3 rule 4). Exclude it here too, so
     // linking never turns an installed dependency tree into an unexpected
     // workspace write or a symlink escape.
-    if (value === "node_modules" || value.startsWith("node_modules/")) continue;
+    //
+    // At any depth, which the ignore-source walk already did and this did not,
+    // despite the comment claiming parity. A monorepo that anchors the pattern
+    // to the root (`/node_modules/`) leaves `packages/*/node_modules` visible,
+    // so a per-package install mid-node walked thousands of dependency files
+    // into the snapshot and could trip `snapshot_too_large`.
+    if (NODE_MODULES_SEGMENT.test(value)) continue;
     if (paths.size >= VERIFICATION_LIMITS.snapshotEntries) {
       throw fail("snapshot_too_large", `workspace snapshot exceeds ${VERIFICATION_LIMITS.snapshotEntries} entries`);
     }

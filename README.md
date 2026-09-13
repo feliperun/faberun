@@ -44,9 +44,9 @@ session pulls campaign events on its own cursor instead of being woken by
 progress. Every Definition of Done item now declares how it is proven, so a
 mechanically provable node spends no judge at all, while contract-level
 `finalVerification` keeps a phase from closing on partial proof. An interrupted
-run is continued by pruning it into the contract for what is left, and the
-factory rides out provider exhaustion, quota resets, dead leases, and flaky
-networks deterministically. `metrics` reports effectiveness and efficiency of a
+run is continued in place by `resume`, never re-authored, and the factory rides
+out provider exhaustion, quota resets, dead leases, and flaky networks
+deterministically. `metrics` reports effectiveness and efficiency of a
 campaign together, from what the runs recorded. Detail:
 [references/release-1.md](skills/mine/intent-factory/references/release-1.md).
 
@@ -81,11 +81,10 @@ node "$INTENT_FACTORY" supervise --detach "$TARGET/.runs/<run-id>"   # unattende
 | Read current state | `status <run-dir>` / `status --json <run-dir>` |
 | View attempts and tokens | `report <run-dir>` |
 | Read what a stopped node needs: gate findings and blocking questions | `findings <run-dir>` |
-| Continue a partly finished run | `contract prune <run-dir> --out <file>` |
 | Read the campaign indicators | `metrics <campaign-id> --cwd <repo>` |
 | Stop a run and terminate its providers | `cancel <run-dir>` |
 | Resume an interrupted run | `resume --detach <run-dir>` |
-| Keep a dead controller alive | `supervise --detach <run-dir> [--interval 30]` |
+| Keep finishing a run whose controller died | `supervise --detach <run-dir> [--interval 30]` |
 
 Operational detail: [SKILL.md](skills/mine/intent-factory/SKILL.md) and the
 [contract reference](skills/mine/intent-factory/references/contract.md).

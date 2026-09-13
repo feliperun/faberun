@@ -636,3 +636,34 @@ test("a virtual environment never changes the ignore-source fingerprint", () => 
   const after = captureWorkspaceSnapshot(directory);
   assert.deepEqual(after.ignoreSources, before.ignoreSources, "a venv adds no ignore source");
 });
+
+test("a nested node_modules stays out of the snapshot, not only a root one", () => {
+  // A monorepo that anchors the pattern to the root leaves every package's own
+  // `node_modules` visible to git, so a per-package install mid-node walked
+  // thousands of dependency files into the snapshot — reported as unexpected
+  // writes, and past 20k entries a `snapshot_too_large` failure for a worker
+  // that touched nothing of the sort. The ignore-source walk already excluded
+  // the directory at any depth; the entry walk only did so at the root.
+  const directory = mkdtempSync(join(tmpdir(), "verification-nested-modules-"));
+  writeFileSync(join(directory, ".gitignore"), "/node_modules/\n");
+  mkdirSync(join(directory, "packages", "a", "src"), { recursive: true });
+  writeFileSync(join(directory, "packages", "a", "src", "index.mjs"), "export const a = 1;\n");
+  initializeGit(directory);
+
+  const before = captureWorkspaceSnapshot(directory);
+  assert.ok(before.entries.some((entry) => entry.path === "packages/a/src/index.mjs"), "real source is snapshotted");
+
+  mkdirSync(join(directory, "node_modules", "root-dep"), { recursive: true });
+  writeFileSync(join(directory, "node_modules", "root-dep", "index.js"), "module.exports = 1;\n");
+  mkdirSync(join(directory, "packages", "a", "node_modules", "leaf-dep"), { recursive: true });
+  writeFileSync(join(directory, "packages", "a", "node_modules", "leaf-dep", "index.js"), "module.exports = 2;\n");
+
+  const after = captureWorkspaceSnapshot(directory);
+  const dependencyEntries = after.entries.filter((entry) => entry.path.includes("node_modules"));
+  assert.deepEqual(dependencyEntries, [], "no dependency file enters the snapshot at any depth");
+  assert.deepEqual(
+    compareWorkspaceSnapshot(before, directory, { files: ["packages/a/src/index.mjs"], roots: [] }).unexpectedPaths,
+    [],
+    "installing dependencies is not an unexpected write",
+  );
+});
