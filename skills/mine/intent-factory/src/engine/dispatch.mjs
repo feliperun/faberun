@@ -111,6 +111,32 @@ function phaseInvocationPlan(contract, node, state, runDir, role, prompt) {
   return { prompt, continuationId: null, mode: session ? "rotate" : "fresh" };
 }
 /**
+ * Continuation ids a live invocation is already driving, anywhere in the run.
+ *
+ * This is what makes concurrent nodes of one phase safe, and it is read from
+ * the persisted ledger rather than from an in-memory registry so a controller
+ * that took over a run inherits the claims instead of racing them.
+ *
+ * @param {ValidatedContract} contract
+ * @param {NodeSnapshot} currentState
+ * @param {string} runDir
+ * @returns {Set<string>}
+ */
+function claimedContinuations(contract, currentState, runDir) {
+  /** @type {Set<string>} */
+  const claimed = new Set();
+  for (const candidate of contract.nodes) {
+    let state = candidate.id === currentState.id ? currentState : null;
+    if (!state) {
+      try { state = validateNodeSnapshot(readJson(join(runDir, "nodes", `${candidate.id}.json`)), candidate); } catch { continue; }
+    }
+    for (const invocation of state.invocations ?? []) {
+      if (invocation.status === "active" && invocation.continuationId) claimed.add(invocation.continuationId);
+    }
+  }
+  return claimed;
+}
+/**
  * @param {ValidatedContract} contract
  * @param {ValidatedNode} node
  * @param {NodeSnapshot} currentState
@@ -121,6 +147,7 @@ function phaseInvocationPlan(contract, node, state, runDir, role, prompt) {
 function phaseSessionCandidates(contract, node, currentState, runDir, role) {
   /** @type {{nodeId: string, invocation: Invocation}[]} */
   const candidates = [];
+  const claimed = claimedContinuations(contract, currentState, runDir);
   for (const candidate of contract.nodes) {
     if (candidate.phase !== node.phase) continue;
     let state = candidate.id === currentState.id ? currentState : null;
@@ -130,6 +157,12 @@ function phaseSessionCandidates(contract, node, currentState, runDir, role) {
     for (const invocation of state.invocations ?? []) {
       if (invocation.role !== role || invocation.planPhase !== node.phase || !invocation.continuationId) continue;
       if (invocation.nodeId !== candidate.id || invocation.attempt !== state.attempt || invocation.workspace !== state.worktree?.path) continue;
+      // One provider session, one live turn. With `maxParallel` above one,
+      // two nodes of a phase can be dispatched in the same tick, and without
+      // this both would hand the same continuation id to their own provider
+      // process. The claim is read from the persisted ledger, which the
+      // in-tick dispatch already wrote for the node that went first.
+      if (claimed.has(invocation.continuationId)) continue;
       candidates.push({ nodeId: candidate.id, invocation });
     }
   }

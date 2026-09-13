@@ -313,7 +313,18 @@ export function normalizeCodexResult(stdout, exitCode, signal, options = {}) {
   // verdict-shaped messages here, at the provider boundary, is the only way the
   // controller can tell one verdict from two: the last structured message looks
   // identical in both cases once the rest is discarded.
-  const verdictCandidates = options.preferStructured ? messages.filter((event) => isVerdictCandidate(eventItem(event)?.text)) : [];
+  //
+  // Only messages after the judge's last action are arbitration. Under an
+  // enforced output schema every agent message is shaped like a verdict,
+  // including the plan the model narrates before it inspects anything, so a
+  // naive count read that preamble as a second verdict: measured 2026-09-13,
+  // 17 of 22 codex judge rounds in this repository's history (77%) spent a
+  // bounded re-ask on it, and every codex round of a live six-node campaign
+  // paid two invocations instead of one. A verdict emitted before the judge
+  // ran a single command was reached with no evidence and cannot be the
+  // arbitration; a judge that used no tools at all still has every candidate
+  // counted, so a genuine change of mind is caught exactly as before.
+  const verdictCandidates = options.preferStructured ? arbitrationMessages(events, messages).filter((event) => isVerdictCandidate(eventItem(event)?.text)) : [];
   const message = options.preferStructured
     ? verdictCandidates.at(-1) ?? messages.findLast((event) => extractJson(eventItem(event)?.text) !== null) ?? messages.at(-1)
     : messages.at(-1);
@@ -361,6 +372,30 @@ export function normalizeCodexResult(stdout, exitCode, signal, options = {}) {
     error: null,
     ...(options.preferStructured ? { judgeCandidates: verdictCandidates.length } : {}),
   };
+}
+
+/**
+ * The agent messages that can be this turn's arbitration: the ones after the
+ * judge's last action. An action is any completed item that is not an
+ * `agent_message` and not an `error` diagnostic — measured 2026-09-13 across
+ * every judge log in this repository, codex emits exactly four item types
+ * (`command_execution`, `agent_message`, `error`, `collab_tool_call`), so the
+ * complement is the tool surface. With no action in the turn every message
+ * stays a candidate.
+ *
+ * @param {Record<string, unknown>[]} events
+ * @param {Record<string, unknown>[]} messages
+ * @returns {Record<string, unknown>[]}
+ */
+function arbitrationMessages(events, messages) {
+  const lastAction = events.findLast((event) => {
+    if (event.type !== "item.completed") return false;
+    const type = eventItem(event)?.type;
+    return typeof type === "string" && type !== "agent_message" && type !== "error";
+  });
+  if (!lastAction) return messages;
+  const actionIndex = events.indexOf(lastAction);
+  return messages.filter((event) => events.indexOf(event) > actionIndex);
 }
 
 /**

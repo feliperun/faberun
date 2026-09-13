@@ -51,10 +51,9 @@ or `path` (a file must exist), or `judgment: true` for the judge. `proof: {
 kind: "verification", ref: <index> }` reuses a `verification` entry's already
 recorded result by position instead of re-running it — never by comparing argv
 strings, since a joined argv loses shell semantics. A schema-1 string item is
-rejected. There is no spend ceiling anywhere in the schema: no
-`maxInputTokens`, `maxCostUsd`, or `usagePolicy`. `timeoutSec` and
-`stallTimeoutSec` bound an attempt; a spent provider allowance is handled by
-runtime re-tiering (below), never a token/dollar cap. `usage.jsonl` records
+rejected. There is no spend ceiling in the schema: no `maxInputTokens`,
+`maxCostUsd`, or `usagePolicy`. `timeoutSec` and `stallTimeoutSec` bound an
+attempt; a spent allowance is handled by runtime re-tiering (below). `usage.jsonl` records
 tokens and cost per invocation for **reporting only** — no control path reads
 it.
 
@@ -274,7 +273,9 @@ others fall back to `timeoutSec` alone.
 node; a node is bounded by `(1 + maxRevisions) × 2 × timeoutSec`. Both clocks
 are monotonic and pause with host suspend. `maxParallel` above 1 dispatches
 every dependency-ready node concurrently, each into its own attempt
-worktree; integration stays serialized.
+worktree; integration stays serialized. Nodes of one phase need no edge
+between them: a continuation a live invocation already claims is never
+offered to a second node, so one session runs one turn.
 
 ## Gates
 
@@ -285,9 +286,8 @@ worktree; integration stays serialized.
 `done` on deterministic verification alone — it never consumes a revision or
 re-dispatches. `blocking` re-dispatches within `maxRevisions` when findings
 reach `failOn`. Validation requires `critical` whenever `major` is in
-`failOn`, and requires `major` in `failOn` for a `blocking` gate — `failOn:
-["critical"]` alone lets every major-severity judge finding through
-unblocked, which is close to no gate at all.
+`failOn`, and `major` in `failOn` for a `blocking` gate: `["critical"]` alone
+passes every major finding, which is close to no gate.
 
 The revision budget counts gate rejections, not worker starts; a resume or a
 crash-restart never consumes one (tracked separately as `attempt` vs.

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -59,6 +59,33 @@ test("web server invokes no model", () => {
     cliSpawns += (text.match(/spawn\(process\.execPath/gu) ?? []).length;
   }
   assert.ok(cliSpawns > 0, "the write routes must spawn the runner CLI through node");
+});
+
+test("an unknown campaign is refused before the CLI, and the refusal names no path", async () => {
+  const world = makeWorld();
+  const server = await startServer({ runsDir: world.runsDir, tokenFile: world.tokenFile, port: 0, cliEntry: world.fakeCli });
+  try {
+    const base = `http://127.0.0.1:${/** @type {{address: () => {port: number}}} */ (server).address().port}`;
+    // `note` and `decisions` used to hand the id straight to the CLI, whose
+    // own refusal quotes the absolute directory it looked in — handing a
+    // caller the server's filesystem layout for an id that does not exist.
+    for (const [path, body] of [
+      ["/api/campaigns/no-such-campaign/note", { kind: "constraint", text: "hold" }],
+      ["/api/campaigns/no-such-campaign/decisions/q-1", { text: "ship" }],
+    ]) {
+      const response = await fetch(`${base}${path}`, { method: "POST", headers: { ...AUTH, "content-type": "application/json" }, body: JSON.stringify(body) });
+      assert.equal(response.status, 404, path);
+      const text = await response.text();
+      assert.match(text, /unknown campaign: no-such-campaign/u, path);
+      assert.equal(text.includes(world.runsDir), false, `${path} leaked the runs directory`);
+    }
+    // The fake CLI creates its log on first invocation, so its absence is the
+    // proof that neither refusal spawned anything.
+    assert.equal(existsSync(world.cliLog), false, "a refused route must not reach the CLI at all");
+  } finally {
+    server.close();
+    rmSync(world.directory, { recursive: true, force: true });
+  }
 });
 
 test("web has no replan route", async () => {

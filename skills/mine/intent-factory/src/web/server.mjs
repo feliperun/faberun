@@ -1,6 +1,7 @@
 import { basename, dirname, join } from "node:path";
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import http from "node:http";
+import { timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 import { discoverCampaigns } from "../campaign/index.mjs";
@@ -454,9 +455,30 @@ export async function startServer({ runsDir, tokenFile, port = 4173, host = "127
 /** The one admission rule: the token rides the Authorization header and nowhere else. The query string is inspected for its shape — a `token` key, or any parameter equal to the token — and is never echoed back; no refusal or later message repeats what was sent. @param {import("node:http").IncomingMessage} request @param {URL} url @param {string} token @returns {{status: number, reason: string}|null} why the request is refused, or null when it passes */
 function admissionFailure(request, url, token) {
   for (const [key, value] of url.searchParams) {
-    if (key.toLowerCase() === "token" || value === token) return { status: 400, reason: "refused: a token in the query string leaks into proxy logs and shell history; send it in the Authorization header" };
+    if (key.toLowerCase() === "token" || secretEquals(value, token)) return { status: 400, reason: "refused: a token in the query string leaks into proxy logs and shell history; send it in the Authorization header" };
   }
-  return request.headers.authorization === `Bearer ${token}` ? null : { status: 401, reason: "unauthorized: send the dashboard bearer token in the Authorization header" };
+  return secretEquals(request.headers.authorization, `Bearer ${token}`)
+    ? null
+    : { status: 401, reason: "unauthorized: send the dashboard bearer token in the Authorization header" };
+}
+
+/**
+ * Compare a presented credential against the expected one without letting the
+ * comparison's duration say how much of it was right. `===` on strings
+ * short-circuits at the first differing byte, which is a byte-at-a-time oracle
+ * for anyone who can reach the listener and time it. Lengths are compared
+ * first because `timingSafeEqual` throws on a length mismatch; the length of
+ * the token is not the secret, its bytes are.
+ *
+ * @param {unknown} presented
+ * @param {string} expected
+ * @returns {boolean}
+ */
+function secretEquals(presented, expected) {
+  if (typeof presented !== "string") return false;
+  const left = Buffer.from(presented, "utf8");
+  const right = Buffer.from(expected, "utf8");
+  return left.length === right.length && timingSafeEqual(left, right);
 }
 
 /** @param {import("node:http").ServerResponse} response @param {{status: number, reason: string}} refusal */

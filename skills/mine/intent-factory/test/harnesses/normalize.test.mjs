@@ -147,6 +147,74 @@ test("counts verdict-shaped codex agent messages at the provider boundary", () =
   assert.equal(normalizeProviderResult("codex", worker, 0, null).judgeCandidates, undefined, "only judge rounds are counted");
 });
 
+test("a verdict-shaped codex message emitted before the judge acted is a preamble, not a candidate", () => {
+  /** @param {string} summary @param {"pass"|"fail"} [outcome] */
+  const verdict = (summary, outcome = "pass") => JSON.stringify({
+    verdict: outcome,
+    maxSeverity: outcome === "pass" ? "none" : "major",
+    summary,
+    findings: [],
+  });
+  // The exact shape codex produces under an enforced output schema: the plan
+  // the model narrates before inspecting anything comes out schema-shaped.
+  const preamble = [
+    { type: "thread.started", thread_id: "thread" },
+    { type: "item.completed", item: { type: "agent_message", text: verdict("I'll inspect the write files, then assess the judgment item.") } },
+    { type: "item.started", item: { type: "command_execution", command: "sed -n '1,240p' src/slugify.mjs" } },
+    { type: "item.completed", item: { type: "command_execution", command: "sed -n '1,240p' src/slugify.mjs", status: "completed" } },
+    { type: "item.completed", item: { type: "agent_message", text: verdict("The judgment item is satisfied.") } },
+    { type: "turn.completed", usage: { input_tokens: 8, output_tokens: 2 } },
+  ].map((event) => JSON.stringify(event)).join("\n");
+  const envelope = normalizeProviderResult("codex", preamble, 0, null, { preferStructured: true });
+  assert.equal(envelope.judgeCandidates, 1, "only the message after the last action arbitrates");
+  assert.ok(typeof envelope.result === "string");
+  assert.equal(JSON.parse(envelope.result).summary, "The judgment item is satisfied.");
+
+  // A preamble that disagrees with the arbitration is still not a second
+  // verdict: it was reached before the judge had read anything.
+  const disagreeing = [
+    { type: "thread.started", thread_id: "thread" },
+    { type: "item.completed", item: { type: "agent_message", text: verdict("I'll inspect the write files, then assess the judgment item.") } },
+    { type: "item.completed", item: { type: "command_execution", command: "sed -n '1,240p' src/slugify.mjs", status: "completed" } },
+    { type: "item.completed", item: { type: "agent_message", text: verdict("The judgment item is not satisfied.", "fail") } },
+    { type: "turn.completed", usage: { input_tokens: 8, output_tokens: 2 } },
+  ].map((event) => JSON.stringify(event)).join("\n");
+  const disagreeingEnvelope = normalizeProviderResult("codex", disagreeing, 0, null, { preferStructured: true });
+  assert.equal(disagreeingEnvelope.judgeCandidates, 1);
+  assert.ok(typeof disagreeingEnvelope.result === "string");
+  assert.equal(JSON.parse(disagreeingEnvelope.result).verdict, "fail", "the arbitration is what the judge said after inspecting");
+
+  // Two verdicts after the same last action is a genuine change of mind and
+  // still earns the re-ask.
+  const reconsidered = [
+    { type: "thread.started", thread_id: "thread" },
+    { type: "item.completed", item: { type: "command_execution", command: "cat src/slugify.mjs", status: "completed" } },
+    { type: "item.completed", item: { type: "agent_message", text: verdict("first") } },
+    { type: "item.completed", item: { type: "agent_message", text: verdict("second") } },
+    { type: "turn.completed", usage: { input_tokens: 8, output_tokens: 2 } },
+  ].map((event) => JSON.stringify(event)).join("\n");
+  assert.equal(
+    normalizeProviderResult("codex", reconsidered, 0, null, { preferStructured: true }).judgeCandidates,
+    2,
+    "multiplicity after the judge's last action is still a protocol defect",
+  );
+
+  // An `error` diagnostic is not an action: a turn whose only items are a
+  // stray error record and two verdicts keeps counting both.
+  const diagnosticOnly = [
+    { type: "thread.started", thread_id: "thread" },
+    { type: "item.completed", item: { type: "error", message: "rollout budget warning" } },
+    { type: "item.completed", item: { type: "agent_message", text: verdict("first") } },
+    { type: "item.completed", item: { type: "agent_message", text: verdict("second") } },
+    { type: "turn.completed", usage: { input_tokens: 8, output_tokens: 2 } },
+  ].map((event) => JSON.stringify(event)).join("\n");
+  assert.equal(
+    normalizeProviderResult("codex", diagnosticOnly, 0, null, { preferStructured: true }).judgeCandidates,
+    2,
+    "an error record is a diagnostic, not an inspection the judge performed",
+  );
+});
+
 test("normalizes Codex cached token naming", () => {
   const stream = [
     { type: "item.completed", item: { type: "agent_message", text: "ok" } },

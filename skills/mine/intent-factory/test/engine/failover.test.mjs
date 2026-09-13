@@ -174,6 +174,43 @@ else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; });
   assert.match(requests[1].prompt, /Prior structured node summaries/u);
 });
 
+test("two concurrent nodes of one phase never drive the same continuation", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-phase-concurrent-"));
+  const requestLog = join(directory, ".runs", "concurrent-requests.jsonl");
+  const executable = join(directory, "concurrent-wrapper.mjs");
+  // Every turn answers with the same continuation id, so a scheduler that
+  // handed one session to two live nodes would show it in the request log.
+  writeFileSync(executable, `#!${process.execPath}
+import { appendFileSync } from "node:fs";
+if (process.argv.includes("--version")) console.log("concurrent-wrapper 1.0.0");
+else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; }); process.stdin.on("end", () => {
+  const request = JSON.parse(input); appendFileSync(${JSON.stringify(requestLog)}, JSON.stringify({ continuationId: request.continuationId }) + "\\n");
+  console.log(JSON.stringify({ schemaVersion: 1, type: "run.completed", result: JSON.stringify({ status: "done", summary: "done", verification: [], artifacts: [], missingContext: [] }), continuationId: "shared-thread", usage: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0 }, costUsd: null }));
+}); }
+`);
+  chmodSync(executable, 0o755);
+  const path = writeContract(directory, fixture({
+    id: "phase-concurrent-run",
+    maxParallel: 3,
+    runtimeDefaults: { worker: "jsonl", judge: "jsonl" },
+    runtimes: { jsonl: { harness: "exec-jsonl", model: "concurrent-model", vendor: "exec-jsonl-worker", executable } },
+    // Three unordered nodes of one phase: the shape validation used to refuse
+    // outright, and the shape `maxParallel` exists for.
+    nodes: [
+      { id: "alpha", type: "backend", phase: "implementation", taskPacket: packet(), gate: false },
+      { id: "beta", type: "backend", phase: "implementation", taskPacket: packet({ objective: "Second" }), gate: false },
+      { id: "gamma", type: "backend", phase: "implementation", taskPacket: packet({ objective: "Third" }), gate: false },
+    ],
+  }));
+  const result = await runContract(path);
+  assert.equal(result.ok, true);
+  for (const id of ["alpha", "beta", "gamma"]) assert.equal(result.states.get(id)?.status, "done", id);
+  const requests = readFileSync(requestLog, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(requests.length, 3);
+  const continued = requests.filter((request) => request.continuationId === "shared-thread");
+  assert.ok(continued.length <= 1, `the shared session was handed to ${continued.length} turns; at most one may claim it`);
+});
+
 test("selects the latest phase continuation by invocation chronology", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-phase-chronology-"));
   const requestLog = join(directory, ".runs", "phase-requests.jsonl");

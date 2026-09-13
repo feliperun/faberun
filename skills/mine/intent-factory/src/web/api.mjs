@@ -201,6 +201,11 @@ async function listSeats(context, response) {
 
 /** @param {ApiContext} context @param {ServerResponse} response @param {string[]} params */
 async function postNote(context, response, params) {
+  // The campaign is resolved before the CLI runs, like every other route: an
+  // unknown id used to reach `campaign note`, whose own refusal names the
+  // absolute path it looked in and handed the caller the server's directory
+  // layout.
+  findCampaign(context, params[0]);
   const body = await readJsonObject(context.request);
   const argv = ["campaign", "note", params[0], "--session-id", sessionOf(body), "--kind", requiredString(body.kind, "kind"), "--text", requiredString(body.text, "text")];
   for (const [flag, key] of [["--decision-id", "decisionId"], ["--supersedes", "supersedes"], ["--question-id", "questionId"], ["--run-id", "runId"]]) {
@@ -211,6 +216,7 @@ async function postNote(context, response, params) {
 
 /** A pending operator decision is the journal's open question; resolving it is `campaign resolve`. @param {ApiContext} context @param {ServerResponse} response @param {string[]} params */
 async function postDecision(context, response, params) {
+  findCampaign(context, params[0]);
   const body = await readJsonObject(context.request);
   const argv = ["campaign", "resolve", params[0], "--session-id", sessionOf(body), "--question-id", params[1], "--text", requiredString(body.text, "text")];
   sendResult(response, await runCli(context, argv));

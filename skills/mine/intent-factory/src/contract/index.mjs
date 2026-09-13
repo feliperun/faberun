@@ -210,7 +210,6 @@ export function validateContract(raw, contractPath, options = {}) {
     }
   }
   assertAcyclic(nodes);
-  assertPhaseOrdering(nodes);
 
   // A gated node whose worker and judge share a vendor cannot produce an
   // independent review — the same vendor grading its own output is not a
@@ -424,41 +423,6 @@ function assertAcyclic(nodes) {
     visited.add(id);
   };
   for (const node of nodes) visit(node.id);
-}
-
-/**
- * Same-phase nodes must have an unambiguous dependency order. Otherwise a
- * future scheduler with more than one slot could run two nodes against the
- * same provider continuation at once.
- *
- * @param {ValidatedNode[]} nodes
- */
-function assertPhaseOrdering(nodes) {
-  const byId = new Map(nodes.map((node) => [node.id, node]));
-  const ancestors = new Map();
-  /** @param {string} id @returns {Set<string>} */
-  const visit = (id) => {
-    if (ancestors.has(id)) return ancestors.get(id);
-    const result = new Set();
-    ancestors.set(id, result);
-    for (const dependency of byId.get(id)?.dependsOn ?? []) {
-      result.add(dependency);
-      for (const ancestor of visit(dependency)) result.add(ancestor);
-    }
-    return result;
-  };
-  for (const node of nodes) visit(node.id);
-  for (let left = 0; left < nodes.length; left += 1) {
-    for (let right = left + 1; right < nodes.length; right += 1) {
-      const first = nodes[left];
-      const second = nodes[right];
-      if (first.phase !== second.phase) continue;
-      const ordered = ancestors.get(first.id)?.has(second.id) || ancestors.get(second.id)?.has(first.id);
-      if (!ordered) {
-        throw new TypeError(`nodes ${first.id} and ${second.id} share phase ${first.phase} but are not sequentially ordered`);
-      }
-    }
-  }
 }
 
 /**

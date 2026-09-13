@@ -21,7 +21,7 @@ const POINTER_ATTENTION_CHARS = 80;
 /** @typedef {import("../contract/index.mjs").NodeStatus} NodeStatus */
 /** @typedef {Record<string, unknown>} JsonObject */
 /** @typedef {{inputTokens: number|null, outputTokens: number|null, cacheReadInputTokens: number|null}} StatusPayloadUsage */
-/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, verdict: string|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, errorCode: string|null, blockedBy: string[]}} StatusPayloadNode */
+/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, verdict: string|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, errorCode: string|null, blockedBy: string[]}} StatusPayloadNode */
 /** @typedef {{schemaVersion: 1, run: string, contractId: string, campaignId: string, goal: string, usage: {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUsd: number|null}, controller: JsonObject, identityWarnings: string[], summary: string, nodes: StatusPayloadNode[]}} StatusPayload */
 
 /** The glyph each terminal state prints in a status table. */
@@ -77,7 +77,7 @@ export function renderStatus(runDir) {
       node.id,
       node.status,
       node.attempt ?? 0,
-      node.runtime ?? "-",
+      node.workerRuntime ?? node.runtime ?? "-",
       formatElapsed(node, now),
       compactTokens(node.usage?.inputTokens),
       compactTokens(node.usage?.cacheReadInputTokens),
@@ -186,6 +186,7 @@ function buildStatusPayload(runDir, contract, nodes, identityWarnings, usage) {
       phase: contract.nodes.find((candidate) => candidate.id === node.id)?.phase ?? null,
       executionPhase: node.phase,
       runtime: node.runtime ? `${node.runtime.harness}/${node.runtime.model}` : null,
+      workerRuntime: workerRuntimeLabel(node),
       continuation: continuationMode(node),
       attempt: node.attempt,
       revisions: node.revisions,
@@ -344,7 +345,7 @@ export function renderReport(runDir) {
     const usage = node.usage ?? { inputTokens: null, outputTokens: null, cacheReadInputTokens: null };
     for (const key of /** @type {("inputTokens"|"outputTokens"|"cacheReadInputTokens")[]} */ (Object.keys(totals).filter((key) => key !== "costUsd"))) totals[key] = (totals[key] ?? 0) + (usage[key] ?? 0);
     const cost = costs[index];
-    const runtime = node.runtime ? `${node.runtime.harness}/${node.runtime.model}` : "-";
+    const runtime = workerRuntimeLabel(node) ?? "-";
     const planNode = contract.nodes.find((candidate) => candidate.id === node.id);
     const note = scopeFindingsNote(node.scopeFindings)
       ? nodeNote(node)
@@ -474,6 +475,27 @@ function readRunUsage(runDir) {
 /** @param {NodeSnapshot} node @returns {string} */
 function continuationMode(node) {
   return node.invocations?.at(-1)?.continuationMode ?? "fresh";
+}
+
+/**
+ * Who produced this node's work, for the RUNTIME column of both tables.
+ *
+ * `state.runtime` is the last runtime *dispatched*, and the judge dispatch
+ * overwrites the worker's: every gated node that reached its gate therefore
+ * reported its judge as the runtime, and a six-node campaign whose workers
+ * were five different harnesses rendered as though three of them had never
+ * run (measured 2026-09-13). The invocation ledger keeps both roles, so the
+ * label is derived from it: the worker that ran, falling back to the live
+ * runtime for a node that has not dispatched one yet. The judge is not lost —
+ * it owns the VERDICT column, and `nowLine` still names whatever is running.
+ *
+ * @param {NodeSnapshot} node
+ * @returns {string|null}
+ */
+function workerRuntimeLabel(node) {
+  const worker = [...(node.invocations ?? [])].reverse().find((invocation) => invocation.role === "worker");
+  if (worker?.harness && worker.model) return `${worker.harness}/${worker.model}`;
+  return node.runtime ? `${node.runtime.harness}/${node.runtime.model}` : null;
 }
 
 /**

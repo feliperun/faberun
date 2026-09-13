@@ -85,15 +85,23 @@ test("schema 2 rejects a schema-1 string Definition of Done item and an item wit
   );
 });
 
-test("same-phase nodes must have a dependency order", () => {
+test("same-phase nodes may run concurrently, ordered or not", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-phase-order-"));
-  const ambiguous = helpers.writeContract(directory, helpers.fixture({
+  // Validation used to refuse two same-phase nodes with no edge between them,
+  // to stop a parallel scheduler from driving one provider continuation with
+  // two turns at once. That made `maxParallel > 1` unusable for its own
+  // motivating case — several independent nodes of one phase — and the only
+  // way past it was a phase per node, which silently disables the phase
+  // continuation the field exists for. The hazard is now refused where it
+  // lives: `phaseSessionCandidates` in engine/dispatch.mjs skips a
+  // continuation a live invocation already claims.
+  const concurrent = helpers.writeContract(directory, helpers.fixture({
     nodes: [
       { id: "first", type: "backend", phase: "implementation", taskPacket: helpers.packet(), gate: false },
       { id: "second", type: "backend", phase: "implementation", taskPacket: helpers.packet(), gate: false },
     ],
   }));
-  assert.throws(() => validateContract(JSON.parse(readFileSync(ambiguous, "utf8")), ambiguous), /share phase implementation but are not sequentially ordered/u);
+  assert.equal(validateContract(JSON.parse(readFileSync(concurrent, "utf8")), concurrent).nodes.length, 2);
 
   const ordered = helpers.writeContract(directory, helpers.fixture({
     id: "ordered-phase-run",

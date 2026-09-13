@@ -284,8 +284,12 @@ test("report aggregates per-node status, attempts, revisions, and tokens", async
   const runDir = await withAdvisoryGateCodex(directory, async () => (await runContract(path)).runDir);
   const report = renderReport(runDir);
   assert.match(report, /1 nodes · 1 done/u);
-  // The node ends on its judge runtime, and tokens sum worker plus judge.
-  assert.match(report, /build\s+done\s+1\s+0\s+codex\/gpt-5\.6-sol/u);
+  // The RUNTIME column names the worker that produced the work, read from the
+  // invocation ledger. `state.runtime` is whatever was dispatched last, so a
+  // gated node overwrites it with its judge (`gpt-5.6-sol` here) and the table
+  // used to report a runtime that never wrote a line. Tokens still sum worker
+  // plus judge, and the judge owns the verdict column.
+  assert.match(report, /build\s+done\s+1\s+0\s+codex\/gpt-5\.6-luna/u);
   assert.match(report, /totals · in 20 · out 4 · cache -/u);
 });
 
