@@ -10,6 +10,7 @@ import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
 import { fixture, packet, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState, persistFailure, RUNNER_CLI } from "../runner-helpers.mjs";
 import { snapshot } from "../contract/helpers.mjs";
+import { envelope, workerResult, writeRecording } from "../harnesses/replay-helpers.mjs";
 
 /**
  * The persisted execution overrides of a node, read back from disk.
@@ -189,4 +190,67 @@ test("an operator-answer override round-trips through validateNodeSnapshot", () 
     })),
     /exceeds 8192 bytes/u,
   );
+});
+
+test("resume --answer delivers the answer into the re-dispatched worker and judge prompts and reaches done", async () => {
+  // The replay harness stands in for both roles, so no token is spent and the
+  // first worker turn deterministically blocks on a named missing path.
+  const directory = mkdtempSync(join(tmpdir(), "answer-delivery-e2e-"));
+  const recordingDir = mkdtempSync(join(tmpdir(), "answer-delivery-e2e-rec-"));
+  const workerRecording = writeRecording(recordingDir, [
+    {
+      envelope: envelope({ result: JSON.stringify({ status: "blocked_context", summary: "missing a required path", verification: [], artifacts: [], missingContext: ["missing.txt"] }) }),
+    },
+    {
+      envelope: envelope({ result: JSON.stringify(workerResult("answered and done")) }),
+    },
+  ], "worker.jsonl");
+  const judgeRecording = writeRecording(recordingDir, [
+    {
+      envelope: envelope({ result: JSON.stringify({ verdict: "pass", findings: [], maxSeverity: "none", summary: "clean" }) }),
+    },
+  ], "judge.jsonl");
+  const path = writeContract(directory, fixture({
+    id: "answer-delivery-e2e-run",
+    pollIntervalMs: 10,
+    runtimeDefaults: { worker: "replay-worker", judge: "replay-judge" },
+    runtimes: {
+      "replay-worker": { harness: "replay", model: "replay-worker-model", vendor: "replay-worker-vendor", config: { "replay.recording": workerRecording } },
+      "replay-judge": { harness: "replay", model: "replay-judge-model", vendor: "replay-judge-vendor", config: { "replay.recording": judgeRecording } },
+    },
+    nodes: [{
+      id: "build",
+      type: "backend",
+      taskPacket: packet(),
+      definitionOfDone: [{ id: "works", text: "It works", judgment: true }],
+      gate: { failOn: ["critical"] },
+    }],
+  }));
+
+  const first = await runContract(path);
+  const blocked = nodeState(first);
+  assert.equal(blocked.status, "blocked", blocked.error?.message);
+  assert.equal(blocked.error?.code, "context_missing");
+  assert.equal(blocked.attempt, 1);
+
+  const answerText = "The missing file must say hello.";
+  const answerPath = join(directory, "answer.txt");
+  writeFileSync(answerPath, answerText);
+
+  const resumed = await resumeRun(first.runDir, { answer: { node: "build", path: answerPath } });
+  const state = nodeState(resumed);
+  assert.equal(state.status, "done", state.error?.message);
+  assert.equal(state.attempt, 2, "the answered node is re-dispatched exactly once");
+  const result = /** @type {{status?: string}|null} */ (state.result);
+  assert.equal(result?.status, "done", "the answered node adopts the new result, never the stale blocked_context result");
+
+  // The answer is rendered under its own heading into the same bounded
+  // previous-attempt section that both regenerated prompts carry.
+  const workerPrompt = readFileSync(join(first.runDir, "logs", "build.2.worker.prompt"), "utf8");
+  assert.ok(workerPrompt.includes("Operator answer:"), "the worker prompt carries the answer heading");
+  assert.ok(workerPrompt.indexOf(answerText) > workerPrompt.indexOf("Operator answer:"), "the answer text sits under its own heading in the worker prompt");
+
+  const judgePrompt = readFileSync(join(first.runDir, "logs", "build.2.judge.prompt"), "utf8");
+  assert.ok(judgePrompt.includes("Operator answer:"), "the judge prompt carries the answer heading");
+  assert.ok(judgePrompt.indexOf(answerText) > judgePrompt.indexOf("Operator answer:"), "the answer text sits under its own heading in the judge prompt");
 });

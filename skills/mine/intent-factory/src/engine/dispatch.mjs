@@ -382,10 +382,14 @@ export function startWorker(contract, node, state, runDir, running, prompt, lock
   state.phase = "worker";
   state.runtime = runtime;
   // A new worker attempt has no accepted result yet. The canonical result
-  // file is cleared only when the previous attempt was explicitly rejected
-  // (failed gate verdict) or when no valid canonical file exists: a valid
-  // file at the start of a continuation attempt is durable evidence and must
-  // stay in place so the completion path can adopt it.
+  // file is cleared when the previous attempt was explicitly rejected (failed
+  // gate verdict), when no valid canonical file exists, or when the stale file
+  // is a blocked_context result. A blocked_context result never reached a gate
+  // and is still a valid, non-null canonical file, so the failed-gate and
+  // missing-file conditions leave it in place and the re-dispatched node would
+  // adopt its own stale blocked_context result again. A valid non-blocked file
+  // at the start of a continuation attempt is durable evidence and must stay
+  // in place so the completion path can adopt it.
   state.result = null;
   state.verification = null;
   state.scope = null;
@@ -396,7 +400,7 @@ export function startWorker(contract, node, state, runDir, running, prompt, lock
     existingCanonicalResult = null;
   }
   clearAttemptWorkerResult(workspace, node.id);
-  if (state.gate?.verdict === "fail" || existingCanonicalResult === null) {
+  if (state.gate?.verdict === "fail" || existingCanonicalResult === null || existingCanonicalResult?.status === "blocked_context") {
     clearWorkerResultFile(runDir, node.id);
   }
   const previousInvocation = state.invocations?.at(-1);

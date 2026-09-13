@@ -22,6 +22,9 @@ const PREVIOUS_ATTEMPT_HEADING = "Previous attempt";
 /** Hard ceiling for the whole `Previous attempt` section, in bytes. */
 const PREVIOUS_ATTEMPT_MAX_BYTES = 8 * 1024;
 
+/** Heading under which an operator's answer is rendered inside the section. */
+const OPERATOR_ANSWER_HEADING = "Operator answer";
+
 /**
  * Node statuses an ordinary resume re-dispatches as attempt plus one.
  * `blocked` is deliberately absent: only its two error codes have a retry
@@ -164,9 +167,29 @@ export function planResumeRetry(contract, states, options = {}) {
 }
 
 /**
+ * The most recent operator-answer override's text, or null. A second
+ * `--answer` appends rather than replaces, so the newest record is what
+ * surfaces; the older answers stay in `executionOverrides` untouched.
+ *
+ * @param {import("../contract/index.mjs").NodeSnapshot} state
+ * @returns {string|null}
+ */
+function mostRecentOperatorAnswer(state) {
+  const overrides = state.executionOverrides ?? [];
+  for (let index = overrides.length - 1; index >= 0; index -= 1) {
+    const record = /** @type {Record<string, unknown>} */ (overrides[index]);
+    if (record.kind === "operator-answer") {
+      return typeof record.text === "string" ? record.text : null;
+    }
+  }
+  return null;
+}
+
+/**
  * The bounded `Previous attempt` section for a node about to be re-dispatched:
- * the error code and message, the judge findings, the scope findings, and the
- * failing verification commands with a bounded output tail.
+ * the error code and message, the most recent operator answer (when one was
+ * supplied), the judge findings, the scope findings, and the failing
+ * verification commands with a bounded output tail.
  *
  * @param {import("../contract/index.mjs").NodeSnapshot} state
  * @returns {string|null} null when the node carries no failure evidence
@@ -181,6 +204,11 @@ export function renderPreviousAttemptSection(state) {
   parts.push(`Attempt ${attempt} failed; this is attempt ${attempt + 1}. The packet is unchanged.`);
   if (state.error?.code || state.error?.message) {
     parts.push(`Error: ${state.error?.code ?? "unknown"}${state.error?.message ? ` — ${bounded(state.error.message, 1024)}` : ""}`);
+  }
+  const answer = mostRecentOperatorAnswer(state);
+  if (answer !== null) {
+    parts.push(`${OPERATOR_ANSWER_HEADING}:`);
+    parts.push(bounded(answer, 1024));
   }
   const findings = state.gate?.findings ?? [];
   if (findings.length) {
