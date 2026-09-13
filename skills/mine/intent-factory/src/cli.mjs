@@ -133,6 +133,12 @@ function resumeOptionsOf(values) {
   const node = typeof values.node === "string" && values.node ? values.node : undefined;
   const reconcile = typeof values.reconcile === "string" && values.reconcile ? values.reconcile : undefined;
   const answer = answerOf(values.answer);
+  // `--node` and `--answer` both select the retry closure; two different
+  // targets is a contradiction, not a union, so it is refused before anything
+  // is spawned or locked.
+  if (node && answer && node !== answer.node) {
+    throw new Error(`--answer ${answer.node} conflicts with --node ${node}`);
+  }
   return { node, reconcile, answer };
 }
 

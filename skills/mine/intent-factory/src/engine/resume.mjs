@@ -64,6 +64,12 @@ import { applyRejection, applyVerificationFailure, raiseNodeAttention, settleDon
  * @returns {Promise<RunOutcome>}
  */
 export async function resumeRun(runDirPath, options = {}) {
+  // `--node` and `--answer` each name the retry closure; two different targets
+  // would retry the answered node while narrowing to an unrelated one and
+  // leave the answered node's dependants blocked, so it is refused outright.
+  if (options.node && options.answer && options.node !== options.answer.node) {
+    throw new Error(`--answer ${options.answer.node} conflicts with --node ${options.node}`);
+  }
   const runDir = resolve(runDirPath);
   assertRunMutable(runDir);
   const contractPath = join(runDir, "contract.json");

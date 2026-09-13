@@ -143,6 +143,36 @@ test("resume --answer rejects a malformed value before touching the run", () => 
   }
 });
 
+test("resume --answer combined with a different --node is refused, not silently mis-scoped", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "answer-node-conflict-"));
+  const path = writeContract(directory, fixture({
+    id: "answer-node-conflict-run",
+    pollIntervalMs: 10,
+    nodes: [
+      { id: "alpha", type: "backend", taskPacket: packet({ objective: "Alpha" }), gate: false },
+      { id: "beta", type: "backend", taskPacket: packet({ objective: "Beta" }), dependsOn: ["alpha"], gate: false },
+      { id: "gamma", type: "backend", taskPacket: packet({ objective: "Gamma" }), gate: false },
+    ],
+  }));
+  const runDir = await withFakeCodex(directory, "pass", async () => (await runContract(path)).runDir);
+  persistFailure(runDir, "alpha", { status: "blocked", code: "context_missing" });
+  persistFailure(runDir, "beta", { status: "blocked", code: "dependency_failed", blockedBy: ["alpha"] });
+  persistFailure(runDir, "gamma", { status: "failed", code: "provider_error", attempt: 1 });
+  const answerPath = join(directory, "answer.txt");
+  writeFileSync(answerPath, "the answer");
+
+  // The engine refuses the conflicting selectors before taking the lock.
+  await withFakeCodex(directory, "pass", () => assert.rejects(
+    () => resumeRun(runDir, { node: "gamma", answer: { node: "alpha", path: answerPath } }),
+    /--answer alpha conflicts with --node gamma/u,
+  ));
+
+  // The CLI refuses the same combination before spawning or touching the run.
+  const result = spawnSync(process.execPath, [RUNNER_CLI, "resume", "--answer", `alpha=${answerPath}`, "--node", "gamma", runDir], { encoding: "utf8" });
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(result.stderr, /--answer alpha conflicts with --node gamma/u);
+});
+
 test("an operator-answer override round-trips through validateNodeSnapshot", () => {
   assert.doesNotThrow(() => validateNodeSnapshot(snapshot({
     executionOverrides: [{ kind: "operator-answer", at: "2026-01-01T00:00:00.000Z", reason: "operator answered", text: "the answer" }],
