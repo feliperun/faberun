@@ -284,13 +284,13 @@ if (process.argv.includes("--version")) {
       // A done result that never reached the canonical file: the final message
       // alone is not accepted work, so the scope gate must not defer to it.
       writeFileSync("unexpected.txt", "out of scope\\n");
-      console.log(JSON.stringify({type:"item.completed",item:{type:"agent_message",text:JSON.stringify({ status: "done", summary: "worker complete", changedFiles: [], verification: [], artifacts: [], missingContext: [] })}}));
+      console.log(JSON.stringify({type:"item.completed",item:{type:"agent_message",text:JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] })}}));
       console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:10,output_tokens:2,cached_input_tokens:0}}));
       return;
     }
     if (mode === "write-unexpected-blocked-context" && !judge) {
       writeFileSync("unexpected.txt", "out of scope\\n");
-      const text = protocolResult(JSON.stringify({ status: "blocked_context", summary: "missing context", changedFiles: [], verification: [], artifacts: [], missingContext: ["missing.txt"] }));
+      const text = protocolResult(JSON.stringify({ status: "blocked_context", summary: "missing context", verification: [], artifacts: [], missingContext: ["missing.txt"] }));
       console.log(JSON.stringify({type:"item.completed",item:{type:"agent_message",text}}));
       console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:10,output_tokens:2,cached_input_tokens:0}}));
       return;
@@ -307,7 +307,7 @@ if (process.argv.includes("--version")) {
       const run = readFileSync(counterPath, "utf8").trim().split("\\n").length;
       writeFileSync(\`unexpected-\${run}.txt\`, "out of scope\\n");
       if (prompt.includes("quality gate rejected")) appendFileSync(${JSON.stringify(join(directory, ".runs", "scope-retry-prompt.txt"))}, prompt);
-      const text = protocolResult(JSON.stringify({ status: "done", summary: \`worker attempt \${run}\`, changedFiles: [], verification: [], artifacts: [], missingContext: [] }));
+      const text = protocolResult(JSON.stringify({ status: "done", summary: \`worker attempt \${run}\`, verification: [], artifacts: [], missingContext: [] }));
       console.log(JSON.stringify({type:"item.completed",item:{type:"agent_message",text}}));
       console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:10,output_tokens:2,cached_input_tokens:0}}));
       return;
@@ -325,7 +325,7 @@ if (process.argv.includes("--version")) {
       appendFileSync(counterPath, "x\\n");
       const call = readFileSync(counterPath, "utf8").trim().split("\\n").length;
       if (call > 1) {
-        console.log(JSON.stringify({type:"item.completed",item:{type:"agent_message",text:JSON.stringify({ status: "done", summary: "fresh attempt after the capped timeout", changedFiles: [], verification: [], artifacts: [], missingContext: [] })}}));
+        console.log(JSON.stringify({type:"item.completed",item:{type:"agent_message",text:JSON.stringify({ status: "done", summary: "fresh attempt after the capped timeout", verification: [], artifacts: [], missingContext: [] })}}));
         console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:1,output_tokens:1}}));
         return;
       }
@@ -344,7 +344,7 @@ if (process.argv.includes("--version")) {
       const timer = setInterval(() => {
         if (!existsSync(release)) return;
         clearInterval(timer);
-        console.log(JSON.stringify({type:"item.completed",item:{type:"agent_message",text:JSON.stringify({ status: "done", summary: "worker complete", changedFiles: [], verification: [], artifacts: [], missingContext: [] })}}));
+        console.log(JSON.stringify({type:"item.completed",item:{type:"agent_message",text:JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] })}}));
         console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:10,output_tokens:2,cached_input_tokens:0}}));
       }, 5);
       return;
@@ -361,7 +361,7 @@ if (process.argv.includes("--version")) {
       }
     }
     if (mode === "prose-json" && !prompt.startsWith("Review node")) {
-      console.log(JSON.stringify({type:"item.completed",item:{type:"agent_message",text:"All checks pass, my only modification is the declared write file.\\n\\n" + JSON.stringify({ status: "done", summary: "worker complete", changedFiles: [], verification: [], artifacts: [], missingContext: [] })}}));
+      console.log(JSON.stringify({type:"item.completed",item:{type:"agent_message",text:"All checks pass, my only modification is the declared write file.\\n\\n" + JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] })}}));
       console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:1,output_tokens:1}}));
       return;
     }
@@ -418,7 +418,7 @@ if (process.argv.includes("--version")) {
     } else if (mode === "judge-reserve-overrun") {
       const text = judge
         ? JSON.stringify({ verdict: "pass", maxSeverity: "none", summary: "judge completed from reserve", findings: [] })
-        : JSON.stringify({ status: "done", summary: "worker completed", changedFiles: [], verification: [], artifacts: [], missingContext: [] });
+        : JSON.stringify({ status: "done", summary: "worker completed", verification: [], artifacts: [], missingContext: [] });
       console.log(JSON.stringify({type:"item.completed",item:{type:"agent_message",text}}));
       console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:80,output_tokens:1,cached_input_tokens:0}}));
       setTimeout(() => process.exit(0), 200);
@@ -436,8 +436,8 @@ if (process.argv.includes("--version")) {
           ? JSON.stringify({verdict:"fail",maxSeverity:"critical",summary:"critical defect",findings:[{severity:"critical",description:"broken [works]",evidence:"test failed"}]})
           : JSON.stringify({verdict:"fail",maxSeverity:"minor",summary:"minor advisory",findings:[{severity:"minor",description:"style [works]",evidence:"line 1"}]})
         : mode === "blocked-context"
-          ? JSON.stringify({ status: "blocked_context", summary: "missing context", changedFiles: [], verification: [], artifacts: [], missingContext: ["missing.txt"] })
-          : JSON.stringify({ status: "done", summary: "worker complete", changedFiles: [], verification: [], artifacts: [], missingContext: [] });
+          ? JSON.stringify({ status: "blocked_context", summary: "missing context", verification: [], artifacts: [], missingContext: ["missing.txt"] })
+          : JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
       const text = !judge && protocolModes.has(mode) ? protocolResult(emitted) : emitted;
       console.log(JSON.stringify({type:"item.completed",item:{type:"agent_message",text}}));
       console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:10,output_tokens:2,cached_input_tokens:0}}));
@@ -473,7 +473,7 @@ if (process.argv.includes("--version")) {
     const judge = request.prompt.includes("Review node");
     const result = judge
       ? JSON.stringify({ verdict: "pass", maxSeverity: "none", summary: "clean", findings: [] })
-      : JSON.stringify({ status: "done", summary: "worker complete", changedFiles: [], verification: [], artifacts: [], missingContext: [] });
+      : JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
     console.log(JSON.stringify({ schemaVersion: 1, type: "run.completed", result, continuationId: "fake-thread", usage: { inputTokens: 5, outputTokens: 2, cacheReadInputTokens: 1 }, costUsd: 0.01 }));
   });
 }
@@ -575,10 +575,10 @@ if (process.argv.includes("--version")) {
       const usage = { inputTokens: 120, outputTokens: 40, cacheReadTokens: 800 };
       if (mode === "pass") {
         text("working", usage);
-        text(JSON.stringify({ status: "done", summary: "ok", changedFiles: [], verification: [], artifacts: [], missingContext: [] }), usage);
+        text(JSON.stringify({ status: "done", summary: "ok", verification: [], artifacts: [], missingContext: [] }), usage);
         event({ type: "turn/end", data: { reason: { kind: "completed" } } });
       } else if (mode === "no-usage") {
-        text(JSON.stringify({ status: "done", summary: "ok", changedFiles: [], verification: [], artifacts: [], missingContext: [] }));
+        text(JSON.stringify({ status: "done", summary: "ok", verification: [], artifacts: [], missingContext: [] }));
         event({ type: "turn/end", data: { reason: { kind: "completed" } } });
       } else if (mode === "two-verdicts") {
         text(JSON.stringify({ verdict: "pass", maxSeverity: "none", summary: "one", findings: [] }), usage);
