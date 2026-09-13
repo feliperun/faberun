@@ -138,7 +138,7 @@ if (process.argv.includes("--version")) {
     notify: process.env.INTENT_FACTORY_NOTIFY_BIN ?? null,
     ambient: process.env.INTENT_FACTORY_AMBIENT ?? null,
   }));
-  const result = JSON.stringify({ status: "done", summary: "ok", changedFiles: [], verification: [], artifacts: [], missingContext: [] });
+  const result = JSON.stringify({ status: "done", summary: "ok", verification: [], artifacts: [], missingContext: [] });
   console.log(JSON.stringify({ schemaVersion: 1, type: "run.completed", result, continuationId: "fake-thread", usage: { inputTokens: 5, outputTokens: 2, cacheReadInputTokens: 1 }, costUsd: 0.01 }));
 }
 `);
@@ -374,7 +374,7 @@ process.stdin.on("end", () => {
     console.log(JSON.stringify({ type: "turn.failed", error: { message: "socket hang up: connection reset by peer" } }));
     process.exit(1);
   }
-  const text = JSON.stringify({ status: "done", summary: "worker complete", changedFiles: [], verification: [], artifacts: [], missingContext: [] });
+  const text = JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
   console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text } }));
   console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, output_tokens: 2 } }));
 });
@@ -421,7 +421,7 @@ process.stdin.on("end", () => {
   const prompt = input || process.argv.at(-1) || "";
   console.log(JSON.stringify({ type: "thread.started", thread_id: "flaky" }));
   if (!prompt.startsWith("Review node")) {
-    const text = JSON.stringify({ status: "done", summary: "worker complete", changedFiles: [], verification: [], artifacts: [], missingContext: [] });
+    const text = JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
     console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text } }));
     console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, output_tokens: 2 } }));
     return;

@@ -58,7 +58,7 @@ else {
   process.stdin.on("end", () => {
     const args = process.argv.slice(2);
     appendFileSync(${JSON.stringify(requestLog)}, JSON.stringify({ args, prompt: input }) + "\\n");
-    const result = JSON.stringify({ status: "done", summary: "fake provider complete", changedFiles: [], verification: [], artifacts: [], missingContext: [] });
+    const result = JSON.stringify({ status: "done", summary: "fake provider complete", verification: [], artifacts: [], missingContext: [] });
     console.log(JSON.stringify({ type: "result", result, ${emitSessionId ? 'session_id: args.includes("--resume") ? "session-2" : "session-1",' : ""} usage: { input_tokens: 1, output_tokens: 1 }, total_cost_usd: ${costUsd} }));
   });
 }
@@ -108,7 +108,7 @@ if (process.argv.includes("--version")) {
     const judge = prompt.startsWith("Review node");
     const materialization = prompt.startsWith("The implementation is already complete");
     const resultPath = /(?:file|to): (\\S+\\.json)/.exec(prompt)?.[1];
-    const result = (summary) => JSON.stringify({ status: "done", summary, changedFiles: [], verification: [], artifacts: [], missingContext: [] });
+    const result = (summary) => JSON.stringify({ status: "done", summary, verification: [], artifacts: [], missingContext: [] });
     console.log(JSON.stringify({ type: "thread.started", thread_id: "result-file-thread" }));
     if (resultless && !materialization && !judge) {
       // Worker completes with usage but no final message and no canonical result file.
@@ -191,7 +191,7 @@ if (process.argv.includes("--version")) {
       const resultPath = /(?:file|to): (\\S+\\.json)/.exec(prompt)?.[1];
       appendFileSync(${JSON.stringify(workerCounter)}, "x\\n");
       const run = readFileSync(${JSON.stringify(workerCounter)}, "utf8").trim().split("\\n").length;
-      const result = JSON.stringify({ status: "done", summary: \`worker attempt \${run}\`, changedFiles: [], verification: [], artifacts: [], missingContext: [] });
+      const result = JSON.stringify({ status: "done", summary: \`worker attempt \${run}\`, verification: [], artifacts: [], missingContext: [] });
       if (resultPath) writeFileSync(resultPath, result);
       console.log(JSON.stringify({ type: "thread.started", thread_id: "cited-gate-thread" }));
       console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: result } }));
@@ -246,7 +246,7 @@ if (process.argv.includes("--version")) {
     const resultPath = /(?:file|to): (\\S+\\.json)/.exec(prompt)?.[1];
     const text = judge
       ? JSON.stringify({ verdict: "fail", maxSeverity: "minor", summary: "minor advisory", findings: [{ severity: "minor", description: "minor advisory on [works]", evidence: "advisory" }] })
-      : JSON.stringify({ status: "done", summary: "worker complete", changedFiles: [], verification: [], artifacts: [], missingContext: [] });
+      : JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
     if (!judge && resultPath) writeFileSync(resultPath, text);
     console.log(JSON.stringify({ type: "thread.started", thread_id: "advisory-gate-thread" }));
     console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text } }));
@@ -294,7 +294,7 @@ if (process.argv.includes("--version")) {
     const resultPath = /(?:file|to): (\\S+\\.json)/.exec(prompt)?.[1];
     const text = judge
       ? JSON.stringify({ verdict: "fail", maxSeverity: "critical", summary: "critical defect", findings: [{ severity: "critical", description: "broken [works]", evidence: "test failed" }] })
-      : JSON.stringify({ status: "done", summary: "worker complete", changedFiles: [], verification: [], artifacts: [], missingContext: [] });
+      : JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
     if (!judge && resultPath) writeFileSync(resultPath, text);
     console.log(JSON.stringify({ type: "thread.started", thread_id: "broken-gate-thread" }));
     console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text } }));
@@ -351,7 +351,7 @@ process.stdin.on("end", () => {
   const resultPath = /(?:file|to): (\\S+\\.json)/.exec(prompt)?.[1];
   console.log(JSON.stringify({ type: "thread.started", thread_id: "defect-thread" }));
   if (!prompt.startsWith("Review node")) {
-    const result = JSON.stringify({ status: "done", summary: "worker complete", changedFiles: [], verification: [], artifacts: [], missingContext: [] });
+    const result = JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
     if (resultPath) writeFileSync(resultPath, result);
     console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: result } }));
     console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, output_tokens: 2 } }));
@@ -420,7 +420,7 @@ process.stdin.on("end", () => {
   const resultPath = /(?:file|to): (\\S+\\.json)/.exec(prompt)?.[1];
   console.log(JSON.stringify({ type: "thread.started", thread_id: "stall-thread" }));
   if (!prompt.startsWith("Review node")) {
-    const result = JSON.stringify({ status: "done", summary: "worker complete", changedFiles: [], verification: [], artifacts: [], missingContext: [] });
+    const result = JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
     if (resultPath) writeFileSync(resultPath, result);
     console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: result } }));
     console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, output_tokens: 2 } }));
@@ -521,7 +521,7 @@ if (process.argv.includes("--version")) {
       return;
     }
     appendFileSync(${JSON.stringify(log)}, input);
-    const result = JSON.stringify({ status: "done", summary: "retried worker complete", changedFiles: [], verification: [], artifacts: [], missingContext: [] });
+    const result = JSON.stringify({ status: "done", summary: "retried worker complete", verification: [], artifacts: [], missingContext: [] });
     const resultPath = /canonical result file: (\\S+\\.json)/.exec(input)?.[1];
     if (resultPath) writeFileSync(resultPath, result);
     console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: result } }));
@@ -586,7 +586,7 @@ if (process.argv.includes("--version")) {
     const verdict = JSON.stringify({ verdict: "pass", maxSeverity: "none", summary: "clean re-judge", findings: [] });
     console.log(JSON.stringify({ type: "thread.started", thread_id: "retry-judge-thread" }));
     if (!prompt.startsWith("Review node")) {
-      const result = JSON.stringify({ status: "done", summary: "worker complete", changedFiles: [], verification: [], artifacts: [], missingContext: [] });
+      const result = JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
       const resultPath = /(?:file|to): (\\S+\\.json)/.exec(prompt)?.[1];
       if (resultPath) writeFileSync(resultPath, result);
       console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: result } }));

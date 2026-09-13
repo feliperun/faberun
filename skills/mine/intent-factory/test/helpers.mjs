@@ -371,7 +371,7 @@ if (process.argv.includes("--version")) {
       // the same JSON, plus the two benign error items from the incident.
       writeFileSync("README.md", "worker output\\n");
       const resultPath = /canonical result file: (\\S+\\.json)/.exec(prompt)?.[1];
-      const payload = { status: "done", summary: "completed despite non-zero exit", changedFiles: ["README.md"], verification: [], artifacts: [], missingContext: [] };
+      const payload = { status: "done", summary: "completed despite non-zero exit", verification: [], artifacts: [], missingContext: [] };
       const text = JSON.stringify(payload);
       if (resultPath) writeFileSync(resultPath, text);
       console.log(JSON.stringify({type:"item.completed",item:{id:"item_0",type:"error",message:"Under-development features enabled: rollout_budget. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set \`suppress_unstable_features_warning = true\` in /Users/frb/.codex/config.toml."}}));
@@ -489,7 +489,7 @@ if [ ${JSON.stringify(mode)} = "402" ] || [ ${JSON.stringify(mode)} = "secret" ]
 fi
 case "$request" in
   *"Review node"*) result='{"verdict":"pass","maxSeverity":"none","summary":"clean","findings":[]}' ;;
-  *) result='{"status":"done","summary":"worker complete","changedFiles":[],"verification":[],"artifacts":[],"missingContext":[]}' ;;
+  *) result='{"status":"done","summary":"worker complete","verification":[],"artifacts":[],"missingContext":[]}' ;;
 esac
 printf '%s\\n' '{"schemaVersion":1,"type":"run.completed","result":'"$(printf '%s' "$result" | sed 's/"/\\\\"/g; s/^/"/; s/$/"/')"',"continuationId":"fake-thread","usage":{"inputTokens":5,"outputTokens":2,"cacheReadInputTokens":1},"costUsd":0.01}'
 `;
