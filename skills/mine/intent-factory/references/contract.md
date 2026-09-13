@@ -327,8 +327,8 @@ persisted scope across the window and passing verification; otherwise it
 settles `reconciled` and blocks the node with `unknown_effect_reconciled` — a
 durable manual-stop attention boundary. All writes happen under the
 controller lock. `usage.jsonl` is one line per invocation: tokens by kind
-(uncached input, cache read, output), `costUsd` with provenance (`provider`,
-`priced`, `unknown`), timestamps — reporting only. See
+(uncached input, cache read, output), `costUsd` with provenance (`provider`, else
+`unknown`), timestamps — reporting only. See
 [operations.md](operations.md) for worktrees, integration, `status.json`,
 notify, the controller lock, and campaigns.
 
