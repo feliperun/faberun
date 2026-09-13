@@ -69,10 +69,12 @@ test("an unknown campaign is refused before the CLI, and the refusal names no pa
     // `note` and `decisions` used to hand the id straight to the CLI, whose
     // own refusal quotes the absolute directory it looked in — handing a
     // caller the server's filesystem layout for an id that does not exist.
-    for (const [path, body] of [
+    /** @type {[string, Record<string, string>][]} */
+    const writes = [
       ["/api/campaigns/no-such-campaign/note", { kind: "constraint", text: "hold" }],
       ["/api/campaigns/no-such-campaign/decisions/q-1", { text: "ship" }],
-    ]) {
+    ];
+    for (const [path, body] of writes) {
       const response = await fetch(`${base}${path}`, { method: "POST", headers: { ...AUTH, "content-type": "application/json" }, body: JSON.stringify(body) });
       assert.equal(response.status, 404, path);
       const text = await response.text();

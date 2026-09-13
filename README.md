@@ -80,7 +80,7 @@ node "$INTENT_FACTORY" supervise --detach "$TARGET/.runs/<run-id>"   # unattende
 | Start without blocking the session | `run --detach <contract.json>` |
 | Read current state | `status <run-dir>` / `status --json <run-dir>` |
 | View attempts and tokens | `report <run-dir>` |
-| Prepare a repair after gate exhaustion | `findings <run-dir>` |
+| Read what a stopped node needs: gate findings and blocking questions | `findings <run-dir>` |
 | Continue a partly finished run | `contract prune <run-dir> --out <file>` |
 | Read the campaign indicators | `metrics <campaign-id> --cwd <repo>` |
 | Stop a run and terminate its providers | `cancel <run-dir>` |

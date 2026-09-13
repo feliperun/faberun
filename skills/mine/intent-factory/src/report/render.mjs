@@ -413,11 +413,38 @@ export function renderFindings(runDir) {
   const sections = [];
   for (const node of nodes) {
     const gate = node.gate;
-    if (node.status !== "exhausted" || !gate?.findings?.length) continue;
-    const listed = gate.findings.map((finding) => `- [${finding.severity}] ${finding.description}\n  Evidence: ${finding.evidence}`).join("\n");
-    sections.push(`## ${node.id}\n\nGate verdict: ${gate.verdict} (${gate.maxSeverity}). ${gate.summary}\n\n${listed}`);
+    if (node.status === "exhausted" && gate?.findings?.length) {
+      const listed = gate.findings.map((finding) => `- [${finding.severity}] ${finding.description}\n  Evidence: ${finding.evidence}`).join("\n");
+      sections.push(`## ${node.id}\n\nGate verdict: ${gate.verdict} (${gate.maxSeverity}). ${gate.summary}\n\n${listed}`);
+      continue;
+    }
+    const question = blockedContextQuestion(node);
+    if (question) sections.push(question);
   }
-  return sections.length ? `${sections.join("\n\n")}\n` : "no exhausted gate findings to act on\n";
+  return sections.length ? `${sections.join("\n\n")}\n` : "no findings or blocking questions to act on\n";
+}
+
+/**
+ * A node the worker itself stopped on, rendered as the repair it asks for.
+ *
+ * `findings` used to answer only gate exhaustion, and a run whose nodes all
+ * stopped on `blocked_context` reported nothing to act on while the workers
+ * had each named exactly what they needed — measured on a four-node campaign
+ * where three nodes were blocked and the command printed one line saying so.
+ * The question is already structured, so the repair is mechanical: put the
+ * named paths in the packet's `readFiles` and take a new run id.
+ *
+ * @param {NodeSnapshot} node
+ * @returns {string|null}
+ */
+function blockedContextQuestion(node) {
+  if (node.status !== "blocked") return null;
+  const result = node.result && typeof node.result === "object" ? /** @type {{status?: unknown, summary?: unknown, missingContext?: unknown}} */ (node.result) : null;
+  if (result?.status !== "blocked_context") return null;
+  const missing = Array.isArray(result.missingContext) ? result.missingContext.filter((entry) => typeof entry === "string") : [];
+  const asked = missing.length ? missing.map((entry) => `- ${entry}`).join("\n") : "- (the worker named nothing specific)";
+  const summary = typeof result.summary === "string" ? result.summary : "the worker stopped on missing context";
+  return `## ${node.id}\n\nBlocked on context, attempt ${node.attempt ?? 0}. ${summary}\n\nThe worker asked for:\n${asked}`;
 }
 
 /**

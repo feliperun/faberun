@@ -9,6 +9,7 @@ import { runContract } from "../../src/engine/scheduler.mjs";
 import { fakeCodex, fixture, orphan, packet, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState, notifications, withResultFileCodex, withAdvisoryGateCodex } from "../runner-helpers.mjs";
 import { invocationResult } from "../../src/engine/process.mjs";
+import { renderFindings } from "../../src/report/render.mjs";
 
 test("runs a worker and treats minor judge findings as advisory", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-run-"));
@@ -101,6 +102,13 @@ test("blocks a structured blocked_context worker result without invoking a judge
   const artifact = JSON.parse(readFileSync(join(result.runDir, "findings.json"), "utf8"));
   assert.equal(artifact.nodes[0].error.code, "context_missing");
   assert.deepEqual(artifact.nodes[0].missingContext, ["missing.txt"]);
+  // `findings` answered only gate exhaustion, so a run whose nodes all stopped
+  // on a question printed one line saying there was nothing to act on while
+  // every worker had named exactly what it needed.
+  const rendered = renderFindings(result.runDir);
+  assert.match(rendered, /## build/u);
+  assert.match(rendered, /Blocked on context, attempt 1/u);
+  assert.match(rendered, /The worker asked for:\n- missing\.txt/u);
 });
 
 test("discovery blocked_context maps to the blocked terminal state, not an invalid-result retry", async () => {
