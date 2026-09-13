@@ -21,6 +21,7 @@ import {
 } from "./run/lock.mjs";
 import { renderRunHandoff } from "./campaign/index.mjs";
 import { campaignCli } from "./cli/campaign.mjs";
+import { seatCli } from "./cli/seat.mjs";
 import { contractCli, validateContractFile } from "./cli/contract.mjs";
 import { METRICS_OPTIONS, renderCampaignMetrics } from "./campaign/metrics.mjs";
 import { runContract } from "./engine/scheduler.mjs";
@@ -138,6 +139,7 @@ function resumeOptionsOf(values) {
  */
 async function main(argv) {
   if (argv[0] === "campaign") { await campaignCli(argv.slice(1)); return; }
+  if (argv[0] === "seat") { seatCli(argv.slice(1)); return; }
   if (argv[0] === "contract") { contractCli(argv.slice(1)); return; }
   const parsed = parseCli(argv);
   if (!parsed) { usage(); return; }
@@ -277,7 +279,8 @@ function usage() {
     "bulk-read --question <text> --paths <a,b,c> [--json] | " +
     "contract validate <contract.json> | " +
     "metrics <campaign-id> [--cwd <dir>] [--json] | " +
-    "campaign <init|watch|attach|note|resolve|close|show|list|sync|ack> ...\n",
+    "campaign <init|watch|attach|note|resolve|close|show|list|sync|ack> ... | " +
+    "seat <start|attach|status|stop> [<campaign-id>] [--cwd <dir>] ...\n",
   );
   process.exitCode = 2;
 }
