@@ -260,17 +260,16 @@ export function validateContract(raw, contractPath, options = {}) {
   // neither declared nor acknowledged makes the packet incomplete, and the
   // node would either break it or be structurally unable to touch it. The
   // three incidents this catches (p3 bulk-read, sp1 lossy-notify, sp2
-  // seat-switch) each cost a node. Persisted contracts are a record of what was
-  // authored and are not re-litigated on replay.
-  if (!options.persisted) {
-    const scopeErrors = nodes.flatMap((node, index) =>
-      scopeClosureFindings(node, index, cwd).map(
-        (finding) => `nodes[${index}] (${node.id}): ${finding.path} (${finding.detector}: ${finding.reason})`,
-      ),
-    );
-    if (scopeErrors.length) {
-      throw new TypeError(`task packet scope does not close; declare in readFiles or writeFiles, or acknowledge in scopeAcknowledged: ${scopeErrors.join("; ")}`);
-    }
+  // seat-switch) each cost a node. This runs on every load, replay included: a
+  // persisted packet is the same packet, and a scope gap does not heal because
+  // it was recorded.
+  const scopeErrors = nodes.flatMap((node, index) =>
+    scopeClosureFindings(node, index, cwd).map(
+      (finding) => `nodes[${index}] (${node.id}): ${finding.path} (${finding.detector}: ${finding.reason})`,
+    ),
+  );
+  if (scopeErrors.length) {
+    throw new TypeError(`task packet scope does not close; declare in readFiles or writeFiles, or acknowledge in scopeAcknowledged: ${scopeErrors.join("; ")}`);
   }
 
   const warnings = nodes.flatMap((node, index) => [...commandCoverageWarnings(node, index), ...unsnapshottedWriteWarnings(node, index, cwd)]);
