@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 import { harnessCapabilities, normalizeProviderResult, providerCommand } from "../harnesses/index.mjs";
 import { latestTimeoutSec } from "./backoff.mjs";
 
+import { priceUsage } from "../run/usage.mjs";
 import { processStartToken } from "../run/lock.mjs";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -26,9 +27,10 @@ import { writeJsonAtomic } from "../run/store.mjs";
 /** @typedef {import("../harnesses/index.mjs").HarnessRuntime} HarnessRuntime */
 /** @typedef {import("../contract/index.mjs").Usage} Usage */
 /** @typedef {import("../harnesses/index.mjs").ProviderEnvelope} ProviderEnvelope */
+/** @typedef {ProviderEnvelope & {costProvenance?: "priced"}} PricedEnvelope */
 /** @typedef {import("node:child_process").ChildProcess} ChildProcess */
 /** @typedef {{prompt: string|null, stdout: string, stderr: string}} PathSet */
-/** @typedef {{id: string, pid: number, processGroupId: number|null, processStartToken: string|null, harness: string, runtimeId: string|null, runtimeFingerprint?: string, revision?: number, phase: string, promptPath: string|null, stdoutPath: string, stderrPath: string, startedAt: string, deadlineAt: string|null, updatedAt: string, closedAt: string|null, exitCode: number|null, signal: string|null, status: "active"|"closed"|"terminated", executable: string, snapshotPath?: string, usage?: Usage, usageEstimated?: boolean, costUsd?: number|null, runId?: string, campaignId?: string, nodeId?: string, attempt?: number, workspace?: string, worktreeBranch?: string|null, worktreeBaseSha?: string|null, planPhase?: string, role?: "worker"|"judge", model?: string, reasoning?: string|null, sandbox?: string|null, continuationId?: string|null, continuationMode?: "fresh"|"reuse"|"rotate"}} Invocation */
+/** @typedef {{id: string, pid: number, processGroupId: number|null, processStartToken: string|null, harness: string, runtimeId: string|null, runtimeFingerprint?: string, revision?: number, phase: string, promptPath: string|null, stdoutPath: string, stderrPath: string, startedAt: string, deadlineAt: string|null, updatedAt: string, closedAt: string|null, exitCode: number|null, signal: string|null, status: "active"|"closed"|"terminated", executable: string, snapshotPath?: string, usage?: Usage, usageEstimated?: boolean, costUsd?: number|null, costProvenance?: "priced", runId?: string, campaignId?: string, nodeId?: string, attempt?: number, workspace?: string, worktreeBranch?: string|null, worktreeBaseSha?: string|null, planPhase?: string, role?: "worker"|"judge", model?: string, reasoning?: string|null, sandbox?: string|null, continuationId?: string|null, continuationMode?: "fresh"|"reuse"|"rotate"}} Invocation */
 /** @typedef {{pid: number|null, processGroupId?: number|null, processStartToken?: string|null}} InvocationProbe */
 /** @typedef {{child: ChildProcess, node: ValidatedNode, state: NodeSnapshot, runtime: HarnessRuntime & {id: string|null}, cwd: string, paths: PathSet, phase: string, invocation: Invocation, startedAt: string, startedTicks: bigint, progressTicks: bigint, lastOutputAt: number, closed: boolean, exitCode: number|null, signal: string|null, spawnError: Error|null, terminating: Promise<void>|null, gateConfigPath: string, gateReleasePath: string, scopeBaseline?: unknown, scopeChecked?: boolean, scopeViolation?: boolean, resultMaterialization?: boolean, recoveryBaseline?: unknown, observeTimer?: ReturnType<typeof setInterval>, monitorOffset?: number, monitorParser?: import("../harnesses/exec-jsonl/index.mjs").SessionMetricsParser, onClose?: (invocation: Invocation) => void, onInvocationUpdate?: (invocation: Invocation) => void, onProgress?: (state: NodeSnapshot) => void}} Job */
 
@@ -372,12 +374,17 @@ function processGroupAlive(processGroupId) {
  * @param {{stdoutPath: string}} invocation
  * @param {HarnessRuntime} runtime
  * @param {import("../harnesses/index.mjs").NormalizeOptions} options
- * @returns {import("../harnesses/index.mjs").ProviderEnvelope|null}
+ * @returns {PricedEnvelope|null}
  */
 export function invocationResult(invocation, runtime, options = {}) {
   try {
     const stdout = boundedRegion(invocation.stdoutPath);
-    return normalizeProviderResult(runtime, stdout, options.exitCode ?? 0, options.signal ?? null, options);
+    const envelope = normalizeProviderResult(runtime, stdout, options.exitCode ?? 0, options.signal ?? null, options);
+    // Price before returning: recovery threads this envelope through its own
+    // RecoveryOutcome objects, so the priced fields must be final here rather
+    // than recomputed by any caller.
+    const priced = priceUsage(runtime, envelope.usage, envelope.costUsd);
+    return { ...envelope, costUsd: priced.costUsd, costProvenance: priced.costProvenance };
   } catch {
     return null;
   }

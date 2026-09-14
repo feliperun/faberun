@@ -93,7 +93,7 @@ import { applyRejection, applyVerificationFailure } from "./settle.mjs";
 /** @typedef {import("./process.mjs").Invocation} Invocation */
 /** @typedef {import("./process.mjs").InvocationProbe} InvocationProbe */
 /** @typedef {import("./process.mjs").Job} Job */
-/** @typedef {{kind: "adopted"|"rejudge"|"restart"|"reconciled"|"exhausted"|"stalled", phase?: "worker"|"judge", result?: unknown, usage?: Usage, costUsd?: number|null, error?: {code: string, message: string}|null, invocationId?: string, reason?: string}} RecoveryOutcome */
+/** @typedef {{kind: "adopted"|"rejudge"|"restart"|"reconciled"|"exhausted"|"stalled", phase?: "worker"|"judge", result?: unknown, usage?: Usage, costUsd?: number|null, costProvenance?: "priced", error?: {code: string, message: string}|null, invocationId?: string, reason?: string}} RecoveryOutcome */
 /** @typedef {import("node:child_process").ChildProcess & {bootstrapNonce?: string, bootstrapProcessStartToken?: string|null}} DetachedChild */
 /** @typedef {{status?: string, nonce?: string, pid?: number, processStartToken?: string|null, holderId?: string, generation?: number, error?: unknown, runDir?: string}} BootstrapRecord */
 
@@ -234,6 +234,7 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
         continuationId: envelope.continuationId ?? invocation.continuationId ?? null,
         usage: envelope.usage,
         costUsd: envelope.costUsd,
+        costProvenance: envelope.costProvenance,
       }
       : invocation);
     settleInvocation(runDir, job.invocation, {

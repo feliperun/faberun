@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { DECLARED_MODEL_CATALOGUES, stableJsonDocument } from "../harnesses/catalogue.mjs";
 import { READ_LINE_LIMIT, normalizeProviderResult, providerCommand } from "../harnesses/index.mjs";
-import { appendUsageRecord, emptyUsage } from "../run/usage.mjs";
+import { appendUsageRecord, emptyUsage, priceUsage } from "../run/usage.mjs";
 import { errorMessage, fail } from "../util.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS } from "./runtime-discovery.mjs";
 
@@ -243,6 +243,9 @@ function accountDelegation(runtimeId, runtime, envelope, observation) {
   const runDir = process.env.INTENT_FACTORY_RUN_DIR;
   const nodeId = process.env.INTENT_FACTORY_NODE_ID;
   if (!runDir || !nodeId) return;
+  // The delegation is not downstream of either pricing source point, so it
+  // prices its own envelope before the ledger record is built.
+  const priced = priceUsage(runtime, envelope.usage, envelope.costUsd);
   appendUsageRecord(runDir, /** @type {Invocation} */ ({
     id: randomUUID(),
     runId: basename(runDir),
@@ -251,7 +254,8 @@ function accountDelegation(runtimeId, runtime, envelope, observation) {
     runtimeId,
     model: runtime.model,
     usage: envelope.usage,
-    costUsd: envelope.costUsd ?? null,
+    costUsd: priced.costUsd,
+    costProvenance: priced.costProvenance,
     startedAt: observation.startedAt,
     closedAt: new Date().toISOString(),
   }));

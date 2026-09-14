@@ -21,7 +21,8 @@ import { normalizeProviderResult } from "../harnesses/index.mjs";
 /** @typedef {ReturnType<typeof import("../run/lock.mjs").acquire>} LockHandle */
 /** @typedef {import("../contract/index.mjs").NodeSnapshot} NodeSnapshot */
 /** @typedef {import("../harnesses/index.mjs").ProviderEnvelope} ProviderEnvelope */
-/** @typedef {{kind: "adopted"|"rejudge"|"restart"|"reconciled"|"exhausted"|"stalled", phase?: "worker"|"judge", result?: unknown, usage?: Usage, costUsd?: number|null, error?: {code: string, message: string}|null, invocationId?: string, reason?: string}} RecoveryOutcome */
+/** @typedef {ProviderEnvelope & {costProvenance?: "priced"}} PricedEnvelope */
+/** @typedef {{kind: "adopted"|"rejudge"|"restart"|"reconciled"|"exhausted"|"stalled", phase?: "worker"|"judge", result?: unknown, usage?: Usage, costUsd?: number|null, costProvenance?: "priced", error?: {code: string, message: string}|null, invocationId?: string, reason?: string}} RecoveryOutcome */
 /** @typedef {import("../contract/index.mjs").Usage} Usage */
 
 /**
@@ -34,11 +35,11 @@ import { normalizeProviderResult } from "../harnesses/index.mjs";
  *
  * @param {Job} job
  * @param {{accumulate?: boolean}} [options]
- * @returns {ProviderEnvelope}
+ * @returns {PricedEnvelope}
  */
 export function recordInvocationUsage(job, options = {}) {
   const { state } = job;
-  /** @type {ProviderEnvelope} */
+  /** @type {PricedEnvelope} */
   let envelope;
   let boundedStdout = "";
   try {
@@ -68,8 +69,13 @@ export function recordInvocationUsage(job, options = {}) {
       envelope = { ...envelope, usage: { ...envelope.usage, inputTokens: observed.inputTokens, cacheReadInputTokens: observed.cacheReadInputTokens } };
     }
   }
+  // Price only after the backfill has run: the counters this function persists
+  // and returns are the ones the price is derived from, and the envelope becomes
+  // the single priced object every later copy spreads from.
+  const priced = priceUsage(job.runtime, envelope.usage, envelope.costUsd);
+  envelope = { ...envelope, costUsd: priced.costUsd, costProvenance: priced.costProvenance };
   state.invocations = (state.invocations ?? []).map((invocation) => invocation.id === job.invocation.id
-    ? { ...invocation, usage: envelope.usage }
+    ? { ...invocation, usage: envelope.usage, costUsd: envelope.costUsd, costProvenance: envelope.costProvenance }
     : invocation);
   if (options.accumulate !== false) state.usage = addUsage(state.usage, envelope.usage);
   return envelope;
@@ -108,14 +114,14 @@ export function invocationCost(state) {
  * missing measurement, not a zero contribution, so it keeps the whole record
  * `unknown` (`costUsd: null`) rather than understating it.
  *
- * @param {{pricing?: RuntimePricing}|null|undefined} runtime
+ * @param {unknown} runtime
  * @param {Usage|undefined} usage
  * @param {number|null|undefined} reportedCostUsd
  * @returns {{costUsd: number|null, costProvenance: "priced"|undefined}}
  */
 export function priceUsage(runtime, usage, reportedCostUsd) {
   if (typeof reportedCostUsd === "number") return { costUsd: reportedCostUsd, costProvenance: undefined };
-  const pricing = runtime?.pricing;
+  const pricing = /** @type {{pricing?: RuntimePricing}|null|undefined} */ (runtime)?.pricing;
   if (!pricing) return { costUsd: null, costProvenance: undefined };
   /** @type {[number|null|undefined, number|undefined][]} */
   const terms = [
@@ -177,7 +183,9 @@ export function appendUsageRecord(runDir, invocation) {
     cacheReadInputTokens: typeof usage.cacheReadInputTokens === "number" ? usage.cacheReadInputTokens : null,
     outputTokens: typeof usage.outputTokens === "number" ? usage.outputTokens : null,
     costUsd: typeof invocation.costUsd === "number" ? invocation.costUsd : null,
-    costProvenance: typeof invocation.costUsd === "number" ? "provider" : "unknown",
+    // A persisted `priced` marker wins; otherwise the pre-Phase-4 rule applies
+    // unchanged: a reported number is `provider`, absence is `unknown`.
+    costProvenance: invocation.costProvenance ?? (typeof invocation.costUsd === "number" ? "provider" : "unknown"),
     startedAt: invocation.startedAt ?? null,
     finishedAt: invocation.closedAt ?? null,
   });
@@ -198,12 +206,18 @@ export async function persistRecoveryUsage(runDir, state, recovery, lock) {
   const current = state.invocations?.find((invocation) => invocation.id === recovery.invocationId);
   if (!current) return;
   const usage = hasMeasuredUsage(current.usage) ? current.usage : recovery.usage;
-  const costUsd = typeof current.costUsd === "number" ? current.costUsd : recovery.costUsd;
+  // Cost and provenance are selected together from whichever source wins the
+  // numeric-cost predicate: an independent fallback could attach a stray
+  // recovery provenance to an already-settled cost that was never priced.
+  const priced = typeof current.costUsd === "number"
+    ? { costUsd: current.costUsd, costProvenance: current.costProvenance }
+    : { costUsd: recovery.costUsd ?? null, costProvenance: recovery.costProvenance };
   const changed = stableJson(current.usage) !== stableJson(usage)
-    || current.costUsd !== (costUsd ?? null);
+    || current.costUsd !== priced.costUsd
+    || (current.costProvenance ?? null) !== (priced.costProvenance ?? null);
   if (changed) {
     state.invocations = (state.invocations ?? []).map((invocation) => invocation.id === current.id
-      ? { ...invocation, usage, costUsd: costUsd ?? null }
+      ? { ...invocation, usage, costUsd: priced.costUsd, costProvenance: priced.costProvenance }
       : invocation);
     state.usage = invocationUsage(state);
     writeNode(runDir, state, lock);

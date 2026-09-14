@@ -19,6 +19,7 @@ import { routeRuntimeForState, runtimeSnapshot } from "./failover.mjs";
 /** @typedef {import("../cli.mjs").LockHandle} LockHandle */
 /** @typedef {import("../contract/index.mjs").NodeSnapshot} NodeSnapshot */
 /** @typedef {import("../harnesses/index.mjs").ProviderEnvelope} ProviderEnvelope */
+/** @typedef {ProviderEnvelope & {costProvenance?: "priced"}} PricedEnvelope */
 /** @typedef {import("../run/usage.mjs").RecoveryOutcome} RecoveryOutcome */
 /** @typedef {import("../contract/index.mjs").Usage} Usage */
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -131,6 +132,7 @@ export async function recoverOrphan(runDir, contract, node, state, lock) {
         invocationId: invocation.id,
         usage: result.usage,
         costUsd: result.costUsd,
+        costProvenance: result.costProvenance,
         error: result.error,
         reason: result.error?.message,
       };
@@ -156,6 +158,7 @@ export async function recoverOrphan(runDir, contract, node, state, lock) {
         invocationId: invocation.id,
         usage: result.usage,
         costUsd: result.costUsd,
+        costProvenance: result.costProvenance,
         error: result.error,
         reason: result.error?.message,
       };
@@ -169,7 +172,7 @@ export async function recoverOrphan(runDir, contract, node, state, lock) {
   }
   return { kind: "restart", reason: `node ${state.id} died without a completed stream` };
 }
-/** @param {Invocation} invocation @param {ProviderEnvelope|null} result @param {string} reason @returns {RecoveryOutcome} */
+/** @param {Invocation} invocation @param {PricedEnvelope|null} result @param {string} reason @returns {RecoveryOutcome} */
 function restartRecovery(invocation, result, reason) {
   return /** @type {RecoveryOutcome} */ ({
     kind: "restart",
@@ -177,6 +180,7 @@ function restartRecovery(invocation, result, reason) {
     invocationId: invocation.id,
     usage: result?.usage ?? invocation.usage,
     costUsd: result?.costUsd ?? invocation.costUsd,
+    costProvenance: result?.costProvenance ?? invocation.costProvenance,
     reason,
   });
 }
@@ -199,6 +203,7 @@ export function recoveryFromOverride(override, invocationId) {
     result: override.result,
     usage: override.usage,
     costUsd: override.costUsd,
+    costProvenance: override.costProvenance,
     reason: override.reason,
     invocationId,
   });
@@ -208,7 +213,7 @@ export function recoveryFromOverride(override, invocationId) {
  * @param {ValidatedContract} contract
  * @param {ValidatedNode} node
  * @param {Invocation} judgeInvocation
- * @param {ProviderEnvelope|null} [judgeResult]
+ * @param {PricedEnvelope|null} [judgeResult]
  * @returns {RecoveryOutcome}
  */
 function rejudgeOrRestart(state, contract, node, judgeInvocation, judgeResult = null) {
@@ -224,6 +229,7 @@ function rejudgeOrRestart(state, contract, node, judgeInvocation, judgeResult = 
       result: workerResult.result,
       usage: judgeResult?.usage,
       costUsd: judgeResult?.costUsd,
+      costProvenance: judgeResult?.costProvenance,
       invocationId: judgeInvocation.id,
     });
   }
@@ -233,6 +239,7 @@ function rejudgeOrRestart(state, contract, node, judgeInvocation, judgeResult = 
     invocationId: judgeInvocation.id,
     usage: judgeResult?.usage,
     costUsd: judgeResult?.costUsd,
+    costProvenance: judgeResult?.costProvenance,
     reason: `judge invocation ${judgeInvocation.id} completed but its worker stream is unavailable`,
   });
 }
@@ -241,7 +248,7 @@ function rejudgeOrRestart(state, contract, node, judgeInvocation, judgeResult = 
  * @param {ValidatedContract} contract
  * @param {ValidatedNode} node
  * @param {Invocation} judgeInvocation
- * @param {ProviderEnvelope} result
+ * @param {PricedEnvelope} result
  * @returns {RecoveryOutcome}
  */
 function adoptOrRejudgeJudge(state, contract, node, judgeInvocation, result) {
@@ -253,6 +260,7 @@ function adoptOrRejudgeJudge(state, contract, node, judgeInvocation, result) {
       result: result.result,
       usage: result.usage,
       costUsd: result.costUsd,
+      costProvenance: result.costProvenance,
       invocationId: judgeInvocation.id,
     });
   } catch {
@@ -264,14 +272,16 @@ function adoptOrRejudgeJudge(state, contract, node, judgeInvocation, result) {
  * @param {string|undefined} invocationId
  * @param {Usage|undefined} [usage]
  * @param {number|null|undefined} [costUsd]
+ * @param {"priced"|undefined} [costProvenance]
  * @returns {Invocation[]}
  */
-export function closePersistedInvocation(invocations, invocationId, usage = undefined, costUsd = undefined) {
+export function closePersistedInvocation(invocations, invocationId, usage = undefined, costUsd = undefined, costProvenance = undefined) {
   return (invocations ?? []).map((invocation) => invocation.id === invocationId ? {
     ...invocation,
     status: "closed",
     usage: usage ?? invocation.usage,
     costUsd: costUsd ?? invocation.costUsd ?? null,
+    costProvenance: costProvenance ?? invocation.costProvenance,
     closedAt: invocation.closedAt ?? new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   } : invocation);
