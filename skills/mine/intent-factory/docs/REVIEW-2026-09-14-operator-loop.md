@@ -27,6 +27,16 @@ ranked plan to close them.
 - Several mechanisms in the older runs no longer exist (session rotation,
   token ceilings, the 15 s supervisor lease). Where a finding rests on them it
   says so; the class it belongs to is checked against today's code.
+- **Errata, 2026-09-14.** An adversarial review of the campaign spec derived
+  from this document (GPT Sol, round 3) found four factual errors and one
+  undeclared denominator. Each is corrected inline and marked *(Corrected
+  2026-09-14)*: the AGENTS.md block is rewritten by the controller after all;
+  `stall_timeout` is not in `NON_FAILOVER_CODES`; `run-command.mjs` already
+  spawns `detached`; `repo/worktree.mjs` uses `execFileSync`, not `spawnSync`;
+  and `dependency_failed` is 137 of **291** events carrying an error code
+  (47.1 %), or 137 of 311 transitions into a non-done terminal state (44.1 %)
+  — the first version said 52 % over an undeclared subtotal. The diagnosis
+  does not change; the numbers and citations do.
 
 ## What the runs recorded
 
@@ -62,7 +72,7 @@ notification (13 delivered) and no path back to the orchestrator session."*
 
 | Error code | Count | Share |
 | --- | --- | --- |
-| `dependency_failed` | **137** | **52 %** — a sibling failed; this node never ran |
+| `dependency_failed` | **137** | **47.1 %** of the 291 events carrying an error code — a sibling failed; this node never ran |
 | `provider_error` | 23 | |
 | `unexpected_write` | 18 | |
 | `budget_exceeded` + `budget_attention` (pre-lean) | 28 | |
@@ -149,10 +159,16 @@ gaps went unobserved.
    dedupes on `notify.jsonl` forever. There is no re-nag, no escalation, no
    age. The one exception is `runtime_tier_exhausted` with a parseable reset,
    which `supervise.mjs:73-85` retries at the instant.
-5. **The signal that reaches every session is stale.** The AGENTS.md managed
-   block is rewritten only by `campaign init` and `campaign close`
-   (`cli/campaign.mjs:216`, `:314`), never by the controller, so a run that
-   finished hours ago still reads *active — resume or supervise it*.
+5. **The signal that reaches every session says nothing when it matters.**
+   The AGENTS.md managed block *is* rewritten by the controller — on run
+   creation and terminal (`scheduler.mjs:148`, `:150`), on `cancel`
+   (`cancel.mjs:109`), on `resume` (`resume.mjs:498`) and by `campaign
+   init`/`close` — but `signal.mjs:24-60` renders only campaigns that are not
+   closed and runs with a non-terminal node. A run that parked (every node
+   `blocked`) simply disappears from the block; nothing there records a
+   terminal outcome or an attention item. *(Corrected 2026-09-14; the first
+   version of this review said the block was never rewritten by the
+   controller, which is false.)*
 6. **The pull path the docs prescribe has no wake.** `references/rules.md:13-17`
    forbids repeated `status` calls and says to interrupt only on terminal
    states — correct for tokens, but nothing delivers the terminal state.
@@ -189,9 +205,12 @@ gaps went unobserved.
 5. **Orphan adoption busy-waits serially.** `recover.mjs:103-115` polls to
    `startedAt + timeoutSec` per orphan inside the serial resume loop with no
    stall rule: N orphans is N × 40 min before the run drives again.
-6. **Git has no timeout.** Every `spawnSync` in `repo/worktree.mjs` and
-   `repo/integrate.mjs` runs without `timeout:`; `index.lock` contention is a
-   silent freeze.
+6. **Git has no timeout.** Every synchronous git call under `repo/` runs
+   without `timeout:` — `execFileSync` in `worktree.mjs:53`,
+   `declared-paths.mjs`, `workspace.mjs` and `source-identity.mjs`, `spawnSync`
+   in `integrate.mjs:273` and `:425`; `index.lock` contention is a silent
+   freeze. *(Corrected 2026-09-14: the first version named `spawnSync` only,
+   which `worktree.mjs` does not use.)*
 
 ### C. Timeouts cannot tell thinking from dead, and a kill discards the work
 
@@ -199,10 +218,14 @@ gaps went unobserved.
   skipped outright for non-streaming harnesses (`:321`: `zcode`, `exec-jsonl`,
   `replay`). The lean journal records a 971 s silent gap inside a successful
   attempt and a 900 s stall that killed another — the same signal.
-- `wall_clock_timeout` and `stall_timeout` are in `NON_FAILOVER_CODES` and
-  `NODE_DEADLINE_CODES` (`backoff.mjs:31-37`, `:55-58`): the node dies with no
-  retry, and the worktree is not sealed first. Take 4 lost 58 minutes of work
-  mid-file this way.
+- `wall_clock_timeout` and `stall_timeout` are both `NODE_DEADLINE_CODES`
+  (`backoff.mjs:55-58`); only `wall_clock_timeout` is also in
+  `NON_FAILOVER_CODES` (`:31-37`), alongside `progress_stalled`, a second code
+  for the same condition that `resume.mjs:264` emits on recovery. Either way
+  the node ends `stalled`/`exhausted` inside the run with no in-run retry, and
+  the worktree is not sealed first. Take 4 lost 58 minutes of work mid-file
+  this way. *(Corrected 2026-09-14: the first version placed `stall_timeout`
+  in `NON_FAILOVER_CODES`.)*
 - The tier-exhaustion hold (`retry.mjs:149-161`) honours any announced reset
   before the node deadline with no cap and no attention when it is long.
 - 2 of ~40 timing constants carry a measured justification; none of them is
@@ -299,16 +322,18 @@ campaign deleted before implementing.
   `resume` clears it; `notify-queue.mjs` keys the dedupe on the schedule slot.
 - One automatic retry before parking for the codes whose remedy is *try
   again*: `judge_unavailable`, `provider_error`, `stall_timeout` with a
-  non-empty seal. Dependants wait (`waiting`, not `blocked`) while their
-  parent still has a retry; `dependency_failed` cascades only when the parent
-  is out. This is the 52 %.
+  non-empty seal. Dependants stay `pending` in the `waiting` phase while
+  their parent still has a retry; `dependency_failed` cascades only when the
+  parent is out. This is the 47.1 %.
 
 ### 4. Absolute timers, and seal before kill
 
-- `run-command.mjs` and `judge-gate.mjs`: spawn `detached`, kill the group,
-  and settle the promise from the timer with `timedOut: true` rather than
-  waiting for `close`; destroy the streams on kill. Add `timeout:` to every
-  `spawnSync` under `repo/`.
+- `run-command.mjs` (already `detached`, `:194`) and `judge-gate.mjs` (not
+  yet, `:124`): kill the group and settle the promise from the timer with
+  `timedOut: true` rather than waiting for `close`; destroy the streams on
+  kill. Route every synchronous git call under `repo/` through one bounded
+  wrapper with `timeout:`, and add a static test that refuses a new unbounded
+  `execFileSync`/`spawnSync` of `git` there.
 - Loop invariant in `scheduler.mjs`: a node that is non-terminal, not
   `pending`, and absent from `running` transitions to `blocked` with
   `integration_unresolved` instead of spinning.
