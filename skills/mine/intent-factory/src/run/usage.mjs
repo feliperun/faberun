@@ -12,9 +12,15 @@ import { errorMessage, stableJson } from "../util.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { liveUsage } from "../harnesses/exec-jsonl/index.mjs";
 
-import { readBoundedTail } from "../engine/process.mjs";
+import { priceUsage, readBoundedTail } from "../engine/process.mjs";
 import { writeNode } from "../engine/state.mjs";
 import { normalizeProviderResult } from "../harnesses/index.mjs";
+
+// `priceUsage` is defined beside `invocationResult`, the second source point,
+// and re-exported here so the ledger's public surface is unchanged. This module
+// already imports `engine/process.mjs`, so the definition lives there to keep
+// the two source points out of a runtime import cycle.
+export { priceUsage };
 
 /** @typedef {import("../engine/process.mjs").Invocation} Invocation */
 /** @typedef {import("../engine/process.mjs").Job} Job */
@@ -101,40 +107,6 @@ export function invocationCost(state) {
     .map((invocation) => invocation.costUsd)
     .filter((cost) => typeof cost === "number" && Number.isFinite(cost)));
   return costs.length ? costs.reduce((total, cost) => total + cost, 0) : undefined;
-}
-/** @typedef {{inputPerMTok?: number, cachedInputPerMTok?: number, outputPerMTok?: number}} RuntimePricing */
-/**
- * Price one invocation's canonical counters against the runtime's declared
- * rates. Pure: it reads no clock, disk, or process, and a harness-reported
- * cost -- including a reported zero -- is returned untouched, never re-derived,
- * because provider evidence always wins.
- *
- * A cost is `priced` only when every one of the three counters is a number and
- * every one of those counters has a declared rate. A missing counter is a
- * missing measurement, not a zero contribution, so it keeps the whole record
- * `unknown` (`costUsd: null`) rather than understating it.
- *
- * @param {unknown} runtime
- * @param {Usage|undefined} usage
- * @param {number|null|undefined} reportedCostUsd
- * @returns {{costUsd: number|null, costProvenance: "priced"|undefined}}
- */
-export function priceUsage(runtime, usage, reportedCostUsd) {
-  if (typeof reportedCostUsd === "number") return { costUsd: reportedCostUsd, costProvenance: undefined };
-  const pricing = /** @type {{pricing?: RuntimePricing}|null|undefined} */ (runtime)?.pricing;
-  if (!pricing) return { costUsd: null, costProvenance: undefined };
-  /** @type {[number|null|undefined, number|undefined][]} */
-  const terms = [
-    [usage?.inputTokens, pricing.inputPerMTok],
-    [usage?.cacheReadInputTokens, pricing.cachedInputPerMTok],
-    [usage?.outputTokens, pricing.outputPerMTok],
-  ];
-  let total = 0;
-  for (const [counter, rate] of terms) {
-    if (typeof counter !== "number" || typeof rate !== "number") return { costUsd: null, costProvenance: undefined };
-    total += counter * rate;
-  }
-  return { costUsd: total / 1_000_000, costProvenance: "priced" };
 }
 /**
  * Invocation ids already present in the run's usage.jsonl. The append path

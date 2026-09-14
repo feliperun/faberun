@@ -15,7 +15,6 @@ import { fileURLToPath } from "node:url";
 import { harnessCapabilities, normalizeProviderResult, providerCommand } from "../harnesses/index.mjs";
 import { latestTimeoutSec } from "./backoff.mjs";
 
-import { priceUsage } from "../run/usage.mjs";
 import { processStartToken } from "../run/lock.mjs";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -388,6 +387,44 @@ export function invocationResult(invocation, runtime, options = {}) {
   } catch {
     return null;
   }
+}
+/** @typedef {{inputPerMTok?: number, cachedInputPerMTok?: number, outputPerMTok?: number}} RuntimePricing */
+/**
+ * Price one invocation's canonical counters against the runtime's declared
+ * rates. Pure: it reads no clock, disk, or process, and a harness-reported
+ * cost -- including a reported zero -- is returned untouched, never re-derived,
+ * because provider evidence always wins.
+ *
+ * A cost is `priced` only when every one of the three counters is a number and
+ * every one of those counters has a declared rate. A missing counter is a
+ * missing measurement, not a zero contribution, so it keeps the whole record
+ * `unknown` (`costUsd: null`) rather than understating it.
+ *
+ * It lives beside `invocationResult`, the second source point, rather than in
+ * `run/usage.mjs`, which re-exports it: that module already imports this one,
+ * so defining it here is what keeps the two source points acyclic.
+ *
+ * @param {unknown} runtime
+ * @param {Usage|undefined} usage
+ * @param {number|null|undefined} reportedCostUsd
+ * @returns {{costUsd: number|null, costProvenance: "priced"|undefined}}
+ */
+export function priceUsage(runtime, usage, reportedCostUsd) {
+  if (typeof reportedCostUsd === "number") return { costUsd: reportedCostUsd, costProvenance: undefined };
+  const pricing = /** @type {{pricing?: RuntimePricing}|null|undefined} */ (runtime)?.pricing;
+  if (!pricing) return { costUsd: null, costProvenance: undefined };
+  /** @type {[number|null|undefined, number|undefined][]} */
+  const terms = [
+    [usage?.inputTokens, pricing.inputPerMTok],
+    [usage?.cacheReadInputTokens, pricing.cachedInputPerMTok],
+    [usage?.outputTokens, pricing.outputPerMTok],
+  ];
+  let total = 0;
+  for (const [counter, rate] of terms) {
+    if (typeof counter !== "number" || typeof rate !== "number") return { costUsd: null, costProvenance: undefined };
+    total += counter * rate;
+  }
+  return { costUsd: total / 1_000_000, costProvenance: "priced" };
 }
 /**
  * @param {string} path
