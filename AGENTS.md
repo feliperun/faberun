@@ -70,5 +70,5 @@ When this file governs anything in production:
 <!-- intent-factory-active:start (managed by intent-factory — read, never edit) -->
 Before starting new work here, check `.runs/`: if a campaign is active or a run is not terminal, continue it instead of starting over — read its `HANDOFF.md`/`STATUS.md`, attach to the campaign, and `resume` or `supervise` the run. Active runs are supervised by a deterministic detached process: do not poll `status` in a loop — on resume, check status once and act only on terminal states.
 
-- intent-factory campaign `operator-loop-20260913`: active — read `.runs/campaigns/operator-loop-20260913/HANDOFF.md`
+- intent-factory campaign `operator-loop-followup-20260914`: active — read `.runs/campaigns/operator-loop-followup-20260914/HANDOFF.md`
 <!-- intent-factory-active:end -->
