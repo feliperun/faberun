@@ -1,13 +1,167 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { resumeRun } from "../../src/engine/resume.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
+import { invocationResult } from "../../src/engine/process.mjs";
+import { recordInvocationUsage } from "../../src/run/usage.mjs";
 import { ensureAttemptWorktree, fakeCodex, fixture, initializeGit, orphan, packet, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState, persistFailure, promptLoggingCodex, withCodexBinary, runMetadata, recoveryDecisions, retryJudgeCodex, withBrokenGateCodex } from "../runner-helpers.mjs";
+
+const PRICING = { inputPerMTok: 1.0, cachedInputPerMTok: 0.1, outputPerMTok: 3.0 };
+// (10 uncached + 0 cached * 0.1 + 2 output * 3) / 1e6, the fake codex "pass"
+// turn's canonical counters under PRICING.
+const PASS_WORKER_COST = 0.000016;
+
+/**
+ * The shared fixture with luna declaring a price, so a transcript the harness
+ * reports no cost for is still priced.
+ *
+ * @param {Record<string, unknown>} [overrides]
+ * @returns {Record<string, unknown>}
+ */
+function pricedFixture(overrides = {}) {
+  const base = fixture(overrides);
+  const runtimes = /** @type {Record<string, Record<string, unknown>>} */ (base.runtimes);
+  return { ...base, runtimes: { ...runtimes, luna: { ...runtimes.luna, pricing: PRICING } } };
+}
+
+/**
+ * Rewind a finished run to the shape a controller killed mid-turn leaves: the
+ * node is running with one closed worker invocation whose persisted cost was
+ * never written, while its transcript survives on disk.
+ *
+ * @param {string} runDir
+ * @param {{clearLedger?: boolean}} [options]
+ */
+function crashPricedWorker(runDir, options = {}) {
+  const nodePath = join(runDir, "nodes", "build.json");
+  const state = JSON.parse(readFileSync(nodePath, "utf8"));
+  const worker = state.invocations.at(-1);
+  const startedAt = new Date(Date.now() - 20_000).toISOString();
+  const closedAt = new Date(Date.now() - 19_000).toISOString();
+  const worktree = ensureAttemptWorktree(runDir, state);
+  if (options.clearLedger) rmSync(join(runDir, "usage.jsonl"), { force: true });
+  writeFileSync(nodePath, JSON.stringify({
+    ...state,
+    status: "running",
+    phase: "worker",
+    result: null,
+    gate: null,
+    costUsd: undefined,
+    usage: undefined,
+    worktree,
+    executionOverrides: [{ kind: "timeout", timeoutSec: 10, at: new Date(Date.now() - 20_000).toISOString(), reason: "persisted deadline" }],
+    invocations: [{
+      ...worker,
+      status: "closed",
+      startedAt,
+      closedAt,
+      costUsd: null,
+      costProvenance: undefined,
+      usage: { inputTokens: null, outputTokens: null, cacheReadInputTokens: null },
+    }],
+  }, null, 2));
+}
+
+/** @param {string} runDir @returns {Record<string, unknown>[]} */
+function ledgerRecords(runDir) {
+  return readFileSync(join(runDir, "usage.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+}
+
+test("done-when 9: a killed invocation adopted on resume keeps its priced cost across a repeated resume", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-priced-adopted-"));
+  const path = writeContract(directory, pricedFixture({
+    id: "priced-adopted-run",
+    timeoutSec: 10,
+    pollIntervalMs: 10,
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
+  }));
+  const runDir = await withFakeCodex(directory, "pass", async () => (await runContract(path)).runDir);
+  crashPricedWorker(runDir, { clearLedger: true });
+
+  const first = nodeState(await withFakeCodex(directory, "worker-fail", () => resumeRun(runDir)));
+  assert.equal(first.status, "done", first.error?.message);
+  const firstInvocation = /** @type {any} */ (first.invocations?.at(-1));
+  assert.equal(firstInvocation.costUsd, PASS_WORKER_COST, "the adopted transcript is priced from the declared rates");
+  assert.equal(firstInvocation.costProvenance, "priced");
+  const firstRecords = ledgerRecords(runDir);
+  assert.equal(firstRecords.length, 1, "the recovered invocation reaches usage.jsonl once");
+  assert.equal(firstRecords[0].costUsd, PASS_WORKER_COST);
+  assert.equal(firstRecords[0].costProvenance, "priced");
+
+  const second = nodeState(await withFakeCodex(directory, "worker-fail", () => resumeRun(runDir)));
+  const secondInvocation = /** @type {any} */ (second.invocations?.at(-1));
+  assert.equal(secondInvocation.costUsd, firstInvocation.costUsd, "a repeated resume reports the identical cost");
+  assert.equal(secondInvocation.costProvenance, firstInvocation.costProvenance, "and the identical provenance");
+  assert.equal(ledgerRecords(runDir).length, 1, "a repeated resume never appends a second ledger record");
+});
+
+test("done-when 9b: complete non-null counters price identically when adopted and re-read", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-priced-reread-"));
+  const path = writeContract(directory, pricedFixture({
+    id: "priced-reread-run",
+    timeoutSec: 10,
+    pollIntervalMs: 10,
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
+  }));
+  const runDir = await withFakeCodex(directory, "pass", async () => (await runContract(path)).runDir);
+  crashPricedWorker(runDir, { clearLedger: true });
+
+  const first = nodeState(await withFakeCodex(directory, "worker-fail", () => resumeRun(runDir)));
+  const adopted = /** @type {any} */ (first.invocations?.at(-1));
+  assert.deepEqual(adopted.usage, { inputTokens: 10, outputTokens: 2, cacheReadInputTokens: 0 }, "the counters are complete, never backfilled");
+  assert.equal(adopted.costUsd, PASS_WORKER_COST);
+  assert.equal(adopted.costProvenance, "priced");
+
+  // Re-read the same transcript the way a second recovery would: the priced
+  // envelope must be identical, not merely close.
+  const reRead = invocationResult(
+    /** @type {import("../../src/engine/process.mjs").Invocation} */ (adopted),
+    /** @type {any} */ ({ harness: "codex", model: "gpt-5.6-luna", pricing: PRICING }),
+    { exitCode: adopted.exitCode, signal: adopted.signal },
+  );
+  assert.ok(reRead);
+  assert.equal(reRead.costUsd, adopted.costUsd, "the re-read prices identically to the adoption");
+  assert.equal(reRead.costProvenance, "priced");
+
+  const second = nodeState(await withFakeCodex(directory, "worker-fail", () => resumeRun(runDir)));
+  const secondInvocation = /** @type {any} */ (second.invocations?.at(-1));
+  assert.equal(secondInvocation.costUsd, adopted.costUsd);
+  assert.equal(secondInvocation.costProvenance, "priced");
+});
+
+test("done-when 9c: a killed envelope with outputTokens null after backfill stays unknown", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-priced-partial-"));
+  const stdoutPath = join(directory, "killed.jsonl");
+  writeFileSync(stdoutPath, [
+    JSON.stringify({ type: "thread.started", thread_id: "killed-thread" }),
+    // The live meter counted input tokens before the kill; no output token was
+    // ever counted, so the backfill cannot manufacture one.
+    JSON.stringify({ type: "turn.completed", usage: { input_tokens: 600 } }),
+  ].join("\n") + "\n");
+  const invocation = { id: "killed-invocation" };
+  const state = { invocations: [invocation], usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 } };
+  const envelope = recordInvocationUsage(/** @type {import("../../src/engine/process.mjs").Job} */ (/** @type {unknown} */ ({
+    state,
+    paths: { stdout: stdoutPath, stderr: join(directory, "killed.stderr") },
+    runtime: { harness: "codex", model: "gpt-5.6-luna", pricing: PRICING },
+    exitCode: null,
+    signal: "SIGTERM",
+    phase: "worker",
+    invocation,
+  })));
+  assert.equal(envelope.usage.inputTokens, 600, "the live backfill recovered the observed input tokens");
+  assert.equal(envelope.usage.outputTokens, null, "output tokens stay a missing measurement");
+  assert.equal(envelope.costUsd, null, "a partial count is never priced");
+  assert.equal(envelope.costProvenance, undefined);
+  const stored = /** @type {any} */ (state.invocations.find((item) => item.id === invocation.id));
+  assert.equal(stored.costUsd, null, "the persisted invocation stays unknown too");
+  assert.equal(stored.costProvenance, undefined);
+});
 
 
 

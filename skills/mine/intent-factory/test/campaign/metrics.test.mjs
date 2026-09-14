@@ -6,7 +6,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderMetricsJson, renderMetricsReport } from "../../src/report/metrics-report.mjs";
+import { renderReportJson } from "../../src/report/render.mjs";
 import { projectMetrics, readMetricsSources } from "../../src/campaign/metrics.mjs";
+import { projectEvalIndicators } from "../../evals/metrics.mjs";
+import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
+import { fixture, packet, writeContract } from "../helpers.mjs";
 
 /** Every indicator of TECH-SPEC lean section 6 with the direction the spec table gives it. */
 const DIRECTIONS = {
@@ -132,6 +136,125 @@ test("metrics usageCostUsd sums only priced records and counts unknown provenanc
   const allUnknown = projectMetrics({ usageRecords: [{ inputTokens: 1, costUsd: null, costProvenance: "unknown" }] });
   assert.deepEqual(allUnknown.usageCostUsd, { value: null, direction: "down", count: 0, unknownCount: 1 });
 });
+
+test("done-when 7: campaign metrics counts a priced record, not just a provider one", () => {
+  const usageRecords = [
+    { runtimeId: "luna", inputTokens: 1, costUsd: 1.65, costProvenance: "priced" },
+    { runtimeId: "luna", inputTokens: 1, costUsd: null, costProvenance: "unknown" },
+  ];
+  const metrics = projectMetrics({ usageRecords });
+  assert.deepEqual(metrics.usageCostUsd, { value: 1.65, direction: "down", count: 1, unknownCount: 1 });
+});
+
+test("done-when 7: evals costPerClosedCheckpoint counts a priced record", () => {
+  const events = [
+    event("r1", "build", "running", { at: at(0), phase: "worker", runtime: "luna" }),
+    event("r1", "build", "done", { at: at(1), phase: "complete", runtime: "luna" }),
+  ];
+  const usageRecords = [{ nodeId: "build", role: "worker", runtimeId: "luna", costUsd: 1.65, costProvenance: "priced" }];
+  const report = projectEvalIndicators({ events, usageRecords });
+  assert.deepEqual(report.costPerClosedCheckpoint, { value: 1.65, direction: "down", count: 1 });
+});
+
+test("done-when 8: a priced run's node column is known and equals the run total", () => {
+  const runDir = pricedRun(1.65);
+  const report = JSON.parse(renderReportJson(runDir));
+  assert.equal(report.nodes[0].costStatus, "known", "the node reads known, never ambiguous");
+  assert.equal(report.nodes[0].costUsd, 1.65);
+  assert.equal(report.totals.costStatus, "known");
+  assert.equal(report.totals.costUsd, 1.65);
+  assert.equal(report.nodes[0].costUsd, report.totals.costUsd, "the per-node column and the run total agree");
+});
+
+/**
+ * A minimal persisted run whose single node's cost equals the sum of its one
+ * priced invocation, so the per-node column and the run total can be compared.
+ *
+ * @param {number} invocationCost
+ * @returns {string}
+ */
+function pricedRun(invocationCost) {
+  const directory = mkdtempSync(join(tmpdir(), "metrics-priced-run-"));
+  const contractPath = writeContract(directory, fixture({
+    id: "priced-report-run",
+    runtimes: {
+      luna: {
+        harness: "codex",
+        model: "gpt-5.6-luna",
+        reasoning: "xhigh",
+        pricing: { inputPerMTok: 1, cachedInputPerMTok: 0.1, outputPerMTok: 3 },
+      },
+      sol: { harness: "codex", model: "gpt-5.6-sol", reasoning: "xhigh", vendor: "openai-sol" },
+    },
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
+  }));
+  const contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
+  const runDir = join(directory, ".runs", "priced-report");
+  mkdirSync(join(runDir, "nodes"), { recursive: true });
+  writeFileSync(join(runDir, "contract.json"), readFileSync(contractPath));
+  writeFileSync(join(runDir, "run.json"), `${JSON.stringify({
+    schemaVersion: PROTOCOL_SCHEMA_VERSION,
+    contractVersion: INTENT_FACTORY_VERSION,
+    pid: process.pid,
+    processStartToken: null,
+    startedAt: "2026-01-01T00:00:00.000Z",
+    sourceIdentity: { kind: "run" },
+  }, null, 2)}\n`);
+  const planNode = /** @type {import("../../src/contract/index.mjs").ValidatedNode} */ (contract.nodes.find((candidate) => candidate.id === "build"));
+  writeFileSync(join(runDir, "nodes", "build.json"), `${JSON.stringify({
+    schemaVersion: PROTOCOL_SCHEMA_VERSION,
+    contractVersion: INTENT_FACTORY_VERSION,
+    id: "build",
+    type: planNode.type,
+    sourceIdentity: planNode.sourceIdentity,
+    packetHash: planNode.packetHash,
+    status: "done",
+    phase: "complete",
+    attempt: 1,
+    revisions: 0,
+    runtime: null,
+    blockedBy: [],
+    startedAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    result: null,
+    gate: null,
+    error: null,
+    usage: { inputTokens: 1_000_000, outputTokens: 200_000, cacheReadInputTokens: 500_000 },
+    costUsd: invocationCost,
+    invocations: [{
+      id: "priced-invocation",
+      pid: process.pid,
+      processGroupId: null,
+      processStartToken: null,
+      harness: "codex",
+      phase: "worker",
+      promptPath: null,
+      stdoutPath: null,
+      stderrPath: null,
+      executable: "/usr/bin/true",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      closedAt: "2026-01-01T00:00:00.000Z",
+      deadlineAt: "2026-01-01T00:00:00.000Z",
+      exitCode: 0,
+      signal: null,
+      status: "closed",
+      costUsd: invocationCost,
+      costProvenance: "priced",
+      runId: "priced-report-run",
+      campaignId: "test-campaign",
+      planPhase: "fixture-phase-0",
+      role: "worker",
+      runtimeFingerprint: "fixture",
+      model: "gpt-5.6-luna",
+      reasoning: null,
+      sandbox: null,
+      continuationId: null,
+      continuationMode: "fresh",
+    }],
+  }, null, 2)}\n`);
+  return runDir;
+}
 
 test("metrics blockingJudgeFirstPassRate is measured only over blocking-reviewed nodes, per judge runtime", () => {
   const nodes = [

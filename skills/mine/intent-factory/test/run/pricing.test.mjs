@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { priceUsage } from "../../src/run/usage.mjs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { appendUsageRecord, priceUsage } from "../../src/run/usage.mjs";
+import { bulkRead } from "../../src/engine/bulk-read.mjs";
+import { READ_LINE_LIMIT } from "../../src/harnesses/index.mjs";
 import { validateRuntime } from "../../src/contract/runtime.mjs";
 import { validateContract } from "../../src/contract/index.mjs";
 import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
@@ -123,4 +127,61 @@ test("an invocation accepts costProvenance only as the literal priced", () => {
       /costProvenance must be "priced" when present/u,
     );
   }
+});
+
+test("done-when 10: a priced bulk-read delegation records costProvenance priced in usage.jsonl", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "pricing-bulk-read-"));
+  const runDir = mkdtempSync(join(tmpdir(), "pricing-bulk-read-ledger-"));
+  const recording = join(directory, "answer.jsonl");
+  writeFileSync(recording, `${JSON.stringify({
+    envelope: {
+      status: "done",
+      result: "src/engine/bulk-read.mjs:1 — priced delegation",
+      continuationId: null,
+      usage: { inputTokens: 1_000_000, outputTokens: 200_000, cacheReadInputTokens: 500_000 },
+      costUsd: null,
+      error: null,
+    },
+  })}\n`);
+  const corpus = join(directory, "corpus.txt");
+  writeFileSync(corpus, `${Array.from({ length: READ_LINE_LIMIT + 1 }, (_, index) => `corpus line ${index + 1}`).join("\n")}\n`);
+  const runtime = {
+    harness: "replay",
+    model: "replay-bulk-model",
+    config: { "replay.recording": recording },
+    pricing: { inputPerMTok: 1.0, cachedInputPerMTok: 0.1, outputPerMTok: 3.0 },
+  };
+  const savedRun = process.env.INTENT_FACTORY_RUN_DIR;
+  const savedNode = process.env.INTENT_FACTORY_NODE_ID;
+  process.env.INTENT_FACTORY_RUN_DIR = runDir;
+  process.env.INTENT_FACTORY_NODE_ID = "delegating-node";
+  try {
+    const result = await bulkRead({ question: "where is pricing decided?", paths: [corpus], runtimes: { deleg: runtime } });
+    assert.equal(result.status, "done", result.error?.message);
+    const records = readFileSync(join(runDir, "usage.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    assert.equal(records.length, 1);
+    assert.equal(records[0].costUsd, 1.65);
+    assert.equal(records[0].costProvenance, "priced", "the delegation priced its own envelope");
+  } finally {
+    if (savedRun === undefined) delete process.env.INTENT_FACTORY_RUN_DIR;
+    else process.env.INTENT_FACTORY_RUN_DIR = savedRun;
+    if (savedNode === undefined) delete process.env.INTENT_FACTORY_NODE_ID;
+    else process.env.INTENT_FACTORY_NODE_ID = savedNode;
+  }
+});
+
+test("done-when 11: appendUsageRecord reads a pre-Phase-4 number with no costProvenance as provider", () => {
+  const runDir = mkdtempSync(join(tmpdir(), "pricing-legacy-invocation-"));
+  appendUsageRecord(runDir, /** @type {any} */ ({
+    id: "legacy-invocation",
+    runId: "legacy-run",
+    nodeId: "build",
+    runtimeId: "luna",
+    usage: { inputTokens: 10, outputTokens: 2, cacheReadInputTokens: 0 },
+    costUsd: 0.42,
+  }));
+  const records = readFileSync(join(runDir, "usage.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(records.length, 1);
+  assert.equal(records[0].costUsd, 0.42);
+  assert.equal(records[0].costProvenance, "provider", "absence of the field keeps the pre-Phase-4 rule");
 });
