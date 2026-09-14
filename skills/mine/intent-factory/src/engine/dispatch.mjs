@@ -193,6 +193,10 @@ function stampInvocation(invocation, contract, node, runtime, state, runDir, rol
   invocation.sandbox = runtime.sandbox ?? null;
   invocation.continuationId = continuationId;
   invocation.continuationMode = mode;
+  // The tier-exhaustion generation this invocation belongs to, stamped exactly
+  // like `revision` so `planRoute` can scope its attempted set to the current
+  // generation across a controller crash.
+  /** @type {{cycle?: number}} */ (invocation).cycle = state.routing?.tierExhaustionCycle ?? 0;
 }
 /** @param {RuntimeSnapshot} runtime @returns {string} */
 function fingerprintRuntime(runtime) {

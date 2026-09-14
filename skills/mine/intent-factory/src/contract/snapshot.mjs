@@ -184,7 +184,7 @@ function validateInvocations(value, label) {
     const allowed = new Set([
       "id", "pid", "processGroupId", "processStartToken", "harness", "runtimeId", "phase",
       "promptPath", "stdoutPath", "stderrPath", "startedAt", "updatedAt", "closedAt", "deadlineAt",
-      "exitCode", "signal", "status", "executable", "usage", "usageEstimated", "costUsd", "costProvenance", "snapshotPath", "revision",
+      "exitCode", "signal", "status", "executable", "usage", "usageEstimated", "costUsd", "costProvenance", "snapshotPath", "revision", "cycle",
       "runId", "campaignId", "planPhase", "role", "runtimeFingerprint", "model", "reasoning", "sandbox", "continuationId", "continuationMode",
       "nodeId", "attempt", "workspace", "worktreeBranch", "worktreeBaseSha",
     ]);
@@ -213,6 +213,7 @@ function validateInvocations(value, label) {
       throw new TypeError(`${label}[${index}].continuationMode is invalid`);
     }
     if (invocation.revision !== undefined) nonNegativeInteger(invocation.revision, `${label}[${index}].revision`);
+    if (invocation.cycle !== undefined) nonNegativeInteger(invocation.cycle, `${label}[${index}].cycle`);
     for (const key of ["promptPath", "stdoutPath", "stderrPath", "executable"]) {
       if (invocation[key] !== null) requireString(invocation[key], `${label}[${index}].${key}`);
     }
@@ -344,12 +345,32 @@ function validateUsage(value, label) {
   for (const key of USAGE_FIELDS) nonNegativeInteger(value[key], `${label}.${key}`);
 }
 /**
+ * The durable evidence of one tier-exhaustion generation: which role it
+ * belongs to and which candidates were tried, each with the reset instant the
+ * provider announced (null when it announced none).
+ *
+ * @param {unknown} value
+ * @param {string} label
+ */
+function validateTierExhaustion(value, label) {
+  assertObject(value, label);
+  rejectUnknown(value, new Set(["role", "candidates"]), label);
+  if (value.role !== "worker" && value.role !== "judge") throw new TypeError(`${label}.role is invalid`);
+  if (!Array.isArray(value.candidates)) throw new TypeError(`${label}.candidates must be an array`);
+  for (const [index, candidate] of value.candidates.entries()) {
+    assertObject(candidate, `${label}.candidates[${index}]`);
+    rejectUnknown(candidate, new Set(["runtimeId", "exhaustedUntil"]), `${label}.candidates[${index}]`);
+    requireId(candidate.runtimeId, `${label}.candidates[${index}].runtimeId`);
+    if (candidate.exhaustedUntil !== null) requireTimestamp(candidate.exhaustedUntil, `${label}.candidates[${index}].exhaustedUntil`);
+  }
+}
+/**
  * @param {unknown} value
  * @param {string} label
  */
 function validateRoutingState(value, label) {
   assertObject(value, label);
-  rejectUnknown(value, new Set(["history", "currentOverride", "assignments", "availability"]), label);
+  rejectUnknown(value, new Set(["history", "currentOverride", "assignments", "availability", "tierExhaustion", "tierExhaustionCycle"]), label);
   if (!Array.isArray(value.history) || value.history.length > MAX_ROUTING_HISTORY) {
     throw new TypeError(`${label}.history must be an array with at most ${MAX_ROUTING_HISTORY} items`);
   }
@@ -357,6 +378,8 @@ function validateRoutingState(value, label) {
     validateRoutingEntry(entry, `${label}.history[${index}]`, false);
   }
   if (value.currentOverride !== null) validateRoutingEntry(value.currentOverride, `${label}.currentOverride`, true);
+  if (value.tierExhaustion !== undefined) validateTierExhaustion(value.tierExhaustion, `${label}.tierExhaustion`);
+  if (value.tierExhaustionCycle !== undefined) nonNegativeInteger(value.tierExhaustionCycle, `${label}.tierExhaustionCycle`);
   if (value.assignments !== undefined) {
     assertObject(value.assignments, `${label}.assignments`);
     rejectUnknown(value.assignments, new Set(["worker", "judge", "composedWorker", "composedJudge"]), `${label}.assignments`);

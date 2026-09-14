@@ -21,6 +21,8 @@ import { nextSameTierRuntime } from "./runtime-discovery.mjs";
 /** @typedef {{code: string, message: string}} RouteError */
 /** @typedef {"quota_reset"|"network_backoff"|"protocol_failure"|"provider"} TransitionReason */
 /** @typedef {{kind: "reset", at: string, reason: TransitionReason}|{kind: "failover", reason: TransitionReason}} Transition */
+/** @typedef {{runtimeId: string, exhaustedUntil: string|null}} TierExhaustionCandidate */
+/** @typedef {{role: "worker"|"judge", candidates: TierExhaustionCandidate[]}} TierExhaustion */
 
 /**
  * A node whose failure is the run's own doing never fails over: it already
@@ -309,6 +311,27 @@ export function isRepairable(node, state) {
 }
 
 /**
+ * Record one exhausted candidate in the generation's evidence, replacing any
+ * earlier entry for the same runtime so a repeated wait on the same candidate
+ * never duplicates the list. A different role starts a fresh list: the
+ * evidence names one phase's generation at a time.
+ *
+ * @param {TierExhaustion|null|undefined} existing
+ * @param {"worker"|"judge"} role
+ * @param {string} runtimeId
+ * @param {string|null} exhaustedUntil
+ * @returns {TierExhaustion}
+ */
+export function upsertTierExhaustionCandidate(existing, role, runtimeId, exhaustedUntil) {
+  const candidates = existing?.role === role ? [...existing.candidates] : [];
+  const index = candidates.findIndex((candidate) => candidate.runtimeId === runtimeId);
+  const entry = { runtimeId, exhaustedUntil: exhaustedUntil ?? null };
+  if (index === -1) candidates.push(entry);
+  else candidates[index] = entry;
+  return { role, candidates };
+}
+
+/**
  * Resolve one transition into a concrete route: which runtime runs next, what
  * hop it costs, how long the node waits first, and whether any edge remains.
  *
@@ -323,12 +346,19 @@ export function isRepairable(node, state) {
  * @param {string} current
  * @param {Transition} schedule
  * @param {number} [now] epoch ms the backoff window is measured from
- * @returns {{blocked: RouteError|null, nextRuntime: string, ruleIndex: number|undefined, revision: number, hop: number, backoffSec: number, backoffUntil: string, composed: boolean}}
+ * @param {string|null} [exhaustedUntil] the reset instant the exhausted candidate announced, if any
+ * @returns {{blocked: RouteError|null, nextRuntime: string, ruleIndex: number|undefined, revision: number, hop: number, backoffSec: number, backoffUntil: string, composed: boolean, tierExhaustion: TierExhaustion|null}}
  */
-export function planRoute(contract, node, state, role, error, current, schedule, now = Date.now()) {
+export function planRoute(contract, node, state, role, error, current, schedule, now = Date.now(), exhaustedUntil = null) {
   const revision = state.revisions ?? 0;
+  // Tier routing is scoped by generation, not revision: an invocation counts
+  // as attempted here only when it ran in the current tier-exhaustion
+  // generation. Revision keeps its own, unrelated round-bounding meaning.
+  const cycle = state.routing?.tierExhaustionCycle ?? 0;
   const attempted = new Set((state.invocations ?? [])
-    .filter((invocation) => invocation.phase === role && (invocation.revision === undefined || invocation.revision === revision))
+    .filter((invocation) => invocation.phase === role
+      && (invocation.revision === undefined || invocation.revision === revision)
+      && (/** @type {{cycle?: number}} */ (invocation).cycle ?? 0) === cycle)
     .map((invocation) => invocation.runtimeId)
     .filter((id) => typeof id === "string"));
   // The runtime's own declared fallback is the only edge that exists: one
@@ -366,7 +396,13 @@ export function planRoute(contract, node, state, role, error, current, schedule,
     ? Math.max(0, (Date.parse(schedule.at) - now) / 1_000)
     : 0;
   const backoffUntil = schedule.kind === "reset" ? schedule.at : new Date(now + backoffSec * 1_000).toISOString();
-  return { blocked, nextRuntime, ruleIndex: undefined, revision, hop, backoffSec, backoffUntil, composed: composedAssignment };
+  // Only the tier-routed path carries this generation's evidence; any other
+  // plan returns null so `buildRouting` removes a stale list rather than
+  // carrying it across an outcome this feature does not drive.
+  const tierExhaustion = dynamicComposed
+    ? upsertTierExhaustionCandidate(state.routing?.tierExhaustion, role, current, exhaustedUntil)
+    : null;
+  return { blocked, nextRuntime, ruleIndex: undefined, revision, hop, backoffSec, backoffUntil, composed: composedAssignment, tierExhaustion };
 }
 
 /**
@@ -378,7 +414,7 @@ export function planRoute(contract, node, state, role, error, current, schedule,
  *
  * @param {NodeSnapshot} state
  * @param {{role: "worker"|"judge", error: RouteError, current: string, plan: ReturnType<typeof planRoute>, schedule: Transition, usage?: unknown, costUsd?: number|null, status: string, now: number}} options
- * @returns {{routing: {history: unknown[], currentOverride: unknown}, override: unknown, errorCode: string}}
+ * @returns {{routing: Record<string, unknown>, override: unknown, errorCode: string}}
  */
 export function buildRouting(state, { role, error, current, plan, schedule, usage, costUsd, status, now }) {
   const errorCode = schedule.kind === "reset" && schedule.reason === "network_backoff"
@@ -398,10 +434,17 @@ export function buildRouting(state, { role, error, current, plan, schedule, usag
     costUsd,
   };
   const override = { ...shared, runtime: plan.nextRuntime, reason: routeReason(schedule, role, current, error) };
+  // Spread the whole routing state first so assignments, availability, and the
+  // generation counter survive every hop. The evidence is rebuilt per plan: a
+  // non-tier plan returns null, which removes any stale list.
+  const routingBase = { ...(state.routing ?? {}) };
+  delete routingBase.tierExhaustion;
   return {
     routing: {
+      ...routingBase,
       history: [...(state.routing?.history ?? []), { ...shared, runtime: current, status, errorCode }].slice(-MAX_ROUTING_HISTORY),
       currentOverride: override,
+      ...(plan.tierExhaustion ? { tierExhaustion: plan.tierExhaustion } : {}),
     },
     override,
     errorCode,

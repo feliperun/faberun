@@ -38,6 +38,7 @@ import {
   networkTransition,
   nodeDeadlineAt,
   planRoute,
+  upsertTierExhaustionCandidate,
 } from "./backoff.mjs";
 import { exhaustedUntilOf } from "./runtime-discovery.mjs";
 
@@ -147,6 +148,23 @@ export function terminalErrorCode(state) {
 }
 
 /**
+ * Remove this generation's tier-exhaustion evidence from a node that reached
+ * an outcome the tier-routing feature does not drive. The generation counter
+ * is deliberately untouched: it is append-only for the node's life, so a later
+ * exhaustion can never silently fall back to an older generation's invocation
+ * set. The field is removed entirely, never left as a tombstone; a later tier
+ * hop rebuilds it through the same upsert rule.
+ *
+ * @param {NodeSnapshot} state
+ */
+function clearTierExhaustion(state) {
+  if (!state.routing || state.routing.tierExhaustion === undefined) return;
+  const routing = { ...state.routing };
+  delete routing.tierExhaustion;
+  state.routing = /** @type {NodeSnapshot["routing"]} */ (routing);
+}
+
+/**
  * @param {ValidatedContract} contract
  * @param {string} runDir
  * @param {Map<string, NodeSnapshot>} states
@@ -181,6 +199,7 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
         reason: "provider did not start",
         nextState: operationNextState(state),
       });
+      clearTierExhaustion(state);
       transition(runDir, state, "failed", { phase: job.phase, error: { code: "spawn_error", message: job.spawnError.message } }, lock);
       continue;
     }
@@ -294,6 +313,7 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
       // warmed, and spends none of the one re-dispatch counted below.
       const network = networkTransition(contract, job.node, state, "judge", envelope, job.exitCode);
       if (network && handleProviderExhaustion(contract, runDir, job.node, state, "judge", envelope, job.runtime.id, lock, states, campaignPath, network)) continue;
+      clearTierExhaustion(state);
       // The provider died on the bounded re-ask itself, so the one permitted
       // re-ask is spent: settle by review mode here rather than dispatch a
       // third judge invocation behind a fresh failure count.
@@ -324,9 +344,11 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
       if (!evidence.ok) {
         const network = networkTransition(contract, job.node, state, "judge", envelope, job.exitCode);
         if (network && handleProviderExhaustion(contract, runDir, job.node, state, "judge", envelope, job.runtime.id, lock, states, campaignPath, network)) continue;
+        clearTierExhaustion(state);
         await applyJudgeProtocolFailure(contract, job.node, state, runDir, running, lock, states, campaignPath, evidence.reason);
         continue;
       }
+      clearTierExhaustion(state);
       await applyJudgeResult(contract, job.node, state, evidence.result, runDir, lock, running, states, campaignPath);
       continue;
     }
@@ -338,6 +360,7 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
     const fileBackedNoOp = job.phase === "worker" && envelope.status === "no-op" && existsSync(workerResultPath(runDir, job.node.id));
     if (!adoptedWorkerResult && job.phase === "worker" && envelope.status === "no-op" && !fileBackedNoOp) {
       if (job.resultMaterialization) {
+        clearTierExhaustion(state);
         transition(runDir, state, "failed", {
           phase: "worker",
           error: { code: "missing_worker_result", message: "result-only materialization produced no canonical worker result" },
@@ -364,6 +387,7 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
       const role = /** @type {"worker"|"judge"} */ (job.phase);
       const network = networkTransition(contract, job.node, state, role, envelope, job.exitCode);
       if (network && handleProviderExhaustion(contract, runDir, job.node, state, role, envelope, job.runtime.id, lock, states, campaignPath, network)) continue;
+      clearTierExhaustion(state);
       transition(runDir, state, envelope.status, {
         phase: job.phase,
         result: state.result,
@@ -379,6 +403,7 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
         workerResult = resolveWorkerResult(runDir, job.node, envelope.result);
       } catch (error) {
         if (job.resultMaterialization) {
+          clearTierExhaustion(state);
           transition(runDir, state, "failed", {
             phase: "worker",
             error: { code: "missing_worker_result", message: `result-only materialization did not produce a valid canonical worker result: ${errorMessage(error)}` },
@@ -398,6 +423,7 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
       }
       state.result = workerResult;
       if (workerResult.status === "blocked_context") {
+        clearTierExhaustion(state);
         transition(runDir, state, "blocked", {
           phase: "complete",
           result: workerResult,
@@ -406,10 +432,12 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
         continue;
       }
       if (job.resultMaterialization && canReuseResultEvidence(state, job.node)) {
+        clearTierExhaustion(state);
         if (job.node.gate.enabled) await applyJudgeResult(contract, job.node, state, state.gate, runDir, lock, running, states, campaignPath);
         else await settleDone(contract, job.node, state, runDir, lock, states, campaignPath, { phase: "complete", result: workerResult, error: null });
         continue;
       }
+      clearTierExhaustion(state);
       await executeControllerVerification(contract, runDir, job.node, state, lock);
       if (!state.verification?.passed) {
         applyVerificationFailure(contract, job.node, state, runDir, running, lock, states, campaignPath);
@@ -450,6 +478,7 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
 export function handleProviderExhaustion(contract, runDir, node, state, role, envelope, currentRuntime, lock, states, campaignPath, precomputed) {
   const error = envelope.error ?? { code: "provider_exhausted", message: "provider exhausted" };
   if (NON_FAILOVER_CODES.has(error.code)) {
+    clearTierExhaustion(state);
     transition(runDir, state, "exhausted", { phase: role, result: state.result, usage: state.usage, error }, lock);
     return true;
   }
@@ -463,7 +492,8 @@ export function handleProviderExhaustion(contract, runDir, node, state, role, en
     attempt: networkBackoffAttempts(state, role, state.revisions ?? 0),
     now,
   });
-  const plan = planRoute(contract, node, state, role, error, current, schedule, now);
+  const exhaustedUntil = exhaustedUntilOf(envelope);
+  const plan = planRoute(contract, node, state, role, error, current, schedule, now, exhaustedUntil);
   const status = envelope.status === "failed" ? "failed" : "exhausted";
   if (plan.blocked) {
     // A caller that classified the failure itself also owns what happens when
@@ -471,14 +501,30 @@ export function handleProviderExhaustion(contract, runDir, node, state, role, en
     // silent exhaustion — attention, or the provider's own error.
     if (precomputed) return false;
     const attention = plan.blocked.code === "runtime_tier_exhausted";
-    const exhaustedUntil = exhaustedUntilOf(envelope);
-    transition(runDir, state, attention ? "blocked" : "exhausted", {
-      phase: role,
-      result: state.result,
-      usage: state.usage,
-      error: { ...plan.blocked, ...(exhaustedUntil ? { exhaustedUntil } : {}) },
-    }, lock);
-    if (attention) void raiseNodeAttention(campaignPath, runDir, state, plan.blocked.code).catch(() => {});
+    if (attention) {
+      // The blocking transition does not call buildRouting, so the evidence is
+      // written explicitly here, appending the final candidate before the
+      // block — with the whole routing state spread so the cycle counter and
+      // assignments survive.
+      const tierExhaustion = upsertTierExhaustionCandidate(state.routing?.tierExhaustion, role, current, exhaustedUntil);
+      transition(runDir, state, "blocked", {
+        phase: role,
+        result: state.result,
+        usage: state.usage,
+        routing: { ...(state.routing ?? {}), tierExhaustion },
+        error: { ...plan.blocked, ...(exhaustedUntil ? { exhaustedUntil } : {}) },
+      }, lock);
+      void raiseNodeAttention(campaignPath, runDir, state, plan.blocked.code).catch(() => {});
+    } else {
+      // Any other block reason is not this feature's evidence to keep.
+      clearTierExhaustion(state);
+      transition(runDir, state, "exhausted", {
+        phase: role,
+        result: state.result,
+        usage: state.usage,
+        error: { ...plan.blocked, ...(exhaustedUntil ? { exhaustedUntil } : {}) },
+      }, lock);
+    }
     return true;
   }
   // A judge fallback that would land on the vendor of the worker it is
@@ -492,6 +538,7 @@ export function handleProviderExhaustion(contract, runDir, node, state, role, en
     const judgeFallbackVendor = contract.runtimes[plan.nextRuntime]?.vendor;
     if (workerVendor && judgeFallbackVendor && workerVendor === judgeFallbackVendor) {
       if (precomputed) return false;
+      clearTierExhaustion(state);
       transition(runDir, state, "blocked", {
         phase: role,
         result: state.result,
@@ -547,6 +594,7 @@ function applyRoute(contract, runDir, state, lock, { role, error, current, plan,
  * @param {ValidatedContract} contract @param {ValidatedNode} node @param {NodeSnapshot} state @param {string} runDir @param {Map<string, Job>|null} running @param {LockHandle} lock @param {string} message @param {Map<string, NodeSnapshot>} states @param {string} campaignPath
  */
 export async function applyInvalidWorkerResult(contract, node, state, runDir, running, lock, message, states, campaignPath) {
+  clearTierExhaustion(state);
   const verdict = /** @type {JudgeVerdict} */ ({
     verdict: "fail",
     maxSeverity: "critical",
