@@ -88,23 +88,21 @@ exception to closed scope — otherwise it is closed to the listed files. Each
 `verification` entry is `{argv, cwd?, timeoutSec? (default 120, max 600),
 repeat? (default 1, max 8), env?}` — at most 32 commands, 64 argv items, 32
 KiB argv bytes per command. `env` declares variable *names* only; values
-never travel in the packet. The legacy `prompt`/`promptFile` fields are
+never travel in the packet. `prompt`/`promptFile` are
 rejected; a node has `taskPacket` or `taskPacketFile`, never both. Measure a
 candidate command's real duration before naming it in `verification` or a
 worker instruction — `preflight <contract.json> --time-verification` runs each
-declared command once and fails the contract when it cannot fit the timeout it
-was given. A full test suite that has grown past 600s can never fit one entry;
+declared command once and fails the contract when it cannot fit that timeout. A full test suite that has grown past 600s can never fit one entry;
 target the file the change actually touches instead and let the orchestrator
 run the full suite out of band.
 
 An `autonomous` packet declares `writeRoots` instead of `writeFiles`:
 whole-repo read, write bounded to the listed files/directories. Scope is
 advisory, not a gate: a completed attempt whose worker result and
-verification both pass keeps unexpected writes as a `scopeFindings` entry
-(shown to the judge and in `status`/`status --json`) and still reaches
-`done`; only a failed verification turns the unexpected paths into part of
-the failure. Redirect a toolchain's cache/build output under `.runs/`
-(git-ignored, outside the snapshot) instead of enumerating generated paths.
+verification both pass keeps unexpected writes as a `scopeFindings` entry and
+still reaches `done`; only a failed verification turns the unexpected paths
+into part of the failure. Redirect a toolchain's cache/build output under
+`.runs/` (git-ignored, outside the snapshot).
 The workspace snapshot skips `.runs`, `.git`, `node_modules`, `.claude`,
 `.codex` at the repository root.
 
@@ -162,8 +160,13 @@ worker's declared fallback chain (rejecting a cycle in that chain outright)
 judge fallback landing on the vendor of the worker runtime that actually ran,
 cannot be checked statically (it depends on which worker runtime ran this
 attempt) and is instead refused at execution; see Failover below. Two models of one family (a GLM 5.3-flash worker judged by GLM 5.3) pair only by
-declaring distinct `vendor` strings — a claim about review independence, not a
-formality.
+declaring distinct `vendor` strings — a claim about review independence.
+
+An optional `runtimes[<id>].pricing` object declares `inputPerMTok`,
+`cachedInputPerMTok`, and `outputPerMTok` (each finite and >= 0, at
+least one required, unknown keys rejected) and prices that runtime's canonical
+counters when the harness reports no cost; a missing counter stays `unknown`,
+never zero.
 
 Non-empty `taskPacket.verification` is rejected when the resolved worker or a
 worker fallback cannot execute commands. Adapters declare
@@ -185,11 +188,11 @@ are excluded because judges review captured results.
   `danger-full-access`); arbitrary `config` entries serialize as `-c
   key=value`; disables browser/computer-use/app/sub-agent tooling and MCP by
   default (`CODEX_PREAMBLE_OVERRIDES`). Executable override: `executable` or
-  `INTENT_FACTORY_CODEX_BIN`. Never rely on a profile name to select a custom
-  provider — Codex silently accepts unknown profiles.
+  `INTENT_FACTORY_CODEX_BIN`. A profile name never selects a custom provider:
+  Codex accepts unknown profiles silently.
 - `zcode`: the GLM route — Z.ai's own harness CLI, driven headlessly
-  (`zcode --prompt --json`; the adapter installs the shim itself, and
-  `executable` / `INTENT_FACTORY_ZCODE_BIN` override). Model and endpoint travel
+  (`zcode --prompt --json`; `executable` / `INTENT_FACTORY_ZCODE_BIN` override).
+  Model and endpoint travel
   as `ZCODE_MODEL` (`config.provider`/model, default `glm`/model; a `[1m]` model
   suffix is stripped — the provider reports the context window itself) and
   `ZCODE_BASE_URL` (default the Z.ai Anthropic-compatible endpoint); the token
@@ -200,8 +203,8 @@ are excluded because judges review captured results.
   `--settings`/hooks surface stays unwired:
   `structuredOutput`/`toolPolicy` are `false`, judges arbitrate through the
   prompt-embedded schema, and a `toolPolicy` requirement rejects the runtime.
-  Continuation resumes `sess_…` ids. Mid-run live metering reads zero; usage
-  settles from the terminal result object.
+  Continuation resumes `sess_…` ids. Mid-run metering reads zero; usage
+  settles from the terminal result.
 - `agy`: the installed `agy` CLI (or `INTENT_FACTORY_AGY_BIN`); optional
   `printTimeout`; omit `reasoning` for models without `--effort`.
 - `dsh`: the DeepSeek Harness through the shipped `sdk` JSON-RPC client;
@@ -239,11 +242,9 @@ summaries forward, never a continuation ID.
 
 `runtimes[<id>].fallback` names at most one other runtime id — the single hop
 a role takes on provider exhaustion at execution time; a self-loop is
-rejected outright. Runtimes can still chain (a fallback whose own fallback
-names a third runtime, and so on); validation walks that full chain for a
-gate-enabled node's worker and rejects a cycle in it, but nothing walks or
-rejects a cycle in a chain no gated node's worker reaches, or in a judge's
-chain. `tier` groups runtimes
+rejected outright. Runtimes can chain (a fallback whose fallback names a third,
+and so on); validation walks that chain for a gated worker and rejects a cycle,
+but does not walk a chain no gated worker reaches, or a judge's. `tier` groups runtimes
 for composed re-tiering (cheaper tiers first); `costRank` breaks ties. A
 worker fallback is taken unconditionally once reachable and unattempted this
 revision. A judge fallback is admissible only when it differs in vendor from
@@ -332,8 +333,8 @@ persisted scope across the window and passing verification; otherwise it
 settles `reconciled` and blocks the node with `unknown_effect_reconciled` — a
 durable manual-stop attention boundary. All writes happen under the
 controller lock. `usage.jsonl` is one line per invocation: tokens by kind
-(uncached input, cache read, output), `costUsd` with provenance (`provider`, else
-`unknown`), timestamps — reporting only. See
+(uncached input, cache read, output), `costUsd` with provenance (`priced`, else
+`provider`, else `unknown`), timestamps — reporting only. See
 [operations.md](operations.md) for worktrees, integration, `status.json`,
 notify, the controller lock, and campaigns.
 

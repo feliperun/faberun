@@ -22,9 +22,10 @@ import { stableJson } from "../util.mjs";
 const RUNTIME_FIELDS = new Set([
   "harness", "model", "reasoning", "sandbox", "permissionMode", "config", "printTimeout", "tools",
   "executable", "args", "versionArgs", "maxArgvPromptBytes", "requiredCapabilities", "costRank",
-  "fallback", "vendor", "tier",
+  "fallback", "vendor", "tier", "pricing",
 ]);
 const RUNTIME_HARNESSES = new Set(["claude", "codex", "agy", "dsh", "zcode", "exec-jsonl", "replay"]);
+const PRICING_FIELDS = new Set(["inputPerMTok", "cachedInputPerMTok", "outputPerMTok"]);
 const SNAPSHOT_RUNTIME_FIELDS = new Set(["id", ...RUNTIME_FIELDS, "capabilities"]);
 const CAPABILITY_FIELDS = new Set([
   "structuredOutput", "promptTransport", "sandbox", "permissions", "continuation", "tokenBudget", "costBudget",
@@ -90,6 +91,7 @@ function validateRuntimeValues(runtime, label, executableRequired) {
   if (runtime.versionArgs !== undefined) requireStringArray(runtime.versionArgs, `${label}.versionArgs`);
   if (runtime.maxArgvPromptBytes !== undefined) positiveInteger(runtime.maxArgvPromptBytes, `${label}.maxArgvPromptBytes`);
   if (runtime.costRank !== undefined) nonNegativeNumber(runtime.costRank, `${label}.costRank`);
+  if (runtime.pricing !== undefined) validatePricing(runtime.pricing, `${label}.pricing`);
   if (runtime.tier !== undefined && !(
     (typeof runtime.tier === "number" && Number.isInteger(runtime.tier) && runtime.tier >= 0)
     || (typeof runtime.tier === "string" && runtime.tier.trim())
@@ -105,6 +107,26 @@ function validateRuntimeValues(runtime, label, executableRequired) {
   // one cannot start a turn.
   if (harness === "dsh") requireString(/** @type {Record<string, unknown>|undefined} */ (runtime.config)?.provider, `${label}.config.provider`);
   if (executableRequired && runtime.executable === undefined) requireString(runtime.executable, `${label}.executable`);
+}
+/**
+ * A runtime's operator-declared price. Each rate is optional, but an empty
+ * object is meaningless rather than free, so at least one rate must be
+ * declared, every rate must be a finite number at least zero, and no key
+ * outside the three canonical counters is accepted.
+ *
+ * @param {unknown} value
+ * @param {string} label
+ */
+function validatePricing(value, label) {
+  assertObject(value, label);
+  rejectUnknown(value, PRICING_FIELDS, label);
+  if (Object.keys(value).length === 0) throw new TypeError(`${label} must declare at least one rate`);
+  for (const key of Object.keys(value)) {
+    const rate = value[key];
+    if (typeof rate !== "number" || Number.isNaN(rate)) throw new TypeError(`${label}.${key} must be a number`);
+    if (!Number.isFinite(rate)) throw new TypeError(`${label}.${key} must be a finite number`);
+    if (rate < 0) throw new TypeError(`${label}.${key} must not be negative`);
+  }
 }
 /**
  * @param {Record<string, ValidatedRuntime>} runtimes

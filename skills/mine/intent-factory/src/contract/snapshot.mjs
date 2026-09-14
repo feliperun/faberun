@@ -184,7 +184,7 @@ function validateInvocations(value, label) {
     const allowed = new Set([
       "id", "pid", "processGroupId", "processStartToken", "harness", "runtimeId", "phase",
       "promptPath", "stdoutPath", "stderrPath", "startedAt", "updatedAt", "closedAt", "deadlineAt",
-      "exitCode", "signal", "status", "executable", "usage", "usageEstimated", "costUsd", "snapshotPath", "revision",
+      "exitCode", "signal", "status", "executable", "usage", "usageEstimated", "costUsd", "costProvenance", "snapshotPath", "revision",
       "runId", "campaignId", "planPhase", "role", "runtimeFingerprint", "model", "reasoning", "sandbox", "continuationId", "continuationMode",
       "nodeId", "attempt", "workspace", "worktreeBranch", "worktreeBaseSha",
     ]);
@@ -227,6 +227,13 @@ function validateInvocations(value, label) {
       throw new TypeError(`${label}[${index}].usageEstimated must be a boolean`);
     }
     if (invocation.costUsd !== undefined && invocation.costUsd !== null) nonNegativeNumber(invocation.costUsd, `${label}[${index}].costUsd`);
+    // Provenance is only ever explicit when it is `priced`; a number costUsd
+    // with no field is a harness-reported `provider`, and no costUsd is
+    // `unknown`. Encoding either of those in the field would let a persisted
+    // record claim a provenance it never earned.
+    if (invocation.costProvenance !== undefined && invocation.costProvenance !== "priced") {
+      throw new TypeError(`${label}[${index}].costProvenance must be "priced" when present`);
+    }
   }
 }
 /**
