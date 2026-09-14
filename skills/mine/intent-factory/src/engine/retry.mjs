@@ -90,6 +90,21 @@ function retryTargets(planNodes, nodeId) {
 }
 
 /**
+ * The earliest reset instant recorded among a node's tier-exhaustion
+ * candidates, or null when no candidate carries a parseable `exhaustedUntil`.
+ * Shared by `planResumeRetry`'s hold decision and `supervise`'s waiting state
+ * so the two can never disagree about when an exhausted node is due.
+ *
+ * @param {import("../contract/index.mjs").NodeSnapshot} state
+ * @returns {number|null} epoch milliseconds, or null when nothing is parseable
+ */
+export function earliestTierReset(state) {
+  const candidates = state.routing?.tierExhaustion?.candidates ?? [];
+  const instants = candidates.map((candidate) => Date.parse(candidate.exhaustedUntil ?? "")).filter(Number.isFinite);
+  return instants.length ? Math.min(...instants) : null;
+}
+
+/**
  * Decide, per node, what a resume does with it. Everything classified
  * `recover` keeps today's recovery behaviour (orphan adoption, re-judge of
  * finished work, pending re-dispatch). `hold` leaves the persisted state
@@ -136,9 +151,8 @@ export function planResumeRetry(contract, states, options = {}) {
       // generation with no parseable instant holds indefinitely rather than
       // inventing a deadline. The final candidate is already in the evidence
       // list, so this reads Phase 1a's record, never `state.error.exhaustedUntil`.
-      const candidates = state.routing?.tierExhaustion?.candidates ?? [];
-      const earliest = Math.min(...candidates.map((candidate) => Date.parse(candidate.exhaustedUntil ?? "")).filter(Number.isFinite));
-      if (!Number.isFinite(earliest)) return hold(node, "no recorded reset time for any exhausted candidate");
+      const earliest = earliestTierReset(state);
+      if (earliest === null) return hold(node, "no recorded reset time for any exhausted candidate");
       if (Date.now() < earliest) return hold(node, `earliest recorded reset is ${new Date(earliest).toISOString()}`);
       if (targets && !targets.has(node)) return hold(node, "it is outside the `--node` retry");
       // A judge-tier exhaustion keeps its order: rejudge transitions to the

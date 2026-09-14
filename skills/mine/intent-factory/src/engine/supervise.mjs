@@ -19,6 +19,7 @@
  * deterministically without spawning a process or waiting out an interval.
  */
 import { TERMINAL } from "./prompts.mjs";
+import { earliestTierReset } from "./retry.mjs";
 import { lockStale, readLock } from "../run/lock.mjs";
 import { listNodeSnapshots, readNodeSnapshot } from "../run/node-store.mjs";
 import { delay, errorMessage } from "../util.mjs";
@@ -30,7 +31,7 @@ export const DEFAULT_SUPERVISE_INTERVAL_SEC = 30;
 export const MAX_CONSECUTIVE_LAUNCH_FAILURES = 3;
 
 /**
- * @typedef {{state: "done"|"unfinished"|"unknown", total: number, terminal: number, reason?: string}} RunProgress
+ * @typedef {{state: "done"|"unfinished"|"waiting"|"unknown", total: number, terminal: number, reason?: string, waitingUntil?: string}} RunProgress
  */
 
 /**
@@ -39,25 +40,56 @@ export const MAX_CONSECUTIVE_LAUNCH_FAILURES = 3;
  * needs resuming, and resuming it would race the controller that is about to
  * write them.
  *
+ * `waiting` is the one case where a blocked node is not counted terminal: a
+ * `runtime_tier_exhausted` node whose earliest recorded reset is parseable and
+ * still in the future has nothing to do until that instant. A tier-exhausted
+ * node with no parseable reset keeps today's terminal classification (there is
+ * nothing to wait for), and one whose reset is already past is ordinary
+ * `unfinished` so the retry dispatches. Whenever a run carries any node that
+ * is not waiting, `unfinished` outranks `waiting` and the waiting nodes never
+ * hold the run back.
+ *
  * @param {string} runDir
+ * @param {number} [now] epoch milliseconds, injectable so a fake clock can drive the wait
  * @returns {RunProgress}
  */
-export function runProgress(runDir) {
+export function runProgress(runDir, now = Date.now()) {
   const names = listNodeSnapshots(runDir);
   if (!names.length) return { state: "unknown", total: 0, terminal: 0, reason: "no node snapshots yet" };
   let terminal = 0;
+  let unfinished = false;
+  /** @type {number|null} */
+  let earliestWaiting = null;
   for (const name of names) {
     let snapshot;
     try {
-      snapshot = /** @type {{status?: unknown}} */ (readNodeSnapshot(runDir, name.replace(/\.json$/u, "")));
+      snapshot = /** @type {import("../contract/index.mjs").NodeSnapshot} */ (readNodeSnapshot(runDir, name.replace(/\.json$/u, "")));
     } catch (error) {
       // A snapshot caught mid-write is not evidence either way; the next tick
       // reads a whole one.
       return { state: "unknown", total: names.length, terminal, reason: errorMessage(error) };
     }
-    if (typeof snapshot?.status === "string" && TERMINAL.has(snapshot.status)) terminal += 1;
+    const status = snapshot?.status;
+    if (status === "blocked" && snapshot.error?.code === "runtime_tier_exhausted") {
+      const earliest = earliestTierReset(snapshot);
+      if (earliest === null) {
+        // No parseable reset: nothing to wait for, so the blocked node stays
+        // terminal exactly as it always has.
+        terminal += 1;
+      } else if (now < earliest) {
+        earliestWaiting = earliestWaiting === null ? earliest : Math.min(earliestWaiting, earliest);
+      } else {
+        // The instant has arrived; Phase 1b's retry is due now.
+        unfinished = true;
+      }
+      continue;
+    }
+    if (typeof status === "string" && TERMINAL.has(status)) terminal += 1;
+    else unfinished = true;
   }
-  return { state: terminal === names.length ? "done" : "unfinished", total: names.length, terminal };
+  if (terminal === names.length) return { state: "done", total: names.length, terminal };
+  if (unfinished) return { state: "unfinished", total: names.length, terminal };
+  return { state: "waiting", total: names.length, terminal, waitingUntil: new Date(/** @type {number} */ (earliestWaiting)).toISOString() };
 }
 
 /**
@@ -78,12 +110,13 @@ export function controllerAlive(runDir) {
  * Watch one run and relaunch its controller until every node is terminal.
  *
  * @param {string} runDir
- * @param {{intervalSec?: number, launch: (runDir: string) => Promise<void>|void, sleep?: (ms: number) => Promise<void>, onTick?: (tick: {progress: RunProgress, alive: boolean, launched: boolean}) => void, maxTicks?: number}} options
+ * @param {{intervalSec?: number, launch: (runDir: string) => Promise<void>|void, sleep?: (ms: number) => Promise<void>, now?: () => number, onTick?: (tick: {progress: RunProgress, alive: boolean, launched: boolean}) => void, maxTicks?: number}} options
  * @returns {Promise<{state: "done"|"stopped", ticks: number, launches: number, reason?: string}>}
  */
 export async function superviseRun(runDir, options) {
   const intervalMs = Math.max(1, Math.round((options.intervalSec ?? DEFAULT_SUPERVISE_INTERVAL_SEC) * 1000));
   const sleep = options.sleep ?? delay;
+  const now = options.now ?? Date.now;
   let ticks = 0;
   let launches = 0;
   let consecutiveFailures = 0;
@@ -92,7 +125,10 @@ export async function superviseRun(runDir, options) {
       return { state: "stopped", ticks, launches, reason: "tick budget exhausted" };
     }
     ticks += 1;
-    const progress = runProgress(runDir);
+    // A `waiting` progress reports itself only while the reset instant is in
+    // the future, so the ordinary `unfinished` branch below is exactly the
+    // launch that fires once the clock reaches it.
+    const progress = runProgress(runDir, now());
     if (progress.state === "done") {
       options.onTick?.({ progress, alive: false, launched: false });
       return { state: "done", ticks, launches };
