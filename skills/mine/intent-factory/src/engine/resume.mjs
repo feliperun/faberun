@@ -137,7 +137,8 @@ export async function resumeRun(runDirPath, options = {}) {
       // Adoption before retry: an unresolved blocking review is re-judged from
       // the preserved worker result, never reset to a fresh worker attempt.
       if (action === "rejudge") {
-        transition(runDir, state, "pending", { phase: "judge", error: null, blockedBy: [] }, lock);
+        const routing = tierExhaustionRestart(state);
+        transition(runDir, state, "pending", { phase: "judge", error: null, blockedBy: [], ...(routing ? { routing } : {}) }, lock);
         continue;
       }
       if (action === "hold") continue;
@@ -150,7 +151,8 @@ export async function resumeRun(runDirPath, options = {}) {
           }, lock);
         }
         state.previousAttempt = renderPreviousAttemptSection(state) ?? state.previousAttempt;
-        transition(runDir, state, "pending", { phase: "worker", error: null, blockedBy: [] }, lock);
+        const routing = tierExhaustionRestart(state);
+        transition(runDir, state, "pending", { phase: "worker", error: null, blockedBy: [], ...(routing ? { routing } : {}) }, lock);
         continue;
       }
       const lastInvocation = state.invocations?.at(-1);
@@ -486,6 +488,25 @@ export async function resumeRun(runDirPath, options = {}) {
  */
 export function isBlockedContextTerminal(state) {
   return state.status === "blocked" && state.error?.code === "context_missing";
+}
+/**
+ * The routing write that opens the next tier-exhaustion generation, or null
+ * when this re-dispatch is not one: the generation counter bumps by exactly
+ * one and the evidence starts over empty, both in the same transition that
+ * re-dispatches the node. The counter is never reset and the evidence is never
+ * carried forward; any other retry or rejudge leaves routing untouched.
+ *
+ * @param {NodeSnapshot} state
+ * @returns {Record<string, unknown>|null}
+ */
+function tierExhaustionRestart(state) {
+  if (state.status !== "blocked" || state.error?.code !== "runtime_tier_exhausted") return null;
+  const role = state.phase === "judge" ? "judge" : "worker";
+  return {
+    ...(state.routing ?? {}),
+    tierExhaustionCycle: (state.routing?.tierExhaustionCycle ?? 0) + 1,
+    tierExhaustion: { role, candidates: [] },
+  };
 }
 /**
  * Read the operator's answer file relative to the current working directory —

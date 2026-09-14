@@ -131,6 +131,21 @@ export function planResumeRetry(contract, states, options = {}) {
         ? "retry"
         : "recover";
     }
+    if (state.status === "blocked" && state.error?.code === "runtime_tier_exhausted") {
+      // Hold until the earliest reset the exhausted candidates announced; a
+      // generation with no parseable instant holds indefinitely rather than
+      // inventing a deadline. The final candidate is already in the evidence
+      // list, so this reads Phase 1a's record, never `state.error.exhaustedUntil`.
+      const candidates = state.routing?.tierExhaustion?.candidates ?? [];
+      const earliest = Math.min(...candidates.map((candidate) => Date.parse(candidate.exhaustedUntil ?? "")).filter(Number.isFinite));
+      if (!Number.isFinite(earliest)) return hold(node, "no recorded reset time for any exhausted candidate");
+      if (Date.now() < earliest) return hold(node, `earliest recorded reset is ${new Date(earliest).toISOString()}`);
+      if (targets && !targets.has(node)) return hold(node, "it is outside the `--node` retry");
+      // A judge-tier exhaustion keeps its order: rejudge transitions to the
+      // judge phase and preserves the accepted worker result, where a retry
+      // would discard it by re-dispatching a worker.
+      return state.phase === "judge" ? "rejudge" : "retry";
+    }
     if (!isRetryableFailure(state)) return "recover";
     if (targets && !targets.has(node)) return hold(node, "it is outside the `--node` retry");
     return "retry";
@@ -150,7 +165,7 @@ export function planResumeRetry(contract, states, options = {}) {
   for (const node of contract.nodes) {
     const state = states.get(node.id);
     if (!state || !isDependencyFailed(state) || actions.get(node.id) !== "retry") continue;
-    const waitedOnRetried = (state.blockedBy ?? []).every((id) => actions.get(id) === "retry" || states.get(id)?.status === "done");
+    const waitedOnRetried = (state.blockedBy ?? []).every((id) => actions.get(id) === "retry" || actions.get(id) === "rejudge" || states.get(id)?.status === "done");
     if (!waitedOnRetried) {
       actions.set(node.id, hold(node.id, "the dependency it waited on is not part of this retry"));
     }

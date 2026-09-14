@@ -5,10 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runContract } from "../../src/engine/scheduler.mjs";
-import { buildRouting, planRoute } from "../../src/engine/backoff.mjs";
+import { resumeRun } from "../../src/engine/resume.mjs";
+import { planResumeRetry } from "../../src/engine/retry.mjs";
+import { buildRouting, planRoute, upsertTierExhaustionCandidate } from "../../src/engine/backoff.mjs";
 import { validateContract } from "../../src/contract/index.mjs";
 import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
-import { fakeCodex, fixture, packet, withFakeCodex, writeContract } from "../helpers.mjs";
+import { fakeCodex, fixture, packet, withFakeCodex, writeContract, ensureAttemptWorktree } from "../helpers.mjs";
 import { nodeState, withBrokenGateCodex } from "../runner-helpers.mjs";
 import { snapshot as contractSnapshot } from "../contract/helpers.mjs";
 
@@ -48,12 +50,14 @@ if (process.argv.includes("--version")) {
     const nodeId = process.env.INTENT_FACTORY_NODE_ID;
     let runtime = null;
     let candidates = [];
+    let cycle = 0;
     try {
       const state = JSON.parse(readFileSync(join(runDir, "nodes", nodeId + ".json"), "utf8"));
       runtime = state.runtime?.id ?? null;
       candidates = (state.routing?.tierExhaustion?.candidates ?? []).map((candidate) => candidate.runtimeId);
+      cycle = state.routing?.tierExhaustionCycle ?? 0;
     } catch {}
-    appendFileSync(${JSON.stringify(log)}, JSON.stringify({ runtime, candidates }) + "\\n");
+    appendFileSync(${JSON.stringify(log)}, JSON.stringify({ runtime, candidates, cycle }) + "\\n");
     console.log(JSON.stringify({ type: "thread.started", thread_id: "tier-thread" }));
     if (${fail ? "true" : "false"}) {
       console.log(JSON.stringify({ type: "turn.failed", error: { message: "You've hit your usage limit. Please try again at 12:58 PM" } }));
@@ -109,9 +113,37 @@ function attempted(runtimeId, cycle) {
   return { phase: "worker", runtimeId, revision: 0, cycle };
 }
 
-/** @param {string} log @returns {{runtime: string|null, candidates: string[]}[]} */
+/** @param {string} log @returns {{runtime: string|null, candidates: string[], cycle: number}[]} */
 function evidenceLog(log) {
   return readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+}
+
+/**
+ * A node blocked on tier exhaustion, as `resume` reads it: the phase that
+ * exhausted, the generation's evidence, and (when a worker turn was accepted)
+ * the result the block preserved.
+ *
+ * @param {"worker"|"judge"} role
+ * @param {{runtimeId: string, exhaustedUntil: string|null}[]} candidates
+ * @param {{result?: unknown, cycle?: number}} [options]
+ * @returns {any}
+ */
+function tierBlockedState(role, candidates, options = {}) {
+  return {
+    id: "build",
+    status: "blocked",
+    phase: role,
+    result: options.result ?? null,
+    error: { code: "runtime_tier_exhausted", message: "no available runtime remains in tier 1" },
+    routing: {
+      history: [],
+      currentOverride: null,
+      assignments: { worker: "a", judge: "b", composedWorker: true, composedJudge: false },
+      availability: { a: READY, b: READY, c: READY },
+      tierExhaustionCycle: options.cycle ?? 0,
+      tierExhaustion: { role, candidates },
+    },
+  };
 }
 
 test("a three-candidate tier exhaustion records all three candidates in order, asserted during the sequence", async () => {
@@ -419,4 +451,209 @@ test("a declared fallback that has no runtime default still records tier evidenc
   const state = nodeState(result);
   assert.equal(state.status, "done", state.error?.message);
   assert.equal(state.routing?.tierExhaustion, undefined, "a declared fallback is not a tier exhaustion");
+});
+
+// Phase 1b: hold before the earliest recorded reset, then retry the right
+// phase and target, advancing the generation once at the single dispatch point.
+
+test("done-when 1: worker-tier exhaustion past its earliest reset retries as retry", () => {
+  const contract = { nodes: [{ id: "build" }] };
+  const past = new Date(Date.now() - 60_000).toISOString();
+  const state = tierBlockedState("worker", [
+    { runtimeId: "a", exhaustedUntil: past },
+    { runtimeId: "b", exhaustedUntil: new Date(Date.now() - 30_000).toISOString() },
+    { runtimeId: "c", exhaustedUntil: past },
+  ]);
+  const plan = planResumeRetry(contract, new Map([["build", state]]), {});
+  assert.equal(plan.actions.get("build"), "retry");
+  assert.equal(plan.attention.length, 0);
+});
+
+test("done-when 2: worker-tier exhaustion before its earliest reset holds in attention", () => {
+  const contract = { nodes: [{ id: "build" }] };
+  const earliest = Date.now() + 300_000;
+  const state = tierBlockedState("worker", [
+    { runtimeId: "a", exhaustedUntil: new Date(earliest + 60_000).toISOString() },
+    { runtimeId: "b", exhaustedUntil: new Date(earliest).toISOString() },
+  ]);
+  const plan = planResumeRetry(contract, new Map([["build", state]]), {});
+  assert.equal(plan.actions.get("build"), "hold");
+  assert.equal(plan.attention.length, 1);
+  assert.equal(plan.attention[0].id, "build");
+  assert.ok(plan.attention[0].reason.includes(new Date(earliest).toISOString()), plan.attention[0].reason);
+});
+
+test("done-when 3 (classification): judge-tier exhaustion past its reset selects rejudge", () => {
+  const contract = { nodes: [{ id: "build" }] };
+  const result = { status: "done", summary: "accepted worker turn", verification: [], artifacts: [], missingContext: [] };
+  const state = tierBlockedState("judge", [{ runtimeId: "b", exhaustedUntil: new Date(Date.now() - 60_000).toISOString() }], { result });
+  const plan = planResumeRetry(contract, new Map([["build", state]]), {});
+  assert.equal(plan.actions.get("build"), "rejudge");
+});
+
+test("done-when 3: resume rejudges a judge-tier exhaustion and keeps the accepted worker result", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-tier-rejudge-resume-"));
+  const path = writeContract(directory, fixture({
+    id: "tier-rejudge-resume-run",
+    pollIntervalMs: 10,
+    nodes: [{
+      id: "build",
+      type: "backend",
+      taskPacket: packet(),
+      definitionOfDone: [{ id: "works", text: "It works", judgment: true }],
+      gate: { review: "advisory", failOn: ["critical"] },
+    }],
+  }));
+  const finished = await withFakeCodex(directory, "pass", () => runContract(path));
+  const accepted = nodeState(finished);
+  assert.equal(accepted.status, "done", accepted.error?.message);
+  const workerResult = accepted.result;
+  const workerTurns = (accepted.invocations ?? []).filter((invocation) => invocation.phase === "worker").length;
+
+  // Rewind the finished node to the shape a judge-tier exhaustion leaves: the
+  // accepted worker result is on disk, the judge exhausted its tier, and the
+  // recorded reset is already past.
+  const nodePath = join(finished.runDir, "nodes", "build.json");
+  const state = JSON.parse(readFileSync(nodePath, "utf8"));
+  state.status = "blocked";
+  state.phase = "judge";
+  state.error = { code: "runtime_tier_exhausted", message: "no available runtime remains in tier 1 for judge" };
+  // The finished run removed its worktree; an accepted attempt needs one back
+  // for the rejudge to run against.
+  state.worktree = ensureAttemptWorktree(finished.runDir, state);
+  state.routing = {
+    ...state.routing,
+    tierExhaustionCycle: 0,
+    tierExhaustion: { role: "judge", candidates: [{ runtimeId: "sol", exhaustedUntil: new Date(Date.now() - 60_000).toISOString() }] },
+  };
+  writeFileSync(nodePath, JSON.stringify(state, null, 2));
+
+  // A worker re-dispatch would fail in this mode; only the rejudge reaches done.
+  const resumed = await withFakeCodex(directory, "worker-fail", () => resumeRun(finished.runDir));
+  const after = nodeState(resumed);
+  assert.equal(after.status, "done", after.error?.message);
+  assert.deepEqual(after.result, workerResult, "the accepted worker result survives the rejudge");
+  assert.equal(
+    (after.invocations ?? []).filter((invocation) => invocation.phase === "worker").length,
+    workerTurns,
+    "the worker is never re-run",
+  );
+  assert.equal(after.attempt, accepted.attempt, "a rejudge is adoption, not a new attempt");
+  assert.equal(after.routing?.tierExhaustionCycle, 1, "the rejudge dispatch advanced the generation exactly once");
+  assert.equal(after.routing?.tierExhaustion, undefined, "the successful judge then cleared the evidence, never the counter");
+});
+
+test("done-when 5: a dependency_failed dependant reopens for a rejudged dependency", () => {
+  const contract = { nodes: [{ id: "build" }, { id: "second", dependsOn: ["build"] }] };
+  const state = tierBlockedState("judge", [{ runtimeId: "b", exhaustedUntil: new Date(Date.now() - 60_000).toISOString() }], {
+    result: { status: "done", summary: "work", verification: [], artifacts: [], missingContext: [] },
+  });
+  const dependent = {
+    status: "blocked",
+    phase: "complete",
+    error: { code: "dependency_failed", message: "build failed" },
+    blockedBy: ["build"],
+  };
+  const plan = planResumeRetry(contract, new Map([["build", state], ["second", dependent]]), {});
+  assert.equal(plan.actions.get("build"), "rejudge");
+  assert.equal(plan.actions.get("second"), "retry", "a rejudged dependency reopens its dependant exactly as a retry does");
+});
+
+test("done-when 6: a generation with no parseable reset instant holds indefinitely", () => {
+  const contract = { nodes: [{ id: "build" }] };
+  const allNull = tierBlockedState("worker", [
+    { runtimeId: "a", exhaustedUntil: null },
+    { runtimeId: "b", exhaustedUntil: null },
+    { runtimeId: "c", exhaustedUntil: null },
+  ]);
+  const nullPlan = planResumeRetry(contract, new Map([["build", allNull]]), {});
+  assert.equal(nullPlan.actions.get("build"), "hold");
+  assert.match(nullPlan.attention[0].reason, /no recorded reset time/u);
+
+  const unparseable = tierBlockedState("worker", [{ runtimeId: "a", exhaustedUntil: "not-an-instant" }]);
+  const unparseablePlan = planResumeRetry(contract, new Map([["build", unparseable]]), {});
+  assert.equal(unparseablePlan.actions.get("build"), "hold", "an unparseable instant never compares as NaN");
+  assert.match(unparseablePlan.attention[0].reason, /no recorded reset time/u);
+});
+
+test("done-when 7: --node naming another node holds this exhausted node after its deadline", () => {
+  const contract = { nodes: [{ id: "build" }, { id: "other" }] };
+  const state = tierBlockedState("worker", [{ runtimeId: "a", exhaustedUntil: new Date(Date.now() - 60_000).toISOString() }]);
+  const plan = planResumeRetry(contract, new Map([["build", state]]), { node: "other" });
+  assert.equal(plan.actions.get("build"), "hold");
+  assert.equal(plan.attention[0].id, "build");
+  assert.match(plan.attention[0].reason, /outside the `--node` retry/u);
+});
+
+test("done-when 8: the cycle-restart dispatch empties the evidence before the next candidate runs", async () => {
+  const logDirectory = mkdtempSync(join(tmpdir(), "runner-tier-restart-log-"));
+  const log = join(logDirectory, "evidence.jsonl");
+  const directory = mkdtempSync(join(tmpdir(), "runner-tier-restart-"));
+  const path = writeContract(directory, fixture({
+    id: "tier-restart-run",
+    pollIntervalMs: 10,
+    timeoutSec: 60,
+    runtimeDefaults: {},
+    runtimes: {
+      a: { harness: "codex", model: "a", vendor: "vendor-a", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 1 },
+      b: { harness: "codex", model: "b", vendor: "vendor-b", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 2 },
+      c: { harness: "codex", model: "c", vendor: "vendor-c", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 3 },
+    },
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
+  }));
+  const first = await runContract(path);
+  const blocked = nodeState(first);
+  assert.equal(blocked.status, "blocked", blocked.error?.message);
+  assert.equal(blocked.error?.code, "runtime_tier_exhausted");
+  assert.equal(blocked.routing?.tierExhaustionCycle ?? 0, 0, "the first generation is the implicit zero");
+
+  // The fake provider announces no reset, so give every candidate a recorded
+  // instant already past: resume must dispatch rather than hold forever.
+  const past = new Date(Date.now() - 60_000).toISOString();
+  const nodePath = join(first.runDir, "nodes", "build.json");
+  const persisted = JSON.parse(readFileSync(nodePath, "utf8"));
+  for (const candidate of persisted.routing.tierExhaustion.candidates) candidate.exhaustedUntil = past;
+  writeFileSync(nodePath, JSON.stringify(persisted, null, 2));
+
+  const resumed = await resumeRun(first.runDir);
+  const after = nodeState(resumed);
+  assert.equal(after.status, "blocked", after.error?.message);
+  assert.equal(after.routing?.tierExhaustionCycle, 1, "the dispatch advanced the generation exactly once");
+  assert.deepEqual(
+    [...new Set((after.routing?.tierExhaustion?.candidates ?? []).map((candidate) => candidate.runtimeId))].sort(),
+    ["a", "b", "c"],
+    "the new generation re-walked every candidate",
+  );
+
+  const firstNew = evidenceLog(log).find((entry) => entry.cycle === 1);
+  assert.ok(firstNew, "the restarted generation dispatched a candidate");
+  assert.deepEqual(firstNew.candidates, [], "the very first dispatch of the new generation carried no evidence forward");
+});
+
+test("done-when 8b: a smaller later generation computes its earliest only from its own candidates", () => {
+  const contract = { nodes: [{ id: "build" }] };
+  const now = Date.now();
+  const obsolete = new Date(now - 86_400_000).toISOString();
+  const first = new Date(now + 60_000).toISOString();
+  const second = new Date(now + 120_000).toISOString();
+  // Generation 1 was larger: three candidates, C's deadline already obsolete.
+  const state = tierBlockedState("worker", [
+    { runtimeId: "a", exhaustedUntil: first },
+    { runtimeId: "b", exhaustedUntil: second },
+    { runtimeId: "c", exhaustedUntil: obsolete },
+  ], { cycle: 1 });
+  // The cycle-restart write replaces the evidence wholesale, so generation 2
+  // starts empty; its two upserts cannot resurrect C's obsolete past deadline.
+  state.routing.tierExhaustionCycle = 2;
+  state.routing.tierExhaustion = { role: "worker", candidates: [] };
+  state.routing.tierExhaustion = upsertTierExhaustionCandidate(state.routing.tierExhaustion, "worker", "a", first);
+  state.routing.tierExhaustion = upsertTierExhaustionCandidate(state.routing.tierExhaustion, "worker", "b", second);
+  const plan = planResumeRetry(contract, new Map([["build", state]]), {});
+  assert.deepEqual(
+    state.routing.tierExhaustion.candidates.map((/** @type {{runtimeId: string}} */ candidate) => candidate.runtimeId),
+    ["a", "b"],
+    "generation 2 visited fewer candidates than the generation before it",
+  );
+  assert.equal(plan.actions.get("build"), "hold", "the obsolete past deadline from the larger generation cannot force a retry");
+  assert.ok(plan.attention[0].reason.includes(first), "the earliest is computed from generation 2's own two candidates");
 });

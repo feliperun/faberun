@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { resumeRun } from "../../src/engine/resume.mjs";
+import { planResumeRetry } from "../../src/engine/retry.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { invocationResult } from "../../src/engine/process.mjs";
 import { recordInvocationUsage } from "../../src/run/usage.mjs";
@@ -484,4 +485,53 @@ test("a gate rejection adopted on resume spends one attempt, not two", async () 
     true,
     "the attempt the node reports is the attempt its logs are filed under",
   );
+});
+
+// Phase 1b done-when case 4: the four blocked reasons this feature does not
+// drive keep their exact, reason-specific classification. One test per reason.
+
+/** @param {Record<string, Record<string, unknown>>} entries @returns {Map<string, import("../../src/contract/index.mjs").NodeSnapshot>} */
+function planStates(entries) {
+  return /** @type {any} */ (new Map(Object.entries(entries)));
+}
+
+test("done-when 4a: judge_unavailable still rejudges, and holds outside a --node retry", () => {
+  const contract = { nodes: [{ id: "build" }, { id: "other" }] };
+  const state = { status: "blocked", phase: "judge", error: { code: "judge_unavailable" } };
+  const open = planResumeRetry(contract, planStates({ build: state }), {});
+  assert.equal(open.actions.get("build"), "rejudge");
+  const narrowed = planResumeRetry(contract, planStates({ build: state }), { node: "other" });
+  assert.equal(narrowed.actions.get("build"), "hold");
+  assert.equal(narrowed.attention[0]?.id, "build");
+});
+
+test("done-when 4b: unknown_effect_reconciled still needs --reconcile", () => {
+  const contract = { nodes: [{ id: "build" }] };
+  const state = { status: "blocked", phase: "worker", error: { code: "unknown_effect_reconciled" } };
+  assert.equal(planResumeRetry(contract, planStates({ build: state }), {}).actions.get("build"), "hold");
+  assert.equal(planResumeRetry(contract, planStates({ build: state }), { reconcile: "build" }).actions.get("build"), "retry");
+});
+
+test("done-when 4c: context_missing still recovers unless the operator answered", () => {
+  const contract = { nodes: [{ id: "build" }] };
+  const state = { status: "blocked", phase: "complete", error: { code: "context_missing" } };
+  assert.equal(planResumeRetry(contract, planStates({ build: state }), {}).actions.get("build"), "recover");
+  assert.equal(planResumeRetry(contract, planStates({ build: state }), { answer: "build" }).actions.get("build"), "retry");
+});
+
+test("done-when 4d: dependency_failed still reopens only with a retried dependency", () => {
+  const contract = { nodes: [{ id: "first" }, { id: "second", dependsOn: ["first"] }] };
+  const plan = planResumeRetry(contract, planStates({
+    first: { status: "failed", attempt: 1 },
+    second: { status: "blocked", phase: "complete", error: { code: "dependency_failed" }, blockedBy: ["first"] },
+  }), {});
+  assert.equal(plan.actions.get("first"), "retry");
+  assert.equal(plan.actions.get("second"), "retry", "a retried dependency reopens its dependant");
+
+  const heldPlan = planResumeRetry(contract, planStates({
+    first: { status: "blocked", phase: "worker", error: { code: "unknown_effect_reconciled" } },
+    second: { status: "blocked", phase: "complete", error: { code: "dependency_failed" }, blockedBy: ["first"] },
+  }), {});
+  assert.equal(heldPlan.actions.get("first"), "hold");
+  assert.equal(heldPlan.actions.get("second"), "hold", "a held dependency keeps its dependant closed");
 });
