@@ -4,7 +4,7 @@ A review of the skill from the operator's chair, prompted by one complaint: the
 factory hangs for hours in the middle of a campaign, does not tell anyone, and
 does not go to the end without being asked. The 2026-09-13 review proved the
 mechanics by running them; this one reads the control loop and the feedback
-surfaces against what 162 recorded runs actually did, and asks why the
+surfaces against what 163 recorded runs actually did, and asks why the
 operator ends up being the watchdog.
 
 The answer is not that the factory hangs inside a model. It **stops on purpose
@@ -33,23 +33,34 @@ ranked plan to close them.
   2026-09-14)*: the AGENTS.md block is rewritten by the controller after all;
   `stall_timeout` is not in `NON_FAILOVER_CODES`; `run-command.mjs` already
   spawns `detached`; `repo/worktree.mjs` uses `execFileSync`, not `spawnSync`;
-  and `dependency_failed` is 137 of **291** events carrying an error code
-  (47.1 %), or 137 of 311 transitions into a non-done terminal state (44.1 %)
-  — the first version said 52 % over an undeclared subtotal. The diagnosis
-  does not change; the numbers and citations do.
+  and `dependency_failed` is **140 of 291** transition events carrying an
+  `error` (48.1 %), over every `events.jsonl` under `.runs/` except
+  `worktrees/` (163 files). The first version said 52 % over an undeclared
+  subtotal; a first correction said 47.1 %, which mixed a numerator counted on
+  the `error` field with a denominator that also counted five node-snapshot
+  records carrying `errorCode` — those five are not transitions and are
+  excluded. The run classification rows and the status of the two most
+  expensive nodes were corrected in the same pass. The diagnosis does not
+  change; the numbers and citations do.
 
 ## What the runs recorded
 
 | Inventory | Value |
 | --- | --- |
-| Run directories | 162 (143 top-level, 19 under `archive/`) · 17 campaigns · 366 nodes · 1,216 events |
+| Run directories | **163** (143 top-level, 19 under `archive/`, 1 under `control/`) · 17 campaigns · 366 nodes · 1,225 events |
 | Disk | 450 MB: `worktrees/` 208 MB (22 left behind, one 3.66 MB fixture bundle copied 10×), `logs/` 161 MB, `control/` 41 MB. No gc, no rotation, no retention |
-| Terminal runs | 83 (done 44, canceled 15, exhausted 15, failed 9) |
-| Non-terminal runs | **79** (blocked **73**, running 5, stalled 1) |
+| Succeeded runs (every node `done`/`no-op`) | 43 |
+| Canceled runs (`cancel.request.json` or a `canceled` node) | 22 |
+| **Parked runs** (a node `blocked`/`failed`/`exhausted`/`stalled`, none running) | **93** — 26 of them with *every* node `blocked` |
+| Unfinished runs (a node still `pending`/`running`) | 5 |
 | Runs over 1 h / over 2 h | 36 / 14, out of 133.7 h total |
-| Runs needing more than one attempt on a node | 66 of 162 |
+| Runs needing more than one attempt on a node | 66 of 163 |
 
-`blocked` is the modal outcome of the whole dataset.
+Parked is the modal outcome of the whole dataset: 93 of 163 runs stopped
+without succeeding and without being canceled. *(Corrected 2026-09-14: the
+first version classified runs by the `to` state of their last event — "79
+non-terminal, 73 blocked" — a proxy nobody could reproduce; the rows above
+classify by the final status of every node snapshot.)*
 
 ### Where the hours went
 
@@ -72,7 +83,7 @@ notification (13 delivered) and no path back to the orchestrator session."*
 
 | Error code | Count | Share |
 | --- | --- | --- |
-| `dependency_failed` | **137** | **47.1 %** of the 291 events carrying an error code — a sibling failed; this node never ran |
+| `dependency_failed` | **140** | **48.1 %** of the 291 transition events carrying `error` — a sibling failed; this node never ran |
 | `provider_error` | 23 | |
 | `unexpected_write` | 18 | |
 | `budget_exceeded` + `budget_attention` (pre-lean) | 28 | |
@@ -108,8 +119,10 @@ The authored prompts are the other way round (`*.worker.prompt` averages
 7,775 B, `*.judge.prompt` 21,944 B): the worker's nine million tokens accumulate
 *during* the call, in the provider's own loop. The two most expensive nodes in
 the history — `status-and-notify` at **$34.69** (148.4 M cache read, 84 min)
-and `controller-lock` at **$28.21** (121.1 M, 82 min) — both ended
-**canceled**, with `"reason": null`, as do all 18 `cancel.request.json` files.
+and `controller-lock` at **$28.21** (121.1 M, 82 min) — ended `blocked` and
+`failed` respectively, and the operator canceled both runs minutes later
+(`cancel.request.json` with `"reason": null`, as in all 18 such files).
+*(Corrected 2026-09-14: the first version said the nodes ended `canceled`.)*
 
 ### What the campaign layer kept
 
@@ -247,7 +260,7 @@ gaps went unobserved.
   picks the highest tier of the opposite vendor; `judge-gate.mjs:63-66` skips
   it only when no item is `judgment: true`. There is no green-and-small skip.
 - **No advisory cost signal at all.** `run/usage.mjs:5-8` is reporting-only by
-  design; cost appears once, on `run.terminal`. The two canceled nodes above
+  design; cost appears once, on `run.terminal`. The two nodes above
   spent $62.90 with no line anywhere saying so while it happened.
 - **Orchestrator side.** `references/handoffs.md:5` says *read `HANDOFF.md`*
   (16 KiB, saturated) when `operator-brief.md` (4 KiB, `layout.mjs:23`) exists
@@ -324,7 +337,7 @@ campaign deleted before implementing.
   again*: `judge_unavailable`, `provider_error`, `stall_timeout` with a
   non-empty seal. Dependants stay `pending` in the `waiting` phase while
   their parent still has a retry; `dependency_failed` cascades only when the
-  parent is out. This is the 47.1 %.
+  parent is out. This is the 48.1 %.
 
 ### 4. Absolute timers, and seal before kill
 
