@@ -109,6 +109,12 @@ function campaignItem(entry, runsDir, cwd) {
     const runDir = join(runsDir, runId);
     const active = controllerLive(runDir);
     const { nodes, errors } = readRunNodes(runDir);
+    if (!nodes.length && !errors.length) {
+      // A linked run that never wrote a single snapshot is unknown, not
+      // terminal: counting it as terminal here is exactly the vacuous rank-5
+      // bug this item exists to prevent.
+      candidates.push(emptyRunItem(campaign.id, runId, runDir));
+    }
     for (const { nodeId, snapshot } of nodes) {
       const status = statusOf(snapshot);
       if (status !== null && IN_PROGRESS.has(status)) {
@@ -291,6 +297,17 @@ function unrecognizedItem(campaignId, runId, runDir, nodeId) {
     campaign: campaignId,
     rank: 4,
     reason: `node ${nodeId} snapshot has no recognized status`,
+    command: `status ${quoteArg(runDir)}`,
+    runnable: true,
+  };
+}
+
+/** @param {string} campaignId @param {string} runId @param {string} runDir @returns {NextItem} */
+function emptyRunItem(campaignId, runId, runDir) {
+  return {
+    campaign: campaignId,
+    rank: 4,
+    reason: `run ${runId} has no recorded nodes yet`,
     command: `status ${quoteArg(runDir)}`,
     runnable: true,
   };

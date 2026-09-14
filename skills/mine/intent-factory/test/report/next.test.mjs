@@ -169,6 +169,49 @@ test("a torn node snapshot reports rank 4 and never falls through to rank 5", ()
   assert.equal(item.runnable, true);
 });
 
+test("a linked run with an empty nodes directory is rank 4, never rank 5", () => {
+  const dir = makeDir("runner-next-empty-nodes-");
+  const runsDir = runsDirOf(dir);
+  const campaign = addCampaign(runsDir, "empty-nodes");
+  registerRun(campaign, "run-terminal");
+  writeNode(runsDir, "run-terminal", "build", { id: "build", status: "done" });
+  registerRun(campaign, "run-empty");
+  mkdirSync(join(runsDir, "run-empty", "nodes"), { recursive: true });
+
+  const items = computeNextItems(runsDir, dir);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].rank, 4, "an empty run must never be counted as vacuous rank 5");
+  assert.match(items[0].reason, /run run-empty has no recorded nodes yet/u);
+  assert.equal(items[0].command, `status ${join(runsDir, "run-empty")}`);
+  assert.equal(items[0].runnable, true);
+});
+
+test("a linked run directory absent from disk is rank 4, never rank 5", () => {
+  const dir = makeDir("runner-next-missing-run-");
+  const runsDir = runsDirOf(dir);
+  const campaign = addCampaign(runsDir, "missing-run");
+  registerRun(campaign, "run-terminal");
+  writeNode(runsDir, "run-terminal", "build", { id: "build", status: "done" });
+  registerRun(campaign, "run-missing");
+
+  const items = computeNextItems(runsDir, dir);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].rank, 4, "a run that never wrote a snapshot must never be vacuous rank 5");
+  assert.match(items[0].reason, /run run-missing has no recorded nodes yet/u);
+  assert.equal(items[0].command, `status ${join(runsDir, "run-missing")}`);
+  assert.equal(items[0].runnable, true);
+});
+
+test("a campaign with no linked runs still reports rank 5 unchanged", () => {
+  const dir = makeDir("runner-next-zero-runs-");
+  const runsDir = runsDirOf(dir);
+  addCampaign(runsDir, "zero-runs");
+
+  const item = computeNextItems(runsDir, dir)[0];
+  assert.equal(item.rank, 5);
+  assert.match(item.reason, /no linked runs/u);
+});
+
 test("a corrupt campaign.json is its own rank-4 line, not skipped", () => {
   const dir = makeDir("runner-next-corrupt-");
   const runsDir = runsDirOf(dir);
