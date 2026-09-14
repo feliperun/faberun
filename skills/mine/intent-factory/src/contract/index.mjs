@@ -69,8 +69,8 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 /** @typedef {{schemaVersion: 1, files: string[], roots: string[], fileRoots?: string[], fileOrigins: WorkspaceScopeOrigin[], rootOrigins: WorkspaceScopeOrigin[]}} WorkspaceScopeBoundary */
 /** @typedef {{changedPaths: string[], unexpectedPaths: string[], changedPathCount: number, unexpectedPathCount: number, truncated: boolean, boundary?: WorkspaceScopeBoundary}} BoundedScope */
 /** @typedef {{unexpectedPaths: string[]}} ScopeFindings */
-/** @typedef {{at: string, role: "worker"|"judge", runtime: string, nextRuntime?: string, rule?: number, ruleIndex?: number, revision?: number, hop?: number, status?: NodeStatus, errorCode?: string, backoffSec?: number, backoffUntil?: string, usage?: Usage, costUsd?: number|null}} RoutingHistoryEntry */
-/** @typedef {{at: string, role: "worker"|"judge", runtime: string, nextRuntime?: string, rule?: number, ruleIndex?: number, revision?: number, hop?: number, reason: string, backoffSec?: number, backoffUntil?: string, usage?: Usage, costUsd?: number|null}} RoutingOverride */
+/** @typedef {{at: string, role: "worker"|"judge", runtime: string, nextRuntime?: string, rule?: number, ruleIndex?: number, revision?: number, hop?: number, status?: NodeStatus, errorCode?: string, backoffSec?: number, backoffUntil?: string, usage?: Usage, costUsd?: number|null, costProvenance?: "priced"}} RoutingHistoryEntry */
+/** @typedef {{at: string, role: "worker"|"judge", runtime: string, nextRuntime?: string, rule?: number, ruleIndex?: number, revision?: number, hop?: number, reason: string, backoffSec?: number, backoffUntil?: string, usage?: Usage, costUsd?: number|null, costProvenance?: "priced"}} RoutingOverride */
 /** @typedef {{worker: string, judge: string, composedWorker?: boolean, composedJudge?: boolean}} RuntimeAssignments */
 /** @typedef {{available: boolean, exhaustedUntil: string|null, reason: string}} RuntimeAvailability */
 /** @typedef {{runtimeId: string, exhaustedUntil: string|null}} TierExhaustionCandidate */

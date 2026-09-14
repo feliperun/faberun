@@ -51,6 +51,33 @@ import { applyRejection, applyVerificationFailure, raiseNodeAttention, settleDon
 /** @typedef {import("./runtime-discovery.mjs").RuntimeAvailability} RuntimeAvailability */
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {import("../contract/worker-result.mjs").WorkerResult} WorkerResult */
+/** @typedef {import("../run/usage.mjs").RecoveryOutcome} RecoveryOutcome */
+/** @typedef {import("../harnesses/index.mjs").ProviderEnvelope & {costProvenance?: "priced"}} RecoveryEnvelope */
+
+/**
+ * The exhaustion envelope a recovered invocation hands to
+ * `handleProviderExhaustion`. It carries forward whatever deadline and
+ * provenance the underlying recovered result actually recorded — from the
+ * recovery outcome or the invocation's own fields — and records
+ * `exhaustedUntil: null` when neither had one, never a synthesized instant.
+ *
+ * @param {RecoveryOutcome} recovery
+ * @param {Invocation|undefined} invocation
+ * @returns {RecoveryEnvelope}
+ */
+export function recoveryExhaustionEnvelope(recovery, invocation) {
+  const costProvenance = recovery.costProvenance ?? invocation?.costProvenance;
+  return {
+    status: "exhausted",
+    result: null,
+    continuationId: null,
+    usage: recovery.usage ?? invocation?.usage ?? emptyUsage(),
+    costUsd: recovery.costUsd ?? invocation?.costUsd ?? null,
+    ...(costProvenance ? { costProvenance } : {}),
+    exhaustedUntil: recovery.exhaustedUntil ?? null,
+    error: recovery.error ?? { code: "provider_exhausted", message: recovery.reason ?? "provider exhausted" },
+  };
+}
 
 /**
  * @param {string} runDirPath
@@ -206,14 +233,7 @@ export async function resumeRun(runDirPath, options = {}) {
           node,
           state,
           recovery.phase ?? (invocation?.phase === "judge" ? "judge" : "worker"),
-          {
-            status: "exhausted",
-            result: null,
-            continuationId: null,
-            usage: recovery.usage ?? invocation?.usage ?? emptyUsage(),
-            costUsd: recovery.costUsd ?? invocation?.costUsd ?? null,
-            error: recovery.error ?? { code: "provider_exhausted", message: recovery.reason ?? "provider exhausted" },
-          },
+          recoveryExhaustionEnvelope(recovery, invocation),
           invocation?.runtimeId ?? null,
           lock,
           states,

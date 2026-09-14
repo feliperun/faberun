@@ -413,10 +413,10 @@ export function planRoute(contract, node, state, role, error, current, schedule,
  * attempt count across a controller crash; see NETWORK_BACKOFF_CODE.
  *
  * @param {NodeSnapshot} state
- * @param {{role: "worker"|"judge", error: RouteError, current: string, plan: ReturnType<typeof planRoute>, schedule: Transition, usage?: unknown, costUsd?: number|null, status: string, now: number}} options
+ * @param {{role: "worker"|"judge", error: RouteError, current: string, plan: ReturnType<typeof planRoute>, schedule: Transition, usage?: unknown, costUsd?: number|null, costProvenance?: "priced", status: string, now: number}} options
  * @returns {{routing: Record<string, unknown>, override: unknown, errorCode: string}}
  */
-export function buildRouting(state, { role, error, current, plan, schedule, usage, costUsd, status, now }) {
+export function buildRouting(state, { role, error, current, plan, schedule, usage, costUsd, costProvenance, status, now }) {
   const errorCode = schedule.kind === "reset" && schedule.reason === "network_backoff"
     ? networkBackoffErrorCode(error.code)
     : error.code;
@@ -432,6 +432,10 @@ export function buildRouting(state, { role, error, current, plan, schedule, usag
     backoffUntil: plan.backoffUntil,
     usage,
     costUsd,
+    // Present only for a runtime the controller itself priced; a
+    // provider-reported cost leaves the field absent, and the ledger carries
+    // its own separate `"provider"` value.
+    ...(costProvenance ? { costProvenance } : {}),
   };
   const override = { ...shared, runtime: plan.nextRuntime, reason: routeReason(schedule, role, current, error) };
   // Spread the whole routing state first so assignments, availability, and the

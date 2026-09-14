@@ -409,8 +409,8 @@ function validateRoutingState(value, label) {
 function validateRoutingEntry(value, label, override) {
   assertObject(value, label);
   const fields = override
-    ? new Set(["at", "role", "runtime", "nextRuntime", "rule", "ruleIndex", "revision", "hop", "reason", "backoffSec", "backoffUntil", "usage", "costUsd"])
-    : new Set(["at", "role", "runtime", "nextRuntime", "rule", "ruleIndex", "revision", "hop", "status", "errorCode", "backoffSec", "backoffUntil", "usage", "costUsd"]);
+    ? new Set(["at", "role", "runtime", "nextRuntime", "rule", "ruleIndex", "revision", "hop", "reason", "backoffSec", "backoffUntil", "usage", "costUsd", "costProvenance"])
+    : new Set(["at", "role", "runtime", "nextRuntime", "rule", "ruleIndex", "revision", "hop", "status", "errorCode", "backoffSec", "backoffUntil", "usage", "costUsd", "costProvenance"]);
   rejectUnknown(value, fields, label);
   requireTimestamp(value.at, `${label}.at`);
   if (value.role !== "worker" && value.role !== "judge") throw new TypeError(`${label}.role is invalid`);
@@ -432,6 +432,12 @@ function validateRoutingEntry(value, label, override) {
   if (value.backoffUntil !== undefined) requireTimestamp(value.backoffUntil, `${label}.backoffUntil`);
   if (value.usage !== undefined) validateInvocationUsage(value.usage, `${label}.usage`);
   if (value.costUsd !== undefined && value.costUsd !== null) nonNegativeNumber(value.costUsd, `${label}.costUsd`);
+  // Provenance is explicit only when it is `priced`; a provider-reported
+  // number leaves the field absent in a routing entry, exactly as it does on
+  // an invocation.
+  if (value.costProvenance !== undefined && value.costProvenance !== "priced") {
+    throw new TypeError(`${label}.costProvenance must be "priced" when present`);
+  }
 }
 /**
  * @param {unknown} value

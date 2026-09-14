@@ -40,7 +40,7 @@ const DELEGATION_TIMEOUT_MS = 300_000;
 
 /** @typedef {{question: string, paths: string[], cwd?: string, runtimes?: Record<string, BulkReadRuntime>}} BulkReadOptions */
 
-/** @typedef {{status: "done"|"refused"|"failed", result: string|null, runtimeId: string|null, usage: {inputTokens: number|null, outputTokens: number|null, cacheReadInputTokens: number|null}|null, costUsd: number|null, reason: string|null, error: {code: string, message: string}|null}} BulkReadResult */
+/** @typedef {{status: "done"|"refused"|"failed", result: string|null, runtimeId: string|null, usage: {inputTokens: number|null, outputTokens: number|null, cacheReadInputTokens: number|null}|null, costUsd: number|null, costProvenance?: "priced", reason: string|null, error: {code: string, message: string}|null}} BulkReadResult */
 
 /**
  * Copy every path's exact bytes into one pack file through a fixed-size chunk
@@ -234,18 +234,19 @@ function invokeDelegation(runtime, prompt, cwd) {
  * exported the run directory and node it belongs to. A human terminal exports
  * neither, and the accounting is skipped without error.
  *
+ * `priced` is the already-computed `{costUsd, costProvenance}` pair from the
+ * one `priceUsage` call in `bulkRead`; this function never reprices.
+ *
  * @param {string} runtimeId
  * @param {HarnessRuntime} runtime
  * @param {ProviderEnvelope} envelope
+ * @param {{costUsd: number|null, costProvenance: "priced"|undefined}} priced
  * @param {DelegationObservation} observation
  */
-function accountDelegation(runtimeId, runtime, envelope, observation) {
+function accountDelegation(runtimeId, runtime, envelope, priced, observation) {
   const runDir = process.env.INTENT_FACTORY_RUN_DIR;
   const nodeId = process.env.INTENT_FACTORY_NODE_ID;
   if (!runDir || !nodeId) return;
-  // The delegation is not downstream of either pricing source point, so it
-  // prices its own envelope before the ledger record is built.
-  const priced = priceUsage(runtime, envelope.usage, envelope.costUsd);
   appendUsageRecord(runDir, /** @type {Invocation} */ ({
     id: randomUUID(),
     runId: basename(runDir),
@@ -307,19 +308,27 @@ export async function bulkRead(options) {
         error: { code: "spawn_error", message: observation.spawnError },
       }
       : normalizeProviderResult(runtime, observation.stdout, observation.exitCode, observation.signal, { stderr: observation.stderr });
-    accountDelegation(runtimeId, runtime, envelope, observation);
+    // Price once, here, and thread the same pair into the ledger and every
+    // returned result. `costProvenance` is present only as `"priced"`, never as
+    // the ledger's separate `"provider"` rule — a provider-reported number
+    // leaves it absent on the result while `appendUsageRecord` writes
+    // `"provider"` for the record.
+    const priced = priceUsage(runtime, envelope.usage, envelope.costUsd);
+    const provenance = priced.costProvenance ? { costProvenance: priced.costProvenance } : {};
+    accountDelegation(runtimeId, runtime, envelope, priced, observation);
     if (envelope.status !== "done" && envelope.status !== "no-op") {
       return {
         status: "failed",
         result: null,
         runtimeId,
         usage: envelope.usage,
-        costUsd: envelope.costUsd ?? null,
+        costUsd: priced.costUsd,
+        ...provenance,
         reason: null,
         error: envelope.error ?? { code: `provider_${envelope.status}`, message: observation.stderr.split(/\r?\n/u).filter(Boolean).at(-1) ?? envelope.status },
       };
     }
-    return { status: "done", result: envelope.result ?? "", runtimeId, usage: envelope.usage, costUsd: envelope.costUsd ?? null, reason: null, error: null };
+    return { status: "done", result: envelope.result ?? "", runtimeId, usage: envelope.usage, costUsd: priced.costUsd, ...provenance, reason: null, error: null };
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

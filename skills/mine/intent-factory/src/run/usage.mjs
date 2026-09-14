@@ -28,7 +28,7 @@ export { priceUsage };
 /** @typedef {import("../contract/index.mjs").NodeSnapshot} NodeSnapshot */
 /** @typedef {import("../harnesses/index.mjs").ProviderEnvelope} ProviderEnvelope */
 /** @typedef {ProviderEnvelope & {costProvenance?: "priced"}} PricedEnvelope */
-/** @typedef {{kind: "adopted"|"rejudge"|"restart"|"reconciled"|"exhausted"|"stalled", phase?: "worker"|"judge", result?: unknown, usage?: Usage, costUsd?: number|null, costProvenance?: "priced", error?: {code: string, message: string}|null, invocationId?: string, reason?: string}} RecoveryOutcome */
+/** @typedef {{kind: "adopted"|"rejudge"|"restart"|"reconciled"|"exhausted"|"stalled", phase?: "worker"|"judge", result?: unknown, usage?: Usage, costUsd?: number|null, costProvenance?: "priced", exhaustedUntil?: string|null, error?: {code: string, message: string}|null, invocationId?: string, reason?: string}} RecoveryOutcome */
 /** @typedef {import("../contract/index.mjs").Usage} Usage */
 
 /**

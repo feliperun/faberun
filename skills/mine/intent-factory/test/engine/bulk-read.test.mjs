@@ -153,6 +153,87 @@ test("bulk read routing is table driven", async () => {
   restore();
 });
 
+/** @param {string} recording @param {Record<string, unknown>} pricing @returns {{harness: string, model: string, pricing: Record<string, unknown>, config: Record<string, unknown>}} */
+function pricedReplayRuntime(recording, pricing) {
+  return { ...replayRuntime(recording), pricing };
+}
+
+/** @param {string} runDir @returns {Record<string, unknown>[]} */
+function ledgerRecords(runDir) {
+  return readFileSync(join(runDir, "usage.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+}
+
+test("done-when 1: a priced successful bulk read carries costProvenance priced on result and ledger", async () => {
+  const restore = clearDelegationEnv();
+  const runDir = mkdtempSync(join(tmpdir(), "bulk-read-priced-ledger-"));
+  const directory = mkdtempSync(join(tmpdir(), "bulk-read-priced-"));
+  const recording = writeRecording(directory, "answer.jsonl", [
+    {
+      envelope: doneEnvelope("src/engine/bulk-read.mjs:1 — priced", { inputTokens: 1_000_000, outputTokens: 200_000, cacheReadInputTokens: 500_000 }),
+    },
+  ]);
+  const runtime = pricedReplayRuntime(recording, { inputPerMTok: 1.0, cachedInputPerMTok: 0.1, outputPerMTok: 3.0 });
+  process.env.INTENT_FACTORY_RUN_DIR = runDir;
+  process.env.INTENT_FACTORY_NODE_ID = "priced-node";
+  const result = await bulkRead({ question: "q", paths: [writeCorpusFile(directory, "corpus.txt", READ_LINE_LIMIT + 1)], runtimes: { deleg: runtime } });
+  assert.equal(result.status, "done", result.error?.message);
+  assert.equal(result.costUsd, 1.65);
+  assert.equal(result.costProvenance, "priced");
+  const records = ledgerRecords(runDir);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].costUsd, 1.65);
+  assert.equal(records[0].costProvenance, "priced", "the ledger and the returned result agree on an independently priced cost");
+  restore();
+});
+
+test("done-when 2: a priced failed delegation result also carries costProvenance priced", async () => {
+  const restore = clearDelegationEnv();
+  const runDir = mkdtempSync(join(tmpdir(), "bulk-read-failed-ledger-"));
+  const directory = mkdtempSync(join(tmpdir(), "bulk-read-failed-"));
+  const recording = writeRecording(directory, "answer.jsonl", [
+    {
+      envelope: {
+        status: "failed",
+        result: null,
+        continuationId: null,
+        usage: { inputTokens: 1_000_000, outputTokens: 200_000, cacheReadInputTokens: 500_000 },
+        costUsd: null,
+        error: { code: "provider_error", message: "the provider failed" },
+      },
+    },
+  ]);
+  const runtime = pricedReplayRuntime(recording, { inputPerMTok: 1.0, cachedInputPerMTok: 0.1, outputPerMTok: 3.0 });
+  process.env.INTENT_FACTORY_RUN_DIR = runDir;
+  process.env.INTENT_FACTORY_NODE_ID = "failed-node";
+  const result = await bulkRead({ question: "q", paths: [writeCorpusFile(directory, "corpus.txt", READ_LINE_LIMIT + 1)], runtimes: { deleg: runtime } });
+  assert.equal(result.status, "failed");
+  assert.equal(result.costUsd, 1.65);
+  assert.equal(result.costProvenance, "priced", "a failed delegation is priced exactly like a successful one");
+  const records = ledgerRecords(runDir);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].costProvenance, "priced");
+  restore();
+});
+
+test("done-when 3: a provider-reported cost leaves the result's provenance absent while the ledger records provider", async () => {
+  const restore = clearDelegationEnv();
+  const runDir = mkdtempSync(join(tmpdir(), "bulk-read-provider-ledger-"));
+  const directory = mkdtempSync(join(tmpdir(), "bulk-read-provider-"));
+  const recording = writeRecording(directory, "answer.jsonl", [
+    { envelope: doneEnvelope("src/engine/bulk-read.mjs:1 — provider cost", { inputTokens: 9, outputTokens: 4, cacheReadInputTokens: 2 }, 0.0005) },
+  ]);
+  process.env.INTENT_FACTORY_RUN_DIR = runDir;
+  process.env.INTENT_FACTORY_NODE_ID = "provider-node";
+  const result = await bulkRead({ question: "q", paths: [writeCorpusFile(directory, "corpus.txt", READ_LINE_LIMIT + 1)], runtimes: { deleg: replayRuntime(recording) } });
+  assert.equal(result.status, "done", result.error?.message);
+  assert.equal(result.costUsd, 0.0005);
+  assert.equal(Object.hasOwn(result, "costProvenance"), false, "a provider-reported number never assigns the literal provider on a fresh result");
+  const records = ledgerRecords(runDir);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].costProvenance, "provider", "only appendUsageRecord's existing rule writes the literal provider");
+  restore();
+});
+
 test("bulk read usage accounted", async () => {
   const restore = clearDelegationEnv();
   const runDir = mkdtempSync(join(tmpdir(), "bulk-read-ledger-"));

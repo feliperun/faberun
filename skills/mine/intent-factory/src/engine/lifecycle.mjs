@@ -82,6 +82,7 @@ import { applyRejection, applyVerificationFailure } from "./settle.mjs";
 /** @typedef {import("../harnesses/index.mjs").HarnessRuntime} HarnessRuntime */
 /** @typedef {import("../harnesses/index.mjs").ProbeResult} ProbeResult */
 /** @typedef {import("../harnesses/index.mjs").ProviderEnvelope} ProviderEnvelope */
+/** @typedef {ProviderEnvelope & {costProvenance?: "priced"}} PricedEnvelope */
 /** @typedef {import("../contract/verification.mjs").VerificationAttempt} VerificationAttempt */
 /** @typedef {import("../contract/verification.mjs").VerificationAttemptResult} VerificationAttemptResult */
 /** @typedef {import("../contract/verification.mjs").VerificationResult} VerificationResult */
@@ -94,7 +95,7 @@ import { applyRejection, applyVerificationFailure } from "./settle.mjs";
 /** @typedef {import("./process.mjs").Invocation} Invocation */
 /** @typedef {import("./process.mjs").InvocationProbe} InvocationProbe */
 /** @typedef {import("./process.mjs").Job} Job */
-/** @typedef {{kind: "adopted"|"rejudge"|"restart"|"reconciled"|"exhausted"|"stalled", phase?: "worker"|"judge", result?: unknown, usage?: Usage, costUsd?: number|null, costProvenance?: "priced", error?: {code: string, message: string}|null, invocationId?: string, reason?: string}} RecoveryOutcome */
+/** @typedef {{kind: "adopted"|"rejudge"|"restart"|"reconciled"|"exhausted"|"stalled", phase?: "worker"|"judge", result?: unknown, usage?: Usage, costUsd?: number|null, costProvenance?: "priced", exhaustedUntil?: string|null, error?: {code: string, message: string}|null, invocationId?: string, reason?: string}} RecoveryOutcome */
 /** @typedef {import("node:child_process").ChildProcess & {bootstrapNonce?: string, bootstrapProcessStartToken?: string|null}} DetachedChild */
 /** @typedef {{status?: string, nonce?: string, pid?: number, processStartToken?: string|null, holderId?: string, generation?: number, error?: unknown, runDir?: string}} BootstrapRecord */
 
@@ -467,7 +468,7 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
  * @param {ValidatedNode} node
  * @param {NodeSnapshot} state
  * @param {"worker"|"judge"} role
- * @param {ProviderEnvelope} envelope
+ * @param {PricedEnvelope} envelope
  * @param {string|null} currentRuntime
  * @param {LockHandle} lock
  * @param {Map<string, NodeSnapshot>} states
@@ -564,11 +565,11 @@ export function handleProviderExhaustion(contract, runDir, node, state, role, en
  * @param {string} runDir
  * @param {NodeSnapshot} state
  * @param {LockHandle} lock
- * @param {{role: "worker"|"judge", error: {code: string, message: string}, current: string, plan: ReturnType<typeof planRoute>, schedule: import("./backoff.mjs").Transition, envelope: ProviderEnvelope, status: string, now: number}} options
+ * @param {{role: "worker"|"judge", error: {code: string, message: string}, current: string, plan: ReturnType<typeof planRoute>, schedule: import("./backoff.mjs").Transition, envelope: PricedEnvelope, status: string, now: number}} options
  */
 function applyRoute(contract, runDir, state, lock, { role, error, current, plan, schedule, envelope, status, now }) {
   const { routing, override, errorCode } = buildRouting(state, {
-    role, error, current, plan, schedule, status, now, usage: envelope.usage, costUsd: envelope.costUsd,
+    role, error, current, plan, schedule, status, now, usage: envelope.usage, costUsd: envelope.costUsd, costProvenance: envelope.costProvenance,
   });
   transition(runDir, state, "pending", {
     phase: role,

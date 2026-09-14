@@ -1,13 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { failoverEdges, nextHop, nextSynthesizedRuntime } from "../../src/engine/failover.mjs";
-import { NETWORK_BACKOFF_CAP_MS, NETWORK_MAX_ATTEMPTS, backoffDelayMs, classifyTransition, isRepairable, isTimeoutOrStall, networkBackoffAttempts, quotaResetSchedule } from "../../src/engine/backoff.mjs";
+import { NETWORK_BACKOFF_CAP_MS, NETWORK_MAX_ATTEMPTS, backoffDelayMs, buildRouting, classifyTransition, isRepairable, isTimeoutOrStall, networkBackoffAttempts, quotaResetSchedule } from "../../src/engine/backoff.mjs";
+import { recoverOrphan } from "../../src/engine/recover.mjs";
+import { recoveryExhaustionEnvelope, resumeRun } from "../../src/engine/resume.mjs";
+import { validateContract } from "../../src/contract/index.mjs";
+import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
 import { fakeCodex, fakeExecJsonl, fixture, packet, withFakeAgy, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState, notifications, failoverContract, RESET_NOW, NETWORK_NOW, NETWORK_DEADLINE, halfJitter } from "../runner-helpers.mjs";
+import { fixture as contractFixture, snapshot as contractSnapshot } from "../contract/helpers.mjs";
 import { preflightContract } from "../../src/engine/live-preflight.mjs";
 
 // Routing: which runtime a role resolves to, and the backoff around it.
@@ -465,4 +471,224 @@ process.stdin.on("end", () => {
   assert.equal(history[0].nextRuntime, "primary", "the judge stays on the runtime the gate named");
   assert.equal(history[0].hop, 0, "a network wait spends no failover hop");
   assert.ok(!notifications(result.runDir).some((event) => event.type === "attention"), "a recovered socket raises no attention");
+});
+
+// Phase 3 of the follow-up spec: cost provenance on routing entries, both
+// routing allowlists, and deadline evidence through the three recovery sites.
+
+test("done-when 4: a routing entry carries costProvenance only for an independently priced runtime", () => {
+  const now = Date.parse("2026-09-04T06:00:00.000Z");
+  const plan = {
+    blocked: null,
+    nextRuntime: "a",
+    ruleIndex: undefined,
+    revision: 0,
+    hop: 1,
+    backoffSec: 0,
+    backoffUntil: "2026-09-04T06:00:00.000Z",
+    composed: false,
+    tierExhaustion: null,
+  };
+  const schedule = /** @type {const} */ ({ kind: "failover", reason: "provider" });
+  const state = /** @type {any} */ ({ routing: { history: [], currentOverride: null } });
+  const options = {
+    role: /** @type {const} */ ("worker"),
+    error: { code: "provider_error", message: "boom" },
+    current: "a",
+    plan,
+    schedule,
+    usage: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0 },
+    status: "failed",
+    now,
+  };
+  const priced = buildRouting(state, { ...options, costUsd: 1.65, costProvenance: "priced" });
+  const pricedRouting = /** @type {any} */ (priced.routing);
+  assert.equal(pricedRouting.history.at(-1).costProvenance, "priced");
+  assert.equal(pricedRouting.currentOverride.costProvenance, "priced");
+
+  const provider = buildRouting(state, { ...options, costUsd: 0.0005, costProvenance: undefined });
+  const providerRouting = /** @type {any} */ (provider.routing);
+  assert.equal(Object.hasOwn(providerRouting.history.at(-1), "costProvenance"), false, "a provider-reported cost leaves the history entry's field absent");
+  assert.equal(Object.hasOwn(providerRouting.currentOverride, "costProvenance"), false, "and the override's too");
+});
+
+test("done-when 5: both routing allowlists round-trip costProvenance priced and still reject unknown fields", () => {
+  const history = { at: "2026-01-01T00:00:00.000Z", role: "worker", runtime: "a", status: "failed", errorCode: "provider_error", costProvenance: "priced" };
+  const override = { at: "2026-01-01T00:00:00.000Z", role: "worker", runtime: "a", reason: "quota reset", costProvenance: "priced" };
+  const validated = validateNodeSnapshot(contractSnapshot({ routing: { history: [history], currentOverride: override } }));
+  const routing = /** @type {any} */ (validated.routing);
+  assert.equal(routing.history[0].costProvenance, "priced", "the non-override allowlist admits the pinned provenance");
+  assert.equal(routing.currentOverride.costProvenance, "priced", "the override allowlist admits it too");
+
+  const rejected = [
+    [contractSnapshot({ routing: { history: [{ ...history, bogus: true }], currentOverride: null } }), /history\[0\] has unexpected field bogus/u],
+    [contractSnapshot({ routing: { history: [], currentOverride: { ...override, bogus: true } } }), /currentOverride has unexpected field bogus/u],
+    [contractSnapshot({ routing: { history: [{ ...history, costProvenance: "provider" }], currentOverride: null } }), /history\[0\]\.costProvenance must be "priced" when present/u],
+    [contractSnapshot({ routing: { history: [], currentOverride: { ...override, costProvenance: "provider" } } }), /currentOverride\.costProvenance must be "priced" when present/u],
+  ];
+  for (const [value, expected] of rejected) {
+    assert.throws(() => validateNodeSnapshot(/** @type {any} */ (value)), expected);
+  }
+});
+
+const RECOVERED_UNTIL = "2026-09-04T12:00:00.000Z";
+
+/** @param {Record<string, unknown>} envelope @returns {Record<string, unknown>} */
+function exhaustedEnvelope(envelope = {}) {
+  return {
+    status: "exhausted",
+    result: null,
+    continuationId: null,
+    usage: { inputTokens: 1_000_000, outputTokens: 200_000, cacheReadInputTokens: 500_000 },
+    costUsd: null,
+    error: { code: "quota_exhausted", message: "usage limit" },
+    exhaustedUntil: RECOVERED_UNTIL,
+    ...envelope,
+  };
+}
+
+/** @param {string} directory @param {Record<string, unknown>} envelope @returns {string} */
+function writeEnvelopeTranscript(directory, envelope) {
+  const path = join(directory, "recovered-stdout.jsonl");
+  writeFileSync(path, `${JSON.stringify(envelope)}\n`);
+  return path;
+}
+
+/** @param {string} prefix @returns {import("../../src/contract/index.mjs").ValidatedContract} */
+function recoveredContract(prefix) {
+  const directory = mkdtempSync(join(tmpdir(), `${prefix}-contract-`));
+  writeFileSync(join(directory, "README.md"), "read me\n");
+  return validateContract(contractFixture({
+    id: `${prefix}-contract`,
+    cwd: directory,
+    pollIntervalMs: 10,
+    timeoutSec: 60,
+    runtimeDefaults: { worker: "recovered", judge: "recovered" },
+    runtimes: {
+      recovered: {
+        harness: "replay",
+        model: "recovered",
+        vendor: "recovered-vendor",
+        executable: "/nonexistent/replay",
+        pricing: { inputPerMTok: 1.0, cachedInputPerMTok: 0.1, outputPerMTok: 3.0 },
+      },
+    },
+  }), join(directory, "contract.json"));
+}
+
+/**
+ * @param {string} stdoutPath
+ * @param {Record<string, unknown>} [overrides]
+ * @returns {any}
+ */
+function judgeRecoveryState(stdoutPath, overrides = {}) {
+  return {
+    id: "build",
+    status: "running",
+    phase: "judge",
+    invocations: [{
+      id: "judge-invocation",
+      pid: 999_999,
+      processGroupId: null,
+      processStartToken: null,
+      phase: "judge",
+      runtimeId: "recovered",
+      stdoutPath,
+      startedAt: new Date().toISOString(),
+      closedAt: new Date().toISOString(),
+      exitCode: 1,
+      signal: null,
+      ...overrides,
+    }],
+  };
+}
+
+test("done-when 6: recover.mjs's live judge branch carries exhaustedUntil and provenance", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-recover-live-judge-"));
+  const runDir = mkdtempSync(join(tmpdir(), "runner-recover-live-judge-run-"));
+  const contract = recoveredContract("recover-live");
+  const stdoutPath = writeEnvelopeTranscript(directory, exhaustedEnvelope());
+  // A genuinely live process: invocationAlive is true at the branch entry, then
+  // the child exits during the wait, which is what routes through the loop's
+  // post-wait judge branch rather than the already-closed one below.
+  const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 40)"], { stdio: "ignore" });
+  child.on("exit", () => {});
+  const state = judgeRecoveryState(stdoutPath, { pid: child.pid });
+  const recovery = await recoverOrphan(runDir, contract, contract.nodes[0], state, /** @type {any} */ (null));
+  assert.equal(recovery?.kind, "exhausted");
+  assert.equal(recovery?.phase, "judge");
+  assert.equal(recovery?.exhaustedUntil, RECOVERED_UNTIL);
+  assert.equal(recovery?.costProvenance, "priced");
+});
+
+test("done-when 6: recover.mjs's closed judge branch carries exhaustedUntil and provenance", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-recover-closed-judge-"));
+  const runDir = mkdtempSync(join(tmpdir(), "runner-recover-closed-judge-run-"));
+  const contract = recoveredContract("recover-closed");
+  const stdoutPath = writeEnvelopeTranscript(directory, exhaustedEnvelope());
+  const state = judgeRecoveryState(stdoutPath);
+  const recovery = await recoverOrphan(runDir, contract, contract.nodes[0], state, /** @type {any} */ (null));
+  assert.equal(recovery?.kind, "exhausted");
+  assert.equal(recovery?.phase, "judge");
+  assert.equal(recovery?.exhaustedUntil, RECOVERED_UNTIL);
+  assert.equal(recovery?.costProvenance, "priced");
+});
+
+test("done-when 6: the recovered exhaustion envelope never guesses a missing deadline", () => {
+  const recovered = recoveryExhaustionEnvelope(
+    { kind: "exhausted", costProvenance: "priced", exhaustedUntil: RECOVERED_UNTIL, error: { code: "quota_exhausted", message: "usage limit" } },
+    undefined,
+  );
+  assert.equal(recovered.exhaustedUntil, RECOVERED_UNTIL);
+  assert.equal(recovered.costProvenance, "priced");
+  const unknown = recoveryExhaustionEnvelope({ kind: "exhausted", error: { code: "provider_exhausted", message: "no deadline" } }, undefined);
+  assert.equal(unknown.exhaustedUntil, null, "an absent deadline is recorded as null, never a synthesized instant");
+  assert.equal(Object.hasOwn(unknown, "costProvenance"), false);
+});
+
+test("done-when 6: resume's worker-recovery site feeds the recovered deadline into the exhaustion record", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-recovery-worker-evidence-"));
+  const evidence = mkdtempSync(join(tmpdir(), "runner-recovery-worker-evidence-stdout-"));
+  const path = writeContract(directory, fixture({
+    id: "recovery-worker-evidence-run",
+    pollIntervalMs: 10,
+    timeoutSec: 60,
+    runtimeDefaults: { worker: "luna", judge: "sol" },
+    runtimes: {
+      luna: { harness: "codex", model: "gpt-5.6-luna" },
+      sol: { harness: "codex", model: "gpt-5.6-sol", vendor: "openai-sol" },
+      recovered: {
+        harness: "replay",
+        model: "recovered",
+        vendor: "recovered-vendor",
+        pricing: { inputPerMTok: 1.0, cachedInputPerMTok: 0.1, outputPerMTok: 3.0 },
+      },
+    },
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
+  }));
+  const finished = await withFakeCodex(directory, "pass", () => runContract(path));
+  const nodePath = join(finished.runDir, "nodes", "build.json");
+  const state = JSON.parse(readFileSync(nodePath, "utf8"));
+  // The recovered transcript lives outside the run's source cwd so the resume's
+  // source-identity assertion sees an unchanged workspace.
+  const stdoutPath = writeEnvelopeTranscript(evidence, exhaustedEnvelope());
+  const invocation = state.invocations.at(-1);
+  invocation.runtimeId = "recovered";
+  invocation.phase = "worker";
+  invocation.stdoutPath = stdoutPath;
+  invocation.pid = 999_999;
+  invocation.processGroupId = null;
+  invocation.processStartToken = null;
+  invocation.closedAt = new Date(Date.now() - 1_000).toISOString();
+  state.status = "running";
+  state.phase = "worker";
+  state.error = null;
+  state.gate = null;
+  state.result = null;
+  writeFileSync(nodePath, JSON.stringify(state, null, 2));
+
+  const resumed = await withFakeCodex(directory, "pass", () => resumeRun(finished.runDir));
+  const after = nodeState(resumed);
+  assert.equal(after.status, "exhausted", after.error?.message);
+  assert.equal(after.error?.exhaustedUntil, RECOVERED_UNTIL, "the recovered envelope's deadline reached the exhaustion record");
 });

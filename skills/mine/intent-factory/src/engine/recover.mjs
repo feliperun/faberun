@@ -133,6 +133,7 @@ export async function recoverOrphan(runDir, contract, node, state, lock) {
         usage: result.usage,
         costUsd: result.costUsd,
         costProvenance: result.costProvenance,
+        exhaustedUntil: result.exhaustedUntil ?? null,
         error: result.error,
         reason: result.error?.message,
       };
@@ -159,6 +160,7 @@ export async function recoverOrphan(runDir, contract, node, state, lock) {
         usage: result.usage,
         costUsd: result.costUsd,
         costProvenance: result.costProvenance,
+        exhaustedUntil: result.exhaustedUntil ?? null,
         error: result.error,
         reason: result.error?.message,
       };
