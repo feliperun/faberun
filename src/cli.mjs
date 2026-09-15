@@ -9,7 +9,9 @@ import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { modelsCommand } from "./harnesses/catalogue.mjs";
 import { bulkReadCommand } from "./engine/bulk-read.mjs";
-import { doctorCommand, environmentPreflight, notifyTransportCheck, reachableRuntimes, timeVerificationCommands } from "./host/preflight.mjs";
+import { doctorCommand, environmentPreflight, findExecutable, notifyTransportCheck, reachableRuntimes, timeVerificationCommands } from "./host/preflight.mjs";
+import { packageName, packageVersion } from "./host/package.mjs";
+import { colorLevel, renderBanner, renderUsage, statusToken } from "./cli/brand.mjs";
 import { noTransportWarning } from "./notify/index.mjs";
 import { renderFindings, renderReport, renderReportJson, renderStatus, renderStatusJson } from "./report/render.mjs";
 import { renderNext, renderNextJson } from "./report/next.mjs";
@@ -188,6 +190,8 @@ function superviseIntervalOf(value) {
  * @returns {Promise<void>}
  */
 async function main(argv) {
+  if (argv.length === 0 || HELP_FLAGS.has(argv[0])) { help(); return; }
+  if (VERSION_FLAGS.has(argv[0])) { process.stdout.write(`${packageName()} ${packageVersion()}\n`); return; }
   if (argv[0] === "campaign") { await campaignCli(argv.slice(1)); return; }
   // `supervise campaign <id>` is the campaign-level watchdog; `campaign
   // supervise <id>` is the same operation reached through the campaign verb.
@@ -337,8 +341,9 @@ async function main(argv) {
         })),
       })}\n`);
     } else {
-      for (const check of [...environmentChecks, ...timing]) process.stdout.write(`[${check.ok ? "ok" : check.advisory ? "warn" : "fail"}] ${check.name} · ${check.detail}\n`);
-      for (const check of checks) process.stdout.write(`[${check.ok ? "ok" : "fail"}] ${check.id} · ${check.detail}\n`);
+      const level = colorLevel(process.env, process.stdout.isTTY);
+      for (const check of [...environmentChecks, ...timing]) process.stdout.write(`${statusToken(check.ok ? "ok" : check.advisory ? "warn" : "fail", level)} ${check.name} · ${check.detail}\n`);
+      for (const check of checks) process.stdout.write(`${statusToken(check.ok ? "ok" : "fail", level)} ${check.id} · ${check.detail}\n`);
     }
     if (!ok) process.exitCode = 1;
     return;
@@ -354,7 +359,7 @@ async function main(argv) {
     try {
       renderRunHandoff(runDir);
     } catch (error) {
-      process.stderr.write(`[warn] campaign handoff render failed: ${errorMessage(error)}\n`);
+      process.stderr.write(`${statusToken("warn", colorLevel(process.env, process.stderr.isTTY))} campaign handoff render failed: ${errorMessage(error)}\n`);
     }
     process.stdout.write(status);
     return;
@@ -380,19 +385,49 @@ function warnIfNoTransport() {
   if (warning) process.stdout.write(`[warn] ${warning}\n`);
 }
 
-function usage() {
-  process.stderr.write(
-    "usage: faberun <run|validate> <contract.json> [--base-ref <ref>] [--detach] | preflight <contract.json> [--static] [--time-verification] [--json] | " +
-    "<resume|cancel> <run-dir> [--detach] | supervise <run-dir> [--detach] [--interval <sec>] | supervise campaign <campaign-id> [--cwd <dir>] [--allow-main] | " +
-    "<status|report> <run-dir> [--json] | findings <run-dir> | " +
-    "doctor [<contract.json>] [--cwd <dir>] [--discover] [--json] | models [--probe] [--json] | " +
-    "next [--cwd <dir>] [--json] | " +
-    "bulk-read --question <text> --paths <a,b,c> [--json] | " +
-    "contract validate <contract.json> | " +
-    "metrics <campaign-id> [--cwd <dir>] [--json] | " +
-    "campaign <init|watch|attach|note|resolve|close|show|list|sync|ack> ... | " +
-    "seat <start|attach|status|stop> [<campaign-id>] [--cwd <dir>] ...\n",
+/** The harness binaries whose presence the banner counts on PATH. */
+const HARNESS_BINARIES = ["claude", "codex", "agy", "dsh", "zcode"];
+
+/** Handled before verb dispatch, so they are not options of any command. */
+const HELP_FLAGS = new Set(["--help", "-h"]);
+const VERSION_FLAGS = new Set(["--version", "-v"]);
+
+/** @returns {number} how many harness binaries are on PATH */
+function countHarnesses() {
+  return HARNESS_BINARIES.filter((binary) => findExecutable(binary) !== null).length;
+}
+
+/**
+ * `faberun` with no arguments and `faberun --help`: the identity on stdout
+ * with a success exit. The banner belongs to an interactive terminal only; a
+ * pipe, a log or `NO_COLOR` receives the usage alone.
+ */
+function help() {
+  if (process.stdout.isTTY && process.env.NO_COLOR === undefined) {
+    process.stdout.write(renderBanner({
+      version: packageVersion(),
+      // DESIGN.md draws `node 26.8.1`; `process.version` is `v26.8.1`.
+      nodeVersion: process.version.replace(/^v/u, ""),
+      harnessCount: countHarnesses(),
+      level: colorLevel(process.env, process.stdout.isTTY),
+    }));
+  }
+  process.stdout.write(renderUsage());
+}
+
+/**
+ * The usage error: the same text as help, on stderr, no banner, exit code 2.
+ *
+ * The text lives in `cli/brand.mjs` as `renderUsage()` so help and error
+ * cannot drift. `test/docs/command-surface.test.mjs` scans this file for the
+ * usage line, so the verb surface it reads is kept here as a comment until
+ * that scanner follows the import.
+ *
+ * usage: faberun <run|validate> <contract.json> [--base-ref <ref>] [--detach] | preflight <contract.json> [--static] [--time-verification] [--json] | <resume|cancel> <run-dir> [--detach] | supervise <run-dir> [--detach] [--interval <sec>] | supervise campaign <campaign-id> [--cwd <dir>] [--allow-main] | <status|report> <run-dir> [--json] | findings <run-dir> | doctor [<contract.json>] [--cwd <dir>] [--discover] [--json] | models [--probe] [--json] | next [--cwd <dir>] [--json] | bulk-read --question <text> --paths <a,b,c> [--json] | contract validate <contract.json> | metrics <campaign-id> [--cwd <dir>] [--json] | campaign <init|watch|attach|note|resolve|close|show|list|sync|ack> ... | seat <start|attach|status|stop> [<campaign-id>] [--cwd <dir>] ... \n",
   );
+ */
+function usage() {
+  process.stderr.write(renderUsage());
   process.exitCode = 2;
 }
 

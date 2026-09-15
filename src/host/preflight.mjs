@@ -25,6 +25,7 @@ import { errorMessage } from "../util.mjs";
 import { boundedGitSync } from "../repo/worktree.mjs";
 import { routeRuntime } from "../contract/runtime.mjs";
 import { NOTIFY_BIN_ENV, noTransportWarning } from "../notify/index.mjs";
+import { colorLevel, statusToken } from "../cli/brand.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {import("../contract/index.mjs").RuntimeSnapshot} RuntimeSnapshot */
@@ -456,11 +457,12 @@ export async function doctorCommand(contractPath, values) {
   }
   const ok = checks.every((check) => check.ok);
   const transportWarning = noTransportWarning(process.env);
-  if (transportWarning) process.stderr.write(`[warn] ${transportWarning}\n`);
+  if (transportWarning) process.stderr.write(`${statusToken("warn", colorLevel(process.env, process.stderr.isTTY))} ${transportWarning}\n`);
   if (values.json === true) {
     process.stdout.write(`${JSON.stringify({ schemaVersion: 1, repo: repoDir, ok, checks, ...(values.discover === true ? { runtimes: discovered } : {}) }, null, 2)}\n`);
   } else {
-    for (const check of checks) process.stdout.write(`[${check.ok ? "ok" : "fail"}] ${check.name} · ${check.detail}\n`);
+    const level = colorLevel(process.env, process.stdout.isTTY);
+    for (const check of checks) process.stdout.write(`${statusToken(check.ok ? "ok" : "fail", level)} ${check.name} · ${check.detail}\n`);
   }
   return ok;
 }
@@ -499,10 +501,14 @@ function isRunsIgnored(repoDir) {
 }
 
 /**
+ * The first directory on PATH that holds `name`, or null. Exported because the
+ * banner counts the harness binaries with the same lookup the doctor uses,
+ * rather than a second copy that can disagree.
+ *
  * @param {string} name
  * @returns {string|null}
  */
-function findExecutable(name) {
+export function findExecutable(name) {
   if (name.includes("/") || name.includes("\\")) return existsSync(name) ? name : null;
   for (const dir of (process.env.PATH ?? "").split(delimiter)) {
     if (!dir) continue;
