@@ -6,7 +6,7 @@ An execution repository is a git work tree with at least one commit. A run
 creates the integration head `refs/faberun/<run-id>/run` at the recorded
 source `gitHead`. Every worker attempt gets a linked worktree at
 `.runs/worktrees/<run-id>/<node-id>.<attempt>` on branch
-`if/<run-id>/<node-id>/<attempt>`, cut from that ref; the node snapshot records
+`faberun/<run-id>/<node-id>/<attempt>`, cut from that ref; the node snapshot records
 `worktree.path`, `.branch`, `.baseSha` and the sealed `.commit`. Provider,
 scope, verification and judge processes all use that path; `contract.cwd` stays
 the home of run/control artifacts. An installed root `node_modules` is
