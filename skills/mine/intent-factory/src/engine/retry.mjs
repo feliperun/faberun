@@ -105,6 +105,38 @@ export function earliestTierReset(state) {
 }
 
 /**
+ * The longest a tier-exhausted node may be held waiting for its tier to
+ * recover before the controller stops waiting. A generation with no recorded
+ * reset instant would otherwise hold forever, and an announced instant can be
+ * arbitrarily far away; both are bounded here. After the cap the named
+ * post-cap transition is a re-dispatch on the current runtime (`retry`, or
+ * `rejudge` for a judge phase), with attention raised so the operator sees that
+ * the wait was abandoned rather than honoured.
+ */
+export const TIER_EXHAUSTION_HOLD_CAP_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The reason recorded when `TIER_EXHAUSTION_HOLD_CAP_MS` is exceeded. It names
+ * the post-cap transition explicitly so the operator-facing text and the
+ * classification cannot drift.
+ */
+export const TIER_EXHAUSTION_CAP_REASON = "tier-exhaustion hold cap exceeded; post-cap transition re-dispatches on the current runtime";
+
+/**
+ * How long a node has already been held on its tier exhaustion. The block
+ * transition wrote `updatedAt`; an unparseable or absent stamp is treated as
+ * "not yet held" so a snapshot that predates the timestamp cannot be pushed
+ * over the cap on first read.
+ *
+ * @param {import("../contract/index.mjs").NodeSnapshot} state
+ * @returns {number} elapsed milliseconds, never negative
+ */
+export function tierExhaustionHeldMs(state) {
+  const since = Date.parse(state.updatedAt ?? state.startedAt ?? "");
+  return Number.isFinite(since) ? Math.max(0, Date.now() - since) : 0;
+}
+
+/**
  * Decide, per node, what a resume does with it. Everything classified
  * `recover` keeps today's recovery behaviour (orphan adoption, re-judge of
  * finished work, pending re-dispatch). `hold` leaves the persisted state
@@ -147,14 +179,23 @@ export function planResumeRetry(contract, states, options = {}) {
         : "recover";
     }
     if (state.status === "blocked" && state.error?.code === "runtime_tier_exhausted") {
+      // A node outside an explicit `--node` retry is held before anything else,
+      // even past the cap: an operator asking for one node must not have the
+      // cap re-dispatch a different one.
+      if (targets && !targets.has(node)) return hold(node, "it is outside the `--node` retry");
+      // The cap bounds the wait: once exceeded, the named post-cap transition
+      // re-dispatches on the current runtime instead of holding forever.
+      if (tierExhaustionHeldMs(state) >= TIER_EXHAUSTION_HOLD_CAP_MS) {
+        attention.push({ id: node, reason: TIER_EXHAUSTION_CAP_REASON });
+        return state.phase === "judge" ? "rejudge" : "retry";
+      }
       // Hold until the earliest reset the exhausted candidates announced; a
-      // generation with no parseable instant holds indefinitely rather than
+      // generation with no parseable instant holds until the cap rather than
       // inventing a deadline. The final candidate is already in the evidence
       // list, so this reads Phase 1a's record, never `state.error.exhaustedUntil`.
       const earliest = earliestTierReset(state);
       if (earliest === null) return hold(node, "no recorded reset time for any exhausted candidate");
       if (Date.now() < earliest) return hold(node, `earliest recorded reset is ${new Date(earliest).toISOString()}`);
-      if (targets && !targets.has(node)) return hold(node, "it is outside the `--node` retry");
       // A judge-tier exhaustion keeps its order: rejudge transitions to the
       // judge phase and preserves the accepted worker result, where a retry
       // would discard it by re-dispatching a worker.

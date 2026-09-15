@@ -334,7 +334,7 @@ test("stall supervision kills a runtime whose harness declares streamed output o
     });
     assert.ok(timeout, "stall supervisor reported a timeout");
     assert.equal(timeout.status, "stalled");
-    assert.match(timeout.error.message, /no provider output/u);
+    assert.match(timeout.error.message, /no provider progress/u);
   } finally {
     if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
     else process.env.INTENT_FACTORY_CODEX_BIN = previous;

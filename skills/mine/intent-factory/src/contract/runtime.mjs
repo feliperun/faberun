@@ -7,7 +7,7 @@
  * declared -- and the snapshot validator should not import the contract
  * validator to reach it.
  */
-import { assertObject, nonNegativeNumber, positiveInteger, rejectUnknown, requireId, requireString, requireStringArray } from "./assert.mjs";
+import { assertObject, nonNegativeNumber, positiveInteger, positiveNumber, rejectUnknown, requireId, requireString, requireStringArray } from "./assert.mjs";
 import { composeAssignments } from "../engine/runtime-discovery.mjs";
 import { harnessCapabilities, resolvePermissionExecution, resolveVendor, validateCapabilityRequirements } from "../harnesses/index.mjs";
 import { stableJson } from "../util.mjs";
@@ -22,9 +22,21 @@ import { stableJson } from "../util.mjs";
 const RUNTIME_FIELDS = new Set([
   "harness", "model", "reasoning", "sandbox", "permissionMode", "config", "printTimeout", "tools",
   "executable", "args", "versionArgs", "maxArgvPromptBytes", "requiredCapabilities", "costRank",
-  "fallback", "vendor", "tier", "pricing",
+  "fallback", "vendor", "tier", "pricing", "stallTimeoutSec",
 ]);
 const RUNTIME_HARNESSES = new Set(["claude", "codex", "agy", "dsh", "zcode", "exec-jsonl", "replay"]);
+
+/**
+ * Harness-specific stall thresholds where the contract's single default is
+ * wrong for every turn the harness runs. `zcode` has no streaming flag: its
+ * `--json` mode buffers the whole turn and writes the transcript only at exit,
+ * so the 300 s contract default would kill a healthy long turn. Its own value
+ * still bounds a genuinely dead provider well inside the 2400 s wall clock.
+ * A runtime may always override its harness's value explicitly.
+ *
+ * @type {Readonly<Record<string, number>>}
+ */
+export const HARNESS_STALL_TIMEOUT_SEC = Object.freeze({ zcode: 1_800 });
 const PRICING_FIELDS = new Set(["inputPerMTok", "cachedInputPerMTok", "outputPerMTok"]);
 const SNAPSHOT_RUNTIME_FIELDS = new Set(["id", ...RUNTIME_FIELDS, "capabilities"]);
 const CAPABILITY_FIELDS = new Set([
@@ -65,7 +77,12 @@ export function validateRuntime(id, runtime) {
   validateRuntimeValues(runtime, `runtime ${id}`, runtime.harness === "exec-jsonl");
   const vendor = resolveVendor(/** @type {{harness: string, vendor?: string, config?: Record<string, unknown>}} */ (runtime));
   if (!vendor) throw new TypeError(`runtime ${id} has no resolvable vendor`);
-  return /** @type {ValidatedRuntime} */ ({ ...runtime, vendor });
+  const stallTimeoutSec = runtime.stallTimeoutSec ?? HARNESS_STALL_TIMEOUT_SEC[/** @type {string} */ (runtime.harness)];
+  return /** @type {ValidatedRuntime} */ ({
+    ...runtime,
+    vendor,
+    ...(stallTimeoutSec !== undefined ? { stallTimeoutSec } : {}),
+  });
 }
 /**
  * @param {JsonObject} runtime
@@ -91,6 +108,7 @@ function validateRuntimeValues(runtime, label, executableRequired) {
   if (runtime.versionArgs !== undefined) requireStringArray(runtime.versionArgs, `${label}.versionArgs`);
   if (runtime.maxArgvPromptBytes !== undefined) positiveInteger(runtime.maxArgvPromptBytes, `${label}.maxArgvPromptBytes`);
   if (runtime.costRank !== undefined) nonNegativeNumber(runtime.costRank, `${label}.costRank`);
+  if (runtime.stallTimeoutSec !== undefined) positiveNumber(runtime.stallTimeoutSec, `${label}.stallTimeoutSec`);
   if (runtime.pricing !== undefined) validatePricing(runtime.pricing, `${label}.pricing`);
   if (runtime.tier !== undefined && !(
     (typeof runtime.tier === "number" && Number.isInteger(runtime.tier) && runtime.tier >= 0)

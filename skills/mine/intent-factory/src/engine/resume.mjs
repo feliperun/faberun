@@ -263,7 +263,9 @@ export async function resumeRun(runDirPath, options = {}) {
         });
         transition(runDir, state, "stalled", {
           phase: recovery.phase ?? (invocation?.phase === "judge" ? "judge" : "worker"),
-          error: recovery.error ?? { code: "progress_stalled", message: recovery.reason ?? "worker made no progress" },
+          // One condition, one code: the live stall detector emits the same
+          // `stall_timeout`, so a recovery and a live kill park identically.
+          error: recovery.error ?? { code: "stall_timeout", message: recovery.reason ?? "worker made no progress" },
           usage: state.usage,
         }, lock);
         continue;

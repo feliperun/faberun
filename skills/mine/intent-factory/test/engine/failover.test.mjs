@@ -5,12 +5,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { livenessState } from "../../src/engine/lifecycle.mjs";
+import { NON_FAILOVER_CODES, classifyTransition } from "../../src/engine/backoff.mjs";
 import { getHarness } from "../../src/harnesses/index.mjs";
 import { fakeCodex, fixture, packet, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState, fakeClaudeLike, flagValue } from "../runner-helpers.mjs";
 
 // The other half of routing.test.mjs: what happens when a provider is spent --
 // the declared one-hop edge, the announced reset, and the refusals.
+
+test("the attempt deadlines left NON_FAILOVER_CODES, so a second failure takes the normal hop", () => {
+  for (const code of ["wall_clock_timeout", "stall_timeout", "progress_stalled"]) {
+    assert.equal(NON_FAILOVER_CODES.has(code), false, `${code} is eligible for the failover that follows its one auto_retry`);
+    assert.equal(
+      classifyTransition({ status: "failed", error: { code, message: "deadline" } }).reason,
+      "provider",
+      `${code} is the node's own deadline and never buys a network wait`,
+    );
+  }
+});
 
 test("quota exhaustion with no declared fallback leaves the node exhausted", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-no-fallback-quota-"));

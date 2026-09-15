@@ -10,15 +10,17 @@
 import { SessionMetricsParser } from "../harnesses/exec-jsonl/index.mjs";
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, readSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { errorCode } from "../util.mjs";
+import { errorCode, errorMessage } from "../util.mjs";
 import { fileURLToPath } from "node:url";
 import { harnessCapabilities, normalizeProviderResult, providerCommand } from "../harnesses/index.mjs";
 import { latestTimeoutSec } from "./backoff.mjs";
+import { attemptWorkspace, sealAttempt } from "../repo/worktree.mjs";
 
 import { processStartToken } from "../run/lock.mjs";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { writeJsonAtomic } from "../run/store.mjs";
+import { writeNodeSnapshot } from "../run/node-store.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {import("../contract/index.mjs").ValidatedNode} ValidatedNode */
@@ -31,7 +33,7 @@ import { writeJsonAtomic } from "../run/store.mjs";
 /** @typedef {{prompt: string|null, stdout: string, stderr: string}} PathSet */
 /** @typedef {{id: string, pid: number, processGroupId: number|null, processStartToken: string|null, harness: string, runtimeId: string|null, runtimeFingerprint?: string, revision?: number, phase: string, promptPath: string|null, stdoutPath: string, stderrPath: string, startedAt: string, deadlineAt: string|null, updatedAt: string, closedAt: string|null, exitCode: number|null, signal: string|null, status: "active"|"closed"|"terminated", executable: string, snapshotPath?: string, usage?: Usage, usageEstimated?: boolean, costUsd?: number|null, costProvenance?: "priced", runId?: string, campaignId?: string, nodeId?: string, attempt?: number, workspace?: string, worktreeBranch?: string|null, worktreeBaseSha?: string|null, planPhase?: string, role?: "worker"|"judge", model?: string, reasoning?: string|null, sandbox?: string|null, continuationId?: string|null, continuationMode?: "fresh"|"reuse"|"rotate"}} Invocation */
 /** @typedef {{pid: number|null, processGroupId?: number|null, processStartToken?: string|null}} InvocationProbe */
-/** @typedef {{child: ChildProcess, node: ValidatedNode, state: NodeSnapshot, runtime: HarnessRuntime & {id: string|null}, cwd: string, paths: PathSet, phase: string, invocation: Invocation, startedAt: string, startedTicks: bigint, progressTicks: bigint, lastOutputAt: number, closed: boolean, exitCode: number|null, signal: string|null, spawnError: Error|null, terminating: Promise<void>|null, gateConfigPath: string, gateReleasePath: string, scopeBaseline?: unknown, scopeChecked?: boolean, scopeViolation?: boolean, resultMaterialization?: boolean, recoveryBaseline?: unknown, observeTimer?: ReturnType<typeof setInterval>, monitorOffset?: number, monitorParser?: import("../harnesses/exec-jsonl/index.mjs").SessionMetricsParser, onClose?: (invocation: Invocation) => void, onInvocationUpdate?: (invocation: Invocation) => void, onProgress?: (state: NodeSnapshot) => void}} Job */
+/** @typedef {{child: ChildProcess, contract: ValidatedContract, node: ValidatedNode, state: NodeSnapshot, runtime: HarnessRuntime & {id: string|null}, cwd: string, paths: PathSet, phase: string, invocation: Invocation, startedAt: string, startedTicks: bigint, progressTicks: bigint, lastOutputAt: number, closed: boolean, exitCode: number|null, signal: string|null, spawnError: Error|null, terminating: Promise<void>|null, gateConfigPath: string, gateReleasePath: string, scopeBaseline?: unknown, scopeChecked?: boolean, scopeViolation?: boolean, resultMaterialization?: boolean, recoveryBaseline?: unknown, observeTimer?: ReturnType<typeof setInterval>, monitorOffset?: number, monitorParser?: import("../harnesses/exec-jsonl/index.mjs").SessionMetricsParser, lastEventCount?: number, observedOnce?: boolean, onClose?: (invocation: Invocation) => void, onInvocationUpdate?: (invocation: Invocation) => void, onProgress?: (state: NodeSnapshot) => void}} Job */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_GRACE_MS = 2_000;
@@ -105,6 +107,7 @@ export function startProcess({ contract, node, state, runtime, prompt, paths, ph
   /** @type {Job} */
   const job = {
     child,
+    contract,
     node,
     state,
     runtime,
@@ -297,22 +300,140 @@ export async function terminateInvocation(invocation, options = {}) {
   }
 }
 /**
- * The pre-termination seam: phase 5b fills this with quiesce → seal → terminate
- * so an attempt's work is sealed before the kill. 5a installs it as a no-op so
- * the ordering (hook, then kill, then onTimeout) is testable on its own.
- *
- * @param {Job} _job
- * @param {{code: string, message: string}} _timeout
+ * The timeout codes whose attempt workspace is sealed before the provider is
+ * killed. Every other retry path already cuts the next attempt from the
+ * previous attempt's seal (`dispatch.mjs`'s `sealPreviousAttempt`); without
+ * sealing here, a timeout parks with an empty seal and the recorded work is
+ * abandoned in a worktree the next attempt never reads.
  */
-async function defaultBeforeTerminate(_job, _timeout) {}
+const SEAL_BEFORE_KILL_CODES = new Set(["wall_clock_timeout", "stall_timeout"]);
+
+/**
+ * How long a `SIGSTOP`ped process group is given to actually stop before the
+ * seal begins. The stop is asynchronous; this bounded settle keeps the seal
+ * from racing a provider that has not yet been suspended. It is deliberately
+ * short: the seal's own git timeout is the outer bound.
+ */
+const QUIESCE_SETTLE_MS = 50;
+
+/**
+ * The stall threshold one invocation is judged by: the runtime's own declared
+ * `stallTimeoutSec`, else the contract value. Validation guarantees a present
+ * runtime value is a positive finite number (`contract/runtime.mjs`), and the
+ * contract value is positive by construction, so this always returns a usable
+ * number.
+ *
+ * @param {unknown} runtime
+ * @param {ValidatedContract} contract
+ * @returns {number}
+ */
+export function stallTimeoutSecFor(runtime, contract) {
+  const declared = /** @type {{stallTimeoutSec?: unknown}} */ (runtime ?? {}).stallTimeoutSec;
+  return typeof declared === "number" && Number.isFinite(declared) && declared > 0
+    ? declared
+    : contract.stallTimeoutSec;
+}
+
+/**
+ * Freeze the provider process group so it cannot write while the attempt is
+ * sealed. Returns true when a `SIGSTOP` was sent. On win32 there is no
+ * process-group stop, so the seal races a live writer and the bounded git
+ * timeout is what keeps it from hanging.
+ *
+ * @param {InvocationProbe & {id?: string}} invocation
+ * @returns {boolean}
+ */
+function quiesceInvocation(invocation) {
+  if (process.platform === "win32" || !invocationAlive(invocation)) return false;
+  const target = invocation.processGroupId ?? invocation.pid;
+  if (target === null || target === undefined) return false;
+  try {
+    process.kill(-target, "SIGSTOP");
+    return true;
+  } catch (error) {
+    if (errorCode(error) !== "ESRCH") throw error;
+    return false;
+  }
+}
+
+/**
+ * Release a process group frozen by `quiesceInvocation` so the subsequent
+ * `terminateProcess` signal can be delivered. A stopped process holds `SIGTERM`
+ * pending until it is continued, so this must run before the kill.
+ *
+ * @param {InvocationProbe & {id?: string}} invocation
+ */
+function resumeInvocation(invocation) {
+  if (process.platform === "win32") return;
+  const target = invocation.processGroupId ?? invocation.pid;
+  if (target === null || target === undefined) return;
+  try {
+    process.kill(-target, "SIGCONT");
+  } catch (error) {
+    if (errorCode(error) !== "ESRCH") throw error;
+  }
+}
+
+/**
+ * The pre-termination seam, filled: on `wall_clock_timeout` and `stall_timeout`
+ * quiesce the provider, seal the attempt worktree, and only then let the caller
+ * terminate it, so the next attempt is cut from the seal. The seal is bounded
+ * by the same git timeout every synchronous git call uses
+ * (`GIT_SYNC_TIMEOUT_MS`, overridable with `INTENT_FACTORY_GIT_TIMEOUT_MS`);
+ * when the provider holds `index.lock` or the seal otherwise fails, the
+ * declared outcome is to skip the seal, record `worktree.sealError`, and let
+ * the termination proceed — never to hang. An attempt with nothing to seal is
+ * left with no `sealedSha`, so phase 2's automatic retry parks it as before.
+ *
+ * @param {Job} job
+ * @param {{code: string, message: string}} timeout
+ * @returns {Promise<void>}
+ */
+export async function sealBeforeTerminate(job, timeout) {
+  if (!SEAL_BEFORE_KILL_CODES.has(timeout.code)) return;
+  const path = attemptWorkspace(job.state);
+  if (!path || !job.state.worktree?.branch || !job.state.worktree.baseSha) return;
+  const runDir = dirname(dirname(job.paths.stdout));
+  const quiesced = quiesceInvocation(job.invocation);
+  try {
+    if (quiesced) await new Promise((resolve) => setTimeout(resolve, QUIESCE_SETTLE_MS));
+    const sealed = sealAttempt({
+      repo: job.contract.cwd,
+      path,
+      baseSha: job.state.worktree.baseSha,
+      runId: job.contract.id,
+      nodeId: job.node.id,
+      attempt: job.state.attempt,
+    });
+    job.state.worktree = {
+      ...job.state.worktree,
+      status: "ready",
+      commit: sealed.sha,
+      // An empty seal is not work: leaving `sealedSha` unset keeps the
+      // timeout codes on the parking path phase 2 requires.
+      ...(sealed.empty ? {} : { sealedSha: sealed.sha }),
+      sealError: null,
+    };
+    writeNodeSnapshot(runDir, job.state);
+  } catch (error) {
+    job.state.worktree = {
+      ...job.state.worktree,
+      sealError: errorMessage(error),
+    };
+    writeNodeSnapshot(runDir, job.state);
+  } finally {
+    if (quiesced) resumeInvocation(job.invocation);
+  }
+}
+
 /**
  * @param {ValidatedContract} contract
  * @param {Map<string, Job>} running
  * @param {(job: Job, outcome: "exhausted"|"stalled", error: {code: string, message: string}) => Promise<void>} onTimeout
  * @param {(job: Job) => Promise<void>|void} [onProgress]
- * @param {(job: Job, timeout: {code: string, message: string}) => Promise<void>|void} [onBeforeTerminate] invoked before the kill; phase 5b seals here
+ * @param {(job: Job, timeout: {code: string, message: string}) => Promise<void>|void} [onBeforeTerminate] invoked before the kill; defaults to the phase 5b seal
  */
-export async function detectStalls(contract, running, onTimeout, onProgress, onBeforeTerminate = defaultBeforeTerminate) {
+export async function detectStalls(contract, running, onTimeout, onProgress, onBeforeTerminate = sealBeforeTerminate) {
   const now = process.hrtime.bigint();
   for (const [nodeId, job] of running) {
     const budgetSec = latestTimeoutSec(job.state, job.node.timeoutSec ?? contract.timeoutSec);
@@ -327,26 +448,36 @@ export async function detectStalls(contract, running, onTimeout, onProgress, onB
       await onTimeout(job, "exhausted", timeout);
       continue;
     }
-    // A harness that never writes output until it exits (zcode's `--json`,
-    // replay's single envelope line) cannot prove liveness through mtime: the
-    // wall-clock check above is the only budget it is held to.
-    if (!harnessCapabilities(job.runtime).streamsOutput) continue;
-    let observed = 0;
-    for (const path of [job.paths.stdout, job.paths.stderr]) {
-      try {
-        observed = Math.max(observed, statSync(path).mtimeMs);
-      } catch (error) {
-        if (errorCode(error) !== "ENOENT") throw error;
+    // Progress is a provider event, not an mtime: a streamed turn that keeps
+    // calling tools is alive even when it writes no workspace file, and a
+    // buffered harness (zcode's `--json`) writes its whole transcript only at
+    // exit, so its mtime proves nothing. A harness that never streams is
+    // stall-tracked only when its runtime declares its own threshold; otherwise
+    // the wall clock above is the only budget it is held to.
+    const streaming = harnessCapabilities(job.runtime).streamsOutput;
+    const declaredStall = typeof (/** @type {{stallTimeoutSec?: unknown}} */ (job.runtime)?.stallTimeoutSec) === "number";
+    if (!streaming && !declaredStall) continue;
+    const stallTimeoutSec = stallTimeoutSecFor(job.runtime, contract);
+    if (streaming) {
+      const monitored = monitorInvocation(job);
+      const events = monitored.turns + monitored.toolCalls;
+      if (events !== job.lastEventCount || job.observedOnce !== true) {
+        job.lastEventCount = events;
+        job.progressTicks = now;
+        // `lastOutputAt` is the supervised controller's provider-progress
+        // signal (scheduler.mjs): keep it advancing for an event that counts
+        // as liveness, not only for an mtime that no longer does.
+        job.lastOutputAt = Date.now();
       }
-    }
-    if (observed > job.lastOutputAt) {
-      job.lastOutputAt = observed;
+    } else if (job.observedOnce !== true) {
       job.progressTicks = now;
+      job.lastOutputAt = Date.now();
     }
-    if (elapsedSeconds(job.progressTicks, now) < contract.stallTimeoutSec) continue;
+    job.observedOnce = true;
+    if (elapsedSeconds(job.progressTicks, now) < stallTimeoutSec) continue;
     const timeout = {
       code: "stall_timeout",
-      message: `no provider output for ${contract.stallTimeoutSec}s`,
+      message: `no provider progress for ${stallTimeoutSec}s`,
     };
     await onBeforeTerminate(job, timeout);
     await terminateProcess(job);

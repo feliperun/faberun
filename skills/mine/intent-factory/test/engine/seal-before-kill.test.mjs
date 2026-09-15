@@ -1,0 +1,432 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
+import { HARNESS_STALL_TIMEOUT_SEC, validateRuntime } from "../../src/contract/runtime.mjs";
+import { NON_FAILOVER_CODES, isTimeoutOrStall } from "../../src/engine/backoff.mjs";
+import { detectStalls, sealBeforeTerminate, stallTimeoutSecFor, startProcess, terminateInvocation } from "../../src/engine/process.mjs";
+import { runContract } from "../../src/engine/scheduler.mjs";
+import { TIER_EXHAUSTION_CAP_REASON, TIER_EXHAUSTION_HOLD_CAP_MS, planResumeRetry } from "../../src/engine/retry.mjs";
+import { createAttemptWorktree, createRunRef, git, removeWorktree } from "../../src/repo/worktree.mjs";
+import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
+import { fixture, packet, writeContract } from "../helpers.mjs";
+import { nodeState } from "../runner-helpers.mjs";
+
+// Phase 5b: a timeout seals the attempt before it kills, stall progress is a
+// provider event rather than an mtime, and the tier-exhaustion hold is capped.
+
+/**
+ * A repository, a campaign, a run directory, and a created run ref: the
+ * minimum four things `createAttemptWorktree` and `sealBeforeTerminate` need.
+ *
+ * @param {Record<string, unknown>} [overrides]
+ * @returns {{directory: string, repo: string, runDir: string, contract: import("../../src/contract/index.mjs").ValidatedContract}}
+ */
+function makeRepoRun(overrides = {}) {
+  const directory = mkdtempSync(join(tmpdir(), "seal-before-kill-"));
+  const contractPath = writeContract(directory, fixture({ id: "seal-run", pollIntervalMs: 10, ...overrides }));
+  const contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
+  const repo = contract.cwd;
+  const head = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  createRunRef(repo, contract.id, head);
+  const runDir = join(repo, ".runs", "runs", contract.id);
+  mkdirSync(join(runDir, "nodes"), { recursive: true });
+  mkdirSync(join(runDir, "logs"), { recursive: true });
+  return { directory, repo, runDir, contract };
+}
+
+/**
+ * @param {import("../../src/contract/index.mjs").ValidatedContract} contract
+ * @param {import("../../src/contract/index.mjs").WorktreeState} worktree
+ * @returns {import("../../src/contract/index.mjs").NodeSnapshot}
+ */
+function snapshotFor(contract, worktree) {
+  const node = contract.nodes[0];
+  const now = new Date().toISOString();
+  return validateNodeSnapshot({
+    schemaVersion: PROTOCOL_SCHEMA_VERSION,
+    contractVersion: INTENT_FACTORY_VERSION,
+    id: node.id,
+    type: node.type,
+    sourceIdentity: node.sourceIdentity,
+    packetHash: node.packetHash,
+    status: "running",
+    phase: "worker",
+    attempt: 1,
+    revisions: 0,
+    runtime: null,
+    blockedBy: [],
+    startedAt: now,
+    updatedAt: now,
+    result: null,
+    gate: null,
+    error: null,
+    invocations: [],
+    executionOverrides: [],
+    verification: null,
+    worktree,
+    scope: {
+      boundary: {
+        schemaVersion: 1,
+        files: [...(node.taskPacket.writeFiles ?? [])],
+        roots: [...(node.taskPacket.writeRoots ?? [])],
+        fileOrigins: [...(node.taskPacket.writeFiles ?? [])].map((literal) => ({ literal, paths: [literal] })),
+        rootOrigins: [...(node.taskPacket.writeRoots ?? [])].map((literal) => ({ literal, paths: [literal] })),
+      },
+      changedPaths: [],
+      unexpectedPaths: [],
+      changedPathCount: 0,
+      unexpectedPathCount: 0,
+      truncated: false,
+    },
+  }, node);
+}
+
+/** @param {string} path @param {string} content @returns {void} */
+function writeProvider(path, content) {
+  writeFileSync(path, content);
+  chmodSync(path, 0o755);
+}
+
+/**
+ * The two-attempt provider the seal e2e uses: the first turn writes sealed
+ * work and hangs until the controller's deadline fires; the second completes.
+ *
+ * @param {string} directory
+ * @returns {string} the provider executable
+ */
+function writeSealE2eProvider(directory) {
+  const counter = join(directory, ".runs", "seal-e2e-count");
+  const provider = join(directory, "seal-e2e-provider.mjs");
+  writeProvider(provider, `#!${process.execPath}
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+if (process.argv.includes("--version")) { console.log("seal-e2e 1.0.0"); process.exit(0); }
+let call = 1;
+try { call = readFileSync(${JSON.stringify(counter)}, "utf8").trim().split("\\n").length + 1; } catch {}
+appendFileSync(${JSON.stringify(counter)}, "x\\n");
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => { input += chunk; });
+process.stdin.on("end", () => {
+  const prompt = input || process.argv.at(-1) || "";
+  const judge = prompt.startsWith("Review node");
+  const canonical = /canonical result file: (\\S+\\.json)/.exec(prompt)?.[1] ?? null;
+  if (call === 1 && !judge) {
+    writeFileSync("README.md", "attempt-1-sealed\\n");
+    console.log(JSON.stringify({ type: "thread.started", thread_id: "seal-thread" }));
+    console.log(JSON.stringify({ type: "turn.failed", error: { message: "still running after writing sealed work" } }));
+    setInterval(() => {}, 60_000);
+    return;
+  }
+  const text = JSON.stringify({ status: "done", summary: "attempt two complete", verification: [], artifacts: [], missingContext: [] });
+  if (canonical) writeFileSync(canonical, text);
+  console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text } }));
+  console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 5, output_tokens: 2, cached_input_tokens: 0 } }));
+});
+`);
+  return provider;
+}
+
+/** The filesystem layout a streaming stall visit needs, without a provider. */
+/**
+ * @param {string} transcript
+ * @param {{id: string, harness: string, model: string, stallTimeoutSec?: number}} runtime
+ * @returns {any}
+ */
+function stallJob(transcript, runtime) {
+  const runDir = mkdtempSync(join(tmpdir(), "seal-stall-"));
+  mkdirSync(join(runDir, "logs"), { recursive: true });
+  const stdout = join(runDir, "logs", "worker.jsonl");
+  writeFileSync(stdout, transcript);
+  const contract = { timeoutSec: 2_400, stallTimeoutSec: 300 };
+  return /** @type {any} */ ({
+    contract,
+    node: { id: "build", timeoutSec: 2_400 },
+    state: { id: "build", worktree: null },
+    runtime,
+    cwd: runDir,
+    paths: { stdout, stderr: join(runDir, "logs", "worker.err"), prompt: null },
+    phase: "worker",
+    invocation: { id: "stall-job", pid: null, processGroupId: null },
+    startedTicks: process.hrtime.bigint(),
+    progressTicks: process.hrtime.bigint(),
+    lastOutputAt: 0,
+    closed: true,
+    exitCode: null,
+    signal: null,
+    spawnError: null,
+    terminating: null,
+    gateConfigPath: "",
+    gateReleasePath: "",
+  });
+}
+
+/**
+ * @param {any} job
+ * @param {number} ageMs
+ * @returns {void}
+ */
+function ageProgress(job, ageMs) {
+  job.progressTicks = process.hrtime.bigint() - BigInt(Math.round(ageMs * 1e6));
+}
+
+// ---------------------------------------------------------------------------
+// done-when 1 and 4: the seal is real and the next attempt is cut from it.
+// ---------------------------------------------------------------------------
+
+test("done-when 1 and 4: a wall-clock timeout seals, auto-retries on the same runtime, and the next attempt sees the work", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-seal-e2e-"));
+  const provider = writeSealE2eProvider(directory);
+  const contractPath = writeContract(directory, fixture({
+    id: "seal-e2e-run",
+    pollIntervalMs: 10,
+    timeoutSec: 0.7,
+    runtimeDefaults: { worker: "luna", judge: "luna" },
+    runtimes: { luna: { harness: "codex", model: "gpt-5.6-luna", reasoning: "xhigh" } },
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
+  }));
+  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
+  process.env.INTENT_FACTORY_CODEX_BIN = provider;
+  try {
+    const result = await runContract(contractPath);
+    const state = nodeState(result);
+    assert.equal(state.status, "done", state.error?.message);
+    assert.equal(state.attempt, 2, "the timeout spent exactly one automatic retry");
+    assert.deepEqual((state.invocations ?? []).map((invocation) => invocation.runtimeId), ["luna", "luna"], "the retry stays on the runtime already warmed");
+    assert.equal(state.worktree?.previousAttempt, 1, "the second attempt was cut from the first attempt's seal");
+    const sealed = git(directory, ["show", "if/seal-e2e-run/build/1:README.md"]);
+    assert.equal(sealed, "attempt-1-sealed", "the seal committed the work the timeout interrupted");
+    const integrated = git(directory, ["show", "refs/intent-factory/seal-e2e-run/run:README.md"]);
+    assert.equal(integrated, "attempt-1-sealed", "the sealed work survived into the next attempt and the run ref");
+    const metadata = JSON.parse(readFileSync(join(result.runDir, "run.json"), "utf8"));
+    assert.equal(metadata.autoRetries?.build?.code, "wall_clock_timeout", "the timeout consumed its one durable auto_retry");
+  } finally {
+    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
+    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+  }
+});
+
+test("done-when 1 and 4: a stall_timeout seals and auto-retries on the same runtime too", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-seal-stall-e2e-"));
+  const provider = writeSealE2eProvider(directory);
+  const contractPath = writeContract(directory, fixture({
+    id: "seal-stall-run",
+    pollIntervalMs: 10,
+    timeoutSec: 60,
+    stallTimeoutSec: 0.4,
+    runtimeDefaults: { worker: "luna", judge: "luna" },
+    runtimes: { luna: { harness: "codex", model: "gpt-5.6-luna", reasoning: "xhigh" } },
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
+  }));
+  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
+  process.env.INTENT_FACTORY_CODEX_BIN = provider;
+  try {
+    const result = await runContract(contractPath);
+    const state = nodeState(result);
+    assert.equal(state.status, "done", state.error?.message);
+    assert.equal(state.attempt, 2, "the stall spent exactly one automatic retry");
+    assert.equal(state.worktree?.previousAttempt, 1, "the second attempt was cut from the stalled attempt's seal");
+    assert.equal(git(directory, ["show", "if/seal-stall-run/build/1:README.md"]), "attempt-1-sealed", "the stall seal committed the work");
+    assert.equal(git(directory, ["show", "refs/intent-factory/seal-stall-run/run:README.md"]), "attempt-1-sealed", "the sealed work survived into the run ref");
+    const metadata = JSON.parse(readFileSync(join(result.runDir, "run.json"), "utf8"));
+    assert.equal(metadata.autoRetries?.build?.code, "stall_timeout", "the stall consumed its one durable auto_retry");
+  } finally {
+    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
+    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// done-when 2: an unreachable seal is bounded, never a hang.
+// ---------------------------------------------------------------------------
+
+test("done-when 2: a sealed attempt holding index.lock records the bounded outcome instead of hanging", async () => {
+  const { repo, runDir, contract } = makeRepoRun();
+  const worktree = createAttemptWorktree({ repo, runDir, runId: contract.id, nodeId: "build", attempt: 1 });
+  writeFileSync(join(worktree.path, "README.md"), "held\n");
+  const gitDir = execFileSync("git", ["-C", worktree.path, "rev-parse", "--absolute-git-dir"], { encoding: "utf8" }).trim();
+  writeFileSync(join(gitDir, "index.lock"), "");
+  const state = snapshotFor(contract, worktree);
+  const job = /** @type {any} */ ({
+    contract,
+    node: contract.nodes[0],
+    state,
+    runtime: { id: "luna", harness: "codex", model: "test" },
+    cwd: worktree.path,
+    paths: { stdout: join(runDir, "logs", "worker.jsonl"), stderr: join(runDir, "logs", "worker.err"), prompt: null },
+    phase: "worker",
+    invocation: { id: "lock-job", pid: null, processGroupId: null },
+  });
+  try {
+    await sealBeforeTerminate(job, { code: "wall_clock_timeout", message: "held" });
+    assert.equal(job.state.worktree?.sealedSha, undefined, "a failed seal leaves no sealed work to retry");
+    assert.match(String(job.state.worktree?.sealError), /index\.lock|cannot|unable/iu, "the failure is recorded, not swallowed");
+    const persisted = JSON.parse(readFileSync(join(runDir, "nodes", "build.json"), "utf8"));
+    assert.equal(typeof persisted.worktree?.sealError, "string", "the bounded outcome is durable");
+  } finally {
+    try { execFileSync("rm", ["-f", join(gitDir, "index.lock")]); } catch {}
+    removeWorktree(repo, worktree.path);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// done-when 3: the hook, not the kill, is what seals.
+// ---------------------------------------------------------------------------
+
+test("done-when 3: the seal is committed before the kill, so a provider's dying deletion cannot erase it", async () => {
+  const { directory, repo, runDir, contract } = makeRepoRun({ timeoutSec: 0.6 });
+  const provider = join(directory, "order-provider.mjs");
+  writeProvider(provider, `#!${process.execPath}
+import { unlinkSync, writeFileSync } from "node:fs";
+if (process.argv.includes("--version")) { console.log("order-provider 1.0.0"); process.exit(0); }
+process.on("SIGTERM", () => { try { unlinkSync("README.md"); } catch {} ; process.exit(0); });
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => { input += chunk; });
+process.stdin.on("end", () => {
+  writeFileSync("README.md", "ordered-seal\\n");
+  console.log(JSON.stringify({ type: "thread.started", thread_id: "order-thread" }));
+  setInterval(() => {}, 60_000);
+});
+`);
+  const worktree = createAttemptWorktree({ repo, runDir, runId: contract.id, nodeId: "build", attempt: 1 });
+  const state = snapshotFor(contract, worktree);
+  const runtime = { id: "luna", harness: "codex", model: "test" };
+  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
+  process.env.INTENT_FACTORY_CODEX_BIN = provider;
+  const job = startProcess({
+    contract,
+    node: contract.nodes[0],
+    state,
+    runtime,
+    prompt: "task",
+    paths: {
+      prompt: join(runDir, "logs", "worker.prompt"),
+      stdout: join(runDir, "logs", "worker.jsonl"),
+      stderr: join(runDir, "logs", "worker.err"),
+    },
+    phase: "worker",
+    workspace: worktree.path,
+    onInvocation: () => {},
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    await detectStalls(contract, new Map([["build", job]]), async () => {});
+    const sealedSha = state.worktree?.sealedSha;
+    assert.ok(sealedSha, "the timeout sealed a non-empty attempt");
+    assert.equal(git(repo, ["show", `${sealedSha}:README.md`]), "ordered-seal", "the seal holds the work as it was before the kill");
+    assert.equal(existsSync(join(worktree.path, "README.md")), false, "the provider's SIGTERM handler deleted the live file after the seal, proving the seal landed first");
+  } finally {
+    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
+    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    try { await terminateInvocation(job.invocation, { graceMs: 25, killGraceMs: 500 }); } catch {}
+    removeWorktree(repo, worktree.path);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// done-when 5 and 6: tool events reset the stall clock; silence still stalls.
+// ---------------------------------------------------------------------------
+
+test("done-when 5: a tool event resets the stall clock even though no workspace file was written", async () => {
+  const job = stallJob(`${JSON.stringify({ type: "item.completed", item: { type: "tool_call" } })}\n`, { id: "luna", harness: "codex", model: "test", stallTimeoutSec: 0.2 });
+  job.observedOnce = true;
+  job.lastEventCount = 0;
+  ageProgress(job, 500);
+  /** @type {unknown} */
+  let timeout;
+  await detectStalls(/** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300 }), new Map([["build", job]]), async (_job, _status, error) => { timeout = error; });
+  assert.equal(timeout, undefined, "the freshly observed tool event is progress, so the attempt is not stalled");
+});
+
+test("done-when 6: after a tool event, silence longer than the runtime threshold still stalls", async () => {
+  const job = stallJob(`${JSON.stringify({ type: "item.completed", item: { type: "tool_call" } })}\n`, { id: "luna", harness: "codex", model: "test", stallTimeoutSec: 0.2 });
+  job.observedOnce = true;
+  job.lastEventCount = 1;
+  ageProgress(job, 500);
+  /** @type {{code: string}|undefined} */
+  let timeout;
+  await detectStalls(/** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300 }), new Map([["build", job]]), async (_job, _status, error) => { timeout = error; });
+  assert.equal(timeout?.code, "stall_timeout", "a first tool event must not disable stall detection forever");
+});
+
+// ---------------------------------------------------------------------------
+// done-when 7: per-runtime thresholds, their validation, fallback, and zcode.
+// ---------------------------------------------------------------------------
+
+test("done-when 7: a runtime's stallTimeoutSec is validated, falls back to the contract, and gives zcode a concrete value that stalls it", async () => {
+  const zcode = validateRuntime("zcode-glm", { harness: "zcode", model: "glm-5.3" });
+  assert.equal(HARNESS_STALL_TIMEOUT_SEC.zcode, 1_800, "the declared zcode value is concrete");
+  assert.equal(zcode.stallTimeoutSec, 1_800, "zcode carries its declared threshold");
+  assert.equal(stallTimeoutSecFor(zcode, /** @type {any} */ ({ stallTimeoutSec: 300 })), 1_800, "a runtime's own value outranks the contract");
+  assert.equal(stallTimeoutSecFor({ id: "luna", harness: "codex", model: "m" }, /** @type {any} */ ({ stallTimeoutSec: 300 })), 300, "an absent value falls back to the contract");
+  assert.throws(() => validateRuntime("bad", { harness: "codex", model: "m", stallTimeoutSec: 0 }), /stallTimeoutSec/u);
+  assert.throws(() => validateRuntime("bad", { harness: "codex", model: "m", stallTimeoutSec: Number.NaN }), /stallTimeoutSec/u);
+
+  // zcode declares no streamed output, so it is stall-tracked only because its
+  // runtime carries the threshold above.
+  const job = stallJob("", { id: "zcode-glm", harness: "zcode", model: "glm-5.3", stallTimeoutSec: zcode.stallTimeoutSec });
+  job.observedOnce = true;
+  ageProgress(job, (zcode.stallTimeoutSec + 1) * 1_000);
+  /** @type {{code: string}|undefined} */
+  let timeout;
+  await detectStalls(/** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300 }), new Map([["build", job]]), async (_job, _status, error) => { timeout = error; });
+  assert.equal(timeout?.code, "stall_timeout", "zcode is stalled by its own declared value");
+});
+
+// ---------------------------------------------------------------------------
+// done-when 8: the tier-exhaustion hold is capped and its post-cap transition named.
+// ---------------------------------------------------------------------------
+
+/**
+ * @param {"worker"|"judge"} role
+ * @param {string|null} heldSince
+ * @returns {any}
+ */
+function tierBlockedState(role, heldSince) {
+  return {
+    id: "build",
+    status: "blocked",
+    phase: role,
+    updatedAt: heldSince,
+    error: { code: "runtime_tier_exhausted", message: "no available runtime remains in tier 1" },
+    routing: {
+      history: [],
+      currentOverride: null,
+      assignments: { worker: "a", judge: "b" },
+      tierExhaustionCycle: 0,
+      tierExhaustion: { role, candidates: [{ runtimeId: "a", exhaustedUntil: null }] },
+    },
+  };
+}
+
+test("done-when 8: the tier-exhaustion hold is capped at its declared value, raises attention, and re-dispatches", () => {
+  assert.ok(Number.isFinite(TIER_EXHAUSTION_HOLD_CAP_MS) && TIER_EXHAUSTION_HOLD_CAP_MS > 0, "the cap is a declared positive number");
+  const contract = { nodes: [{ id: "build" }] };
+  const capped = tierBlockedState("worker", new Date(Date.now() - TIER_EXHAUSTION_HOLD_CAP_MS - 1_000).toISOString());
+  const cappedPlan = planResumeRetry(contract, new Map([["build", capped]]), {});
+  assert.equal(cappedPlan.actions.get("build"), "retry", "the named post-cap transition re-dispatches on the current runtime");
+  assert.equal(cappedPlan.attention.length, 1, "exceeding the cap raises attention");
+  assert.equal(cappedPlan.attention[0]?.reason, TIER_EXHAUSTION_CAP_REASON, "the cap names the post-cap transition explicitly");
+
+  const cappedJudge = tierBlockedState("judge", new Date(Date.now() - TIER_EXHAUSTION_HOLD_CAP_MS - 1_000).toISOString());
+  assert.equal(planResumeRetry(contract, new Map([["build", cappedJudge]]), {}).actions.get("build"), "rejudge", "a judge-tier cap rejudges rather than re-running the worker");
+
+  const fresh = tierBlockedState("worker", new Date().toISOString());
+  assert.equal(planResumeRetry(contract, new Map([["build", fresh]]), {}).actions.get("build"), "hold", "a node under the cap still holds");
+});
+
+// ---------------------------------------------------------------------------
+// done-when 9: the two stall spellings are one condition, outside failover.
+// ---------------------------------------------------------------------------
+
+test("done-when 9: stall_timeout and progress_stalled are unified and both leave NON_FAILOVER_CODES", () => {
+  for (const code of ["stall_timeout", "progress_stalled"]) {
+    assert.equal(isTimeoutOrStall({ code, message: code }), true, `${code} is a node deadline, never a dropped socket`);
+    assert.equal(NON_FAILOVER_CODES.has(code), false, `${code} must be eligible for the failover that follows its one auto_retry`);
+  }
+  assert.equal(NON_FAILOVER_CODES.has("wall_clock_timeout"), false, "the wall-clock deadline left NON_FAILOVER_CODES too");
+});

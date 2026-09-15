@@ -26,11 +26,14 @@ import { nextSameTierRuntime } from "./runtime-discovery.mjs";
 
 /**
  * A node whose failure is the run's own doing never fails over: it already
- * spent the budget the edge would be charged against.
+ * spent the budget the edge would be charged against. The two attempt deadlines
+ * are deliberately absent — an attempt that timed out is worth the same
+ * failover hop any other transient failure is, once phase 2's single
+ * `auto_retry` on the runtime it already warmed is spent.
  */
 export const NON_FAILOVER_CODES = new Set([
-  "revision_cap", "verification_failed", "budget_exceeded", "wall_clock_timeout",
-  "progress_stalled", "cancellation", "unexpected_write", "scope_violation",
+  "revision_cap", "verification_failed", "budget_exceeded",
+  "cancellation", "unexpected_write", "scope_violation",
   "permission_denied", "permission_required", "authority_denied", "authority_required",
   "authorization_required", "authentication_failed", "budget_attention", "cost_budget_exceeded",
   "token_budget_exceeded", "rollout_budget_exhausted",
@@ -51,6 +54,11 @@ export const NETWORK_BACKOFF_CAP_MS = 120_000;
  * "timeout" or "reset", so they are excluded by code before any message is
  * read — otherwise a node that died on its own deadline would be handed three
  * more waits and die on it again.
+ *
+ * `progress_stalled` is the legacy spelling of `stall_timeout` — recovery now
+ * emits `stall_timeout`, so the two name one condition. It is kept recognized
+ * so a snapshot persisted before the unification is still classified as the
+ * node's own deadline rather than a dropped socket.
  */
 const NODE_DEADLINE_CODES = new Set([
   "wall_clock_timeout", "progress_stalled", "stall_timeout", "progress_snapshot_invalid",

@@ -510,11 +510,11 @@ function validateProgressState(value, label) {
  */
 function validateWorktreeState(value, label) {
   assertObject(value, label);
-  rejectUnknown(value, new Set(["status", "path", "branch", "commit", "baseSha", "previousAttempt"]), label);
+  rejectUnknown(value, new Set(["status", "path", "branch", "commit", "baseSha", "sealedSha", "sealError", "previousAttempt"]), label);
   if (!["unassigned", "provisioning", "ready", "failed", "removed"].includes(/** @type {string} */ (value.status))) {
     throw new TypeError(`${label}.status is invalid`);
   }
-  for (const [key, maxBytes] of /** @type {[string, number][]} */ ([['path', 4096], ['branch', 512], ['commit', 256], ['baseSha', 256]])) {
+  for (const [key, maxBytes] of /** @type {[string, number][]} */ ([['path', 4096], ['branch', 512], ['commit', 256], ['baseSha', 256], ['sealedSha', 256], ['sealError', 1024]])) {
     if (value[key] !== undefined && value[key] !== null) boundedString(value[key], `${label}.${key}`, maxBytes);
   }
   if (value.previousAttempt !== undefined && value.previousAttempt !== null) positiveInteger(value.previousAttempt, `${label}.previousAttempt`);

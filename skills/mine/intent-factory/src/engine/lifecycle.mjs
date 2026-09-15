@@ -154,9 +154,9 @@ export function terminalErrorCode(state) {
 export const AUTO_RETRY_CODES = new Set(["judge_unavailable", "provider_error", "stall_timeout", "wall_clock_timeout"]);
 
 /**
- * Timeout codes, whose positive retry case exists only once phase 5b seals the
- * attempt before the kill. Nothing seals yet, so an empty seal parks them here
- * and the auto-retry is asserted where a production seal exists.
+ * Timeout codes earn their automatic retry only when phase 5b sealed work
+ * before the kill: the seal is what the next attempt is cut from, so an empty
+ * one means there is nothing worth re-dispatching and the node parks.
  */
 const AUTO_RETRY_TIMEOUT_CODES = new Set(["stall_timeout", "wall_clock_timeout"]);
 
@@ -213,8 +213,9 @@ function carriesQuotaReset(state) {
 
 /**
  * A phase 5b attempt seal persisted on the worktree, or false while no seal
- * exists. The property is deliberately read off the record, never assumed, so
- * the timeout codes park today and retry once 5b writes one.
+ * exists. `sealBeforeTerminate` writes `sealedSha` only for a non-empty seal,
+ * so an attempt that timed out with nothing to preserve parks exactly as it
+ * did before the hook existed.
  *
  * @param {NodeSnapshot} state @returns {boolean}
  */
