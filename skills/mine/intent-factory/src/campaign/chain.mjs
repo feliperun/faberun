@@ -36,7 +36,7 @@ import { assertContractManifestIntact, parkCampaign, promoteRunInCampaign } from
 import { readCampaign } from "./record.mjs";
 import { contractDigest, validateContract } from "../contract/index.mjs";
 import { defaultControllerIdentity, verifyControllerIdentity } from "../engine/run-identity.mjs";
-import { HEARTBEAT_INTERVAL_MS, createHeartbeat, heartbeatBreach, readHeartbeat, runProgress } from "../engine/supervise.mjs";
+import { HEARTBEAT_INTERVAL_MS, createHeartbeat, groupAlive, heartbeatBreach, readHeartbeat, runProgress, waitForGroupGone } from "../engine/supervise.mjs";
 import { pidAlive, processStartToken } from "../run/lock.mjs";
 import { delay, errorCode, errorMessage } from "../util.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
@@ -127,17 +127,6 @@ export function releaseCoordinatorLock(campaignPath, record) {
   }
 }
 
-/** @param {number} pid @returns {boolean} */
-function groupAlive(pid) {
-  if (process.platform === "win32" || !Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(-pid, 0);
-    return true;
-  } catch (error) {
-    return errorCode(error) === "EPERM";
-  }
-}
-
 /** @param {number} pid @param {string} signal */
 function groupKill(pid, signal) {
   try {
@@ -153,13 +142,6 @@ function groupKill(pid, signal) {
   } catch (error) {
     if (errorCode(error) !== "ESRCH") throw error;
   }
-}
-
-/** @param {number} pid @param {(pid: number) => boolean} alive @param {number} graceMs @param {(ms: number) => Promise<void>} sleep @param {() => number} now */
-async function waitForGroupGone(pid, alive, graceMs, sleep, now) {
-  const deadline = now() + graceMs;
-  while (alive(pid) && now() < deadline) await sleep(Math.max(1, Math.min(250, deadline - now())));
-  return !alive(pid);
 }
 
 /**

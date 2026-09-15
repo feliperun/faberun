@@ -468,7 +468,7 @@ export function controllerAlive(runDir, options = {}) {
  * @param {number} pid
  * @returns {boolean}
  */
-function groupAlive(pid) {
+export function groupAlive(pid) {
   if (process.platform === "win32" || !Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(-pid, 0);
@@ -482,7 +482,7 @@ function groupAlive(pid) {
  * @param {number} pid @param {(pid: number) => boolean} alive @param {number} graceMs @param {(ms: number) => Promise<void>} sleep @param {() => number} now
  * @returns {Promise<boolean>}
  */
-async function waitForGroupGone(pid, alive, graceMs, sleep, now) {
+export async function waitForGroupGone(pid, alive, graceMs, sleep, now) {
   const deadline = now() + graceMs;
   while (alive(pid) && now() < deadline) await sleep(Math.max(1, Math.min(250, deadline - now())));
   return !alive(pid);
