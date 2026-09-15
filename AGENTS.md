@@ -80,6 +80,8 @@ When this file governs anything in production:
 <!-- intent-factory-active:start (managed by intent-factory — read, never edit) -->
 Before starting new work here, check `.runs/`: if a campaign is active or a run is not terminal, continue it instead of starting over — read its `HANDOFF.md`/`STATUS.md`, attach to the campaign, and `resume` or `supervise` the run. Active runs are supervised by a deterministic detached process: do not poll `status` in a loop — on resume, check status once and act only on terminal states.
 
+- intent-factory campaign `become-faberun`: active — read `.runs/campaigns/become-faberun/HANDOFF.md`
+  - attention: run factory-autonomy-p6-20260914 needs you · verification_failed
 - intent-factory run `factory-autonomy-p2-20260914`: parked — `parked-not-finished:failed unexpected_write` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/factory-autonomy-p2-20260914`
 - intent-factory run `factory-autonomy-p3a-20260914`: parked — `chain-plumbing:failed judge_prompt_too_large` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/factory-autonomy-p3a-20260914`
 - intent-factory run `factory-autonomy-p6-20260914`: parked — `spend-less-per-node:exhausted verification_failed` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/factory-autonomy-p6-20260914`
