@@ -271,6 +271,11 @@ test("a duration advisory is delivered through the inbox, never kills the node, 
   const refired = await emitNodeAdvisory(result.runDir, "test-campaign", state, { kind: "duration", threshold: 0, value: 1 });
   assert.equal(refired, false, "a restarted controller reads the receipt and does not re-fire");
   assert.equal(readFileSync(join(runsDir, "inbox.jsonl"), "utf8").trim().split("\n").length, 1);
+  // The one-shot is per node per threshold, not per node per kind: a raised
+  // ceiling is a new crossing and must not be silenced by the old receipt.
+  const reThresholded = await emitNodeAdvisory(result.runDir, "test-campaign", state, { kind: "duration", threshold: 120, value: 150 });
+  assert.equal(reThresholded, true, "a different threshold is a new one-shot key");
+  assert.equal(readFileSync(join(runsDir, "inbox.jsonl"), "utf8").trim().split("\n").length, 2);
 });
 
 test("cost advisories fire once when a new usage record arrives, with a null cost never crossing", async () => {

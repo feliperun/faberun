@@ -113,6 +113,12 @@ export function nodeAdvisoryCrossings(state, policy, now = Date.now()) {
  * `appendInbox` refuses a key already in `inbox.jsonl`, so a restart cannot
  * re-fire and two writers cannot double-send.
  *
+ * The key names the threshold, not just the kind: the contract declares one
+ * cost and one duration ceiling today, but a raised (or lowered) ceiling is a
+ * different one-shot, and a kind-only key would silence the new crossing
+ * forever. The threshold is part of the key so "one-shot per node per
+ * threshold" stays true if the configured value moves.
+ *
  * @param {string} runDir
  * @param {string} campaignId
  * @param {{id: string}} state
@@ -121,7 +127,7 @@ export function nodeAdvisoryCrossings(state, policy, now = Date.now()) {
  */
 export async function emitNodeAdvisory(runDir, campaignId, state, crossing) {
   const runId = basename(runDir);
-  const dedupeKey = `node.advisory:${runId}:${state.id}:${crossing.kind}`;
+  const dedupeKey = `node.advisory:${runId}:${state.id}:${crossing.kind}:${crossing.threshold}`;
   if (alreadyNotified(runDir, dedupeKey)) return false;
   const summary = crossing.kind === "cost"
     ? `node ${state.id} crossed its advisory cost ${compactCost(crossing.threshold)} (recorded ${compactCost(crossing.value)}) · run ${runId}`
