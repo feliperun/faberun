@@ -267,7 +267,7 @@ test("resume judge recovery surfaces an invalid canonical result file", async ()
   assert.equal(state.status, "failed", "the transcript result must not be adopted through judge recovery");
   assert.equal(state.result, null);
   assert.equal(state.revisions, 1, "the invalid durable record consumed the gate revision");
-  assert.equal((state.invocations ?? []).length, 3, "the revision retried the worker exactly once");
+  assert.equal((state.invocations ?? []).length, 4, "the revision retried the worker once, then the one automatic retry");
 });
 
 test("resume of an interrupted result materialization adopts the file with strict scope", async () => {

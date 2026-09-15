@@ -297,7 +297,7 @@ test("resume retries a failed node as attempt 2 with a bounded previous attempt 
   }));
   const failed = await withFakeCodex(directory, "worker-fail", () => runContract(path));
   assert.equal(nodeState(failed).status, "failed");
-  assert.equal(nodeState(failed).attempt, 1);
+  assert.equal(nodeState(failed).attempt, 2, "the provider failure spent its one automatic retry");
   // A provider-level failure never reaches verification; patch in the shape a
   // real declared-command failure would have persisted, to prove the section
   // names the failing command when one is on disk.
@@ -313,11 +313,11 @@ test("resume retries a failed node as attempt 2 with a bounded previous attempt 
   const provider = promptLoggingCodex(directory);
   const resumed = await withCodexBinary(provider.executable, () => resumeRun(failed.runDir));
   const after = nodeState(resumed);
-  assert.equal(after.attempt, 2, "the retry is attempt plus one");
+  assert.equal(after.attempt, 3, "the retry is attempt plus one");
   assert.equal(after.revisions, 0, "the gate-rejection counter is not touched by a retry");
   const section = /** @type {string} */ (after.previousAttempt);
   assert.ok(section.startsWith("## Previous attempt"), "the section carries the heading");
-  assert.match(section, /Attempt 1 failed; this is attempt 2/u);
+  assert.match(section, /Attempt 2 failed; this is attempt 3/u);
   assert.match(section, /Error: provider_error/u);
   assert.match(section, /Failing verification:\n- false/u, "the failing verification command is named");
   assert.ok(Buffer.byteLength(section, "utf8") <= 8 * 1024, "the whole section stays within 8 KiB");
@@ -359,7 +359,7 @@ test("resume retries a dependency_failed node once its dependency is retried", a
   const resumed = await withFakeCodex(directory, "pass", () => resumeRun(failed.runDir));
   assert.equal(resumed.ok, true);
   assert.equal(nodeState(resumed, "first").status, "done");
-  assert.equal(nodeState(resumed, "first").attempt, 2);
+  assert.equal(nodeState(resumed, "first").attempt, 3);
   assert.equal(nodeState(resumed, "second").status, "done");
   assert.equal(nodeState(resumed, "second").attempt, 1, "the dependant is dispatched for its first attempt");
   assert.equal(nodeState(resumed, "second").previousAttempt, undefined, "a node that never ran carries no failure");

@@ -6,7 +6,7 @@
  * with no event recorded for it, and the campaign readers project from events.
  */
 import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
-import { TERMINAL } from "./prompts.mjs";
+import { SETTLED } from "./prompts.mjs";
 import { appendJsonl } from "../run/store.mjs";
 import { excerpt } from "../util.mjs";
 import { hasOperationSettlement, operationNextState, settleInvocation } from "../run/operations.mjs";
@@ -40,7 +40,7 @@ export function transition(runDir, state, status, patch = {}, lock = null) {
     settleInvocation(runDir, invocation, { nextState: operationNextState(state) });
   }
   appendTransitionEvent(runDir, state, from, status, {}, lock);
-  if (TERMINAL.has(status)) {
+  if (SETTLED.has(status)) {
     const note = state.gate?.summary ?? resultSummary(state.result) ?? state.error?.message;
     process.stdout.write(`[node] ${state.id} ${status}${note ? ` · ${note}` : ""}\n`);
   }

@@ -7,7 +7,7 @@
  * `resolveUnknownEffect` decides whether an invocation whose effect is unproven
  * may be replayed at all, and a dirty scope there is a refusal.
  */
-import { TERMINAL } from "./prompts.mjs";
+import { SETTLED } from "./prompts.mjs";
 import { appendTransitionEvent, recordExecutionOverride, transition, writeNode } from "./state.mjs";
 import { attemptWorkspace } from "../repo/worktree.mjs";
 
@@ -125,7 +125,7 @@ export function checkWorkerScope(contract, runDir, job, lock, options = {}) {
     if (options.deferViolation) return true;
     const shown = bounded.unexpectedPaths.slice(0, 8).join(", ");
     const message = `unexpected paths changed (${scope.unexpectedPaths.length}): ${shown}`;
-    if (!TERMINAL.has(state.status)) {
+    if (!SETTLED.has(state.status)) {
       transition(runDir, state, "failed", { phase: "worker", error: { code: "unexpected_write", message: excerpt(message) } }, lock);
       appendTransitionEvent(runDir, state, "failed", "failed", {
         unexpectedPaths: bounded.unexpectedPaths,
@@ -135,7 +135,7 @@ export function checkWorkerScope(contract, runDir, job, lock, options = {}) {
     return false;
   } catch (error) {
     job.scopeViolation = true;
-    if (!TERMINAL.has(state.status)) {
+    if (!SETTLED.has(state.status)) {
       transition(runDir, state, "failed", { phase: "worker", error: { code: /** @type {string} */ (errorCode(error) ?? "scope_snapshot_invalid"), message: excerpt(errorMessage(error)) } }, lock);
     }
     return false;

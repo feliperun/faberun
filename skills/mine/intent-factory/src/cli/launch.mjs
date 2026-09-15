@@ -11,7 +11,7 @@
  * child that dies before taking the lock leaves nothing behind unless it writes
  * why, and the launcher is already gone by then.
  */
-import { TERMINAL } from "../engine/prompts.mjs";
+import { SETTLED } from "../engine/prompts.mjs";
 import { bootstrapAckPath, bootstrapAttemptPath, bootstrapPath, cleanupBootstrapAttempts, readJson, writeJsonAtomic } from "../run/store.mjs";
 import { bootstrapFailureMatchesChild, bootstrapMatchesChild, processStartToken, readLock, sameProcessStartToken, validBootstrapNonce } from "../run/lock.mjs";
 import { cleanupBootstrapNonce } from "../engine/detach.mjs";
@@ -149,7 +149,7 @@ export function runIsNonterminal(runDir) {
     const contractPath = join(runDir, "contract.json");
     const contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath, { persisted: true });
     const nodes = readRunNodes(runDir, contract);
-    return nodes.length > 0 && nodes.some((node) => !TERMINAL.has(node.status));
+    return nodes.length > 0 && nodes.some((node) => !SETTLED.has(node.status));
   } catch (error) {
     if (errorCode(error) === "ENOENT") return false;
     throw error;

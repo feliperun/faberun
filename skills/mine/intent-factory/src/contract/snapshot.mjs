@@ -50,7 +50,7 @@ export function validateRunMetadata(value, options = {}) {
   rejectUnknown(value, new Set([
     "schemaVersion", "contractVersion", "pid", "processStartToken", "startedAt", "sourceIdentity",
     "identityWarnings", "integrationRef", "relaunchCount", "lastRelaunchProgressAt", "attention",
-    "contractDigest", "scopeDecision",
+    "contractDigest", "scopeDecision", "autoRetries",
   ]), "run metadata");
   validateMetadata(value, "run metadata");
   requireInteger(value.pid, "run metadata.pid");
@@ -93,6 +93,18 @@ export function validateRunMetadata(value, options = {}) {
     requireTimestamp(scopeDecision.at, "run metadata.scopeDecision.at");
     if (scopeDecision.base !== null) requireString(scopeDecision.base, "run metadata.scopeDecision.base");
     if (scopeDecision.dirtyTreeFingerprint !== null) requireString(scopeDecision.dirtyTreeFingerprint, "run metadata.scopeDecision.dirtyTreeFingerprint");
+  }
+  // The one-shot automatic-retry ledger: node id to the code it retried and
+  // when. It lives in run.json so a controller restart cannot grant a second.
+  if (value.autoRetries !== undefined) {
+    assertObject(value.autoRetries, "run metadata.autoRetries");
+    for (const [nodeId, entry] of Object.entries(/** @type {JsonObject} */ (value.autoRetries))) {
+      requireId(nodeId, "run metadata.autoRetries node id");
+      assertObject(entry, `run metadata.autoRetries.${nodeId}`);
+      rejectUnknown(/** @type {JsonObject} */ (entry), new Set(["code", "at"]), `run metadata.autoRetries.${nodeId}`);
+      requireString(/** @type {JsonObject} */ (entry).code, `run metadata.autoRetries.${nodeId}.code`);
+      requireTimestamp(/** @type {JsonObject} */ (entry).at, `run metadata.autoRetries.${nodeId}.at`);
+    }
   }
   if (options.requireSourceIdentity) validateCompleteSourceIdentity(/** @type {JsonObject} */ (value.sourceIdentity));
   return /** @type {RunMetadata} */ (value);

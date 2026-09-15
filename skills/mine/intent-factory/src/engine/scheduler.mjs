@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { syncAgentSignal } from "../repo/signal.mjs";
-import { JUDGE_SCHEMA, TERMINAL, retryPrompt } from "./prompts.mjs";
+import { JUDGE_SCHEMA, PARKED, SETTLED, retryPrompt } from "./prompts.mjs";
 import {
   applyJudgeProtocolFailure,
   applyJudgeRound,
@@ -25,6 +25,8 @@ import { registerRun, resolveCampaign } from "../campaign/index.mjs";
 import { createRunRef, runRefName } from "../repo/worktree.mjs";
 import { bootstrapNonceForProcess, waitForBootstrapAcknowledgement } from "./detach.mjs";
 import {
+  autoRetryNode,
+  autoRetryParkedNodes,
   finalizeClosedJobs,
   terminalErrorCode,
 } from "./lifecycle.mjs";
@@ -228,7 +230,9 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
     ...resume,
     ...(persistedMetadata.relaunchCount !== undefined ? { relaunchCount: /** @type {number} */ (persistedMetadata.relaunchCount) } : {}),
     ...(persistedMetadata.lastRelaunchProgressAt !== undefined ? { lastRelaunchProgressAt: /** @type {string|null} */ (persistedMetadata.lastRelaunchProgressAt) } : {}),
-    ...(persistedMetadata.attention !== undefined ? { attention: /** @type {{code: string, message: string, at: string}|null} */ (persistedMetadata.attention) } : {}),
+    // A resume that actually changed node state may clear attention by passing
+    // `attention: null`; only then does the persisted record lose.
+    ...(persistedMetadata.attention !== undefined && resume.attention === undefined ? { attention: /** @type {{code: string, message: string, at: string}|null} */ (persistedMetadata.attention) } : {}),
   }, runRefName(contract.id));
   writeJsonAtomic(join(runDir, "run.json"), runMetadata);
   writeJsonAtomic(bootstrapPath(runDir), {
@@ -277,7 +281,7 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
     if (fingerprint === notificationFingerprint) return;
     notificationFingerprint = fingerprint;
     for (const state of states.values()) {
-      if (!TERMINAL.has(state.status)) continue;
+      if (!SETTLED.has(state.status)) continue;
       const runId = basename(runDir);
       const dedupeKey = `node.terminal:${runId}:${state.id}:${state.status}:${state.attempt ?? 0}:${state.revisions ?? 0}`;
       if (alreadyNotified(runDir, dedupeKey)) continue;
@@ -313,7 +317,7 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
     .filter((state) => state.status === "running" && heartbeatNodes.has(state.id))
     .map((state) => ({ nodeId: state.id, budgetBasis: nodeBudgetBasisMs(contract, /** @type {ValidatedNode} */ (heartbeatNodes.get(state.id))) }));
   try {
-    while ([...states.values()].some((state) => !TERMINAL.has(state.status))) {
+    while ([...states.values()].some((state) => !SETTLED.has(state.status))) {
       lock.assert();
       if (existsSync(join(runDir, "cancel.request.json"))) canceled = true;
       if (canceled) {
@@ -335,11 +339,12 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
         }
         running.clear();
         for (const state of states.values()) {
-          if (!TERMINAL.has(state.status)) transition(runDir, state, "canceled", { phase: "canceled" }, lock);
+          if (!SETTLED.has(state.status)) transition(runDir, state, "canceled", { phase: "canceled" }, lock);
         }
         break;
       }
 
+      const parkedBefore = new Set([...states.values()].filter((state) => PARKED.has(state.status)).map((state) => state.id));
       await finalizeClosedJobs(contract, runDir, states, running, lock, campaign.path);
       await detectStalls(contract, running, async (job, status, error) => {
         const envelope = recordInvocationUsage(job);
@@ -373,10 +378,18 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
           await applyJudgeProtocolFailure(contract, job.node, job.state, runDir, running, lock, states, campaign.path, error.message);
           return;
         }
+        // A timeout whose attempt seal is non-empty earns the one automatic
+        // retry (phase 5b supplies the seal); with no seal it parks here.
+        if (autoRetryNode(runDir, job.state, error.code, lock)) return;
         transition(runDir, job.state, status, { phase: job.phase, error }, lock);
       }, async (job) => {
         writeNode(runDir, job.state, lock);
       });
+      // Before dependants are blocked, a node that parked on this tick gets
+      // its one automatic retry: it becomes pending, so `blockDependents` sees
+      // nothing to block and the dependants stay `pending`/`phase: "waiting"`
+      // until it parks for good.
+      autoRetryParkedNodes(contract, runDir, states, lock, parkedBefore);
       blockDependents(contract, runDir, states, lock);
 
       const slots = contract.maxParallel - running.size;
@@ -419,7 +432,7 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
         }
       }
       heartbeat.setActive(activeHeartbeatNodes());
-      if ([...states.values()].some((state) => !TERMINAL.has(state.status))) await delay(contract.pollIntervalMs);
+      if ([...states.values()].some((state) => !SETTLED.has(state.status))) await delay(contract.pollIntervalMs);
     }
   } catch (error) {
     if (!(error instanceof LockLostError)) throw error;

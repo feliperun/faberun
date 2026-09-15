@@ -641,7 +641,7 @@ test("preserves the worker report when the judge provider fails", async () => {
   assert.equal(state.status, "blocked", `unexpected status: ${state.status} ${state.error?.message ?? ""}`);
   assert.equal(state.phase, "judge");
   assert.equal(state.error?.code, "judge_unavailable");
-  assert.equal((state.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 2, "one bounded judge retry before blocking");
+  assert.equal((state.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 3, "the bounded judge retry plus the one automatic retry before blocking");
   assert.equal(/** @type {{summary: string}} */ (state.result).summary, "worker complete");
 });
 
@@ -660,7 +660,7 @@ test("a judge whose tool host is disabled never yields a verdict and blocks as j
   assert.match(state.error?.message ?? "", /code-mode host is disabled/u);
   assert.equal(state.gate, null, "no fabricated verdict is ever adopted");
   const judgeInvocations = (state.invocations ?? []).filter((invocation) => invocation.phase === "judge");
-  assert.equal(judgeInvocations.length, 2, "exactly one bounded judge retry after the first tool-host failure");
+  assert.equal(judgeInvocations.length, 3, "the bounded judge retry plus the one automatic retry after the first tool-host failure");
   assert.ok(notifications(result.runDir).some((event) => event.type === "attention" && event.errorCode === "judge_unavailable"));
 });
 

@@ -144,12 +144,28 @@ test("a run directory with no snapshots yet is unknown, not unfinished", () => {
   assert.equal(progress.total, 0);
 });
 
-test("progress counts terminal nodes and reports done only when every node is terminal", () => {
+test("progress counts settled nodes and reports done only when every node is settled", () => {
   const runDir = makeRunDir();
   writeNodes(runDir, { alpha: "done", beta: "running" });
-  assert.deepEqual(runProgress(runDir), { state: "unfinished", total: 2, terminal: 1 });
+  assert.deepEqual(runProgress(runDir), {
+    state: "unfinished",
+    total: 2,
+    terminal: 1,
+    runOutcome: "parked",
+    outcomeNodes: [{ id: "beta", status: "running", errorCode: null }],
+  });
   writeNodes(runDir, { alpha: "done", beta: "blocked" });
-  assert.deepEqual(runProgress(runDir), { state: "done", total: 2, terminal: 2 }, "blocked is terminal: there is nothing left to drive");
+  assert.deepEqual(
+    runProgress(runDir),
+    {
+      state: "done",
+      total: 2,
+      terminal: 2,
+      runOutcome: "parked",
+      outcomeNodes: [{ id: "beta", status: "blocked", errorCode: null }],
+    },
+    "a parked node is settled but not successful: the run reports parked, not done",
+  );
 });
 
 test("a torn snapshot is unknown rather than a reason to relaunch", () => {

@@ -5,15 +5,34 @@ import { JUDGE_ENVELOPE_REASON, JUDGE_FINDING_ENVELOPE_REASON, JUDGE_LIMITS } fr
 /** @typedef {{id: string, definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], taskPacket: {mode?: "execution"|"discovery"|"autonomous", objective: string, instructions: string[], writeFiles?: string[], writeRoots?: string[], verification: {argv: string[]}[]}}} JudgeNode */
 /** @typedef {{verdict: "pass"|"fail"|"invalid_judge_output", maxSeverity: "none"|"minor"|"major"|"critical", summary: string, findings: {severity: "minor"|"major"|"critical", description: string, evidence: string}[]}} JudgeVerdict */
 
+/**
+ * A node whose work is over and whose outcome needs nothing more from the
+ * controller: success or an explicit cancellation.
+ */
 export const TERMINAL = new Set([
   "done",
   "no-op",
+  "canceled",
+]);
+
+/**
+ * A node that stopped without succeeding and cannot proceed by itself. Parking
+ * is not finishing: the run needs attention, not a "done" report. Kept apart
+ * from `TERMINAL` so the watchdog can tell the two apart instead of returning
+ * the moment every node has stopped.
+ */
+export const PARKED = new Set([
   "blocked",
   "failed",
   "exhausted",
   "stalled",
-  "canceled",
 ]);
+
+/** Every status a node never leaves on its own: terminal plus parked. */
+export const SETTLED = new Set([...TERMINAL, ...PARKED]);
+
+/** The statuses that count as a node's success. */
+export const SUCCESS = new Set(["done", "no-op"]);
 
 export const JUDGE_SCHEMA = {
   type: "object",

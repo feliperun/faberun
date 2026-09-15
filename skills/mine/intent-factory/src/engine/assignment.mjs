@@ -7,7 +7,7 @@
  * `blockDependents` walks the DAG forward from a terminal failure so a node
  * whose dependency died never dispatches at all.
  */
-import { TERMINAL } from "./prompts.mjs";
+import { PARKED } from "./prompts.mjs";
 import { composeAssignments, discoverRuntimes } from "./runtime-discovery.mjs";
 import { transition } from "./state.mjs";
 
@@ -52,7 +52,10 @@ export function blockDependents(contract, runDir, states, lock) {
     const state = states.get(node.id);
     if (!state) continue;
     if (state.status !== "pending") continue;
-    const blockedBy = node.dependsOn.filter((id) => TERMINAL.has(states.get(id)?.status ?? "") && states.get(id)?.status !== "done");
+    // Only a parent that has parked blocks its dependants. A parent whose
+    // automatic retry is still unspent is re-opened to `pending` before this
+    // runs, so the dependants stay `pending`/`phase: "waiting"` until it parks.
+    const blockedBy = node.dependsOn.filter((id) => PARKED.has(states.get(id)?.status ?? ""));
     if (blockedBy.length) transition(runDir, state, "blocked", { phase: "dependency", blockedBy, error: { code: "dependency_failed", message: `blocked by ${blockedBy.join(", ")}` } }, lock);
   }
 }

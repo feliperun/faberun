@@ -31,14 +31,16 @@
  * The `launch` and `sleep` seams are injected so a test can drive the loop
  * deterministically without spawning a process or waiting out an interval.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { TERMINAL } from "./prompts.mjs";
+import { SETTLED, SUCCESS } from "./prompts.mjs";
 import { earliestTierReset } from "./retry.mjs";
 import { lockStale, pidAlive, readLock } from "../run/lock.mjs";
 import { listNodeSnapshots, readNodeSnapshot } from "../run/node-store.mjs";
 import { readJson, writeJsonAtomic } from "../run/store.mjs";
 import { delay, errorCode, errorMessage } from "../util.mjs";
+import { loadPersistedContract } from "../contract/index.mjs";
+import { emitScheduledAttention } from "./notify-queue.mjs";
 
 /** What `--interval` defaults to, in seconds: often enough that a dead controller costs a minute of wall clock, rare enough to be free. */
 export const DEFAULT_SUPERVISE_INTERVAL_SEC = 30;
@@ -81,7 +83,8 @@ export const DEFAULT_TERMINATE_GRACE_MS = 5_000;
 export const DEFAULT_TERMINATE_KILL_GRACE_MS = 5_000;
 
 /**
- * @typedef {{state: "done"|"unfinished"|"waiting"|"unknown", total: number, terminal: number, reason?: string, waitingUntil?: string}} RunProgress
+ * @typedef {{state: "done"|"unfinished"|"waiting"|"unknown", total: number, terminal: number, reason?: string, waitingUntil?: string, runOutcome?: "succeeded"|"parked"|"waiting"|"canceled", outcomeNodes?: OutcomeNode[]}} RunProgress
+ * @typedef {{id: string, status?: string, errorCode?: string|null, message?: string, waitingUntil?: string}} OutcomeNode
  * @typedef {{nodeId: string, lastProgressAt: string, budgetBasis: number}} HeartbeatNode
  * @typedef {{at: string, lastProgressAt: string, iteration: number, activeNodes: HeartbeatNode[], phase?: string, until?: string}} HeartbeatRecord
  * @typedef {{kind: "at"|"node"|"recovering", nodeId?: string, ageMs?: number, budgetBasis?: number, until?: string}} HeartbeatBreach
@@ -251,19 +254,120 @@ export function heartbeatBreach(heartbeat, now, intervalMs = HEARTBEAT_INTERVAL_
 }
 
 /**
- * How far the run has got, read from the node snapshots alone. `unknown` is
- * not `unfinished`: a run directory with no snapshots yet has not proved it
- * needs resuming, and resuming it would race the controller that is about to
- * write them.
+ * The run's declared contract, loaded as a persisted replay: the node set the
+ * reduction must answer against, never whatever snapshots happen to exist. A
+ * missing or unreadable contract is no evidence, so `null` falls back to the
+ * snapshots alone.
  *
- * `waiting` is the one case where a blocked node is not counted terminal: a
+ * @param {string} runDir
+ * @returns {import("../contract/index.mjs").ValidatedContract|null}
+ */
+export function readRunContract(runDir) {
+  try {
+    let digest;
+    try {
+      const metadata = readJson(join(runDir, "run.json"));
+      digest = typeof metadata.contractDigest === "string" ? metadata.contractDigest : undefined;
+    } catch (error) {
+      if (errorCode(error) !== "ENOENT") return null;
+    }
+    return loadPersistedContract(join(runDir, "contract.json"), digest);
+  } catch (error) {
+    return null;
+  }
+}
+
+/**
+ * Reduce the declared node set to a run outcome. Pure over the declared ids and
+ * a snapshot map, so the empty-input invariant is a unit claim and the sparse
+ * case cannot be faked by whatever snapshots exist.
+ *
+ * `succeeded` needs a readable snapshot for every declared node, each in
+ * `{done, no-op}`. `canceled` comes from the durable run-level marker, never
+ * from a node status. `waiting` is the single case where a parked-shaped node
+ * is not parked: a `blocked`/`runtime_tier_exhausted` node whose recorded reset
+ * is still in the future. Everything else is `parked`, naming each non-success
+ * node; a missing or unreadable snapshot is named, never dropped.
+ *
+ * @param {string[]} declaredIds
+ * @param {Map<string, import("../contract/index.mjs").NodeSnapshot|{unreadable: string}>} snapshots
+ * @param {{canceled?: boolean, now?: number}} [options]
+ * @returns {{outcome: "succeeded"|"parked"|"waiting"|"canceled", nodes: OutcomeNode[], waitingUntil?: string}}
+ */
+export function reduceRunOutcome(declaredIds, snapshots, options = {}) {
+  if (options.canceled) return { outcome: "canceled", nodes: [] };
+  const now = options.now ?? Date.now();
+  /** @type {OutcomeNode[]} */
+  const nonSuccess = [];
+  /** @type {number|null} */
+  let earliestWaiting = null;
+  let allWaiting = true;
+  for (const id of declaredIds) {
+    const snapshot = snapshots.get(id);
+    if (!snapshot) {
+      nonSuccess.push({ id, status: "missing" });
+      allWaiting = false;
+      continue;
+    }
+    if ("unreadable" in snapshot) {
+      nonSuccess.push({ id, status: "unreadable", message: snapshot.unreadable });
+      allWaiting = false;
+      continue;
+    }
+    const status = snapshot.status;
+    if (SUCCESS.has(status)) continue;
+    if (status === "blocked" && snapshot.error?.code === "runtime_tier_exhausted") {
+      const earliest = earliestTierReset(snapshot);
+      if (earliest !== null) {
+        // A tier-exhausted node is waiting, never parked: the provider named a
+        // reset, and the retry dispatches at that instant (or is due now).
+        const waiting = now < earliest;
+        if (waiting) earliestWaiting = earliestWaiting === null ? earliest : Math.min(earliestWaiting, earliest);
+        nonSuccess.push({
+          id,
+          status,
+          errorCode: snapshot.error.code,
+          ...(waiting ? { waitingUntil: new Date(earliest).toISOString() } : {}),
+        });
+        continue;
+      }
+    }
+    nonSuccess.push({ id, status, errorCode: snapshot.error?.code ?? null });
+    allWaiting = false;
+  }
+  if (nonSuccess.length === 0) {
+    // The empty declared set never reaches `succeeded`: "every node succeeded"
+    // is vacuous there and validation owns rejecting the empty contract.
+    return { outcome: declaredIds.length === 0 ? "parked" : "succeeded", nodes: [] };
+  }
+  if (allWaiting) {
+    return {
+      outcome: "waiting",
+      nodes: nonSuccess,
+      ...(earliestWaiting !== null ? { waitingUntil: new Date(earliestWaiting).toISOString() } : {}),
+    };
+  }
+  return { outcome: "parked", nodes: nonSuccess };
+}
+
+/**
+ * How far the run has got, read from the node snapshots and the declared node
+ * set. `unknown` is not `unfinished`: a run directory with no snapshots yet has
+ * not proved it needs resuming, and resuming it would race the controller that
+ * is about to write them. A torn snapshot is `unknown` for the same reason.
+ *
+ * `waiting` is the one case where a blocked node is not counted settled: a
  * `runtime_tier_exhausted` node whose earliest recorded reset is parseable and
  * still in the future has nothing to do until that instant. A tier-exhausted
- * node with no parseable reset keeps today's terminal classification (there is
+ * node with no parseable reset keeps today's settled classification (there is
  * nothing to wait for), and one whose reset is already past is ordinary
- * `unfinished` so the retry dispatches. Whenever a run carries any node that
- * is not waiting, `unfinished` outranks `waiting` and the waiting nodes never
- * hold the run back.
+ * `unfinished` so the retry dispatches. Whenever a run carries any node that is
+ * not waiting, `unfinished` outranks `waiting` and the waiting nodes never hold
+ * the run back.
+ *
+ * `state` says whether anything can still move; `runOutcome` says what the
+ * settled result is. A parked node is settled but not successful, so the
+ * watchdog must keep watching it rather than report the run done.
  *
  * @param {string} runDir
  * @param {number} [now] epoch milliseconds, injectable so a fake clock can drive the wait
@@ -272,25 +376,39 @@ export function heartbeatBreach(heartbeat, now, intervalMs = HEARTBEAT_INTERVAL_
 export function runProgress(runDir, now = Date.now()) {
   const names = listNodeSnapshots(runDir);
   if (!names.length) return { state: "unknown", total: 0, terminal: 0, reason: "no node snapshots yet" };
+  /** @type {Map<string, import("../contract/index.mjs").NodeSnapshot|{unreadable: string}>} */
+  const snapshots = new Map();
+  let unreadable = false;
+  for (const name of names) {
+    const id = name.replace(/\.json$/u, "");
+    try {
+      const snapshot = /** @type {import("../contract/index.mjs").NodeSnapshot} */ (readNodeSnapshot(runDir, id));
+      snapshots.set(snapshot?.id ?? id, snapshot);
+    } catch (error) {
+      // A snapshot caught mid-write is not evidence either way; the next tick
+      // reads a whole one, and the reduction names it rather than dropping it.
+      snapshots.set(id, { unreadable: errorMessage(error) });
+      unreadable = true;
+    }
+  }
+  const contract = readRunContract(runDir);
+  const declared = contract ? contract.nodes.map((node) => node.id) : [...snapshots.keys()];
   let terminal = 0;
   let unfinished = false;
   /** @type {number|null} */
   let earliestWaiting = null;
-  for (const name of names) {
-    let snapshot;
-    try {
-      snapshot = /** @type {import("../contract/index.mjs").NodeSnapshot} */ (readNodeSnapshot(runDir, name.replace(/\.json$/u, "")));
-    } catch (error) {
-      // A snapshot caught mid-write is not evidence either way; the next tick
-      // reads a whole one.
-      return { state: "unknown", total: names.length, terminal, reason: errorMessage(error) };
+  for (const id of declared) {
+    const snapshot = snapshots.get(id);
+    if (!snapshot || "unreadable" in snapshot) {
+      unfinished = true;
+      continue;
     }
-    const status = snapshot?.status;
+    const status = snapshot.status;
     if (status === "blocked" && snapshot.error?.code === "runtime_tier_exhausted") {
       const earliest = earliestTierReset(snapshot);
       if (earliest === null) {
         // No parseable reset: nothing to wait for, so the blocked node stays
-        // terminal exactly as it always has.
+        // settled exactly as it always has.
         terminal += 1;
       } else if (now < earliest) {
         earliestWaiting = earliestWaiting === null ? earliest : Math.min(earliestWaiting, earliest);
@@ -300,12 +418,26 @@ export function runProgress(runDir, now = Date.now()) {
       }
       continue;
     }
-    if (typeof status === "string" && TERMINAL.has(status)) terminal += 1;
+    if (typeof status === "string" && SETTLED.has(status)) terminal += 1;
     else unfinished = true;
   }
-  if (terminal === names.length) return { state: "done", total: names.length, terminal };
-  if (unfinished) return { state: "unfinished", total: names.length, terminal };
-  return { state: "waiting", total: names.length, terminal, waitingUntil: new Date(/** @type {number} */ (earliestWaiting)).toISOString() };
+  const canceled = existsSync(join(runDir, "cancel.request.json"));
+  const reduction = reduceRunOutcome(declared, snapshots, { canceled, now });
+  /** @type {"done"|"unfinished"|"waiting"|"unknown"} */
+  let state;
+  if (unreadable) state = "unknown";
+  else if (terminal === declared.length) state = "done";
+  else if (unfinished) state = "unfinished";
+  else state = "waiting";
+  return {
+    state,
+    total: declared.length,
+    terminal,
+    ...(state === "unknown" ? { reason: "a node snapshot could not be read" } : {}),
+    ...(state === "waiting" && earliestWaiting !== null ? { waitingUntil: new Date(earliestWaiting).toISOString() } : {}),
+    runOutcome: reduction.outcome,
+    outcomeNodes: reduction.nodes,
+  };
 }
 
 /**
@@ -475,6 +607,29 @@ function parkRun(runDir, code, message, at) {
 }
 
 /**
+ * Report a parked run without returning: anchor its durable attention record
+ * the first time it is seen parked, then re-emit the schedule slot the clock
+ * has reached. The anchor lives in run.json, so a supervisor restart reads the
+ * same interval; the slot lives in the notify receipt log, so a restart does
+ * not re-announce a slot already sent. A resume that changes node state clears
+ * the anchor, which is what starts a fresh interval.
+ *
+ * @param {string} runDir @param {RunProgress} progress @param {number} now
+ */
+async function reportParkedAttention(runDir, progress, now) {
+  const metadata = readRunMetadata(runDir);
+  const first = progress.outcomeNodes?.[0];
+  const existing = metadata.attention && typeof metadata.attention === "object" ? /** @type {{code: string, message: string, at: string}} */ (metadata.attention) : null;
+  const attention = existing ?? {
+    code: first?.errorCode ?? first?.status ?? "parked",
+    message: `run parked: ${(progress.outcomeNodes ?? []).map((node) => `${node.id}:${node.status ?? "unknown"}`).join(", ") || "no nodes named"}`,
+    at: new Date(now).toISOString(),
+  };
+  if (!existing) writeRunMetadata(runDir, { ...metadata, attention });
+  await emitScheduledAttention(runDir, { anchor: attention.at, code: attention.code, now });
+}
+
+/**
  * Watch one run and relaunch its controller until every node is terminal.
  *
  * @param {string} runDir
@@ -502,13 +657,19 @@ export async function superviseRun(runDir, options) {
       return { state: "stopped", ticks, launches, reason: "tick budget exhausted" };
     }
     ticks += 1;
-    // A `waiting` progress reports itself only while the reset instant is in
-    // the future, so the ordinary `unfinished` branch below is exactly the
-    // launch that fires once the clock reaches it.
+    // A succeeded or canceled run is finished. A parked run is not: every node
+    // has stopped but the outcome needs attention, so it is announced and the
+    // loop keeps watching instead of returning as a finished one.
     const progress = runProgress(runDir, now());
-    if (progress.state === "done") {
+    if (progress.runOutcome === "succeeded" || progress.runOutcome === "canceled") {
       options.onTick?.({ progress, alive: false, launched: false });
       return { state: "done", ticks, launches };
+    }
+    if (progress.state === "done" && progress.runOutcome === "parked") {
+      await reportParkedAttention(runDir, progress, now());
+      options.onTick?.({ progress, alive: false, launched: false });
+      await sleep(intervalMs);
+      continue;
     }
     const lock = readLock(runDir);
     const lockAlive = lock !== null && !lockStale(lock);

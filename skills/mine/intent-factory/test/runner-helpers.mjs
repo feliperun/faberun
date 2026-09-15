@@ -562,8 +562,9 @@ export function recoveryDecisions(runDir) {
 }
 
 /**
- * A codex whose first judge turn returns two verdicts (blocking review blocks
- * as judge_unavailable) and whose later judge turns return exactly one clean
+ * A codex whose first judge turns (the round, its bounded re-ask, and the one
+ * automatic retry) return two verdicts so blocking review blocks as
+ * judge_unavailable, and whose later judge turns return exactly one clean
  * verdict, so the same provider can drive the resume that re-judges it.
  *
  * @param {string} directory
@@ -595,9 +596,10 @@ if (process.argv.includes("--version")) {
     }
     appendFileSync(judges, "x\\n");
     const run = readFileSync(judges, "utf8").trim().split("\\n").filter(Boolean).length;
-    if (run <= 2) {
-      // The first round and its bounded re-ask both return two verdicts: that
-      // is the judge_unavailable boundary the resume has to clear.
+    if (run <= 3) {
+      // The first round, its bounded re-ask, and the one automatic retry all
+      // return two verdicts: that is the judge_unavailable boundary the
+      // resume has to clear.
       console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: verdict } }));
       console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: verdict } }));
     } else {

@@ -9,7 +9,7 @@
  * cancellation.
  */
 import { LockBusyError, acquire as acquireLock, pidAlive, readLock } from "../run/lock.mjs";
-import { TERMINAL } from "./prompts.mjs";
+import { SETTLED } from "./prompts.mjs";
 import { assertRunMutable } from "./lifecycle.mjs";
 import { delay, errorCode } from "../util.mjs";
 import { invocationAlive, terminateInvocation } from "./process.mjs";
@@ -98,7 +98,7 @@ export async function cancelRun(runDirPath) {
       const invocations = (state.invocations ?? []).map((invocation) => invocation.status === "active"
         ? { ...invocation, status: "terminated", closedAt, updatedAt: closedAt }
         : invocation);
-      if (!TERMINAL.has(state.status)) transition(runDir, state, "canceled", { phase: "canceled", invocations }, controllerLock);
+      if (!SETTLED.has(state.status)) transition(runDir, state, "canceled", { phase: "canceled", invocations }, controllerLock);
     }
     if (failures.length) {
       const error = new Error(`cancel could not confirm termination of ${failures.length} invocation${failures.length === 1 ? "" : "s"}`);
@@ -168,7 +168,7 @@ async function waitForTerminal(runDir, timeoutMs) {
     const contractPath = join(runDir, "contract.json");
     const contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath, { persisted: true });
     const states = readRunNodes(runDir, contract);
-    if (states.every((state) => TERMINAL.has(state.status)) && states.every((state) => (state.invocations ?? []).every((invocation) => !invocationAlive(invocation)))) return true;
+    if (states.every((state) => SETTLED.has(state.status)) && states.every((state) => (state.invocations ?? []).every((invocation) => !invocationAlive(invocation)))) return true;
     await delay(100);
   }
   return false;

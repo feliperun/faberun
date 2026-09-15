@@ -376,7 +376,7 @@ process.stdin.on("end", () => {
   appendFileSync(${JSON.stringify(calls)}, "call\\n");
   const seen = readFileSync(${JSON.stringify(calls)}, "utf8").trim().split("\\n").length;
   console.log(JSON.stringify({ type: "thread.started", thread_id: "flaky" }));
-  if (seen === 1) {
+  if (seen <= 2) {
     console.log(JSON.stringify({ type: "turn.failed", error: { message: "socket hang up: connection reset by peer" } }));
     process.exit(1);
   }
@@ -399,7 +399,7 @@ process.stdin.on("end", () => {
   }));
   const state = nodeState(await runContract(path));
   assert.equal(state.status, "done", state.error?.message);
-  assert.deepEqual((state.invocations ?? []).map((invocation) => invocation.runtimeId), ["primary", "primary"], "the warm runtime gets the retry, not the spare");
+  assert.deepEqual((state.invocations ?? []).map((invocation) => invocation.runtimeId), ["primary", "primary", "primary"], "the first failure is the automatic retry, then the warm runtime gets the network wait, not the spare");
   const history = state.routing?.history ?? [];
   assert.equal(history.length, 1);
   assert.equal(history[0].status, "failed");

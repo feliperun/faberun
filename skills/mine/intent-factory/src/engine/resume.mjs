@@ -12,12 +12,12 @@
  * contract left open, and only from runtimes that are available now: a resume
  * after an exhausted provider is exactly when that matters.
  */
-import { JUDGE_SCHEMA, TERMINAL } from "./prompts.mjs";
+import { JUDGE_SCHEMA, SETTLED } from "./prompts.mjs";
 import { Buffer } from "node:buffer";
 import { acquire as acquireLock } from "../run/lock.mjs";
 import { applyInvalidWorkerResult, assertRunMutable, handleProviderExhaustion } from "./lifecycle.mjs";
 import { applyJudgeResult } from "./review.mjs";
-import { assertSourceUnchanged, captureRunIdentity } from "./run-identity.mjs";
+import { assertSourceUnchanged, captureRunIdentity, statesFingerprint } from "./run-identity.mjs";
 import { attemptWorkspace, attemptWorktreePath, gitHead, removeWorktree, runRefName } from "../repo/worktree.mjs";
 import { canonicalWorkerResultText, isResultMaterializationInvocation, materializeAttemptResult, recoverWorkerResult } from "./result-file.mjs";
 import { checkPersistedWorkerScope, persistedScopeBoundary, reconcileAmbiguousWorkerRestart, resolveUnknownEffect } from "./scope.mjs";
@@ -152,6 +152,8 @@ export async function resumeRun(runDirPath, options = {}) {
     for (const item of plan.attention) {
       process.stdout.write(`[run] ${contract.id} attention · ${item.id} · ${item.reason}\n`);
     }
+    const stateFingerprintBefore = statesFingerprint(states);
+    /** @type {{identityWarnings?: string[], attention?: null}} */
     const resumeMetadata = {
       ...(identity.warnings.length ? { identityWarnings: identity.warnings } : {}),
     };
@@ -494,6 +496,11 @@ export async function resumeRun(runDirPath, options = {}) {
       }
       transition(runDir, state, "pending", { phase: "waiting", error: null, blockedBy: [] }, lock);
     }
+    // A resume that actually changed node state clears the durable attention
+    // anchor, so a later park starts a fresh re-nag interval. A resume that
+    // threw before changing anything never reaches this point and leaves the
+    // anchor intact, which is what keeps the attention live.
+    if (statesFingerprint(states) !== stateFingerprintBefore) resumeMetadata.attention = null;
     const outcome = await driveRun(contract, runDir, states, campaign, lock, sourceIdentity, resumeMetadata, options);
     syncAgentSignal(runsDir);
     return outcome;
@@ -595,7 +602,7 @@ export async function recoverIntegrationTransactions(contract, runDir, states, l
     onVerificationFailure: async (transaction) => {
       const node = contract.nodes.find((candidate) => candidate.id === transaction.node);
       const state = states.get(transaction.node);
-      if (!node || !state || TERMINAL.has(state.status)) return;
+      if (!node || !state || SETTLED.has(state.status)) return;
       const verdict = verificationFailureWithScope(verificationFailureVerdict(state), state.scope);
       verdict.summary = "integrated candidate verification failed during recovery";
       applyRejection(contract, node, state, runDir, null, lock, states, campaignPath, verdict, {
@@ -605,7 +612,7 @@ export async function recoverIntegrationTransactions(contract, runDir, states, l
     },
     onConflict: async (transaction) => {
       const state = states.get(transaction.node);
-      if (!state || TERMINAL.has(state.status)) return;
+      if (!state || SETTLED.has(state.status)) return;
       const paths = transaction.conflictingPaths?.length ? transaction.conflictingPaths.join(", ") : "unknown paths";
       transition(runDir, state, "blocked", {
         phase: "complete",
@@ -615,7 +622,7 @@ export async function recoverIntegrationTransactions(contract, runDir, states, l
     },
     onConcurrentMove: async (transaction) => {
       const state = states.get(transaction.node);
-      if (!state || TERMINAL.has(state.status)) return;
+      if (!state || SETTLED.has(state.status)) return;
       transition(runDir, state, "blocked", {
         phase: "complete",
         error: { code: "integration_concurrent_move", message: `run ref moved from ${transaction.previousRunRefTip} to ${transaction.currentRunRefTip ?? "unknown"}` },

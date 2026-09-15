@@ -476,7 +476,7 @@ test("recovered provider exhaustion does not charge persisted usage or cost twic
   assert.equal(final.costUsd, costUsd);
 });
 
-test("ordinary provider failure usage is counted from its invocation once", async () => {
+test("ordinary provider failure usage is counted once per invocation across the automatic retry", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-failure-usage-once-"));
   const path = writeContract(directory, fixture({
     id: "failure-usage-once-run",
@@ -486,8 +486,11 @@ test("ordinary provider failure usage is counted from its invocation once", asyn
   const result = await withFakeCodex(directory, "failure-with-usage", () => runContract(path));
   const state = nodeState(result);
   assert.equal(state.status, "failed");
-  assert.deepEqual(state.usage, { inputTokens: 5, outputTokens: 3, cacheReadInputTokens: 2 });
-  assert.deepEqual(state.invocations?.map((invocation) => invocation.usage), [{ inputTokens: 5, outputTokens: 3, cacheReadInputTokens: 2 }]);
+  assert.deepEqual(state.usage, { inputTokens: 10, outputTokens: 6, cacheReadInputTokens: 4 });
+  assert.deepEqual(state.invocations?.map((invocation) => invocation.usage), [
+    { inputTokens: 5, outputTokens: 3, cacheReadInputTokens: 2 },
+    { inputTokens: 5, outputTokens: 3, cacheReadInputTokens: 2 },
+  ]);
 });
 
 test("judge provider failover preserves the completed worker result", async () => {

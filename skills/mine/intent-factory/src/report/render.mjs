@@ -9,6 +9,7 @@ import { validateNodeSnapshot, validateRunMetadata } from "../contract/snapshot.
 import { compactCost, compactTokens, finite, truncateChars } from "../util.mjs";
 import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
 import { readHeartbeat } from "../engine/supervise.mjs";
+import { SETTLED, SUCCESS } from "../engine/prompts.mjs";
 
 /** Advisory ceiling for status.json (TECH-SPEC lean, rule 5); never enforced destructively. */
 const STATUS_JSON_MAX_BYTES = 200 * 1024;
@@ -105,7 +106,7 @@ export function renderStatus(runDir) {
 function nowLine(payload, now) {
   const active = activeStatusNode(payload.nodes);
   if (active) return `now: ${active.id} ${active.status} (${formatElapsed(active, now)}) · ${active.runtime ?? "-"} · ${compactCost(active.costUsd)}`;
-  const allTerminal = payload.nodes.every((node) => ["done", "no-op"].includes(node.status));
+  const allTerminal = payload.nodes.every((node) => SUCCESS.has(node.status));
   return allTerminal ? `now: idle · run done · ${compactCost(payload.usage.costUsd)}` : "now: idle";
 }
 
@@ -122,7 +123,7 @@ function formatElapsed(node, now) {
   if (!node.startedAt) return "-";
   const start = Date.parse(node.startedAt);
   if (!Number.isFinite(start)) return "-";
-  const terminal = ["done", "no-op", "failed", "exhausted", "canceled"].includes(node.status);
+  const terminal = SETTLED.has(node.status);
   const end = terminal && node.updatedAt ? Date.parse(node.updatedAt) : now;
   return formatDuration(Math.max(0, (Number.isFinite(end) ? end : now) - start));
 }
@@ -243,7 +244,7 @@ function derivePointer(payload, nodes, generatedAt) {
   const done = nodes.filter((node) => node.status === "done" || node.status === "no-op").length;
   const attentionNodes = nodes.filter((node) => !["pending", "running", "done", "no-op"].includes(node.status));
   const attentionNode = attentionNodes[0] ?? null;
-  const state = attentionNode ? "attention" : nodes.every((node) => ["done", "no-op"].includes(node.status)) ? "done" : "active";
+  const state = attentionNode ? "attention" : nodes.every((node) => SUCCESS.has(node.status)) ? "done" : "active";
   const activeStartedAt = active?.startedAt ? Math.floor(Date.parse(active.startedAt) / 1000) : null;
   const usage = /** @type {{costUsd: number|null}} */ (payload.usage);
   const pointer = {

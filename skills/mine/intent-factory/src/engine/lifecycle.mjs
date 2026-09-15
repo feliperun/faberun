@@ -13,7 +13,8 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import {
-  TERMINAL,
+  PARKED,
+  SETTLED,
 } from "./prompts.mjs";
 import {
   judgeReaskOutstanding,
@@ -44,7 +45,8 @@ import { exhaustedUntilOf } from "./runtime-discovery.mjs";
 
 import { acquire as acquireLock } from "../run/lock.mjs";
 import { parseDiscoveryResult } from "../contract/worker-result.mjs";
-import { boundedUtf8, errorMessage, excerpt } from "../util.mjs";
+import { boundedUtf8, errorCode, errorMessage, excerpt } from "../util.mjs";
+import { readJson, writeJsonAtomic } from "../run/store.mjs";
 import { invocationAlive } from "./process.mjs";
 import { operationNextState, providerReceipts, settleInvocation } from "../run/operations.mjs";
 import { appendTransitionEvent, transition, writeNode } from "./state.mjs";
@@ -127,7 +129,7 @@ export function livenessState(states) {
   if (running.length > 0) return "waiting_gate";
   if (all.some((state) => state.status === "blocked")) return "blocked";
   if (all.length > 0 && all.every((state) => state.status === "done")) return "done";
-  if (all.length > 0 && all.every((state) => TERMINAL.has(state.status))) return "failed";
+  if (all.length > 0 && all.every((state) => SETTLED.has(state.status))) return "failed";
   if (all.some((state) => state.status === "pending" && routingBackoffActive(state, state.phase))) return "paused_quota";
   return "running";
 }
@@ -146,6 +148,120 @@ export function terminalErrorCode(state) {
   if (result.status === "blocked_context") return "blocked_context";
   const error = state.error && typeof state.error === "object" ? /** @type {{code?: unknown}} */ (state.error) : {};
   return typeof error.code === "string" && error.code ? error.code : null;
+}
+
+/** Error codes that earn exactly one automatic retry before parking. */
+export const AUTO_RETRY_CODES = new Set(["judge_unavailable", "provider_error", "stall_timeout", "wall_clock_timeout"]);
+
+/**
+ * Timeout codes, whose positive retry case exists only once phase 5b seals the
+ * attempt before the kill. Nothing seals yet, so an empty seal parks them here
+ * and the auto-retry is asserted where a production seal exists.
+ */
+const AUTO_RETRY_TIMEOUT_CODES = new Set(["stall_timeout", "wall_clock_timeout"]);
+
+/**
+ * @param {string} runDir
+ * @returns {Record<string, unknown>}
+ */
+function autoRetryLedgerMetadata(runDir) {
+  /** @type {Record<string, unknown>} */
+  let metadata;
+  try {
+    metadata = readJson(join(runDir, "run.json"));
+  } catch (error) {
+    if (errorCode(error) !== "ENOENT") throw error;
+    metadata = {};
+  }
+  return metadata;
+}
+
+/**
+ * Whether this node already spent its one automatic retry. The record lives in
+ * run.json, not in controller memory, so a restarted controller cannot grant a
+ * fresh one.
+ *
+ * @param {string} runDir @param {string} nodeId @returns {boolean}
+ */
+export function autoRetryConsumed(runDir, nodeId) {
+  const metadata = autoRetryLedgerMetadata(runDir);
+  const autoRetries = metadata.autoRetries;
+  return Boolean(autoRetries && typeof autoRetries === "object" && Object.hasOwn(autoRetries, nodeId));
+}
+
+/**
+ * @param {string} runDir @param {string} nodeId @param {string} code
+ */
+function consumeAutoRetry(runDir, nodeId, code) {
+  const metadata = autoRetryLedgerMetadata(runDir);
+  const existing = metadata.autoRetries && typeof metadata.autoRetries === "object" ? metadata.autoRetries : {};
+  const autoRetries = { ...existing, [nodeId]: { code, at: new Date().toISOString() } };
+  writeJsonAtomic(join(runDir, "run.json"), { ...metadata, autoRetries });
+}
+
+/**
+ * An error that announces a reset takes no automatic retry: waiting for the
+ * named instant is cheaper than spending the one retry immediately.
+ *
+ * @param {NodeSnapshot} state @returns {boolean}
+ */
+function carriesQuotaReset(state) {
+  if (state.error?.exhaustedUntil !== undefined && state.error.exhaustedUntil !== null) return true;
+  const candidates = state.routing?.tierExhaustion?.candidates ?? [];
+  return candidates.some((candidate) => candidate.exhaustedUntil !== null && candidate.exhaustedUntil !== undefined);
+}
+
+/**
+ * A phase 5b attempt seal persisted on the worktree, or false while no seal
+ * exists. The property is deliberately read off the record, never assumed, so
+ * the timeout codes park today and retry once 5b writes one.
+ *
+ * @param {NodeSnapshot} state @returns {boolean}
+ */
+function attemptSealIsNonEmpty(state) {
+  const worktree = /** @type {Record<string, unknown>} */ (state.worktree ?? {});
+  return typeof worktree.sealedSha === "string" && worktree.sealedSha.length > 0;
+}
+
+/**
+ * Give a parked node its one automatic retry on the runtime it already ran on:
+ * transition it back to pending in the same role, record the `auto_retry`
+ * event, and consume the durable flag. It never touches the gate revision
+ * counter or the failover hop counter, and it leaves routing untouched so the
+ * next dispatch lands on the same runtime.
+ *
+ * @param {string} runDir @param {NodeSnapshot} state @param {string|undefined} code @param {LockHandle|null} lock
+ * @returns {boolean} whether the node was re-opened
+ */
+export function autoRetryNode(runDir, state, code, lock) {
+  const failureCode = code ?? state.error?.code;
+  if (typeof failureCode !== "string" || !AUTO_RETRY_CODES.has(failureCode)) return false;
+  if (autoRetryConsumed(runDir, state.id)) return false;
+  if (carriesQuotaReset(state)) return false;
+  if (AUTO_RETRY_TIMEOUT_CODES.has(failureCode) && !attemptSealIsNonEmpty(state)) return false;
+  consumeAutoRetry(runDir, state.id, failureCode);
+  const role = state.phase === "judge" ? "judge" : "worker";
+  const from = state.status;
+  transition(runDir, state, "pending", { phase: role, error: null, blockedBy: [] }, lock);
+  appendTransitionEvent(runDir, state, from, "pending", { type: "auto_retry", errorCode: failureCode, role }, lock);
+  return true;
+}
+
+/**
+ * Re-open every node that just parked and still has its automatic retry. A
+ * node already parked when this controller started is left for the operator's
+ * resume to route — an explicit `--node` hold must not be overridden by an
+ * automatic retry. This is also the path that reaches `judge_unavailable`,
+ * which review settles directly rather than by a continuing failover decision.
+ *
+ * @param {ValidatedContract} contract @param {string} runDir @param {Map<string, NodeSnapshot>} states @param {LockHandle|null} lock @param {Set<string>} [previouslyParked]
+ */
+export function autoRetryParkedNodes(contract, runDir, states, lock, previouslyParked = new Set()) {
+  for (const node of contract.nodes) {
+    const state = states.get(node.id);
+    if (!state || !PARKED.has(state.status) || previouslyParked.has(node.id)) continue;
+    autoRetryNode(runDir, state, undefined, lock);
+  }
 }
 
 /**
@@ -184,7 +300,7 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
     // a scope-gate failure, a killed process, or an invalid stream must never
     // lose the tokens its invocation already spent (the 2026-08 incident
     // persisted zero usage for 1.2M+ token workers on exactly this path).
-    if (TERMINAL.has(state.status)) {
+    if (SETTLED.has(state.status)) {
       recordInvocationUsage(job, { accumulate: false });
       writeNode(runDir, state, lock);
       continue;
@@ -382,6 +498,9 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
       continue;
     }
     if (!adoptedWorkerResult && envelope.status !== "done" && !fileBackedNoOp) {
+      // Auto-retry comes before any failover decision, on the runtime the node
+      // already ran on; only the second failure spends the failover edge.
+      if (autoRetryNode(runDir, state, envelope.error?.code ?? state.error?.code, lock)) continue;
       // A dropped connection is not a failed task: let the node wait on the
       // runtime it already warmed before it spends a failover hop on it. When
       // the waits and the edges are both spent, the failure is reported here.

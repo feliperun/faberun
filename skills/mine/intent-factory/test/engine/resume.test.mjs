@@ -219,7 +219,7 @@ test("resume restarts a node with no usable worker output", async () => {
 
   const resumed = await withFakeCodex(directory, "pass", () => resumeRun(runDir));
   assert.equal(nodeState(resumed).status, "done");
-  assert.equal(nodeState(resumed).attempt, 2);
+  assert.equal(nodeState(resumed).attempt, 3);
 });
 
 test("simultaneous resumes allow one controller and reject the other", async () => {
@@ -638,12 +638,12 @@ test("gate revisions are not consumed by attempts burned in restarts", async () 
   }));
   const runDir = await withFakeCodex(directory, "worker-fail", async () => (await runContract(path)).runDir);
   await withFakeCodex(directory, "worker-fail", () => resumeRun(runDir));
-  assert.equal(JSON.parse(readFileSync(join(runDir, "nodes", "build.json"), "utf8")).attempt, 2);
+  assert.equal(JSON.parse(readFileSync(join(runDir, "nodes", "build.json"), "utf8")).attempt, 3);
 
   // The judge must cite the judgment item id it rejects: an uncited rejection
   // is a protocol failure (bounded re-ask, then attention), never a revision.
   const final = await withCitedGateCodex(directory, () => resumeRun(runDir));
   assert.equal(nodeState(final).status, "exhausted");
-  assert.equal(nodeState(final).attempt, 4, "two burned starts plus the gate retry start");
+  assert.equal(nodeState(final).attempt, 5, "two burned starts, the automatic retry, and the gate retry start");
   assert.equal(nodeState(final).revisions, 1, "one real gate rejection consumed");
 });

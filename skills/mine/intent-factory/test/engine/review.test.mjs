@@ -162,7 +162,7 @@ test("two separate agent-message verdicts re-ask once and the re-ask recovers", 
 });
 
 
-test("a provider failure on the bounded re-ask settles instead of dispatching a third judge", async () => {
+test("a provider failure on the bounded re-ask blocks, then gets its one automatic retry", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-review-reask-fail-"));
   const path = writeContract(directory, fixture({
     id: "review-reask-fail-run",
@@ -180,7 +180,7 @@ test("a provider failure on the bounded re-ask settles instead of dispatching a 
   assert.equal(state.status, "blocked", `unexpected status: ${state.status} ${state.error?.message ?? ""}`);
   assert.equal(state.phase, "judge", "the node is left exactly as one awaiting its judge");
   assert.equal(state.error?.code, "judge_unavailable");
-  assert.equal((state.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 2, "the failed re-ask settles instead of buying a third judge");
+  assert.equal((state.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 3, "the failed re-ask settles, then the one automatic retry runs before blocking");
   assert.equal((state.invocations ?? []).filter((invocation) => invocation.phase === "worker").length, 1, "the worker is never re-run");
 });
 
@@ -247,7 +247,7 @@ test("a judge timeout re-asks once then blocks as judge_unavailable", async () =
   assert.equal(state.phase, "judge");
   assert.equal(state.error?.code, "judge_unavailable");
   assert.equal((state.invocations ?? []).filter((invocation) => invocation.phase === "worker").length, 1, "the worker is never re-run");
-  assert.equal((state.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 2, "the wall-clock kill earns exactly one bounded re-ask");
+  assert.equal((state.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 3, "the wall-clock kill earns one bounded re-ask plus the one automatic retry");
   assert.equal(state.gate, null, "no verdict is fabricated for a judge that never returned one");
   assert.ok(notifications(result.runDir).some((event) => event.type === "attention" && event.errorCode === "judge_unavailable"));
 });
@@ -305,7 +305,7 @@ test("blocking review enters judge_unavailable with the worker result and verifi
   assert.equal(state.verification?.passed, true, "the verification records are preserved");
   assert.equal(state.revisions, 0, "a review that never arbitrated consumes no revision");
   assert.equal((state.invocations ?? []).filter((invocation) => invocation.phase === "worker").length, 1, "the worker is never re-run");
-  assert.equal((state.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 2, "exactly one bounded re-ask");
+  assert.equal((state.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 3, "the bounded re-ask plus the one automatic retry");
   assert.ok(notifications(result.runDir).some((event) => event.type === "attention" && event.errorCode === "judge_unavailable"));
   assert.match(readFileSync(join(result.runDir, "STATUS.md"), "utf8"), /needs you: judge unavailable/u);
 });

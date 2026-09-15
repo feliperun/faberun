@@ -67,6 +67,9 @@ export function createRunMetadata(lock, sourceIdentity, resume = {}, integration
     ...(resume.lastRelaunchProgressAt !== undefined ? { lastRelaunchProgressAt: resume.lastRelaunchProgressAt } : {}),
     ...(resume.attention !== undefined ? { attention: resume.attention } : {}),
     ...(digest !== null ? { contractDigest: digest } : {}),
+    // The one-shot auto-retry ledger is durable across a controller restart
+    // for the same reason: an in-memory flag would grant a fresh retry.
+    ...(stored.autoRetries !== undefined ? { autoRetries: stored.autoRetries } : {}),
     scopeDecision,
   };
   return validateRunMetadata(metadata);
@@ -89,7 +92,7 @@ function runDirFor(sourceIdentity) {
  * this is empty; on every later metadata rewrite it is the source of truth.
  *
  * @param {SourceIdentity} sourceIdentity
- * @returns {{contractDigest?: string, scopeDecision?: import("../contract/index.mjs").ScopeDecision}}
+ * @returns {{contractDigest?: string, scopeDecision?: import("../contract/index.mjs").ScopeDecision, autoRetries?: Record<string, {code: string, at: string}>}}
  */
 function readStoredRunRecords(sourceIdentity) {
   const runDir = runDirFor(sourceIdentity);
@@ -104,6 +107,7 @@ function readStoredRunRecords(sourceIdentity) {
   return {
     ...(record.contractDigest !== undefined ? { contractDigest: /** @type {string} */ (record.contractDigest) } : {}),
     ...(record.scopeDecision !== undefined ? { scopeDecision: /** @type {import("../contract/index.mjs").ScopeDecision} */ (record.scopeDecision) } : {}),
+    ...(record.autoRetries !== undefined ? { autoRetries: /** @type {Record<string, {code: string, at: string}>} */ (record.autoRetries) } : {}),
   };
 }
 
