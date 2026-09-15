@@ -188,6 +188,7 @@ export function renderUsage() {
     "<status|report> <run-dir> [--json]",
     "findings <run-dir>",
     "doctor [<contract.json>] [--cwd <dir>] [--discover] [--json]",
+    "setup [--yes] [--harnesses <a,b>] [--worker <id>] [--judge <id>] [--json]",
     "update [--check] [--json]",
     "models [--probe] [--json]",
     "next [--cwd <dir>] [--json]",

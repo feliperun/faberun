@@ -26,6 +26,7 @@ import {
 import { renderRunHandoff } from "./campaign/index.mjs";
 import { campaignCli } from "./cli/campaign.mjs";
 import { seatCli } from "./cli/seat.mjs";
+import { setupCommand } from "./cli/setup.mjs";
 import { skillsCli } from "./cli/skills.mjs";
 import { updateCommand } from "./cli/update.mjs";
 import { contractCli, validateContractFile } from "./cli/contract.mjs";
@@ -100,6 +101,7 @@ const COMMAND_OPTIONS = {
   "bulk-read": { question: { type: "string" }, paths: { type: "string", multiple: true }, json: { type: "boolean" } },
   next: { cwd: { type: "string" }, json: { type: "boolean" } },
   update: { check: { type: "boolean" }, json: { type: "boolean" } },
+  setup: { yes: { type: "boolean" }, harnesses: { type: "string" }, worker: { type: "string" }, judge: { type: "string" }, json: { type: "boolean" } },
   metrics: METRICS_OPTIONS,
 };
 
@@ -126,7 +128,8 @@ function parseCli(argv, quiet = false) {
   if (command === "bulk-read" && parsed.positionals.length !== 0) return null;
   if (command === "next" && parsed.positionals.length !== 0) return null;
   if (command === "update" && parsed.positionals.length !== 0) return null;
-  if (command !== "doctor" && command !== "models" && command !== "bulk-read" && command !== "next" && command !== "update" && parsed.positionals.length !== 1) return null;
+  if (command === "setup" && parsed.positionals.length !== 0) return null;
+  if (command !== "doctor" && command !== "models" && command !== "bulk-read" && command !== "next" && command !== "update" && command !== "setup" && parsed.positionals.length !== 1) return null;
   return {
     command,
     target: parsed.positionals[0],
@@ -236,6 +239,18 @@ async function main(argv) {
       json: values.json === true,
       env: process.env,
       entryPath: process.argv[1],
+    });
+    return;
+  }
+  if (command === "setup") {
+    process.exitCode = await setupCommand({
+      yes: values.yes === true,
+      harnesses: typeof values.harnesses === "string" ? values.harnesses : undefined,
+      worker: typeof values.worker === "string" ? values.worker : undefined,
+      judge: typeof values.judge === "string" ? values.judge : undefined,
+      json: values.json === true,
+      env: process.env,
+      isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     });
     return;
   }

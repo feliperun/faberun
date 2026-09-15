@@ -93,3 +93,73 @@ test("same-tier re-tiering excludes exhausted and same-vendor judges", () => {
   assert.equal(nextSameTierRuntime(contract, routing, "worker", "worker", new Set(["worker"])), "sameVendor");
   assert.equal(nextSameTierRuntime(contract, routing, "judge", "otherTier", new Set(["otherTier"])), null);
 });
+
+/** @param {string[]} harnesses @param {string} [worker] @param {string} [judge] @returns {import("../../src/host/config.mjs").UserConfig} */
+function userConfig(harnesses, worker, judge) {
+  return {
+    schemaVersion: 1,
+    harnesses,
+    ...(worker ? { worker } : {}),
+    ...(judge ? { judge } : {}),
+    updatedAt: "2026-09-15T00:00:00.000Z",
+  };
+}
+
+const CONFIG_CONTRACT = {
+  runtimes: {
+    dshA: { harness: "dsh", vendor: "vendor-a", tier: 1, costRank: 1 },
+    zcodeA: { harness: "zcode", vendor: "vendor-b", tier: 1, costRank: 2 },
+    zcodeB: { harness: "zcode", vendor: "vendor-b", tier: 1, costRank: 3 },
+    claudeA: { harness: "claude", vendor: "vendor-c", tier: 2, costRank: 4 },
+  },
+  runtimeDefaults: {},
+  nodes: [{ id: "composed", gate: { enabled: true } }],
+};
+const CONFIG_AVAILABLE = { dshA: ready, zcodeA: ready, zcodeB: ready, claudeA: ready };
+
+test("a config harness list restricts composition to those harnesses", () => {
+  // The preferred worker and judge both name zcode runtimes the enabled
+  // harnesses exclude, so they are ignored and the cheapest/strongest rule
+  // picks only from dsh and claude.
+  const assignments = composeAssignments(CONFIG_CONTRACT, CONFIG_AVAILABLE, {
+    config: userConfig(["dsh", "claude"], "zcodeA", "zcodeB"),
+  });
+  assert.deepEqual(assignments.composed, { worker: "dshA", judge: "claudeA" });
+});
+
+test("a config prefers its worker and cross-vendor judge when they are candidates", () => {
+  const assignments = composeAssignments(CONFIG_CONTRACT, CONFIG_AVAILABLE, {
+    config: userConfig(["dsh", "zcode", "claude"], "zcodeA", "claudeA"),
+  });
+  assert.deepEqual(assignments.composed, { worker: "zcodeA", judge: "claudeA" });
+});
+
+test("a config judge of the worker's vendor is ignored for the strongest other vendor", () => {
+  const assignments = composeAssignments(CONFIG_CONTRACT, CONFIG_AVAILABLE, {
+    config: userConfig(["dsh", "zcode", "claude"], "zcodeA", "zcodeB"),
+  });
+  assert.deepEqual(assignments.composed, { worker: "zcodeA", judge: "claudeA" });
+});
+
+test("an empty restriction falls back to the unrestricted candidates and warns", () => {
+  /** @type {string[]} */
+  const warnings = [];
+  const assignments = composeAssignments(CONFIG_CONTRACT, CONFIG_AVAILABLE, {
+    config: userConfig(["exec-jsonl"]),
+    onWarning: (message) => warnings.push(message),
+  });
+  assert.deepEqual(assignments.composed, { worker: "dshA", judge: "claudeA" });
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /using all available runtimes/u);
+});
+
+test("an explicit runtime default is never overridden by the config", () => {
+  const contract = {
+    ...CONFIG_CONTRACT,
+    runtimeDefaults: { worker: "dshA", judge: "claudeA" },
+  };
+  const assignments = composeAssignments(contract, CONFIG_AVAILABLE, {
+    config: userConfig(["dsh", "zcode", "claude"], "zcodeA", "zcodeB"),
+  });
+  assert.deepEqual(assignments.composed, { worker: "dshA", judge: "claudeA" });
+});

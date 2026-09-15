@@ -9,6 +9,7 @@
  */
 import { PARKED } from "./prompts.mjs";
 import { composeAssignments, discoverRuntimes } from "./runtime-discovery.mjs";
+import { readUserConfig } from "../host/config.mjs";
 import { transition } from "./state.mjs";
 
 /** @typedef {import("../cli.mjs").LockHandle} LockHandle */
@@ -28,7 +29,8 @@ export async function runtimeAssignments(contract) {
     (node.runtime === undefined && contract.runtimeDefaults?.worker === undefined)
     || (node.gate.enabled && node.gate.runtime === undefined && contract.runtimeDefaults?.judge === undefined));
   const availability = needsComposition ? await discoverRuntimes(contract.runtimes, { cwd: contract.cwd }) : {};
-  const assignments = composeAssignments(contract, availability);
+  const config = readUserConfig(process.env);
+  const assignments = composeAssignments(contract, availability, { config });
   return {
     assignments: Object.fromEntries(Object.entries(assignments).map(([nodeId, assignment]) => {
       const node = contract.nodes.find((candidate) => candidate.id === nodeId);

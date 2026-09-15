@@ -11,6 +11,9 @@ export { exhaustedUntilOf, normalizeProviderAvailability } from "../harnesses/in
 /** @typedef {{runtimes: Record<string, RuntimeLike>, runtimeDefaults?: {worker?: string, judge?: string}, nodes?: {id: string, runtime?: string, gate: {enabled: boolean, runtime?: string}}[]}} RuntimeContract */
 /** @typedef {{available: boolean, exhaustedUntil: string|null, reason: string}} RuntimeAvailability */
 /** @typedef {{harness: string, model: string, vendor: string, tier: number, costRank: number, config?: Record<string, unknown>}} DiscoveryRuntime */
+/** @typedef {{id: string, runtime: RuntimeLike, order: number}} RuntimeCandidate */
+/** @typedef {import("../host/config.mjs").UserConfig} UserConfig */
+/** @typedef {{config?: UserConfig|null, onWarning?: (message: string) => void}} ComposeOptions */
 
 /**
  * Candidates used when a contract omits its runtime catalogue. The catalogue
@@ -77,28 +80,60 @@ export async function discoverRuntimes(runtimes, options = {}) {
 }
 
 /**
+ * The available candidates in declaration order — the unit both
+ * `composeAssignments` and `setup`'s defaults select from.
+ *
+ * @param {Record<string, RuntimeLike>} runtimes
+ * @param {Record<string, RuntimeAvailability>} [availability]
+ * @returns {RuntimeCandidate[]}
+ */
+export function availableCandidates(runtimes, availability = {}) {
+  return Object.entries(runtimes)
+    .filter(([id]) => isAvailable(availability[id]))
+    .map(([id, runtime], order) => ({ id, runtime, order }));
+}
+
+/**
  * Compose only omitted assignments. Explicit node and default declarations are
  * copied exactly; callers persist the returned pair in run state.
  *
+ * An optional `options.config` narrows the candidate set to the harnesses the
+ * operator enabled and prefers its named worker and judge. An empty narrowed
+ * set falls back to the unrestricted candidates and is reported through
+ * `options.onWarning`; config never overrides an explicit node, gate or
+ * runtime-default declaration, and the cross-vendor judge rule still applies.
+ *
  * @param {RuntimeContract} contract
  * @param {Record<string, RuntimeAvailability>} availability
+ * @param {ComposeOptions} [options]
  * @returns {Record<string, {worker: string, judge: string}>}
  */
-export function composeAssignments(contract, availability = {}) {
-  const candidates = Object.entries(contract.runtimes)
-    .filter(([id]) => isAvailable(availability[id]))
-    .map(([id, runtime], order) => ({ id, runtime, order }));
+export function composeAssignments(contract, availability = {}, options = {}) {
+  const allCandidates = availableCandidates(contract.runtimes, availability);
+  const config = options.config ?? null;
+  let candidates = allCandidates;
+  if (config && Array.isArray(config.harnesses)) {
+    const enabled = new Set(config.harnesses);
+    const restricted = allCandidates.filter(({ runtime }) => typeof runtime.harness === "string" && enabled.has(runtime.harness));
+    if (restricted.length) candidates = restricted;
+    else if (allCandidates.length) options.onWarning?.(`config harnesses · none of ${config.harnesses.join(", ")} is available · using all available runtimes`);
+  }
   /** @type {Record<string, {worker: string, judge: string}>} */
   const assignments = {};
   for (const node of contract.nodes ?? []) {
-    const worker = node.runtime ?? contract.runtimeDefaults?.worker ?? cheapest(candidates)?.id;
+    const workerOmitted = node.runtime === undefined && contract.runtimeDefaults?.worker === undefined;
+    const preferredWorker = workerOmitted ? candidateById(candidates, config?.worker) : undefined;
+    const worker = node.runtime ?? contract.runtimeDefaults?.worker ?? preferredWorker?.id ?? cheapest(candidates)?.id;
     if (!worker || !contract.runtimes[worker]) throw new Error(`runtime_assignment_worker_unavailable: no available worker runtime for node ${node.id}`);
+    const workerRuntime = contract.runtimes[worker];
+    const judgeOmitted = node.gate.runtime === undefined && contract.runtimeDefaults?.judge === undefined;
+    const preferredJudge = judgeOmitted ? candidateById(candidates, config?.judge) : undefined;
     const judge = node.gate.runtime ?? contract.runtimeDefaults?.judge
-      ?? strongest(candidates, contract.runtimes[worker].vendor)?.id;
+      ?? (preferredJudge && preferredJudge.runtime.vendor !== workerRuntime.vendor ? preferredJudge.id : undefined)
+      ?? strongest(candidates, workerRuntime.vendor)?.id;
     if (node.gate.enabled && (!judge || !contract.runtimes[judge])) {
       throw new Error(`runtime_assignment_judge_unavailable: no available cross-vendor judge for node ${node.id} and worker ${worker}`);
     }
-    const workerRuntime = contract.runtimes[worker];
     const judgeRuntime = judge ? contract.runtimes[judge] : undefined;
     if (node.gate.enabled && workerRuntime && judgeRuntime && judgeRuntime.vendor === workerRuntime.vendor) {
       throw new Error(`runtime_assignment_judge_unavailable: no available cross-vendor judge for node ${node.id} and worker ${worker}`);
@@ -106,6 +141,15 @@ export function composeAssignments(contract, availability = {}) {
     assignments[node.id] = { worker, judge: judge ?? worker };
   }
   return assignments;
+}
+
+/**
+ * @param {RuntimeCandidate[]} candidates
+ * @param {string|undefined} id
+ * @returns {RuntimeCandidate|undefined}
+ */
+function candidateById(candidates, id) {
+  return id === undefined ? undefined : candidates.find((candidate) => candidate.id === id);
 }
 
 /**
@@ -147,15 +191,30 @@ function runtimeOrder(runtime) {
   return runtime.costRank ?? Number.MAX_SAFE_INTEGER;
 }
 
-/** @param {{id: string, runtime: RuntimeLike, order: number}[]} candidates @returns {{id: string, runtime: RuntimeLike, order: number}|null} */
-function cheapest(candidates) {
+/**
+ * The cheapest available candidate: lowest tier, then lowest cost rank, then
+ * declaration order. Exported so `setup` suggests the same default rather than
+ * keeping a second ranking in step with this one.
+ *
+ * @param {RuntimeCandidate[]} candidates
+ * @returns {RuntimeCandidate|null}
+ */
+export function cheapest(candidates) {
   return [...candidates].sort((left, right) => tierOrder(left.runtime) - tierOrder(right.runtime)
     || runtimeOrder(left.runtime) - runtimeOrder(right.runtime)
     || left.order - right.order).at(0) ?? null;
 }
 
-/** @param {{id: string, runtime: RuntimeLike, order: number}[]} candidates @param {string} vendor @returns {{id: string, runtime: RuntimeLike, order: number}|null} */
-function strongest(candidates, vendor) {
+/**
+ * The strongest available candidate of a vendor other than `vendor`: highest
+ * tier, then highest cost rank, then declaration order. Exported alongside
+ * `cheapest` for `setup`'s cross-vendor judge default.
+ *
+ * @param {RuntimeCandidate[]} candidates
+ * @param {string} vendor
+ * @returns {RuntimeCandidate|null}
+ */
+export function strongest(candidates, vendor) {
   return [...candidates].filter(({ runtime }) => runtime.vendor !== vendor)
     .sort((left, right) => tierOrder(right.runtime) - tierOrder(left.runtime)
       || runtimeOrder(right.runtime) - runtimeOrder(left.runtime)
