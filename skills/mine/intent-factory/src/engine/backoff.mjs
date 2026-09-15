@@ -70,6 +70,12 @@ const NETWORK_CODES = new Set([
   "ECONNRESET", "ECONNREFUSED", "ECONNABORTED", "EPIPE", "ETIMEDOUT", "ENOTFOUND",
   "EAI_AGAIN", "ENETDOWN", "ENETUNREACH", "EHOSTUNREACH", "EPROTO", "UND_ERR_SOCKET",
   "network_error", "provider_unreachable", "service_unavailable", "gateway_timeout",
+  // A streaming provider whose response ends without its terminator reports
+  // this and nothing else: dsh emitted `STREAM_CLOSED` / "SSE stream ended
+  // without [DONE]" mid-node, and without it here the node failed outright
+  // instead of buying the bounded same-runtime wait every other cut transport
+  // already gets.
+  "STREAM_CLOSED",
 ]);
 
 /**

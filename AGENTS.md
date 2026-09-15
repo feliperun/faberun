@@ -48,6 +48,16 @@ events before delegating. Give every execution worker a closed task packet with
 exact read files, write files, decisions, non-goals, and verification commands.
 Only an explicit read-only discovery node may explore beyond a supplied packet.
 
+Two authoring rules, each paid for by a node that died without them. Declare in
+`symbols` a name the node *introduces*, never one it merely uses — a widely
+imported name fails scope closure against every importer, while a name the node
+creates has none. And `writeFiles` lists what the change *forces* to change, not
+only what it intends to: the schema validator for a field you add, the registry
+that field is recorded in, and any reader your own instructions tell the worker
+to touch. Keep a packet's `verification` to the few commands the node actually
+needs; every command's output is serialized into the judge prompt, and a packet
+with seven of them has exceeded the 64 KiB guard and killed its own node.
+
 **Continuity beats restart.** Before starting new work, check `.runs/` and the
 managed signal block at the bottom of this file: an active campaign or a
 non-terminal run is work to continue — read its `HANDOFF.md`/`STATUS.md`,

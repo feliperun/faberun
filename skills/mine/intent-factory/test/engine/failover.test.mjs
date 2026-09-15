@@ -24,6 +24,22 @@ test("the attempt deadlines left NON_FAILOVER_CODES, so a second failure takes t
   }
 });
 
+test("a streaming provider that ends without its terminator buys a network wait, not an outright failure", () => {
+  // Recorded live: dsh cut a node mid-run with `STREAM_CLOSED` / "SSE stream
+  // ended without [DONE]". Neither the code nor the message matched anything,
+  // so the node failed and needed a hand-issued resume -- a transport cut is
+  // the definition of try-again.
+  for (const error of [
+    { code: "STREAM_CLOSED", message: "SSE stream ended without [DONE]" },
+  ]) {
+    assert.equal(
+      classifyTransition({ status: "failed", error }).reason,
+      "network_backoff",
+      `${error.code}/${error.message} is a cut transport and earns the bounded same-runtime wait`,
+    );
+  }
+});
+
 test("quota exhaustion with no declared fallback leaves the node exhausted", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-no-fallback-quota-"));
   const exhausted = fakeCodex(directory, "quota-429");
