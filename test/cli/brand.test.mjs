@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { colorLevel, glyph, paint, renderBanner, renderUsage, statusToken, useUnicodeGlyphs } from "../../src/cli/brand.mjs";
@@ -10,6 +13,10 @@ import { packageVersion } from "../../src/host/package.mjs";
 const stripAnsi = (text) => text.replace(/\u001b\[[0-9;]*m/gu, "");
 
 const BIN = fileURLToPath(new URL("../../bin/faberun.mjs", import.meta.url));
+
+// The banner reads `update-check.json` under `$FABERUN_HOME`; point it at an
+// empty home so the rendered mark never depends on the developer's machine.
+const EMPTY_HOME = mkdtempSync(join(tmpdir(), "faberun-brand-home-"));
 
 test("colorLevel resolves DESIGN.md's capability order", () => {
   // NO_COLOR is checked first, whatever FORCE_COLOR says.
@@ -74,7 +81,7 @@ test("renderBanner is five lines and reproduces the DESIGN.md drawing", () => {
   // The CLI fills the last line from the running process, so use realistic
   // values (package version, `process.version` without the `v`, the harness
   // binaries on PATH) rather than a short stand-in that flatters the width.
-  const options = { version: "0.4.0", nodeVersion: "26.8.1", harnessCount: 5, level: 0 };
+  const options = { version: "0.4.0", nodeVersion: "26.8.1", harnessCount: 5, level: 0, env: { FABERUN_HOME: EMPTY_HOME } };
   const banner = renderBanner(options);
   const lines = banner.replace(/\n$/u, "").split("\n");
   assert.equal(lines.length, 5, "exactly five lines");

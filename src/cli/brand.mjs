@@ -9,10 +9,12 @@
  * untouched.
  */
 
+import { compareVersions, faberunHome, readUpdateCheck } from "../host/home.mjs";
+
 /** @typedef {"brand"|"ok"|"progress"|"warn"|"fail"|"muted"|"text"} Role */
 /** @typedef {"terra"|"argila"|"folha"} ColorName */
 /** @typedef {{color?: ColorName, bold?: boolean, dim?: boolean}} RoleSpec */
-/** @typedef {{version: string, nodeVersion: string, harnessCount: number, level: number}} BannerOptions */
+/** @typedef {{version: string, nodeVersion: string, harnessCount: number, level: number, env?: NodeJS.ProcessEnv}} BannerOptions */
 
 /** The palette's terminal encodings, exactly as DESIGN.md's table gives them. */
 /** @type {Record<ColorName, {rgb: string, index: number, ansi16: number}>} */
@@ -146,20 +148,25 @@ export function statusToken(kind, level) {
 /**
  * The five-line hornero-nest banner. The dome is Terra without bold, the inner
  * opening is muted, the wordmark is the brand role, the tagline is plain text
- * and the last line is muted and filled from the running process. ASCII apart
- * from the middle-dot separator, so it survives every monospace font.
+ * and the last line is muted and filled from the running process. The last line
+ * gains ` · update available: <latest>` when the cached check names a newer
+ * release; the banner reads only the cache (`update-check.json`) and never
+ * fetches. ASCII apart from the middle-dot separator, so it survives every
+ * monospace font.
  *
  * @param {BannerOptions} options
  * @returns {string}
  */
-export function renderBanner({ version, nodeVersion, harnessCount, level }) {
+export function renderBanner({ version, nodeVersion, harnessCount, level, env = process.env }) {
+  const cached = readUpdateCheck(faberunHome(env));
+  const latest = cached && compareVersions(cached.latest, version) > 0 ? cached.latest : null;
   const terra = /** @param {string} text @returns {string} */ (text) => colorize(text, { color: "terra" }, level);
   const lines = [
     terra("       .-~~~-."),
     `${terra("    .-'  ")}${paint(".-.", "muted", level)}${terra("  '-.")}       ${paint("faberun", "brand", level)}`,
     `${terra("   /    ")}${paint("(   )", "muted", level)}${terra("    \\")}      from intent to running software`,
     `${terra("   \\     ")}${paint("'-'", "muted", level)}${terra("     /")}`,
-    `${terra("    '-.._____..-'")}       ${paint(`v${version} · node ${nodeVersion} · ${harnessCount} harnesses detected`, "muted", level)}`,
+    `${terra("    '-.._____..-'")}       ${paint(`v${version} · node ${nodeVersion} · ${harnessCount} harnesses detected${latest ? ` · update available: ${latest}` : ""}`, "muted", level)}`,
   ];
   return `${lines.join("\n")}\n`;
 }
@@ -181,6 +188,7 @@ export function renderUsage() {
     "<status|report> <run-dir> [--json]",
     "findings <run-dir>",
     "doctor [<contract.json>] [--cwd <dir>] [--discover] [--json]",
+    "update [--check] [--json]",
     "models [--probe] [--json]",
     "next [--cwd <dir>] [--json]",
     "bulk-read --question <text> --paths <a,b,c> [--json]",

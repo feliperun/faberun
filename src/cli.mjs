@@ -26,6 +26,7 @@ import {
 import { renderRunHandoff } from "./campaign/index.mjs";
 import { campaignCli } from "./cli/campaign.mjs";
 import { seatCli } from "./cli/seat.mjs";
+import { updateCommand } from "./cli/update.mjs";
 import { contractCli, validateContractFile } from "./cli/contract.mjs";
 import { METRICS_OPTIONS, renderCampaignMetrics } from "./campaign/metrics.mjs";
 import { runContract } from "./engine/scheduler.mjs";
@@ -97,6 +98,7 @@ const COMMAND_OPTIONS = {
   models: { probe: { type: "boolean" }, json: { type: "boolean" } },
   "bulk-read": { question: { type: "string" }, paths: { type: "string", multiple: true }, json: { type: "boolean" } },
   next: { cwd: { type: "string" }, json: { type: "boolean" } },
+  update: { check: { type: "boolean" }, json: { type: "boolean" } },
   metrics: METRICS_OPTIONS,
 };
 
@@ -122,7 +124,8 @@ function parseCli(argv, quiet = false) {
   if (command === "models" && parsed.positionals.length !== 0) return null;
   if (command === "bulk-read" && parsed.positionals.length !== 0) return null;
   if (command === "next" && parsed.positionals.length !== 0) return null;
-  if (command !== "doctor" && command !== "models" && command !== "bulk-read" && command !== "next" && parsed.positionals.length !== 1) return null;
+  if (command === "update" && parsed.positionals.length !== 0) return null;
+  if (command !== "doctor" && command !== "models" && command !== "bulk-read" && command !== "next" && command !== "update" && parsed.positionals.length !== 1) return null;
   return {
     command,
     target: parsed.positionals[0],
@@ -223,6 +226,15 @@ async function main(argv) {
     const cwd = resolve(typeof values.cwd === "string" ? values.cwd : ".");
     const runsDir = join(cwd, ".runs");
     process.stdout.write(values.json === true ? renderNextJson(runsDir, cwd) : renderNext(runsDir, cwd));
+    return;
+  }
+  if (command === "update") {
+    process.exitCode = await updateCommand({
+      check: values.check === true,
+      json: values.json === true,
+      env: process.env,
+      entryPath: process.argv[1],
+    });
     return;
   }
   if (!target) { usage(); return; }
