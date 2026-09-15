@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+import { renderUsage } from "../../src/cli/brand.mjs";
+
 /**
  * The command surface the documentation promises and the one the CLI carries
  * must be the same set.
@@ -81,11 +83,14 @@ test("every command the README advertises exists in the CLI", () => {
 });
 
 test("every command the CLI dispatches appears in its own usage string", () => {
-  const usage = /usage: faberun([\s\S]*?)\\n",\n {2}\);/u.exec(cliSource);
-  assert.ok(usage, "the CLI must still print a usage string");
+  // The usage text lives in `cli/brand.mjs` as `renderUsage()`, which is what
+  // `src/cli.mjs` prints for help and for a usage error. Reading the renderer
+  // rather than a copy in the dispatcher is the point of this guard: a copy
+  // can advertise a verb the CLI never prints.
+  const usage = renderUsage();
   const missing = [...implementedCommands()]
     .filter((command) => !command.includes(" "))
-    .filter((command) => !usage[1].includes(command));
+    .filter((command) => !usage.includes(command));
   assert.deepEqual(missing, [], `${missing.join(", ")} is dispatched but absent from the usage string`);
 });
 

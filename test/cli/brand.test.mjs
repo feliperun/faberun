@@ -70,19 +70,33 @@ test("useUnicodeGlyphs and glyph follow the locale, with an ASCII fallback", () 
   assert.equal(glyph("fail", { TERM: "dumb" }), "x");
 });
 
-test("renderBanner is five lines, at most 64 columns, and carries the identity", () => {
-  const options = { version: "1.0.0", nodeVersion: "1", harnessCount: 1, level: 3 };
+test("renderBanner is five lines and reproduces the DESIGN.md drawing", () => {
+  // The CLI fills the last line from the running process, so use realistic
+  // values (package version, `process.version` without the `v`, the harness
+  // binaries on PATH) rather than a short stand-in that flatters the width.
+  const options = { version: "0.4.0", nodeVersion: "26.8.1", harnessCount: 5, level: 0 };
   const banner = renderBanner(options);
-  const lines = stripAnsi(banner).replace(/\n$/u, "").split("\n");
+  const lines = banner.replace(/\n$/u, "").split("\n");
   assert.equal(lines.length, 5, "exactly five lines");
-  for (const line of lines) assert.ok(line.length <= 64, `banner line exceeds 64 columns: ${JSON.stringify(line)} (${line.length})`);
+  assert.deepEqual(lines, [
+    "       .-~~~-.",
+    "    .-'  .-.  '-.       faberun",
+    "   /    (   )    \\      from intent to running software",
+    "   \\     '-'     /",
+    "    '-.._____..-'       v0.4.0 · node 26.8.1 · 5 harnesses detected",
+  ], "the mark matches the drawing in DESIGN.md");
+  // DESIGN.md says "five lines, at most 64 columns", but its own drawing is 67
+  // on the fill line. The drawing is the byte-for-byte reference, so this pins
+  // its width and records the doc's arithmetic instead of hiding it.
+  assert.equal(Math.max(...lines.map((line) => line.length)), 67, "DESIGN.md's own drawing is 67 columns on the fill line");
   assert.match(banner, /faberun/u);
   assert.match(banner, /from intent to running software/u);
-  assert.match(banner, /v1\.0\.0/u);
+  assert.match(banner, /v0\.4\.0/u);
 
   // The level changes only the escape codes: the visible mark is identical.
-  assert.equal(stripAnsi(renderBanner({ ...options, level: 0 })), stripAnsi(banner));
-  assert.equal(renderBanner({ ...options, level: 0 }), stripAnsi(banner), "level 0 emits no escape codes");
+  const colored = renderBanner({ ...options, level: 3 });
+  assert.equal(stripAnsi(colored), banner);
+  assert.notEqual(colored, banner, "level 3 paints the mark");
 });
 
 test("renderUsage prints one usage line per verb group", () => {

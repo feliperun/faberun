@@ -243,7 +243,7 @@ async function main(argv) {
     assertLaunchBaseClean(contract.cwd, baseRef, { ignorePaths: contractIgnore });
     if (values.detach === true) {
       if (existsSync(runDir)) throw new Error(`run already exists: ${runDir}`);
-      for (const warning of [...contract.warnings, ...reusedDoneWarnings(contract)]) process.stdout.write(`[warn] ${warning}\n`);
+      for (const warning of [...contract.warnings, ...reusedDoneWarnings(contract)]) process.stdout.write(`${advisoryToken()} ${warning}\n`);
       const child = detachSelf("run", target, baseRef ? ["--base-ref", baseRef] : []);
       const pid = child.pid;
       if (pid === undefined) throw new Error("detached child has no pid");
@@ -251,7 +251,7 @@ async function main(argv) {
       process.stdout.write(`[run] ${contract.id} detached · pid ${pid} · ${runDir}\n`);
       return;
     }
-    for (const warning of [...contract.warnings, ...reusedDoneWarnings(contract)]) process.stdout.write(`[warn] ${warning}\n`);
+    for (const warning of [...contract.warnings, ...reusedDoneWarnings(contract)]) process.stdout.write(`${advisoryToken()} ${warning}\n`);
     const result = await runContract(target, { detachedBootstrap: hasDetachedBootstrapNonce() });
     if (!result.ok) process.exitCode = 1;
     return;
@@ -375,6 +375,17 @@ async function main(argv) {
 }
 
 /**
+ * The warn token for an advisory written to stdout. DESIGN.md gives every
+ * `[warn]` advisory the warn role without distinguishing the stream; only the
+ * capability of stdout chooses the escape codes.
+ *
+ * @returns {string}
+ */
+function advisoryToken() {
+  return statusToken("warn", colorLevel(process.env, process.stdout.isTTY));
+}
+
+/**
  * The foreground launch command is the only moment an operator is present, so
  * it is where the no-transport warning belongs. A detached controller's stdio
  * is discarded, so this prints into nothing there by construction — the
@@ -382,7 +393,7 @@ async function main(argv) {
  */
 function warnIfNoTransport() {
   const warning = noTransportWarning();
-  if (warning) process.stdout.write(`[warn] ${warning}\n`);
+  if (warning) process.stdout.write(`${advisoryToken()} ${warning}\n`);
 }
 
 /** The harness binaries whose presence the banner counts on PATH. */
@@ -417,14 +428,8 @@ function help() {
 
 /**
  * The usage error: the same text as help, on stderr, no banner, exit code 2.
- *
  * The text lives in `cli/brand.mjs` as `renderUsage()` so help and error
- * cannot drift. `test/docs/command-surface.test.mjs` scans this file for the
- * usage line, so the verb surface it reads is kept here as a comment until
- * that scanner follows the import.
- *
- * usage: faberun <run|validate> <contract.json> [--base-ref <ref>] [--detach] | preflight <contract.json> [--static] [--time-verification] [--json] | <resume|cancel> <run-dir> [--detach] | supervise <run-dir> [--detach] [--interval <sec>] | supervise campaign <campaign-id> [--cwd <dir>] [--allow-main] | <status|report> <run-dir> [--json] | findings <run-dir> | doctor [<contract.json>] [--cwd <dir>] [--discover] [--json] | models [--probe] [--json] | next [--cwd <dir>] [--json] | bulk-read --question <text> --paths <a,b,c> [--json] | contract validate <contract.json> | metrics <campaign-id> [--cwd <dir>] [--json] | campaign <init|watch|attach|note|resolve|close|show|list|sync|ack> ... | seat <start|attach|status|stop> [<campaign-id>] [--cwd <dir>] ... \n",
-  );
+ * cannot drift.
  */
 function usage() {
   process.stderr.write(renderUsage());
