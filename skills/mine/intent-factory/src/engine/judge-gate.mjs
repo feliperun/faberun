@@ -121,13 +121,28 @@ function proveVerification(id, proof, recorded) {
 async function proveCommand(id, proof, cwd, timeoutMs) {
   const ref = proof.ref;
   return new Promise((settle) => {
-    const child = spawn(ref, { cwd, shell: true, stdio: ["ignore", "pipe", "pipe"] });
+    // Detached on POSIX so the shell leads its own process group: `shell: true`
+    // means the timeout must kill the group, not the shell, or the command the
+    // shell started keeps running and keeps the result pending forever.
+    const child = spawn(ref, { cwd, shell: true, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
     let stdout = "";
     let stderr = "";
-    let timedOut = false;
+    let settled = false;
+    const finish = (/** @type {{id: string, kind: "command", ref: string, pass: boolean, detail: string}} */ result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { child.stdout?.destroy(); } catch {
+        // The stream already closed; destroying it again is a no-op.
+      }
+      try { child.stderr?.destroy(); } catch {
+        // The stream already closed; destroying it again is a no-op.
+      }
+      settle(result);
+    };
     const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGKILL");
+      terminateProofGroup(child);
+      finish({ id, kind: "command", ref, pass: false, detail: boundedText(`timed out after ${timeoutMs}ms`) });
     }, timeoutMs);
     child.stdout.on("data", (chunk) => {
       if (stdout.length < MAX_PROOF_OUTPUT_BYTES) stdout += chunk;
@@ -136,18 +151,38 @@ async function proveCommand(id, proof, cwd, timeoutMs) {
       if (stderr.length < MAX_PROOF_OUTPUT_BYTES) stderr += chunk;
     });
     child.on("error", (error) => {
-      clearTimeout(timer);
-      settle({ id, kind: "command", ref, pass: false, detail: boundedText(error.message) });
+      finish({ id, kind: "command", ref, pass: false, detail: boundedText(error.message) });
     });
     child.on("close", (code, signal) => {
-      clearTimeout(timer);
-      const detail = timedOut
-        ? `timed out after ${timeoutMs}ms`
-        : signal !== null ? `killed by ${signal}` : `exit ${code ?? "?"}`;
-      const pass = !timedOut && code === 0 && signal === null;
-      settle({ id, kind: "command", ref, pass, detail: pass ? detail : boundedText(`${detail}: ${(stderr || stdout).trim()}`) });
+      const detail = signal !== null ? `killed by ${signal}` : `exit ${code ?? "?"}`;
+      const pass = code === 0 && signal === null;
+      finish({ id, kind: "command", ref, pass, detail: pass ? detail : boundedText(`${detail}: ${(stderr || stdout).trim()}`) });
     });
   });
+}
+
+/**
+ * Kill the proof command's process group, then make sure it is gone. The group
+ * is the shell and everything it started; killing only the shell was the bug
+ * that let a timed-out proof hold the pipe and never settle.
+ *
+ * @param {import("node:child_process").ChildProcess} child
+ */
+function terminateProofGroup(child) {
+  const pid = child.pid;
+  if (!pid) return;
+  const signal = (/** @type {NodeJS.Signals} */ name) => {
+    try {
+      if (process.platform !== "win32") process.kill(-pid, name);
+      else child.kill(name);
+    } catch {
+      try { child.kill(name); } catch {
+        // ESRCH: the group and the leader are already gone.
+      }
+    }
+  };
+  signal("SIGTERM");
+  setTimeout(() => signal("SIGKILL"), 100).unref();
 }
 
 /**

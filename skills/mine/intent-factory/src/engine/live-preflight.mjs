@@ -18,7 +18,8 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node
 import { join, resolve } from "node:path";
 import { normalizeProviderResult, probeRuntime, providerCommand } from "../harnesses/index.mjs";
 import { reachableRuntimes } from "../host/preflight.mjs";
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { boundedGitSync } from "../repo/worktree.mjs";
 import { tmpdir } from "node:os";
 import { validateContract } from "../contract/index.mjs";
 import { validateNodeSnapshot } from "../contract/snapshot.mjs";
@@ -92,10 +93,11 @@ function livePreflightTimeout(configured) {
 /** @returns {string} */
 function createLivePreflightRepo() {
   const directory = mkdtempSync(join(tmpdir(), "intent-factory-preflight-"));
-  const result = spawnSync("git", ["init", "-q", directory], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  if (result.status !== 0) {
+  const result = boundedGitSync(["init", "-q", directory], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+  if (result.status !== 0 || result.error) {
     rmSync(directory, { recursive: true, force: true });
-    throw new Error(`git init failed${result.stderr ? `: ${redactProviderText(result.stderr)}` : ""}`);
+    const reason = result.stderr ? redactProviderText(String(result.stderr)) : result.error?.message;
+    throw new Error(`git init failed${reason ? `: ${reason}` : ""}`);
   }
   return directory;
 }

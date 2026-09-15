@@ -118,6 +118,38 @@ export function nodeBudgetBasisMs(contract, node) {
 }
 
 /**
+ * The loop invariant that keeps a controller from spinning: a node that says it
+ * is `running` while the controller holds no invocation for it can never be
+ * finalized by anything, and the loop would tick forever at the poll interval.
+ * Park it as `blocked`/`integration_unresolved` so the run reports attention.
+ *
+ * It is deliberately narrow — `running` and absent from `running` only — so it
+ * never touches phase 2's parked `blocked`/`failed`/`exhausted`/`stalled`
+ * states, and never overwrites the `runtime_tier_exhausted` waiting shape.
+ *
+ * @param {string} runDir
+ * @param {Map<string, NodeSnapshot>} states
+ * @param {Map<string, Job>} running
+ * @param {LockHandle|null} lock
+ * @returns {string[]} the node ids this pass parked
+ */
+export function enforceRunningInvariant(runDir, states, running, lock) {
+  const parked = [];
+  for (const [nodeId, state] of states) {
+    if (state.status !== "running" || running.has(nodeId)) continue;
+    transition(runDir, state, "blocked", {
+      phase: state.phase,
+      error: {
+        code: "integration_unresolved",
+        message: "node is running but the controller holds no invocation for it",
+      },
+    }, lock);
+    parked.push(nodeId);
+  }
+  return parked;
+}
+
+/**
  * @param {string} contractPath
  * @param {{detachedBootstrap?: boolean}} [options] `detachedBootstrap` is set
  *   only by the CLI entry when this process is its own detached child, and
@@ -385,6 +417,9 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
       }, async (job) => {
         writeNode(runDir, job.state, lock);
       });
+      // A node left `running` with no job is a dead end; park it before the
+      // dispatch pass so it cannot hide behind a healthy sibling.
+      enforceRunningInvariant(runDir, states, running, lock);
       // Before dependants are blocked, a node that parked on this tick gets
       // its one automatic retry: it becomes pending, so `blockDependents` sees
       // nothing to block and the dependants stay `pending`/`phase: "waiting"`

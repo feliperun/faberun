@@ -15,10 +15,10 @@ import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION, probeRuntime } from ".
 import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
 import { blockingChecks, environmentPreflight, reachableRuntimes } from "../host/preflight.mjs";
 import { captureSourceIdentity } from "../repo/source-identity.mjs";
+import { boundedGitSync } from "../repo/worktree.mjs";
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { stableJson } from "../util.mjs";
 import { validateRunMetadata } from "../contract/snapshot.mjs";
@@ -249,7 +249,7 @@ export function assertSourceUnchanged(expected, actual) {
  */
 export function isDescendantHead(cwd, recorded, head) {
   if (!cwd) return false;
-  const result = spawnSync("git", ["-C", cwd, "merge-base", "--is-ancestor", recorded, head], { encoding: "utf8" });
+  const result = boundedGitSync(["-C", cwd, "merge-base", "--is-ancestor", recorded, head], { encoding: "utf8" });
   return result.status === 0;
 }
 /**

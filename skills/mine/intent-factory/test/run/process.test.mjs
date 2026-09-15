@@ -236,6 +236,61 @@ test("stall supervision uses the latest persisted timeout override", async () =>
   }
 });
 
+test("the pre-termination hook runs before terminateProcess, and a no-op is the default", async () => {
+  const runDir = mkdtempSync(join(tmpdir(), "lock-before-terminate-"));
+  const logs = join(runDir, "logs");
+  mkdirSync(logs);
+  const provider = join(runDir, "provider.mjs");
+  writeFileSync(provider, `#!/usr/bin/env node\nprocess.stdin.resume();\nsetTimeout(() => {}, 1000);\n`);
+  chmodSync(provider, 0o755);
+  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
+  process.env.INTENT_FACTORY_CODEX_BIN = provider;
+  const { contract, node } = validatedRun(runDir);
+  const state = nodeSnapshot(node, [
+    { kind: "timeout", timeoutSec: 0.05, at: new Date().toISOString(), reason: "hook" },
+  ]);
+  const job = startProcess({
+    contract,
+    node,
+    state,
+    runtime: { id: "luna", harness: "codex", model: "test" },
+    prompt: "task",
+    paths: {
+      prompt: join(logs, "worker.prompt"),
+      stdout: join(logs, "worker.jsonl"),
+      stderr: join(logs, "worker.err"),
+    },
+    phase: "worker",
+    onInvocation: () => {},
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    /** @type {string[]} */
+    const order = [];
+    let aliveInHook = null;
+    let hookCode = null;
+    /** @type {{status: "exhausted"|"stalled", error: {code: string}}|undefined} */
+    let timeoutSeen;
+    await detectStalls(contract, new Map([["build", job]]), async (_currentJob, status, error) => {
+      order.push("timeout");
+      timeoutSeen = { status, error };
+    }, undefined, async (hooked, timeout) => {
+      order.push("hook");
+      aliveInHook = invocationAlive(hooked.invocation);
+      hookCode = timeout.code;
+    });
+    assert.deepEqual(order, ["hook", "timeout"], "the hook is awaited before terminateProcess and onTimeout");
+    assert.equal(aliveInHook, true, "the hook observes the invocation before the kill");
+    assert.equal(hookCode, "wall_clock_timeout");
+    assert.equal(timeoutSeen?.status, "exhausted");
+    assert.equal(invocationAlive(job.invocation), false, "the kill happens after the hook");
+  } finally {
+    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
+    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    try { await terminateInvocation(job.invocation, { graceMs: 25, killGraceMs: 500 }); } catch {}
+  }
+});
+
 test("stall supervision kills a runtime whose harness declares streamed output once it goes quiet past stallTimeoutSec", async () => {
   const runDir = mkdtempSync(join(tmpdir(), "lock-stall-streaming-"));
   const logs = join(runDir, "logs");

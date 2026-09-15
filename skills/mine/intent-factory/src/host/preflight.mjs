@@ -22,6 +22,7 @@ import { addRuntimeRequirement, failoverTargets, runtimeSnapshot } from "../engi
 import { validateContract } from "../contract/index.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS, discoverRuntimes } from "../engine/runtime-discovery.mjs";
 import { errorMessage } from "../util.mjs";
+import { boundedGitSync } from "../repo/worktree.mjs";
 import { routeRuntime } from "../contract/runtime.mjs";
 import { NOTIFY_BIN_ENV, noTransportWarning } from "../notify/index.mjs";
 
@@ -57,7 +58,7 @@ const fail = (name, detail, advisory = false) => ({ name, ok: false, advisory, d
  * @returns {{status: number|null, stdout: string}}
  */
 function git(dir, args) {
-  const result = spawnSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const result = boundedGitSync(["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   return { status: result.error ? null : result.status, stdout: String(result.stdout ?? "") };
 }
 
@@ -107,7 +108,7 @@ export function checkDisk(cwd, minFreeBytes) {
  * @returns {EnvCheck}
  */
 export function checkGit(cwd) {
-  const version = spawnSync("git", ["--version"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const version = boundedGitSync(["--version"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   if (version.error || version.status !== 0) return fail("git", `git is not executable: ${version.error ? version.error.message : `exit ${version.status}`}`);
   const label = String(version.stdout ?? "").trim() || "git";
   if (!existsSync(cwd)) return fail("git", `${label} · cwd does not exist: ${cwd}`);
@@ -471,8 +472,8 @@ export async function doctorCommand(contractPath, values) {
 function isGitWorkTree(repoDir) {
   if (existsSync(join(repoDir, ".git"))) return true;
   try {
-    const result = spawnSync("git", ["-C", repoDir, "rev-parse", "--is-inside-work-tree"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
-    return result.status === 0 && result.stdout.trim() === "true";
+    const result = boundedGitSync(["-C", repoDir, "rev-parse", "--is-inside-work-tree"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return result.status === 0 && String(result.stdout).trim() === "true";
   } catch {
     return false;
   }
@@ -484,7 +485,7 @@ function isGitWorkTree(repoDir) {
  */
 function isRunsIgnored(repoDir) {
   try {
-    const result = spawnSync("git", ["-C", repoDir, "check-ignore", "-q", ".runs"], { stdio: ["ignore", "ignore", "ignore"] });
+    const result = boundedGitSync(["-C", repoDir, "check-ignore", "-q", ".runs"], { stdio: ["ignore", "ignore", "ignore"] });
     if (result.status === 0) return true;
   } catch {
     // A git that cannot run leaves the check-ignore answer unknown; fall through to reading .gitignore directly.

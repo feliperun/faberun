@@ -297,22 +297,34 @@ export async function terminateInvocation(invocation, options = {}) {
   }
 }
 /**
+ * The pre-termination seam: phase 5b fills this with quiesce → seal → terminate
+ * so an attempt's work is sealed before the kill. 5a installs it as a no-op so
+ * the ordering (hook, then kill, then onTimeout) is testable on its own.
+ *
+ * @param {Job} _job
+ * @param {{code: string, message: string}} _timeout
+ */
+async function defaultBeforeTerminate(_job, _timeout) {}
+/**
  * @param {ValidatedContract} contract
  * @param {Map<string, Job>} running
  * @param {(job: Job, outcome: "exhausted"|"stalled", error: {code: string, message: string}) => Promise<void>} onTimeout
  * @param {(job: Job) => Promise<void>|void} [onProgress]
+ * @param {(job: Job, timeout: {code: string, message: string}) => Promise<void>|void} [onBeforeTerminate] invoked before the kill; phase 5b seals here
  */
-export async function detectStalls(contract, running, onTimeout, onProgress) {
+export async function detectStalls(contract, running, onTimeout, onProgress, onBeforeTerminate = defaultBeforeTerminate) {
   const now = process.hrtime.bigint();
   for (const [nodeId, job] of running) {
     const budgetSec = latestTimeoutSec(job.state, job.node.timeoutSec ?? contract.timeoutSec);
     if (elapsedSeconds(job.startedTicks, now) >= budgetSec) {
-      await terminateProcess(job);
-      running.delete(nodeId);
-      await onTimeout(job, "exhausted", {
+      const timeout = {
         code: "wall_clock_timeout",
         message: `${job.phase} ran longer than ${budgetSec}s`,
-      });
+      };
+      await onBeforeTerminate(job, timeout);
+      await terminateProcess(job);
+      running.delete(nodeId);
+      await onTimeout(job, "exhausted", timeout);
       continue;
     }
     // A harness that never writes output until it exits (zcode's `--json`,
@@ -332,12 +344,14 @@ export async function detectStalls(contract, running, onTimeout, onProgress) {
       job.progressTicks = now;
     }
     if (elapsedSeconds(job.progressTicks, now) < contract.stallTimeoutSec) continue;
-    await terminateProcess(job);
-    running.delete(nodeId);
-    await onTimeout(job, "stalled", {
+    const timeout = {
       code: "stall_timeout",
       message: `no provider output for ${contract.stallTimeoutSec}s`,
-    });
+    };
+    await onBeforeTerminate(job, timeout);
+    await terminateProcess(job);
+    running.delete(nodeId);
+    await onTimeout(job, "stalled", timeout);
   }
 }
 /**

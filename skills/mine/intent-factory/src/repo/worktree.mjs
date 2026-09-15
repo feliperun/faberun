@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -6,6 +6,92 @@ import { dirname, join } from "node:path";
 
 /** @typedef {{status: "ready", path: string, branch: string, commit: string|null, baseSha: string}} AttemptWorktree */
 /** @typedef {{sha: string, empty: boolean}} SealedAttempt */
+/** @typedef {{encoding?: "utf8"|"buffer", stdio?: import("node:child_process").StdioOptions, timeoutMs?: number, maxBuffer?: number, cwd?: string, env?: NodeJS.ProcessEnv}} BoundedGitOptions */
+/** @typedef {{status: number|null, signal: NodeJS.Signals|null, stdout: string|Buffer, stderr: string|Buffer, error?: Error & {code?: string}, timedOut: boolean}} BoundedGitResult */
+
+/**
+ * The wall-clock bound on every synchronous git subprocess. A controller that
+ * blocks forever on `git` while another process holds `.git/index.lock` is a
+ * frozen loop; git has no timeout of its own, so the wrapper supplies one.
+ * 30s is far longer than any one of these calls takes at the sizes this runner
+ * uses, and far shorter than an operator waiting on a silent run.
+ */
+export const GIT_SYNC_TIMEOUT_MS = 30_000;
+
+/**
+ * The timeout a call uses: the explicit option, else the operator override
+ * (`INTENT_FACTORY_GIT_TIMEOUT_MS`, for a slow disk or a test), else the
+ * default. Read at call time so the env is honoured without a restart.
+ *
+ * @param {number|undefined} optionMs
+ * @returns {number}
+ */
+function gitSyncTimeoutMs(optionMs) {
+  if (optionMs !== undefined) return optionMs;
+  const raw = process.env.INTENT_FACTORY_GIT_TIMEOUT_MS;
+  const parsed = raw === undefined ? Number.NaN : Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : GIT_SYNC_TIMEOUT_MS;
+}
+
+/**
+ * The one place a synchronous `git` process is spawned. `execFileSync`-style
+ * callers (`runGit`) read `stdout`, `spawnSync`-style callers read the result
+ * object, and both are held to the same timeout. A spawn that hits the timeout
+ * carries a named `git_timeout` error instead of hanging.
+ *
+ * @param {string[]} args
+ * @param {BoundedGitOptions} [options]
+ * @returns {BoundedGitResult}
+ */
+export function boundedGitSync(args, options = {}) {
+  const timeoutMs = gitSyncTimeoutMs(options.timeoutMs);
+  const result = spawnSync("git", args, {
+    encoding: options.encoding ?? "utf8",
+    stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
+    timeout: timeoutMs,
+    killSignal: "SIGKILL",
+    ...(options.maxBuffer !== undefined ? { maxBuffer: options.maxBuffer } : {}),
+    ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+    ...(options.env !== undefined ? { env: options.env } : {}),
+  });
+  const timedOut = result.error !== undefined && /** @type {{code?: string}} */ (result.error).code === "ETIMEDOUT";
+  if (timedOut) {
+    /** @type {Error & {code?: string}} */
+    const error = new Error(`git ${args.join(" ")} timed out after ${timeoutMs}ms`);
+    error.code = "git_timeout";
+    error.cause = result.error;
+    return { ...result, error, timedOut: true };
+  }
+  return { ...result, timedOut: false };
+}
+
+/**
+ * Run git and, when it fails, carry git's own stderr into the error.
+ *
+ * Node's `execFileSync` error says only `Command failed: git -C … commit -qm
+ * …` and drops the reason. That is how an empty-change-set commit exiting 1
+ * was misdiagnosed twice across two campaigns: the surfaced error named the
+ * command, never git's "nothing to commit". Every git call here goes through
+ * this helper so a failure always says why.
+ *
+ * @param {string[]} args @returns {string}
+ */
+function runGit(args) {
+  const result = boundedGitSync(args, { encoding: "utf8" });
+  if (result.error || result.status !== 0) {
+    const error = /** @type {Error & {stderr?: unknown, stdout?: unknown, status?: number|null, signal?: string|null}} */ (result.error ?? new Error(`Command failed: git ${args.join(" ")}`));
+    if (result.error === undefined) {
+      error.stderr = result.stderr;
+      error.stdout = result.stdout;
+      error.status = result.status;
+      error.signal = result.signal;
+    }
+    const reason = gitFailureReason(error);
+    if (reason && !String(error.message).includes(reason)) error.message = `${String(error.message).split("\n")[0]}: ${reason}`;
+    throw error;
+  }
+  return String(result.stdout ?? "").trim();
+}
 
 /** @param {string} runId @returns {string} */
 export function runRefName(runId) {
@@ -35,27 +121,6 @@ function attemptBranchName(runId, nodeId, attempt) {
 /** @param {string} runDir @param {string} runId @returns {string} */
 export function candidateWorktreePath(runDir, runId) {
   return join(worktreeRoot(runDir, runId), ".candidate");
-}
-
-/**
- * Run git and, when it fails, carry git's own stderr into the error.
- *
- * Node's `execFileSync` error says only `Command failed: git -C … commit -qm
- * …` and drops the reason. That is how an empty-change-set commit exiting 1
- * was misdiagnosed twice across two campaigns: the surfaced error named the
- * command, never git's "nothing to commit". Every git call here goes through
- * this helper so a failure always says why.
- *
- * @param {string[]} args @returns {string}
- */
-function runGit(args) {
-  try {
-    return execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-  } catch (error) {
-    const reason = gitFailureReason(error);
-    if (reason) /** @type {Error} */ (error).message = `${/** @type {Error} */ (error).message.split("\n")[0]}: ${reason}`;
-    throw error;
-  }
 }
 
 /** @param {unknown} error @returns {string} */

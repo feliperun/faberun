@@ -11,13 +11,31 @@ import { Buffer } from "node:buffer";
 import { assertObject, rejectUnknown, requireId, requirePacketHash, requireString } from "../contract/assert.mjs";
 import { createHash } from "node:crypto";
 import { errorCode } from "../util.mjs";
-import { execFileSync } from "node:child_process";
+import { boundedGitSync } from "./worktree.mjs";
 import { lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { resolve } from "node:path";
 import { normalizeManagedSignalBlock } from "./signal-block.mjs";
 
 /** @typedef {import("../notify/index.mjs").JsonObject} JsonObject */
 /** @typedef {import("../contract/index.mjs").SourceIdentity} SourceIdentity */
+/** @typedef {{encoding?: "utf8"|"buffer", stdio?: import("node:child_process").StdioOptions}} GitReadOptions */
+
+/**
+ * Run one bounded synchronous git read and surface a failure as a throw, so
+ * the callers below keep their `try/catch` shape. Every `execFileSync("git")`
+ * here went through this helper so a held index lock cannot hang the controller.
+ *
+ * @param {string[]} args
+ * @param {GitReadOptions} [options]
+ * @returns {string|Buffer}
+ */
+function gitSyncOrThrow(args, options = {}) {
+  const result = boundedGitSync(args, options);
+  if (result.error || result.status !== 0) {
+    throw result.error ?? new Error(`git ${args.join(" ")} exited ${result.status}`);
+  }
+  return result.stdout;
+}
 
 /**
  * @param {unknown} value
@@ -123,10 +141,10 @@ function sourcePathspec(options = {}) {
 function resolveGitHead(cwd, baseRef) {
   if (baseRef) {
     try {
-      return execFileSync("git", ["-C", cwd, "rev-parse", baseRef], {
+      return String(gitSyncOrThrow(["-C", cwd, "rev-parse", baseRef], {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
-      }).trim() || null;
+      })).trim() || null;
     } catch {
       // An unknown ref resolves to null; the caller decides whether that is fatal.
       return null;
@@ -142,10 +160,10 @@ function resolveGitHead(cwd, baseRef) {
     catch (error) { if (errorCode(error) !== "ENOENT") throw error; return null; }
   }
   try {
-    return execFileSync("git", ["-C", cwd, "rev-parse", "HEAD"], {
+    return String(gitSyncOrThrow(["-C", cwd, "rev-parse", "HEAD"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
-    }).trim() || null;
+    })).trim() || null;
   } catch {
     // Any rev-parse failure (no repo, unborn HEAD, git absent) leaves gitHead null.
     return null;
@@ -164,10 +182,10 @@ function resolveGitHead(cwd, baseRef) {
  */
 export function dirtyTreePaths(cwd, options = {}) {
   try {
-    const status = execFileSync("git", ["-C", cwd, "status", "--porcelain=v1", "--untracked-files=all", "-z", "--", ...sourcePathspec(options)], {
+    const status = String(gitSyncOrThrow(["-C", cwd, "status", "--porcelain=v1", "--untracked-files=all", "-z", "--", ...sourcePathspec(options)], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
-    });
+    }));
     return status.split("\0").filter(Boolean);
   } catch {
     // Not a repository, or git absent: there is no dirt the launch can name.
@@ -217,17 +235,17 @@ export function gitIdentity(cwd, options = {}) {
   try {
     const pathspec = sourcePathspec(options);
     const gitHead = resolveGitHead(cwd, options.baseRef);
-    const status = execFileSync("git", ["-C", cwd, "status", "--porcelain=v1", "--untracked-files=all", "-z", "--", ...pathspec], {
+    const status = /** @type {Buffer} */ (gitSyncOrThrow(["-C", cwd, "status", "--porcelain=v1", "--untracked-files=all", "-z", "--", ...pathspec], {
       encoding: "buffer",
       stdio: ["ignore", "pipe", "ignore"],
-    });
+    }));
     const statusText = status.toString("utf8");
     const diff = !gitHead || status.length === 0
       ? Buffer.alloc(0)
-      : execFileSync("git", ["-C", cwd, "diff", "--binary", "HEAD", "--", ...pathspec], {
+      : /** @type {Buffer} */ (gitSyncOrThrow(["-C", cwd, "diff", "--binary", "HEAD", "--", ...pathspec], {
         encoding: "buffer",
         stdio: ["ignore", "pipe", "ignore"],
-      });
+      }));
     const untrackedFiles = statusText.split("\0")
       .filter((entry) => entry.startsWith("?? "))
       .map((entry) => entry.slice(3));

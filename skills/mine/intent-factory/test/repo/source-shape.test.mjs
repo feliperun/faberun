@@ -242,6 +242,58 @@ test(`empty catch blocks in src/ never exceed ${EMPTY_CATCH_CEILING}`, () => {
 });
 
 /**
+ * Every synchronous git spawn under `src/` must go through `boundedGitSync`,
+ * the one wrapper that supplies a timeout (phase 5a). A raw `execFileSync` or
+ * `spawnSync` of git can block forever on a held `.git/index.lock`, and that
+ * wait is on the controller's critical path.
+ *
+ * The exemptions below are named call sites, not whole files: a new unbounded
+ * git call anywhere, including inside an exempt file, changes the matched set
+ * and fails the test. Most are read-only probes that cannot take `index.lock`;
+ * `campaign/chain.mjs` and the throwaway-repo `git init` are outside this
+ * packet's write scope, and they are named here so the gap is visible rather
+ * than silent.
+ */
+const SYNC_GIT_SPAWN = /(?:execFileSync|spawnSync)\s*\(\s*["'`]git/u;
+
+/** @type {{file: string, match: string, reason: string}[]} */
+const SYNC_GIT_EXEMPTIONS = [
+  { file: "src/repo/worktree.mjs", match: "spawnSync(\"git\", args, {", reason: "the boundedGitSync wrapper itself" },
+  { file: "src/repo/workspace.mjs", match: "\"rev-parse\", \"--git-path\"", reason: "read-only path probe; cannot take index.lock" },
+  { file: "src/repo/workspace.mjs", match: "execFileSync(\"git\", args, {", reason: "read-only ls-files index read; cannot take index.lock" },
+  { file: "src/repo/declared-paths.mjs", match: "\"ls-files\", \"--cached\", \"--error-unmatch\"", reason: "read-only index probe" },
+  { file: "src/repo/declared-paths.mjs", match: "execFileSync(\"git\", args, { encoding: \"buffer\"", reason: "read-only ls-files index read" },
+  { file: "src/repo/declared-paths.mjs", match: "[\"init\", \"-q\", temporaryWorktree]", reason: "throwaway temp repo, never the run's index" },
+  { file: "src/repo/declared-paths.mjs", match: "execFileSync(\"git\", args, { stdio: [\"ignore\", \"ignore\", \"ignore\"] });", reason: "read-only check-ignore probes" },
+  { file: "src/repo/declared-paths.mjs", match: "args.toSpliced(-3, 1, \"--quiet\")", reason: "read-only check-ignore probe" },
+  { file: "src/campaign/chain.mjs", match: "\"rev-parse\", ref", reason: "read-only ref probe" },
+  { file: "src/campaign/chain.mjs", match: "\"worktree\", \"add\", \"--detach\"", reason: "outside this packet's write scope" },
+  { file: "src/campaign/chain.mjs", match: "\"worktree\", \"remove\", \"--force\", worktree", reason: "outside this packet's write scope" },
+];
+
+test("every synchronous git spawn in src/ is bounded or a named exemption", () => {
+  const calls = SRC_FILES.flatMap((file) => file.text.split("\n").flatMap((line, index) => {
+    const text = line.trim();
+    if (text.startsWith("*") || text.startsWith("//")) return [];
+    return SYNC_GIT_SPAWN.test(text) ? [{ file: file.label, line: index + 1, text }] : [];
+  }));
+  const exempt = (/** @type {{file: string, text: string}} */ call) =>
+    SYNC_GIT_EXEMPTIONS.some((entry) => entry.file === call.file && call.text.includes(entry.match));
+  const unbounded = calls.filter((call) => !exempt(call));
+  assert.deepEqual(
+    unbounded.map((call) => `${call.file}:${call.line}  ${call.text}`),
+    [],
+    "route every synchronous git spawn through boundedGitSync, or name the call site as an exemption with its reason",
+  );
+  const stale = SYNC_GIT_EXEMPTIONS.filter((entry) => !calls.some((call) => call.file === entry.file && call.text.includes(entry.match)));
+  assert.deepEqual(
+    stale.map((entry) => `${entry.file}  ${entry.match}  (${entry.reason})`),
+    [],
+    "an exemption names a git call that no longer exists -- delete it so it cannot cover a future one",
+  );
+});
+
+/**
  * Modules with no leading block comment, ratcheted down. `AGENTS.md` asks a
  * header to say what the module owns and *why it is separate* -- the reader can
  * see what the functions do. 30 of 84 predate the rule; the number only falls.

@@ -146,11 +146,6 @@ function runCommand(command, baseCwd, commandCwd, attempt, signal, options, comm
     /** @type {VerificationAttempt|null} */
     let identity = null;
     let completionReported = false;
-    const terminate = (/** @type {string} */ name) => {
-      timedOut ||= name === "timeout";
-      if (!child?.pid) return;
-      terminateGroup(child);
-    };
     /**
      * @param {number|null} exitCode
      * @param {string|null} signalName
@@ -182,6 +177,26 @@ function runCommand(command, baseCwd, commandCwd, attempt, signal, options, comm
       }
       resolveResult(result);
     };
+    /**
+     * The timeout and abort paths settle here, never on `close`: a grandchild
+     * that escaped the process group can hold the stdout pipe open forever, so
+     * waiting for `close` would park the loop's critical path on a process that
+     * will never report. Kill the group, destroy the pipes, and settle now.
+     *
+     * @param {"timeout"|"abort"} reason
+     */
+    const settleFromTimer = (reason) => {
+      if (settled) return;
+      timedOut = reason === "timeout";
+      if (child?.pid) terminateGroup(child);
+      try { child?.stdout?.destroy(); } catch {
+        // The stream already closed; destroying it again is a no-op.
+      }
+      try { child?.stderr?.destroy(); } catch {
+        // The stream already closed; destroying it again is a no-op.
+      }
+      finish(null, null, reason === "abort" ? new Error("verification command aborted") : null);
+    };
     try {
       const cwd = resolveVerificationCwd(baseCwd, commandCwd);
       const startedAt = new Date().toISOString();
@@ -212,7 +227,7 @@ function runCommand(command, baseCwd, commandCwd, attempt, signal, options, comm
       childStderr.on("data", (chunk) => stderr.add(chunk));
       child.once("error", (error) => finish(null, null, error));
       child.once("close", (code, signalName) => finish(code, signalName));
-      abortHandler = () => terminate("abort");
+      abortHandler = () => settleFromTimer("abort");
       if (signal?.aborted) abortHandler();
       else signal?.addEventListener("abort", abortHandler, { once: true });
     } catch (error) {
@@ -223,7 +238,7 @@ function runCommand(command, baseCwd, commandCwd, attempt, signal, options, comm
       }
       finish(null, null, error instanceof Error ? error : new Error(String(error)));
     }
-    if (child) timer = setTimeout(() => terminate("timeout"), (command.timeoutSec ?? 120) * 1_000);
+    if (child && !settled) timer = setTimeout(() => settleFromTimer("timeout"), (command.timeoutSec ?? 120) * 1_000);
   });
 }
 /**

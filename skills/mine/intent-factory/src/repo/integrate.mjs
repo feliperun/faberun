@@ -1,8 +1,8 @@
-import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { appendJsonl } from "../run/store.mjs";
 import {
+  boundedGitSync,
   candidateRefName,
   cleanupCandidate,
   createCandidateWorktree,
@@ -272,10 +272,11 @@ function prepareTransaction({ repo, runId, nodeId, attempt, attemptSha, branch, 
     transaction.candidateSha = attemptSha;
     return transaction;
   }
-  const merge = spawnSync("git", ["-C", repo, "merge-tree", "--write-tree", previousRunRefTip, attemptSha], {
+  const merge = boundedGitSync(["-C", repo, "merge-tree", "--write-tree", previousRunRefTip, attemptSha], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   });
+  if (merge.error) throw merge.error;
   if (merge.status !== 0) {
     transaction.conflictingPaths = conflictPaths(repo, previousRunRefTip, attemptSha, `${merge.stdout ?? ""}\n${merge.stderr ?? ""}`);
     return transaction;
@@ -424,7 +425,7 @@ function gitSetRef(repo, ref, sha) {
 
 /** @param {string} repo @param {string} tree @param {string} firstParent @param {string} secondParent @param {string} runId @param {string} nodeId @param {number} attempt @returns {string} */
 function gitCommitTree(repo, tree, firstParent, secondParent, runId, nodeId, attempt) {
-  const result = spawnSync("git", ["-C", repo, "commit-tree", tree, "-p", firstParent, "-p", secondParent, "-m", `intent-factory candidate ${runId} ${nodeId} attempt ${attempt}`], {
+  const result = boundedGitSync(["-C", repo, "commit-tree", tree, "-p", firstParent, "-p", secondParent, "-m", `intent-factory candidate ${runId} ${nodeId} attempt ${attempt}`], {
     encoding: "utf8",
     env: {
       ...process.env,
@@ -435,6 +436,7 @@ function gitCommitTree(repo, tree, firstParent, secondParent, runId, nodeId, att
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
+  if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`git commit-tree failed: ${String(result.stderr ?? "").trim()}`);
   return String(result.stdout).trim();
 }
