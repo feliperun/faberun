@@ -6,15 +6,18 @@
  * re-nags on a schedule, and a node whose remedy is "try again" gets exactly
  * one automatic retry whose consumption survives a controller restart.
  */
-import test from "node:test";
+import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { PARKED, SETTLED, SUCCESS, TERMINAL } from "../../src/engine/prompts.mjs";
 import { reduceRunOutcome, runProgress, superviseRun } from "../../src/engine/supervise.mjs";
 import { AUTO_RETRY_CODES, autoRetryConsumed, autoRetryNode, autoRetryParkedNodes, livenessState } from "../../src/engine/lifecycle.mjs";
 import { blockDependents } from "../../src/engine/assignment.mjs";
+import { transition } from "../../src/engine/state.mjs";
+import { resumeRun } from "../../src/engine/resume.mjs";
 import { emitScheduledAttention, attentionScheduleSlot, alreadyNotified } from "../../src/engine/notify-queue.mjs";
 import { cancelRun } from "../../src/engine/cancel.mjs";
 import { checkWorkerScope } from "../../src/engine/scope.mjs";
@@ -262,7 +265,7 @@ test("done-when 7: attention re-emits at 10m, 1h, 4h and every 4h, survives a re
   assert.ok(alreadyNotified(runDir, `run.attention:${basename(runDir)}:2026-09-14T00:00:00Z:0`), "the slot receipt is durable");
 });
 
-test("done-when 7: a resume that changes state clears the anchor; one that fails before changing state leaves it", async () => {
+test("done-when 7: a parked run anchors attention and re-nags across a supervisor restart", async () => {
   const runDir = makeRunDir();
   writeSnapshot(runDir, "alpha", { status: "blocked", error: { code: "provider_error", message: "boom" } });
   const clock = fakeClock("2026-09-14T00:00:00Z");
@@ -276,8 +279,8 @@ test("done-when 7: a resume that changes state clears the anchor; one that fails
   const anchored = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
   assert.equal(typeof anchored.attention.at, "string");
 
-  // A resume that fails before changing any node state leaves the anchor in
-  // place, so the next park interval still re-nags.
+  // The anchor is durable, so a second supervisor -- a restart -- reads the
+  // same interval and re-nags when the ten-minute slot comes due.
   clock.advance(10 * 60_000);
   await superviseRun(runDir, {
     intervalSec: 1,
@@ -286,20 +289,40 @@ test("done-when 7: a resume that changes state clears the anchor; one that fails
     sleep: async () => {},
     launch: () => {},
   });
-  assert.equal(alreadyNotified(runDir, `run.attention:${basename(runDir)}:${anchored.attention.at}:0`), true, "a failed resume does not silence the re-nag");
+  assert.equal(alreadyNotified(runDir, `run.attention:${basename(runDir)}:${anchored.attention.at}:0`), true, "the restart re-nags from the durable anchor");
+});
 
-  // A resume that actually changed state clears the anchor; the run then
-  // succeeds and the supervisor reports done instead of parked.
-  writeSnapshot(runDir, "alpha", { status: "done" });
-  writeFileSync(join(runDir, "run.json"), JSON.stringify({ ...anchored, attention: null }));
-  const finished = await superviseRun(runDir, {
-    intervalSec: 1,
-    maxTicks: 2,
-    now: clock.now,
-    sleep: async () => {},
-    launch: () => {},
-  });
-  assert.equal(finished.state, "done");
+test("done-when 7: resumeRun clears the anchor only when it changed node state", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-parked-resume-attention-"));
+  const path = writeContract(directory, fixture({ id: "parked-resume-attention-run", pollIntervalMs: 10 }));
+  const runDir = await withFakeCodex(directory, "worker-fail", async () => (await runContract(path)).runDir);
+  const snapshotPath = join(runDir, "nodes", "build.json");
+  const parkedSnapshot = readFileSync(snapshotPath, "utf8");
+  assert.equal(JSON.parse(parkedSnapshot).status, "failed", "the run parks before the resume is attempted");
+  const anchor = { code: "provider_error", message: "boom", at: new Date(0).toISOString() };
+  const persisted = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+  writeFileSync(join(runDir, "run.json"), JSON.stringify({ ...persisted, attention: anchor }));
+
+  // A resume that cannot change state -- here a context_missing node it may
+  // not re-dispatch -- leaves the anchor in place, so the next park interval
+  // still re-nags. This is the precedence guard: resume passes no attention,
+  // and the persisted record must survive the run.json rewrite.
+  writeFileSync(snapshotPath, JSON.stringify({
+    ...JSON.parse(parkedSnapshot),
+    status: "blocked",
+    phase: "worker",
+    error: { code: "context_missing", message: "missing context" },
+  }));
+  await withFakeCodex(directory, "pass", () => resumeRun(runDir));
+  assert.deepEqual(JSON.parse(readFileSync(join(runDir, "run.json"), "utf8")).attention, anchor, "a resume that changed nothing does not silence the re-nag");
+
+  // The same run, resumed once it can change state, clears the anchor and
+  // finishes; the supervisor would now report done instead of parked.
+  writeFileSync(snapshotPath, parkedSnapshot);
+  await withFakeCodex(directory, "pass", () => resumeRun(runDir));
+  const cleared = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+  assert.equal(cleared.attention, null, "a resume that changed node state clears the durable anchor");
+  assert.equal(JSON.parse(readFileSync(snapshotPath, "utf8")).status, "done");
 });
 
 // ---------------------------------------------------------------------------
@@ -431,6 +454,76 @@ test("done-when 13: the split is exactly terminal versus parked, and each shared
   assert.equal(runIsNonterminal(live.runDir), false, "a parked node is not a reason to hold a detached bootstrap");
   const running = makeValidRunDir({ statuses: { build: { status: "running", phase: "worker" } } });
   assert.equal(runIsNonterminal(running.runDir), true);
+});
+
+test("done-when 13: blockDependents blocks only a parked parent, never a successful or canceled one", () => {
+  // The old predicate was `TERMINAL.has(parent) && parent !== "done"`, and the
+  // old TERMINAL still held `no-op` and `canceled`; the split's narrower PARKED
+  // predicate intentionally no longer blocks on either. A successful parent
+  // must never poison its dependants, and the canceled parent is safe because
+  // the controller cancels every non-settled node on the same path.
+  const { runDir, contract } = makeValidRunDir({
+    contract: { nodes: [
+      { id: "first", type: "backend", taskPacket: packet(), gate: false },
+      { id: "second", type: "backend", taskPacket: packet(), dependsOn: ["first"], gate: false },
+    ] },
+    statuses: {
+      first: { status: "no-op", phase: "complete" },
+      second: { status: "pending", phase: "waiting" },
+    },
+  });
+  const states = new Map(contract.nodes.map((node) => [node.id, JSON.parse(readFileSync(join(runDir, "nodes", `${node.id}.json`), "utf8"))]));
+  const first = states.get("first");
+
+  blockDependents(contract, runDir, states, /** @type {any} */ (null));
+  assert.equal(states.get("second")?.status, "pending", "a no-op parent is success and never blocks its dependants");
+
+  if (first) first.status = "canceled";
+  blockDependents(contract, runDir, states, /** @type {any} */ (null));
+  assert.equal(states.get("second")?.status, "pending", "a canceled parent is not a parked failure");
+  assert.equal(states.get("second")?.phase, "waiting");
+
+  if (first) first.status = "failed";
+  blockDependents(contract, runDir, states, /** @type {any} */ (null));
+  assert.equal(states.get("second")?.status, "blocked", "a parked parent does block");
+  assert.equal(states.get("second")?.error?.code, "dependency_failed");
+});
+
+test("done-when 13: state.transition still logs a parked status as settled", () => {
+  // `transition` replaced its TERMINAL membership test with SETTLED, which is
+  // the same union, so a parked node keeps its `[node] <id> <status>` line.
+  const runDir = makeRunDir();
+  const state = validSnapshot("build", { status: "pending", phase: "worker", error: null });
+  const write = mock.method(process.stdout, "write", () => true);
+  try {
+    transition(runDir, state, "failed", { phase: "worker", error: { code: "provider_error", message: "boom" } }, null);
+  } finally {
+    write.mock.restore();
+  }
+  const logged = write.mock.calls.map((call) => String(call.arguments[0] ?? ""));
+  assert.ok(logged.some((line) => line.includes("[node] build failed")), "a parked transition is reported as settled");
+  assert.match(readFileSync(join(runDir, "nodes", "build.json"), "utf8"), /"status":"failed"/u);
+});
+
+test("done-when 13: campaign-watch and web keep the pre-split union, accounted outside this node", () => {
+  // These three readers live outside this node's write scope. Each still
+  // enumerates the pre-split union -- the old TERMINAL set plus the British
+  // "cancelled" alias -- so the split is a no-op for them and today's
+  // behaviour is preserved exactly. Narrowing them would change campaign-watch
+  // liveness and web terminal/attention styling, a separate decision; this
+  // pins the union so the reconciliation cannot drift in without a test.
+  const skillDir = fileURLToPath(new URL("../..", import.meta.url));
+  const expected = ["blocked", "canceled", "cancelled", "done", "exhausted", "failed", "no-op", "stalled"];
+  /** @param {string} relative @param {string} name @returns {string[]} */
+  const readStatusSet = (relative, name) => {
+    const source = readFileSync(join(skillDir, relative), "utf8");
+    const match = new RegExp(`const ${name} = new Set\\(\\[([^\\]]*)\\]\\)`, "u").exec(source);
+    assert.ok(match, `${relative} no longer declares ${name}`);
+    return [...(match[1] ?? "").matchAll(/"([^"]+)"/gu)].map((entry) => String(entry[1])).sort();
+  };
+  assert.deepEqual(readStatusSet("src/cli/campaign.mjs", "TERMINAL_NODE_STATUSES"), expected);
+  assert.deepEqual(readStatusSet("src/web/api.mjs", "RUN_TERMINAL_STATUSES"), expected);
+  assert.deepEqual(readStatusSet("src/web/server.mjs", "TERMINAL_STATUSES"), expected);
 });
 
 test("done-when 13: a parked node keeps the managed signal active and blocks garbage collection", () => {
