@@ -4,13 +4,17 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, unlin
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  assertContractManifestIntact,
+  authoredContractDigest,
   closeCampaign,
   discoverCampaigns,
   initializeCampaign,
+  recordPromotion,
   registerRun,
   renderHandoff,
   resolveCampaign,
 } from "../../src/campaign/index.mjs";
+import { readCampaign } from "../../src/campaign/record.mjs";
 import { appendJournal, readJournal, validateJournalEntry } from "../../src/campaign/journal.mjs";
 import { HANDOFF_BYTES, HANDOFF_FILE, JOURNAL_FILE, JOURNAL_TEXT_BYTES, PROJECTION_FILE } from "../../src/campaign/layout.mjs";
 
@@ -476,4 +480,74 @@ test("large valid identifiers cannot starve later critical sections", () => {
   assert.match(handoff, /Never drop active decisions/u);
   assert.match(handoff, /## Open questions/u);
   assert.doesNotMatch(handoff, /none fits the remaining budget/u);
+});
+
+// ---------------------------------------------------------------------------
+// The chain's campaign fields: an ordered contract manifest, a landing branch,
+// and a durable promotion record (phase 3, rule 1).
+// ---------------------------------------------------------------------------
+
+test("a campaign carries an ordered contract manifest and a landing branch", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-campaign-manifest-"));
+  const runsDir = join(directory, ".runs");
+  const contracts = [
+    { path: join(directory, "phase-1.json"), digest: "a".repeat(64) },
+    { path: join(directory, "phase-2.json"), digest: "b".repeat(64) },
+  ];
+  const created = initializeCampaign(runsDir, {
+    campaignId: "manifest",
+    goal: "Chain three contracts",
+    contracts,
+    landBranch: "campaign/custom",
+  });
+  assert.deepEqual(created.campaign.contracts, contracts, "the manifest keeps its authored order and digests");
+  assert.equal(created.campaign.landBranch, "campaign/custom");
+  const reread = readCampaign(created.path);
+  assert.deepEqual(reread.contracts, contracts);
+  assert.equal(reread.landBranch, "campaign/custom");
+  assert.deepEqual(reread.promotions, []);
+
+  // The default is never main.
+  const other = initializeCampaign(runsDir, { campaignId: "defaulted", goal: "Default the branch" });
+  assert.equal(other.campaign.landBranch, "campaign/defaulted");
+  assert.deepEqual(other.campaign.contracts, []);
+});
+
+test("a malformed contract manifest is refused", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-campaign-manifest-bad-"));
+  const runsDir = join(directory, ".runs");
+  assert.throws(
+    () => initializeCampaign(runsDir, { campaignId: "bad-digest", goal: "g", contracts: [{ path: "/tmp/x.json", digest: "not-a-sha" }] }),
+    /digest must be a SHA-256 hash/u,
+  );
+  assert.throws(
+    () => initializeCampaign(runsDir, { campaignId: "bad-path", goal: "g", contracts: [{ path: "", digest: "a".repeat(64) }] }),
+    /path must be a non-empty string/u,
+  );
+});
+
+test("the manifest digest is the contract's authored bytes and refuses tampering", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-campaign-authored-"));
+  const contractPath = join(directory, "contract.json");
+  writeFileSync(contractPath, "{}\n");
+  const entry = { path: contractPath, digest: authoredContractDigest(contractPath) };
+  assert.doesNotThrow(() => assertContractManifestIntact(entry));
+  writeFileSync(contractPath, "{ \"tampered\": true }\n");
+  assert.throws(
+    () => assertContractManifestIntact(entry),
+    (/** @type {Error & {code?: string}} */ error) => error.code === "contract_authored_bytes_changed" && /changed after it was authored/u.test(error.message),
+  );
+});
+
+test("recording a promotion is idempotent by run and sha", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-campaign-promotion-"));
+  const runsDir = join(directory, ".runs");
+  const { path } = initializeCampaign(runsDir, { campaignId: "promote", goal: "Record a promotion" });
+  const at = new Date().toISOString();
+  const entry = { runId: "run-1", branch: "campaign/promote", sha: "c".repeat(40), previousSha: "d".repeat(40), at };
+  recordPromotion(path, entry);
+  recordPromotion(path, entry);
+  const campaign = readCampaign(path);
+  assert.equal(campaign.promotions.length, 1);
+  assert.equal(campaign.promotions[0].sha, entry.sha);
 });

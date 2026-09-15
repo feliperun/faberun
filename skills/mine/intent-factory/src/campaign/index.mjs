@@ -4,10 +4,11 @@ import {
   readFileSync,
   readdirSync,
 } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import { writeJsonAtomic } from "../run/store.mjs";
-import { requireId, requireTimestamp } from "../contract/assert.mjs";
+import { requireId, requirePacketHash, requireString, requireTimestamp } from "../contract/assert.mjs";
+import { promoteRun } from "../repo/integrate.mjs";
 import { CAMPAIGN_FILE, GOAL_TEXT_BYTES, PROJECTION_FILE, campaignDir, campaignsDir } from "./layout.mjs";
 import { readCampaign } from "./record.mjs";
 import { appendJournal, normalizeText, readJournalForDedupe } from "./journal.mjs";
@@ -15,7 +16,9 @@ import { readProjectionState } from "./projection.mjs";
 import { handoffFromState, materializeHandoff } from "./handoff.mjs";
 
 /** @typedef {Record<string, unknown>} JsonObject */
-/** @typedef {{id: string, goal: string, status: "active"|"closed", linkedRunIds: string[], createdAt: string, updatedAt: string, closedAt?: string}} Campaign */
+/** @typedef {{path: string, digest: string}} CampaignContract */
+/** @typedef {{runId: string, contractPath?: string, branch: string, sha: string, previousSha: string|null, at: string}} PromotionRecord */
+/** @typedef {{id: string, goal: string, status: "active"|"closed", linkedRunIds: string[], contracts: CampaignContract[], landBranch: string, promotions: PromotionRecord[], createdAt: string, updatedAt: string, closedAt?: string}} Campaign */
 /** @typedef {{type: string, eventId: string, at: string, sessionId?: string, text?: string, tool?: string, transcript?: string|null, transcriptUnavailable?: boolean, format?: string|null, cursor?: string|null, decisionId?: string, supersedes?: string, runId?: string, questionId?: string, campaignId?: string, nodeId?: string|null, phase?: string, checkpointsDone?: number, checkpointsTotal?: number, runtime?: string|null, state?: string, lastProgressAt?: string, attention?: string|null}} JournalEntry */
 /** @typedef {{updatedAt: string|null, decisions: Record<string, JournalEntry>, questions: Record<string, JournalEntry>, constraints: JournalEntry[], intents: JournalEntry[], outcomes: JournalEntry[], sessions: JournalEntry[], next: JournalEntry|null, evicted: Record<string, number>}} Projection */
 /** @typedef {{cursor: number, byte: number, size: number, projection: Projection}} ProjectionRecord */
@@ -24,21 +27,31 @@ import { handoffFromState, materializeHandoff } from "./handoff.mjs";
 
 /**
  * @param {string} runsDir
- * @param {{campaignId: string, goal: unknown, at?: string}} options
+ * @param {{campaignId: string, goal: unknown, at?: string, contracts?: CampaignContract[], landBranch?: string}} options
  * @returns {{path: string, campaign: Campaign}}
  */
-export function initializeCampaign(runsDir, { campaignId, goal, at = new Date().toISOString() }) {
+export function initializeCampaign(runsDir, { campaignId, goal, at = new Date().toISOString(), contracts = [], landBranch = undefined }) {
   requireId(campaignId, "campaignId");
   requireTimestamp(at, "at");
   const path = campaignDir(runsDir, campaignId);
   if (existsSync(path)) throw new Error(`campaign already exists: ${path}`);
   mkdirSync(path, { recursive: true });
+  const validatedContracts = contracts.map((entry, index) => {
+    requireString(entry.path, `contracts[${index}].path`);
+    requirePacketHash(entry.digest, `contracts[${index}].digest`);
+    return { path: entry.path, digest: entry.digest };
+  });
+  const branch = landBranch ?? `campaign/${campaignId}`;
+  requireString(branch, "landBranch");
   /** @type {Campaign} */
   const campaign = {
     id: campaignId,
     goal: normalizeText(goal, "goal", GOAL_TEXT_BYTES),
     status: "active",
     linkedRunIds: [],
+    contracts: validatedContracts,
+    landBranch: branch,
+    promotions: [],
     createdAt: at,
     updatedAt: at,
   };
@@ -144,6 +157,95 @@ export function registerRun(campaignPath, runId, at = new Date().toISOString()) 
   writeJsonAtomic(join(campaignPath, CAMPAIGN_FILE), campaign);
   appendJournal(campaignPath, { type: "run.registered", at, eventId: randomUUID(), runId });
   return campaign;
+}
+
+/**
+ * The digest of a contract's authored bytes: the raw file, before validation
+ * canonicalizes or resolves anything. This is what a manifest entry records,
+ * so tampering between authoring and launch is detectable without validating
+ * the contract early (validation is deferred because a readFile may name a
+ * file a predecessor has not created yet).
+ *
+ * @param {string} contractPath
+ * @returns {string}
+ */
+export function authoredContractDigest(contractPath) {
+  return createHash("sha256").update(readFileSync(contractPath)).digest("hex");
+}
+
+/**
+ * Refuse a manifest entry whose file no longer matches the bytes it recorded.
+ * The chain calls this at launch, before it validates N+1 against the landing
+ * branch.
+ *
+ * @param {CampaignContract} entry
+ * @returns {void}
+ */
+export function assertContractManifestIntact(entry) {
+  requireString(entry.path, "contract path");
+  requirePacketHash(entry.digest, "contract digest");
+  const actual = authoredContractDigest(entry.path);
+  if (actual !== entry.digest) {
+    throw Object.assign(
+      new Error(`contract ${entry.path} changed after it was authored; refusing to launch bytes the manifest did not record`),
+      { code: "contract_authored_bytes_changed" },
+    );
+  }
+}
+
+/**
+ * Persist one promotion in the campaign record. Idempotent by run id and the
+ * sha it landed: a re-invocation after a crash between the branch move and
+ * this write repairs the record without adding a second promotion.
+ *
+ * @param {string} campaignPath
+ * @param {PromotionRecord} entry
+ * @returns {PromotionRecord}
+ */
+export function recordPromotion(campaignPath, entry) {
+  requireId(entry.runId, "promotion.runId");
+  requireString(entry.branch, "promotion.branch");
+  requireString(entry.sha, "promotion.sha");
+  requireTimestamp(entry.at, "promotion.at");
+  const campaign = readCampaign(campaignPath);
+  const existing = campaign.promotions.find((record) => record.runId === entry.runId && record.sha === entry.sha);
+  if (existing) return existing;
+  campaign.promotions.push(entry);
+  campaign.updatedAt = entry.at;
+  writeJsonAtomic(join(campaignPath, CAMPAIGN_FILE), campaign);
+  return entry;
+}
+
+/**
+ * Promote a run onto the campaign's landing branch and record it. The branch
+ * name comes from the campaign record, never from the caller, so a campaign
+ * cannot be promoted somewhere its manifest does not name.
+ *
+ * @param {{campaignPath: string, repo: string, runId: string, runHead?: string|null, baseSha?: string|null, finalVerificationPassed: boolean, allowMain?: boolean, contractPath?: string}} args
+ * @returns {import("../repo/integrate.mjs").PromoteRecord}
+ */
+export function promoteRunInCampaign({ campaignPath, repo, runId, runHead, baseSha, finalVerificationPassed, allowMain = false, contractPath }) {
+  const campaign = readCampaign(campaignPath);
+  if (campaign.status === "closed") throw new Error(`campaign is closed: ${campaign.id}`);
+  return promoteRun({
+    repo,
+    runId,
+    landBranch: campaign.landBranch,
+    runHead,
+    baseSha,
+    finalVerificationPassed,
+    allowMain,
+    onPromoted: (record) => {
+      recordPromotion(campaignPath, {
+        runId: record.runId,
+        ...(contractPath === undefined ? {} : { contractPath }),
+        branch: record.branch,
+        sha: record.sha,
+        previousSha: record.previousSha,
+        at: record.at,
+      });
+    },
+  });
 }
 
 /**

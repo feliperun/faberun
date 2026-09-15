@@ -15,12 +15,15 @@ import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION, probeRuntime } from ".
 import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
 import { blockingChecks, environmentPreflight, reachableRuntimes } from "../host/preflight.mjs";
 import { captureSourceIdentity } from "../repo/source-identity.mjs";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { lstatSync, readFileSync, readdirSync } from "node:fs";
+import { join, relative, sep } from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { stableJson } from "../util.mjs";
 import { validateRunMetadata } from "../contract/snapshot.mjs";
 import { contractDigest } from "../contract/index.mjs";
+import { gitHead, runRefName } from "../repo/worktree.mjs";
 
 /** @typedef {import("../harnesses/index.mjs").HarnessRuntime} HarnessRuntime */
 /** @typedef {import("../cli.mjs").LockHandle} LockHandle */
@@ -34,7 +37,7 @@ import { contractDigest } from "../contract/index.mjs";
 /**
  * @param {LockHandle} lock
  * @param {SourceIdentity} sourceIdentity
- * @param {{identityWarnings?: string[], relaunchCount?: number, lastRelaunchProgressAt?: string|null, attention?: {code: string, message: string, at: string}|null}} [resume]
+ * @param {{identityWarnings?: string[], relaunchCount?: number, lastRelaunchProgressAt?: string|null, attention?: {code: string, message: string, at: string}|null, controllerIdentity?: import("../contract/index.mjs").ControllerIdentity}} [resume]
  * @param {string} [integrationRef]
  * @returns {RunMetadata}
  */
@@ -46,6 +49,7 @@ export function createRunMetadata(lock, sourceIdentity, resume = {}, integration
   // reinterpret history against a tree that has since drifted.
   const stored = readStoredRunRecords(sourceIdentity);
   const digest = stored.contractDigest ?? readContractDigest(sourceIdentity);
+  const controllerIdentity = stored.controllerIdentity ?? resume.controllerIdentity ?? defaultControllerIdentity();
   const scopeDecision = stored.scopeDecision ?? {
     at: current.startedAt,
     base: sourceIdentity.gitHead ?? null,
@@ -58,6 +62,7 @@ export function createRunMetadata(lock, sourceIdentity, resume = {}, integration
     processStartToken: current.processStartToken,
     startedAt: current.startedAt,
     sourceIdentity,
+    controllerIdentity,
     ...(integrationRef ? { integrationRef } : {}),
     ...(resume.identityWarnings?.length ? { identityWarnings: resume.identityWarnings } : {}),
     // The supervisor's relaunch guard and its durable attention record are
@@ -92,7 +97,7 @@ function runDirFor(sourceIdentity) {
  * this is empty; on every later metadata rewrite it is the source of truth.
  *
  * @param {SourceIdentity} sourceIdentity
- * @returns {{contractDigest?: string, scopeDecision?: import("../contract/index.mjs").ScopeDecision, autoRetries?: Record<string, {code: string, at: string}>}}
+ * @returns {{contractDigest?: string, scopeDecision?: import("../contract/index.mjs").ScopeDecision, autoRetries?: Record<string, {code: string, at: string}>, controllerIdentity?: import("../contract/index.mjs").ControllerIdentity}}
  */
 function readStoredRunRecords(sourceIdentity) {
   const runDir = runDirFor(sourceIdentity);
@@ -108,6 +113,7 @@ function readStoredRunRecords(sourceIdentity) {
     ...(record.contractDigest !== undefined ? { contractDigest: /** @type {string} */ (record.contractDigest) } : {}),
     ...(record.scopeDecision !== undefined ? { scopeDecision: /** @type {import("../contract/index.mjs").ScopeDecision} */ (record.scopeDecision) } : {}),
     ...(record.autoRetries !== undefined ? { autoRetries: /** @type {Record<string, {code: string, at: string}>} */ (record.autoRetries) } : {}),
+    ...(record.controllerIdentity !== undefined ? { controllerIdentity: /** @type {import("../contract/index.mjs").ControllerIdentity} */ (record.controllerIdentity) } : {}),
   };
 }
 
@@ -144,22 +150,42 @@ export async function probeRuntimeVersionStable(runtime, cwd) {
   }
 }
 /**
+ * The base ref a *creation* was launched with, set by the CLI entry before it
+ * calls `runContract`. It is a module rather than an option because
+ * `runContract` reads the contract itself and threads no base ref; a resume
+ * never sets it, so the identity a resume captures is the checkout's HEAD as
+ * before.
+ *
+ * @type {string|null}
+ */
+let pendingLaunchBaseRef = null;
+
+/**
+ * @param {string|undefined|null} baseRef
+ * @returns {void}
+ */
+export function setLaunchBaseRef(baseRef) {
+  pendingLaunchBaseRef = baseRef ?? null;
+}
+
+/**
  * Capture the run's source identity, including one version-only probe per
  * distinct routed runtime (a local binary call, no model tokens) so a later
  * resume can refuse a harness that was upgraded or broke mid-campaign.
  *
  * @param {ValidatedContract} contract
  * @param {Map<string, import("../repo/workspace.mjs").WorkspaceScopeBoundary>} scopeBoundaries
+ * @param {string} [baseRef] the ref the run is cut from; defaults to the CLI's `--base-ref`
  * @returns {Promise<SourceIdentity>}
  */
-export async function captureRunIdentity(contract, scopeBoundaries) {
+export async function captureRunIdentity(contract, scopeBoundaries, baseRef = pendingLaunchBaseRef ?? undefined) {
   const runtimes = reachableRuntimes(contract);
   const versionsPromise = Promise.all([...runtimes.entries()].map(async ([id, { runtime }]) => {
     return [id, await probeRuntimeVersionStable(runtime, contract.cwd)];
   }));
   const ignorePaths = [...new Set([...scopeBoundaries.values()].flatMap((boundary) => boundary.files))];
   const ignoreRoots = [...new Set([...scopeBoundaries.values()].flatMap((boundary) => boundary.roots))];
-  const identity = captureSourceIdentity(contract, {}, { ignorePaths, ignoreRoots });
+  const identity = captureSourceIdentity(contract, {}, { ignorePaths, ignoreRoots, ...(baseRef ? { baseRef } : {}) });
   const versions = await versionsPromise;
   return { ...identity, harnessVersions: Object.fromEntries(versions) };
 }
@@ -202,6 +228,10 @@ export function assertSourceUnchanged(expected, actual) {
       const expectedHead = typeof expectedRecord?.gitHead === "string" ? expectedRecord.gitHead : null;
       const actualHead = typeof actualRecord?.gitHead === "string" ? actualRecord.gitHead : null;
       if (expectedHead && actualHead && isDescendantHead(expected?.cwd, expectedHead, actualHead)) continue;
+      // A run cut with `--base-ref` records a head the operator's checkout is
+      // not on. The honest test is whether the run ref descends from that
+      // recorded head; the checkout's own HEAD is irrelevant to it.
+      if (expectedHead && runRefDescendsFrom(expected?.cwd, expected?.contractId, expectedHead)) continue;
       throw new Error(`source drift detected in gitHead; resume refused`);
     }
     if (field === "dirtyTreeFingerprint" && stableJson(expectedRecord?.[field] ?? null) !== stableJson(actualRecord?.[field] ?? null)) {
@@ -226,6 +256,112 @@ export function isDescendantHead(cwd, recorded, head) {
   if (!cwd) return false;
   const result = spawnSync("git", ["-C", cwd, "merge-base", "--is-ancestor", recorded, head], { encoding: "utf8" });
   return result.status === 0;
+}
+/**
+ * Whether a run's integration ref descends from the recorded source head. This
+ * is what makes a `--base-ref` run resumable from an operator checkout that is
+ * not on the base: the run's own ref, not the checkout's HEAD, carries the
+ * lineage.
+ *
+ * @param {string|undefined} cwd
+ * @param {string|undefined} contractId
+ * @param {string} recorded
+ * @returns {boolean}
+ */
+function runRefDescendsFrom(cwd, contractId, recorded) {
+  if (!cwd || !contractId) return false;
+  const tip = gitHead(cwd, runRefName(contractId));
+  if (!tip) return false;
+  if (tip === recorded) return true;
+  return isDescendantHead(cwd, recorded, tip);
+}
+/**
+ * The controller snapshot a freshly created run is pinned to when the caller
+ * names none: the source tree of the controller that is running now.
+ *
+ * @returns {string}
+ */
+export function controllerSnapshotPath() {
+  return fileURLToPath(new URL("../", import.meta.url));
+}
+/**
+ * Hash a controller executable snapshot: a single file, or every file below a
+ * directory, in sorted relative-path order, so two reads of an unchanged
+ * snapshot always agree and any edit changes the sha.
+ *
+ * @param {string} snapshotPath
+ * @returns {string}
+ */
+function hashControllerSnapshot(snapshotPath) {
+  const hash = createHash("sha256");
+  if (lstatSync(snapshotPath).isDirectory()) {
+    for (const file of walkControllerFiles(snapshotPath)) {
+      hash.update(relative(snapshotPath, file).split(sep).join("/"));
+      hash.update("\0");
+      hash.update(readFileSync(file));
+      hash.update("\0");
+    }
+  } else {
+    hash.update(readFileSync(snapshotPath));
+  }
+  return hash.digest("hex");
+}
+/**
+ * @param {string} root
+ * @returns {string[]}
+ */
+function walkControllerFiles(root) {
+  /** @type {string[]} */
+  const found = [];
+  for (const entry of readdirSync(root, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+    if (entry.name === "node_modules" || entry.name === ".git" || entry.name === ".runs") continue;
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) found.push(...walkControllerFiles(path));
+    else if (entry.isFile()) found.push(path);
+  }
+  return found;
+}
+/**
+ * The `{path, sha}` identity of a controller snapshot. `path` is the file or
+ * directory a launch would execute from; `sha` is its content digest.
+ *
+ * @param {string} snapshotPath
+ * @returns {import("../contract/index.mjs").ControllerIdentity}
+ */
+export function controllerSnapshotIdentity(snapshotPath) {
+  return { path: snapshotPath, sha: hashControllerSnapshot(snapshotPath) };
+}
+/**
+ * @returns {import("../contract/index.mjs").ControllerIdentity}
+ */
+export function defaultControllerIdentity() {
+  return controllerSnapshotIdentity(controllerSnapshotPath());
+}
+/**
+ * The check the next chain node runs before launching N+1: the executable
+ * snapshot at the recorded path must still hash to the recorded sha. A path
+ * plus sha is not enough on its own because the path can be rewritten under a
+ * recorded sha.
+ *
+ * @param {import("../contract/index.mjs").ControllerIdentity} identity
+ * @param {string} [snapshotPath]
+ * @returns {import("../contract/index.mjs").ControllerIdentity}
+ */
+export function verifyControllerIdentity(identity, snapshotPath = identity.path) {
+  let actual;
+  try {
+    actual = controllerSnapshotIdentity(snapshotPath);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw Object.assign(new Error(`controller snapshot at ${identity.path} is unreadable: ${message}`), { code: "controller_snapshot_missing" });
+  }
+  if (actual.sha !== identity.sha) {
+    throw Object.assign(
+      new Error(`controller snapshot at ${identity.path} does not match its recorded sha ${identity.sha}; refresh the snapshot as a declared human boundary`),
+      { code: "controller_snapshot_changed" },
+    );
+  }
+  return actual;
 }
 /**
  * @param {Map<string, NodeSnapshot>} states

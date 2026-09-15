@@ -14,6 +14,7 @@ import {
   updateRefConditional,
   candidateWorktreePath,
   runRefName,
+  worktreeCheckedOutAt,
 } from "./worktree.mjs";
 
 const JOURNAL = "integration.jsonl";
@@ -29,6 +30,7 @@ const TERMINAL = new Set(["accepted", "failed", "conflict"]);
 /** @typedef {{repo: string, runDir: string, runId: string, nodeId: string, attempt: number, attemptSha: string, branch?: string|null, verificationEvidence?: unknown, verifyCandidate: CandidateVerifier, onAccepted?: AcceptedCallback, onVerificationFailure?: VerificationFailureCallback, onConflict?: AcceptedCallback, onConcurrentMove?: ConcurrentMoveCallback, interrupt?: (stage: string) => void}} IntegrationArgs */
 /** @typedef {{repo: string, runDir: string, runId: string, verifyCandidate: CandidateVerifier, onAccepted?: AcceptedCallback, onVerificationFailure?: VerificationFailureCallback, onConflict?: AcceptedCallback, onConcurrentMove?: ConcurrentMoveCallback}} RecoveryArgs */
 /** @typedef {{status: string, candidateSha?: string|null, conflictingPaths?: string[], candidateEvidence?: CandidateEvidence}} IntegrationResult */
+/** @typedef {{runId: string, status: "promoted"|"already_promoted", branch: string, sha: string, previousSha: string|null, at: string}} PromoteRecord */
 
 /** @param {string} runDir @returns {string} */
 function integrationJournalPath(runDir) {
@@ -470,6 +472,70 @@ function interruptStage(interrupt, stage) {
   if (process.env.INTENT_FACTORY_INTEGRATION_INTERRUPT === stage) {
     throw new Error(`integration interrupted at ${stage}`);
   }
+}
+
+/**
+ * Fast-forward a campaign's landing branch onto a run's integrated ref. This
+ * is the only place a branch other than the per-run ref moves, and it is
+ * deliberately narrow: it never force-updates, never moves a branch that a
+ * live worktree has checked out, and refuses `main` unless the operator said
+ * so. It is idempotent and durable: when the branch already contains the run
+ * head it reports `already_promoted` and still re-emits the record, so a crash
+ * between the ref move and the campaign write is repaired on re-invocation
+ * rather than repeated.
+ *
+ * @param {{repo: string, runId: string, landBranch: string, runHead?: string|null, baseSha?: string|null, finalVerificationPassed: boolean, allowMain?: boolean, onPromoted?: (record: PromoteRecord) => void}} args
+ * @returns {PromoteRecord}
+ */
+export function promoteRun({ repo, runId, landBranch, runHead, baseSha, finalVerificationPassed, allowMain = false, onPromoted }) {
+  if (finalVerificationPassed !== true) {
+    throw refusal(`refusing to promote ${runId}: final verification is not green`, "final_verification_not_green");
+  }
+  if (typeof landBranch !== "string" || !landBranch.trim()) {
+    throw refusal(`refusing to promote ${runId}: no landing branch is configured`, "land_branch_missing");
+  }
+  if (landBranch === "main" && !allowMain) {
+    throw refusal(`refusing to promote ${runId} onto main without the explicit operator authorization (--allow-main)`, "land_branch_main_requires_flag");
+  }
+  const head = runHead ?? gitHead(repo, runRefName(runId));
+  if (!head) throw refusal(`refusing to promote ${runId}: the run ref is unavailable`, "run_ref_missing");
+  const checkedOutAt = worktreeCheckedOutAt(repo, landBranch);
+  if (checkedOutAt) {
+    throw refusal(`refusing to promote ${landBranch}: it is checked out in ${checkedOutAt}`, "land_branch_checked_out");
+  }
+  const branchRef = `refs/heads/${landBranch}`;
+  const current = gitHead(repo, branchRef);
+  const at = new Date().toISOString();
+  if (current !== null && (current === head || isAncestor(repo, head, current))) {
+    /** @type {PromoteRecord} */
+    const record = { runId, status: "already_promoted", branch: landBranch, sha: current, previousSha: current, at };
+    onPromoted?.(record);
+    return record;
+  }
+  if (current !== null && !isAncestor(repo, current, head)) {
+    throw refusal(`refusing to promote ${landBranch}: ${head} is not a fast-forward of ${current}; the chain never force-updates`, "land_branch_not_fast_forward");
+  }
+  let previousSha = current;
+  if (current === null) {
+    if (!baseSha) {
+      throw refusal(`refusing to promote ${landBranch}: the branch does not exist and the run has no recorded gitHead to create it at`, "land_branch_base_missing");
+    }
+    if (baseSha !== head && !isAncestor(repo, baseSha, head)) {
+      throw refusal(`refusing to promote ${landBranch}: the first run's gitHead ${baseSha} is not an ancestor of ${head}`, "land_branch_not_fast_forward");
+    }
+    git(repo, ["update-ref", branchRef, baseSha]);
+    previousSha = baseSha;
+  }
+  updateRefConditional(repo, branchRef, head, /** @type {string} */ (previousSha));
+  /** @type {PromoteRecord} */
+  const record = { runId, status: "promoted", branch: landBranch, sha: head, previousSha, at };
+  onPromoted?.(record);
+  return record;
+}
+
+/** @param {string} message @param {string} code @returns {Error} */
+function refusal(message, code) {
+  return Object.assign(new Error(message), { code });
 }
 
 /** @param {string} path @returns {string} */

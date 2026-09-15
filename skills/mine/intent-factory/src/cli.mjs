@@ -31,6 +31,8 @@ import { cancelRun } from "./engine/cancel.mjs";
 
 import { errorMessage } from "./util.mjs";
 import { validateContract } from "./contract/index.mjs";
+import { setLaunchBaseRef } from "./engine/run-identity.mjs";
+import { assertLaunchBaseClean } from "./repo/source-identity.mjs";
 import { detachSelf, waitForBootstrap, writeBootstrapFailure } from "./cli/launch.mjs";
 import { DEFAULT_SUPERVISE_INTERVAL_SEC, superviseRun } from "./engine/supervise.mjs";
 import { preflightContract, reusedDoneWarnings } from "./engine/live-preflight.mjs";
@@ -79,7 +81,7 @@ export function hasDetachedBootstrapNonce() {
 
 /** @type {Record<string, import("node:util").ParseArgsOptionsConfig>} */
 const COMMAND_OPTIONS = {
-  run: { detach: { type: "boolean" } },
+  run: { detach: { type: "boolean" }, "base-ref": { type: "string" } },
   resume: { detach: { type: "boolean" }, node: { type: "string" }, reconcile: { type: "string" }, answer: { type: "string" } },
   supervise: { detach: { type: "boolean" }, interval: { type: "string" } },
   cancel: {},
@@ -220,10 +222,16 @@ async function main(argv) {
     const absolute = resolve(target);
     const contract = validateContract(JSON.parse(readFileSync(absolute, "utf8")), absolute);
     const runDir = join(contract.cwd, ".runs", contract.id);
+    const baseRef = typeof values["base-ref"] === "string" && values["base-ref"] ? values["base-ref"] : undefined;
+    setLaunchBaseRef(baseRef);
+    // The base is what every worktree is cut from; a dirty tree only blocks
+    // when the cwd HEAD *is* that base. A `--base-ref` elsewhere leaves the
+    // operator's checkout out of the run entirely.
+    assertLaunchBaseClean(contract.cwd, baseRef);
     if (values.detach === true) {
       if (existsSync(runDir)) throw new Error(`run already exists: ${runDir}`);
       for (const warning of [...contract.warnings, ...reusedDoneWarnings(contract)]) process.stdout.write(`[warn] ${warning}\n`);
-      const child = detachSelf("run", target);
+      const child = detachSelf("run", target, baseRef ? ["--base-ref", baseRef] : []);
       const pid = child.pid;
       if (pid === undefined) throw new Error("detached child has no pid");
       await waitForBootstrap(runDir, pid, child);
@@ -352,7 +360,7 @@ async function main(argv) {
 
 function usage() {
   process.stderr.write(
-    "usage: runner.mjs <run|validate> <contract.json> [--detach] | preflight <contract.json> [--static] [--time-verification] [--json] | " +
+    "usage: runner.mjs <run|validate> <contract.json> [--base-ref <ref>] [--detach] | preflight <contract.json> [--static] [--time-verification] [--json] | " +
     "<resume|cancel> <run-dir> [--detach] | supervise <run-dir> [--detach] [--interval <sec>] | " +
     "<status|report> <run-dir> [--json] | findings <run-dir> | " +
     "doctor [<contract.json>] [--cwd <dir>] [--discover] [--json] | models [--probe] [--json] | " +

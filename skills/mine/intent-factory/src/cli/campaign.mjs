@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs as parseFlags } from "node:util";
 import {
+  authoredContractDigest,
   closeCampaign,
   discoverCampaigns,
   initializeCampaign,
@@ -44,7 +45,7 @@ const NOTE_KIND_FLAGS = {
 /** @type {Record<string, import("node:util").ParseArgsOptionsConfig>} */
 const OPERATION_OPTIONS = {
   list: { cwd: { type: "string" } },
-  init: { cwd: { type: "string" }, goal: { type: "string" } },
+  init: { cwd: { type: "string" }, goal: { type: "string" }, contract: { type: "string", multiple: true }, "land-branch": { type: "string" } },
   watch: { cwd: { type: "string" }, wake: { type: "boolean" }, interval: { type: "string" }, once: { type: "boolean" } },
   attach: {
     cwd: { type: "string" },
@@ -80,7 +81,7 @@ const OPERATION_OPTIONS = {
   ack: { cwd: { type: "string" }, "session-id": { type: "string" }, "event-id": { type: "string" } },
 };
 
-/** @typedef {{cwd?: string, goal?: string, tool?: string, sessionId?: string, transcript?: string, format?: string, cursor?: string, since?: string, kind?: string, text?: string, runId?: string, supersedes?: string, decisionId?: string, questionId?: string, eventId?: string, noTranscript?: boolean, wake?: boolean, interval?: string, once?: boolean}} CliValues */
+/** @typedef {{cwd?: string, goal?: string, contract?: string[], landBranch?: string, tool?: string, sessionId?: string, transcript?: string, format?: string, cursor?: string, since?: string, kind?: string, text?: string, runId?: string, supersedes?: string, decisionId?: string, questionId?: string, eventId?: string, noTranscript?: boolean, wake?: boolean, interval?: string, once?: boolean}} CliValues */
 /** @typedef {import("../campaign/index.mjs").Campaign} Campaign */
 
 /**
@@ -210,10 +211,26 @@ function init(campaignId, values) {
   const cwd = resolve(values.cwd ?? ".");
   const runsDir = join(cwd, ".runs");
   const goal = textValue(values.goal, "--goal");
-  const created = initializeCampaign(runsDir, { campaignId, goal });
+  const contracts = contractManifest(values.contract);
+  const created = initializeCampaign(runsDir, { campaignId, goal, contracts, landBranch: values.landBranch });
   renderHandoff(created.path, runsDir);
-  process.stdout.write(`[campaign] ${campaignId} initialized · ${created.path}\n`);
+  process.stdout.write(`[campaign] ${campaignId} initialized · ${created.path} · landBranch ${created.campaign.landBranch} · ${created.campaign.contracts.length} contract(s)\n`);
   if (syncAgentSignal(runsDir)) process.stdout.write(`[campaign] AGENTS.md signal updated\n`);
+}
+
+/**
+ * Read each `--contract` path and record the digest of its authored bytes. The
+ * contract is not validated here: a manifest entry may name a file a
+ * predecessor will create, so validation happens at launch.
+ *
+ * @param {string[]|undefined} paths
+ * @returns {{path: string, digest: string}[]}
+ */
+function contractManifest(paths) {
+  return (paths ?? []).map((path) => {
+    const absolute = resolve(path);
+    return { path: absolute, digest: authoredContractDigest(absolute) };
+  });
 }
 
 /**

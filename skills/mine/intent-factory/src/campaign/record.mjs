@@ -10,7 +10,7 @@ import { CAMPAIGN_FILE, basenameSafe } from "./layout.mjs";
 import { errorCode } from "../util.mjs";
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
-import { requireId, requireText } from "../contract/assert.mjs";
+import { assertObject, requireId, requirePacketHash, requireString, requireText, requireTimestamp } from "../contract/assert.mjs";
 
 /** @typedef {import("./index.mjs").Campaign} Campaign */
 /** @typedef {import("../notify/index.mjs").JsonObject} JsonObject */
@@ -28,6 +28,13 @@ export function readCampaign(path) {
     throw error;
   }
   validateCampaign(campaign);
+  // A campaign written before the chain fields existed still reads: the
+  // manifest is empty and the landing branch takes the current default. A
+  // campaign written by `initializeCampaign` always carries all three.
+  const record = /** @type {JsonObject} */ (campaign);
+  record.contracts ??= [];
+  record.landBranch ??= `campaign/${String(record.id)}`;
+  record.promotions ??= [];
   return /** @type {Campaign} */ (campaign);
 }
 /**
@@ -56,4 +63,31 @@ function validateCampaign(campaign) {
   }
   if (!Array.isArray(record.linkedRunIds)) throw new TypeError("campaign.linkedRunIds must be an array");
   for (const runId of record.linkedRunIds) requireId(runId, "campaign.linkedRunIds[]");
+  // The ordered contract manifest and the landing branch. Each entry carries
+  // the digest of the contract's authored bytes, enough to detect tampering
+  // between authoring and the launch that validates it. The fields are
+  // optional on read so a recorded historical campaign stays readable; a
+  // campaign written by `initializeCampaign` always carries them.
+  if (record.contracts !== undefined) {
+    if (!Array.isArray(record.contracts)) throw new TypeError("campaign.contracts must be an array");
+    for (const [index, entry] of record.contracts.entries()) {
+      assertObject(entry, `campaign.contracts[${index}]`);
+      requireString(/** @type {JsonObject} */ (entry).path, `campaign.contracts[${index}].path`);
+      requirePacketHash(/** @type {JsonObject} */ (entry).digest, `campaign.contracts[${index}].digest`);
+    }
+  }
+  if (record.landBranch !== undefined) requireText(record.landBranch, "campaign.landBranch");
+  if (record.promotions !== undefined) {
+    if (!Array.isArray(record.promotions)) throw new TypeError("campaign.promotions must be an array");
+    for (const [index, entry] of record.promotions.entries()) {
+      assertObject(entry, `campaign.promotions[${index}]`);
+      const promotion = /** @type {JsonObject} */ (entry);
+      requireId(promotion.runId, `campaign.promotions[${index}].runId`);
+      requireString(promotion.branch, `campaign.promotions[${index}].branch`);
+      requireString(promotion.sha, `campaign.promotions[${index}].sha`);
+      if (promotion.previousSha !== null) requireString(promotion.previousSha, `campaign.promotions[${index}].previousSha`);
+      requireTimestamp(promotion.at, `campaign.promotions[${index}].at`);
+      if (promotion.contractPath !== undefined) requireString(promotion.contractPath, `campaign.promotions[${index}].contractPath`);
+    }
+  }
 }

@@ -92,40 +92,126 @@ function validateHashMap(value, label) {
   }
 }
 /**
- * @param {string} cwd
+ * The pathspec that scopes a source-identity read: everything, minus the
+ * factory's own run tree, minus the machine-managed AGENTS.md signal, minus
+ * whatever the caller declared out of scope.
+ *
  * @param {{ignorePaths?: string[], ignoreRoots?: string[]}} options
+ * @returns {string[]}
+ */
+function sourcePathspec(options = {}) {
+  return [
+    ".",
+    ":(exclude).runs",
+    ":(exclude)AGENTS.md",
+    ...(options.ignorePaths ?? []).map((path) => `:(exclude)${path}`),
+    ...(options.ignoreRoots ?? []).map((path) => `:(exclude)${path}`),
+  ];
+}
+
+/**
+ * The commit a source identity is pinned to. Without `baseRef` this is the
+ * checkout's own HEAD, with the unborn-HEAD probe that makes a fresh
+ * repository report `null` rather than fail. With `baseRef` it is that ref's
+ * sha, so a run can be cut from a landing branch while the operator's tree
+ * stays on whatever they were doing.
+ *
+ * @param {string} cwd
+ * @param {string|undefined} baseRef
+ * @returns {string|null}
+ */
+function resolveGitHead(cwd, baseRef) {
+  if (baseRef) {
+    try {
+      return execFileSync("git", ["-C", cwd, "rev-parse", baseRef], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim() || null;
+    } catch {
+      // An unknown ref resolves to null; the caller decides whether that is fatal.
+      return null;
+    }
+  }
+  const headPath = resolve(cwd, ".git", "HEAD");
+  let headText = null;
+  try { headText = readFileSync(headPath, "utf8").trim(); } catch {
+    // A missing or unreadable .git/HEAD leaves headText null; rev-parse below still decides gitHead.
+  }
+  if (headText?.startsWith("ref: ") === true) {
+    try { lstatSync(resolve(cwd, ".git", headText.slice(5))); }
+    catch (error) { if (errorCode(error) !== "ENOENT") throw error; return null; }
+  }
+  try {
+    return execFileSync("git", ["-C", cwd, "rev-parse", "HEAD"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim() || null;
+  } catch {
+    // Any rev-parse failure (no repo, unborn HEAD, git absent) leaves gitHead null.
+    return null;
+  }
+}
+
+/**
+ * The paths the working tree has modified, added or left untracked, ignoring
+ * the factory's own `.runs` tree and the machine-managed AGENTS.md signal. A
+ * clean tree is `[]`; an unreadable tree is treated as clean because the
+ * caller has no dirt to name.
+ *
+ * @param {string} cwd
+ * @param {{ignorePaths?: string[], ignoreRoots?: string[]}} [options]
+ * @returns {string[]}
+ */
+export function dirtyTreePaths(cwd, options = {}) {
+  try {
+    const status = execFileSync("git", ["-C", cwd, "status", "--porcelain=v1", "--untracked-files=all", "-z", "--", ...sourcePathspec(options)], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return status.split("\0").filter(Boolean);
+  } catch {
+    // Not a repository, or git absent: there is no dirt the launch can name.
+    return [];
+  }
+}
+
+/**
+ * Refuse a launch whose base is the checked-out HEAD and whose tree is dirty.
+ * The base is what every worktree is cut from, so a dirty tree only matters
+ * when it *is* the base: then the validator sees files the worker will never
+ * have. A base ref that resolves elsewhere leaves the operator's checkout
+ * alone and is always clean enough to launch from.
+ *
+ * @param {string} cwd
+ * @param {string|undefined} baseRef
+ * @returns {void}
+ */
+export function assertLaunchBaseClean(cwd, baseRef) {
+  const headSha = resolveGitHead(cwd, undefined);
+  const baseSha = baseRef ? resolveGitHead(cwd, baseRef) : headSha;
+  if (baseRef && !baseSha) {
+    throw Object.assign(new Error(`base ref does not resolve: ${baseRef}`), { code: "base_ref_unresolved" });
+  }
+  if (!baseSha || !headSha || baseSha !== headSha) return;
+  const dirty = dirtyTreePaths(cwd);
+  if (dirty.length) {
+    const label = baseRef ?? "HEAD";
+    throw Object.assign(
+      new Error(`refusing to launch against ${label}: the working tree has ${dirty.length} uncommitted path${dirty.length === 1 ? "" : "s"}; commit or stash before running when the cwd HEAD is the base, or pass --base-ref for a different base`),
+      { code: "dirty_work_tree" },
+    );
+  }
+}
+
+/**
+ * @param {string} cwd
+ * @param {{ignorePaths?: string[], ignoreRoots?: string[], baseRef?: string}} options
  * @returns {{gitHead: string|null, dirtyTreeFingerprint: string|null}}
  */
-function gitIdentity(cwd, options = {}) {
+export function gitIdentity(cwd, options = {}) {
   try {
-    const pathspec = [
-      ".",
-      ":(exclude).runs",
-      ":(exclude)AGENTS.md",
-      ...(options.ignorePaths ?? []).map((path) => `:(exclude)${path}`),
-      ...(options.ignoreRoots ?? []).map((path) => `:(exclude)${path}`),
-    ];
-    let gitHead = null;
-    const headPath = resolve(cwd, ".git", "HEAD");
-    let headText = null;
-    try { headText = readFileSync(headPath, "utf8").trim(); } catch {
-      // A missing or unreadable .git/HEAD leaves headText null; rev-parse below still decides gitHead.
-    }
-    let unbornHead = false;
-    if (headText?.startsWith("ref: ") === true) {
-      try { lstatSync(resolve(cwd, ".git", headText.slice(5))); }
-      catch (error) { if (errorCode(error) === "ENOENT") unbornHead = true; else throw error; }
-    }
-    if (!unbornHead) {
-      try {
-        gitHead = execFileSync("git", ["-C", cwd, "rev-parse", "HEAD"], {
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "ignore"],
-        }).trim() || null;
-      } catch {
-        // Any rev-parse failure (no repo, unborn HEAD, git absent) leaves gitHead null.
-      }
-    }
+    const pathspec = sourcePathspec(options);
+    const gitHead = resolveGitHead(cwd, options.baseRef);
     const status = execFileSync("git", ["-C", cwd, "status", "--porcelain=v1", "--untracked-files=all", "-z", "--", ...pathspec], {
       encoding: "buffer",
       stdio: ["ignore", "pipe", "ignore"],

@@ -24,9 +24,9 @@ writer per field` — re-derives every writer from `src/` and fails when the
 derivation disagrees with this document. The document is the declaration; the
 test is what keeps it from becoming fiction on the third change.
 
-**Measured 2026-09-12 against this tree:** 29 `events.jsonl` fields and 13
-`journal.jsonl` event types. Twelve entries have more than one writer today.
-Those twelve are the ratchet at the end of this file; they are declared, not
+**Measured 2026-09-14 against this tree:** 29 `events.jsonl` fields and 13
+`journal.jsonl` event types. Fourteen entries have more than one writer today.
+Those fourteen are the ratchet at the end of this file; they are declared, not
 fixed, because changing who writes a field is a behavior change and belongs to
 another node.
 
@@ -61,13 +61,13 @@ marked **(ratchet)**.
 | `invocationId` | `appendTransitionEvent` | at append, the last invocation's id when set |
 | `override` | `recordExecutionOverride`, `applyRoute` **(ratchet)** | when an execution override is recorded; when a route is applied |
 | `recovery` | `ensureTerminalEvent`, `recordExecutionOverride` **(ratchet)** | when a terminal side effect is replayed; when an override carries a recovery note |
-| `role` | `applyRoute` | when a route is applied |
+| `role` | `applyRoute`, `autoRetryNode` **(ratchet)** | when a route is applied; when a node earns its one automatic retry |
 | `status` | `applyRoute` | when a route is applied |
 | `currentRuntime` | `applyRoute` | when a route is applied |
-| `errorCode` | `applyRoute` | when a route is applied |
+| `errorCode` | `applyRoute`, `autoRetryNode` **(ratchet)** | when a route is applied; when a node earns its one automatic retry |
 | `unexpectedPaths` | `checkWorkerScope`, `checkPersistedWorkerScope`, `recordScopeFinding` **(ratchet)** | when a scope check fails or an advisory finding is recorded |
 | `unexpectedPathCount` | `checkWorkerScope`, `checkPersistedWorkerScope`, `recordScopeFinding` **(ratchet)** | when a scope check fails or an advisory finding is recorded |
-| `type` | `recordScopeFinding`, `settleAdvisoryReview`, `assertEnvironmentReady`, `renderCampaignHandoffSafely` **(ratchet)** | each diagnostic sets its own discriminator; there is no single owner today |
+| `type` | `recordScopeFinding`, `settleAdvisoryReview`, `assertEnvironmentReady`, `renderCampaignHandoffSafely`, `autoRetryNode` **(ratchet)** | each diagnostic sets its own discriminator; there is no single owner today |
 | `contractId` | `assertEnvironmentReady` | when the environment preflight fails |
 | `ok` | `assertEnvironmentReady` | when the environment preflight fails |
 | `checks` | `assertEnvironmentReady` | when the environment preflight fails |
@@ -100,15 +100,15 @@ cannot drift apart.
 
 ## The ratchet, measured
 
-Measured 2026-09-12: **12 entries have more than one writer.** They are a
-ratchet, not a target. The test asserts the number is exactly 12 and that every
+Measured 2026-09-14: **14 entries have more than one writer.** They are a
+ratchet, not a target. The test asserts the number is exactly 14 and that every
 declared writer set matches the one derived from `src/`, so a *new* second
 writer fails immediately, and fixing one of these fails until the count and this
 list are lowered together.
 
-**`events.jsonl` (11):** `at`, `contractVersion`, `error`, `override`,
-`recovery`, `schemaVersion`, `summary`, `type`, `unexpectedPathCount`,
-`unexpectedPaths`, `verdict`.
+**`events.jsonl` (13):** `at`, `contractVersion`, `error`, `errorCode`,
+`override`, `recovery`, `role`, `schemaVersion`, `summary`, `type`,
+`unexpectedPathCount`, `unexpectedPaths`, `verdict`.
 
 **`journal.jsonl` (1):** `session.attached` — written both by the explicit
 `attach` command and by the once-a-day implicit attach on sync. The two emitters
@@ -156,13 +156,13 @@ behavior, and a node that declares must not also move the thing it declares.
     "invocationId": { "writers": ["appendTransitionEvent"] },
     "override": { "writers": ["recordExecutionOverride", "applyRoute"] },
     "recovery": { "writers": ["ensureTerminalEvent", "recordExecutionOverride"] },
-    "role": { "writers": ["applyRoute"] },
+    "role": { "writers": ["applyRoute", "autoRetryNode"] },
     "status": { "writers": ["applyRoute"] },
     "currentRuntime": { "writers": ["applyRoute"] },
-    "errorCode": { "writers": ["applyRoute"] },
+    "errorCode": { "writers": ["applyRoute", "autoRetryNode"] },
     "unexpectedPaths": { "writers": ["checkWorkerScope", "checkPersistedWorkerScope", "recordScopeFinding"] },
     "unexpectedPathCount": { "writers": ["checkWorkerScope", "checkPersistedWorkerScope", "recordScopeFinding"] },
-    "type": { "writers": ["recordScopeFinding", "settleAdvisoryReview", "assertEnvironmentReady", "renderCampaignHandoffSafely"] },
+    "type": { "writers": ["recordScopeFinding", "settleAdvisoryReview", "assertEnvironmentReady", "renderCampaignHandoffSafely", "autoRetryNode"] },
     "contractId": { "writers": ["assertEnvironmentReady"] },
     "ok": { "writers": ["assertEnvironmentReady"] },
     "checks": { "writers": ["assertEnvironmentReady"] },

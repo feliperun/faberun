@@ -81,6 +81,33 @@ export function gitHead(repo, ref = "HEAD") {
   }
 }
 
+/**
+ * The path of the worktree that has `branch` checked out right now, or null.
+ * The operator's own checkout is included: `git worktree list` reports it, so
+ * moving that branch under a live checkout is exactly what this guards.
+ *
+ * @param {string} repo
+ * @param {string} branch
+ * @returns {string|null}
+ */
+export function worktreeCheckedOutAt(repo, branch) {
+  const ref = `refs/heads/${branch}`;
+  let output;
+  try {
+    output = git(repo, ["worktree", "list", "--porcelain"]);
+  } catch {
+    // A repository that cannot list its worktrees cannot prove the branch is
+    // safe to move; the caller treats null as "not checked out".
+    return null;
+  }
+  let path = null;
+  for (const line of output.split("\n")) {
+    if (line.startsWith("worktree ")) path = line.slice("worktree ".length);
+    else if (line.startsWith("branch ") && line.slice("branch ".length) === ref) return path;
+  }
+  return null;
+}
+
 /** @param {string} repo @param {string} runId @param {string|null|undefined} head @returns {string} */
 export function createRunRef(repo, runId, head) {
   if (!head) throw Object.assign(new Error("an execution repository must have at least one commit"), { code: "git_head_required" });

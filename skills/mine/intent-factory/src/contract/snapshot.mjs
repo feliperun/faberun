@@ -49,7 +49,7 @@ export function validateRunMetadata(value, options = {}) {
   assertObject(value, "run metadata");
   rejectUnknown(value, new Set([
     "schemaVersion", "contractVersion", "pid", "processStartToken", "startedAt", "sourceIdentity",
-    "identityWarnings", "integrationRef", "relaunchCount", "lastRelaunchProgressAt", "attention",
+    "controllerIdentity", "identityWarnings", "integrationRef", "relaunchCount", "lastRelaunchProgressAt", "attention",
     "contractDigest", "scopeDecision", "autoRetries",
   ]), "run metadata");
   validateMetadata(value, "run metadata");
@@ -57,6 +57,15 @@ export function validateRunMetadata(value, options = {}) {
   if (value.processStartToken !== undefined && value.processStartToken !== null) requireString(value.processStartToken, "run metadata.processStartToken");
   requireString(value.startedAt, "run metadata.startedAt");
   if (value.integrationRef !== undefined) requireString(value.integrationRef, "run metadata.integrationRef");
+  // The controller snapshot a run was launched from: a path plus the sha of
+  // its executable bytes, verified before the next chain node launches N+1.
+  if (value.controllerIdentity !== undefined) {
+    assertObject(value.controllerIdentity, "run metadata.controllerIdentity");
+    rejectUnknown(/** @type {JsonObject} */ (value.controllerIdentity), new Set(["path", "sha"]), "run metadata.controllerIdentity");
+    const controllerIdentity = /** @type {JsonObject} */ (value.controllerIdentity);
+    requireString(controllerIdentity.path, "run metadata.controllerIdentity.path");
+    requirePacketHash(controllerIdentity.sha, "run metadata.controllerIdentity.sha");
+  }
   // The supervisor's no-progress relaunch guard is durable in run.json: an
   // in-memory counter resets whenever the supervisor restarts, which is an
   // endless dispatch storm rather than a guard.

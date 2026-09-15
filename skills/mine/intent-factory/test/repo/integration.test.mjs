@@ -13,8 +13,12 @@ import {
   createAttemptWorktree,
   createCandidateWorktree,
   createRunRef,
+  gitHead,
   sealAttempt,
 } from "../../src/repo/worktree.mjs";
+import { promoteRun } from "../../src/repo/integrate.mjs";
+import { initializeCampaign, recordPromotion } from "../../src/campaign/index.mjs";
+import { readCampaign } from "../../src/campaign/record.mjs";
 import { captureSourceIdentity } from "../../src/repo/source-identity.mjs";
 
 test("run creation source identity includes resolved cwd and task-packet hashes", () => {
@@ -166,4 +170,177 @@ test("a failing git command carries git's own reason into the error", () => {
       return true;
     },
   );
+});
+
+// ---------------------------------------------------------------------------
+// Campaign promotion onto the landing branch (phase 3, rules 1 and 3).
+//
+// The promotion is the only place a branch other than a per-run ref moves. It
+// is deliberately narrow: gated on a green final verification, never a
+// force-update, never `main` without the operator's authorization, and never a
+// branch a live worktree has checked out. `promoteRun` is pure git; the
+// campaign record wraps it in `promoteRunInCampaign`.
+// ---------------------------------------------------------------------------
+
+/** @param {string} prefix @returns {string} a fresh repository with one commit */
+function promotionRepo(prefix) {
+  const repo = mkdtempSync(join(tmpdir(), prefix));
+  const run = /** @param {...string} args */ (...args) => execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
+  run("init", "-q");
+  run("config", "user.email", "test@example.test");
+  run("config", "user.name", "test");
+  writeFileSync(join(repo, "base.txt"), "base\n");
+  run("add", "-A");
+  run("-c", "commit.gpgSign=false", "commit", "-qm", "base");
+  return repo;
+}
+
+/** @param {string} repo @param {string} file @param {string} content @param {string} message @returns {string} */
+function commitFile(repo, file, content, message) {
+  writeFileSync(join(repo, file), content);
+  execFileSync("git", ["-C", repo, "add", "-A"], { stdio: "ignore" });
+  execFileSync("git", ["-C", repo, "-c", "user.email=test@example.test", "-c", "user.name=test", "-c", "commit.gpgSign=false", "commit", "-qm", message], { stdio: "ignore" });
+  return execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+}
+
+/** @param {string} repo @param {string} ref @returns {string} */
+function refSha(repo, ref) {
+  return execFileSync("git", ["-C", repo, "rev-parse", ref], { encoding: "utf8" }).trim();
+}
+
+test("a run whose finalVerification is red is not promoted even with every node done", () => {
+  const repo = promotionRepo("runner-promote-final-");
+  const base = refSha(repo, "HEAD");
+  // The run integrated all of its work: its ref is a child of the base, which
+  // is what "every node done" leaves behind. Promotion is still refused
+  // because the contract-wide final verification is the separate gate.
+  const runHead = commitFile(repo, "work.txt", "work\n", "run work");
+  createRunRef(repo, "red-final", runHead);
+  assert.throws(
+    () => promoteRun({ repo, runId: "red-final", landBranch: "campaign/red", baseSha: base, finalVerificationPassed: false }),
+    (/** @type {Error & {code?: string}} */ error) => {
+      assert.equal(error.code, "final_verification_not_green");
+      assert.match(error.message, /final verification is not green/u);
+      return true;
+    },
+  );
+  assert.equal(gitHead(repo, "refs/heads/campaign/red"), null, "no branch was created or moved");
+});
+
+test("landBranch defaults to campaign/<campaignId> and is created at the first run's gitHead when absent", () => {
+  const repo = promotionRepo("runner-promote-default-");
+  const base = refSha(repo, "HEAD");
+  const runHead = commitFile(repo, "run.txt", "run\n", "run");
+  createRunRef(repo, "first-run", runHead);
+  const runsDir = join(mkdtempSync(join(tmpdir(), "runner-promote-campaign-")), ".runs");
+  const { path: campaignPath, campaign } = initializeCampaign(runsDir, { campaignId: "chain", goal: "Chain the phases" });
+  assert.equal(campaign.landBranch, "campaign/chain", "landBranch never defaults to main");
+  const result = promoteRun({
+    repo,
+    runId: "first-run",
+    landBranch: campaign.landBranch,
+    baseSha: base,
+    finalVerificationPassed: true,
+    onPromoted: (record) => recordPromotion(campaignPath, { runId: record.runId, branch: record.branch, sha: record.sha, previousSha: record.previousSha, at: record.at }),
+  });
+  assert.equal(result.status, "promoted");
+  assert.equal(result.branch, "campaign/chain");
+  assert.equal(refSha(repo, "refs/heads/campaign/chain"), runHead, "the branch fast-forwarded onto the run's ref");
+  assert.equal(readCampaign(campaignPath).promotions.length, 1);
+});
+
+test("promoting onto main without the explicit operator flag refuses", () => {
+  const repo = promotionRepo("runner-promote-main-");
+  const base = refSha(repo, "HEAD");
+  const runHead = commitFile(repo, "run.txt", "run\n", "run");
+  createRunRef(repo, "main-run", runHead);
+  assert.throws(
+    () => promoteRun({ repo, runId: "main-run", landBranch: "main", baseSha: base, finalVerificationPassed: true }),
+    (/** @type {Error & {code?: string}} */ error) => {
+      assert.equal(error.code, "land_branch_main_requires_flag");
+      assert.match(error.message, /refusing to promote main-run onto main/u);
+      assert.match(error.message, /--allow-main/u);
+      return true;
+    },
+  );
+});
+
+test("a non-fast-forward promotion refuses and never force-updates", () => {
+  const repo = promotionRepo("runner-promote-ff-");
+  const base = refSha(repo, "HEAD");
+  const runHead = commitFile(repo, "run.txt", "run\n", "run");
+  execFileSync("git", ["-C", repo, "checkout", "-q", "-b", "other", base], { stdio: "ignore" });
+  const other = commitFile(repo, "other.txt", "other\n", "other");
+  execFileSync("git", ["-C", repo, "branch", "land", other], { stdio: "ignore" });
+  createRunRef(repo, "ff-run", runHead);
+  assert.throws(
+    () => promoteRun({ repo, runId: "ff-run", landBranch: "land", baseSha: base, finalVerificationPassed: true }),
+    (/** @type {Error & {code?: string}} */ error) => {
+      assert.equal(error.code, "land_branch_not_fast_forward");
+      assert.match(error.message, /is not a fast-forward/u);
+      assert.match(error.message, /never force-updates/u);
+      return true;
+    },
+  );
+  assert.equal(refSha(repo, "refs/heads/land"), other, "the branch was left where it was");
+});
+
+test("a landBranch checked out in another worktree refuses rather than moving the ref", () => {
+  const repo = promotionRepo("runner-promote-checked-out-");
+  const base = refSha(repo, "HEAD");
+  const runHead = commitFile(repo, "run.txt", "run\n", "run");
+  createRunRef(repo, "wt-run", runHead);
+  execFileSync("git", ["-C", repo, "branch", "land", base], { stdio: "ignore" });
+  const worktree = join(mkdtempSync(join(tmpdir(), "runner-promote-wt-")), "checkout");
+  execFileSync("git", ["-C", repo, "worktree", "add", "-q", worktree, "land"], { stdio: "ignore" });
+  try {
+    assert.throws(
+      () => promoteRun({ repo, runId: "wt-run", landBranch: "land", baseSha: base, finalVerificationPassed: true }),
+      (/** @type {Error & {code?: string}} */ error) => {
+        assert.equal(error.code, "land_branch_checked_out");
+        assert.match(error.message, /is checked out in/u);
+        assert.match(error.message, /checkout/u);
+        return true;
+      },
+    );
+    assert.equal(refSha(repo, "refs/heads/land"), base, "the branch did not move under the live checkout");
+  } finally {
+    execFileSync("git", ["-C", repo, "worktree", "remove", "--force", worktree], { stdio: "ignore" });
+  }
+});
+
+test("a crash after the branch moved but before the record leaves one promotion on re-issue", () => {
+  const repo = promotionRepo("runner-promote-crash-");
+  const base = refSha(repo, "HEAD");
+  const runHead = commitFile(repo, "run.txt", "run\n", "run");
+  createRunRef(repo, "crash-run", runHead);
+  const runsDir = join(mkdtempSync(join(tmpdir(), "runner-promote-crashcamp-")), ".runs");
+  const { path: campaignPath } = initializeCampaign(runsDir, { campaignId: "crash", goal: "Crash recovery" });
+  // The ref moves, then the record write dies. This is the crash the rule
+  // requires re-invocation to recognise rather than repeat.
+  assert.throws(
+    () => promoteRun({
+      repo,
+      runId: "crash-run",
+      landBranch: "campaign/crash",
+      baseSha: base,
+      finalVerificationPassed: true,
+      onPromoted: () => { throw new Error("crash after ref move"); },
+    }),
+    /crash after ref move/u,
+  );
+  assert.equal(refSha(repo, "refs/heads/campaign/crash"), runHead, "the branch moved before the crash");
+  const reissued = promoteRun({
+    repo,
+    runId: "crash-run",
+    landBranch: "campaign/crash",
+    baseSha: base,
+    finalVerificationPassed: true,
+    onPromoted: (record) => recordPromotion(campaignPath, { runId: record.runId, branch: record.branch, sha: record.sha, previousSha: record.previousSha, at: record.at }),
+  });
+  assert.equal(reissued.status, "already_promoted", "re-issue recognises the promotion instead of repeating it");
+  assert.equal(refSha(repo, "refs/heads/campaign/crash"), runHead);
+  const promotions = readCampaign(campaignPath).promotions;
+  assert.equal(promotions.length, 1, "one promotion, one record");
+  assert.equal(promotions[0].sha, runHead);
 });
