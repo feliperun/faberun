@@ -14,9 +14,10 @@ import {
 import { authoredContractDigest, initializeCampaign } from "../../src/campaign/index.mjs";
 import { readCampaign } from "../../src/campaign/record.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, contractDigest, validateContract } from "../../src/contract/index.mjs";
-import { controllerSnapshotIdentity } from "../../src/engine/run-identity.mjs";
+import { controllerSnapshotIdentity, serializableContract, storedContractDigest } from "../../src/engine/run-identity.mjs";
+import { runContract } from "../../src/engine/scheduler.mjs";
 import { writeHeartbeat } from "../../src/engine/supervise.mjs";
-import { packet, closeResult, waitForValue } from "../helpers.mjs";
+import { packet, closeResult, waitForValue, withFakeCodex } from "../helpers.mjs";
 
 /** @typedef {import("../../src/contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {import("../../src/contract/index.mjs").ControllerIdentity} ControllerIdentity */
@@ -164,9 +165,18 @@ function makeCampaign(repo, campaignId, contractPaths, landBranch = `campaign/${
   });
 }
 
-/** @param {RunDirArgs} args */
+/**
+ * A run directory shaped the way the controller leaves one: the serialized
+ * contract the controller stores, the node snapshots, and a run.json whose
+ * `contractDigest` is computed the controller's way -- over the stored
+ * contract.json bytes, not over the in-memory validated contract. The
+ * `digest` override exists for the tamper case alone.
+ *
+ * @param {RunDirArgs} args
+ */
 function writeRunDir({ repo, runDir, contract, node, gitHead = null, controllerIdentity, digest }) {
   mkdirSync(join(runDir, "nodes"), { recursive: true });
+  writeFileSync(join(runDir, "contract.json"), `${JSON.stringify(serializableContract(contract), null, 2)}\n`);
   writeFileSync(join(runDir, "nodes", `${String(node.id)}.json`), JSON.stringify(node));
   /** @type {Record<string, unknown>} */
   const metadata = {
@@ -185,7 +195,7 @@ function writeRunDir({ repo, runDir, contract, node, gitHead = null, controllerI
       packetHashes: Object.fromEntries(contract.nodes.map((candidate) => [candidate.id, candidate.packetHash])),
       harnessVersions: {},
     },
-    contractDigest: digest ?? contractDigest(contract),
+    contractDigest: digest ?? storedContractDigest(runDir),
   };
   if (controllerIdentity) metadata.controllerIdentity = controllerIdentity;
   writeFileSync(join(runDir, "run.json"), `${JSON.stringify(metadata, null, 2)}\n`);
@@ -505,6 +515,102 @@ test("done-when 12: a changed contractDigest stops, including when every packet 
   });
   assert.equal(outcome.state, "parked");
   assert.equal(outcome.attention?.code, "contract_digest_mismatch");
+});
+
+/**
+ * Create a real run through the child controller path -- the same `runContract`
+ * the CLI entry uses -- so the chain observes a run.json and contract.json the
+ * controller actually wrote rather than a hand-shaped pair.
+ *
+ * @param {string} repo
+ * @param {string} contractPath
+ * @returns {Promise<string>}
+ */
+function controllerRun(repo, contractPath) {
+  return withFakeCodex(repo, "pass", async () => (await runContract(contractPath)).runDir);
+}
+
+test("chain-digest 1: a controller-created run is classified, not parked as a digest mismatch", async () => {
+  const repo = initRepo();
+  const contractPath = writeChainContract(repo, "chain-real", "real1");
+  const { path: campaignPath } = makeCampaign(repo, "chain-real", [contractPath]);
+  const runDir = await controllerRun(repo, contractPath);
+
+  // The controller records the digest of the stored contract.json; hashing the
+  // freshly validated in-memory contract disagrees, which is what the chain
+  // used to compare and park on.
+  const recorded = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8")).contractDigest;
+  assert.equal(recorded, storedContractDigest(runDir), "run.json records the stored contract's digest");
+  const validated = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
+  assert.notEqual(contractDigest(validated), recorded, "the old in-memory comparison would have mismatched");
+
+  const outcome = await driveCampaignChain(campaignPath, {
+    repo,
+    coordination: false,
+    heartbeat: noopHeartbeat(),
+    sleep: async () => {},
+    maxTicks: 2,
+    launch: () => { throw new Error("the existing run must not relaunch"); },
+  });
+  assert.notEqual(outcome.attention?.code, "contract_digest_mismatch");
+  assert.equal(outcome.state, "done", "the chain classified the real run and promoted it");
+  assert.equal(readCampaign(campaignPath).promotions.length, 1, "the real run was promoted exactly once");
+});
+
+test("chain-digest 2: editing the stored contract parks with contract_digest_mismatch", async () => {
+  const repo = initRepo();
+  const contractPath = writeChainContract(repo, "chain-stored-edit", "edit1");
+  const { path: campaignPath } = makeCampaign(repo, "chain-stored-edit", [contractPath]);
+  const runDir = await controllerRun(repo, contractPath);
+  const recorded = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8")).contractDigest;
+  const storedPath = join(runDir, "contract.json");
+  const stored = JSON.parse(readFileSync(storedPath, "utf8"));
+  stored.goal = "edited after creation";
+  writeFileSync(storedPath, `${JSON.stringify(stored, null, 2)}\n`);
+  const editedDigest = storedContractDigest(runDir);
+
+  const outcome = await driveCampaignChain(campaignPath, {
+    repo,
+    coordination: false,
+    heartbeat: noopHeartbeat(),
+    sleep: async () => {},
+    maxTicks: 3,
+    launch: () => { throw new Error("the edited run must not relaunch"); },
+  });
+  assert.equal(outcome.state, "parked");
+  assert.equal(outcome.attention?.code, "contract_digest_mismatch");
+  assert.match(String(outcome.attention?.message), new RegExp(String(editedDigest), "u"), "the message names the stored digest");
+  assert.match(String(outcome.attention?.message), new RegExp(recorded, "u"), "the message names the recorded digest");
+});
+
+test("chain-digest 3: a stored contract for a different contract id is refused", async () => {
+  const repo = initRepo();
+  const contractPath = writeChainContract(repo, "chain-foreign", "foreign1");
+  const { path: campaignPath } = makeCampaign(repo, "chain-foreign", [contractPath]);
+  const runDir = await controllerRun(repo, contractPath);
+  const storedPath = join(runDir, "contract.json");
+  const stored = JSON.parse(readFileSync(storedPath, "utf8"));
+  stored.id = "some-other-contract";
+  if (stored.sourceIdentity && typeof stored.sourceIdentity === "object") stored.sourceIdentity.id = "some-other-contract";
+  writeFileSync(storedPath, `${JSON.stringify(stored, null, 2)}\n`);
+  // Keep run.json's digest consistent with the edited stored contract, so only
+  // the contract id can refuse it.
+  const runJsonPath = join(runDir, "run.json");
+  const metadata = JSON.parse(readFileSync(runJsonPath, "utf8"));
+  metadata.contractDigest = contractDigest(stored);
+  writeFileSync(runJsonPath, `${JSON.stringify(metadata, null, 2)}\n`);
+
+  const outcome = await driveCampaignChain(campaignPath, {
+    repo,
+    coordination: false,
+    heartbeat: noopHeartbeat(),
+    sleep: async () => {},
+    maxTicks: 3,
+    launch: () => { throw new Error("the foreign run must not relaunch"); },
+  });
+  assert.equal(outcome.state, "parked");
+  assert.equal(outcome.attention?.code, "contract_digest_mismatch");
+  assert.match(String(outcome.attention?.message), /some-other-contract/u, "the message names the foreign contract id");
 });
 
 test("done-when 13: re-issue launches only the remainder and awaits a non-terminal run", async () => {

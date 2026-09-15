@@ -117,6 +117,21 @@ function readStoredRunRecords(sourceIdentity) {
 }
 
 /**
+ * The digest of the contract stored in a run directory, computed over the
+ * stored bytes. The controller writes this file and records this digest at
+ * creation; a later reader must read the same file for the same answer,
+ * because the in-memory validated contract carries `undefined` fields the
+ * stored JSON dropped, so hashing the two objects disagrees.
+ *
+ * @param {string} runDir
+ * @returns {string}
+ */
+export function storedContractDigest(runDir) {
+  const raw = JSON.parse(readFileSync(join(runDir, "contract.json"), "utf8"));
+  return contractDigest(raw);
+}
+
+/**
  * The digest of the stored contract.json, computed at creation and only then:
  * the contract bytes are frozen at launch, and a persisted load compares
  * against this record rather than against the mutated tree.
@@ -127,8 +142,7 @@ function readStoredRunRecords(sourceIdentity) {
 function readContractDigest(sourceIdentity) {
   const runDir = runDirFor(sourceIdentity);
   if (!runDir) return null;
-  const raw = JSON.parse(readFileSync(join(runDir, "contract.json"), "utf8"));
-  return contractDigest(raw);
+  return storedContractDigest(runDir);
 }
 const HARNESS_PROBE_RETRIES = 2;
 const HARNESS_PROBE_RETRY_BACKOFF_MS = 250;

@@ -34,8 +34,8 @@ import { hostname, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { assertContractManifestIntact, parkCampaign, promoteRunInCampaign } from "./index.mjs";
 import { readCampaign } from "./record.mjs";
-import { contractDigest, validateContract } from "../contract/index.mjs";
-import { defaultControllerIdentity, verifyControllerIdentity } from "../engine/run-identity.mjs";
+import { validateContract } from "../contract/index.mjs";
+import { defaultControllerIdentity, storedContractDigest, verifyControllerIdentity } from "../engine/run-identity.mjs";
 import { HEARTBEAT_INTERVAL_MS, createHeartbeat, groupAlive, heartbeatBreach, readHeartbeat, runProgress, waitForGroupGone } from "../engine/supervise.mjs";
 import { pidAlive, processStartToken } from "../run/lock.mjs";
 import { delay, errorCode, errorMessage } from "../util.mjs";
@@ -330,6 +330,21 @@ function isRecord(value) {
 }
 
 /**
+ * The contract a stored contract.json names: its source identity's
+ * `contractId` when it has one, otherwise its own `id`. A run directory whose
+ * stored contract belongs to a different contract is refused even when its
+ * digest matches run.json.
+ *
+ * @param {Record<string, unknown>} stored
+ * @returns {string|null}
+ */
+function storedContractId(stored) {
+  const identity = isRecord(stored.sourceIdentity) ? stored.sourceIdentity : null;
+  if (identity && typeof identity.contractId === "string") return identity.contractId;
+  return typeof stored.id === "string" ? stored.id : null;
+}
+
+/**
  * Drive a campaign's manifest to completion, watching the current run and
  * launching the next one only after the previous one succeeded and promoted.
  *
@@ -446,11 +461,13 @@ export async function driveCampaignChain(campaignPath, options = {}) {
       if (existsSync(join(runDir, "run.json"))) {
         const metadata = /** @type {Record<string, unknown>} */ (JSON.parse(readFileSync(join(runDir, "run.json"), "utf8")));
         const recorded = typeof metadata.contractDigest === "string" ? metadata.contractDigest : null;
-        const current = contractDigest(contract);
-        if (recorded !== current) {
+        const stored = /** @type {Record<string, unknown>} */ (JSON.parse(readFileSync(join(runDir, "contract.json"), "utf8")));
+        const storedDigest = storedContractDigest(runDir);
+        const storedId = storedContractId(stored);
+        if (recorded !== storedDigest || storedId !== id) {
           return park({
             code: "contract_digest_mismatch",
-            message: `contract ${id} does not match the digest recorded for its run; packet hashes alone cannot prove the DAG, gate, runtime, timeout, definition of done, or finalVerification are unchanged`,
+            message: `contract ${id} does not match its run directory: stored contract ${storedId ?? "unknown"} (${storedDigest}) vs run.json (${recorded}); packet hashes alone cannot prove the DAG, gate, runtime, timeout, definition of done, or finalVerification are unchanged`,
             contractPath: entry.path,
             contractId: id,
             runId: id,

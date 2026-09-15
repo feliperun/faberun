@@ -10,7 +10,8 @@ import { authoredContractDigest, closeCampaign, initializeCampaign, parkCampaign
 import { readCampaign } from "../../src/campaign/record.mjs";
 import { appendJournal, readJournal } from "../../src/campaign/journal.mjs";
 import { driveCampaignChain } from "../../src/campaign/chain.mjs";
-import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, contractDigest, validateContract } from "../../src/contract/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
+import { serializableContract, storedContractDigest } from "../../src/engine/run-identity.mjs";
 import { packet } from "../helpers.mjs";
 
 /** @typedef {import("../../src/contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -107,6 +108,7 @@ function writeNode(runDir, node) {
  */
 function writeRunDir({ repo, runDir, contract, node }) {
   mkdirSync(join(runDir, "nodes"), { recursive: true });
+  writeFileSync(join(runDir, "contract.json"), `${JSON.stringify(serializableContract(contract), null, 2)}\n`);
   writeFileSync(join(runDir, "nodes", `${String(node.id)}.json`), JSON.stringify(node));
   const metadata = {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
@@ -124,7 +126,7 @@ function writeRunDir({ repo, runDir, contract, node }) {
       packetHashes: Object.fromEntries(contract.nodes.map((candidate) => [candidate.id, candidate.packetHash])),
       harnessVersions: {},
     },
-    contractDigest: contractDigest(contract),
+    contractDigest: storedContractDigest(runDir),
   };
   writeFileSync(join(runDir, "run.json"), `${JSON.stringify(metadata, null, 2)}\n`);
 }
