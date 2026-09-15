@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { loadTaskPacket, renderWorkerPrompt } from "./task-packet.mjs";
 import { RESERVED_ARTICLES } from "./articles.mjs";
@@ -79,19 +79,28 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 /** @typedef {{revision?: number, heartbeatCount: number, dryHeartbeatCount: number, progressSignature?: string|null, lastHeartbeatAt: string|null, lastProgressAt: string|null, nextCheckAt?: string|null}} ProgressState */
 /** @typedef {{status: "unassigned"|"provisioning"|"ready"|"failed"|"removed", path: string|null, branch: string|null, commit: string|null, baseSha?: string|null, previousAttempt?: number|null}} WorktreeState */
 /** @typedef {{schemaVersion: number, contractVersion: string, id: string, type: string, sourceIdentity: SourceIdentity, packetHash: string, status: NodeStatus, phase: NodePhase, attempt: number, revisions: number, judgeFailures?: number, review?: ("none"|"advisory"|"blocking"), runtime: RuntimeSnapshot|null, blockedBy: string[], startedAt: string|null, updatedAt: string, result: unknown, gate: GateResult|null, error: SnapshotError|null, usage?: Usage, costUsd?: number, routing?: RoutingState|null, progress?: ProgressState|null, worktree?: WorktreeState|null, integratedHead?: string|null, invocations?: Invocation[], executionOverrides?: ExecutionOverride[], verification?: VerificationState|null, scope?: BoundedScope|null, scopeFindings?: ScopeFindings|null, previousAttempt?: string}} NodeSnapshot */
-/** @typedef {{schemaVersion: number, contractVersion: string, pid: number, processStartToken: string|null, startedAt: string, sourceIdentity: SourceIdentity, integrationRef?: string, identityWarnings?: string[], relaunchCount?: number, lastRelaunchProgressAt?: string|null, attention?: {code: string, message: string, at: string}|null}} RunMetadata */
+/** @typedef {{schemaVersion: number, contractVersion: string, pid: number, processStartToken: string|null, startedAt: string, sourceIdentity: SourceIdentity, integrationRef?: string, identityWarnings?: string[], relaunchCount?: number, lastRelaunchProgressAt?: string|null, attention?: {code: string, message: string, at: string}|null, contractDigest?: string, scopeDecision?: ScopeDecision}} RunMetadata */
+/** @typedef {{at: string, base: string|null, dirtyTreeFingerprint: string|null}} ScopeDecision */
 /** @typedef {{schemaVersion: number, contractVersion: string, at: string, node: string, from?: string, to: string, type?: string, phase?: string, attempt?: number, role?: "worker"|"judge", status?: NodeStatus, runtime?: string, currentRuntime?: string, errorCode?: string, error?: SnapshotError, verdict?: string, summary?: string, revisions?: number, sourceIdentity: SourceIdentity, packetHash: string, override?: unknown, recovery?: unknown, invocationId?: string, unexpectedPaths?: string[], unexpectedPathCount?: number}} EventRecord */
 
 /**
  * Validate and canonicalize the versioned contract. Runtime JSON remains
  * authoritative; JSDoc types document the validated shape only.
  *
+ * `persisted` is the frozen-replay path: the contract was already validated at
+ * run creation, so every tree-dependent decision (the cwd directory, readFiles
+ * and writeRoots existence and anchors, realpath and symlink checks,
+ * verification cwds, scope closure, ignore probes) is skipped. A persisted
+ * load touches no filesystem at all; it differs from authoring only in what it
+ * refuses to re-derive from the mutated tree.
+ *
  * @param {JsonObject} raw
  * @param {string} contractPath
- * @param {{persisted?: boolean}} [options]
+ * @param {{persisted?: boolean, contractDigest?: string}} [options]
  * @returns {ValidatedContract}
  */
 export function validateContract(raw, contractPath, options = {}) {
+  const persisted = options.persisted === true;
   assertObject(raw, "contract");
   rejectUnknown(raw, CONTRACT_FIELDS, "contract");
   validateMetadata(raw, "contract");
@@ -101,7 +110,7 @@ export function validateContract(raw, contractPath, options = {}) {
 
   const contractDir = dirname(resolve(contractPath));
   const cwd = resolve(contractDir, typeof raw.cwd === "string" ? raw.cwd : ".");
-  if (!statSync(cwd).isDirectory()) throw new TypeError("contract.cwd must be a directory");
+  if (!persisted && !statSync(cwd).isDirectory()) throw new TypeError("contract.cwd must be a directory");
 
   const sourceIdentity = validateSourceIdentity(
     raw.sourceIdentity ?? { kind: "contract", id: raw.id, campaignId: raw.campaignId },
@@ -161,7 +170,7 @@ export function validateContract(raw, contractPath, options = {}) {
     // edges are in hand.
     /** @type {{path: string, label: string}[]} */
     const deferredReads = [];
-    const taskPacket = loadTaskPacket(node, contractDir, cwd, index, { deferMissingReads: true, deferredReads });
+    const taskPacket = loadTaskPacket(node, contractDir, cwd, index, { deferMissingReads: true, deferredReads, persisted });
     deferredReadsByNode.push(deferredReads);
     // The reserved articles are the common law: a contract adds its own as
     // references/local-*.md and may never claim a reserved name, at any
@@ -228,14 +237,18 @@ export function validateContract(raw, contractPath, options = {}) {
   // in its writeFiles, or the path sits under a dependency's directory-shaped
   // writeRoots entry (a file-shaped entry authorizes exactly that path). Every
   // other caller of validateTaskPacket keeps rejecting the missing read inline;
-  // this graph-aware deferral is a contract-loading capability only.
-  for (const [index, node] of nodes.entries()) {
-    const deferredReads = deferredReadsByNode[index];
-    if (deferredReads.length === 0) continue;
-    const closure = transitiveDependencyClosure(node, nodes);
-    for (const { path, label } of deferredReads) {
-      if (!dependencyCoversRead(closure, path, cwd)) {
-        throw new TypeError(`${label} does not exist: ${path}`);
+  // this graph-aware deferral is a contract-loading capability only. Persisted
+  // loads never defer -- they skipped the existence probe, so there is nothing
+  // to resolve and nothing to stat.
+  if (!persisted) {
+    for (const [index, node] of nodes.entries()) {
+      const deferredReads = deferredReadsByNode[index];
+      if (deferredReads.length === 0) continue;
+      const closure = transitiveDependencyClosure(node, nodes);
+      for (const { path, label } of deferredReads) {
+        if (!dependencyCoversRead(closure, path, cwd)) {
+          throw new TypeError(`${label} does not exist: ${path}`);
+        }
       }
     }
   }
@@ -304,7 +317,7 @@ export function validateContract(raw, contractPath, options = {}) {
   // node: seat-lifecycle wrote the test, seat-switch wrote the module, and each
   // packet read alone is clean. `crossNodeScopeFindings` reads all nodes
   // together and names the node whose packet must gain the test.
-  const scopeErrors = [
+  const scopeErrors = persisted ? [] : [
     ...nodes.flatMap((node, index) =>
       scopeClosureFindings(node, index, cwd).map(
         (finding) => `nodes[${index}] (${node.id}): ${finding.path} (${finding.detector}: ${finding.reason})`,
@@ -318,8 +331,11 @@ export function validateContract(raw, contractPath, options = {}) {
     throw new TypeError(`task packet scope does not close; declare in readFiles or writeFiles, or acknowledge in scopeAcknowledged: ${scopeErrors.join("; ")}`);
   }
 
-  const warnings = nodes.flatMap((node, index) => [...commandCoverageWarnings(node, index), ...unsnapshottedWriteWarnings(node, index, cwd)]);
-  return /** @type {ValidatedContract} */ ({
+  const warnings = nodes.flatMap((node, index) => [
+    ...commandCoverageWarnings(node, index),
+    ...(persisted ? [] : unsnapshottedWriteWarnings(node, index, cwd)),
+  ]);
+  const contract = /** @type {ValidatedContract} */ ({
     ...raw,
     schemaVersion: /** @type {number} */ (raw.schemaVersion),
     contractVersion: /** @type {string} */ (raw.contractVersion),
@@ -335,6 +351,60 @@ export function validateContract(raw, contractPath, options = {}) {
     finalVerification: validateFinalVerification(raw.finalVerification, "contract.finalVerification"),
     warnings,
   });
+  // The persisted load is a replay, not a re-authoring: it accepts only bytes
+  // whose digest matches the decision frozen at launch. A changed DAG, gate,
+  // runtime selection, timeout, definition of done or finalVerification leaves
+  // every packetHash untouched, so only this digest refuses it.
+  if (persisted && options.contractDigest !== undefined && contractDigest(raw) !== options.contractDigest) {
+    throw new TypeError("persisted contract does not match the contractDigest recorded at run creation; the stored contract was modified after the run was created");
+  }
+  return contract;
+}
+
+/**
+ * A persisted load: read the one contract.json the caller handed in, validate
+ * it without touching the tree, and refuse it when its digest does not match
+ * the decision frozen at launch. This is the only filesystem call the load
+ * makes, which is what done-when 5 asserts structurally.
+ *
+ * @param {string} contractPath
+ * @param {string|undefined} expectedDigest the `contractDigest` recorded in run.json
+ * @returns {ValidatedContract}
+ */
+export function loadPersistedContract(contractPath, expectedDigest) {
+  const raw = /** @type {JsonObject} */ (JSON.parse(readFileSync(contractPath, "utf8")));
+  return validateContract(raw, contractPath, {
+    persisted: true,
+    ...(expectedDigest === undefined ? {} : { contractDigest: expectedDigest }),
+  });
+}
+
+/**
+ * Canonical digest of the contract that was actually validated, minus
+ * `sourceIdentity` (which carries the absolute cwd, git head and fingerprint),
+ * minus `warnings` (authoring-attention text, not contract content), and minus
+ * the absolute `cwd`. The derived fields a stored contract.json drops --
+ * `prompt`, `promptFile`, `taskPacketFile` -- are excluded too, so the digest a
+ * load recomputes from the stored bytes matches the one computed at creation.
+ *
+ * @param {Record<string, unknown>|JsonObject} contract a validated contract or
+ *   the stored raw contract it was serialized from
+ * @returns {string}
+ */
+export function contractDigest(contract) {
+  const record = /** @type {Record<string, unknown>} */ ({ ...contract });
+  delete record.sourceIdentity;
+  delete record.warnings;
+  delete record.cwd;
+  const nodes = Array.isArray(record.nodes) ? record.nodes : [];
+  record.nodes = nodes.map((node) => {
+    const copy = /** @type {Record<string, unknown>} */ ({ ...(/** @type {Record<string, unknown>} */ (node)) });
+    delete copy.prompt;
+    delete copy.promptFile;
+    delete copy.taskPacketFile;
+    return copy;
+  });
+  return createHash("sha256").update(stableJson(record)).digest("hex");
 }
 
 /**

@@ -4,9 +4,9 @@
  * partly finished run is continued by `resume`, never re-authored, so this is
  * the only contract operation the CLI carries).
  */
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { validateContract } from "../contract/index.mjs";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { loadPersistedContract, validateContract } from "../contract/index.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 
@@ -32,15 +32,32 @@ export function contractCli(args) {
  * Validate an authored contract and print the same report the `validate`
  * command has always printed. A single-node contract is simply valid.
  *
+ * A contract.json that sits beside a run.json is a persisted run's frozen copy,
+ * not an authored contract: it takes the tree-free persisted path and must
+ * match the digest recorded at launch. Every other target keeps today's
+ * authoring validation, tree reads included.
+ *
  * @param {string} path
  * @returns {ValidatedContract}
  */
 export function validateContractFile(path) {
-  const contract = validateContract(JSON.parse(readFileSync(path, "utf8")), path);
+  const runJsonPath = join(dirname(path), "run.json");
+  const contract = existsSync(runJsonPath)
+    ? loadPersistedContract(path, readRunDigest(runJsonPath))
+    : validateContract(JSON.parse(readFileSync(path, "utf8")), path);
   const count = contract.warnings.length;
   process.stdout.write(`valid${count ? ` (${count} warning${count === 1 ? "" : "s"})` : ""}\n`);
   for (const warning of contract.warnings) process.stdout.write(`[warn] ${warning}\n`);
   return contract;
+}
+
+/**
+ * @param {string} runJsonPath
+ * @returns {string|undefined}
+ */
+function readRunDigest(runJsonPath) {
+  const metadata = JSON.parse(readFileSync(runJsonPath, "utf8"));
+  return typeof metadata.contractDigest === "string" ? metadata.contractDigest : undefined;
 }
 
 /** @returns {void} */

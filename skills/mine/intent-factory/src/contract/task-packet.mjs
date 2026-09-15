@@ -47,7 +47,7 @@ const DEFERRED_MISSING = Symbol("deferred-missing");
  * @param {string} contractDir
  * @param {string} cwd
  * @param {number} index
- * @param {{deferMissingReads?: boolean, deferredReads?: {path: string, label: string}[]}} [options]
+ * @param {{deferMissingReads?: boolean, deferredReads?: {path: string, label: string}[], persisted?: boolean}} [options]
  * @returns {TaskPacket}
  */
 export function loadTaskPacket(node, contractDir, cwd, index, options = {}) {
@@ -64,7 +64,9 @@ export function loadTaskPacket(node, contractDir, cwd, index, options = {}) {
   let packet = /** @type {TaskPacket|undefined} */ (node.taskPacket);
   if (fromFile) {
     const taskPacketFile = /** @type {string} */ (node.taskPacketFile);
-    validateRelativePath(taskPacketFile, `nodes[${index}].taskPacketFile`, contractDir, true);
+    // A persisted contract always stores its packet inline, so this path is
+    // authoring-only; skipping the probe keeps the load off the tree anyway.
+    if (options.persisted !== true) validateRelativePath(taskPacketFile, `nodes[${index}].taskPacketFile`, contractDir, true);
     const path = resolve(contractDir, taskPacketFile);
     try {
       packet = JSON.parse(readFileSync(path, "utf8"));
@@ -132,7 +134,7 @@ export function renderWorkerPrompt(packet, nodeId) {
  * @param {unknown} packet
  * @param {number} index
  * @param {string} cwd
- * @param {{deferMissingReads?: boolean, deferredReads?: {path: string, label: string}[]}} [options]
+ * @param {{deferMissingReads?: boolean, deferredReads?: {path: string, label: string}[], persisted?: boolean}} [options]
  * @returns {TaskPacket}
  */
 export function validateTaskPacket(packet, index, cwd, options = {}) {
@@ -166,6 +168,10 @@ export function validateTaskPacket(packet, index, cwd, options = {}) {
   const normalizedReadFiles = /** @type {string[]} */ (readFiles);
   const writeFiles = record.writeFiles;
   const writeRoots = record.writeRoots;
+  // The persisted load replays decisions already made: every path probe below
+  // reads the live tree and is skipped, so a declared readFile that has since
+  // been deleted, or a writeRoot that became a symlink, cannot unload a run.
+  const persisted = options.persisted === true;
 
   if (mode === "execution" || mode === "discovery") {
     if (record.readFiles === undefined) {
@@ -189,31 +195,35 @@ export function validateTaskPacket(packet, index, cwd, options = {}) {
     if (!/** @type {string[]} */ (writeRoots).length) {
       throw new TypeError(`nodes[${index}].taskPacket.writeRoots must not be empty for an autonomous packet`);
     }
-    /** @type {string[]} */ (writeRoots).forEach((root, rootIndex) => {
-      validateWriteRoot(root, `nodes[${index}].taskPacket.writeRoots[${rootIndex}]`, cwd);
-    });
+    if (!persisted) {
+      /** @type {string[]} */ (writeRoots).forEach((root, rootIndex) => {
+        validateWriteRoot(root, `nodes[${index}].taskPacket.writeRoots[${rootIndex}]`, cwd);
+      });
+    }
   }
   if (mode === "discovery" && /** @type {string[]} */ (writeFiles).length) {
     throw new TypeError(`nodes[${index}].taskPacket.writeFiles must be empty for a discovery packet`);
   }
 
-  const deferMissingReads = options.deferMissingReads === true;
-  /** @type {{path: string, label: string}[]} */
-  const deferredReads = options.deferredReads ?? [];
-  normalizedReadFiles.forEach((path, pathIndex) => {
-    const label = `nodes[${index}].taskPacket.readFiles[${pathIndex}]`;
-    const result = validateRelativePath(path, label, cwd, true, { deferMissing: deferMissingReads });
-    if (result === DEFERRED_MISSING) deferredReads.push({ path, label });
-  });
-  if (writeFiles !== undefined) /** @type {string[]} */ (writeFiles).forEach((path, pathIndex) => {
-    validateRelativePath(path, `nodes[${index}].taskPacket.writeFiles[${pathIndex}]`, cwd, false);
-  });
-  /** @type {string[]} */ (scopeAcknowledged).forEach((path, pathIndex) => {
-    validateRelativePath(path, `nodes[${index}].taskPacket.scopeAcknowledged[${pathIndex}]`, cwd, true);
-  });
-  for (const [commandIndex, command] of verification.entries()) {
-    if (command.cwd !== undefined) {
-      validateDirectoryPath(command.cwd, `nodes[${index}].taskPacket.verification[${commandIndex}].cwd`, cwd);
+  if (!persisted) {
+    const deferMissingReads = options.deferMissingReads === true;
+    /** @type {{path: string, label: string}[]} */
+    const deferredReads = options.deferredReads ?? [];
+    normalizedReadFiles.forEach((path, pathIndex) => {
+      const label = `nodes[${index}].taskPacket.readFiles[${pathIndex}]`;
+      const result = validateRelativePath(path, label, cwd, true, { deferMissing: deferMissingReads });
+      if (result === DEFERRED_MISSING) deferredReads.push({ path, label });
+    });
+    if (writeFiles !== undefined) /** @type {string[]} */ (writeFiles).forEach((path, pathIndex) => {
+      validateRelativePath(path, `nodes[${index}].taskPacket.writeFiles[${pathIndex}]`, cwd, false);
+    });
+    /** @type {string[]} */ (scopeAcknowledged).forEach((path, pathIndex) => {
+      validateRelativePath(path, `nodes[${index}].taskPacket.scopeAcknowledged[${pathIndex}]`, cwd, true);
+    });
+    for (const [commandIndex, command] of verification.entries()) {
+      if (command.cwd !== undefined) {
+        validateDirectoryPath(command.cwd, `nodes[${index}].taskPacket.verification[${commandIndex}].cwd`, cwd);
+      }
     }
   }
   return {

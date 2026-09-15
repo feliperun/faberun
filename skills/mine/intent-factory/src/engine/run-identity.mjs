@@ -15,10 +15,12 @@ import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION, probeRuntime } from ".
 import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
 import { blockingChecks, environmentPreflight, reachableRuntimes } from "../host/preflight.mjs";
 import { captureSourceIdentity } from "../repo/source-identity.mjs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { stableJson } from "../util.mjs";
 import { validateRunMetadata } from "../contract/snapshot.mjs";
+import { contractDigest } from "../contract/index.mjs";
 
 /** @typedef {import("../harnesses/index.mjs").HarnessRuntime} HarnessRuntime */
 /** @typedef {import("../cli.mjs").LockHandle} LockHandle */
@@ -38,6 +40,17 @@ import { validateRunMetadata } from "../contract/snapshot.mjs";
  */
 export function createRunMetadata(lock, sourceIdentity, resume = {}, integrationRef = undefined) {
   const current = lock.current;
+  // Both frozen records are carried forward from the run that already exists.
+  // `driveRun` rewrites run.json on every controller start, so recomputing
+  // them from the current tree would let a resume or a heartbeat relaunch
+  // reinterpret history against a tree that has since drifted.
+  const stored = readStoredRunRecords(sourceIdentity);
+  const digest = stored.contractDigest ?? readContractDigest(sourceIdentity);
+  const scopeDecision = stored.scopeDecision ?? {
+    at: current.startedAt,
+    base: sourceIdentity.gitHead ?? null,
+    dirtyTreeFingerprint: sourceIdentity.dirtyTreeFingerprint ?? null,
+  };
   const metadata = {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
     contractVersion: INTENT_FACTORY_VERSION,
@@ -53,8 +66,60 @@ export function createRunMetadata(lock, sourceIdentity, resume = {}, integration
     ...(resume.relaunchCount !== undefined ? { relaunchCount: resume.relaunchCount } : {}),
     ...(resume.lastRelaunchProgressAt !== undefined ? { lastRelaunchProgressAt: resume.lastRelaunchProgressAt } : {}),
     ...(resume.attention !== undefined ? { attention: resume.attention } : {}),
+    ...(digest !== null ? { contractDigest: digest } : {}),
+    scopeDecision,
   };
   return validateRunMetadata(metadata);
+}
+
+/**
+ * The run directory the source identity names: the run lives at
+ * `<cwd>/.runs/<contractId>`, which is derivable from the identity alone.
+ *
+ * @param {SourceIdentity} sourceIdentity
+ * @returns {string|null}
+ */
+function runDirFor(sourceIdentity) {
+  if (!sourceIdentity.cwd || !sourceIdentity.contractId) return null;
+  return join(sourceIdentity.cwd, ".runs", sourceIdentity.contractId);
+}
+
+/**
+ * The records a prior run.json already froze, when one exists. On creation
+ * this is empty; on every later metadata rewrite it is the source of truth.
+ *
+ * @param {SourceIdentity} sourceIdentity
+ * @returns {{contractDigest?: string, scopeDecision?: import("../contract/index.mjs").ScopeDecision}}
+ */
+function readStoredRunRecords(sourceIdentity) {
+  const runDir = runDirFor(sourceIdentity);
+  if (!runDir) return {};
+  /** @type {Record<string, unknown>} */
+  let record;
+  try {
+    record = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
+  } catch {
+    return {};
+  }
+  return {
+    ...(record.contractDigest !== undefined ? { contractDigest: /** @type {string} */ (record.contractDigest) } : {}),
+    ...(record.scopeDecision !== undefined ? { scopeDecision: /** @type {import("../contract/index.mjs").ScopeDecision} */ (record.scopeDecision) } : {}),
+  };
+}
+
+/**
+ * The digest of the stored contract.json, computed at creation and only then:
+ * the contract bytes are frozen at launch, and a persisted load compares
+ * against this record rather than against the mutated tree.
+ *
+ * @param {SourceIdentity} sourceIdentity
+ * @returns {string|null}
+ */
+function readContractDigest(sourceIdentity) {
+  const runDir = runDirFor(sourceIdentity);
+  if (!runDir) return null;
+  const raw = JSON.parse(readFileSync(join(runDir, "contract.json"), "utf8"));
+  return contractDigest(raw);
 }
 const HARNESS_PROBE_RETRIES = 2;
 const HARNESS_PROBE_RETRY_BACKOFF_MS = 250;

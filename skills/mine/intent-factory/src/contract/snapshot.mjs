@@ -50,6 +50,7 @@ export function validateRunMetadata(value, options = {}) {
   rejectUnknown(value, new Set([
     "schemaVersion", "contractVersion", "pid", "processStartToken", "startedAt", "sourceIdentity",
     "identityWarnings", "integrationRef", "relaunchCount", "lastRelaunchProgressAt", "attention",
+    "contractDigest", "scopeDecision",
   ]), "run metadata");
   validateMetadata(value, "run metadata");
   requireInteger(value.pid, "run metadata.pid");
@@ -79,6 +80,19 @@ export function validateRunMetadata(value, options = {}) {
         throw new TypeError(`run metadata.identityWarnings[${index}] must be a string of at most 1024 bytes`);
       }
     }
+  }
+  // The contract the run was launched with, frozen as a digest, and the scope
+  // decision that authoring made against the then-current tree. A persisted
+  // load compares its recomputed digest against the first; both survive every
+  // metadata rewrite because they live on the fixed field list.
+  if (value.contractDigest !== undefined) requirePacketHash(value.contractDigest, "run metadata.contractDigest");
+  if (value.scopeDecision !== undefined) {
+    assertObject(value.scopeDecision, "run metadata.scopeDecision");
+    rejectUnknown(/** @type {JsonObject} */ (value.scopeDecision), new Set(["at", "base", "dirtyTreeFingerprint"]), "run metadata.scopeDecision");
+    const scopeDecision = /** @type {JsonObject} */ (value.scopeDecision);
+    requireTimestamp(scopeDecision.at, "run metadata.scopeDecision.at");
+    if (scopeDecision.base !== null) requireString(scopeDecision.base, "run metadata.scopeDecision.base");
+    if (scopeDecision.dirtyTreeFingerprint !== null) requireString(scopeDecision.dirtyTreeFingerprint, "run metadata.scopeDecision.dirtyTreeFingerprint");
   }
   if (options.requireSourceIdentity) validateCompleteSourceIdentity(/** @type {JsonObject} */ (value.sourceIdentity));
   return /** @type {RunMetadata} */ (value);
