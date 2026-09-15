@@ -10,7 +10,7 @@ import { compactCost, compactTokens, errorCode } from "../util.mjs";
 import { basename, join } from "node:path";
 import { readJson, writeJsonAtomic, writeTextAtomic } from "../run/store.mjs";
 import { scopeFindingsNote } from "../contract/scope-findings.mjs";
-import { MARK, fit, statusNote, writeStatusArtifacts } from "./render.mjs";
+import { MARK, fit, roleCosts, statusNote, writeStatusArtifacts } from "./render.mjs";
 import { unlinkSync } from "node:fs";
 
 /** @typedef {ReturnType<typeof import("../run/lock.mjs").acquire>} LockHandle */
@@ -128,7 +128,8 @@ export function renderFinalReport(runDir, contract, states) {
       note,
     ]));
   }
-  lines.push("```", "", `totals · in ${compactTokens(totals.inputTokens)} · out ${compactTokens(totals.outputTokens)} · cache ${compactTokens(totals.cacheReadInputTokens)} · cost ${compactCost(totalCostUsd)}`);
+  const roles = roleCosts(nodes);
+  lines.push("```", "", `totals · in ${compactTokens(totals.inputTokens)} · out ${compactTokens(totals.outputTokens)} · cache ${compactTokens(totals.cacheReadInputTokens)} · worker ${compactCost(roles.worker)} · judge ${compactCost(roles.judge)} · cost ${compactCost(totalCostUsd)}`);
   return `${lines.join("\n")}\n`;
 }
 /**

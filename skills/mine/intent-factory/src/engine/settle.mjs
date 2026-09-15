@@ -14,6 +14,7 @@
  */
 import { candidateOnlyFailures, resetPhaseRouting, verificationFailureVerdict } from "./judge-gate.mjs";
 import { retryPrompt } from "./prompts.mjs";
+import { renderPreviousAttemptSection } from "./retry.mjs";
 import { startWorker } from "./dispatch.mjs";
 import { ensureTerminalEvent, transition, writeNode } from "./state.mjs";
 import { verificationFailureWithScope } from "../contract/scope-findings.mjs";
@@ -39,19 +40,25 @@ import { verifyCandidateWorkspace } from "./verify.mjs";
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {import("../contract/index.mjs").ValidatedNode} ValidatedNode */
 
-/** Settle one worker-generation rejection: bounded revision when one remains, otherwise terminal exhausted/failed. @param {ValidatedContract} contract @param {ValidatedNode} node @param {NodeSnapshot} state @param {string} runDir @param {Map<string, Job>|null} running @param {LockHandle} lock @param {Map<string, NodeSnapshot>} states @param {string} campaignPath @param {JudgeVerdict} verdict @param {{code: string, label: string, phase?: "worker"|"judge", message?: string}} options */
+/** Settle one worker-generation rejection: bounded revision when one remains, otherwise terminal exhausted/failed. @param {ValidatedContract} contract @param {ValidatedNode} node @param {NodeSnapshot} state @param {string} runDir @param {Map<string, Job>|null} running @param {LockHandle} lock @param {Map<string, NodeSnapshot>} states @param {string} campaignPath @param {JudgeVerdict} verdict @param {{code: string, label: string, phase?: "worker"|"judge", message?: string, forceFresh?: boolean}} options */
 export function applyRejection(contract, node, state, runDir, running, lock, states, campaignPath, verdict, options) {
-  const { code, label, phase = "worker", message = verdict.summary } = options;
+  const { code, label, phase = "worker", message = verdict.summary, forceFresh = true } = options;
   state.gate = verdict;
   if (node.gate.enabled && state.revisions < (node.gate.maxRevisions ?? 1)) {
     resetPhaseRouting(state);
     state.revisions += 1;
     process.stdout.write(`[${label}] ${node.id} retry · ${verdict.summary}\n`);
+    // The retry is a fresh session when the decision says so, so the evidence
+    // it needs has to travel in the prompt, not the transcript. Rendering the
+    // bounded `## Previous attempt` section here means both the immediate
+    // dispatch below and a later scheduler dispatch (the `running` is null
+    // path) carry it.
+    state.previousAttempt = renderPreviousAttemptSection(state) ?? state.previousAttempt;
     if (running) {
       // Dispatching here owns the increment, because `startWorker` expects the
       // attempt number it is about to run under.
       state.attempt += 1;
-      startWorker(contract, node, state, runDir, running, retryPrompt(node, verdict), lock, states, campaignPath);
+      startWorker(contract, node, state, runDir, running, retryPrompt(node, verdict), lock, states, campaignPath, { forceFresh });
       return;
     }
     // Handing the node back to the scheduler instead: its dispatch increments

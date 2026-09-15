@@ -63,6 +63,7 @@ import { canReuseResultEvidence, checkResultMaterializationScope, checkWorkerSco
 import { startJudge, startResultMaterialization } from "./dispatch.mjs";
 import { raiseNodeAttention, settleDone } from "./settle.mjs";
 import { applyRejection, applyVerificationFailure } from "./settle.mjs";
+import { emitNodeAdvisories } from "./notify-queue.mjs";
 
 /** @typedef {import("../repo/integrate.mjs").IntegrationResult} IntegrationResult */
 /** @typedef {import("./backoff.mjs").Transition} Transition */
@@ -292,6 +293,10 @@ function clearTierExhaustion(state) {
  * @returns {Promise<void>}
  */
 export async function finalizeClosedJobs(contract, runDir, states, running, lock, campaignPath) {
+  // Advisory spend lines are checked every tick, before outcome handling: a
+  // crossing must be visible while the spend is happening, not only when the
+  // run is already over. The check never stops or transitions a node.
+  await emitNodeAdvisories(contract, runDir, states);
   for (const [nodeId, job] of running) {
     if (!job.closed || invocationAlive(job.invocation)) continue;
     running.delete(nodeId);

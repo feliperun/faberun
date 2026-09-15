@@ -123,6 +123,61 @@ export function parseJudge(result) {
 }
 
 /**
+ * How much of a red command's captured output the judge prompt carries, per
+ * stream, and the total budget across all red commands. Green commands send no
+ * output at all: the controller already ran them and their result is the
+ * `passed` bit, so echoing 2 KiB stdout plus 2 KiB stderr per green command per
+ * attempt is pure spend. This campaign already lost a node to that: a packet
+ * with seven verification commands serialized the whole `state.verification`
+ * and crossed the 64 KiB judge-prompt guard.
+ */
+const JUDGE_RED_STREAM_BYTES = 2 * 1024;
+const JUDGE_RED_TOTAL_BYTES = 16 * 1024;
+
+/**
+ * The judge's view of controller verification: `{argv, passed}` for every green
+ * command and output tails only for red ones. The state carries up to 2 KiB per
+ * stream per attempt for every command, green or red; the judge only needs the
+ * red evidence, and bounding the red evidence in aggregate keeps the whole
+ * prompt inside the dispatch guard.
+ *
+ * @param {unknown} verification
+ * @returns {{passed: boolean, error?: string, commands: Array<Record<string, unknown>>}}
+ */
+function judgeVerificationEvidence(verification) {
+  const record = verification && typeof verification === "object" && !Array.isArray(verification)
+    ? /** @type {{passed?: unknown, error?: unknown, commands?: unknown}} */ (verification)
+    : {};
+  const commands = Array.isArray(record.commands) ? record.commands : [];
+  let budget = JUDGE_RED_TOTAL_BYTES;
+  const compact = commands.map((command) => {
+    const entry = command && typeof command === "object" && !Array.isArray(command)
+      ? /** @type {Record<string, unknown>} */ (command)
+      : {};
+    if (entry.passed === true) return { argv: entry.argv, passed: true };
+    /** @type {Record<string, unknown>} */
+    const red = { argv: entry.argv, passed: false };
+    const attempts = Array.isArray(entry.attempts) ? entry.attempts : [];
+    const last = attempts.length ? /** @type {Record<string, unknown>} */ (attempts[attempts.length - 1]) : null;
+    if (typeof last?.exitCode === "number") red.exitCode = last.exitCode;
+    if (last?.timedOut === true) red.timedOut = true;
+    for (const stream of /** @type {const} */ (["stdout", "stderr"])) {
+      const text = typeof last?.[stream] === "string" ? last[stream] : "";
+      if (!text.trim() || budget <= 0) continue;
+      const bounded = boundedPromptText(text, Math.min(JUDGE_RED_STREAM_BYTES, budget));
+      budget -= Buffer.byteLength(bounded, "utf8");
+      red[stream] = bounded;
+    }
+    return red;
+  });
+  return {
+    passed: record.passed === true,
+    ...(typeof record.error === "string" && record.error ? { error: record.error } : {}),
+    commands: compact,
+  };
+}
+
+/**
  * @param {JudgeNode} node
  * @param {unknown} workerResult
  * @param {{diff?: unknown[], verification?: unknown, deterministic?: unknown, scopeFindings?: {unexpectedPaths: string[]}|null, previousAttempt?: string}} context
@@ -153,7 +208,7 @@ export function judgePrompt(node, workerResult, context = {}) {
     try { structured = validateWorkerResult(structured); } catch { structured = null; }
   }
   const diff = Array.isArray(context.diff) ? /** @type {unknown[]} */ (context.diff).slice(0, 64) : [];
-  const verificationResult = context.verification ?? { passed: false, commands: [] };
+  const verificationResult = judgeVerificationEvidence(context.verification);
   const scopeSection = scopeFindingsPromptSection(context.scopeFindings);
   return `Review node ${node.id} independently. The review context is closed: inspect only the ${node.taskPacket.mode === "autonomous" ? "write roots" : "write files"} below and do not perform repository-wide discovery. Do not re-run the verification commands — the controller already executed them and attached the results; re-running suites duplicates cost without adding evidence.\n\n` +
     `${writeBoundaryLabel}:\n${writeFiles}\n\nVerification commands (already executed by the controller):\n${verification}\n\n` +

@@ -6,10 +6,10 @@
  * runtime re-tiering, never by a token or dollar cap -- and that is why a usage
  * the provider did not report stays null instead of becoming a plausible zero.
  */
-import { appendJsonl } from "./store.mjs";
+import { appendJsonl, writeJsonAtomic } from "./store.mjs";
 import { basename, join } from "node:path";
 import { errorMessage, stableJson } from "../util.mjs";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { liveUsage } from "../harnesses/exec-jsonl/index.mjs";
 
 import { priceUsage, readBoundedTail } from "../engine/process.mjs";
@@ -212,4 +212,126 @@ function addUsage(left, right) {
 /** @returns {{inputTokens: number|null, outputTokens: number|null, cacheReadInputTokens: number|null}} */
 export function emptyUsage() {
   return { inputTokens: null, outputTokens: null, cacheReadInputTokens: null };
+}
+
+/**
+ * The named artifact the fresh-session hypothesis is recorded to. The
+ * measurement is the acceptance, not a threshold met: a cohort with no gate
+ * revision is recorded as absent rather than compared against an empty set.
+ */
+export const CACHE_READ_PER_REVISION_ARTIFACT = "cacheReadPerRevision.json";
+
+/** @typedef {{runCount: number, runsWithGateRevision: number, gateRevisions: number, retryWorkerInvocations: number, cacheReadTokens: number, cacheReadPerRevision: number|null}} CacheReadCohort */
+/** @typedef {{before: CacheReadCohort, after: CacheReadCohort}} CacheReadCohorts */
+
+/**
+ * `cacheReadPerRevision` over one cohort of run directories:
+ *
+ *   cacheReadPerRevision =
+ *     cache-read tokens attributable to gate revisions
+ *     / number of gate revisions
+ *
+ * A gate revision is one `state.revisions` increment — a judge or mechanical
+ * rejection that re-dispatched the worker. The persisted ledger does not link
+ * an invocation to the rejection that caused it, so the attribution is the
+ * declared approximation: the cache-read tokens recorded on worker invocations
+ * after the first attempt of their node, which are the retries that include
+ * those gate revisions. A cohort with no gate revision reports
+ * `cacheReadPerRevision: null`, never a divide-by-zero.
+ *
+ * @param {string[]} runDirs
+ * @returns {CacheReadCohort}
+ */
+export function measureCacheReadPerRevision(runDirs) {
+  let gateRevisions = 0;
+  let retryWorkerInvocations = 0;
+  let cacheReadTokens = 0;
+  let runsWithGateRevision = 0;
+  for (const runDir of runDirs) {
+    let runRevisions = 0;
+    for (const name of listNodeSnapshotFiles(runDir)) {
+      let state;
+      try {
+        state = JSON.parse(readFileSync(join(runDir, "nodes", name), "utf8"));
+      } catch {
+        // A torn or unreadable snapshot contributes nothing; a measurement
+        // never fails because one run was mid-write.
+        continue;
+      }
+      if (typeof state.revisions === "number" && Number.isFinite(state.revisions)) runRevisions += state.revisions;
+      for (const invocation of Array.isArray(state.invocations) ? state.invocations : []) {
+        if (invocation?.role !== "worker") continue;
+        if (!(typeof invocation.attempt === "number" && invocation.attempt > 1)) continue;
+        retryWorkerInvocations += 1;
+        const cacheRead = invocation.usage?.cacheReadInputTokens;
+        if (typeof cacheRead === "number" && Number.isFinite(cacheRead)) cacheReadTokens += cacheRead;
+      }
+    }
+    if (runRevisions > 0) {
+      gateRevisions += runRevisions;
+      runsWithGateRevision += 1;
+    }
+  }
+  return {
+    runCount: runDirs.length,
+    runsWithGateRevision,
+    gateRevisions,
+    retryWorkerInvocations,
+    cacheReadTokens,
+    cacheReadPerRevision: gateRevisions > 0 ? cacheReadTokens / gateRevisions : null,
+  };
+}
+
+/**
+ * The two declared cohorts and the recorded comparison. `before` is the runs
+ * preceding the change commit and `after` those following it; when the after
+ * cohort records no gate revision the artifact says so explicitly rather than
+ * presenting an empty comparison. `changeCommit` is recorded so the cohort
+ * boundary is auditable.
+ *
+ * @param {CacheReadCohort} before
+ * @param {CacheReadCohort} after
+ * @param {{changeCommit?: string|null, generatedAt?: string, runDirs?: {before: string[], after: string[]}}} [context]
+ * @returns {Record<string, unknown>}
+ */
+export function cacheReadPerRevisionArtifact(before, after, context = {}) {
+  const measured = after.gateRevisions > 0;
+  return {
+    schemaVersion: 1,
+    metric: "cacheReadPerRevision",
+    definition: "cache-read tokens attributable to gate revisions divided by the number of gate revisions",
+    attribution: "gateRevisions is the sum of persisted node revisions; cacheReadTokens is the cache-read tokens on worker invocations after the first attempt, the retries that include those gate revisions",
+    changeCommit: context.changeCommit ?? null,
+    generatedAt: context.generatedAt ?? new Date().toISOString(),
+    status: measured ? "measured" : "no_post_change_revision",
+    note: measured
+      ? "the after cohort records at least one gate revision; before and after are compared below"
+      : "no post-change gate revision exists: the after cohort records zero gate revisions, so no comparison is fabricated",
+    before,
+    after,
+    ...(context.runDirs ? { runDirs: context.runDirs } : {}),
+  };
+}
+
+/**
+ * Write the measurement to its named artifact path.
+ *
+ * @param {string} artifactPath
+ * @param {CacheReadCohort} before
+ * @param {CacheReadCohort} after
+ * @param {{changeCommit?: string|null, generatedAt?: string, runDirs?: {before: string[], after: string[]}}} [context]
+ * @returns {string} the artifact path
+ */
+export function writeCacheReadPerRevisionArtifact(artifactPath, before, after, context = {}) {
+  writeJsonAtomic(artifactPath, cacheReadPerRevisionArtifact(before, after, context));
+  return artifactPath;
+}
+
+/** @param {string} runDir @returns {string[]} */
+function listNodeSnapshotFiles(runDir) {
+  try {
+    return readdirSync(join(runDir, "nodes")).filter((name) => name.endsWith(".json"));
+  } catch {
+    return [];
+  }
 }

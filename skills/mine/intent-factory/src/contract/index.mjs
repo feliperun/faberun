@@ -11,7 +11,7 @@ import {
 } from "../harnesses/index.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS } from "../engine/runtime-discovery.mjs";
 import { stableJson } from "../util.mjs";
-import { assertObject, boundedString, nonNegativeInteger, positiveInteger, positiveNumber, rejectUnknown, requireId, requireString } from "./assert.mjs";
+import { assertObject, boundedString, nonNegativeInteger, nonNegativeNumber, positiveInteger, positiveNumber, rejectUnknown, requireId, requireString } from "./assert.mjs";
 import { validateMetadata } from "./schema-version.mjs";
 import { assertRuntimeExecutesCommands, requireRuntime, validateRuntime } from "./runtime.mjs";
 import { validateSourceIdentity } from "../repo/source-identity.mjs";
@@ -23,7 +23,7 @@ export { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/in
 const CONTRACT_FIELDS = new Set([
   "schemaVersion", "contractVersion", "id", "campaignId", "goal", "cwd", "sourceIdentity",
   "maxParallel", "pollIntervalMs", "stallTimeoutSec", "timeoutSec",
-  "runtimeDefaults", "runtimes", "nodes", "warnings", "finalVerification",
+  "runtimeDefaults", "runtimes", "nodes", "warnings", "finalVerification", "nodeAdvisory",
 ]);
 const DEFAULTS_FIELDS = new Set(["worker", "judge"]);
 const NODE_FIELDS = new Set([
@@ -32,7 +32,7 @@ const NODE_FIELDS = new Set([
   "requiredCapabilities", "packetHash", "sourceIdentity", "replayPolicy",
 ]);
 const REPLAY_POLICIES = new Set(["safe", "reconcile", "never"]);
-const GATE_FIELDS = new Set(["enabled", "runtime", "review", "failOn", "maxRevisions", "requiredCapabilities"]);
+const GATE_FIELDS = new Set(["enabled", "runtime", "review", "failOn", "maxRevisions", "requiredCapabilities", "skipWhen"]);
 const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 
 /** @typedef {Record<string, unknown>} JsonObject */
@@ -47,11 +47,12 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 
 /** @typedef {{harness: "claude"|"codex"|"agy"|"dsh"|"zcode"|"exec-jsonl"|"replay", model: string, reasoning?: string, sandbox?: "read-only"|"workspace-write"|"danger-full-access", permissionMode?: string, config?: Record<string, unknown>, printTimeout?: string, tools?: string[], executable?: string, args?: string[], versionArgs?: string[], maxArgvPromptBytes?: number, requiredCapabilities?: CapabilityRequirements, costRank?: number, fallback?: string, vendor: string, tier?: number|string, stallTimeoutSec?: number}} ValidatedRuntime */
 
-/** @typedef {{enabled: boolean, review?: ("none"|"advisory"|"blocking"), runtime?: string, failOn?: ("minor"|"major"|"critical")[], maxRevisions?: number, requiredCapabilities?: CapabilityRequirements}} ValidatedGate */
+/** @typedef {{enabled: boolean, review?: ("none"|"advisory"|"blocking"), runtime?: string, failOn?: ("minor"|"major"|"critical")[], maxRevisions?: number, requiredCapabilities?: CapabilityRequirements, skipWhen?: {verificationGreen: true, maxChangedPaths: number}}} ValidatedGate */
 
 /** @typedef {{id: string, type: string, phase: string, runtime?: string, dependsOn: string[], taskPacket: TaskPacket, taskPacketFile?: string, prompt: string, definitionOfDone: import("./definition-of-done.mjs").DefinitionOfDoneItem[], gate: ValidatedGate, timeoutSec?: number, requiredCapabilities: CapabilityRequirements, packetHash: string, sourceIdentity: SourceIdentity, replayPolicy: "safe"|"reconcile"|"never"}} ValidatedNode */
 
-/** @typedef {{schemaVersion: number, contractVersion: string, id: string, campaignId: string, goal: string, cwd: string, sourceIdentity: SourceIdentity, runtimes: Record<string, ValidatedRuntime>, runtimeDefaults: {worker?: string, judge?: string}, nodes: ValidatedNode[], maxParallel: number, pollIntervalMs: number, stallTimeoutSec: number, timeoutSec: number, finalVerification?: VerificationCommand[], warnings: string[]}} ValidatedContract */
+/** @typedef {{schemaVersion: number, contractVersion: string, id: string, campaignId: string, goal: string, cwd: string, sourceIdentity: SourceIdentity, runtimes: Record<string, ValidatedRuntime>, runtimeDefaults: {worker?: string, judge?: string}, nodes: ValidatedNode[], maxParallel: number, pollIntervalMs: number, stallTimeoutSec: number, timeoutSec: number, finalVerification?: VerificationCommand[], nodeAdvisory?: NodeAdvisoryPolicy, warnings: string[]}} ValidatedContract */
+/** @typedef {{costUsd?: number, durationSec?: number}} NodeAdvisoryPolicy */
 
 /** @typedef {"pending"|"running"|"done"|"no-op"|"blocked"|"failed"|"exhausted"|"stalled"|"canceled"} NodeStatus */
 /** @typedef {"waiting"|"worker"|"judge"|"complete"|"dependency"|"canceled"} NodePhase */
@@ -350,6 +351,7 @@ export function validateContract(raw, contractPath, options = {}) {
     stallTimeoutSec: positiveNumber(raw.stallTimeoutSec ?? 300, "contract.stallTimeoutSec"),
     timeoutSec: positiveNumber(raw.timeoutSec ?? 2_400, "contract.timeoutSec"),
     finalVerification: validateFinalVerification(raw.finalVerification, "contract.finalVerification"),
+    nodeAdvisory: validateNodeAdvisory(raw.nodeAdvisory),
     warnings,
   });
   // The persisted load is a replay, not a re-authoring: it accepts only bytes
@@ -464,11 +466,54 @@ function validateGate(gate, runtimes, index, nodeId) {
     runtime: /** @type {string|undefined} */ (gate.runtime),
     failOn,
     maxRevisions: nonNegativeInteger(gate.maxRevisions ?? 1, `nodes[${index}].gate.maxRevisions`),
+    skipWhen: validateGateSkipWhen(gate.skipWhen, `nodes[${index}].gate.skipWhen`),
     requiredCapabilities: validateCapabilityRequirements(
       /** @type {import("../harnesses/index.mjs").CapabilityRequirements|undefined} */ (gate.requiredCapabilities),
       `nodes[${index}].gate.requiredCapabilities`,
     ),
   };
+}
+
+/**
+ * The green-and-small escape hatch for the judge gate. Both conditions must
+ * hold — controller verification green and no more changed workspace paths
+ * than the declared ceiling — for `startJudge` to skip the judge even though a
+ * Definition of Done item carries `judgment: true`. `verificationGreen` is
+ * fixed at `true`: a skip rule keyed on red verification would be the opposite
+ * of the intent.
+ *
+ * @param {unknown} value
+ * @param {string} label
+ * @returns {{verificationGreen: true, maxChangedPaths: number}|undefined}
+ */
+function validateGateSkipWhen(value, label) {
+  if (value === undefined) return undefined;
+  assertObject(value, label);
+  rejectUnknown(value, new Set(["verificationGreen", "maxChangedPaths"]), label);
+  if (value.verificationGreen !== true) throw new TypeError(`${label}.verificationGreen must be true`);
+  return {
+    verificationGreen: true,
+    maxChangedPaths: nonNegativeInteger(value.maxChangedPaths, `${label}.maxChangedPaths`),
+  };
+}
+
+/**
+ * The contract-level advisory thresholds, in USD and seconds. Absent means no
+ * per-node advisory is configured; the values are advisory only and never stop
+ * a node.
+ *
+ * @param {unknown} value
+ * @returns {NodeAdvisoryPolicy}
+ */
+function validateNodeAdvisory(value) {
+  if (value === undefined) return {};
+  assertObject(value, "contract.nodeAdvisory");
+  rejectUnknown(value, new Set(["costUsd", "durationSec"]), "contract.nodeAdvisory");
+  /** @type {NodeAdvisoryPolicy} */
+  const policy = {};
+  if (value.costUsd !== undefined) policy.costUsd = nonNegativeNumber(value.costUsd, "contract.nodeAdvisory.costUsd");
+  if (value.durationSec !== undefined) policy.durationSec = nonNegativeNumber(value.durationSec, "contract.nodeAdvisory.durationSec");
+  return policy;
 }
 
 /**

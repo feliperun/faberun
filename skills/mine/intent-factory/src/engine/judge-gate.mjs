@@ -66,6 +66,28 @@ export function judgeRequired(node) {
 }
 
 /**
+ * The green-and-small escape hatch: the contract declared `gate.skipWhen`, the
+ * controller verification passed, and the persisted workspace scope recorded no
+ * more changed paths than the declared ceiling. Both conditions must hold, and
+ * this predicate overrides `judgment: true` — that is its whole purpose. It
+ * composes with `reviewMode` rather than replacing it: `judgeRequired` still
+ * owns the `none` case, and a gate with no `skipWhen` behaves exactly as before.
+ *
+ * @param {{gate?: {skipWhen?: {verificationGreen: true, maxChangedPaths: number}}}} node
+ * @param {{verification?: {passed?: boolean}|null, scope?: {changedPathCount?: number, changedPaths?: string[]}|null}} state
+ * @returns {boolean}
+ */
+export function judgeSkippedByScope(node, state) {
+  const skipWhen = node.gate?.skipWhen;
+  if (!skipWhen) return false;
+  if (state.verification?.passed !== true) return false;
+  const changed = typeof state.scope?.changedPathCount === "number"
+    ? state.scope.changedPathCount
+    : Array.isArray(state.scope?.changedPaths) ? state.scope.changedPaths.length : null;
+  return typeof changed === "number" && changed <= skipWhen.maxChangedPaths;
+}
+
+/**
  * @param {DefinitionOfDoneItem[]} items
  * @param {string} cwd
  * @param {{timeoutMs?: number, verification?: VerificationState|null}} [options]

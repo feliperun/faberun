@@ -361,7 +361,8 @@ export function renderReport(runDir) {
     lines.push(row([MARK[node.status] ?? "[?]", node.id, node.status, node.attempt ?? 0, node.revisions ?? 0, runtime, compactTokens(usage.inputTokens), compactTokens(usage.outputTokens), compactTokens(usage.cacheReadInputTokens), formatCost(cost), note]));
   }
   totals.costUsd = aggregateCost.costUsd;
-  lines.push("```", "", `totals · in ${compactTokens(totals.inputTokens)} · out ${compactTokens(totals.outputTokens)} · cache ${compactTokens(totals.cacheReadInputTokens)} · cost ${formatCost(aggregateCost)}`);
+  const roles = roleCosts(nodes);
+  lines.push("```", "", `totals · in ${compactTokens(totals.inputTokens)} · out ${compactTokens(totals.outputTokens)} · cache ${compactTokens(totals.cacheReadInputTokens)} · worker ${compactCost(roles.worker)} · judge ${compactCost(roles.judge)} · cost ${formatCost(aggregateCost)}`);
   return `${lines.join("\n")}\n`;
 }
 
@@ -375,8 +376,8 @@ export function renderReportJson(runDir) {
   const { contract, nodes } = loadRun(runDir);
   const counts = new Map();
   for (const node of nodes) counts.set(node.status, (counts.get(node.status) ?? 0) + 1);
-  /** @type {{inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUsd: number|null, costStatus: string}} */
-  const totals = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, costUsd: null, costStatus: "ambiguous" };
+  /** @type {{inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUsd: number|null, costStatus: string, workerCostUsd: number|null, judgeCostUsd: number|null}} */
+  const totals = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, costUsd: null, costStatus: "ambiguous", workerCostUsd: null, judgeCostUsd: null };
   const costs = nodes.map(costProjection);
   const listed = nodes.map((node, index) => {
     const usage = node.usage ?? { inputTokens: null, outputTokens: null, cacheReadInputTokens: null };
@@ -400,6 +401,9 @@ export function renderReportJson(runDir) {
   const aggregateCost = aggregateCostProjection(costs);
   totals.costUsd = aggregateCost.costUsd;
   totals.costStatus = aggregateCost.status;
+  const roles = roleCosts(nodes);
+  totals.workerCostUsd = roles.worker;
+  totals.judgeCostUsd = roles.judge;
   const payload = {
     schemaVersion: 1,
     run: basename(runDir),
@@ -615,6 +619,42 @@ function nodeNote(node) {
 }
 
 /** @typedef {{costUsd: number|null, status: "known"|"estimated"|"ambiguous"}} CostProjection */
+
+/**
+ * Per-role cost, summed from the invocation ledger alone. A role that appears
+ * only on invocations that all carry a provider cost is `known`; a role with no
+ * invocation at all, or with any invocation whose cost is missing, is `null`.
+ * That is deliberately not zero: an unavailable or partial role cost must not
+ * fabricate `$0`, and summing only the known invocations would understate a
+ * partial one. The invocation ledger is the single source, so the node's own
+ * `costUsd` (itself the sum of these invocations) is never added on top and
+ * cannot double-count.
+ *
+ * @param {NodeSnapshot[]} nodes
+ * @returns {{worker: number|null, judge: number|null}}
+ */
+export function roleCosts(nodes) {
+  /** @type {Record<"worker"|"judge", {total: number, present: number, unknown: number}>} */
+  const roles = {
+    worker: { total: 0, present: 0, unknown: 0 },
+    judge: { total: 0, present: 0, unknown: 0 },
+  };
+  for (const node of nodes) {
+    for (const invocation of node.invocations ?? []) {
+      if (invocation.role !== "worker" && invocation.role !== "judge") continue;
+      const bucket = roles[invocation.role];
+      const cost = finite(invocation.costUsd);
+      if (cost === null) bucket.unknown += 1;
+      else {
+        bucket.present += 1;
+        bucket.total += cost;
+      }
+    }
+  }
+  const complete = (/** @type {{present: number, unknown: number, total: number}} */ bucket) =>
+    bucket.present > 0 && bucket.unknown === 0 ? bucket.total : null;
+  return { worker: complete(roles.worker), judge: complete(roles.judge) };
+}
 
 /**
  * Project cost only from durable snapshot evidence. Invocation costs are

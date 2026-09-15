@@ -9,7 +9,7 @@
  */
 import { NotifyQueue, appendInbox, renderNotification } from "../notify/index.mjs";
 import { appendJsonl } from "../run/store.mjs";
-import { errorMessage } from "../util.mjs";
+import { compactCost, errorMessage } from "../util.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { renderBrief } from "../campaign/brief.mjs";
@@ -58,6 +58,116 @@ export function alreadyNotified(runDir, dedupeKey) {
     }
   }
   return false;
+}
+
+/**
+ * The bounded, advisory-only spend thresholds a contract may declare at
+ * `contract.nodeAdvisory`:
+ *
+ * - `costUsd` — US dollars, `>= 0`, no default;
+ * - `durationSec` — seconds of wall clock from the node's `startedAt`, `>= 0`,
+ *   no default.
+ *
+ * Either or both may be present. A crossing emits one advisory line per node
+ * per threshold and never stops the node: the no-ceiling decision is deliberate
+ * and measured against a recorded incident. Cost is only known once an
+ * invocation closes, so a cost advisory fires when a new usage record has
+ * landed; duration is observable live and fires from the tick that observes it.
+ * One-shotness is durable, not in-process: the dedupe key is recorded in the
+ * inbox and the run's `notify.jsonl`, so a controller restart reads the receipt
+ * and never re-fires.
+ *
+ * @typedef {{costUsd?: number, durationSec?: number}} NodeAdvisoryPolicy
+ */
+
+/**
+ * Every advisory threshold this node has crossed, in a stable order. A node
+ * with no `startedAt` has never run, so duration is not judged; a node with no
+ * recorded cost is not judged against the cost threshold.
+ *
+ * @param {{id: string, startedAt?: string|null, costUsd?: number|null}} state
+ * @param {NodeAdvisoryPolicy|undefined} policy
+ * @param {number} [now] epoch milliseconds
+ * @returns {Array<{kind: "duration", threshold: number, value: number}|{kind: "cost", threshold: number, value: number}>}
+ */
+export function nodeAdvisoryCrossings(state, policy, now = Date.now()) {
+  /** @type {Array<{kind: "duration", threshold: number, value: number}|{kind: "cost", threshold: number, value: number}>} */
+  const crossings = [];
+  if (!policy) return crossings;
+  if (typeof policy.durationSec === "number" && typeof state.startedAt === "string") {
+    const started = Date.parse(state.startedAt);
+    if (Number.isFinite(started)) {
+      const elapsedSec = Math.max(0, (now - started) / 1000);
+      if (elapsedSec >= policy.durationSec) crossings.push({ kind: "duration", threshold: policy.durationSec, value: elapsedSec });
+    }
+  }
+  if (typeof policy.costUsd === "number" && typeof state.costUsd === "number" && state.costUsd >= policy.costUsd) {
+    crossings.push({ kind: "cost", threshold: policy.costUsd, value: state.costUsd });
+  }
+  return crossings;
+}
+
+/**
+ * Emit one advisory through the campaign inbox and the run notify queue. The
+ * durable dedupe is shared by both: `alreadyNotified` reads `notify.jsonl` and
+ * `appendInbox` refuses a key already in `inbox.jsonl`, so a restart cannot
+ * re-fire and two writers cannot double-send.
+ *
+ * @param {string} runDir
+ * @param {string} campaignId
+ * @param {{id: string}} state
+ * @param {{kind: "duration", threshold: number, value: number}|{kind: "cost", threshold: number, value: number}} crossing
+ * @returns {Promise<boolean>} whether this call appended and delivered the line
+ */
+export async function emitNodeAdvisory(runDir, campaignId, state, crossing) {
+  const runId = basename(runDir);
+  const dedupeKey = `node.advisory:${runId}:${state.id}:${crossing.kind}`;
+  if (alreadyNotified(runDir, dedupeKey)) return false;
+  const summary = crossing.kind === "cost"
+    ? `node ${state.id} crossed its advisory cost ${compactCost(crossing.threshold)} (recorded ${compactCost(crossing.value)}) · run ${runId}`
+    : `node ${state.id} crossed its advisory duration ${crossing.threshold}s (elapsed ${crossing.value.toFixed(1)}s) · run ${runId}`;
+  const appended = appendInbox(dirname(runDir), {
+    type: "advisory",
+    campaignId,
+    runId,
+    nodeId: state.id,
+    dedupeKey,
+    summary,
+  });
+  if (!appended.appended) return false;
+  await notifyQueueFor(runDir).enqueue(/** @type {any} */ ({
+    type: "advisory",
+    campaignId,
+    runId,
+    nodeId: state.id,
+    dedupeKey,
+    summary,
+  }));
+  return true;
+}
+
+/**
+ * Check every node of the run against the contract's advisory thresholds and
+ * emit whatever it has newly crossed. Called once per controller tick; the
+ * durable dedupe makes the repeated check cheap and idempotent.
+ *
+ * @param {{campaignId: string, nodeAdvisory?: NodeAdvisoryPolicy, nodes: {id: string}[]}} contract
+ * @param {string} runDir
+ * @param {Map<string, {id: string, startedAt?: string|null, costUsd?: number|null}>} states
+ * @returns {Promise<number>} how many advisory lines were newly emitted
+ */
+export async function emitNodeAdvisories(contract, runDir, states) {
+  const policy = contract.nodeAdvisory;
+  if (!policy || (policy.costUsd === undefined && policy.durationSec === undefined)) return 0;
+  let emitted = 0;
+  for (const node of contract.nodes) {
+    const state = states.get(node.id);
+    if (!state) continue;
+    for (const crossing of nodeAdvisoryCrossings(state, policy)) {
+      if (await emitNodeAdvisory(runDir, contract.campaignId, state, crossing)) emitted += 1;
+    }
+  }
+  return emitted;
 }
 
 /**

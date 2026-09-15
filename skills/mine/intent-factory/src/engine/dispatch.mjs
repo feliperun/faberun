@@ -27,7 +27,7 @@ import { basename, dirname, join } from "node:path";
 import { boundedUtf8, errorCode, errorMessage, stableJson } from "../util.mjs";
 import { captureWorkspaceScope, captureWorkspaceSnapshot } from "../repo/workspace.mjs";
 import { createHash } from "node:crypto";
-import { deterministicGate, judgeReaskReason, judgeRequired } from "./judge-gate.mjs";
+import { deterministicGate, judgeReaskReason, judgeRequired, judgeSkippedByScope } from "./judge-gate.mjs";
 import { emptyScope, persistedScopeBoundary, workerScope } from "./scope.mjs";
 import { hasOperationIntent, hasOperationSettlement, operationNeedsRecovery, operationNextState, persistInvocationIntent, providerReceipts, settleInvocation } from "../run/operations.mjs";
 import { invocationCost, invocationUsage } from "../run/usage.mjs";
@@ -67,15 +67,26 @@ import { validateNodeSnapshot } from "../contract/snapshot.mjs";
  * Select the only continuation that is allowed for this plan phase and role.
  * The search is intentionally limited to persisted node snapshots in this run.
  *
+ * `policy.forceFresh` is the explicit session policy a rejection decision
+ * carries: it short-circuits the search before it can rediscover a compatible
+ * continuation, so a retry after a gate rejection starts a fresh provider
+ * session instead of re-reading the failed transcript. Nulling a local id at
+ * the call site is not enough, because this function rediscovers the prior
+ * continuation from the persisted ledger.
+ *
  * @param {ValidatedContract} contract
  * @param {ValidatedNode} node
  * @param {NodeSnapshot} state
  * @param {string} runDir
  * @param {"worker"|"judge"} role
  * @param {string} prompt
+ * @param {{forceFresh?: boolean}} [policy]
  * @returns {{prompt: string, continuationId: string|null, mode: "fresh"|"reuse"|"rotate"}}
  */
-function phaseInvocationPlan(contract, node, state, runDir, role, prompt) {
+function phaseInvocationPlan(contract, node, state, runDir, role, prompt, policy = {}) {
+  if (policy.forceFresh === true) {
+    return { prompt, continuationId: null, mode: "fresh" };
+  }
   const runId = basename(runDir);
   const session = phaseSessionCandidates(contract, node, state, runDir, role).at(-1);
   const runtime = routeRuntimeForState(contract, node, state, role);
@@ -344,8 +355,11 @@ function ensureAttemptWorkspace(contract, node, state, runDir, lock) {
  * @param {LockHandle} lock
  * @param {Map<string, NodeSnapshot>} states
  * @param {string} campaignPath
+ * @param {{forceFresh?: boolean}} [policy] the session policy the rejection
+ *   decision carried into dispatch; `forceFresh` starts a fresh provider
+ *   session instead of reusing the failed attempt's continuation.
  */
-export function startWorker(contract, node, state, runDir, running, prompt, lock, states, campaignPath) {
+export function startWorker(contract, node, state, runDir, running, prompt, lock, states, campaignPath, policy = {}) {
   let workspace;
   try {
     workspace = ensureAttemptWorkspace(contract, node, state, runDir, lock);
@@ -355,7 +369,7 @@ export function startWorker(contract, node, state, runDir, running, prompt, lock
     return;
   }
   const runtime = routeRuntimeForState(contract, node, state, "worker");
-  const phasePlan = phaseInvocationPlan(contract, node, state, runDir, "worker", prompt);
+  const phasePlan = phaseInvocationPlan(contract, node, state, runDir, "worker", prompt, policy);
   // The previous-attempt section still has to survive on a retried attempt,
   // so it is appended to the resolved prompt rather than the candidate handed
   // to phaseInvocationPlan.
@@ -566,6 +580,11 @@ export async function startJudge(contract, node, state, runDir, running, workerR
   );
   state.review = reviewMode(node.gate);
   if (verdict.verdict === "fail") return { kind: "rejected", verdict };
+  // `skipWhen` is checked before the ordinary judgment rule so a green-and-small
+  // change settles mechanically even when a Definition of Done item carries
+  // `judgment: true`. Either condition failing falls through to `judgeRequired`,
+  // and a gate whose review mode is `none` is skipped there exactly as before.
+  if (judgeSkippedByScope(node, state)) return { kind: "settle", gate: verdict };
   if (!judgeRequired(node)) return { kind: "settle", gate: verdict };
   const runtime = routeRuntimeForState(contract, node, state, "judge");
   const paths = logPaths(runDir, node.id, "judge", state.attempt);
