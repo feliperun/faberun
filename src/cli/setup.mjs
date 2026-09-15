@@ -13,7 +13,6 @@
  * binary or a terminal. `--json` never asks: it reports the same facts as one
  * object and takes the defaults or the flags.
  */
-import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import {
   DISCOVERY_RUNTIME_DEFINITIONS,
@@ -22,6 +21,7 @@ import {
   discoverRuntimes,
   strongest,
 } from "../engine/runtime-discovery.mjs";
+import { boundedGitSync } from "../repo/worktree.mjs";
 import { colorLevel, renderBanner, statusToken } from "./brand.mjs";
 import { packageVersion } from "../host/package.mjs";
 import { configPath, faberunHome } from "../host/home.mjs";
@@ -275,7 +275,7 @@ function nodeRequirement() {
 
 /** @returns {{name: string, ok: boolean, detail: string}} */
 function gitRequirement() {
-  const probe = spawnSync("git", ["--version"], { encoding: "utf8" });
+  const probe = boundedGitSync(["--version"], { encoding: "utf8" });
   if (probe.error || probe.status !== 0) return { name: "git", ok: false, detail: "not found on PATH" };
   return { name: "git", ok: true, detail: String(probe.stdout ?? "").trim() };
 }
