@@ -4,7 +4,7 @@ import {
   readFileSync,
   realpathSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { modelsCommand } from "./harnesses/catalogue.mjs";
@@ -226,8 +226,12 @@ async function main(argv) {
     setLaunchBaseRef(baseRef);
     // The base is what every worktree is cut from; a dirty tree only blocks
     // when the cwd HEAD *is* that base. A `--base-ref` elsewhere leaves the
-    // operator's checkout out of the run entirely.
-    assertLaunchBaseClean(contract.cwd, baseRef);
+    // operator's checkout out of the run entirely. The contract file being
+    // launched is this launch's own input, not source the worktrees cut, so it
+    // never counts as dirt.
+    const contractFromCwd = relative(contract.cwd, absolute);
+    const contractIgnore = contractFromCwd && !contractFromCwd.startsWith("..") && !isAbsolute(contractFromCwd) ? [contractFromCwd] : [];
+    assertLaunchBaseClean(contract.cwd, baseRef, { ignorePaths: contractIgnore });
     if (values.detach === true) {
       if (existsSync(runDir)) throw new Error(`run already exists: ${runDir}`);
       for (const warning of [...contract.warnings, ...reusedDoneWarnings(contract)]) process.stdout.write(`[warn] ${warning}\n`);

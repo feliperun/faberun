@@ -23,7 +23,6 @@ import { fileURLToPath } from "node:url";
 import { stableJson } from "../util.mjs";
 import { validateRunMetadata } from "../contract/snapshot.mjs";
 import { contractDigest } from "../contract/index.mjs";
-import { gitHead, runRefName } from "../repo/worktree.mjs";
 
 /** @typedef {import("../harnesses/index.mjs").HarnessRuntime} HarnessRuntime */
 /** @typedef {import("../cli.mjs").LockHandle} LockHandle */
@@ -228,10 +227,6 @@ export function assertSourceUnchanged(expected, actual) {
       const expectedHead = typeof expectedRecord?.gitHead === "string" ? expectedRecord.gitHead : null;
       const actualHead = typeof actualRecord?.gitHead === "string" ? actualRecord.gitHead : null;
       if (expectedHead && actualHead && isDescendantHead(expected?.cwd, expectedHead, actualHead)) continue;
-      // A run cut with `--base-ref` records a head the operator's checkout is
-      // not on. The honest test is whether the run ref descends from that
-      // recorded head; the checkout's own HEAD is irrelevant to it.
-      if (expectedHead && runRefDescendsFrom(expected?.cwd, expected?.contractId, expectedHead)) continue;
       throw new Error(`source drift detected in gitHead; resume refused`);
     }
     if (field === "dirtyTreeFingerprint" && stableJson(expectedRecord?.[field] ?? null) !== stableJson(actualRecord?.[field] ?? null)) {
@@ -256,24 +251,6 @@ export function isDescendantHead(cwd, recorded, head) {
   if (!cwd) return false;
   const result = spawnSync("git", ["-C", cwd, "merge-base", "--is-ancestor", recorded, head], { encoding: "utf8" });
   return result.status === 0;
-}
-/**
- * Whether a run's integration ref descends from the recorded source head. This
- * is what makes a `--base-ref` run resumable from an operator checkout that is
- * not on the base: the run's own ref, not the checkout's HEAD, carries the
- * lineage.
- *
- * @param {string|undefined} cwd
- * @param {string|undefined} contractId
- * @param {string} recorded
- * @returns {boolean}
- */
-function runRefDescendsFrom(cwd, contractId, recorded) {
-  if (!cwd || !contractId) return false;
-  const tip = gitHead(cwd, runRefName(contractId));
-  if (!tip) return false;
-  if (tip === recorded) return true;
-  return isDescendantHead(cwd, recorded, tip);
 }
 /**
  * The controller snapshot a freshly created run is pinned to when the caller

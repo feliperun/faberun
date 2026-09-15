@@ -182,18 +182,23 @@ export function dirtyTreePaths(cwd, options = {}) {
  * have. A base ref that resolves elsewhere leaves the operator's checkout
  * alone and is always clean enough to launch from.
  *
+ * The launch's own contract file is passed in `ignorePaths`: it is the input
+ * being launched, written or re-authored immediately before the command, and
+ * is not source the worktrees are cut from.
+ *
  * @param {string} cwd
  * @param {string|undefined} baseRef
+ * @param {{ignorePaths?: string[], ignoreRoots?: string[]}} [options]
  * @returns {void}
  */
-export function assertLaunchBaseClean(cwd, baseRef) {
+export function assertLaunchBaseClean(cwd, baseRef, options = {}) {
   const headSha = resolveGitHead(cwd, undefined);
   const baseSha = baseRef ? resolveGitHead(cwd, baseRef) : headSha;
   if (baseRef && !baseSha) {
     throw Object.assign(new Error(`base ref does not resolve: ${baseRef}`), { code: "base_ref_unresolved" });
   }
   if (!baseSha || !headSha || baseSha !== headSha) return;
-  const dirty = dirtyTreePaths(cwd);
+  const dirty = dirtyTreePaths(cwd, options);
   if (dirty.length) {
     const label = baseRef ?? "HEAD";
     throw Object.assign(
