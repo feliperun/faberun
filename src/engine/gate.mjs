@@ -8,10 +8,10 @@
  *
  * It is spawned by path (`spawn(process.execPath, [gate.mjs])`), not imported,
  * and it talks to its parent only through the environment:
- *   INTENT_FACTORY_GATE_CONFIG        the invocation to run, as JSON
- *   INTENT_FACTORY_GATE_RELEASE       the file whose appearance releases it
- *   INTENT_FACTORY_GATE_PARENT_PID    the controller it must not outlive
- *   INTENT_FACTORY_GATE_PARENT_TOKEN  that pid's start token, so a reused pid
+ *   FABERUN_GATE_CONFIG        the invocation to run, as JSON
+ *   FABERUN_GATE_RELEASE       the file whose appearance releases it
+ *   FABERUN_GATE_PARENT_PID    the controller it must not outlive
+ *   FABERUN_GATE_PARENT_TOKEN  that pid's start token, so a reused pid
  *                                     is not mistaken for a live controller
  *
  * Until 2026-09-11 this was a `String.raw` template inside node.mjs, spawned
@@ -38,10 +38,10 @@ function requiredEnv(name) {
 }
 
 /** @type {GateConfig} */
-const config = JSON.parse(readFileSync(requiredEnv("INTENT_FACTORY_GATE_CONFIG"), "utf8"));
-const releasePath = requiredEnv("INTENT_FACTORY_GATE_RELEASE");
-const parentPid = Number(process.env.INTENT_FACTORY_GATE_PARENT_PID);
-const parentToken = process.env.INTENT_FACTORY_GATE_PARENT_TOKEN || null;
+const config = JSON.parse(readFileSync(requiredEnv("FABERUN_GATE_CONFIG"), "utf8"));
+const releasePath = requiredEnv("FABERUN_GATE_RELEASE");
+const parentPid = Number(process.env.FABERUN_GATE_PARENT_PID);
+const parentToken = process.env.FABERUN_GATE_PARENT_TOKEN || null;
 const maxLogBytes = 512 * 1024;
 
 /**
@@ -151,7 +151,7 @@ function childEnv() {
   }
   // Worker providers are not a notification surface: strip the controller-only
   // transport after the harness overlay so no harness can reintroduce it.
-  delete merged.INTENT_FACTORY_NOTIFY_BIN;
+  delete merged.FABERUN_NOTIFY_BIN;
   return merged;
 }
 

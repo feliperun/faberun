@@ -1,5 +1,5 @@
 /**
- * The tmux half of the operator seat: one session (`intent-factory-seat`) with
+ * The tmux half of the operator seat: one session (`faberun-seat`) with
  * one window per open campaign.
  *
  * tmux is optional by design (ADR-0033): the run engine never binds to it, so
@@ -11,13 +11,13 @@ import { execFileSync } from "node:child_process";
 import { errorCode, exitStatus } from "../util.mjs";
 
 /** The single seat session every campaign window lives in. */
-export const SEAT_SESSION = "intent-factory-seat";
+export const SEAT_SESSION = "faberun-seat";
 
 /** Window option recording which harness launched the window. */
-const HARNESS_OPTION = "@intent-factory-harness";
+const HARNESS_OPTION = "@faberun-harness";
 
 /** `list-windows` format: name, index, harness option, pane command, tab-separated. */
-const WINDOW_FORMAT = "#{window_name}\t#{window_index}\t#{@intent-factory-harness}\t#{pane_current_command}";
+const WINDOW_FORMAT = "#{window_name}\t#{window_index}\t#{@faberun-harness}\t#{pane_current_command}";
 
 /** Measured 2026-09-12: every seat tmux call here returns in well under a second. */
 const TMUX_TIMEOUT_MS = 10_000;

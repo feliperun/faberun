@@ -82,25 +82,25 @@
     {
       "at": "2026-09-08T22:35:40.347Z",
       "attempt": 1,
-      "dedupeKey": "node.terminal:intent-factory-lean-p4-release-20260908-take3:runner-split:done:1:0",
+      "dedupeKey": "node.terminal:faberun-lean-p4-release-20260908-take3:runner-split:done:1:0",
       "status": "delivered"
     },
     {
       "at": "2026-09-08T22:35:45.961Z",
       "attempt": 1,
-      "dedupeKey": "node.terminal:intent-factory-lean-p4-release-20260908-take3:docs-v03:failed:1:0",
+      "dedupeKey": "node.terminal:faberun-lean-p4-release-20260908-take3:docs-v03:failed:1:0",
       "status": "delivered"
     },
     {
       "at": "2026-09-08T22:35:46.048Z",
       "attempt": 1,
-      "dedupeKey": "node.terminal:intent-factory-lean-p4-release-20260908-take3:metrics-v03:failed:1:0",
+      "dedupeKey": "node.terminal:faberun-lean-p4-release-20260908-take3:metrics-v03:failed:1:0",
       "status": "delivered"
     },
     {
       "at": "2026-09-08T22:35:46.154Z",
       "attempt": 1,
-      "dedupeKey": "run.terminal:intent-factory-lean-p4-release-20260908-take3:attention",
+      "dedupeKey": "run.terminal:faberun-lean-p4-release-20260908-take3:attention",
       "status": "delivered"
     }
   ],

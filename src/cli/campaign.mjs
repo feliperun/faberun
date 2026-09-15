@@ -703,7 +703,7 @@ function positiveIntervalMs(value) {
 
 function usage() {
   process.stderr.write(
-    "usage: runner.mjs campaign <init|watch|attach|note|resolve|close|supervise|show|list|sync|ack> <campaign-id> [--cwd <dir>] ...\n",
+    "usage: faberun campaign <init|watch|attach|note|resolve|close|supervise|show|list|sync|ack> <campaign-id> [--cwd <dir>] ...\n",
   );
   process.exitCode = 2;
 }

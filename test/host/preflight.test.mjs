@@ -42,8 +42,8 @@ function preflightCli(directory, extraArgs) {
     encoding: "utf8",
     env: {
       ...process.env,
-      INTENT_FACTORY_CODEX_BIN: fakeCodex(directory),
-      INTENT_FACTORY_PREFLIGHT_TIMEOUT_SEC: "120",
+      FABERUN_CODEX_BIN: fakeCodex(directory),
+      FABERUN_PREFLIGHT_TIMEOUT_SEC: "120",
     },
   });
   return { status: result.status, stdout: String(result.stdout), stderr: String(result.stderr) };
@@ -149,7 +149,7 @@ test("preflight worktree check is advisory when dirty and blocking mid-merge", (
   assert.equal(dirty.advisory, true, "a merely dirty tree never blocks a dispatch");
   const strict = checkWorktree(directory, true);
   assert.equal(strict.ok, false);
-  assert.equal(strict.advisory, false, "INTENT_FACTORY_REQUIRE_CLEAN_WORKTREE makes dirt fatal");
+  assert.equal(strict.advisory, false, "FABERUN_REQUIRE_CLEAN_WORKTREE makes dirt fatal");
   writeFileSync(join(directory, ".git", "MERGE_HEAD"), "0000000000000000000000000000000000000000\n");
   const merging = checkWorktree(directory, false);
   assert.equal(merging.ok, false);
@@ -184,7 +184,7 @@ test("preflight environment report blocks only on non-advisory failures", () => 
     cwd: directory,
     runtimes,
     harnessVersions: { luna: null },
-    env: { INTENT_FACTORY_MIN_FREE_DISK_BYTES: String(Number.MAX_SAFE_INTEGER) },
+    env: { FABERUN_MIN_FREE_DISK_BYTES: String(Number.MAX_SAFE_INTEGER) },
   });
   assert.equal(starved.ok, false);
   assert.deepEqual(blockingChecks(starved).map((check) => check.name), ["disk", "runtime binaries"]);
@@ -193,10 +193,10 @@ test("preflight environment report blocks only on non-advisory failures", () => 
 test("preflight failure keeps the run materialized, evidenced, and resumable", () => {
   const directory = mkdtempSync(join(tmpdir(), "env-preflight-resumable-"));
   const contractPath = writeContract(directory, fixture());
-  const env = { ...process.env, INTENT_FACTORY_CODEX_BIN: fakeCodex(directory) };
+  const env = { ...process.env, FABERUN_CODEX_BIN: fakeCodex(directory) };
   const blocked = spawnSync(process.execPath, [runner, "run", contractPath], {
     encoding: "utf8",
-    env: { ...env, INTENT_FACTORY_MIN_FREE_DISK_BYTES: String(Number.MAX_SAFE_INTEGER) },
+    env: { ...env, FABERUN_MIN_FREE_DISK_BYTES: String(Number.MAX_SAFE_INTEGER) },
   });
   assert.equal(blocked.status, 1, blocked.stdout);
   assert.match(String(blocked.stderr), /env_preflight_failed/u);
@@ -241,7 +241,7 @@ test("doctor reports the four environment checks", () => {
   const contractPath = writeContract(directory, fixture());
   const result = spawnSync(process.execPath, [runner, "doctor", "--json", "--cwd", directory, contractPath], {
     encoding: "utf8",
-    env: { ...process.env, INTENT_FACTORY_CODEX_BIN: fakeCodex(directory) },
+    env: { ...process.env, FABERUN_CODEX_BIN: fakeCodex(directory) },
   });
   const payload = /** @type {{ok: boolean, checks: {name: string, ok: boolean, detail: string}[]}} */ (JSON.parse(result.stdout));
   const names = payload.checks.map((check) => check.name);
@@ -393,22 +393,22 @@ test("garbage collection does nothing once free space is already above the thres
   assert.equal(existsSync(join(runsDir, "gc.jsonl")), false, "no removal, so no event");
 });
 
-test("INTENT_FACTORY_SIMULATE_GC_ROUNDS deterministically bounds how many eligible runs the default threshold check lets through", () => {
+test("FABERUN_SIMULATE_GC_ROUNDS deterministically bounds how many eligible runs the default threshold check lets through", () => {
   const runsDir = mkdtempSync(join(tmpdir(), "disk-gc-simulate-rounds-"));
   const oldest = makeRun(runsDir, "oldest-run", { startedAt: "2026-01-01T00:00:00.000Z" });
   const newest = makeRun(runsDir, "newest-run", { startedAt: "2026-01-02T00:00:00.000Z" });
-  const previous = process.env.INTENT_FACTORY_SIMULATE_GC_ROUNDS;
+  const previous = process.env.FABERUN_SIMULATE_GC_ROUNDS;
   try {
-    process.env.INTENT_FACTORY_SIMULATE_GC_ROUNDS = "0";
+    process.env.FABERUN_SIMULATE_GC_ROUNDS = "0";
     assert.deepEqual(runGarbageCollection(runsDir).removed, [], "0 rounds reports the threshold already satisfied");
     assert.equal(existsSync(oldest), true);
 
-    process.env.INTENT_FACTORY_SIMULATE_GC_ROUNDS = "2";
+    process.env.FABERUN_SIMULATE_GC_ROUNDS = "2";
     assert.deepEqual(runGarbageCollection(runsDir).removed, [oldest], "one candidate needs candidates+1 = 2 rounds");
     assert.equal(existsSync(oldest), false);
     assert.equal(existsSync(newest), true, "the second candidate is never reached once satisfied");
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_SIMULATE_GC_ROUNDS; else process.env.INTENT_FACTORY_SIMULATE_GC_ROUNDS = previous;
+    if (previous === undefined) delete process.env.FABERUN_SIMULATE_GC_ROUNDS; else process.env.FABERUN_SIMULATE_GC_ROUNDS = previous;
   }
 });
 
@@ -417,17 +417,17 @@ test("a write that fails once with ENOSPC runs GC once and succeeds on retry", (
   const runDir = join(runsDir, "current-run");
   mkdirSync(runDir, { recursive: true });
   const target = join(runDir, "nodes", "build.json");
-  const previousMatch = process.env.INTENT_FACTORY_SIMULATE_ENOSPC_MATCH;
-  const previousCount = process.env.INTENT_FACTORY_SIMULATE_ENOSPC_COUNT;
-  process.env.INTENT_FACTORY_SIMULATE_ENOSPC_MATCH = "build.json";
-  process.env.INTENT_FACTORY_SIMULATE_ENOSPC_COUNT = "1";
+  const previousMatch = process.env.FABERUN_SIMULATE_ENOSPC_MATCH;
+  const previousCount = process.env.FABERUN_SIMULATE_ENOSPC_COUNT;
+  process.env.FABERUN_SIMULATE_ENOSPC_MATCH = "build.json";
+  process.env.FABERUN_SIMULATE_ENOSPC_COUNT = "1";
   try {
     writeRunTextWithDiskPressureRetry(runDir, target, "hello\n");
     assert.equal(readFileSync(target, "utf8"), "hello\n");
-    assert.equal(process.env.INTENT_FACTORY_SIMULATE_ENOSPC_COUNT, "0", "exactly one simulated failure was consumed");
+    assert.equal(process.env.FABERUN_SIMULATE_ENOSPC_COUNT, "0", "exactly one simulated failure was consumed");
   } finally {
-    if (previousMatch === undefined) delete process.env.INTENT_FACTORY_SIMULATE_ENOSPC_MATCH; else process.env.INTENT_FACTORY_SIMULATE_ENOSPC_MATCH = previousMatch;
-    if (previousCount === undefined) delete process.env.INTENT_FACTORY_SIMULATE_ENOSPC_COUNT; else process.env.INTENT_FACTORY_SIMULATE_ENOSPC_COUNT = previousCount;
+    if (previousMatch === undefined) delete process.env.FABERUN_SIMULATE_ENOSPC_MATCH; else process.env.FABERUN_SIMULATE_ENOSPC_MATCH = previousMatch;
+    if (previousCount === undefined) delete process.env.FABERUN_SIMULATE_ENOSPC_COUNT; else process.env.FABERUN_SIMULATE_ENOSPC_COUNT = previousCount;
   }
 });
 
@@ -436,10 +436,10 @@ test("a second ENOSPC in a row after garbage collection stops the write visibly,
   const runDir = join(runsDir, "current-run");
   mkdirSync(runDir, { recursive: true });
   const target = join(runDir, "nodes", "build.json");
-  const previousMatch = process.env.INTENT_FACTORY_SIMULATE_ENOSPC_MATCH;
-  const previousCount = process.env.INTENT_FACTORY_SIMULATE_ENOSPC_COUNT;
-  process.env.INTENT_FACTORY_SIMULATE_ENOSPC_MATCH = "build.json";
-  process.env.INTENT_FACTORY_SIMULATE_ENOSPC_COUNT = "2";
+  const previousMatch = process.env.FABERUN_SIMULATE_ENOSPC_MATCH;
+  const previousCount = process.env.FABERUN_SIMULATE_ENOSPC_COUNT;
+  process.env.FABERUN_SIMULATE_ENOSPC_MATCH = "build.json";
+  process.env.FABERUN_SIMULATE_ENOSPC_COUNT = "2";
   try {
     assert.throws(
       () => writeRunTextWithDiskPressureRetry(runDir, target, "hello\n"),
@@ -447,7 +447,7 @@ test("a second ENOSPC in a row after garbage collection stops the write visibly,
     );
     assert.equal(existsSync(target), false, "the write never landed");
   } finally {
-    if (previousMatch === undefined) delete process.env.INTENT_FACTORY_SIMULATE_ENOSPC_MATCH; else process.env.INTENT_FACTORY_SIMULATE_ENOSPC_MATCH = previousMatch;
-    if (previousCount === undefined) delete process.env.INTENT_FACTORY_SIMULATE_ENOSPC_COUNT; else process.env.INTENT_FACTORY_SIMULATE_ENOSPC_COUNT = previousCount;
+    if (previousMatch === undefined) delete process.env.FABERUN_SIMULATE_ENOSPC_MATCH; else process.env.FABERUN_SIMULATE_ENOSPC_MATCH = previousMatch;
+    if (previousCount === undefined) delete process.env.FABERUN_SIMULATE_ENOSPC_COUNT; else process.env.FABERUN_SIMULATE_ENOSPC_COUNT = previousCount;
   }
 });

@@ -7,7 +7,7 @@
  * `contract/index.mjs` made `contract/snapshot.mjs` import the contract
  * validator just to borrow it.
  */
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
 
 /** @typedef {import("../notify/index.mjs").JsonObject} JsonObject */
 
@@ -19,7 +19,7 @@ export function validateMetadata(value, label) {
   if (value.schemaVersion !== PROTOCOL_SCHEMA_VERSION) {
     throw new TypeError(`${label}.schemaVersion must be ${PROTOCOL_SCHEMA_VERSION}`);
   }
-  if (value.contractVersion !== INTENT_FACTORY_VERSION) {
-    throw new TypeError(`${label}.contractVersion must be ${INTENT_FACTORY_VERSION}`);
+  if (value.contractVersion !== CONTRACT_VERSION) {
+    throw new TypeError(`${label}.contractVersion must be ${CONTRACT_VERSION}`);
   }
 }

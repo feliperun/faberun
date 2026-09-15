@@ -12,12 +12,12 @@
  * merely dirty worktree is normal in this repository (the run captures a
  * dirtyTreeFingerprint for it), while unmerged paths or an interrupted git
  * operation are not, because a worker's scope diff cannot be read against
- * them. Set INTENT_FACTORY_REQUIRE_CLEAN_WORKTREE=1 to make any dirt fatal.
+ * them. Set FABERUN_REQUIRE_CLEAN_WORKTREE=1 to make any dirt fatal.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statfsSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION, getHarness, probeRuntime } from "../harnesses/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, getHarness, probeRuntime } from "../harnesses/index.mjs";
 import { addRuntimeRequirement, failoverTargets, runtimeSnapshot } from "../engine/failover.mjs";
 import { validateContract } from "../contract/index.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS, discoverRuntimes } from "../engine/runtime-discovery.mjs";
@@ -64,10 +64,10 @@ function git(dir, args) {
 
 /** @param {NodeJS.ProcessEnv} env @returns {number} */
 export function minFreeDiskBytes(env) {
-  const raw = env.INTENT_FACTORY_MIN_FREE_DISK_BYTES;
+  const raw = env.FABERUN_MIN_FREE_DISK_BYTES;
   if (raw === undefined) return DEFAULT_MIN_FREE_DISK_BYTES;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) throw new TypeError("INTENT_FACTORY_MIN_FREE_DISK_BYTES must be a non-negative number of bytes");
+  if (!Number.isFinite(parsed) || parsed < 0) throw new TypeError("FABERUN_MIN_FREE_DISK_BYTES must be a non-negative number of bytes");
   return parsed;
 }
 
@@ -143,7 +143,7 @@ export function checkWorktree(cwd, requireClean) {
   if (!lines.length) return pass("worktree", "clean");
   const detail = `${lines.length} dirty path${lines.length === 1 ? "" : "s"}`;
   return requireClean
-    ? fail("worktree", `${detail}; INTENT_FACTORY_REQUIRE_CLEAN_WORKTREE demands a clean tree`)
+    ? fail("worktree", `${detail}; FABERUN_REQUIRE_CLEAN_WORKTREE demands a clean tree`)
     : fail("worktree", `${detail}; recorded in the run's dirtyTreeFingerprint`, true);
 }
 
@@ -164,7 +164,7 @@ export function checkRuntimeBinaries(runtimes, harnessVersions, cwd = ".") {
   const resolved = [];
   for (const [id, { runtime }] of runtimes) {
     // The harness owns the resolution: a per-runtime executable, an
-    // INTENT_FACTORY_*_BIN override, and each harness's default binary all
+    // FABERUN_*_BIN override, and each harness's default binary all
     // land here, and a relative path belongs to the run cwd, not to ours.
     const executable = getHarness(runtime.harness).executable(runtime);
     const found = findExecutable(executable.includes("/") || executable.includes("\\") ? resolve(cwd, executable) : executable);
@@ -187,7 +187,7 @@ export function environmentPreflight(options) {
   const checks = [
     checkDisk(cwd, minFreeDiskBytes(env)),
     checkGit(cwd),
-    checkWorktree(cwd, env.INTENT_FACTORY_REQUIRE_CLEAN_WORKTREE === "1"),
+    checkWorktree(cwd, env.FABERUN_REQUIRE_CLEAN_WORKTREE === "1"),
     checkRuntimeBinaries(options.runtimes, options.harnessVersions ?? {}, cwd),
   ];
   return { schemaVersion: ENV_PREFLIGHT_SCHEMA_VERSION, ok: checks.every((check) => check.ok || check.advisory), checks };
@@ -257,7 +257,7 @@ export function declaredVerificationCommands(contract) {
  * the toolchain measures whether a command fits: a suite that grows past its
  * declared timeout only announces itself by failing a node that did its work
  * correctly, after the tokens are spent. Campaign
- * intent-factory-suite-speed-20260909 lost roughly 49 minutes and two nodes
+ * faberun-suite-speed-20260909 lost roughly 49 minutes and two nodes
  * to exactly that — `npm test` at 644s against a declared 600s.
  *
  * A non-zero exit is reported, never failed on: a node may legitimately be
@@ -353,11 +353,11 @@ export function reachableRuntimes(contract) {
 }
 
 const HARNESS_BIN_OVERRIDES = Object.freeze({
-  codex: "INTENT_FACTORY_CODEX_BIN",
-  claude: "INTENT_FACTORY_CLAUDE_BIN",
-  agy: "INTENT_FACTORY_AGY_BIN",
-  zcode: "INTENT_FACTORY_ZCODE_BIN",
-  "exec-jsonl": "INTENT_FACTORY_EXEC_JSONL_BIN",
+  codex: "FABERUN_CODEX_BIN",
+  claude: "FABERUN_CLAUDE_BIN",
+  agy: "FABERUN_AGY_BIN",
+  zcode: "FABERUN_ZCODE_BIN",
+  "exec-jsonl": "FABERUN_EXEC_JSONL_BIN",
 });
 
 /**
@@ -385,7 +385,7 @@ export async function doctorCommand(contractPath, values) {
     const found = findExecutable(binary);
     checks.push({ name: `binary ${binary}`, ok: found !== null, detail: found ?? "not found on PATH" });
   }
-  checks.push({ name: "runner schema", ok: true, detail: `protocol ${PROTOCOL_SCHEMA_VERSION} · runner ${INTENT_FACTORY_VERSION}` });
+  checks.push({ name: "runner schema", ok: true, detail: `protocol ${PROTOCOL_SCHEMA_VERSION} · runner ${CONTRACT_VERSION}` });
   /** @type {Set<string>} */
   let usedHarnesses = new Set();
   /** @type {Set<string>} */
@@ -435,7 +435,7 @@ export async function doctorCommand(contractPath, values) {
     });
   }
   // A PATH-only check must not fail a runtime whose binary is supplied through
-  // an explicit executable or a INTENT_FACTORY_*_BIN override; the harness probe above
+  // an explicit executable or a FABERUN_*_BIN override; the harness probe above
   // already validated whatever the runtime actually resolves to. `zcode` is
   // absent on purpose — its binary is a shim the harness writes on first use, so
   // a PATH miss here is the normal state of a fresh machine, not a missing

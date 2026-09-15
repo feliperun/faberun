@@ -73,11 +73,11 @@ test("seat start creates session", () => {
   assert.equal(result.status, 0, result.stderr);
   const calls = readFileSync(join(directory, "tmux.log"), "utf8");
   assert.match(calls, /new-session/u, "the first window creates the session");
-  assert.match(calls, /-s intent-factory-seat/u, "the session has the documented name");
+  assert.match(calls, /-s faberun-seat/u, "the session has the documented name");
   assert.match(calls, /-n campaign-a/u, "the window is named for the campaign");
   assert.match(calls, /claude/u, "the harness argv is what tmux launches");
   assert.match(result.stdout, /\[seat\] campaign-a started with claude/u);
-  assert.match(result.stdout, /tmux attach -t intent-factory-seat:campaign-a/u);
+  assert.match(result.stdout, /tmux attach -t faberun-seat:campaign-a/u);
 });
 
 test("seat degrades without tmux", () => {
@@ -116,7 +116,7 @@ test("seat status json", () => {
   assert.equal(result.status, 0, result.stderr);
   const payload = /** @type {{schemaVersion: number, session: string, tmux: boolean, seats: {campaign: string, harness: string|null, canRenderAmbient: boolean}[]}} */ (JSON.parse(result.stdout));
   assert.equal(payload.schemaVersion, 1);
-  assert.equal(payload.session, "intent-factory-seat");
+  assert.equal(payload.session, "faberun-seat");
   assert.equal(payload.tmux, true);
   assert.deepEqual(payload.seats.map((seat) => seat.campaign), ["campaign-a", "campaign-b"]);
   assert.equal(payload.seats[0].harness, "claude");

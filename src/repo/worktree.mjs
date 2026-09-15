@@ -20,7 +20,7 @@ export const GIT_SYNC_TIMEOUT_MS = 30_000;
 
 /**
  * The timeout a call uses: the explicit option, else the operator override
- * (`INTENT_FACTORY_GIT_TIMEOUT_MS`, for a slow disk or a test), else the
+ * (`FABERUN_GIT_TIMEOUT_MS`, for a slow disk or a test), else the
  * default. Read at call time so the env is honoured without a restart.
  *
  * @param {number|undefined} optionMs
@@ -28,7 +28,7 @@ export const GIT_SYNC_TIMEOUT_MS = 30_000;
  */
 function gitSyncTimeoutMs(optionMs) {
   if (optionMs !== undefined) return optionMs;
-  const raw = process.env.INTENT_FACTORY_GIT_TIMEOUT_MS;
+  const raw = process.env.FABERUN_GIT_TIMEOUT_MS;
   const parsed = raw === undefined ? Number.NaN : Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : GIT_SYNC_TIMEOUT_MS;
 }
@@ -95,12 +95,12 @@ function runGit(args) {
 
 /** @param {string} runId @returns {string} */
 export function runRefName(runId) {
-  return `refs/intent-factory/${runId}/run`;
+  return `refs/faberun/${runId}/run`;
 }
 
 /** @param {string} runId @returns {string} */
 export function candidateRefName(runId) {
-  return `refs/intent-factory/${runId}/candidate`;
+  return `refs/faberun/${runId}/candidate`;
 }
 
 /** @param {string} runDir @param {string} runId @returns {string} */
@@ -115,7 +115,7 @@ export function attemptWorktreePath(runDir, runId, nodeId, attempt) {
 
 /** @param {string} runId @param {string} nodeId @param {number} attempt @returns {string} */
 function attemptBranchName(runId, nodeId, attempt) {
-  return `if/${runId}/${nodeId}/${attempt}`;
+  return `faberun/${runId}/${nodeId}/${attempt}`;
 }
 
 /** @param {string} runDir @param {string} runId @returns {string} */
@@ -269,10 +269,10 @@ export function sealAttempt({ repo, path, baseSha, runId, nodeId, attempt }) {
     runGit([
       "-C", path,
       "-c", "user.email=runner@example.test",
-      "-c", "user.name=intent-factory",
+      "-c", "user.name=faberun",
       "-c", "commit.gpgSign=false",
       // The seal is bookkeeping, not a contribution: it checkpoints one
-      // attempt's worktree onto a throwaway `if/<run>/<node>/<attempt>` branch
+      // attempt's worktree onto a throwaway `faberun/<run>/<node>/<attempt>` branch
       // so the next attempt can build on it, and nothing here is ever pushed.
       // Running the target repository's hooks on it is wrong twice over.
       // Measured 2026-09-13 against a repository with a plain failing
@@ -283,7 +283,7 @@ export function sealAttempt({ repo, path, baseSha, runId, nodeId, attempt }) {
       // schedule it chose. The identity and signing overrides above are the
       // same argument: this commit answers to the factory, not to the repo's
       // conventions for human commits.
-      "commit", "--no-verify", "-qm", `intent-factory ${runId} ${nodeId} attempt ${attempt}`,
+      "commit", "--no-verify", "-qm", `faberun ${runId} ${nodeId} attempt ${attempt}`,
     ]);
   }
   const sha = gitHead(path);

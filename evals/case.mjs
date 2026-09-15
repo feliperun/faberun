@@ -19,10 +19,10 @@ import { tmpdir } from "node:os";
 
 const DETERMINISTIC_ROOT = join(EVALS_ROOT, "deterministic");
 const MODEL_BIN_VARS = [
-  "INTENT_FACTORY_CODEX_BIN",
-  "INTENT_FACTORY_CLAUDE_BIN",
-  "INTENT_FACTORY_AGY_BIN",
-  "INTENT_FACTORY_GLM_BIN",
+  "FABERUN_CODEX_BIN",
+  "FABERUN_CLAUDE_BIN",
+  "FABERUN_AGY_BIN",
+  "FABERUN_GLM_BIN",
 ];
 /**
  * @param {string} root
@@ -112,13 +112,13 @@ export async function withModelBinsUnavailable(fn) {
  */
 export function initializeGitRepo(workDir) {
   writeFileSync(join(workDir, ".gitignore"), "node_modules/\n.runs/\n");
-  writeFileSync(join(workDir, "README.md"), "intent-factory eval case workspace\n");
+  writeFileSync(join(workDir, "README.md"), "faberun eval case workspace\n");
   execFileSync("git", ["init", "-q", workDir], { stdio: "ignore" });
   execFileSync("git", ["-C", workDir, "add", "-A"], { stdio: "ignore" });
   execFileSync("git", [
     "-C", workDir,
     "-c", "user.email=evals@example.test",
-    "-c", "user.name=intent-factory-evals",
+    "-c", "user.name=faberun-evals",
     "-c", "commit.gpgSign=false",
     "commit", "-qm", "eval case baseline",
   ], { stdio: "ignore" });
@@ -251,7 +251,7 @@ function resolveRelativeTimestamp(value) {
  * @returns {{workDir: string, contractPath: string, runDir: string, contract: Record<string, unknown>}}
  */
 export function materializeCase(caseDir, spec, patch = {}) {
-  const workDir = mkdtempSync(join(tmpdir(), `intent-factory-eval-${spec.id}-`));
+  const workDir = mkdtempSync(join(tmpdir(), `faberun-eval-${spec.id}-`));
   initializeGitRepo(workDir);
 
   const recordings = /** @type {Record<string, string>} */ (spec.recordings ?? {});

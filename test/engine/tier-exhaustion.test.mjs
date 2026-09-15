@@ -46,8 +46,8 @@ if (process.argv.includes("--version")) {
   process.stdin.setEncoding("utf8");
   process.stdin.on("data", (chunk) => { input += chunk; });
   process.stdin.on("end", () => {
-    const runDir = process.env.INTENT_FACTORY_RUN_DIR;
-    const nodeId = process.env.INTENT_FACTORY_NODE_ID;
+    const runDir = process.env.FABERUN_RUN_DIR;
+    const nodeId = process.env.FABERUN_NODE_ID;
     let runtime = null;
     let candidates = [];
     let cycle = 0;

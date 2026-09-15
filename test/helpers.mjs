@@ -3,20 +3,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { initializeCampaign } from "../src/campaign/index.mjs";
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION } from "../src/contract/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../src/contract/index.mjs";
 import { createAttemptWorktree } from "../src/repo/worktree.mjs";
 import { campaignDir } from "../src/campaign/layout.mjs";
 
 // The suite must never pop a macOS desktop notification: when
-// INTENT_FACTORY_NOTIFY_BIN is unset the outbox records a no_transport
+// FABERUN_NOTIFY_BIN is unset the outbox records a no_transport
 // receipt. Give every test a no-op transport by default; tests that need a
-// failing or absent transport set INTENT_FACTORY_NOTIFY_BIN explicitly and
+// failing or absent transport set FABERUN_NOTIFY_BIN explicitly and
 // restore it afterward.
-if (!process.env.INTENT_FACTORY_NOTIFY_BIN) {
+if (!process.env.FABERUN_NOTIFY_BIN) {
   const path = join(mkdtempSync(join(tmpdir(), "runner-noop-notify-")), "noop-notify.mjs");
   writeFileSync(path, `#!${process.execPath}\nprocess.stdin.resume();\nprocess.stdin.on("end", () => process.exit(0));\n`);
   chmodSync(path, 0o755);
-  process.env.INTENT_FACTORY_NOTIFY_BIN = path;
+  process.env.FABERUN_NOTIFY_BIN = path;
 }
 
 /**
@@ -95,13 +95,13 @@ export function orphan(runDir, nodeId, patch = {}) {
  * @returns {Promise<T>}
  */
 export async function withFakeCodex(directory, mode, body) {
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = fakeCodex(directory, mode);
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = fakeCodex(directory, mode);
   try {
     return await body();
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 }
 
@@ -112,13 +112,13 @@ export async function withFakeCodex(directory, mode, body) {
  * @returns {Promise<T>}
  */
 export async function withFakeAgy(directory, body) {
-  const previous = process.env.INTENT_FACTORY_AGY_BIN;
-  process.env.INTENT_FACTORY_AGY_BIN = fakeAgy(directory);
+  const previous = process.env.FABERUN_AGY_BIN;
+  process.env.FABERUN_AGY_BIN = fakeAgy(directory);
   try {
     return await body();
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_AGY_BIN;
-    else process.env.INTENT_FACTORY_AGY_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_AGY_BIN;
+    else process.env.FABERUN_AGY_BIN = previous;
   }
 }
 
@@ -129,7 +129,7 @@ export async function withFakeAgy(directory, body) {
 export function fixture(overrides = {}) {
   return {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     id: "test-run",
     campaignId: "test-campaign",
     goal: "Prove the runner works",
@@ -467,7 +467,7 @@ if (process.argv.includes("--version")) {
   process.stdin.on("end", () => {
     const request = JSON.parse(input);
     if (mode === "402" || mode === "secret") {
-      console.log(JSON.stringify({ schemaVersion: 1, type: "run.failed", error: { code: "payment_required", message: "402 Payment Required " + (process.env.INTENT_FACTORY_TEST_LIVE_SECRET ?? "") } }));
+      console.log(JSON.stringify({ schemaVersion: 1, type: "run.failed", error: { code: "payment_required", message: "402 Payment Required " + (process.env.FABERUN_TEST_LIVE_SECRET ?? "") } }));
       return;
     }
     const judge = request.prompt.includes("Review node");
@@ -484,7 +484,7 @@ if [ "\${1:-}" = "--version" ]; then
 fi
 request=$(cat)
 if [ ${JSON.stringify(mode)} = "402" ] || [ ${JSON.stringify(mode)} = "secret" ]; then
-  printf '%s\\n' '{"schemaVersion":1,"type":"run.failed","error":{"code":"payment_required","message":"402 Payment Required '"\${INTENT_FACTORY_TEST_LIVE_SECRET:-}"'"}}'
+  printf '%s\\n' '{"schemaVersion":1,"type":"run.failed","error":{"code":"payment_required","message":"402 Payment Required '"\${FABERUN_TEST_LIVE_SECRET:-}"'"}}'
   exit 0
 fi
 case "$request" in
@@ -610,13 +610,13 @@ if (process.argv.includes("--version")) {
  * @returns {Promise<T>}
  */
 export async function withFakeDsh(directory, mode, body) {
-  const previous = process.env.INTENT_FACTORY_DSH_BIN;
-  process.env.INTENT_FACTORY_DSH_BIN = fakeDsh(directory, mode);
+  const previous = process.env.FABERUN_DSH_BIN;
+  process.env.FABERUN_DSH_BIN = fakeDsh(directory, mode);
   try {
     return await body();
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_DSH_BIN;
-    else process.env.INTENT_FACTORY_DSH_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_DSH_BIN;
+    else process.env.FABERUN_DSH_BIN = previous;
   }
 }
 

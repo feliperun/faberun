@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  INTENT_FACTORY_VERSION,
+  CONTRACT_VERSION,
   PROTOCOL_SCHEMA_VERSION,
   validateContract,
 } from "../../src/contract/index.mjs";
@@ -352,7 +352,7 @@ test("a node snapshot accepts a bounded previousAttempt section and rejects an o
 test("run metadata records identity warnings and rejects a budget extension field", () => {
   const metadata = {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     pid: process.pid,
     startedAt: new Date().toISOString(),
     sourceIdentity: { kind: "run", id: "run" },
@@ -378,7 +378,7 @@ test("the canonical contract example in the reference validates exactly as writt
   // copies first. It has drifted before: a stale contractVersion, and a judge
   // that shared its harness-default vendor with the worker, so every gate-enabled
   // node built from it was rejected. Guard the shape, not the prose.
-  const reference = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "references", "contract.md"), "utf8");
+  const reference = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "skills", "faberun", "references", "contract.md"), "utf8");
   const block = /```json\n([\s\S]*?)\n```/u.exec(reference)?.[1];
   assert.ok(block, "the reference must carry the canonical JSON example");
   const value = JSON.parse(block);

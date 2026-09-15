@@ -244,8 +244,8 @@ function invokeDelegation(runtime, prompt, cwd) {
  * @param {DelegationObservation} observation
  */
 function accountDelegation(runtimeId, runtime, envelope, priced, observation) {
-  const runDir = process.env.INTENT_FACTORY_RUN_DIR;
-  const nodeId = process.env.INTENT_FACTORY_NODE_ID;
+  const runDir = process.env.FABERUN_RUN_DIR;
+  const nodeId = process.env.FABERUN_NODE_ID;
   if (!runDir || !nodeId) return;
   appendUsageRecord(runDir, /** @type {Invocation} */ ({
     id: randomUUID(),
@@ -284,7 +284,7 @@ export async function bulkRead(options) {
     if (!statSync(path, { throwIfNoEntry: false })?.isFile()) throw fail("invalid_path", `not a readable file: ${path}`);
   }
   const runtimes = options.runtimes ?? DISCOVERY_RUNTIME_DEFINITIONS;
-  const directory = mkdtempSync(join(tmpdir(), "intent-factory-bulk-read-"));
+  const directory = mkdtempSync(join(tmpdir(), "faberun-bulk-read-"));
   const packPath = join(directory, "corpus.pack");
   try {
     const pack = writeBulkReadPack(paths, packPath);

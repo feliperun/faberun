@@ -202,12 +202,12 @@ function compareEntries(left, right) {
  */
 function briefCommands(campaignId) {
   return [
-    `intent-factory campaign show ${campaignId}`,
-    `intent-factory campaign sync ${campaignId} --session-id <session>`,
-    `intent-factory campaign ack ${campaignId} --session-id <session> --event-id <event>`,
-    `intent-factory campaign attach ${campaignId} --tool <tool> --session-id <session> (--transcript <path> | --no-transcript)`,
-    `intent-factory campaign note ${campaignId} --session-id <session> --kind <kind> --text <text>`,
-    `intent-factory campaign resolve ${campaignId} --session-id <session> --question-id <question> --text <text>`,
+    `faberun campaign show ${campaignId}`,
+    `faberun campaign sync ${campaignId} --session-id <session>`,
+    `faberun campaign ack ${campaignId} --session-id <session> --event-id <event>`,
+    `faberun campaign attach ${campaignId} --tool <tool> --session-id <session> (--transcript <path> | --no-transcript)`,
+    `faberun campaign note ${campaignId} --session-id <session> --kind <kind> --text <text>`,
+    `faberun campaign resolve ${campaignId} --session-id <session> --question-id <question> --text <text>`,
   ];
 }
 

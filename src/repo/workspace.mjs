@@ -271,7 +271,7 @@ export function validateWorkspaceScopeBoundary(cwd, boundary, declared = {}) {
  */
 function captureIgnoreSources(root) {
   /** @type {Set<string>} */
-  const paths = new Set([".intentfactoryignore", ".gitignore", ".git/config"]);
+  const paths = new Set([".faberunignore", ".gitignore", ".git/config"]);
   /** @type {Map<string, string>} */
   const gitPaths = new Map();
   /** @param {string} name @param {string} logical @returns {string|null} */
@@ -444,11 +444,11 @@ function resolveScopePath(root, path) {
 function relevantWorkspacePaths(cwd) {
   const args = ["-C", cwd, "ls-files", "--cached", "--others", "--exclude-standard"];
   try {
-    lstatSync(resolve(cwd, ".intentfactoryignore"));
-    args.push("--exclude-from=.intentfactoryignore");
+    lstatSync(resolve(cwd, ".faberunignore"));
+    args.push("--exclude-from=.faberunignore");
   } catch (error) {
     if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) {
-      throw fail("snapshot_read_error", `cannot inspect .intentfactoryignore: ${error instanceof Error ? error.message : String(error)}`);
+      throw fail("snapshot_read_error", `cannot inspect .faberunignore: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
   args.push("-z");

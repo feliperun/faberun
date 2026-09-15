@@ -13,17 +13,17 @@ const corpusLine = 'const padding = "the asking context never sees these bytes";
 
 /**
  * Neuter the accounting pair for the duration of a test: an ambient
- * INTENT_FACTORY_RUN_DIR would write test delegations into a real run ledger.
+ * FABERUN_RUN_DIR would write test delegations into a real run ledger.
  *
  * @returns {() => void} restore
  */
 function clearDelegationEnv() {
-  const saved = [process.env.INTENT_FACTORY_RUN_DIR, process.env.INTENT_FACTORY_NODE_ID];
-  delete process.env.INTENT_FACTORY_RUN_DIR;
-  delete process.env.INTENT_FACTORY_NODE_ID;
+  const saved = [process.env.FABERUN_RUN_DIR, process.env.FABERUN_NODE_ID];
+  delete process.env.FABERUN_RUN_DIR;
+  delete process.env.FABERUN_NODE_ID;
   return () => {
-    if (saved[0] !== undefined) process.env.INTENT_FACTORY_RUN_DIR = saved[0];
-    if (saved[1] !== undefined) process.env.INTENT_FACTORY_NODE_ID = saved[1];
+    if (saved[0] !== undefined) process.env.FABERUN_RUN_DIR = saved[0];
+    if (saved[1] !== undefined) process.env.FABERUN_NODE_ID = saved[1];
   };
 }
 
@@ -173,8 +173,8 @@ test("done-when 1: a priced successful bulk read carries costProvenance priced o
     },
   ]);
   const runtime = pricedReplayRuntime(recording, { inputPerMTok: 1.0, cachedInputPerMTok: 0.1, outputPerMTok: 3.0 });
-  process.env.INTENT_FACTORY_RUN_DIR = runDir;
-  process.env.INTENT_FACTORY_NODE_ID = "priced-node";
+  process.env.FABERUN_RUN_DIR = runDir;
+  process.env.FABERUN_NODE_ID = "priced-node";
   const result = await bulkRead({ question: "q", paths: [writeCorpusFile(directory, "corpus.txt", READ_LINE_LIMIT + 1)], runtimes: { deleg: runtime } });
   assert.equal(result.status, "done", result.error?.message);
   assert.equal(result.costUsd, 1.65);
@@ -203,8 +203,8 @@ test("done-when 2: a priced failed delegation result also carries costProvenance
     },
   ]);
   const runtime = pricedReplayRuntime(recording, { inputPerMTok: 1.0, cachedInputPerMTok: 0.1, outputPerMTok: 3.0 });
-  process.env.INTENT_FACTORY_RUN_DIR = runDir;
-  process.env.INTENT_FACTORY_NODE_ID = "failed-node";
+  process.env.FABERUN_RUN_DIR = runDir;
+  process.env.FABERUN_NODE_ID = "failed-node";
   const result = await bulkRead({ question: "q", paths: [writeCorpusFile(directory, "corpus.txt", READ_LINE_LIMIT + 1)], runtimes: { deleg: runtime } });
   assert.equal(result.status, "failed");
   assert.equal(result.costUsd, 1.65);
@@ -222,8 +222,8 @@ test("done-when 3: a provider-reported cost leaves the result's provenance absen
   const recording = writeRecording(directory, "answer.jsonl", [
     { envelope: doneEnvelope("src/engine/bulk-read.mjs:1 — provider cost", { inputTokens: 9, outputTokens: 4, cacheReadInputTokens: 2 }, 0.0005) },
   ]);
-  process.env.INTENT_FACTORY_RUN_DIR = runDir;
-  process.env.INTENT_FACTORY_NODE_ID = "provider-node";
+  process.env.FABERUN_RUN_DIR = runDir;
+  process.env.FABERUN_NODE_ID = "provider-node";
   const result = await bulkRead({ question: "q", paths: [writeCorpusFile(directory, "corpus.txt", READ_LINE_LIMIT + 1)], runtimes: { deleg: replayRuntime(recording) } });
   assert.equal(result.status, "done", result.error?.message);
   assert.equal(result.costUsd, 0.0005);
@@ -244,8 +244,8 @@ test("bulk read usage accounted", async () => {
   ]);
   const corpus = writeCorpusFile(directory, "corpus.txt", READ_LINE_LIMIT + 1);
   const runtimes = { deleg: replayRuntime(recording) };
-  process.env.INTENT_FACTORY_RUN_DIR = runDir;
-  process.env.INTENT_FACTORY_NODE_ID = "delegating-node";
+  process.env.FABERUN_RUN_DIR = runDir;
+  process.env.FABERUN_NODE_ID = "delegating-node";
   const accounted = await bulkRead({ question: "q", paths: [corpus], runtimes });
   assert.equal(accounted.status, "done", accounted.error?.message);
   const records = readFileSync(join(runDir, "usage.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
@@ -264,8 +264,8 @@ test("bulk read usage accounted", async () => {
 
   // A human terminal exports no pair: the same delegation runs, nothing is
   // appended, and nothing errors.
-  delete process.env.INTENT_FACTORY_RUN_DIR;
-  delete process.env.INTENT_FACTORY_NODE_ID;
+  delete process.env.FABERUN_RUN_DIR;
+  delete process.env.FABERUN_NODE_ID;
   const unaccounted = await bulkRead({ question: "q", paths: [corpus], runtimes });
   assert.equal(unaccounted.status, "done", unaccounted.error?.message);
   assert.equal(readFileSync(join(runDir, "usage.jsonl"), "utf8").trim().split("\n").length, 1, "no second record without the env pair");

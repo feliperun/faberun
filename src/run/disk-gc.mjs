@@ -204,8 +204,8 @@ export function writeRunTextWithDiskPressureRetry(runDir, path, text) {
 
 /**
  * Deterministic ENOSPC injection for tests and evals, never a real full
- * disk. Inert unless `INTENT_FACTORY_SIMULATE_ENOSPC_MATCH` names a substring
- * of `path` and `INTENT_FACTORY_SIMULATE_ENOSPC_COUNT` holds a positive
+ * disk. Inert unless `FABERUN_SIMULATE_ENOSPC_MATCH` names a substring
+ * of `path` and `FABERUN_SIMULATE_ENOSPC_COUNT` holds a positive
  * integer; each simulated failure decrements that count, so a case sets it to
  * `1` to prove GC recovers the write and `2` to prove a second ENOSPC in a
  * row is never retried again.
@@ -213,11 +213,11 @@ export function writeRunTextWithDiskPressureRetry(runDir, path, text) {
  * @param {string} path
  */
 function simulateEnospcForTest(path) {
-  const match = process.env.INTENT_FACTORY_SIMULATE_ENOSPC_MATCH;
+  const match = process.env.FABERUN_SIMULATE_ENOSPC_MATCH;
   if (!match || !path.includes(match)) return;
-  const remaining = Number(process.env.INTENT_FACTORY_SIMULATE_ENOSPC_COUNT ?? "0");
+  const remaining = Number(process.env.FABERUN_SIMULATE_ENOSPC_COUNT ?? "0");
   if (!Number.isInteger(remaining) || remaining <= 0) return;
-  process.env.INTENT_FACTORY_SIMULATE_ENOSPC_COUNT = String(remaining - 1);
+  process.env.FABERUN_SIMULATE_ENOSPC_COUNT = String(remaining - 1);
   throw Object.assign(
     new Error(`ENOSPC: simulated no space left on device, write '${path}'`),
     { code: "ENOSPC", errno: -28, syscall: "write", path },
@@ -228,7 +228,7 @@ function simulateEnospcForTest(path) {
  * Deterministic stand-in for "free space is still below the threshold",
  * paired with `simulateEnospcForTest` so a case can prove the removal loop
  * itself — not just the write retry — without waiting on real free space to
- * move. Inert unless `INTENT_FACTORY_SIMULATE_GC_ROUNDS` holds a non-negative
+ * move. Inert unless `FABERUN_SIMULATE_GC_ROUNDS` holds a non-negative
  * integer; never consulted by `environmentPreflight`'s own disk check, which
  * always reads real free space.
  *
@@ -241,11 +241,11 @@ function simulateEnospcForTest(path) {
  * `null` when no simulation is configured and the real check should decide
  */
 function simulatedDiskPressureOverride() {
-  const raw = process.env.INTENT_FACTORY_SIMULATE_GC_ROUNDS;
+  const raw = process.env.FABERUN_SIMULATE_GC_ROUNDS;
   if (raw === undefined) return null;
   const remaining = Number(raw);
   if (!Number.isInteger(remaining) || remaining < 0) return null;
   if (remaining <= 0) return true;
-  process.env.INTENT_FACTORY_SIMULATE_GC_ROUNDS = String(remaining - 1);
+  process.env.FABERUN_SIMULATE_GC_ROUNDS = String(remaining - 1);
   return false;
 }

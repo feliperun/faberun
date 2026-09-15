@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { crossNodeScopeFindings, scopeClosureFindings } from "../../src/repo/scope-closure.mjs";
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 
 /**
  * The scope-closure detectors against a throwaway repository. Each test builds
@@ -247,7 +247,7 @@ test("scope closure catches the cross node trap", () => {
 
   const contract = {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     id: "seat-switch-cross-node",
     campaignId: "cross-node",
     goal: "reproduce the seat-switch trap",

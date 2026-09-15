@@ -62,7 +62,7 @@ export function detachArgv(argv, options = {}) {
   const nonce = options.nonce ?? randomUUID();
   const child = /** @type {DetachedChild} */ (spawn(process.execPath, [CLI_ENTRY, ...argv], {
     cwd: process.cwd(),
-    env: { ...process.env, ...options.env, INTENT_FACTORY_BOOTSTRAP_NONCE: nonce },
+    env: { ...process.env, ...options.env, FABERUN_BOOTSTRAP_NONCE: nonce },
     detached: process.platform !== "win32",
     stdio: "ignore",
   }));
@@ -201,7 +201,7 @@ export function bootstrapRunDir(command, target) {
 export function writeBootstrapFailure(command, target, error) {
   const runDir = bootstrapRunDir(command, target);
   if (!runDir || !existsSync(runDir)) return;
-  const nonce = validBootstrapNonce(process.env.INTENT_FACTORY_BOOTSTRAP_NONCE) ? process.env.INTENT_FACTORY_BOOTSTRAP_NONCE : null;
+  const nonce = validBootstrapNonce(process.env.FABERUN_BOOTSTRAP_NONCE) ? process.env.FABERUN_BOOTSTRAP_NONCE : null;
   const failure = { status: "failed", pid: process.pid, processStartToken: processStartToken(process.pid), runDir, nonce, at: new Date().toISOString(), error: error.message };
   if (command === "run" && existsSync(join(runDir, "contract.json"))) return;
   /** @type {BootstrapRecord|null} */

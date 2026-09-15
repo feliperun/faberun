@@ -113,11 +113,11 @@ test('done-when 8: the notify docs match notify/index.mjs and SKILL.md arms the 
   assert.match(operations, /no retry/u);
   assert.match(operations, /no_transport/u);
 
-  // INTENT_FACTORY_NOTIFY_BACKOFF_MS appears nowhere under src/.
+  // FABERUN_NOTIFY_BACKOFF_MS appears nowhere under src/.
   for (const relativePath of readdirSync(srcDir, { recursive: true })) {
     const file = join(srcDir, String(relativePath));
     if (!file.endsWith('.mjs')) continue;
-    assert.doesNotMatch(readFileSync(file, 'utf8'), /INTENT_FACTORY_NOTIFY_BACKOFF_MS/u, `${relative(srcDir, file)} mentions a backoff variable the code never reads`);
+    assert.doesNotMatch(readFileSync(file, 'utf8'), /FABERUN_NOTIFY_BACKOFF_MS/u, `${relative(srcDir, file)} mentions a backoff variable the code never reads`);
   }
 
   // SKILL.md carries the arming command and the launchd line.

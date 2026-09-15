@@ -425,13 +425,13 @@ function gitSetRef(repo, ref, sha) {
 
 /** @param {string} repo @param {string} tree @param {string} firstParent @param {string} secondParent @param {string} runId @param {string} nodeId @param {number} attempt @returns {string} */
 function gitCommitTree(repo, tree, firstParent, secondParent, runId, nodeId, attempt) {
-  const result = boundedGitSync(["-C", repo, "commit-tree", tree, "-p", firstParent, "-p", secondParent, "-m", `intent-factory candidate ${runId} ${nodeId} attempt ${attempt}`], {
+  const result = boundedGitSync(["-C", repo, "commit-tree", tree, "-p", firstParent, "-p", secondParent, "-m", `faberun candidate ${runId} ${nodeId} attempt ${attempt}`], {
     encoding: "utf8",
     env: {
       ...process.env,
-      GIT_AUTHOR_NAME: "intent-factory",
+      GIT_AUTHOR_NAME: "faberun",
       GIT_AUTHOR_EMAIL: "runner@example.test",
-      GIT_COMMITTER_NAME: "intent-factory",
+      GIT_COMMITTER_NAME: "faberun",
       GIT_COMMITTER_EMAIL: "runner@example.test",
     },
     stdio: ["ignore", "pipe", "pipe"],
@@ -471,7 +471,7 @@ function deleteCandidateWorktree(repo, runDir, runId) {
 /** @param {((stage: string) => void)|undefined} interrupt @param {string} stage @returns {void} */
 function interruptStage(interrupt, stage) {
   interrupt?.(stage);
-  if (process.env.INTENT_FACTORY_INTEGRATION_INTERRUPT === stage) {
+  if (process.env.FABERUN_INTEGRATION_INTERRUPT === stage) {
     throw new Error(`integration interrupted at ${stage}`);
   }
 }

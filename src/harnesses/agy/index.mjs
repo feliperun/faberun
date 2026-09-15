@@ -26,7 +26,7 @@ export const agyHarness = {
 
   /** @param {import("../index.mjs").HarnessRuntime} runtime @returns {string} */
   executable(runtime) {
-    return process.env.INTENT_FACTORY_AGY_BIN ?? runtime.executable ?? "agy";
+    return process.env.FABERUN_AGY_BIN ?? runtime.executable ?? "agy";
   },
 
   /** @param {import("../index.mjs").HarnessRuntime} runtime @returns {string[]} */

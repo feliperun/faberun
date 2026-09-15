@@ -5,7 +5,7 @@
  * `ensureTerminalEvent` exists because a crash can leave a node terminal on disk
  * with no event recorded for it, and the campaign readers project from events.
  */
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
 import { SETTLED } from "./prompts.mjs";
 import { appendJsonl } from "../run/store.mjs";
 import { excerpt } from "../util.mjs";
@@ -32,7 +32,7 @@ export function transition(runDir, state, status, patch = {}, lock = null) {
   const updatedAt = new Date().toISOString();
   Object.assign(state, patch, { status, updatedAt });
   writeNode(runDir, state, lock);
-  if (status === "done" && process.env.INTENT_FACTORY_INTEGRATION_INTERRUPT === "after-state") {
+  if (status === "done" && process.env.FABERUN_INTEGRATION_INTERRUPT === "after-state") {
     throw new Error("integration interrupted after node state write");
   }
   const invocation = state.invocations?.at(-1);
@@ -105,7 +105,7 @@ export function appendTransitionEvent(runDir, state, from, to, details = {}, loc
   /** @type {Record<string, unknown>} */
   const event = {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     at: state.updatedAt,
     node: state.id,
     sourceIdentity: state.sourceIdentity,

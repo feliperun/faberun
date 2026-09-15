@@ -29,13 +29,13 @@
     {
       "at": "2026-09-08T17:49:49.164Z",
       "attempt": 1,
-      "dedupeKey": "node.terminal:intent-factory-lean-p2b-process-20260908-take5:continue-from-sealed-attempt:done:1:0",
+      "dedupeKey": "node.terminal:faberun-lean-p2b-process-20260908-take5:continue-from-sealed-attempt:done:1:0",
       "status": "no_transport"
     },
     {
       "at": "2026-09-08T17:49:49.185Z",
       "attempt": 1,
-      "dedupeKey": "run.terminal:intent-factory-lean-p2b-process-20260908-take5:done",
+      "dedupeKey": "run.terminal:faberun-lean-p2b-process-20260908-take5:done",
       "status": "no_transport"
     }
   ],

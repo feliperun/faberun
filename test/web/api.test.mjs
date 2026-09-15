@@ -160,7 +160,7 @@ function stateSnapshot(world) {
  * @returns {{directory: string, runsDir: string, tokenFile: string, cliLog: string, fakeCli: string, journalPath: string, campaignJson: string, statusJson: string, stateBefore: {campaign: string, journal: string, status: string}}}
  */
 function makeWorld() {
-  const directory = mkdtempSync(join(tmpdir(), "intent-factory-webapi-"));
+  const directory = mkdtempSync(join(tmpdir(), "faberun-webapi-"));
   const tokenFile = join(directory, "dashboard.token");
   writeFileSync(tokenFile, `${TOKEN}\n`);
   const runsDir = join(directory, ".runs");

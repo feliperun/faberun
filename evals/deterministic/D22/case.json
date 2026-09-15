@@ -57,7 +57,7 @@
   "setup": [
     {
       "type": "run",
-      "env": { "INTENT_FACTORY_NOTIFY_BIN": "/nonexistent/intent-factory-notify-bin" }
+      "env": { "FABERUN_NOTIFY_BIN": "/nonexistent/faberun-notify-bin" }
     },
     { "type": "resume" }
   ],

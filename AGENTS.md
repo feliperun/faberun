@@ -40,9 +40,9 @@ Write the minimum code that runs. No fluff, no gold-plating.
 - **Shell scripts** run under `set -euo pipefail` and are idempotent — re-running
   completes what is missing instead of duplicating or destroying.
 
-## Intent Factory protocol
+## Faberun protocol
 
-When using `intent-factory`, the orchestrator owns repository discovery. Read the
+When using `faberun`, the orchestrator owns repository discovery. Read the
 campaign `HANDOFF.md`, attach the current session, and record concise material
 events before delegating. Give every execution worker a closed task packet with
 exact read files, write files, decisions, non-goals, and verification commands.
@@ -202,20 +202,20 @@ When this file governs anything in production:
 - Never grant an agent operating under this file unsupervised write or delete access
   to a production database.
 
-<!-- intent-factory-active:start (managed by intent-factory — read, never edit) -->
+<!-- faberun-active:start (managed by faberun — read, never edit) -->
 Before starting new work here, check `.runs/`: if a campaign is active or a run is not terminal, continue it instead of starting over — read its `HANDOFF.md`/`STATUS.md`, attach to the campaign, and `resume` or `supervise` the run. Active runs are supervised by a deterministic detached process: do not poll `status` in a loop — on resume, check status once and act only on terminal states.
 
-- intent-factory campaign `become-faberun`: active — read `.runs/campaigns/become-faberun/HANDOFF.md`
+- faberun campaign `become-faberun`: active — read `.runs/campaigns/become-faberun/HANDOFF.md`
   - attention: run factory-autonomy-p6-20260914 needs you · verification_failed
-- intent-factory run `factory-autonomy-p2-20260914`: parked — `parked-not-finished:failed unexpected_write` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/factory-autonomy-p2-20260914`
-- intent-factory run `factory-autonomy-p3a-20260914`: parked — `chain-plumbing:failed judge_prompt_too_large` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/factory-autonomy-p3a-20260914`
-- intent-factory run `factory-autonomy-p6-20260914`: parked — `spend-less-per-node:exhausted verification_failed` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/factory-autonomy-p6-20260914`
-- intent-factory run `if-audit-drivers-20260910`: parked — `audit-dsh-driver:blocked judge_unavailable`, `audit-zcode-driver:blocked dependency_failed` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-audit-drivers-20260910`
-- intent-factory run `if-exec-permission-20260911`: parked — `exec-permission-gate:failed provider_error` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-exec-permission-20260911`
-- intent-factory run `if-measure-c0-20260910`: parked — `path-independence:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-measure-c0-20260910`
-- intent-factory run `if-measure-c0-20260910-take2`: parked — `path-independence:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-measure-c0-20260910-take2`
-- intent-factory run `if-sp3-derived-and-state-20260912`: parked — `node-store-owner:blocked context_missing`, `state-by-directory:blocked dependency_failed` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-sp3-derived-and-state-20260912`
-- intent-factory run `if-sp6-layered-constitution-20260912`: parked — `router-and-articles:exhausted revision_cap` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-sp6-layered-constitution-20260912`
-- intent-factory run `intent-factory-efficiency-p0-foundation-20260901`: parked — `campaign-completed-event-ordering:blocked budget_exceeded`, `ci-ratchets:blocked dependency_failed`, `preflight-json:blocked dependency_failed`, `replay-driver:blocked dependency_failed` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/intent-factory-efficiency-p0-foundation-20260901`
+- faberun run `factory-autonomy-p2-20260914`: parked — `parked-not-finished:failed unexpected_write` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/factory-autonomy-p2-20260914`
+- faberun run `factory-autonomy-p3a-20260914`: parked — `chain-plumbing:failed judge_prompt_too_large` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/factory-autonomy-p3a-20260914`
+- faberun run `factory-autonomy-p6-20260914`: parked — `spend-less-per-node:exhausted verification_failed` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/factory-autonomy-p6-20260914`
+- faberun run `if-audit-drivers-20260910`: parked — `audit-dsh-driver:blocked judge_unavailable`, `audit-zcode-driver:blocked dependency_failed` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-audit-drivers-20260910`
+- faberun run `if-exec-permission-20260911`: parked — `exec-permission-gate:failed provider_error` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-exec-permission-20260911`
+- faberun run `if-measure-c0-20260910`: parked — `path-independence:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-measure-c0-20260910`
+- faberun run `if-measure-c0-20260910-take2`: parked — `path-independence:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-measure-c0-20260910-take2`
+- faberun run `if-sp3-derived-and-state-20260912`: parked — `node-store-owner:blocked context_missing`, `state-by-directory:blocked dependency_failed` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-sp3-derived-and-state-20260912`
+- faberun run `if-sp6-layered-constitution-20260912`: parked — `router-and-articles:exhausted revision_cap` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-sp6-layered-constitution-20260912`
+- faberun run `faberun-efficiency-p0-foundation-20260901`: parked — `campaign-completed-event-ordering:blocked budget_exceeded`, `ci-ratchets:blocked dependency_failed`, `preflight-json:blocked dependency_failed`, `replay-driver:blocked dependency_failed` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/faberun-efficiency-p0-foundation-20260901`
 - … signal truncated; read the campaign HANDOFF.md for the rest
-<!-- intent-factory-active:end -->
+<!-- faberun-active:end -->

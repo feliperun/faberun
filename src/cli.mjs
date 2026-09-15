@@ -72,7 +72,7 @@ import { preflightContract, reusedDoneWarnings } from "./engine/live-preflight.m
  * @returns {boolean}
  */
 export function hasDetachedBootstrapNonce() {
-  if (!validBootstrapNonce(process.env.INTENT_FACTORY_BOOTSTRAP_NONCE)) return false;
+  if (!validBootstrapNonce(process.env.FABERUN_BOOTSTRAP_NONCE)) return false;
   try {
     return Boolean(process.argv[1]) && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
   } catch {
@@ -382,7 +382,7 @@ function warnIfNoTransport() {
 
 function usage() {
   process.stderr.write(
-    "usage: runner.mjs <run|validate> <contract.json> [--base-ref <ref>] [--detach] | preflight <contract.json> [--static] [--time-verification] [--json] | " +
+    "usage: faberun <run|validate> <contract.json> [--base-ref <ref>] [--detach] | preflight <contract.json> [--static] [--time-verification] [--json] | " +
     "<resume|cancel> <run-dir> [--detach] | supervise <run-dir> [--detach] [--interval <sec>] | supervise campaign <campaign-id> [--cwd <dir>] [--allow-main] | " +
     "<status|report> <run-dir> [--json] | findings <run-dir> | " +
     "doctor [<contract.json>] [--cwd <dir>] [--discover] [--json] | models [--probe] [--json] | " +
@@ -405,7 +405,7 @@ process.stderr.on("error", () => {});
 /**
  * Dispatch one CLI invocation, recording a bootstrap failure before reporting
  * it so a `--detach` launcher watching the run directory sees why its child
- * died. Exported because `bin/intent-factory.mjs` is the installed entry point
+ * died. Exported because `bin/faberun.mjs` is the installed entry point
  * and `import.meta.url` cannot see it.
  *
  * @param {string[]} [argv]

@@ -180,7 +180,7 @@ are excluded because judges review captured results.
 - `claude`: `permissionMode` (default `acceptEdits`; a node that runs
   commands needs `bypassPermissions`, since headless `acceptEdits` denies
   execution and the worker can only return `blocked_context`). Executable
-  override: `executable` or `INTENT_FACTORY_CLAUDE_BIN`. It disables slash
+  override: `executable` or `FABERUN_CLAUDE_BIN`. It disables slash
   commands, MCP, and settings files on every invocation and restricts tools to
   `runtime.tools` (default `Read, Edit, Write, Bash, Glob, Grep`); `--bare` is
   never used because it also disables the tool-policy hook.
@@ -188,10 +188,10 @@ are excluded because judges review captured results.
   `danger-full-access`); arbitrary `config` entries serialize as `-c
   key=value`; disables browser/computer-use/app/sub-agent tooling and MCP by
   default (`CODEX_PREAMBLE_OVERRIDES`). Executable override: `executable` or
-  `INTENT_FACTORY_CODEX_BIN`. A profile name never selects a custom provider:
+  `FABERUN_CODEX_BIN`. A profile name never selects a custom provider:
   Codex accepts unknown profiles silently.
 - `zcode`: the GLM route — Z.ai's own harness CLI, driven headlessly
-  (`zcode --prompt --json`; `executable` / `INTENT_FACTORY_ZCODE_BIN` override).
+  (`zcode --prompt --json`; `executable` / `FABERUN_ZCODE_BIN` override).
   Model and endpoint travel
   as `ZCODE_MODEL` (`config.provider`/model, default `glm`/model; a `[1m]` model
   suffix is stripped — the provider reports the context window itself) and
@@ -205,7 +205,7 @@ are excluded because judges review captured results.
   prompt-embedded schema, and a `toolPolicy` requirement rejects the runtime.
   Continuation resumes `sess_…` ids. Mid-run metering reads zero; usage
   settles from the terminal result.
-- `agy`: the installed `agy` CLI (or `INTENT_FACTORY_AGY_BIN`); optional
+- `agy`: the installed `agy` CLI (or `FABERUN_AGY_BIN`); optional
   `printTimeout`; omit `reasoning` for models without `--effort`.
 - `dsh`: the DeepSeek Harness through the shipped `sdk` JSON-RPC client;
   `headless` drops usage. Normalization assumes streamed `inputTokens` excludes
@@ -217,13 +217,13 @@ are excluded because judges review captured results.
   `config["api_key.env_key"]` only names it for `preflight`. `sandbox` maps to
   `DSH_PERMISSION_MODE`, default `workspace-write` (above). Every attempt loads
   `dsh/closed-packet.patch.yml`; `config.patch` stacks one layer. Executable
-  override: `executable` or `INTENT_FACTORY_DSH_BIN`. No default vendor,
+  override: `executable` or `FABERUN_DSH_BIN`. No default vendor,
   continuation (`session/resume` is ACP-only), or native schema flag; the judge
   schema travels in the prompt.
 - `exec-jsonl`: generic harness for a JSONL-protocol executable — one
   `run.request` on stdin, `run.started`/`message`/`run.completed`/
   `run.failed` on stdout. Set `executable` (or
-  `INTENT_FACTORY_EXEC_JSONL_BIN`), `args`, `versionArgs` when `--version` is
+  `FABERUN_EXEC_JSONL_BIN`), `args`, `versionArgs` when `--version` is
   unsupported.
 - `replay`: stands in for any provider in tests — recorded, already-normalized
   envelopes, zero model calls. `config["replay.recording"]` names a JSONL

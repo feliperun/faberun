@@ -1,5 +1,5 @@
 /**
- * Intent Factory's DeepSeek Harness client: one prompt on stdin, one JSONL
+ * Faberun's DeepSeek Harness client: one prompt on stdin, one JSONL
  * transcript on stdout, no interactive surface. The adapter runs this file
  * under `process.execPath`, so spawning it never depends on a shebang, an
  * executable bit, or `node` being on the provider's PATH.
@@ -114,7 +114,7 @@ function describeReason(reason) {
 
 const options = parseArgs(process.argv.slice(2));
 const prompt = await readPrompt();
-const sessionId = `intent-factory-${process.pid}-${Date.now().toString(36)}`;
+const sessionId = `faberun-${process.pid}-${Date.now().toString(36)}`;
 const env = { ...process.env };
 // The harness owns the boundary: `sandbox` names the file-effect mode the
 // contract asked for, and DSH derives its approval policy from the same value.

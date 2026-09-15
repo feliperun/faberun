@@ -1,5 +1,5 @@
 /**
- * The intent-factory signal block in the target repository's AGENTS.md.
+ * The faberun signal block in the target repository's AGENTS.md.
  *
  * Every agent that opens the repository — whatever the harness — reads
  * AGENTS.md before its first prompt. The runner mirrors its active state
@@ -48,7 +48,7 @@ export function renderAgentSignalBlock(runsDir) {
   const linked = new Set();
   const { campaigns } = discoverCampaigns(runsDir);
   for (const { campaign } of campaigns.filter(({ campaign }) => campaign.status !== "closed")) {
-    lines.push(`- intent-factory campaign \`${campaign.id}\`: active — read \`.runs/campaigns/${campaign.id}/${HANDOFF_FILE}\``);
+    lines.push(`- faberun campaign \`${campaign.id}\`: active — read \`.runs/campaigns/${campaign.id}/${HANDOFF_FILE}\``);
     for (const runId of campaign.linkedRunIds) {
       linked.add(runId);
       lines.push(...runSignalLines(runsDir, runId));
@@ -122,9 +122,9 @@ function activeRunLines(runsDir, linked) {
     const resume = `node src/cli.mjs resume ${runDir}`;
     if (progress.runOutcome === "parked" && progress.state === "done") {
       const nodes = (progress.outcomeNodes ?? []).slice(0, MAX_PARKED_NODES).map(nodeText).join(", ");
-      lines.push(`- intent-factory run \`${name}\`: parked — ${nodes || "no nodes named"} — resume \`${resume}\``);
+      lines.push(`- faberun run \`${name}\`: parked — ${nodes || "no nodes named"} — resume \`${resume}\``);
     } else {
-      lines.push(`- intent-factory run \`${name}\`: active (${progress.terminal}/${progress.total} nodes done) — read \`.runs/${name}/STATUS.md\`; \`resume\` or \`supervise\` it`);
+      lines.push(`- faberun run \`${name}\`: active (${progress.terminal}/${progress.total} nodes done) — read \`.runs/${name}/STATUS.md\`; \`resume\` or \`supervise\` it`);
     }
   }
   return lines;

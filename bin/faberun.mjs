@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * The intent-factory executable.
+ * The faberun executable.
  *
  * It calls `runCli()` and nothing else. A bin wrapper that parses, validates or
  * decides is a second CLI with no tests. The call has to be explicit because
@@ -8,14 +8,14 @@
  * which, invoked through here, it is not.
  *
  * Usage, from a repository with a `.runs/` directory:
- *   intent-factory preflight <contract.json>
- *   intent-factory run <contract.json> [--detach]
- *   intent-factory resume <run-dir> [--node <id>] [--detach]
- *   intent-factory status|report|findings <run-dir> [--json]
- *   intent-factory doctor [--cwd <dir>] [--discover] [--json]
- *   intent-factory models [--probe] [--json]
- *   intent-factory campaign <subcommand> ...
- *   intent-factory metrics <campaign-id> [--json]
+ *   faberun preflight <contract.json>
+ *   faberun run <contract.json> [--detach]
+ *   faberun resume <run-dir> [--node <id>] [--detach]
+ *   faberun status|report|findings <run-dir> [--json]
+ *   faberun doctor [--cwd <dir>] [--discover] [--json]
+ *   faberun models [--probe] [--json]
+ *   faberun campaign <subcommand> ...
+ *   faberun metrics <campaign-id> [--json]
  *
  * `src/web/server.mjs` is the browser surface and is launched directly, not
  * through here.

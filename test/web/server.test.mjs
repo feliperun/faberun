@@ -17,7 +17,7 @@ const TOKEN = "server-test-bearer-1a2b3c4d5e6f7788";
 const AUTH = { authorization: `Bearer ${TOKEN}` };
 
 test("tailJsonl returns the last complete entries and drops a torn line", () => {
-  const directory = mkdtempSync(join(tmpdir(), "intent-factory-dashboard-"));
+  const directory = mkdtempSync(join(tmpdir(), "faberun-dashboard-"));
   try {
     const lines = Array.from({ length: 20 }, (_, index) => JSON.stringify({ seq: index }));
     writeFileSync(join(directory, "j.jsonl"), `${lines.join("\n")}\n{\"seq\":\"tor`);
@@ -30,7 +30,7 @@ test("tailJsonl returns the last complete entries and drops a torn line", () => 
 });
 
 test("tailJsonl truncates by bytes and resumes at the next full line", () => {
-  const directory = mkdtempSync(join(tmpdir(), "intent-factory-dashboard-"));
+  const directory = mkdtempSync(join(tmpdir(), "faberun-dashboard-"));
   try {
     const lines = Array.from({ length: 50 }, (_, index) => JSON.stringify({ seq: index, pad: "x".repeat(40) }));
     writeFileSync(join(directory, "j.jsonl"), `${lines.join("\n")}\n`);
@@ -152,7 +152,7 @@ test("server serves the page, a snapshot and a 404 for an unknown route", async 
     const page = await fetch(`${base}/`, { headers: AUTH });
     assert.equal(page.status, 200);
     assert.match(page.headers.get("content-type") ?? "", /text\/html/u);
-    assert.match(await page.text(), /Intent Factory/u);
+    assert.match(await page.text(), /Faberun/u);
     const snapshot = /** @type {any} */ (await (await fetch(`${base}/api/snapshot?campaign=${CAMPAIGN_ID}`, { headers: AUTH })).json());
     assert.equal(snapshot.selectedCampaignId, CAMPAIGN_ID);
     assert.equal((await fetch(`${base}/nope`, { headers: AUTH })).status, 404);
@@ -229,7 +229,7 @@ function writeJson(path, value) {
  * @returns {{directory: string, runsDir: string, tokenFile: string}}
  */
 function makeWorld({ longLog = false } = {}) {
-  const directory = mkdtempSync(join(tmpdir(), "intent-factory-dashboard-"));
+  const directory = mkdtempSync(join(tmpdir(), "faberun-dashboard-"));
   const tokenFile = join(directory, "dashboard.token");
   writeFileSync(tokenFile, `${TOKEN}\n`);
   const runsDir = join(directory, ".runs");
@@ -302,7 +302,7 @@ function makeWorld({ longLog = false } = {}) {
 
 /** A campaign whose only run is terminal with no live controller. @returns {{directory: string, runsDir: string}} */
 function makeIdleWorld() {
-  const directory = mkdtempSync(join(tmpdir(), "intent-factory-dashboard-"));
+  const directory = mkdtempSync(join(tmpdir(), "faberun-dashboard-"));
   const runsDir = join(directory, ".runs");
   const campaignPath = join(runsDir, "campaigns", "idle-campaign");
   mkdirSync(campaignPath, { recursive: true });

@@ -25,7 +25,7 @@ import { runIsNonterminal } from "../../src/cli/launch.mjs";
 import { syncAgentSignal } from "../../src/repo/signal.mjs";
 import { describeRuns, selectGarbageCollectableRuns } from "../../src/run/disk-gc.mjs";
 import { renderStatus } from "../../src/report/render.mjs";
-import { validateContract, loadPersistedContract, INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/contract/index.mjs";
+import { validateContract, loadPersistedContract, CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/contract/index.mjs";
 import { fixture, packet, writeContract, withFakeCodex } from "../helpers.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 
@@ -63,7 +63,7 @@ function exhaustedNode(exhaustedUntil) {
 function validSnapshot(id, overrides = {}) {
   return {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     id,
     type: "backend",
     sourceIdentity: { kind: "node", contractId: "parked-unit", nodeId: id },
@@ -99,7 +99,7 @@ function makeValidRunDir(options = {}) {
   const contract = loadPersistedContract(join(runDir, "contract.json"), undefined);
   writeFileSync(join(runDir, "run.json"), JSON.stringify({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     pid: 1234,
     processStartToken: null,
     startedAt: new Date(0).toISOString(),
@@ -108,7 +108,7 @@ function makeValidRunDir(options = {}) {
   for (const node of contract.nodes) {
     const snapshot = {
       schemaVersion: PROTOCOL_SCHEMA_VERSION,
-      contractVersion: INTENT_FACTORY_VERSION,
+      contractVersion: CONTRACT_VERSION,
       id: node.id,
       type: node.type,
       sourceIdentity: node.sourceIdentity,

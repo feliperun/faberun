@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  INTENT_FACTORY_VERSION,
+  CONTRACT_VERSION,
   PROTOCOL_SCHEMA_VERSION,
   hashPacket,
   validateContract,
@@ -39,7 +39,7 @@ test("validation stores version metadata, source identity, and packet hash", () 
   const { path } = writeFixture();
   const contract = validateContract(JSON.parse(readFileSync(path, "utf8")), path);
   assert.equal(contract.schemaVersion, PROTOCOL_SCHEMA_VERSION);
-  assert.equal(contract.contractVersion, INTENT_FACTORY_VERSION);
+  assert.equal(contract.contractVersion, CONTRACT_VERSION);
   assert.deepEqual(contract.sourceIdentity, { kind: "contract", id: "contract-test", campaignId: "campaign-test" });
   assert.equal(contract.nodes[0].packetHash, hashPacket(contract.nodes[0].taskPacket));
   assert.deepEqual(contract.nodes[0].sourceIdentity, { kind: "node", contractId: "contract-test", nodeId: "build" });
@@ -305,7 +305,7 @@ test("persisted scope boundaries name the roots that authorized a regular file",
 function event(overrides = {}) {
   return {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     at: "2026-01-01T00:00:00.000Z",
     node: "build",
     to: "running",
@@ -476,33 +476,33 @@ test("validate warns when writeFiles land outside the workspace snapshot", () =>
   assert.ok(!trackedWarnings.some((warning) => warning.includes("outside the workspace snapshot")));
 });
 
-test("validate warns for paths hidden by optional .intentfactoryignore", () => {
-  const directory = mkdtempSync(join(tmpdir(), "runner-intentfactoryignore-warn-"));
+test("validate warns for paths hidden by optional .faberunignore", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-faberunignore-warn-"));
   writeFileSync(join(directory, "README.md"), "read\n");
   initializeGit(directory);
-  writeFileSync(join(directory, ".intentfactoryignore"), "generated.txt\n");
+  writeFileSync(join(directory, ".faberunignore"), "generated.txt\n");
   writeFileSync(join(directory, "generated.txt"), "hidden\n");
   const path = helpers.writeContract(directory, helpers.fixture({
-    id: "intentfactoryignore-write-run",
+    id: "faberunignore-write-run",
     nodes: [{ id: "build", type: "backend", taskPacket: helpers.packet({ writeFiles: ["generated.txt"] }), gate: false }],
   }));
   const warnings = validateContract(JSON.parse(readFileSync(path, "utf8")), path).warnings;
   assert.ok(warnings.some((warning) => warning.includes("writeFiles generated.txt") && warning.includes("outside the workspace snapshot")));
 
-  const hiddenDirectory = mkdtempSync(join(tmpdir(), "runner-intentfactoryignore-directory-warn-"));
+  const hiddenDirectory = mkdtempSync(join(tmpdir(), "runner-faberunignore-directory-warn-"));
   writeFileSync(join(hiddenDirectory, "README.md"), "read\n");
   initializeGit(hiddenDirectory);
-  writeFileSync(join(hiddenDirectory, ".intentfactoryignore"), "generated/\n");
+  writeFileSync(join(hiddenDirectory, ".faberunignore"), "generated/\n");
   mkdirSync(join(hiddenDirectory, "generated"));
   const missingPath = helpers.writeContract(hiddenDirectory, helpers.fixture({
-    id: "intentfactoryignore-missing-write-run",
+    id: "faberunignore-missing-write-run",
     nodes: [{ id: "build", type: "backend", taskPacket: helpers.packet({ writeFiles: ["generated/future.txt"] }), gate: false }],
   }));
   const missingWarnings = validateContract(JSON.parse(readFileSync(missingPath, "utf8")), missingPath).warnings;
   assert.ok(missingWarnings.some((warning) => warning.includes("writeFiles under generated/") && warning.includes("outside the workspace snapshot")));
 
   const rootPath = helpers.writeContract(hiddenDirectory, helpers.fixture({
-    id: "intentfactoryignore-root-write-run",
+    id: "faberunignore-root-write-run",
     nodes: [{
       id: "build",
       type: "backend",
@@ -529,7 +529,7 @@ test("validate shares combined Git ignore semantics with workspace snapshots", (
   writeFileSync(join(directory, "README.md"), "read\n");
   initializeGit(directory);
   writeFileSync(join(directory, ".git", "info", "exclude"), "generated.txt\n");
-  writeFileSync(join(directory, ".intentfactoryignore"), "!generated.txt\n");
+  writeFileSync(join(directory, ".faberunignore"), "!generated.txt\n");
   writeFileSync(join(directory, "generated.txt"), "visible\n");
   const path = helpers.writeContract(directory, helpers.fixture({
     id: "combined-ignore-write-run",
@@ -543,7 +543,7 @@ test("validate shares combined Git ignore semantics with workspace snapshots", (
   writeFileSync(join(missingDirectory, "README.md"), "read\n");
   initializeGit(missingDirectory);
   writeFileSync(join(missingDirectory, ".git", "info", "exclude"), "future.txt\n");
-  writeFileSync(join(missingDirectory, ".intentfactoryignore"), "!future.txt\n");
+  writeFileSync(join(missingDirectory, ".faberunignore"), "!future.txt\n");
   const missingPath = helpers.writeContract(missingDirectory, helpers.fixture({
     id: "combined-ignore-missing-write-run",
     nodes: [{ id: "build", type: "backend", taskPacket: helpers.packet({ writeFiles: ["future.txt"] }), gate: false }],
@@ -556,7 +556,7 @@ test("validate shares combined Git ignore semantics with workspace snapshots", (
   writeFileSync(join(gitignoreDirectory, "README.md"), "read\n");
   writeFileSync(join(gitignoreDirectory, ".gitignore"), "nested/future.txt\n");
   initializeGit(gitignoreDirectory);
-  writeFileSync(join(gitignoreDirectory, ".intentfactoryignore"), "!nested/future.txt\n");
+  writeFileSync(join(gitignoreDirectory, ".faberunignore"), "!nested/future.txt\n");
   const gitignorePath = helpers.writeContract(gitignoreDirectory, helpers.fixture({
     id: "combined-ignore-gitignore-write-run",
     nodes: [{ id: "build", type: "backend", taskPacket: helpers.packet({ writeFiles: ["nested/future.txt"] }), gate: false }],
@@ -569,7 +569,7 @@ test("validate shares combined Git ignore semantics with workspace snapshots", (
   writeFileSync(join(customIgnoreDirectory, "README.md"), "read\n");
   writeFileSync(join(customIgnoreDirectory, ".gitignore"), "!nested/future.txt\n");
   initializeGit(customIgnoreDirectory);
-  writeFileSync(join(customIgnoreDirectory, ".intentfactoryignore"), "nested/future.txt\n");
+  writeFileSync(join(customIgnoreDirectory, ".faberunignore"), "nested/future.txt\n");
   const customIgnorePath = helpers.writeContract(customIgnoreDirectory, helpers.fixture({
     id: "combined-ignore-custom-write-run",
     nodes: [{ id: "build", type: "backend", taskPacket: helpers.packet({ writeFiles: ["nested/future.txt"] }), gate: false }],
@@ -582,7 +582,7 @@ test("validate shares combined Git ignore semantics with workspace snapshots", (
   writeFileSync(join(noMatchDirectory, "README.md"), "read\n");
   writeFileSync(join(noMatchDirectory, ".gitignore"), "nested/future.txt\n");
   initializeGit(noMatchDirectory);
-  writeFileSync(join(noMatchDirectory, ".intentfactoryignore"), "other.txt\n");
+  writeFileSync(join(noMatchDirectory, ".faberunignore"), "other.txt\n");
   const noMatchPath = helpers.writeContract(noMatchDirectory, helpers.fixture({
     id: "combined-ignore-no-match-write-run",
     nodes: [{ id: "build", type: "backend", taskPacket: helpers.packet({ writeFiles: ["nested/future.txt"] }), gate: false }],

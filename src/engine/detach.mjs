@@ -12,7 +12,7 @@
  *                               distinguishable from the current one
  *   bootstrap.<nonce>.ack.json  the launcher's acknowledgement of the claim
  *
- * The nonce travels to the child in `INTENT_FACTORY_BOOTSTRAP_NONCE`, so the
+ * The nonce travels to the child in `FABERUN_BOOTSTRAP_NONCE`, so the
  * child can recognise its own attempt among the artifacts of earlier ones.
  *
  * This module holds the controller's half, because the controller is what waits
@@ -41,8 +41,8 @@ const ACKNOWLEDGEMENT_TIMEOUT_MS = 5_000;
  * @returns {string}
  */
 export function bootstrapNonceForProcess() {
-  return validBootstrapNonce(process.env.INTENT_FACTORY_BOOTSTRAP_NONCE)
-    ? /** @type {string} */ (process.env.INTENT_FACTORY_BOOTSTRAP_NONCE)
+  return validBootstrapNonce(process.env.FABERUN_BOOTSTRAP_NONCE)
+    ? /** @type {string} */ (process.env.FABERUN_BOOTSTRAP_NONCE)
     : randomUUID();
 }
 

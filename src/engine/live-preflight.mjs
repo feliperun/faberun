@@ -30,7 +30,7 @@ import { compactCost as formatCost } from "../util.mjs";
 /** @typedef {import("../contract/index.mjs").RuntimeSnapshot} RuntimeSnapshot */
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 
-const LIVE_PREFLIGHT_PROMPT = "Respond with exactly INTENT_FACTORY_PREFLIGHT_OK and do not use tools.";
+const LIVE_PREFLIGHT_PROMPT = "Respond with exactly FABERUN_PREFLIGHT_OK and do not use tools.";
 const LIVE_PREFLIGHT_OUTPUT_LIMIT_BYTES = 512 * 1024;
 /**
  * @param {string} contractPath
@@ -82,9 +82,9 @@ export async function preflightContract(contractPath, options = {}) {
 }
 /** @param {number|undefined} configured */
 function livePreflightTimeout(configured) {
-  const raw = configured ?? (process.env.INTENT_FACTORY_PREFLIGHT_TIMEOUT_SEC === undefined
+  const raw = configured ?? (process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC === undefined
     ? 15
-    : Number(process.env.INTENT_FACTORY_PREFLIGHT_TIMEOUT_SEC));
+    : Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC));
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
     throw new TypeError("preflight live timeout must be a positive number of seconds");
   }
@@ -92,7 +92,7 @@ function livePreflightTimeout(configured) {
 }
 /** @returns {string} */
 function createLivePreflightRepo() {
-  const directory = mkdtempSync(join(tmpdir(), "intent-factory-preflight-"));
+  const directory = mkdtempSync(join(tmpdir(), "faberun-preflight-"));
   const result = boundedGitSync(["init", "-q", directory], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
   if (result.status !== 0 || result.error) {
     rmSync(directory, { recursive: true, force: true });
@@ -144,7 +144,7 @@ function livePreflight(runtime, cwd, timeoutSec) {
         if (value === null) delete env[key];
         else env[key] = value;
       }
-      delete env.INTENT_FACTORY_NOTIFY_BIN;
+      delete env.FABERUN_NOTIFY_BIN;
       child = /** @type {import("node:child_process").ChildProcessWithoutNullStreams} */ (spawn(command.executable, command.args, {
         cwd,
         env,

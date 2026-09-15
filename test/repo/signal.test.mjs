@@ -41,7 +41,7 @@ test("writes a signal block for an active campaign and an active run", () => {
   writeRunNodes(runsDir, "run-a", ["done", "running"]);
   assert.equal(syncAgentSignal(runsDir), true);
   const text = readFileSync(agentsPath, "utf8");
-  assert.match(text, /^# Rules\n\nline one\n\n<!-- intent-factory-active:start/, "original content kept on top");
+  assert.match(text, /^# Rules\n\nline one\n\n<!-- faberun-active:start/, "original content kept on top");
   assert.match(text, /campaign `demo`: active/);
   assert.match(text, /run `run-a`: active \(1\/2 nodes done\)/);
   assert.match(text, /deterministic detached process/u);

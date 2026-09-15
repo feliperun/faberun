@@ -498,8 +498,8 @@ test("builds zcode commands pinned to the Z.ai endpoint", () => {
   const previous = {
     ZAI_API_KEY: process.env.ZAI_API_KEY,
     ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
-    INTENT_FACTORY_ZCODE_BIN: process.env.INTENT_FACTORY_ZCODE_BIN,
-    INTENT_FACTORY_TEST_ZCODE_TOKEN: process.env.INTENT_FACTORY_TEST_ZCODE_TOKEN,
+    FABERUN_ZCODE_BIN: process.env.FABERUN_ZCODE_BIN,
+    FABERUN_TEST_ZCODE_TOKEN: process.env.FABERUN_TEST_ZCODE_TOKEN,
     PATH: process.env.PATH,
     HOME: process.env.HOME,
   };
@@ -511,8 +511,8 @@ test("builds zcode commands pinned to the Z.ai endpoint", () => {
   process.env.PATH = sandbox;
   process.env.HOME = sandbox;
   delete process.env.ANTHROPIC_AUTH_TOKEN;
-  delete process.env.INTENT_FACTORY_ZCODE_BIN;
-  delete process.env.INTENT_FACTORY_TEST_ZCODE_TOKEN;
+  delete process.env.FABERUN_ZCODE_BIN;
+  delete process.env.FABERUN_TEST_ZCODE_TOKEN;
   try {
     const command = providerCommand({ harness: "zcode", model: "glm-5.3[1m]" }, "task");
     assert.equal(command.executable, "zcode");
@@ -533,18 +533,18 @@ test("builds zcode commands pinned to the Z.ai endpoint", () => {
       config: {
         provider: "zai",
         base_url: "https://custom.example/api",
-        "auth_token.env_key": "INTENT_FACTORY_TEST_ZCODE_TOKEN",
+        "auth_token.env_key": "FABERUN_TEST_ZCODE_TOKEN",
       },
     }, "task");
     assert.equal(custom.env?.ZCODE_MODEL, "zai/glm-5.3");
     assert.equal(custom.env?.ZCODE_BASE_URL, "https://custom.example/api");
     assert.equal("ZAI_API_KEY" in (custom.env ?? {}), false, "an unresolved token is omitted, not blanked");
 
-    process.env.INTENT_FACTORY_TEST_ZCODE_TOKEN = "custom-token";
+    process.env.FABERUN_TEST_ZCODE_TOKEN = "custom-token";
     const resolved = providerCommand({
       harness: "zcode",
       model: "glm-5.3",
-      config: { provider: "zai", "auth_token.env_key": "INTENT_FACTORY_TEST_ZCODE_TOKEN" },
+      config: { provider: "zai", "auth_token.env_key": "FABERUN_TEST_ZCODE_TOKEN" },
     }, "task");
     assert.equal(resolved.env?.ZAI_API_KEY, "custom-token");
 
@@ -553,7 +553,7 @@ test("builds zcode commands pinned to the Z.ai endpoint", () => {
     const dashed = providerCommand({
       harness: "zcode",
       model: "glm-5.3",
-      config: { provider: "z-ai", "auth_token.env_key": "INTENT_FACTORY_TEST_ZCODE_TOKEN" },
+      config: { provider: "z-ai", "auth_token.env_key": "FABERUN_TEST_ZCODE_TOKEN" },
     }, "task");
     assert.equal(dashed.env?.ZCODE_MODEL, "z-ai/glm-5.3");
     assert.equal(dashed.env?.Z_AI_API_KEY, "custom-token");

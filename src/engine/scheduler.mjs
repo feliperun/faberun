@@ -6,7 +6,7 @@ import {
   applyJudgeProtocolFailure,
   applyJudgeRound,
 } from "./review.mjs";
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
 import { routingBackoffActive } from "./failover.mjs";
 
 import {
@@ -190,7 +190,7 @@ export async function runContract(contractPath, options = {}) {
       /** @type {NodeSnapshot} */
       const state = {
         schemaVersion: PROTOCOL_SCHEMA_VERSION,
-        contractVersion: INTENT_FACTORY_VERSION,
+        contractVersion: CONTRACT_VERSION,
         id: node.id,
         type: node.type,
         sourceIdentity: node.sourceIdentity,

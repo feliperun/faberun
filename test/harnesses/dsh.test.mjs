@@ -34,13 +34,13 @@ function scratch(prefix) {
 test("the dsh adapter probes the harness binary the contract names", () => {
   assert.equal(dshHarness.executable(runtime()), "dsh");
   assert.equal(dshHarness.executable(runtime({ executable: "/opt/dsh" })), "/opt/dsh");
-  const previous = process.env.INTENT_FACTORY_DSH_BIN;
-  process.env.INTENT_FACTORY_DSH_BIN = "/env/dsh";
+  const previous = process.env.FABERUN_DSH_BIN;
+  process.env.FABERUN_DSH_BIN = "/env/dsh";
   try {
     assert.equal(dshHarness.executable(runtime()), "/env/dsh");
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_DSH_BIN;
-    else process.env.INTENT_FACTORY_DSH_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_DSH_BIN;
+    else process.env.FABERUN_DSH_BIN = previous;
   }
   assert.deepEqual(dshHarness.versionArgs(runtime()), ["--version"]);
   assert.equal(dshHarness.parseVersion("dsh 0.1.5-rc.1\n"), "dsh 0.1.5-rc.1");

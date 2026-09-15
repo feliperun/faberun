@@ -51,55 +51,55 @@
     {
       "at": "2026-09-08T18:32:06.748Z",
       "attempt": 1,
-      "dedupeKey": "node.terminal:intent-factory-lean-p3-visibility-20260908:dashboard-v2:failed:1:0",
+      "dedupeKey": "node.terminal:faberun-lean-p3-visibility-20260908:dashboard-v2:failed:1:0",
       "status": "failed"
     },
     {
       "at": "2026-09-08T18:32:11.852Z",
       "attempt": 2,
-      "dedupeKey": "node.terminal:intent-factory-lean-p3-visibility-20260908:dashboard-v2:failed:1:0",
+      "dedupeKey": "node.terminal:faberun-lean-p3-visibility-20260908:dashboard-v2:failed:1:0",
       "status": "failed"
     },
     {
       "at": "2026-09-08T18:32:42.020Z",
       "attempt": 3,
-      "dedupeKey": "node.terminal:intent-factory-lean-p3-visibility-20260908:dashboard-v2:failed:1:0",
+      "dedupeKey": "node.terminal:faberun-lean-p3-visibility-20260908:dashboard-v2:failed:1:0",
       "status": "failed"
     },
     {
       "at": "2026-09-08T19:15:58.358Z",
       "attempt": 1,
-      "dedupeKey": "node.terminal:intent-factory-lean-p3-visibility-20260908:status-surfaces:done:1:0",
+      "dedupeKey": "node.terminal:faberun-lean-p3-visibility-20260908:status-surfaces:done:1:0",
       "status": "failed"
     },
     {
       "at": "2026-09-08T19:15:58.462Z",
       "attempt": 1,
-      "dedupeKey": "run.terminal:intent-factory-lean-p3-visibility-20260908:attention",
+      "dedupeKey": "run.terminal:faberun-lean-p3-visibility-20260908:attention",
       "status": "failed"
     },
     {
       "at": "2026-09-08T19:16:03.630Z",
       "attempt": 2,
-      "dedupeKey": "node.terminal:intent-factory-lean-p3-visibility-20260908:status-surfaces:done:1:0",
+      "dedupeKey": "node.terminal:faberun-lean-p3-visibility-20260908:status-surfaces:done:1:0",
       "status": "failed"
     },
     {
       "at": "2026-09-08T19:16:03.717Z",
       "attempt": 2,
-      "dedupeKey": "run.terminal:intent-factory-lean-p3-visibility-20260908:attention",
+      "dedupeKey": "run.terminal:faberun-lean-p3-visibility-20260908:attention",
       "status": "failed"
     },
     {
       "at": "2026-09-08T19:16:33.817Z",
       "attempt": 3,
-      "dedupeKey": "node.terminal:intent-factory-lean-p3-visibility-20260908:status-surfaces:done:1:0",
+      "dedupeKey": "node.terminal:faberun-lean-p3-visibility-20260908:status-surfaces:done:1:0",
       "status": "failed"
     },
     {
       "at": "2026-09-08T19:16:33.909Z",
       "attempt": 3,
-      "dedupeKey": "run.terminal:intent-factory-lean-p3-visibility-20260908:attention",
+      "dedupeKey": "run.terminal:faberun-lean-p3-visibility-20260908:attention",
       "status": "failed"
     }
   ],

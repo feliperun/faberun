@@ -116,11 +116,11 @@ test("version probe and live preflight bypass never consume the recording", asyn
   assert.equal(version.code, 0, version.stderr);
   assert.equal(version.stdout, "replay 1.0.0\n");
 
-  const preflight = await runBin({ args: ["--recording", recording], cwd: directory, input: "Respond with exactly INTENT_FACTORY_PREFLIGHT_OK and do not use tools." });
+  const preflight = await runBin({ args: ["--recording", recording], cwd: directory, input: "Respond with exactly FABERUN_PREFLIGHT_OK and do not use tools." });
   assert.equal(preflight.code, 0, preflight.stderr);
   assert.deepEqual(JSON.parse(preflight.stdout), {
     status: "done",
-    result: "INTENT_FACTORY_PREFLIGHT_OK",
+    result: "FABERUN_PREFLIGHT_OK",
     continuationId: null,
     usage: zeroUsage,
     costUsd: null,

@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 import { JUDGE_SCHEMA, parseJudge, retryPrompt } from "../../src/engine/prompts.mjs";
 import { JUDGE_ENVELOPE_REASON, JUDGE_FINDING_ENVELOPE_REASON, JUDGE_LIMITS } from "../../src/contract/judge-envelope.mjs";
 import { judgeReaskInstruction } from "../../src/contract/review-modes.mjs";
@@ -69,7 +69,7 @@ test("verification rejects legacy shell strings", () => {
   const cwd = mkdtempSync(join(tmpdir(), "runner-verification-contract-"));
   writeFileSync(join(cwd, "README.md"), "read\n");
   const contract = {
-    schemaVersion: PROTOCOL_SCHEMA_VERSION, contractVersion: INTENT_FACTORY_VERSION, id: "strict-verification", campaignId: "strict",
+    schemaVersion: PROTOCOL_SCHEMA_VERSION, contractVersion: CONTRACT_VERSION, id: "strict-verification", campaignId: "strict",
     goal: "verify", cwd: ".", runtimeDefaults: { worker: "luna", judge: "luna" },
     runtimes: { luna: { harness: "codex", model: "test", executable: "/nonexistent/codex" } },
     nodes: [{ id: "build", type: "backend", phase: "verification", taskPacket: {
@@ -86,7 +86,7 @@ test("discovery and verification aggregate prompt limits fail before spawn", () 
   const cwd = mkdtempSync(join(tmpdir(), "runner-verification-oversized-"));
   writeFileSync(join(cwd, "README.md"), "read\n");
   const base = {
-    schemaVersion: PROTOCOL_SCHEMA_VERSION, contractVersion: INTENT_FACTORY_VERSION, id: "oversized", campaignId: "oversized-campaign", goal: "test", cwd: ".",
+    schemaVersion: PROTOCOL_SCHEMA_VERSION, contractVersion: CONTRACT_VERSION, id: "oversized", campaignId: "oversized-campaign", goal: "test", cwd: ".",
     runtimeDefaults: { worker: "worker", judge: "worker" }, runtimes: { worker: { harness: "codex", model: "test", executable: "/nonexistent/codex" } },
   };
   assert.throws(() => validateContract({
@@ -191,21 +191,21 @@ test("judge results are bounded, consistent, and require concrete evidence", () 
 
 test("verification passes only the declared controller environment names", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "runner-verification-env-"));
-  const previous = process.env.INTENT_FACTORY_TEST_ALLOWED;
-  const secret = process.env.INTENT_FACTORY_TEST_FORBIDDEN;
-  process.env.INTENT_FACTORY_TEST_ALLOWED = "controller-value";
-  process.env.INTENT_FACTORY_TEST_FORBIDDEN = "must-not-leak";
+  const previous = process.env.FABERUN_TEST_ALLOWED;
+  const secret = process.env.FABERUN_TEST_FORBIDDEN;
+  process.env.FABERUN_TEST_ALLOWED = "controller-value";
+  process.env.FABERUN_TEST_FORBIDDEN = "must-not-leak";
   try {
     const result = await runVerification([{
-      argv: [process.execPath, "-e", "process.exit(process.env.INTENT_FACTORY_TEST_ALLOWED === 'controller-value' && !process.env.INTENT_FACTORY_TEST_FORBIDDEN ? 0 : 1)"],
-      env: ["INTENT_FACTORY_TEST_ALLOWED"],
+      argv: [process.execPath, "-e", "process.exit(process.env.FABERUN_TEST_ALLOWED === 'controller-value' && !process.env.FABERUN_TEST_FORBIDDEN ? 0 : 1)"],
+      env: ["FABERUN_TEST_ALLOWED"],
     }], cwd);
     assert.equal(result.passed, true);
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_TEST_ALLOWED;
-    else process.env.INTENT_FACTORY_TEST_ALLOWED = previous;
-    if (secret === undefined) delete process.env.INTENT_FACTORY_TEST_FORBIDDEN;
-    else process.env.INTENT_FACTORY_TEST_FORBIDDEN = secret;
+    if (previous === undefined) delete process.env.FABERUN_TEST_ALLOWED;
+    else process.env.FABERUN_TEST_ALLOWED = previous;
+    if (secret === undefined) delete process.env.FABERUN_TEST_FORBIDDEN;
+    else process.env.FABERUN_TEST_FORBIDDEN = secret;
   }
 });
 
@@ -301,17 +301,17 @@ test("workspace snapshots use nested ignore rules, negation, and tracked ignored
   assert.ok(!paths.includes("nested/drop.tmp"));
 });
 
-test("workspace snapshots apply optional .intentfactoryignore rules", () => {
-  const cwd = mkdtempSync(join(tmpdir(), "runner-verification-intentfactoryignore-"));
+test("workspace snapshots apply optional .faberunignore rules", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "runner-verification-faberunignore-"));
   writeFileSync(join(cwd, "README.md"), "read");
   initializeGit(cwd);
-  writeFileSync(join(cwd, ".intentfactoryignore"), "generated/*\n!generated/keep.txt\n");
+  writeFileSync(join(cwd, ".faberunignore"), "generated/*\n!generated/keep.txt\n");
   mkdirSync(join(cwd, "generated"));
   writeFileSync(join(cwd, "generated", "drop.txt"), "ignored");
   writeFileSync(join(cwd, "generated", "keep.txt"), "kept");
 
   const paths = captureWorkspaceSnapshot(cwd).entries.map((entry) => entry.path);
-  assert.ok(paths.includes(".intentfactoryignore"));
+  assert.ok(paths.includes(".faberunignore"));
   assert.ok(paths.includes("generated/keep.txt"));
   assert.ok(!paths.includes("generated/drop.txt"));
 });
@@ -335,11 +335,11 @@ test("ignore-source changes fail closed before mutable rules can hide files", ()
   writeFileSync(join(cwd, "README.md"), "read");
   initializeGit(cwd);
   const before = captureWorkspaceSnapshot(cwd);
-  writeFileSync(join(cwd, ".intentfactoryignore"), "*\n");
+  writeFileSync(join(cwd, ".faberunignore"), "*\n");
   writeFileSync(join(cwd, "undeclared.txt"), "hidden");
 
   assert.throws(
-    () => compareWorkspaceSnapshot(before, cwd, { files: [".intentfactoryignore"], roots: [] }),
+    () => compareWorkspaceSnapshot(before, cwd, { files: [".faberunignore"], roots: [] }),
     /ignore sources changed/u,
   );
 });
@@ -491,30 +491,30 @@ test("scope comparison computes forbidden paths beyond the evidence window", () 
 test("only the complete runner-managed AGENTS.md signal block is scope-neutral", () => {
   const cwd = mkdtempSync(join(tmpdir(), "runner-verification-agent-signal-"));
   const agents = join(cwd, "AGENTS.md");
-  const managedStart = "<!-- intent-factory-active:start (managed by intent-factory — read, never edit) -->";
-  const managedEnd = "<!-- intent-factory-active:end -->";
-  writeFileSync(agents, `# Guidance\nHuman guidance stays protected.\n\n${managedStart}\n- intent-factory run \`old-run\`: active\n${managedEnd}\n`);
+  const managedStart = "<!-- faberun-active:start (managed by faberun — read, never edit) -->";
+  const managedEnd = "<!-- faberun-active:end -->";
+  writeFileSync(agents, `# Guidance\nHuman guidance stays protected.\n\n${managedStart}\n- faberun run \`old-run\`: active\n${managedEnd}\n`);
   writeFileSync(join(cwd, "README.md"), "read\n");
   initializeGit(cwd);
   const before = captureWorkspaceSnapshot(cwd);
 
   // The runner rewriting only the managed block (new active run lines) is not
   // worker scope drift and must not trip unexpected-write protection.
-  writeFileSync(agents, `# Guidance\nHuman guidance stays protected.\n\n${managedStart}\n- intent-factory run \`new-run\`: active\n- intent-factory campaign \`other-campaign\`: active\n${managedEnd}\n`);
+  writeFileSync(agents, `# Guidance\nHuman guidance stays protected.\n\n${managedStart}\n- faberun run \`new-run\`: active\n- faberun campaign \`other-campaign\`: active\n${managedEnd}\n`);
   const managedOnly = compareWorkspaceSnapshot(before, cwd, { files: [], roots: [] });
   assert.deepEqual(managedOnly.changedPaths, []);
   assert.deepEqual(managedOnly.unexpectedPaths, []);
 
   // Human-authored guidance outside the block still changes the identity and
   // is protected as an unexpected write.
-  writeFileSync(agents, `# Guidance\nHuman edit outside the managed block.\n\n${managedStart}\n- intent-factory run \`new-run\`: active\n${managedEnd}\n`);
+  writeFileSync(agents, `# Guidance\nHuman edit outside the managed block.\n\n${managedStart}\n- faberun run \`new-run\`: active\n${managedEnd}\n`);
   const humanEdit = compareWorkspaceSnapshot(before, cwd, { files: [], roots: [] });
   assert.deepEqual(humanEdit.changedPaths, ["AGENTS.md"]);
   assert.deepEqual(humanEdit.unexpectedPaths, ["AGENTS.md"]);
 
   // A partial or malformed block is not runner-owned: it stays part of source
   // identity and must still trigger protection.
-  writeFileSync(agents, `# Guidance\nHuman guidance stays protected.\n\n${managedStart}\n- intent-factory run \`partial\`: active\n`);
+  writeFileSync(agents, `# Guidance\nHuman guidance stays protected.\n\n${managedStart}\n- faberun run \`partial\`: active\n`);
   const partialBlock = compareWorkspaceSnapshot(before, cwd, { files: [], roots: [] });
   assert.deepEqual(partialBlock.changedPaths, ["AGENTS.md"]);
   assert.deepEqual(partialBlock.unexpectedPaths, ["AGENTS.md"]);
@@ -598,7 +598,7 @@ test("a failing command proof with oversized output stays inside the evidence ce
   // controller with it: prove it accepts a snapshot carrying this verdict.
   assert.doesNotThrow(() => validateNodeSnapshot({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     id: "build",
     type: "backend",
     sourceIdentity: { kind: "node", contractId: "contract-test", nodeId: "build" },

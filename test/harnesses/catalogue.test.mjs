@@ -23,7 +23,7 @@ function hermeticEnv(overrides = {}) {
   /** @type {Record<string, string>} */
   const env = {};
   for (const harness of ["claude", "codex", "agy", "dsh", "zcode", "exec-jsonl", "replay"]) {
-    env[`INTENT_FACTORY_${harness.replace(/-/gu, "_").toUpperCase()}_BIN`] = join(directory, `absent-${harness}`);
+    env[`FABERUN_${harness.replace(/-/gu, "_").toUpperCase()}_BIN`] = join(directory, `absent-${harness}`);
   }
   return { ...env, ...overrides };
 }
@@ -105,7 +105,7 @@ test("without an agy binary the declared catalogue stands, and with one the CLI 
 
   const fake = fakeAgy(mkdtempSync(join(tmpdir(), "models-agy-")));
   const live = modelsJson([], hermeticEnv({
-    INTENT_FACTORY_AGY_BIN: fake,
+    FABERUN_AGY_BIN: fake,
     PATH: `${dirname(fake)}${delimiter}${process.env.PATH ?? ""}`,
   }));
   const agy = blockOf(live, "agy");
@@ -184,7 +184,7 @@ test("neither surface carries a date, a clock, or a locale-dependent number", as
 
 test("probe mode reports per-runtime reachability with the existing probe and adds nothing else", async () => {
   const fake = fakeAgy(mkdtempSync(join(tmpdir(), "models-probe-agy-")));
-  const report = modelsJson(["--probe"], hermeticEnv({ INTENT_FACTORY_AGY_BIN: fake }));
+  const report = modelsJson(["--probe"], hermeticEnv({ FABERUN_AGY_BIN: fake }));
   assert.match(report.availability, /doctor/u, "probe mode still points at doctor as authoritative");
   for (const view of report.harnesses) {
     assert.ok(view.probe, `${view.harness} carries a probe result`);
@@ -201,6 +201,6 @@ test("probe mode reports per-runtime reachability with the existing probe and ad
 test("models takes no positional and rejects one", () => {
   const rejected = modelsCli(["contract.json"], hermeticEnv());
   assert.equal(rejected.status, 2, "a stray positional is a usage error");
-  assert.match(rejected.stderr, /usage: runner\.mjs/u);
+  assert.match(rejected.stderr, /usage: faberun/u);
   assert.match(rejected.stderr, /models \[--probe\] \[--json\]/u, "usage names the new subcommand");
 });

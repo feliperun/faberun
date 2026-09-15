@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 import { renderReport, renderReportJson } from "../../src/report/render.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
 
@@ -122,7 +122,7 @@ test("a run with no invocations reports both role costs as unavailable, not $0",
  * @param {Array<{id: string, costUsd?: number, invocations?: Array<{id: string, costUsd?: number}>}>} nodes
  */
 function makeRun(nodes) {
-  const directory = mkdtempSync(join(tmpdir(), "intent-factory-report-cost-"));
+  const directory = mkdtempSync(join(tmpdir(), "faberun-report-cost-"));
   const contractPath = writeContract(directory, fixture({
     nodes: nodes.map(({ id }) => ({ id, type: "backend", taskPacket: packet(), gate: false })),
   }));
@@ -132,7 +132,7 @@ function makeRun(nodes) {
   writeFileSync(join(runDir, "contract.json"), readFileSync(contractPath));
   writeFileSync(join(runDir, "run.json"), `${JSON.stringify({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     pid: process.pid,
     processStartToken: null,
     startedAt: NOW,
@@ -142,7 +142,7 @@ function makeRun(nodes) {
     const planNode = /** @type {import("../../src/contract/index.mjs").ValidatedNode} */ (contract.nodes.find((candidate) => candidate.id === node.id));
     writeFileSync(join(runDir, "nodes", `${node.id}.json`), `${JSON.stringify({
       schemaVersion: PROTOCOL_SCHEMA_VERSION,
-      contractVersion: INTENT_FACTORY_VERSION,
+      contractVersion: CONTRACT_VERSION,
       type: planNode.type,
       sourceIdentity: planNode.sourceIdentity,
       packetHash: planNode.packetHash,

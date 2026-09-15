@@ -1,5 +1,5 @@
-export const SIGNAL_START = "<!-- intent-factory-active:start (managed by intent-factory — read, never edit) -->";
-export const SIGNAL_END = "<!-- intent-factory-active:end -->";
+export const SIGNAL_START = "<!-- faberun-active:start (managed by faberun — read, never edit) -->";
+export const SIGNAL_END = "<!-- faberun-active:end -->";
 
 /**
  * Replace only a complete runner-managed block with a stable marker. Guidance

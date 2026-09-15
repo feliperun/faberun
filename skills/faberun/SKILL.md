@@ -1,9 +1,9 @@
 ---
-name: intent-factory
-description: A harness- and model-agnostic development factory that turns plans into verified software changes.
+name: faberun
+description: Faberun: a harness- and model-agnostic development orchestrator that turns plans into verified software changes.
 ---
 
-# Intent Factory
+# Faberun
 
 Run a plan outside the main context, this session as the control plane.
 Read [rules](references/rules.md) first.
@@ -21,4 +21,4 @@ Watchdog re-invocations:
     node src/cli.mjs supervise <run-dir>
     node src/cli.mjs supervise campaign <id> [--allow-main]
 
-launchd: `StartInterval 300`; `launchctl load -w ~/Library/LaunchAgents/intent-factory.plist`.
+launchd: `StartInterval 300`; `launchctl load -w ~/Library/LaunchAgents/faberun.plist`.

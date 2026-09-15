@@ -226,8 +226,8 @@ test("resume re-dispatches a capped live continuation as a fresh attempt in a fr
     pollIntervalMs: 5,
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = fakeCodex(directory, "thread-large-timeout");
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = fakeCodex(directory, "thread-large-timeout");
   try {
     const first = await runContract(path);
     const firstState = nodeState(first);
@@ -244,8 +244,8 @@ test("resume re-dispatches a capped live continuation as a fresh attempt in a fr
     const finalUsage = readFileSync(join(first.runDir, "usage.jsonl"), "utf8").trim().split("\n");
     assert.equal(finalUsage.length, 2, "resumed invocation is recorded once");
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 });
 

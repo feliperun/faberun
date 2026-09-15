@@ -182,7 +182,7 @@ test("done-when 5: a restarted watcher does not re-deliver and a live watcher re
 
 test("done-when 6: unset transport warns and resolves to noTransport; --wake reports canWake false", async () => {
   assert.equal(noTransportWarning({}), NOTIFY_NO_TRANSPORT_WARNING);
-  assert.equal(noTransportWarning({ INTENT_FACTORY_NOTIFY_BIN: "something" }), null);
+  assert.equal(noTransportWarning({ FABERUN_NOTIFY_BIN: "something" }), null);
 
   const check = notifyTransportCheck({});
   assert.equal(check.name, "notify transport");
@@ -197,20 +197,20 @@ test("done-when 6: unset transport warns and resolves to noTransport; --wake rep
   await withEmptyPath(() => {
     const result = spawnSync(process.execPath, [RUNNER_CLI, "preflight", contractPath, "--static"], {
       encoding: "utf8",
-      env: { ...process.env, INTENT_FACTORY_NOTIFY_BIN: "" },
+      env: { ...process.env, FABERUN_NOTIFY_BIN: "" },
     });
     assert.match(result.stdout, /\[warn\] notify transport · no human notification transport/u);
   });
 
   const runDir = tempDir("inbox-notransport-");
-  const previous = process.env.INTENT_FACTORY_NOTIFY_BIN;
-  delete process.env.INTENT_FACTORY_NOTIFY_BIN;
+  const previous = process.env.FABERUN_NOTIFY_BIN;
+  delete process.env.FABERUN_NOTIFY_BIN;
   try {
     const queue = new NotifyQueue({ runDir, now: () => 1_700_000_000_000 });
     await queue.enqueue({ type: "run.terminal", runId: "r", done: 1, total: 1, dedupeKey: "run.terminal:r:0" });
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_NOTIFY_BIN;
-    else process.env.INTENT_FACTORY_NOTIFY_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_NOTIFY_BIN;
+    else process.env.FABERUN_NOTIFY_BIN = previous;
   }
   const receipt = JSON.parse(readFileSync(join(runDir, "notify.jsonl"), "utf8").trim());
   assert.equal(receipt.status, "no_transport", "the opt-in is preserved, not defaulted");
@@ -221,7 +221,7 @@ test("done-when 6: unset transport warns and resolves to noTransport; --wake rep
 
   const doctor = spawnSync(process.execPath, [RUNNER_CLI, "doctor", "--cwd", tempDir("inbox-doctor-")], {
     encoding: "utf8",
-    env: { ...process.env, INTENT_FACTORY_NOTIFY_BIN: "" },
+    env: { ...process.env, FABERUN_NOTIFY_BIN: "" },
   });
   assert.match(doctor.stderr, new RegExp(NOTIFY_NO_TRANSPORT_WARNING.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
 });
@@ -237,7 +237,7 @@ test("done-when 7: the foreground launch prints the warning once and the detache
   const nodePath = join(runDir, "nodes", "build.json");
   const result = await withFakeCodex(directory, "pass", () => spawnSync(process.execPath, [RUNNER_CLI, "run", "--detach", contractPath], {
     encoding: "utf8",
-    env: { ...process.env, INTENT_FACTORY_NOTIFY_BIN: "" },
+    env: { ...process.env, FABERUN_NOTIFY_BIN: "" },
     timeout: 30_000,
   }));
   assert.equal(result.status, 0, result.stderr);

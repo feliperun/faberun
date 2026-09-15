@@ -102,8 +102,8 @@ test("live preflight proves generation, redacts failures, and static mode stays 
     runtimes: { jsonl: { harness: "exec-jsonl", model: "fake", vendor: "exec-jsonl-worker", executable } },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }), null, 2)}\n`);
-  const previous = process.env.INTENT_FACTORY_TEST_LIVE_SECRET;
-  process.env.INTENT_FACTORY_TEST_LIVE_SECRET = "preflight-secret-value";
+  const previous = process.env.FABERUN_TEST_LIVE_SECRET;
+  process.env.FABERUN_TEST_LIVE_SECRET = "preflight-secret-value";
   try {
     const checks = await preflightContract(path);
     assert.equal(checks.length, 1);
@@ -126,8 +126,8 @@ test("live preflight proves generation, redacts failures, and static mode stays 
     assert.equal(staticChecks[0].live, undefined);
     assert.equal(existsSync(join(directory, ".runs")), false);
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_TEST_LIVE_SECRET;
-    else process.env.INTENT_FACTORY_TEST_LIVE_SECRET = previous;
+    if (previous === undefined) delete process.env.FABERUN_TEST_LIVE_SECRET;
+    else process.env.FABERUN_TEST_LIVE_SECRET = previous;
   }
 });
 
@@ -141,8 +141,8 @@ if (process.argv.includes("--version")) {
   console.log("preflight-provider 1.0.0");
 } else {
   writeFileSync(${JSON.stringify(marker)}, JSON.stringify({
-    notify: process.env.INTENT_FACTORY_NOTIFY_BIN ?? null,
-    ambient: process.env.INTENT_FACTORY_AMBIENT ?? null,
+    notify: process.env.FABERUN_NOTIFY_BIN ?? null,
+    ambient: process.env.FABERUN_AMBIENT ?? null,
   }));
   const result = JSON.stringify({ status: "done", summary: "ok", verification: [], artifacts: [], missingContext: [] });
   console.log(JSON.stringify({ schemaVersion: 1, type: "run.completed", result, continuationId: "fake-thread", usage: { inputTokens: 5, outputTokens: 2, cacheReadInputTokens: 1 }, costUsd: 0.01 }));
@@ -155,21 +155,21 @@ if (process.argv.includes("--version")) {
     runtimes: { jsonl: { harness: "exec-jsonl", model: "fake", vendor: "exec-jsonl-worker", executable: provider } },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }), null, 2)}\n`);
-  const previousNotify = process.env.INTENT_FACTORY_NOTIFY_BIN;
-  const previousAmbient = process.env.INTENT_FACTORY_AMBIENT;
-  process.env.INTENT_FACTORY_NOTIFY_BIN = provider;
-  process.env.INTENT_FACTORY_AMBIENT = "ambient-value";
+  const previousNotify = process.env.FABERUN_NOTIFY_BIN;
+  const previousAmbient = process.env.FABERUN_AMBIENT;
+  process.env.FABERUN_NOTIFY_BIN = provider;
+  process.env.FABERUN_AMBIENT = "ambient-value";
   try {
     const checks = await preflightContract(path);
     assert.equal(checks[0].ok, true, checks[0].detail ?? undefined);
     const observed = JSON.parse(readFileSync(marker, "utf8"));
-    assert.equal(observed.notify, null, "INTENT_FACTORY_NOTIFY_BIN must not reach the live preflight provider");
+    assert.equal(observed.notify, null, "FABERUN_NOTIFY_BIN must not reach the live preflight provider");
     assert.equal(observed.ambient, "ambient-value", "ambient runtime variables must survive");
   } finally {
-    if (previousNotify === undefined) delete process.env.INTENT_FACTORY_NOTIFY_BIN;
-    else process.env.INTENT_FACTORY_NOTIFY_BIN = previousNotify;
-    if (previousAmbient === undefined) delete process.env.INTENT_FACTORY_AMBIENT;
-    else process.env.INTENT_FACTORY_AMBIENT = previousAmbient;
+    if (previousNotify === undefined) delete process.env.FABERUN_NOTIFY_BIN;
+    else process.env.FABERUN_NOTIFY_BIN = previousNotify;
+    if (previousAmbient === undefined) delete process.env.FABERUN_AMBIENT;
+    else process.env.FABERUN_AMBIENT = previousAmbient;
   }
 });
 

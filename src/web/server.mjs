@@ -542,7 +542,7 @@ async function main() {
   try {
     const server = await startServer({ runsDir, tokenFile: tokenFile || join(runsDir, "dashboard.token"), port, host });
     const address = /** @type {import("node:net").AddressInfo} */ (server.address());
-    process.stdout.write(`intent-factory dashboard on http://${address.address}:${address.port} (runs: ${runsDir})\n`);
+    process.stdout.write(`faberun dashboard on http://${address.address}:${address.port} (runs: ${runsDir})\n`);
   } catch (error) {
     process.stderr.write(`${errorMessage(error)}\n`);
     process.exitCode = 1;

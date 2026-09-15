@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 import { forceFreshSession } from "../../src/engine/dispatch.mjs";
 import { applyRejection } from "../../src/engine/settle.mjs";
 import { emitNodeAdvisory, emitNodeAdvisories, nodeAdvisoryCrossings, notifyQueuesByRun } from "../../src/engine/notify-queue.mjs";
@@ -71,13 +71,13 @@ if (process.argv.includes("--version")) {
 
 /** @template T @param {string} executable @param {() => T | Promise<T>} body @returns {Promise<T>} */
 async function withCodex(executable, body) {
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = executable;
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = executable;
   try {
     return await body();
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 }
 
@@ -175,7 +175,7 @@ test("applyRejection with no live dispatch persists the fresh-session policy on 
   mkdirSync(join(runDir, "nodes"), { recursive: true });
   const state = /** @type {import("../../src/contract/index.mjs").NodeSnapshot} */ ({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     id: node.id,
     type: node.type,
     sourceIdentity: node.sourceIdentity,

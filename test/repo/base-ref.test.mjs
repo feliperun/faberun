@@ -50,7 +50,7 @@ test("run --base-ref cuts the run ref and attempt worktrees from the base and le
 
   const result = spawnSync(process.execPath, [CLI, "run", contractPath, "--base-ref", baseSha], {
     cwd: directory,
-    env: { ...process.env, INTENT_FACTORY_CODEX_BIN: fakeCodex(directory, "pass") },
+    env: { ...process.env, FABERUN_CODEX_BIN: fakeCodex(directory, "pass") },
     encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);
@@ -100,7 +100,7 @@ test("run.json records the controller snapshot, and a snapshot whose executable 
   const contractPath = writeContract(directory, fixture({ id: "controller-id-run" }));
   const result = spawnSync(process.execPath, [CLI, "run", contractPath], {
     cwd: directory,
-    env: { ...process.env, INTENT_FACTORY_CODEX_BIN: fakeCodex(directory, "pass") },
+    env: { ...process.env, FABERUN_CODEX_BIN: fakeCodex(directory, "pass") },
     encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);

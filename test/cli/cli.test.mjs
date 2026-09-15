@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { INTENT_FACTORY_VERSION, validateContract } from "../../src/contract/index.mjs";
+import { CONTRACT_VERSION, validateContract } from "../../src/contract/index.mjs";
 import { renderFindings, renderReport, renderStatus, renderStatusJson } from "../../src/report/render.mjs";
 import { resumeRun } from "../../src/engine/resume.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
@@ -81,7 +81,7 @@ test("doctor does not fail a harness resolved through an explicit executable", (
   const contract = join(directory, "contract.json");
   writeFileSync(contract, `${JSON.stringify({
     schemaVersion: 3,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     id: "doctor-run",
     campaignId: "doctor-campaign",
     goal: "doctor",
@@ -232,7 +232,7 @@ test("status separates a live running node from an orphaned one", async () => {
 
   writeFileSync(join(runDir, "run.json"), JSON.stringify({
     schemaVersion: 3,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     pid: 2_147_483_647,
     startedAt: "2026-01-01T00:00:00.000Z",
     sourceIdentity: { kind: "run", contractId: "orphan-run", campaignId: "test-campaign" },
@@ -328,14 +328,14 @@ test("runner notifies node.terminal and run.terminal only, never a running node"
   const notifier = join(directory, "notify-success.mjs");
   writeFileSync(notifier, "#!/usr/bin/env node\nprocess.stdin.resume(); process.stdin.on('end', () => process.exit(0));\n");
   chmodSync(notifier, 0o755);
-  const previousNotify = process.env.INTENT_FACTORY_NOTIFY_BIN;
-  process.env.INTENT_FACTORY_NOTIFY_BIN = notifier;
+  const previousNotify = process.env.FABERUN_NOTIFY_BIN;
+  process.env.FABERUN_NOTIFY_BIN = notifier;
   let result;
   try {
     result = await withFakeCodex(directory, "pass", () => runContract(path));
   } finally {
-    if (previousNotify === undefined) delete process.env.INTENT_FACTORY_NOTIFY_BIN;
-    else process.env.INTENT_FACTORY_NOTIFY_BIN = previousNotify;
+    if (previousNotify === undefined) delete process.env.FABERUN_NOTIFY_BIN;
+    else process.env.FABERUN_NOTIFY_BIN = previousNotify;
   }
   assert.equal(result.ok, true);
   const receipts = notifications(result.runDir);
@@ -359,8 +359,8 @@ test("idle polls emit no notification, and resume never re-notifies an already-t
   }));
   const started = join(directory, ".runs", "provider-started");
   const release = join(directory, ".runs", "provider-release");
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = fakeCodex(directory, "wait-for-release");
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = fakeCodex(directory, "wait-for-release");
   try {
     const pending = runContract(path);
     await waitForValue(() => (existsSync(started) ? "started" : null));
@@ -384,8 +384,8 @@ test("idle polls emit no notification, and resume never re-notifies an already-t
     assert.equal(receipts.filter((event) => event.type === "node.terminal").length, 1, "resume must not duplicate the node's terminal notification");
     assert.equal(receipts.filter((event) => event.type === "run.terminal").length, 1, "resume must not duplicate the run's terminal notification");
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 });
 
@@ -406,8 +406,8 @@ test("ordinary runs deliver bounded node and run terminal notifications", async 
   const notifier = join(directory, "notify.mjs");
   writeFileSync(notifier, `#!/usr/bin/env node\nimport { appendFileSync } from "node:fs"; let input = ""; process.stdin.setEncoding("utf8"); process.stdin.on("data", chunk => { input += chunk; }); process.stdin.on("end", () => { appendFileSync(${JSON.stringify(delivered)}, input); });\n`);
   chmodSync(notifier, 0o755);
-  const previous = process.env.INTENT_FACTORY_NOTIFY_BIN;
-  process.env.INTENT_FACTORY_NOTIFY_BIN = notifier;
+  const previous = process.env.FABERUN_NOTIFY_BIN;
+  process.env.FABERUN_NOTIFY_BIN = notifier;
   try {
     const result = await withFakeCodex(directory, "pass", () => runContract(path));
     const events = readFileSync(delivered, "utf8").trim().split("\n").map((line) => JSON.parse(line));
@@ -416,8 +416,8 @@ test("ordinary runs deliver bounded node and run terminal notifications", async 
     const receipts = notifications(result.runDir);
     assert.ok(receipts.every((receipt) => receipt.status === "delivered"), "every event this transport received is recorded delivered");
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_NOTIFY_BIN;
-    else process.env.INTENT_FACTORY_NOTIFY_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_NOTIFY_BIN;
+    else process.env.FABERUN_NOTIFY_BIN = previous;
   }
 });
 
@@ -478,7 +478,7 @@ test("detached resume surfaces bootstrap failure before reporting success", asyn
   metadata.sourceIdentity.cwd = "/unexpected-source";
   writeFileSync(join(runDir, "run.json"), JSON.stringify(metadata));
   const result = spawnSync(process.execPath, [fileURLToPath(new URL("../../src/cli.mjs", import.meta.url)), "resume", "--detach", runDir], {
-    env: { ...process.env, INTENT_FACTORY_CODEX_BIN: fakeCodex(directory, "pass") },
+    env: { ...process.env, FABERUN_CODEX_BIN: fakeCodex(directory, "pass") },
     encoding: "utf8",
   });
   assert.notEqual(result.status, 0);
@@ -517,7 +517,7 @@ test("detached ACK timeout and parse errors clean only their nonce attempt and A
   const errorResult = spawnSync(
     process.execPath,
     [fileURLToPath(new URL("../../src/cli.mjs", import.meta.url)), "resume", runDir],
-    { env: { ...process.env, INTENT_FACTORY_BOOTSTRAP_NONCE: errorNonce, INTENT_FACTORY_CODEX_BIN: fakeCodex(directory, "pass") }, encoding: "utf8" },
+    { env: { ...process.env, FABERUN_BOOTSTRAP_NONCE: errorNonce, FABERUN_CODEX_BIN: fakeCodex(directory, "pass") }, encoding: "utf8" },
   );
   assert.notEqual(errorResult.status, 0);
   assert.equal(existsSync(join(runDir, `bootstrap.json.${errorNonce}`)), false);
@@ -527,7 +527,7 @@ test("detached ACK timeout and parse errors clean only their nonce attempt and A
   const timeoutResult = spawnSync(
     process.execPath,
     [fileURLToPath(new URL("../../src/cli.mjs", import.meta.url)), "resume", runDir],
-    { env: { ...process.env, INTENT_FACTORY_BOOTSTRAP_NONCE: timeoutNonce, INTENT_FACTORY_CODEX_BIN: fakeCodex(directory, "pass") }, encoding: "utf8" },
+    { env: { ...process.env, FABERUN_BOOTSTRAP_NONCE: timeoutNonce, FABERUN_CODEX_BIN: fakeCodex(directory, "pass") }, encoding: "utf8" },
   );
   assert.equal(timeoutResult.status, 0, timeoutResult.stderr);
   assert.equal(existsSync(join(runDir, `bootstrap.json.${timeoutNonce}`)), false);
@@ -552,7 +552,7 @@ test("a single-node contract validates without warning and contract prune is gon
 
   const pruned = spawnSync(process.execPath, [RUNNER_CLI, "contract", "prune", join(directory, ".runs", "single-node-run"), "--out", join(directory, "out.json")], { encoding: "utf8" });
   assert.equal(pruned.status, 2, pruned.stdout);
-  assert.match(pruned.stderr, /usage: runner.mjs contract validate/u, "contract prune is not a command any more");
+  assert.match(pruned.stderr, /usage: faberun contract validate/u, "contract prune is not a command any more");
   assert.equal(existsSync(join(directory, "out.json")), false, "no continuation contract is written");
 });
 
@@ -564,7 +564,7 @@ test("seat is a dispatched verb named in the usage line", () => {
   // here made this test fail the moment `switch` was added -- by the node
   // that was required to add it, and which could not edit this file. Assert
   // that `seat` is dispatched and that the operation you asked for is named.
-  assert.match(action.stderr, /usage: runner\.mjs seat </u);
+  assert.match(action.stderr, /usage: faberun seat </u);
   for (const operation of ["start", "attach", "status", "stop", "switch"]) {
     assert.match(action.stderr, new RegExp(`\\b${operation}\\b`, "u"), `the usage names ${operation}`);
   }

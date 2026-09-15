@@ -10,11 +10,11 @@ it stays a single copyable unit.
 ## Install
 
 ```bash
-npx github:feliperun/skills             # every `mine` skill → .claude/skills/ of the current repo
-npx github:feliperun/skills intent-factory # one named skill
-npx github:feliperun/skills list        # show the catalog
-npx github:feliperun/skills --global    # install into ~/.claude/skills/ instead
-npx github:feliperun/skills --force     # replace skills that already exist
+npx github:feliperun/faberun             # every `mine` skill → .claude/skills/ of the current repo
+npx github:feliperun/faberun faberun # one named skill
+npx github:feliperun/faberun list        # show the catalog
+npx github:feliperun/faberun --global    # install into ~/.claude/skills/ instead
+npx github:feliperun/faberun --force     # replace skills that already exist
 ```
 
 `npx` needs the repository to be reachable (public, or private with git
@@ -28,7 +28,7 @@ ln -s "$(pwd)/skills/init-agentkit" ~/.claude/skills/init-agentkit
 
 ## Skills
 
-### intent-factory
+### faberun
 
 Executes large implementation plans as observable multi-model DAGs outside the
 orchestrator's context: declarative routing (Claude or Codex workers, including
@@ -53,21 +53,21 @@ campaign together, from what the runs recorded. Detail:
 Quickstart, in the repository that will receive the implementation:
 
 ```bash
-INTENT_FACTORY=/path/to/faberun/src/cli.mjs
+FABERUN=/path/to/faberun/src/cli.mjs
 TARGET=/path/to/target-repository
 
 rg -qxF '.runs/' "$TARGET/.gitignore" || printf '\n.runs/\n' >> "$TARGET/.gitignore"
-node "$INTENT_FACTORY" campaign init feature-42 --cwd "$TARGET" --goal "Deliver feature 42"
-node "$INTENT_FACTORY" campaign attach feature-42 --cwd "$TARGET" --tool codex --session-id <session-id> --no-transcript
+node "$FABERUN" campaign init feature-42 --cwd "$TARGET" --goal "Deliver feature 42"
+node "$FABERUN" campaign attach feature-42 --cwd "$TARGET" --tool codex --session-id <session-id> --no-transcript
 ```
 
 Inspect the target once, write the contract and its task packets, then:
 
 ```bash
-node "$INTENT_FACTORY" validate contract.json
-node "$INTENT_FACTORY" preflight contract.json
-node "$INTENT_FACTORY" run --detach contract.json
-node "$INTENT_FACTORY" supervise --detach "$TARGET/.runs/<run-id>"   # unattended resume
+node "$FABERUN" validate contract.json
+node "$FABERUN" preflight contract.json
+node "$FABERUN" run --detach contract.json
+node "$FABERUN" supervise --detach "$TARGET/.runs/<run-id>"   # unattended resume
 ```
 
 | Goal | Command |
@@ -105,7 +105,7 @@ Long sessions stay cheap across usage-limit resets: a curated handoff is saved
 to `.claude/session-handoff.md` while the session is warm, and this
 repository's [SessionStart hook](.claude/hooks/session-start.mjs) injects a
 fresh handoff into every new session automatically. The save/resume protocol
-lives inside intent-factory as
+lives inside faberun as
 [references/session-memory.md](skills/faberun/references/session-memory.md).
 
 ## Development

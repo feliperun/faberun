@@ -1,0 +1,86 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, relative, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * The brand ratchet: the live tree carries one name, and it is Faberun.
+ *
+ * This file owns the rule the rename leaves behind. It reads every text file in
+ * the repository and fails if the previous brand survives anywhere, so the old
+ * name cannot return one comment or environment variable at a time. The second
+ * test pins the two package.json facts the rename is really about: the package
+ * name and the executable a `npx`/install run resolves to.
+ *
+ * The excluded directories are records, not stale paths. `docs/history/` and
+ * `docs/campaigns/` hold accepted specs, retrospectives and the contracts a
+ * worker was actually given; `evals/golden/` holds frozen fixtures. Each was
+ * written at a moment in time and says so; editing one to match the present
+ * would make the record lie about the run it documents. `.git/`, `.runs/` and
+ * `node_modules/` are not source at all, and `assets/` holds binary art.
+ */
+
+const REPO_DIR = fileURLToPath(new URL("../..", import.meta.url));
+
+/** The previous brand, in every spelling it appeared in: hyphen, underscore, space or none. */
+export const LEGACY_NAME_PATTERN = /intent[-_ ]?factory/iu;
+
+/** Directory names the walk never descends into. */
+const SKIPPED_NAMES = new Set([".git", ".runs", "node_modules", "assets"]);
+
+/** Repository-relative paths whose contents are historical record. */
+const SKIPPED_PATHS = new Set(["docs/history", "docs/campaigns", "evals/golden"]);
+
+/** Only text files carry the brand; every extension the tree's prose and code use. */
+const TEXT_EXTENSIONS = new Set([
+  ".mjs", ".js", ".json", ".md", ".yml", ".yaml", ".sh", ".html", ".css", ".txt", ".toml",
+]);
+
+/**
+ * @param {string} dir
+ * @returns {string[]} absolute paths of every text file below `dir`
+ */
+function walk(dir) {
+  /** @type {string[]} */
+  const found = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    const label = relative(REPO_DIR, path).split(sep).join("/");
+    if (entry.isDirectory()) {
+      if (!SKIPPED_NAMES.has(entry.name) && !SKIPPED_PATHS.has(label)) found.push(...walk(path));
+    } else if (entry.isFile()) {
+      const dot = entry.name.lastIndexOf(".");
+      if (dot >= 0 && TEXT_EXTENSIONS.has(entry.name.slice(dot))) found.push(path);
+    }
+  }
+  return found;
+}
+
+const FILES = walk(REPO_DIR).map((path) => ({
+  label: relative(REPO_DIR, path).split(sep).join("/"),
+  text: readFileSync(path, "utf8"),
+}));
+
+test("no live file carries the previous brand name", () => {
+  /** @type {string[]} */
+  const offenders = [];
+  for (const file of FILES) {
+    for (const [index, line] of file.text.split("\n").entries()) {
+      if (LEGACY_NAME_PATTERN.test(line)) offenders.push(`${file.label}:${index + 1}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `the previous brand survives on ${offenders.length} line(s):\n${offenders.map((line) => `  ${line}`).join("\n")}`,
+  );
+});
+
+test("package.json names the package faberun and its entry point bin/faberun.mjs", () => {
+  const pkg = /** @type {{name?: string, bin?: Record<string, string>}} */ (
+    JSON.parse(readFileSync(join(REPO_DIR, "package.json"), "utf8"))
+  );
+  assert.equal(pkg.name, "faberun");
+  assert.equal(pkg.bin?.faberun, "bin/faberun.mjs");
+});

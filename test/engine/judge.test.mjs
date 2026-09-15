@@ -716,8 +716,8 @@ test("a finished run with non-done nodes writes a findings.json handoff", async 
       gate: { review: "blocking", failOn: ["major", "critical"], maxRevisions: 0 },
     }],
   }));
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = fakeCodex(directory, "critical");
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = fakeCodex(directory, "critical");
   try {
     const result = await runContract(path);
     const artifact = JSON.parse(readFileSync(join(result.runDir, "findings.json"), "utf8"));
@@ -732,8 +732,8 @@ test("a finished run with non-done nodes writes a findings.json handoff", async 
     assert.equal(node.gate.maxSeverity, "critical");
     assert.equal(node.gate.findings[0].evidence, "test failed");
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 });
 

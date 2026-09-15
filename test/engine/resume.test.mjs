@@ -231,7 +231,7 @@ test("simultaneous resumes allow one controller and reject the other", async () 
   const release = join(directory, ".runs", "provider-release");
   const slow = fakeCodex(directory, "wait-for-release");
   const first = spawn(process.execPath, [runner, "resume", runDir], {
-    env: { ...process.env, INTENT_FACTORY_CODEX_BIN: slow },
+    env: { ...process.env, FABERUN_CODEX_BIN: slow },
     stdio: ["ignore", "pipe", "pipe"],
   });
   try {
@@ -250,7 +250,7 @@ test("simultaneous resumes allow one controller and reject the other", async () 
       }
     }, 20_000);
     const second = spawn(process.execPath, [runner, "resume", runDir], {
-      env: { ...process.env, INTENT_FACTORY_CODEX_BIN: fakeCodex(directory, "pass") },
+      env: { ...process.env, FABERUN_CODEX_BIN: fakeCodex(directory, "pass") },
       stdio: ["ignore", "pipe", "pipe"],
     });
     const secondResult = await closeResult(second);

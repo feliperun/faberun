@@ -1,4 +1,4 @@
-# intent-factory evals
+# faberun evals
 
 `run.mjs` discovers deterministic eval cases and runs them with zero model
 invocations: every runtime in every case uses the `replay` harness
@@ -29,8 +29,8 @@ node evals/run.mjs --class deterministic [--case <id>] [--assert-no-model] [--ve
 - `--case <id>` narrows to one case (combine with `--class deterministic`).
 - `--assert-no-model` additionally fails if any case's contract declares a
   runtime whose harness is not `replay`, and runs with
-  `INTENT_FACTORY_CODEX_BIN`, `INTENT_FACTORY_CLAUDE_BIN`,
-  `INTENT_FACTORY_AGY_BIN`, and `INTENT_FACTORY_GLM_BIN` unset, so any code
+  `FABERUN_CODEX_BIN`, `FABERUN_CLAUDE_BIN`,
+  `FABERUN_AGY_BIN`, and `FABERUN_GLM_BIN` unset, so any code
   path that actually needed one of those to resolve a provider CLI fails
   loudly instead of silently reaching a real local install.
 - `--verify-discriminating` does not check any case against its
@@ -122,7 +122,7 @@ touches or consumes a recording (see D06).
 }
 ```
 
-`contract` is a full intent-factory contract (schemaVersion 3). Every
+`contract` is a full faberun contract (schemaVersion 3). Every
 `runtimes` entry the contract declares must use `"harness": "replay"`; the
 harness injects `config["replay.recording"]` itself, pointed at a fresh copy
 of the recording named in `recordings` for that runtime id — do not set
@@ -161,13 +161,13 @@ needing a second field in `expected.json` to describe the rejection.
 A case whose scenario is disk pressure never fills a real disk. `env` on a
 `run`/`resume` step instead sets one or both of:
 
-- `INTENT_FACTORY_SIMULATE_ENOSPC_MATCH` / `INTENT_FACTORY_SIMULATE_ENOSPC_COUNT`
+- `FABERUN_SIMULATE_ENOSPC_MATCH` / `FABERUN_SIMULATE_ENOSPC_COUNT`
   — the next `COUNT` run-directory writes whose path contains `MATCH` fail
   with a synthetic `ENOSPC` instead of actually writing (`disk-gc.mjs`'s
   `writeRunTextWithDiskPressureRetry`, the only write `writeNode` makes).
   `COUNT: "1"` proves a single ENOSPC recovers after one GC pass; `"2"`
   proves a second one in a row never gets a second retry.
-- `INTENT_FACTORY_SIMULATE_GC_ROUNDS` — deterministically bounds how many
+- `FABERUN_SIMULATE_GC_ROUNDS` — deterministically bounds how many
   times the garbage collector's own "is there enough space now" check
   reports "not yet" before reporting "enough", standing in for real free
   space crossing the threshold. It never affects `environmentPreflight`'s own
@@ -262,7 +262,7 @@ actual publication a resume or recovery claims to finish, not just the node's
 own after-the-fact bookkeeping:
 
 - `runRefMatchesIntegratedHead` — an array of node ids; for each, the run's
-  git ref (`refs/intent-factory/<runId>/run`) must exist and equal that
+  git ref (`refs/faberun/<runId>/run`) must exist and equal that
   node's `integratedHead`.
 - `acceptedRecords` — an array of `{node, attempt}`; each must have an
   `"accepted"` record in `integration.jsonl`.
@@ -332,7 +332,7 @@ node evals/run.mjs --verify-fixtures [--json]
 `evals/golden/<task-id>/` holds one task per real commit in this
 repository's own history — never a hand-written scenario. `build-golden.mjs`
 (re)builds the whole directory from git plumbing: a curated list of commits
-the intent-factory itself integrated into `main` (see
+the faberun itself integrated into `main` (see
 `docs/history/TECH-SPEC-2026-09-09.md` §C1.3), plus every `fix`
 commit whose own diff touches both
 `src/` and `test/`

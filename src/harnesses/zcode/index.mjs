@@ -43,7 +43,7 @@ const ZCODE_DEFAULT_AUTH_TOKEN_ENV = "ZAI_API_KEY";
  * boundary), and the CLI's `--settings`/hooks surface stays unwired.
  *
  * The vendor's own CLI reference is checked in at
- * `docs/intent-factory/ZCODE-CLI.md`; it is the authority this adapter is
+ * `docs/faberun/ZCODE-CLI.md`; it is the authority this adapter is
  * written against, and the place to look before trusting any of the surface
  * facts above. `ensureZcodeAvailable` below implements what that document
  * describes as the install story: the CLI lives inside the app bundle and has
@@ -77,7 +77,7 @@ export const zcodeHarness = {
 
   /** @param {import("../index.mjs").HarnessRuntime} runtime @returns {string} */
   executable(runtime) {
-    const declared = process.env.INTENT_FACTORY_ZCODE_BIN ?? runtime.executable;
+    const declared = process.env.FABERUN_ZCODE_BIN ?? runtime.executable;
     if (declared) return declared;
     // Repair the host, then keep naming the command `zcode`. The name is part
     // of the runtime fingerprint (node.mjs hashes `{runtime, executable}`) and
@@ -209,7 +209,7 @@ export function ensureZcodeAvailable(options = {}) {
 function zcodeShim(bundle) {
   return `#!/usr/bin/env bash
 set -euo pipefail
-# Written by the intent-factory zcode harness; the ZCode app owns both paths.
+# Written by the faberun zcode harness; the ZCode app owns both paths.
 ELECTRON_RUN_AS_NODE=1 exec ${bundle.electron} \\
   ${bundle.cli} "$@"
 `;

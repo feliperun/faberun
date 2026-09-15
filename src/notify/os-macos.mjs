@@ -1,7 +1,7 @@
 import { spawn as defaultSpawn } from "node:child_process";
 import { errorMessage, truncateChars } from "../util.mjs";
 
-const TITLE = "intent-factory";
+const TITLE = "faberun";
 const BODY_CHARS = 200;
 const SUBTITLE_CHARS = 80;
 

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/harnesses/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/harnesses/index.mjs";
 import {
   listNodeSnapshots,
   nodeSnapshotPath,
@@ -15,7 +15,7 @@ import {
 function minimalNodeSnapshot(id) {
   return /** @type {any} */ ({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     id,
     type: "generic",
     sourceIdentity: { kind: "node", contractId: "run-1", nodeId: id },

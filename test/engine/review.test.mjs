@@ -20,15 +20,15 @@ test("marks a silent provider stalled", async () => {
     stallTimeoutSec: 0.05,
     nodes: [{ id: "build", type: "backend", taskPacket: packet({ readFiles: ["README.md"] }), gate: false }],
   }));
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = fakeCodex(directory, "silent");
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = fakeCodex(directory, "silent");
   try {
     const result = await runContract(path);
     assert.equal(result.ok, false);
     assert.equal(nodeState(result).status, "stalled");
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 });
 
@@ -358,8 +358,8 @@ test("enforces the wall-clock cap even while output changes", async () => {
     stallTimeoutSec: 1,
     timeoutSec: 0.05,
   }));
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = fakeCodex(directory, "heartbeat");
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = fakeCodex(directory, "heartbeat");
   try {
     const result = await runContract(path);
     assert.equal(nodeState(result).status, "exhausted");
@@ -367,8 +367,8 @@ test("enforces the wall-clock cap even while output changes", async () => {
     assert.ok(timedOut.error, "timeout records an error");
     assert.equal(timedOut.error.code, "wall_clock_timeout");
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 });
 

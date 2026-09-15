@@ -9,7 +9,7 @@ import { renderMetricsJson, renderMetricsReport } from "../../src/report/metrics
 import { renderReportJson } from "../../src/report/render.mjs";
 import { projectMetrics, readMetricsSources } from "../../src/campaign/metrics.mjs";
 import { projectEvalIndicators } from "../../evals/metrics.mjs";
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
 
 /** Every indicator of TECH-SPEC lean section 6 with the direction the spec table gives it. */
@@ -194,7 +194,7 @@ function pricedRun(invocationCost) {
   writeFileSync(join(runDir, "contract.json"), readFileSync(contractPath));
   writeFileSync(join(runDir, "run.json"), `${JSON.stringify({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     pid: process.pid,
     processStartToken: null,
     startedAt: "2026-01-01T00:00:00.000Z",
@@ -203,7 +203,7 @@ function pricedRun(invocationCost) {
   const planNode = /** @type {import("../../src/contract/index.mjs").ValidatedNode} */ (contract.nodes.find((candidate) => candidate.id === "build"));
   writeFileSync(join(runDir, "nodes", "build.json"), `${JSON.stringify({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     id: "build",
     type: planNode.type,
     sourceIdentity: planNode.sourceIdentity,
@@ -343,7 +343,7 @@ test("metrics projection is pure: identical records yield identical indicators",
  * Baseline reproduction of this campaign's own recorded runs.
  *
  * `fixtures/lean-campaign-baseline/` is one bounded reduction of
- * `intent-factory-lean-20260905` distilled from `.runs/campaigns/` and every
+ * `faberun-lean-20260905` distilled from `.runs/campaigns/` and every
  * one of its linked runs (read-only, taken 2026-09-08): `campaign.json`'s id
  * and linked run ids, and per run the persisted node snapshots reduced to
  * `id`/`status`/`attempt`/`revisions`/`review`, the transition events reduced

@@ -228,7 +228,7 @@ test("attempt worktree seals a worker-only file onto its isolated branch and int
   assert.equal(result.status, "accepted");
   assert.equal(existsSync(join(fixture.repo, "output.txt")), false, "the main tree stays untouched");
   assert.equal(showRefFile(fixture.repo, runRefName(fixture.id), "output.txt"), "worker\n");
-  assert.equal(result.worktree.branch, `if/${fixture.id}/build/1`);
+  assert.equal(result.worktree.branch, `faberun/${fixture.id}/build/1`);
   assert.equal(result.sealed.empty, false);
   const lastRecord = readIntegrationJournal(fixture.runDir).at(-1);
   assert.ok(lastRecord);
@@ -256,10 +256,10 @@ test("a Codex-shaped worker writes its result in the attempt worktree and resume
   const directory = mkdtempSync(join(tmpdir(), "codex-isolated-result-"));
   const id = "codex-isolated-result";
   const contractPath = writeContract(directory, fixture({ id, pollIntervalMs: 10 }));
-  const previousInterrupt = process.env.INTENT_FACTORY_INTEGRATION_INTERRUPT;
+  const previousInterrupt = process.env.FABERUN_INTEGRATION_INTERRUPT;
   const runDir = join(directory, ".runs", id);
   try {
-    process.env.INTENT_FACTORY_INTEGRATION_INTERRUPT = "after-state";
+    process.env.FABERUN_INTEGRATION_INTERRUPT = "after-state";
     await assert.rejects(
       () => withFakeCodex(directory, "write-result", async () => {
         await runContract(contractPath);
@@ -267,8 +267,8 @@ test("a Codex-shaped worker writes its result in the attempt worktree and resume
       /integration interrupted after node state write/u,
     );
   } finally {
-    if (previousInterrupt === undefined) delete process.env.INTENT_FACTORY_INTEGRATION_INTERRUPT;
-    else process.env.INTENT_FACTORY_INTEGRATION_INTERRUPT = previousInterrupt;
+    if (previousInterrupt === undefined) delete process.env.FABERUN_INTEGRATION_INTERRUPT;
+    else process.env.FABERUN_INTEGRATION_INTERRUPT = previousInterrupt;
   }
   const node = JSON.parse(readFileSync(join(runDir, "nodes", "build.json"), "utf8"));
   const workspace = node.worktree.path;
@@ -368,7 +368,7 @@ test("failed candidate verification leaves the run ref unchanged and keeps the a
   });
   assert.equal(result.status, "verification_failed");
   assert.equal(gitHead(fixture.repo, runRefName(fixture.id)), before);
-  assert.equal(gitHead(fixture.repo, `refs/intent-factory/${fixture.id}/candidate`), null);
+  assert.equal(gitHead(fixture.repo, `refs/faberun/${fixture.id}/candidate`), null);
   assert.equal(existsSync(join(fixture.repo, ".runs", "worktrees", fixture.id, ".candidate")), false);
   assert.equal(existsSync(result.worktree.path), true);
   const lastRecord = readIntegrationJournal(fixture.runDir).at(-1);
@@ -565,8 +565,8 @@ test("D32: notify.jsonl bounds retries against a failing transport, and sync/ack
   const failingTransport = join(mkdtempSync(join(tmpdir(), "d32-failing-transport-")), "fail.sh");
   writeFileSync(failingTransport, "#!/bin/sh\ncat > /dev/null\nexit 1\n");
   chmodSync(failingTransport, 0o755);
-  const previousDefaultNotifyBin = process.env.INTENT_FACTORY_NOTIFY_BIN;
-  process.env.INTENT_FACTORY_NOTIFY_BIN = failingTransport;
+  const previousDefaultNotifyBin = process.env.FABERUN_NOTIFY_BIN;
+  process.env.FABERUN_NOTIFY_BIN = failingTransport;
   let replayed;
   try {
     replayed = await driveReplayedContract({
@@ -575,8 +575,8 @@ test("D32: notify.jsonl bounds retries against a failing transport, and sync/ack
       nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
     });
   } finally {
-    if (previousDefaultNotifyBin === undefined) delete process.env.INTENT_FACTORY_NOTIFY_BIN;
-    else process.env.INTENT_FACTORY_NOTIFY_BIN = previousDefaultNotifyBin;
+    if (previousDefaultNotifyBin === undefined) delete process.env.FABERUN_NOTIFY_BIN;
+    else process.env.FABERUN_NOTIFY_BIN = previousDefaultNotifyBin;
   }
   const receipts = readJsonlRecords(join(replayed.outcome.runDir, "notify.jsonl"));
   assert.ok(receipts.length > 0, "the run appended notify receipts");
@@ -617,7 +617,7 @@ test("preflight --json measures the worker preamble per runtime", async () => {
   });
   const preflight = spawnSync(process.execPath, [runner, "preflight", "--json", replayed.contractPath], {
     encoding: "utf8",
-    env: { ...process.env, INTENT_FACTORY_PREFLIGHT_TIMEOUT_SEC: "120" },
+    env: { ...process.env, FABERUN_PREFLIGHT_TIMEOUT_SEC: "120" },
   });
   assert.equal(preflight.status, 0, preflight.stderr);
   const payload = /** @type {{checks: {id: string, live: boolean, usage: {inputTokens: number}|null}[]}} */ (JSON.parse(preflight.stdout));

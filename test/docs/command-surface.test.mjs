@@ -37,10 +37,10 @@ function declaredOperations(source) {
   return [...declared[1].matchAll(/^ {2}"?([a-z-]+)"?:/gmu)].map(([, name]) => name);
 }
 
-/** Verbs the README's intent-factory command table names, first word of each code span. */
+/** Verbs the README's faberun command table names, first word of each code span. */
 function documentedCommands() {
   const table = /\| Goal \| Command \|([\s\S]*?)\n\n/u.exec(readme);
-  assert.ok(table, "the README must still carry the intent-factory command table");
+  assert.ok(table, "the README must still carry the faberun command table");
   /** @type {Set<string>} */
   const commands = new Set();
   for (const [, span] of table[1].matchAll(/`([^`]+)`/gu)) {
@@ -81,7 +81,7 @@ test("every command the README advertises exists in the CLI", () => {
 });
 
 test("every command the CLI dispatches appears in its own usage string", () => {
-  const usage = /usage: runner\.mjs([\s\S]*?)\\n",\n {2}\);/u.exec(cliSource);
+  const usage = /usage: faberun([\s\S]*?)\\n",\n {2}\);/u.exec(cliSource);
   assert.ok(usage, "the CLI must still print a usage string");
   const missing = [...implementedCommands()]
     .filter((command) => !command.includes(" "))
@@ -92,7 +92,7 @@ test("every command the CLI dispatches appears in its own usage string", () => {
 test("the contract subcommand table and its usage line agree", () => {
   const operations = declaredOperations(contractCliSource);
   assert.ok(operations.length > 0, "contract must carry at least one operation");
-  const usage = /usage: runner\.mjs contract ([^\\]*)/u.exec(contractCliSource);
+  const usage = /usage: faberun contract ([^\\]*)/u.exec(contractCliSource);
   assert.ok(usage, "contract must print its own usage line");
   for (const operation of operations) {
     assert.ok(usage[1].includes(operation), `contract ${operation} is dispatched but absent from its usage line`);

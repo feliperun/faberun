@@ -12,7 +12,7 @@ import {
   processStartToken,
   readLock,
 } from "../../src/run/lock.mjs";
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 import { detectStalls, invocationAlive, monitorInvocation, startProcess, terminateInvocation } from "../../src/engine/process.mjs";
 
 import { fixture, writeContract } from "../helpers.mjs";
@@ -40,7 +40,7 @@ function nodeSnapshot(node, executionOverrides) {
   const now = new Date().toISOString();
   return validateNodeSnapshot({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     id: node.id,
     type: node.type,
     sourceIdentity: node.sourceIdentity,
@@ -192,12 +192,12 @@ test("stall supervision uses the latest persisted timeout override", async () =>
   mkdirSync(logs);
   const marker = join(runDir, "provider-started");
   const provider = join(runDir, "provider.mjs");
-  writeFileSync(provider, "import { writeFileSync } from \"node:fs\"; writeFileSync(process.env.INTENT_FACTORY_MARKER, \"started\"); process.stdin.resume(); setTimeout(() => {}, 1000);\n");
+  writeFileSync(provider, "import { writeFileSync } from \"node:fs\"; writeFileSync(process.env.FABERUN_MARKER, \"started\"); process.stdin.resume(); setTimeout(() => {}, 1000);\n");
   chmodSync(provider, 0o755);
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  const previousMarker = process.env.INTENT_FACTORY_MARKER;
-  process.env.INTENT_FACTORY_CODEX_BIN = provider;
-  process.env.INTENT_FACTORY_MARKER = marker;
+  const previous = process.env.FABERUN_CODEX_BIN;
+  const previousMarker = process.env.FABERUN_MARKER;
+  process.env.FABERUN_CODEX_BIN = provider;
+  process.env.FABERUN_MARKER = marker;
   const { contract, node } = validatedRun(runDir);
   const state = nodeSnapshot(node, [
     { kind: "timeout", timeoutSec: 5, at: new Date().toISOString(), reason: "old" },
@@ -228,10 +228,10 @@ test("stall supervision uses the latest persisted timeout override", async () =>
     assert.equal(timeout.status, "exhausted");
     assert.match(timeout.error.message, /0\.05s/u);
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
-    if (previousMarker === undefined) delete process.env.INTENT_FACTORY_MARKER;
-    else process.env.INTENT_FACTORY_MARKER = previousMarker;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
+    if (previousMarker === undefined) delete process.env.FABERUN_MARKER;
+    else process.env.FABERUN_MARKER = previousMarker;
     try { await terminateInvocation(job.invocation, { graceMs: 25, killGraceMs: 500 }); } catch {}
   }
 });
@@ -243,8 +243,8 @@ test("the pre-termination hook runs before terminateProcess, and a no-op is the 
   const provider = join(runDir, "provider.mjs");
   writeFileSync(provider, `#!/usr/bin/env node\nprocess.stdin.resume();\nsetTimeout(() => {}, 1000);\n`);
   chmodSync(provider, 0o755);
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = provider;
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = provider;
   const { contract, node } = validatedRun(runDir);
   const state = nodeSnapshot(node, [
     { kind: "timeout", timeoutSec: 0.05, at: new Date().toISOString(), reason: "hook" },
@@ -285,8 +285,8 @@ test("the pre-termination hook runs before terminateProcess, and a no-op is the 
     assert.equal(timeoutSeen?.status, "exhausted");
     assert.equal(invocationAlive(job.invocation), false, "the kill happens after the hook");
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
     try { await terminateInvocation(job.invocation, { graceMs: 25, killGraceMs: 500 }); } catch {}
   }
 });
@@ -301,8 +301,8 @@ test("stall supervision kills a runtime whose harness declares streamed output o
   // must be enough for the stall clock to start and then expire.
   writeFileSync(provider, "#!/usr/bin/env node\nprocess.stdout.write(\"{}\\n\"); process.stdin.resume(); setInterval(() => {}, 1000);\n");
   chmodSync(provider, 0o755);
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = provider;
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = provider;
   const { contract, node } = validatedRun(runDir, { stallTimeoutSec: 0.05 });
   const state = nodeSnapshot(node, []);
   const job = startProcess({
@@ -336,8 +336,8 @@ test("stall supervision kills a runtime whose harness declares streamed output o
     assert.equal(timeout.status, "stalled");
     assert.match(timeout.error.message, /no provider progress/u);
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
     try { await terminateInvocation(job.invocation, { graceMs: 25, killGraceMs: 500 }); } catch {}
   }
 });
@@ -420,8 +420,8 @@ test("a zcode worker runs with the harness's endpoint env overlay applied", asyn
   writeFileSync(provider, `#!/usr/bin/env node
 import { writeFileSync } from "node:fs";
 writeFileSync(${JSON.stringify(marker)}, JSON.stringify({
-  notify: process.env.INTENT_FACTORY_NOTIFY_BIN ?? null,
-  ambient: process.env.INTENT_FACTORY_AMBIENT ?? null,
+  notify: process.env.FABERUN_NOTIFY_BIN ?? null,
+  ambient: process.env.FABERUN_AMBIENT ?? null,
   baseUrl: process.env.ZCODE_BASE_URL ?? null,
   model: process.env.ZCODE_MODEL ?? null,
   token: process.env.GLM_API_KEY ?? null,
@@ -431,17 +431,17 @@ setInterval(() => {}, 1000);
 `);
   chmodSync(provider, 0o755);
   const previous = {
-    INTENT_FACTORY_ZCODE_BIN: process.env.INTENT_FACTORY_ZCODE_BIN,
-    INTENT_FACTORY_MARKER: process.env.INTENT_FACTORY_MARKER,
-    INTENT_FACTORY_AMBIENT: process.env.INTENT_FACTORY_AMBIENT,
-    INTENT_FACTORY_NOTIFY_BIN: process.env.INTENT_FACTORY_NOTIFY_BIN,
+    FABERUN_ZCODE_BIN: process.env.FABERUN_ZCODE_BIN,
+    FABERUN_MARKER: process.env.FABERUN_MARKER,
+    FABERUN_AMBIENT: process.env.FABERUN_AMBIENT,
+    FABERUN_NOTIFY_BIN: process.env.FABERUN_NOTIFY_BIN,
     ZAI_API_KEY: process.env.ZAI_API_KEY,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
   };
-  process.env.INTENT_FACTORY_ZCODE_BIN = provider;
-  process.env.INTENT_FACTORY_MARKER = marker;
-  process.env.INTENT_FACTORY_AMBIENT = "ambient-value";
-  process.env.INTENT_FACTORY_NOTIFY_BIN = provider;
+  process.env.FABERUN_ZCODE_BIN = provider;
+  process.env.FABERUN_MARKER = marker;
+  process.env.FABERUN_AMBIENT = "ambient-value";
+  process.env.FABERUN_NOTIFY_BIN = provider;
   process.env.ZAI_API_KEY = "zcode-notify-test-token";
   process.env.ANTHROPIC_API_KEY = "ambient-anthropic-key";
   const { contract, node } = validatedRun(runDir);
@@ -471,7 +471,7 @@ setInterval(() => {}, 1000);
       if (observed === null) await new Promise((resolve) => setTimeout(resolve, 25));
     }
     assert.ok(observed, "the fake provider wrote its marker within five seconds");
-    assert.equal(observed.notify, null, "INTENT_FACTORY_NOTIFY_BIN must not reach the worker provider");
+    assert.equal(observed.notify, null, "FABERUN_NOTIFY_BIN must not reach the worker provider");
     assert.equal(observed.ambient, "ambient-value", "ambient runtime variables must survive");
     assert.equal(observed.baseUrl, "https://api.z.ai/api/anthropic", "harness env overlay must still apply");
     assert.equal(observed.model, "glm/glm-5.3", "the [1m] tier marker is stripped before ZCODE_MODEL");
@@ -492,12 +492,12 @@ test("a persistence failure leaves the gated provider unstarted and terminates i
   mkdirSync(logs);
   const marker = join(runDir, "provider-started");
   const provider = join(runDir, "provider.mjs");
-  writeFileSync(provider, "import { writeFileSync } from \"node:fs\"; writeFileSync(process.env.INTENT_FACTORY_MARKER, \"started\"); setInterval(() => {}, 1000);\n");
+  writeFileSync(provider, "import { writeFileSync } from \"node:fs\"; writeFileSync(process.env.FABERUN_MARKER, \"started\"); setInterval(() => {}, 1000);\n");
   chmodSync(provider, 0o755);
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  const previousMarker = process.env.INTENT_FACTORY_MARKER;
-  process.env.INTENT_FACTORY_CODEX_BIN = provider;
-  process.env.INTENT_FACTORY_MARKER = marker;
+  const previous = process.env.FABERUN_CODEX_BIN;
+  const previousMarker = process.env.FABERUN_MARKER;
+  process.env.FABERUN_CODEX_BIN = provider;
+  process.env.FABERUN_MARKER = marker;
   const { contract, node } = validatedRun(runDir);
   const state = nodeSnapshot(node, []);
   let persistedInvocation;
@@ -523,9 +523,9 @@ test("a persistence failure leaves the gated provider unstarted and terminates i
     assert.equal(existsSync(marker), false);
     assert.equal(invocationAlive(persistedInvocation), false);
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
-    if (previousMarker === undefined) delete process.env.INTENT_FACTORY_MARKER;
-    else process.env.INTENT_FACTORY_MARKER = previousMarker;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
+    if (previousMarker === undefined) delete process.env.FABERUN_MARKER;
+    else process.env.FABERUN_MARKER = previousMarker;
   }
 });

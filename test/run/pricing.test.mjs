@@ -151,10 +151,10 @@ test("done-when 10: a priced bulk-read delegation records costProvenance priced 
     config: { "replay.recording": recording },
     pricing: { inputPerMTok: 1.0, cachedInputPerMTok: 0.1, outputPerMTok: 3.0 },
   };
-  const savedRun = process.env.INTENT_FACTORY_RUN_DIR;
-  const savedNode = process.env.INTENT_FACTORY_NODE_ID;
-  process.env.INTENT_FACTORY_RUN_DIR = runDir;
-  process.env.INTENT_FACTORY_NODE_ID = "delegating-node";
+  const savedRun = process.env.FABERUN_RUN_DIR;
+  const savedNode = process.env.FABERUN_NODE_ID;
+  process.env.FABERUN_RUN_DIR = runDir;
+  process.env.FABERUN_NODE_ID = "delegating-node";
   try {
     const result = await bulkRead({ question: "where is pricing decided?", paths: [corpus], runtimes: { deleg: runtime } });
     assert.equal(result.status, "done", result.error?.message);
@@ -163,10 +163,10 @@ test("done-when 10: a priced bulk-read delegation records costProvenance priced 
     assert.equal(records[0].costUsd, 1.65);
     assert.equal(records[0].costProvenance, "priced", "the delegation priced its own envelope");
   } finally {
-    if (savedRun === undefined) delete process.env.INTENT_FACTORY_RUN_DIR;
-    else process.env.INTENT_FACTORY_RUN_DIR = savedRun;
-    if (savedNode === undefined) delete process.env.INTENT_FACTORY_NODE_ID;
-    else process.env.INTENT_FACTORY_NODE_ID = savedNode;
+    if (savedRun === undefined) delete process.env.FABERUN_RUN_DIR;
+    else process.env.FABERUN_RUN_DIR = savedRun;
+    if (savedNode === undefined) delete process.env.FABERUN_NODE_ID;
+    else process.env.FABERUN_NODE_ID = savedNode;
   }
 });
 

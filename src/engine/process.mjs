@@ -68,10 +68,10 @@ export function startProcess({ contract, node, state, runtime, prompt, paths, ph
       cwd: workspace,
       env: {
         ...process.env,
-        INTENT_FACTORY_GATE_CONFIG: gateConfigPath,
-        INTENT_FACTORY_GATE_RELEASE: gateReleasePath,
-        INTENT_FACTORY_GATE_PARENT_PID: String(process.pid),
-        INTENT_FACTORY_GATE_PARENT_TOKEN: processStartToken(process.pid) ?? "",
+        FABERUN_GATE_CONFIG: gateConfigPath,
+        FABERUN_GATE_RELEASE: gateReleasePath,
+        FABERUN_GATE_PARENT_PID: String(process.pid),
+        FABERUN_GATE_PARENT_TOKEN: processStartToken(process.pid) ?? "",
       },
       detached: process.platform !== "win32",
       stdio: ["pipe", "ignore", "ignore"],
@@ -379,7 +379,7 @@ function resumeInvocation(invocation) {
  * quiesce the provider, seal the attempt worktree, and only then let the caller
  * terminate it, so the next attempt is cut from the seal. The seal is bounded
  * by the same git timeout every synchronous git call uses
- * (`GIT_SYNC_TIMEOUT_MS`, overridable with `INTENT_FACTORY_GIT_TIMEOUT_MS`);
+ * (`GIT_SYNC_TIMEOUT_MS`, overridable with `FABERUN_GIT_TIMEOUT_MS`);
  * when the provider holds `index.lock` or the seal otherwise fails, the
  * declared outcome is to skip the seal, record `worktree.sealError`, and let
  * the termination proceed — never to hang. An attempt with nothing to seal is

@@ -9,8 +9,8 @@ const testDir = dirname(fileURLToPath(import.meta.url));
 
 // helpers.mjs is the one file-wide exemption: its default fixture() runtimes
 // (luna, sol, opus, agy, flash) are given a fake binary at test time by the
-// withFakeCodex/withFakeAgy wrappers, which inject INTENT_FACTORY_CODEX_BIN
-// and INTENT_FACTORY_AGY_BIN, and those fakes live in a per-test temp
+// withFakeCodex/withFakeAgy wrappers, which inject FABERUN_CODEX_BIN
+// and FABERUN_AGY_BIN, and those fakes live in a per-test temp
 // directory — there is no static path to declare as `executable` here.
 const FILE_EXEMPT = new Set(["helpers.mjs", "fixture-runtime-guard.mjs"]);
 

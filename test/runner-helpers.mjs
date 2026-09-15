@@ -156,13 +156,13 @@ if (process.argv.includes("--version")) {
 
 /** @param {string} directory @param {"file-first"|"missing-then-mutates"|"missing-then-file-vs-message"|"missing-then-noop"|"revision-regrinds"} mode @param {string} path @returns {Promise<import("../src/cli.mjs").RunOutcome>} */
 export async function withResultFileCodex(directory, mode, path) {
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = resultFileCodex(directory, mode);
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = resultFileCodex(directory, mode);
   try {
     return await runContract(path);
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 }
 
@@ -211,13 +211,13 @@ if (process.argv.includes("--version")) {
 
 /** @template T @param {string} directory @param {() => T | Promise<T>} fn @returns {Promise<T>} */
 export async function withCitedGateCodex(directory, fn) {
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = citedGateCodex(directory);
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = citedGateCodex(directory);
   try {
     return await fn();
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 }
 
@@ -260,13 +260,13 @@ if (process.argv.includes("--version")) {
 
 /** @template T @param {string} directory @param {() => T | Promise<T>} fn @returns {Promise<T>} */
 export async function withAdvisoryGateCodex(directory, fn) {
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = advisoryGateCodex(directory);
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = advisoryGateCodex(directory);
   try {
     return await fn();
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 }
 
@@ -308,13 +308,13 @@ if (process.argv.includes("--version")) {
 
 /** @template T @param {string} directory @param {() => T | Promise<T>} fn @returns {Promise<T>} */
 export async function withBrokenGateCodex(directory, fn) {
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = brokenGateCodex(directory);
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = brokenGateCodex(directory);
   try {
     return await fn();
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 }
 
@@ -387,13 +387,13 @@ process.stdin.on("end", () => {
 
 /** @template T @param {string} directory @param {"two-verdicts"|"empty-output"|"no-terminal"|"two-verdicts-then-fail"} defect @param {{again?: boolean}} options @param {() => T | Promise<T>} runner @returns {Promise<T>} */
 export async function withJudgeDefectCodex(directory, defect, options, runner) {
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = judgeDefectCodex(directory, defect, options);
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = judgeDefectCodex(directory, defect, options);
   try {
     return await runner();
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 }
 
@@ -435,13 +435,13 @@ process.stdin.on("end", () => {
 
 /** @template T @param {string} directory @param {() => T | Promise<T>} runner @returns {Promise<T>} */
 export async function withStallingJudgeCodex(directory, runner) {
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = stallingJudgeCodex(directory);
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = stallingJudgeCodex(directory);
   try {
     return await runner();
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 }
 
@@ -535,13 +535,13 @@ if (process.argv.includes("--version")) {
 
 /** @template T @param {string} executable @param {() => T | Promise<T>} body @returns {Promise<T>} */
 export async function withCodexBinary(executable, body) {
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = executable;
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = executable;
   try {
     return await body();
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 }
 

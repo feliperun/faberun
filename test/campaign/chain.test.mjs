@@ -13,7 +13,7 @@ import {
 } from "../../src/campaign/chain.mjs";
 import { authoredContractDigest, initializeCampaign } from "../../src/campaign/index.mjs";
 import { readCampaign } from "../../src/campaign/record.mjs";
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION, contractDigest, validateContract } from "../../src/contract/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, contractDigest, validateContract } from "../../src/contract/index.mjs";
 import { controllerSnapshotIdentity } from "../../src/engine/run-identity.mjs";
 import { writeHeartbeat } from "../../src/engine/supervise.mjs";
 import { packet, closeResult, waitForValue } from "../helpers.mjs";
@@ -125,7 +125,7 @@ function commitFile(repo, path, content, message) {
 function chainContract(repo, campaignId, id, overrides = {}) {
   return {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     id,
     campaignId,
     goal: `chain ${id}`,
@@ -171,7 +171,7 @@ function writeRunDir({ repo, runDir, contract, node, gitHead = null, controllerI
   /** @type {Record<string, unknown>} */
   const metadata = {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     pid: process.pid,
     processStartToken: null,
     startedAt: new Date().toISOString(),
@@ -205,7 +205,7 @@ function writeRunDir({ repo, runDir, contract, node, gitHead = null, controllerI
 function succeedRun(repo, runDir, contract, baseRef, options = {}) {
   const baseSha = baseRef ? git(repo, ["rev-parse", baseRef]) : git(repo, ["rev-parse", "HEAD"]);
   const head = commitFile(repo, `out-${contract.id}.txt`, `${contract.id}\n`, `run ${contract.id}`);
-  git(repo, ["update-ref", `refs/intent-factory/${contract.id}/run`, head]);
+  git(repo, ["update-ref", `refs/faberun/${contract.id}/run`, head]);
   writeRunDir({ repo, runDir, contract, node: { id: "build", status: "done" }, gitHead: baseSha, ...(options.controllerIdentity ? { controllerIdentity: options.controllerIdentity } : {}) });
   return { baseSha, head };
 }
@@ -245,13 +245,13 @@ test("done-when 1 and 2: three contracts launch in order, landBranch moves after
   const campaign = readCampaign(campaignPath);
   assert.equal(campaign.promotions.length, 3, "each success left one promotion record");
   assert.deepEqual(campaign.promotions.map((record) => record.runId), ["c1", "c2", "c3"]);
-  assert.equal(git(repo, ["rev-parse", "campaign/chain1"]), git(repo, ["rev-parse", "refs/intent-factory/c3/run"]), "the branch moved after each contract");
+  assert.equal(git(repo, ["rev-parse", "campaign/chain1"]), git(repo, ["rev-parse", "refs/faberun/c3/run"]), "the branch moved after each contract");
 
   // done-when 2: lineage. c2 recorded the sha c1 integrated.
   const c2 = JSON.parse(readFileSync(join(repo, ".runs", "c2", "run.json"), "utf8"));
-  assert.equal(c2.sourceIdentity.gitHead, git(repo, ["rev-parse", "refs/intent-factory/c1/run"]));
+  assert.equal(c2.sourceIdentity.gitHead, git(repo, ["rev-parse", "refs/faberun/c1/run"]));
   const c3 = JSON.parse(readFileSync(join(repo, ".runs", "c3", "run.json"), "utf8"));
-  assert.equal(c3.sourceIdentity.gitHead, git(repo, ["rev-parse", "refs/intent-factory/c2/run"]));
+  assert.equal(c3.sourceIdentity.gitHead, git(repo, ["rev-parse", "refs/faberun/c2/run"]));
 });
 
 test("done-when 3: a parked second run stops the chain before the third and names contract, node and status", async () => {
@@ -384,7 +384,7 @@ test("done-when 11: a waiting first run neither advances nor fails, then advance
   const runDir = join(repo, ".runs", "w1");
   // A run ref exists from run creation, cut from the base; the waiting run has
   // not advanced it yet.
-  git(repo, ["update-ref", "refs/intent-factory/w1/run", git(repo, ["rev-parse", "HEAD"])]);
+  git(repo, ["update-ref", "refs/faberun/w1/run", git(repo, ["rev-parse", "HEAD"])]);
   const start = Date.parse("2026-09-14T00:00:00Z");
   const reset = "2026-09-14T00:10:00.000Z";
   writeRunDir({
@@ -660,7 +660,7 @@ test("done-when 15: the real CLI surface drives the chain, including the main au
   const result = spawnSync(process.execPath, [CLI, "supervise", "campaign", "cli1", "--cwd", repo], { encoding: "utf8" });
   assert.equal(result.status, 0, `${result.stdout ?? ""}${result.stderr ?? ""}`);
   assert.match(String(result.stdout), /cli1 done/u);
-  assert.equal(git(repo, ["rev-parse", "campaign/cli1"]), git(repo, ["rev-parse", "refs/intent-factory/k1/run"]));
+  assert.equal(git(repo, ["rev-parse", "campaign/cli1"]), git(repo, ["rev-parse", "refs/faberun/k1/run"]));
   const alias = spawnSync(process.execPath, [CLI, "campaign", "supervise", "cli1", "--cwd", repo], { encoding: "utf8" });
   assert.equal(alias.status, 0, `${alias.stdout ?? ""}${alias.stderr ?? ""}`);
 

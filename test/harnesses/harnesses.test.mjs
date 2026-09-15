@@ -409,7 +409,7 @@ test("preflight still probes and reports version when an environment variable is
   const executable = join(directory, "versioned-wrapper.mjs");
   writeFileSync(executable, "#!/usr/bin/env node\nif (process.argv.includes('--version')) console.log('wrapper 3.1.4');\n");
   chmodSync(executable, 0o755);
-  const envName = "INTENT_FACTORY_TEST_REQUIRED_ENV_4F8D";
+  const envName = "FABERUN_TEST_REQUIRED_ENV_4F8D";
   const previous = process.env[envName];
   delete process.env[envName];
   try {
@@ -425,7 +425,7 @@ test("preflight still probes and reports version when an environment variable is
     assert.equal(check.executable, executable);
     assert.equal(check.model, "pi-model");
     assert.equal(check.version, "wrapper 3.1.4");
-    assert.match(check.detail ?? "", /missing environment variable INTENT_FACTORY_TEST_REQUIRED_ENV_4F8D/u);
+    assert.match(check.detail ?? "", /missing environment variable FABERUN_TEST_REQUIRED_ENV_4F8D/u);
     assert.doesNotMatch(check.detail ?? "", /secret-value/u);
   } finally {
     if (previous === undefined) delete process.env[envName];

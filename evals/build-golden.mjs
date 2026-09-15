@@ -35,8 +35,8 @@ const GOLDEN_ROOT = join(EVALS_ROOT, "golden");
 const BUNDLE_PATH = join(GOLDEN_ROOT, "fixtures.bundle");
 
 /**
- * The commits the intent-factory itself integrated into `main`, curated in
- * `docs/intent-factory/TECH-SPEC-2026-09-09.md` §C1.3. That list also names
+ * The commits the faberun itself integrated into `main`, curated in
+ * `docs/faberun/TECH-SPEC-2026-09-09.md` §C1.3. That list also names
  * `a32a2d8`, the candidate merge commit for `anthropic-soft-limit-fixture`;
  * it is dropped here because its first-parent diff is byte-identical to
  * `57a35d9` (the plain attempt commit for the same node, merged in one
@@ -54,7 +54,7 @@ const FACTORY_SHAS = [
 ];
 
 /** Node fields in a `taskPacket`, per `src/contract/task-packet.mjs`. */
-const FACTORY_MESSAGE_RE = /^intent-factory (?:candidate )?(\S+) (\S+) attempt (\d+)/u;
+const FACTORY_MESSAGE_RE = /^faberun (?:candidate )?(\S+) (\S+) attempt (\d+)/u;
 
 /**
  * @param {string[]} args
@@ -140,7 +140,7 @@ function slug(text) {
 function identifyTask(sha, subject) {
   const match = FACTORY_MESSAGE_RE.exec(subject);
   if (match) return { taskId: slug(match[2]), runId: match[1], nodeId: match[2] };
-  return { taskId: slug(subject.replace(/^fix\(intent-factory\):\s*/iu, "")), runId: null, nodeId: null };
+  return { taskId: slug(subject.replace(/^fix\(faberun\):\s*/iu, "")), runId: null, nodeId: null };
 }
 
 /**

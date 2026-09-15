@@ -58,7 +58,7 @@
     {
       "type": "run",
       "env": {
-        "INTENT_FACTORY_INTEGRATION_INTERRUPT": "before-ref"
+        "FABERUN_INTEGRATION_INTERRUPT": "before-ref"
       },
       "expectError": "integration interrupted at before-ref"
     },

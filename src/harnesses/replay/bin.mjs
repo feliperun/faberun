@@ -14,7 +14,7 @@ const USAGE_KEYS = new Set(["inputTokens", "outputTokens", "cacheReadInputTokens
 const FILE_KEYS = new Set(["path", "content"]);
 const ERROR_KEYS = new Set(["code", "message", "resetAt"]);
 const METADATA_ROOTS = new Set([".git", ".runs", "node_modules", ".claude", ".codex"]);
-const PREFLIGHT_TOKEN = "INTENT_FACTORY_PREFLIGHT_OK";
+const PREFLIGHT_TOKEN = "FABERUN_PREFLIGHT_OK";
 
 const PREFLIGHT_ENVELOPE = Object.freeze({
   status: "done",

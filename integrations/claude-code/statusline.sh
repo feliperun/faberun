@@ -1,5 +1,5 @@
 #!/bin/sh
-# Claude Code statusLine renderer for intent-factory ambient liveness. Reads
+# Claude Code statusLine renderer for faberun ambient liveness. Reads
 # the session JSON on stdin, reads that repo's .runs/status.json pointer
 # (rewritten every controller tick), and prints one line:
 #   <run-id> · <state> · <node> <elapsed> · $<usd> · needs you: <n>
@@ -43,7 +43,7 @@ fi
 whole_pct=${used_pct%%.*}
 warning=
 if [ -n "$used_pct" ] && [ -n "$whole_pct" ] && [ "$whole_pct" -ge "$ALLOWANCE_WARN_PCT" ] 2>/dev/null; then
-  warning="[warn] claude 5h ${used_pct}% >=${ALLOWANCE_WARN_PCT}% · intent-factory seat switch --harness <id>"
+  warning="[warn] claude 5h ${used_pct}% >=${ALLOWANCE_WARN_PCT}% · faberun seat switch --harness <id>"
 fi
 
 line=

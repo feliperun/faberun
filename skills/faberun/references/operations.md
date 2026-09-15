@@ -1,9 +1,9 @@
-# Intent Factory operations
+# Faberun operations
 
 ## Attempt worktrees
 
 An execution repository is a git work tree with at least one commit. A run
-creates the integration head `refs/intent-factory/<run-id>/run` at the recorded
+creates the integration head `refs/faberun/<run-id>/run` at the recorded
 source `gitHead`. Every worker attempt gets a linked worktree at
 `.runs/worktrees/<run-id>/<node-id>.<attempt>` on branch
 `if/<run-id>/<node-id>/<attempt>`, cut from that ref; the node snapshot records
@@ -28,7 +28,7 @@ commit naming the run/node/attempt (`empty: true` in the journal when there is
 no diff), appends a `prepared` record to `integration.jsonl` (node, attempt,
 attempt sha, previous run-ref tip, candidate sha, verification evidence) before
 creating anything, and builds the candidate — fast-forward or merge — on
-`refs/intent-factory/<run-id>/candidate` / `.runs/worktrees/<run-id>/.candidate`,
+`refs/faberun/<run-id>/candidate` / `.runs/worktrees/<run-id>/.candidate`,
 where node `verification` runs once. A pass advances the run ref with a
 conditional `update-ref` and writes the node `done` with `integratedHead`. A
 failed candidate removes the candidate ref/worktree, leaves the run ref
@@ -113,12 +113,12 @@ the contract is frozen with a digest, and the phone's middle ground is a note.
 On `node.terminal`, `run.terminal` and `attention` the controller renders a
 one-line message from counters and identifiers only (node id, run id, state,
 attempt, error code, done/total — never model text), calls the executable named
-by `INTENT_FACTORY_NOTIFY_BIN` with that event as JSON on stdin, and appends a
+by `FABERUN_NOTIFY_BIN` with that event as JSON on stdin, and appends a
 timestamped receipt (`delivered`, `failed`, `no_transport`) to
 `<run-dir>/notify.jsonl`. Delivery is lossy: **exactly one attempt**, no retry,
-no backoff; `INTENT_FACTORY_NOTIFY_BACKOFF_MS` appears nowhere in `src`. Unset,
+no backoff; `FABERUN_NOTIFY_BACKOFF_MS` appears nowhere in `src`. Unset,
 nothing is spawned and the receipt is `no_transport`.
-`INTENT_FACTORY_NOTIFY_BIN=os-macos` selects the bundled `osascript` adapter
+`FABERUN_NOTIFY_BIN=os-macos` selects the bundled `osascript` adapter
 (`canWake: false`); any other value is an executable path. A resume never
 re-sends a notification already recorded for the same node, attempt and outcome.
 No transport is a default: `doctor`, `preflight` and the foreground launch warn
@@ -163,7 +163,7 @@ initialization, registration, transitions and terminal completion;
 
 ## Operator seat
 
-The seat is one tmux session, `intent-factory-seat`, with one window per open
+The seat is one tmux session, `faberun-seat`, with one window per open
 campaign. It hosts the operator's interactive harness and never drives a run:
 state writes stay with the controller, and a dead pane cannot touch `.runs/`.
 The harness registry (`src/seat/harnesses.mjs`) declares five entries — `claude`,

@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileS
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 import { HARNESS_STALL_TIMEOUT_SEC, validateRuntime } from "../../src/contract/runtime.mjs";
 import { NON_FAILOVER_CODES, isTimeoutOrStall } from "../../src/engine/backoff.mjs";
 import { detectStalls, sealBeforeTerminate, stallTimeoutSecFor, startProcess, terminateInvocation } from "../../src/engine/process.mjs";
@@ -48,7 +48,7 @@ function snapshotFor(contract, worktree) {
   const now = new Date().toISOString();
   return validateNodeSnapshot({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     id: node.id,
     type: node.type,
     sourceIdentity: node.sourceIdentity,
@@ -188,8 +188,8 @@ test("done-when 1 and 4: a wall-clock timeout seals, auto-retries on the same ru
     runtimes: { luna: { harness: "codex", model: "gpt-5.6-luna", reasoning: "xhigh" } },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = provider;
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = provider;
   try {
     const result = await runContract(contractPath);
     const state = nodeState(result);
@@ -197,15 +197,15 @@ test("done-when 1 and 4: a wall-clock timeout seals, auto-retries on the same ru
     assert.equal(state.attempt, 2, "the timeout spent exactly one automatic retry");
     assert.deepEqual((state.invocations ?? []).map((invocation) => invocation.runtimeId), ["luna", "luna"], "the retry stays on the runtime already warmed");
     assert.equal(state.worktree?.previousAttempt, 1, "the second attempt was cut from the first attempt's seal");
-    const sealed = git(directory, ["show", "if/seal-e2e-run/build/1:README.md"]);
+    const sealed = git(directory, ["show", "faberun/seal-e2e-run/build/1:README.md"]);
     assert.equal(sealed, "attempt-1-sealed", "the seal committed the work the timeout interrupted");
-    const integrated = git(directory, ["show", "refs/intent-factory/seal-e2e-run/run:README.md"]);
+    const integrated = git(directory, ["show", "refs/faberun/seal-e2e-run/run:README.md"]);
     assert.equal(integrated, "attempt-1-sealed", "the sealed work survived into the next attempt and the run ref");
     const metadata = JSON.parse(readFileSync(join(result.runDir, "run.json"), "utf8"));
     assert.equal(metadata.autoRetries?.build?.code, "wall_clock_timeout", "the timeout consumed its one durable auto_retry");
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 });
 
@@ -221,21 +221,21 @@ test("done-when 1 and 4: a stall_timeout seals and auto-retries on the same runt
     runtimes: { luna: { harness: "codex", model: "gpt-5.6-luna", reasoning: "xhigh" } },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = provider;
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = provider;
   try {
     const result = await runContract(contractPath);
     const state = nodeState(result);
     assert.equal(state.status, "done", state.error?.message);
     assert.equal(state.attempt, 2, "the stall spent exactly one automatic retry");
     assert.equal(state.worktree?.previousAttempt, 1, "the second attempt was cut from the stalled attempt's seal");
-    assert.equal(git(directory, ["show", "if/seal-stall-run/build/1:README.md"]), "attempt-1-sealed", "the stall seal committed the work");
-    assert.equal(git(directory, ["show", "refs/intent-factory/seal-stall-run/run:README.md"]), "attempt-1-sealed", "the sealed work survived into the run ref");
+    assert.equal(git(directory, ["show", "faberun/seal-stall-run/build/1:README.md"]), "attempt-1-sealed", "the stall seal committed the work");
+    assert.equal(git(directory, ["show", "refs/faberun/seal-stall-run/run:README.md"]), "attempt-1-sealed", "the sealed work survived into the run ref");
     const metadata = JSON.parse(readFileSync(join(result.runDir, "run.json"), "utf8"));
     assert.equal(metadata.autoRetries?.build?.code, "stall_timeout", "the stall consumed its one durable auto_retry");
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 });
 
@@ -295,8 +295,8 @@ process.stdin.on("end", () => {
   const worktree = createAttemptWorktree({ repo, runDir, runId: contract.id, nodeId: "build", attempt: 1 });
   const state = snapshotFor(contract, worktree);
   const runtime = { id: "luna", harness: "codex", model: "test" };
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = provider;
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = provider;
   const job = startProcess({
     contract,
     node: contract.nodes[0],
@@ -320,8 +320,8 @@ process.stdin.on("end", () => {
     assert.equal(git(repo, ["show", `${sealedSha}:README.md`]), "ordered-seal", "the seal holds the work as it was before the kill");
     assert.equal(existsSync(join(worktree.path, "README.md")), false, "the provider's SIGTERM handler deleted the live file after the seal, proving the seal landed first");
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
     try { await terminateInvocation(job.invocation, { graceMs: 25, killGraceMs: 500 }); } catch {}
     removeWorktree(repo, worktree.path);
   }

@@ -20,7 +20,7 @@ import { renderStatus } from "../../src/report/render.mjs";
 import { resumeRun } from "../../src/engine/resume.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { validateContractFile } from "../../src/cli/contract.mjs";
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/harnesses/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/harnesses/index.mjs";
 import { fixture, packet, withFakeCodex, writeContract } from "../helpers.mjs";
 
 const MODULE_URL = new URL("../../src/contract/index.mjs", import.meta.url).href;
@@ -45,7 +45,7 @@ function repoDir(prefix) {
 function staticContract(id) {
   return {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     id,
     campaignId: "persisted-load-campaign",
     goal: "prove a persisted load is pure",
@@ -92,7 +92,7 @@ function persistStaticRun(directory, raw) {
   const digest = contractDigest(stored);
   writeFileSync(join(directory, "run.json"), `${JSON.stringify({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     pid: process.pid,
     processStartToken: null,
     startedAt: "2026-09-14T00:00:00.000Z",

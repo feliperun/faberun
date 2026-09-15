@@ -341,8 +341,8 @@ test("blocks downstream nodes after a failed dependency", async () => {
       { id: "second", type: "backend", taskPacket: packet({ objective: "Never run" }), dependsOn: ["first"], gate: false },
     ],
   }));
-  const previous = process.env.INTENT_FACTORY_CODEX_BIN;
-  process.env.INTENT_FACTORY_CODEX_BIN = fakeCodex(directory, "worker-fail");
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = fakeCodex(directory, "worker-fail");
   try {
     const result = await runContract(path);
     assert.equal(nodeState(result, "first").status, "failed");
@@ -354,8 +354,8 @@ test("blocks downstream nodes after a failed dependency", async () => {
     assert.equal(blockedNode.error.code, "dependency_failed");
     assert.deepEqual(blockedNode.blockedBy, ["first"]);
   } finally {
-    if (previous === undefined) delete process.env.INTENT_FACTORY_CODEX_BIN;
-    else process.env.INTENT_FACTORY_CODEX_BIN = previous;
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
   }
 });
 

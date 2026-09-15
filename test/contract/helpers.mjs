@@ -11,13 +11,13 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/contract/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/contract/index.mjs";
 
 /** @param {Record<string, unknown>} [overrides] */
 export function fixture(overrides = {}) {
   return {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     id: "contract-test",
     campaignId: "campaign-test",
     goal: "validate protocol",
@@ -69,7 +69,7 @@ export function initializeGit(directory) {
 export function snapshot(overrides = {}) {
   return {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     id: "build",
     type: "backend",
     sourceIdentity: { kind: "node", contractId: "contract-test", nodeId: "build" },

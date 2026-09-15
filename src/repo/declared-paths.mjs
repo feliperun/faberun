@@ -72,15 +72,15 @@ function gitDeclaredPathState(cwd, path, kind) {
     if (exitStatus(error) !== 1) return "unknown";
   }
 
-  let hasIntentfactoryIgnore = false;
+  let hasFaberunIgnore = false;
   try {
-    hasIntentfactoryIgnore = lstatSync(resolve(cwd, ".intentfactoryignore")).isFile();
+    hasFaberunIgnore = lstatSync(resolve(cwd, ".faberunignore")).isFile();
   } catch (error) {
     if (errorCode(error) !== "ENOENT") return "unknown";
   }
-  const intentfactoryIgnore = hasIntentfactoryIgnore ? resolve(cwd, ".intentfactoryignore") : undefined;
+  const faberunIgnore = hasFaberunIgnore ? resolve(cwd, ".faberunignore") : undefined;
   for (const literal of literals) {
-    const combined = checkCombinedGitIgnore(cwd, literal, intentfactoryIgnore);
+    const combined = checkCombinedGitIgnore(cwd, literal, faberunIgnore);
     if (combined === "unknown") return "unknown";
     if (combined === false) return "visible";
   }
@@ -132,7 +132,7 @@ function checkCombinedGitIgnore(cwd, path, extraExclude) {
 function checkMissingCombinedGitIgnore(cwd, path, extraExclude) {
   const standard = checkGitIgnore(cwd, path);
   if (!extraExclude || standard === "unknown") return standard;
-  const temporaryWorktree = mkdtempSync(join(tmpdir(), "intent-factory-ignore-check-"));
+  const temporaryWorktree = mkdtempSync(join(tmpdir(), "faberun-ignore-check-"));
   try {
     execFileSync("git", ["init", "-q", temporaryWorktree], { stdio: ["ignore", "ignore", "ignore"] });
     const temporaryGit = resolve(temporaryWorktree, ".git");

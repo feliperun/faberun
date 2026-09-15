@@ -66,7 +66,7 @@ test("web token never logged", async () => {
     server.close();
     rmSync(world.directory, { recursive: true, force: true });
   }
-  assert.ok(captured.some((chunk) => chunk.includes("Intent Factory")), "the capture must include real output, not just refusals");
+  assert.ok(captured.some((chunk) => chunk.includes("Faberun")), "the capture must include real output, not just refusals");
   for (const chunk of captured) {
     assert.equal(chunk.includes(TOKEN), false, "the token value must not appear in any captured output");
   }
@@ -87,7 +87,7 @@ test("web binds the private interface", async () => {
       assert.equal(address.address, "127.0.0.1");
       const page = await fetch(`http://127.0.0.1:${address.port}/`, { headers: AUTH });
       assert.equal(page.status, 200);
-      assert.match(await page.text(), /Intent Factory/u);
+      assert.match(await page.text(), /Faberun/u);
     } finally {
       server.close();
     }
@@ -98,7 +98,7 @@ test("web binds the private interface", async () => {
 
 /** @returns {{directory: string, runsDir: string, tokenFile: string}} */
 function makeWorld() {
-  const directory = mkdtempSync(join(tmpdir(), "intent-factory-boundary-"));
+  const directory = mkdtempSync(join(tmpdir(), "faberun-boundary-"));
   const tokenFile = join(directory, "dashboard.token");
   writeFileSync(tokenFile, `${TOKEN}\n`);
   return { directory, runsDir: join(directory, ".runs"), tokenFile };

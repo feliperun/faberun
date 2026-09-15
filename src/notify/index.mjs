@@ -1,16 +1,16 @@
 /**
  * Direct notification dispatcher (TECH-SPEC lean, rule 6). On `node.terminal`,
  * `run.terminal` and `attention` the controller renders a one-line message
- * from a fixed per-type template, calls `INTENT_FACTORY_NOTIFY_BIN` with the
+ * from a fixed per-type template, calls `FABERUN_NOTIFY_BIN` with the
  * event as JSON on stdin, and appends a receipt (`delivered`, `failed` or
  * `no_transport`, with the timestamp) to `<run-dir>/notify.jsonl`. Delivery is
  * lossy: an event is attempted once, a failure schedules no further attempt and
  * is never requeued, and the controller never waits on a retry it will not
  * make. The next read of the run's own artefacts carries the full state. With
- * no transport bound (`INTENT_FACTORY_NOTIFY_BIN` unset) nothing is spawned and
+ * no transport bound (`FABERUN_NOTIFY_BIN` unset) nothing is spawned and
  * a `no_transport` receipt is recorded instead — there is no implicit desktop
  * fallback. The macOS notifier is reachable only by setting
- * `INTENT_FACTORY_NOTIFY_BIN=os-macos`, an explicit opt-in, never a default.
+ * `FABERUN_NOTIFY_BIN=os-macos`, an explicit opt-in, never a default.
  */
 
 import { spawn as defaultSpawn } from "node:child_process";
@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { createMacosNotifier } from "./os-macos.mjs";
 import { errorMessage } from "../util.mjs";
 
-export const NOTIFY_BIN_ENV = "INTENT_FACTORY_NOTIFY_BIN";
+export const NOTIFY_BIN_ENV = "FABERUN_NOTIFY_BIN";
 const MACOS_TRANSPORT = "os-macos";
 export const NOTIFY_LOG_FILE = "notify.jsonl";
 /**
@@ -58,7 +58,7 @@ export const INBOX_SCHEMA_VERSION = 1;
  * emit when no human transport is bound. It is a warning, not an error: the
  * opt-in is intentional and no default exists on any platform.
  */
-export const NOTIFY_NO_TRANSPORT_WARNING = "no human notification transport is configured (INTENT_FACTORY_NOTIFY_BIN unset): terminal events reach only .runs/inbox.jsonl and the AGENTS.md managed block";
+export const NOTIFY_NO_TRANSPORT_WARNING = "no human notification transport is configured (FABERUN_NOTIFY_BIN unset): terminal events reach only .runs/inbox.jsonl and the AGENTS.md managed block";
 
 /** @typedef {Record<string, unknown>} JsonObject */
 /** @typedef {{schemaVersion: number, eventId: string, at: string, type: string, campaignId: string|null, runId: string|null, nodeId: string|null, status: string|null, errorCode: string|null, dedupeKey: string, summary: string}} InboxEntry */

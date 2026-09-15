@@ -65,7 +65,7 @@ export const dshHarness = {
 
   /** @param {import("../index.mjs").HarnessRuntime} runtime @returns {string} */
   executable(runtime) {
-    return process.env.INTENT_FACTORY_DSH_BIN ?? runtime.executable ?? "dsh";
+    return process.env.FABERUN_DSH_BIN ?? runtime.executable ?? "dsh";
   },
 
   /** @param {import("../index.mjs").HarnessRuntime} runtime @returns {string[]} */

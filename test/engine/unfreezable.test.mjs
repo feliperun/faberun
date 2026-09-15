@@ -14,7 +14,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileS
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/contract/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/contract/index.mjs";
 import { runVerification } from "../../src/engine/run-command.mjs";
 import { enforceRunningInvariant } from "../../src/engine/scheduler.mjs";
 import { boundedGitSync, git } from "../../src/repo/worktree.mjs";
@@ -70,7 +70,7 @@ function killQuietly(pid) {
 function validState(id, overrides = {}) {
   return /** @type {import("../../src/contract/index.mjs").NodeSnapshot} */ ({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     id,
     type: "backend",
     sourceIdentity: { kind: "node", contractId: "unfreezable", nodeId: id },
@@ -186,9 +186,9 @@ test("done-when 4: a synchronous git blocked on a held index lock returns by its
   writeFileSync(fakeGit, "#!/bin/sh\nsleep 60\n");
   chmodSync(fakeGit, 0o755);
   const previousPath = process.env.PATH;
-  const previousTimeout = process.env.INTENT_FACTORY_GIT_TIMEOUT_MS;
+  const previousTimeout = process.env.FABERUN_GIT_TIMEOUT_MS;
   process.env.PATH = `${fakeBin}${delimiter}${previousPath ?? ""}`;
-  process.env.INTENT_FACTORY_GIT_TIMEOUT_MS = "200";
+  process.env.FABERUN_GIT_TIMEOUT_MS = "200";
   try {
     // The spawnSync-shaped caller reads the result object.
     const spawned = boundedGitSync(["-C", directory, "add", "-A"]);
@@ -203,8 +203,8 @@ test("done-when 4: a synchronous git blocked on a held index lock returns by its
     });
   } finally {
     process.env.PATH = previousPath;
-    if (previousTimeout === undefined) delete process.env.INTENT_FACTORY_GIT_TIMEOUT_MS;
-    else process.env.INTENT_FACTORY_GIT_TIMEOUT_MS = previousTimeout;
+    if (previousTimeout === undefined) delete process.env.FABERUN_GIT_TIMEOUT_MS;
+    else process.env.FABERUN_GIT_TIMEOUT_MS = previousTimeout;
   }
 });
 

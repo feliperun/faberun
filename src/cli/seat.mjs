@@ -134,6 +134,6 @@ function reportSwitch(campaign, values) {
 }
 
 function usage() {
-  process.stderr.write("usage: runner.mjs seat <start|attach|status|stop|switch> [<campaign-id>] [--cwd <dir>] ...\n");
+  process.stderr.write("usage: faberun seat <start|attach|status|stop|switch> [<campaign-id>] [--cwd <dir>] ...\n");
   process.exitCode = 2;
 }

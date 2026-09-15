@@ -62,6 +62,6 @@ function readRunDigest(runJsonPath) {
 
 /** @returns {void} */
 function usage() {
-  process.stderr.write("usage: runner.mjs contract validate <contract.json>\n");
+  process.stderr.write("usage: faberun contract validate <contract.json>\n");
   process.exitCode = 2;
 }

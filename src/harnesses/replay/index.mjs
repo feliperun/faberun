@@ -44,7 +44,7 @@ export const replayHarness = {
 
   /** @param {import("../index.mjs").HarnessRuntime} runtime @returns {string} */
   executable(runtime) {
-    return process.env.INTENT_FACTORY_REPLAY_BIN
+    return process.env.FABERUN_REPLAY_BIN
       ?? runtime.executable
       ?? fileURLToPath(new URL("./bin.mjs", import.meta.url));
   },

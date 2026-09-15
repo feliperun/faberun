@@ -81,7 +81,7 @@ export const execJsonlHarness = {
 
   /** @param {import("../index.mjs").HarnessRuntime} runtime @returns {string} */
   executable(runtime) {
-    return process.env.INTENT_FACTORY_EXEC_JSONL_BIN ?? runtime.executable ?? "exec-jsonl";
+    return process.env.FABERUN_EXEC_JSONL_BIN ?? runtime.executable ?? "exec-jsonl";
   },
 
   /** @param {import("../index.mjs").HarnessRuntime} runtime @returns {string[]} */

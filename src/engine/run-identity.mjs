@@ -11,7 +11,7 @@
  * version on its first call, and a missing version is indistinguishable from a
  * changed one.
  */
-import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION, probeRuntime } from "../harnesses/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, probeRuntime } from "../harnesses/index.mjs";
 import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
 import { blockingChecks, environmentPreflight, reachableRuntimes } from "../host/preflight.mjs";
 import { captureSourceIdentity } from "../repo/source-identity.mjs";
@@ -56,7 +56,7 @@ export function createRunMetadata(lock, sourceIdentity, resume = {}, integration
   };
   const metadata = {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     pid: current.pid,
     processStartToken: current.processStartToken,
     startedAt: current.startedAt,
@@ -383,7 +383,7 @@ export function assertEnvironmentReady(contract, runDir, sourceIdentity) {
   });
   const evidence = {
     schemaVersion: report.schemaVersion,
-    contractVersion: INTENT_FACTORY_VERSION,
+    contractVersion: CONTRACT_VERSION,
     at: new Date().toISOString(),
     contractId: contract.id,
     ok: report.ok,

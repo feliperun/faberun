@@ -18,7 +18,7 @@ import { validateSourceIdentity } from "../repo/source-identity.mjs";
 import { commandCoverageWarnings, unsnapshottedWriteWarnings } from "../repo/declared-paths.mjs";
 import { crossNodeScopeFindings, scopeClosureFindings } from "../repo/scope-closure.mjs";
 
-export { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
+export { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
 
 const CONTRACT_FIELDS = new Set([
   "schemaVersion", "contractVersion", "id", "campaignId", "goal", "cwd", "sourceIdentity",
