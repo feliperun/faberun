@@ -7,11 +7,11 @@
  * keeps a resumed run from re-announcing what the previous controller already
  * announced.
  */
-import { NotifyQueue } from "../notify/index.mjs";
+import { NotifyQueue, appendInbox, renderNotification } from "../notify/index.mjs";
 import { appendJsonl } from "../run/store.mjs";
 import { errorMessage } from "../util.mjs";
 import { existsSync, readFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { renderBrief } from "../campaign/brief.mjs";
 import { renderHandoff } from "../campaign/index.mjs";
 
@@ -118,6 +118,21 @@ export async function emitScheduledAttention(runDir, options) {
   const runId = basename(runDir);
   const dedupeKey = attentionDedupeKey(runId, options.anchor, slot);
   if (alreadyNotified(runDir, dedupeKey)) return null;
+  const summary = renderNotification({
+    type: "attention",
+    runId,
+    errorCode: options.code ?? null,
+  });
+  // The run-level attention also lands in the campaign-level inbox, which is
+  // the append-only record the managed signal block summarises.
+  appendInbox(dirname(runDir), {
+    type: "attention",
+    campaignId: options.campaignId ?? null,
+    runId,
+    errorCode: options.code ?? null,
+    dedupeKey,
+    summary,
+  });
   await notifyQueueFor(runDir).enqueue({
     type: "attention",
     campaignId: options.campaignId ?? null,
@@ -126,6 +141,43 @@ export async function emitScheduledAttention(runDir, options) {
     dedupeKey,
   });
   return slot;
+}
+
+/**
+ * Campaign-level notifications have no run directory to queue into, so they
+ * are recorded in `<runs-dir>/inbox.jsonl` and delivered through a queue whose
+ * receipt log is `<campaign-dir>/notify.jsonl`. That is the defined home for a
+ * campaign watcher's lines, which can be emitted with no run active.
+ *
+ * `appendInbox` is the durable dedupe: a key already recorded is neither
+ * re-appended nor re-delivered, so a restarted watcher does not double-send.
+ *
+ * @param {{runsDir: string, campaignPath: string, campaignId?: string|null, runId?: string|null, nodeId?: string|null, status?: string|null, errorCode?: string|null, dedupeKey: string, summary: string, type?: string}} args
+ * @returns {Promise<boolean>} whether a new notification was delivered
+ */
+export async function enqueueCampaignNotification(args) {
+  const appended = appendInbox(args.runsDir, {
+    type: "attention",
+    campaignId: args.campaignId ?? null,
+    runId: args.runId ?? null,
+    nodeId: args.nodeId ?? null,
+    status: args.status ?? null,
+    errorCode: args.errorCode ?? null,
+    dedupeKey: args.dedupeKey,
+    summary: args.summary,
+  });
+  if (!appended.appended) return false;
+  await notifyQueueFor(args.campaignPath).enqueue({
+    type: "attention",
+    campaignId: args.campaignId ?? null,
+    runId: args.runId ?? null,
+    nodeId: args.nodeId ?? null,
+    status: args.status ?? null,
+    errorCode: args.errorCode ?? null,
+    dedupeKey: args.dedupeKey,
+    summary: args.summary,
+  });
+  return true;
 }
 /**
  * @param {CampaignRef} campaign

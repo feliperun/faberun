@@ -9,7 +9,8 @@ import { parseArgs } from "node:util";
 import { fileURLToPath } from "node:url";
 import { modelsCommand } from "./harnesses/catalogue.mjs";
 import { bulkReadCommand } from "./engine/bulk-read.mjs";
-import { doctorCommand, environmentPreflight, reachableRuntimes, timeVerificationCommands } from "./host/preflight.mjs";
+import { doctorCommand, environmentPreflight, notifyTransportCheck, reachableRuntimes, timeVerificationCommands } from "./host/preflight.mjs";
+import { noTransportWarning } from "./notify/index.mjs";
 import { renderFindings, renderReport, renderReportJson, renderStatus, renderStatusJson } from "./report/render.mjs";
 import { renderNext, renderNextJson } from "./report/next.mjs";
 
@@ -222,6 +223,7 @@ async function main(argv) {
   }
   if (!target) { usage(); return; }
   if (command === "run") {
+    warnIfNoTransport();
     const absolute = resolve(target);
     const contract = validateContract(JSON.parse(readFileSync(absolute, "utf8")), absolute);
     const runDir = join(contract.cwd, ".runs", contract.id);
@@ -272,6 +274,7 @@ async function main(argv) {
     return;
   }
   if (command === "supervise") {
+    warnIfNoTransport();
     const runDir = resolve(target);
     if (!existsSync(join(runDir, "contract.json"))) throw new Error(`not a run directory: ${runDir}`);
     const intervalSec = superviseIntervalOf(values.interval);
@@ -311,13 +314,14 @@ async function main(argv) {
     // costs whatever they cost. It is the only check that can prove a command
     // fits the timeout the contract gives it.
     const timing = values["time-verification"] === true ? timeVerificationCommands(contract) : [];
+    const environmentChecks = [...environment.checks, notifyTransportCheck(process.env)];
     const ok = environment.ok && checks.every((check) => check.ok) && timing.every((check) => check.ok || check.advisory);
     if (values.json === true) {
       process.stdout.write(`${JSON.stringify({
         schemaVersion: 1,
         contractId: contract.id,
         ok,
-        environment: [...environment.checks, ...timing],
+        environment: [...environmentChecks, ...timing],
         checks: checks.map((check) => ({
           id: check.id,
           harness: check.harness,
@@ -333,7 +337,7 @@ async function main(argv) {
         })),
       })}\n`);
     } else {
-      for (const check of [...environment.checks, ...timing]) process.stdout.write(`[${check.ok ? "ok" : check.advisory ? "warn" : "fail"}] ${check.name} · ${check.detail}\n`);
+      for (const check of [...environmentChecks, ...timing]) process.stdout.write(`[${check.ok ? "ok" : check.advisory ? "warn" : "fail"}] ${check.name} · ${check.detail}\n`);
       for (const check of checks) process.stdout.write(`[${check.ok ? "ok" : "fail"}] ${check.id} · ${check.detail}\n`);
     }
     if (!ok) process.exitCode = 1;
@@ -363,6 +367,17 @@ async function main(argv) {
   if (command === "findings") { process.stdout.write(renderFindings(resolve(target))); return; }
   if (command === "validate") { validateContractFile(resolve(target)); return; }
   usage();
+}
+
+/**
+ * The foreground launch command is the only moment an operator is present, so
+ * it is where the no-transport warning belongs. A detached controller's stdio
+ * is discarded, so this prints into nothing there by construction — the
+ * warning is not suppressed, it is simply not observable.
+ */
+function warnIfNoTransport() {
+  const warning = noTransportWarning();
+  if (warning) process.stdout.write(`[warn] ${warning}\n`);
 }
 
 function usage() {

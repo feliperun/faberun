@@ -23,6 +23,7 @@ import { validateContract } from "../contract/index.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS, discoverRuntimes } from "../engine/runtime-discovery.mjs";
 import { errorMessage } from "../util.mjs";
 import { routeRuntime } from "../contract/runtime.mjs";
+import { NOTIFY_BIN_ENV, noTransportWarning } from "../notify/index.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {import("../contract/index.mjs").RuntimeSnapshot} RuntimeSnapshot */
@@ -189,6 +190,22 @@ export function environmentPreflight(options) {
     checkRuntimeBinaries(options.runtimes, options.harnessVersions ?? {}, cwd),
   ];
   return { schemaVersion: ENV_PREFLIGHT_SCHEMA_VERSION, ok: checks.every((check) => check.ok || check.advisory), checks };
+}
+
+/**
+ * The named no-transport check, advisory so it never gates a dispatch. It is
+ * rendered by `preflight` and warned about by `doctor` and the foreground
+ * launch, but it is kept out of `environmentPreflight`'s own check set so the
+ * dispatch gate stays exactly the host facts it always was.
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {EnvCheck}
+ */
+export function notifyTransportCheck(env = process.env) {
+  const warning = noTransportWarning(env);
+  return warning
+    ? fail("notify transport", warning, true)
+    : pass("notify transport", `${NOTIFY_BIN_ENV}=${env[NOTIFY_BIN_ENV]}`);
 }
 
 /** @param {EnvReport} report @returns {EnvCheck[]} the checks that block a dispatch */
@@ -437,6 +454,8 @@ export async function doctorCommand(contractPath, values) {
     checks.push({ name: check.name, ok: check.ok || check.advisory, detail: check.ok ? check.detail : `${check.detail} (advisory)` });
   }
   const ok = checks.every((check) => check.ok);
+  const transportWarning = noTransportWarning(process.env);
+  if (transportWarning) process.stderr.write(`[warn] ${transportWarning}\n`);
   if (values.json === true) {
     process.stdout.write(`${JSON.stringify({ schemaVersion: 1, repo: repoDir, ok, checks, ...(values.discover === true ? { runtimes: discovered } : {}) }, null, 2)}\n`);
   } else {

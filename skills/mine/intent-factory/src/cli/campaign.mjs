@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs as parseFlags } from "node:util";
 import {
@@ -10,13 +10,15 @@ import {
   renderHandoff,
   resolveCampaign,
 } from "../campaign/index.mjs";
-import { lockStale, readLock } from "../run/lock.mjs";
+import { lockStale, pidAlive, processStartToken, readLock } from "../run/lock.mjs";
 import { syncAgentSignal } from "../repo/signal.mjs";
 import { acknowledgeJournalEvent, appendJournal, readJournal, watchJournal } from "../campaign/journal.mjs";
 import { driveCampaignChain } from "../campaign/chain.mjs";
 import { readCampaign } from "../campaign/record.mjs";
-import { detachSelf, waitForBootstrap } from "./launch.mjs";
-import { readJsonTolerant } from "../util.mjs";
+import { notifyQueueFor } from "../engine/notify-queue.mjs";
+import { appendInbox, readInbox, wakeCapabilityNotice } from "../notify/index.mjs";
+import { detachArgv, detachSelf, waitForBootstrap } from "./launch.mjs";
+import { errorCode, readJsonTolerant } from "../util.mjs";
 
 const SYNC_OUTPUT_MAX_BYTES = 8000;
 const DEFAULT_WAKE_POLL_MS = 30_000;
@@ -48,7 +50,7 @@ const NOTE_KIND_FLAGS = {
 const OPERATION_OPTIONS = {
   list: { cwd: { type: "string" } },
   init: { cwd: { type: "string" }, goal: { type: "string" }, contract: { type: "string", multiple: true }, "land-branch": { type: "string" } },
-  watch: { cwd: { type: "string" }, wake: { type: "boolean" }, interval: { type: "string" }, once: { type: "boolean" } },
+  watch: { cwd: { type: "string" }, wake: { type: "boolean" }, detach: { type: "boolean" }, interval: { type: "string" }, once: { type: "boolean" } },
   attach: {
     cwd: { type: "string" },
     tool: { type: "string" },
@@ -84,7 +86,7 @@ const OPERATION_OPTIONS = {
   ack: { cwd: { type: "string" }, "session-id": { type: "string" }, "event-id": { type: "string" } },
 };
 
-/** @typedef {{cwd?: string, goal?: string, contract?: string[], landBranch?: string, tool?: string, sessionId?: string, transcript?: string, format?: string, cursor?: string, since?: string, kind?: string, text?: string, runId?: string, supersedes?: string, decisionId?: string, questionId?: string, eventId?: string, noTranscript?: boolean, wake?: boolean, interval?: string, once?: boolean, allowMain?: boolean}} CliValues */
+/** @typedef {{cwd?: string, goal?: string, contract?: string[], landBranch?: string, tool?: string, sessionId?: string, transcript?: string, format?: string, cursor?: string, since?: string, kind?: string, text?: string, runId?: string, supersedes?: string, decisionId?: string, questionId?: string, eventId?: string, noTranscript?: boolean, wake?: boolean, detach?: boolean, interval?: string, once?: boolean, allowMain?: boolean}} CliValues */
 /** @typedef {import("../campaign/index.mjs").Campaign} Campaign */
 
 /**
@@ -120,92 +122,202 @@ export async function campaignCli(args) {
  * rule 6 and section 5 row 2b). Replaces the harness-side
  * `watch-campaign.mjs` monitor and the old pull-based outbox watch.
  *
+ * `--detach` spawns the same loop as a detached child whose stdio is
+ * discarded, so a host scheduler can arm it without a terminal. The loop is
+ * protected by a durable `watch.lock` in the campaign directory and the
+ * inbox's dedupe key, so two watchers never double-send and a restarted one
+ * does not replay what it already delivered.
+ *
  * @param {string} campaignId
  * @param {CliValues} values
  */
 async function watch(campaignId, values) {
   if (values.wake !== true) throw new TypeError("watch requires --wake");
+  const cwd = resolve(values.cwd ?? ".");
   const { path, runsDir } = selectCampaign(campaignId, values);
   const pollMs = values.interval === undefined ? DEFAULT_WAKE_POLL_MS : positiveIntervalMs(values.interval);
+  if (values.detach === true) {
+    const argv = ["campaign", "watch", campaignId, "--wake", "--cwd", cwd];
+    if (values.interval !== undefined) argv.push("--interval", values.interval);
+    if (values.once === true) argv.push("--once");
+    const child = detachArgv(argv);
+    if (child.pid === undefined) throw new Error("detached campaign watch has no pid");
+    process.stdout.write(`[campaign] watch detached · pid ${child.pid} · ${campaignId}\n`);
+    return;
+  }
   await watchCampaignWake(path, runsDir, { pollMs, once: values.once === true });
 }
 
 /**
+ * The watcher loop. Each line is announced through `notify`, which by default
+ * records it in `<runs-dir>/inbox.jsonl` and delivers it to the campaign's
+ * `notify.jsonl`; the inbox is both the durable record and the dedupe, so a
+ * line already recorded is never re-sent. The injectable seams exist so a
+ * test can drive the loop deterministically.
+ *
  * @param {string} campaignPath
  * @param {string} runsDir
- * @param {{pollMs?: number, once?: boolean, now?: () => number, sleep?: (ms: number) => Promise<void>, emit?: (line: string) => void}} [options]
+ * @param {{pollMs?: number, once?: boolean, now?: () => number, sleep?: (ms: number) => Promise<void>, emit?: (line: string) => void, notify?: (event: {type: string, campaignId: string, dedupeKey: string, summary: string, runId?: string|null, nodeId?: string|null, status?: string|null, errorCode?: string|null}) => Promise<void>|void, lock?: {release: () => void}}} [options]
  * @returns {Promise<void>}
  */
-async function watchCampaignWake(campaignPath, runsDir, options = {}) {
+export async function watchCampaignWake(campaignPath, runsDir, options = {}) {
   const pollMs = options.pollMs ?? DEFAULT_WAKE_POLL_MS;
   const now = options.now ?? (() => Date.now());
   const sleep = options.sleep ?? ((ms) => new Promise((resolveSleep) => setTimeout(resolveSleep, ms)));
   const emit = options.emit ?? ((line) => process.stdout.write(`${line}\n`));
+  const notify = options.notify ?? ((event) => notifyQueueFor(campaignPath).enqueue({
+    type: "attention",
+    campaignId: event.campaignId,
+    dedupeKey: event.dedupeKey,
+    summary: event.summary,
+    runId: event.runId ?? null,
+    nodeId: event.nodeId ?? null,
+    status: event.status ?? null,
+    errorCode: event.errorCode ?? null,
+  }));
+  const seen = new Set(readInbox(runsDir).map((entry) => entry.dedupeKey));
+  const lock = options.lock ?? acquireWatchLock(campaignPath);
+  emit(wakeCapabilityNotice());
   /** @type {Map<string, string>} */
   const runSignatures = new Map();
-  /** @type {Set<string>} */
-  const announced = new Set();
   let lastActiveAt = now();
   let first = true;
-  for (;;) {
-    const campaign = readCampaign(campaignPath);
-    if (campaign.status !== "active") {
-      emit(`campaign-watch: ${campaign.id} is ${campaign.status}; stopping`);
-      return;
-    }
-    let anyActive = false;
-    for (const runId of campaign.linkedRunIds) {
-      const status = /** @type {Record<string, any>|null} */ (readJsonTolerant(join(runsDir, runId, "status.json")));
-      if (!status || !Array.isArray(status.nodes)) continue;
-      const terminal = status.nodes.every((/** @type {any} */ node) => TERMINAL_NODE_STATUSES.has(String(node.status)));
-      const signature = status.nodes.map((/** @type {any} */ node) => `${node.id}:${node.status}:${node.errorCode ?? ""}`).join("|");
-      const previous = runSignatures.get(runId);
-      runSignatures.set(runId, signature);
-      if (!terminal) {
-        anyActive = true;
-        const lock = readLock(join(runsDir, runId));
-        const stale = !lock || /** @type {{invalid?: true}} */ (lock).invalid || lockStale(lock);
-        const key = `stale:${runId}`;
-        if (stale && !first) {
-          if (!announced.has(key)) {
-            announced.add(key);
-            emit(`campaign-watch: ${runId} has non-terminal nodes but no live controller; resume it`);
-          }
-        } else announced.delete(key);
+  try {
+    for (;;) {
+      const campaign = readCampaign(campaignPath);
+      if (campaign.status !== "active") {
+        emit(`campaign-watch: ${campaign.id} is ${campaign.status}; stopping`);
+        return;
       }
-      if (!first && previous !== signature) {
-        for (const node of status.nodes) {
-          const attention = ATTENTION_NODE_STATUSES.has(String(node.status))
-            || (node.status === "blocked" && !(Array.isArray(node.blockedBy) && node.blockedBy.length > 0));
-          const key = `node:${runId}:${node.id}:${node.status}:${node.errorCode ?? ""}`;
-          if (attention && !announced.has(key)) {
-            announced.add(key);
-            emit(`campaign-watch: ${runId} node ${node.id} ${node.status}${node.errorCode ? ` [${node.errorCode}]` : ""}${node.note ? ` ${node.note}` : ""}`);
+      /**
+       * Persist first, deliver second: the inbox entry is the durable dedupe,
+       * so a restart or a second watcher skips a line already recorded even
+       * when delivery is injected.
+       *
+       * @param {string} dedupeKey @param {string} summary @param {{runId?: string|null, nodeId?: string|null, status?: string|null, errorCode?: string|null}} [extra]
+       */
+      const announce = async (dedupeKey, summary, extra = {}) => {
+        if (seen.has(dedupeKey)) return;
+        seen.add(dedupeKey);
+        const appended = appendInbox(runsDir, { type: "attention", campaignId: campaign.id, dedupeKey, summary, ...extra });
+        if (!appended.appended) return;
+        emit(summary);
+        await notify({ type: "attention", campaignId: campaign.id, dedupeKey, summary, ...extra });
+      };
+      let anyActive = false;
+      for (const runId of campaign.linkedRunIds) {
+        const status = /** @type {Record<string, any>|null} */ (readJsonTolerant(join(runsDir, runId, "status.json")));
+        if (!status || !Array.isArray(status.nodes)) continue;
+        const terminal = status.nodes.every((/** @type {any} */ node) => TERMINAL_NODE_STATUSES.has(String(node.status)));
+        const signature = status.nodes.map((/** @type {any} */ node) => `${node.id}:${node.status}:${node.errorCode ?? ""}`).join("|");
+        const previous = runSignatures.get(runId);
+        runSignatures.set(runId, signature);
+        if (!terminal) {
+          anyActive = true;
+          const runLock = readLock(join(runsDir, runId));
+          const stale = !runLock || /** @type {{invalid?: true}} */ (runLock).invalid || lockStale(runLock);
+          if (stale && !first) {
+            await announce(`stale:${runId}`, `campaign-watch: ${runId} has non-terminal nodes but no live controller; resume it`, { runId });
           }
         }
-      }
-      if (terminal) {
-        const key = `terminal:${runId}`;
-        if (!announced.has(key)) {
-          announced.add(key);
-          emit(`campaign-watch: ${runId} terminal · ${status.summary ?? ""}`);
+        if (!first && previous !== signature) {
+          for (const node of status.nodes) {
+            const attention = ATTENTION_NODE_STATUSES.has(String(node.status))
+              || (node.status === "blocked" && !(Array.isArray(node.blockedBy) && node.blockedBy.length > 0));
+            if (attention) {
+              const key = `node:${runId}:${node.id}:${node.status}:${node.errorCode ?? ""}`;
+              await announce(
+                key,
+                `campaign-watch: ${runId} node ${node.id} ${node.status}${node.errorCode ? ` [${node.errorCode}]` : ""}${node.note ? ` ${node.note}` : ""}`,
+                { runId, nodeId: String(node.id), status: String(node.status), errorCode: node.errorCode ?? null },
+              );
+            }
+          }
+        }
+        if (terminal) {
+          await announce(`terminal:${runId}`, `campaign-watch: ${runId} terminal · ${status.summary ?? ""}`, { runId });
         }
       }
-    }
-    const nowMs = now();
-    if (anyActive) lastActiveAt = nowMs;
-    else if (!first && nowMs - lastActiveAt >= WAKE_IDLE_AFTER_MS) {
-      const key = `idle:${Math.floor((nowMs - lastActiveAt) / WAKE_IDLE_AFTER_MS)}`;
-      if (!announced.has(key)) {
-        announced.add(key);
-        emit(`campaign-watch: ${campaign.id} active but no run has been active for ${Math.round((nowMs - lastActiveAt) / 60_000)} min; dispatch the next step`);
+      const nowMs = now();
+      if (anyActive) lastActiveAt = nowMs;
+      else if (!first && nowMs - lastActiveAt >= WAKE_IDLE_AFTER_MS) {
+        const key = `idle:${Math.floor((nowMs - lastActiveAt) / WAKE_IDLE_AFTER_MS)}`;
+        await announce(key, `campaign-watch: ${campaign.id} active but no run has been active for ${Math.round((nowMs - lastActiveAt) / 60_000)} min; dispatch the next step`);
       }
+      first = false;
+      if (options.once === true) return;
+      await sleep(pollMs);
     }
-    first = false;
-    if (options.once === true) return;
-    await sleep(pollMs);
+  } finally {
+    lock.release();
   }
 }
+
+const WATCH_LOCK_FILE = "watch.lock";
+
+/**
+ * A durable campaign-watch lock, one watcher per campaign across processes.
+ * A live holder is never taken over; a dead or recycled pid's lock is stale
+ * and is replaced, so a restart after a crash is not blocked. The same
+ * liveness rule as the controller lock: a pid is dead only when the probe
+ * proves it.
+ *
+ * @param {string} campaignPath
+ * @returns {{pid: number, processStartToken: string|null, startedAt: string, release: () => void}}
+ */
+export function acquireWatchLock(campaignPath) {
+  const path = join(campaignPath, WATCH_LOCK_FILE);
+  /** @type {{pid?: number, processStartToken?: string|null, startedAt?: string}} */
+  let occupant = {};
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const record = { pid: process.pid, processStartToken: processStartToken(process.pid), startedAt: new Date().toISOString() };
+    try {
+      const fd = openSync(path, "wx", 0o600);
+      try {
+        writeSync(fd, JSON.stringify(record));
+      } finally {
+        closeSync(fd);
+      }
+      return {
+        ...record,
+        release() {
+          try {
+            unlinkSync(path);
+          } catch (error) {
+            if (errorCode(error) !== "ENOENT") throw error;
+          }
+        },
+      };
+    } catch (error) {
+      if (errorCode(error) !== "EEXIST") throw error;
+    }
+    try {
+      occupant = /** @type {{pid?: number, processStartToken?: string|null}} */ (JSON.parse(readFileSync(path, "utf8")));
+    } catch {
+      occupant = {};
+    }
+    if (!watchLockStale(occupant)) {
+      throw new Error(`campaign watch is already running (pid ${occupant.pid})`);
+    }
+    try {
+      unlinkSync(path);
+    } catch (error) {
+      if (errorCode(error) !== "ENOENT") throw error;
+    }
+  }
+  throw new Error("campaign watch lock contention did not settle");
+}
+
+/**
+ * @param {{pid?: number, processStartToken?: string|null}} occupant
+ * @returns {boolean}
+ */
+function watchLockStale(occupant) {
+  if (typeof occupant.pid !== "number") return true;
+  if (!pidAlive(occupant.pid)) return true;
+  return Boolean(occupant.processStartToken) && processStartToken(occupant.pid) !== occupant.processStartToken;
+}
+
 
 /**
  * @param {string} campaignId

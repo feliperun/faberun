@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SKILL_BYTE_CEILING = 1024;
@@ -110,3 +111,30 @@ test('the router documents runtimes[].fallback and no longer runtimeRules', () =
   assert.match(skill, /fallback/);
   assert.doesNotMatch(skill, /runtimeRules/);
 });
+
+test('done-when 8: the notify docs match notify/index.mjs and SKILL.md arms the watchdog', () => {
+  const operations = readFileSync(join(referencesDir, 'operations.md'), 'utf8');
+  const skill = readFileSync(skillPath, 'utf8');
+  const srcDir = fileURLToPath(new URL('../../src', import.meta.url));
+
+  // The false three-retry promise is gone; the lossy one-attempt contract is
+  // the documented one.
+  assert.doesNotMatch(operations, /three attempts with backoff/u);
+  assert.match(operations, /exactly one[\s\S]{0,40}attempt/u);
+  assert.match(operations, /no retry/u);
+  assert.match(operations, /no_transport/u);
+
+  // INTENT_FACTORY_NOTIFY_BACKOFF_MS appears nowhere under src/.
+  for (const relativePath of readdirSync(srcDir, { recursive: true })) {
+    const file = join(srcDir, String(relativePath));
+    if (!file.endsWith('.mjs')) continue;
+    assert.doesNotMatch(readFileSync(file, 'utf8'), /INTENT_FACTORY_NOTIFY_BACKOFF_MS/u, `${relative(srcDir, file)} mentions a backoff variable the code never reads`);
+  }
+
+  // SKILL.md carries the arming command and the launchd line.
+  assert.match(skill, /supervise campaign/u);
+  assert.match(skill, /launchd/u);
+  assert.match(skill, /StartInterval 300/u);
+  assert.match(skill, /launchctl load/u);
+});
+

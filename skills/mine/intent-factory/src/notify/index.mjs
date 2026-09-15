@@ -15,12 +15,12 @@
 
 import { spawn as defaultSpawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { createMacosNotifier } from "./os-macos.mjs";
 import { errorMessage } from "../util.mjs";
 
-const NOTIFY_BIN_ENV = "INTENT_FACTORY_NOTIFY_BIN";
+export const NOTIFY_BIN_ENV = "INTENT_FACTORY_NOTIFY_BIN";
 const MACOS_TRANSPORT = "os-macos";
 export const NOTIFY_LOG_FILE = "notify.jsonl";
 /**
@@ -34,8 +34,36 @@ export const MAX_ATTEMPTS = 3;
 
 const SUMMARY_CHARS = 200;
 
+/**
+ * The append-only, campaign-level record the managed `AGENTS.md` signal block
+ * summarises. It lives at `<runs-dir>/inbox.jsonl` so a notification that
+ * belongs to no single run — a campaign watcher line — has a durable home that
+ * is not a run directory.
+ *
+ * Schema, one JSON object per line:
+ * `{schemaVersion, eventId, at, type, campaignId, runId, nodeId, status,
+ * errorCode, dedupeKey, summary}`. `eventId` is the sha256 hex of `dedupeKey`,
+ * and an entry is appended only when no existing entry carries the same
+ * `dedupeKey` (first write wins). Concurrent writers append whole lines with a
+ * single `O_APPEND` write each, so lines never interleave; the check-then-append
+ * is not atomic, so two writers racing on the same key may both append, and
+ * readers collapse repeated keys. A torn trailing line from a crash is skipped
+ * by `readInbox`.
+ */
+export const INBOX_FILE = "inbox.jsonl";
+export const INBOX_SCHEMA_VERSION = 1;
+
+/**
+ * The named warning `doctor`, `preflight` and the foreground launch command
+ * emit when no human transport is bound. It is a warning, not an error: the
+ * opt-in is intentional and no default exists on any platform.
+ */
+export const NOTIFY_NO_TRANSPORT_WARNING = "no human notification transport is configured (INTENT_FACTORY_NOTIFY_BIN unset): terminal events reach only .runs/inbox.jsonl and the AGENTS.md managed block";
+
 /** @typedef {Record<string, unknown>} JsonObject */
-/** @typedef {{type: "node.terminal"|"run.terminal"|"attention", runId: string, campaignId?: string|null, nodeId?: string|null, status?: string|null, attempt?: number|null, errorCode?: string|null, done?: number|null, total?: number|null, dedupeKey?: string|null, runDir?: string|null, costUsd?: number|null, eventId?: string}} NotifyEvent */
+/** @typedef {{schemaVersion: number, eventId: string, at: string, type: string, campaignId: string|null, runId: string|null, nodeId: string|null, status: string|null, errorCode: string|null, dedupeKey: string, summary: string}} InboxEntry */
+/** @typedef {{type: string, dedupeKey: string, summary: string, at?: string, campaignId?: string|null, runId?: string|null, nodeId?: string|null, status?: string|null, errorCode?: string|null}} InboxEvent */
+/** @typedef {{type: "node.terminal"|"run.terminal"|"attention", runId: string|null, campaignId?: string|null, nodeId?: string|null, status?: string|null, attempt?: number|null, errorCode?: string|null, done?: number|null, total?: number|null, dedupeKey?: string|null, runDir?: string|null, costUsd?: number|null, summary?: string|null, eventId?: string}} NotifyEvent */
 /** @typedef {{ok: boolean, error?: string, noTransport?: boolean}} DeliveryResult */
 
 /**
@@ -98,6 +126,108 @@ function readRunCostUsd(runDir) {
 /** @param {string} value @returns {string} */
 function truncate(value) {
   return value.length <= SUMMARY_CHARS ? value : `${value.slice(0, SUMMARY_CHARS - 1)}…`;
+}
+
+/**
+ * The named no-transport warning, or null when a transport is bound. The empty
+ * string counts as unset, exactly as `deliverNotification` reads it.
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string|null}
+ */
+export function noTransportWarning(env = process.env) {
+  return env[NOTIFY_BIN_ENV] ? null : NOTIFY_NO_TRANSPORT_WARNING;
+}
+
+/**
+ * What `campaign watch --wake` must say about waking. No adapter declares
+ * `canWake: true` (`os-macos` is `canWake: false`), so the wake verb records
+ * to the inbox and the managed block and never implies a session was woken.
+ *
+ * @param {string|undefined} [bin]
+ * @returns {string}
+ */
+export function wakeCapabilityNotice(bin = process.env[NOTIFY_BIN_ENV]) {
+  if (!bin) {
+    return "no notify transport is configured; --wake records to .runs/inbox.jsonl and the AGENTS.md managed block; no session is woken";
+  }
+  if (bin === MACOS_TRANSPORT) {
+    return "os-macos cannot wake a session (canWake: false); --wake records to .runs/inbox.jsonl and the AGENTS.md managed block";
+  }
+  return `notify transport ${bin} declares canWake: false; --wake records to .runs/inbox.jsonl and the AGENTS.md managed block; no session is woken`;
+}
+
+/** @param {string} runsDir @returns {string} */
+export function inboxPath(runsDir) {
+  return join(runsDir, INBOX_FILE);
+}
+
+/**
+ * Read every committed inbox entry. A missing file is `[]`; a torn or
+ * unparsable line is skipped, exactly as `alreadyNotified` treats one.
+ *
+ * @param {string} runsDir
+ * @returns {InboxEntry[]}
+ */
+export function readInbox(runsDir) {
+  let text;
+  try {
+    text = readFileSync(inboxPath(runsDir), "utf8");
+  } catch {
+    return [];
+  }
+  /** @type {InboxEntry[]} */
+  const entries = [];
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const parsed = JSON.parse(line);
+      if (parsed && typeof parsed === "object") entries.push(/** @type {InboxEntry} */ (parsed));
+    } catch {
+      // A torn trailing line was never a committed entry.
+    }
+  }
+  return entries;
+}
+
+/**
+ * Append one entry unless its `dedupeKey` is already present. `eventId` is the
+ * hash of the key, so the identity is stable across processes and restarts.
+ *
+ * @param {string} runsDir
+ * @param {InboxEvent} event
+ * @returns {{appended: boolean, eventId: string, entry?: InboxEntry}}
+ */
+export function appendInbox(runsDir, event) {
+  if (typeof event.dedupeKey !== "string" || !event.dedupeKey) {
+    throw new TypeError("appendInbox: an entry requires a non-empty dedupeKey");
+  }
+  const eventId = createHash("sha256").update(event.dedupeKey).digest("hex");
+  if (readInbox(runsDir).some((entry) => entry.dedupeKey === event.dedupeKey)) {
+    return { appended: false, eventId };
+  }
+  /** @type {InboxEntry} */
+  const entry = {
+    schemaVersion: INBOX_SCHEMA_VERSION,
+    eventId,
+    at: event.at ?? new Date().toISOString(),
+    type: event.type,
+    campaignId: event.campaignId ?? null,
+    runId: event.runId ?? null,
+    nodeId: event.nodeId ?? null,
+    status: event.status ?? null,
+    errorCode: event.errorCode ?? null,
+    dedupeKey: event.dedupeKey,
+    summary: event.summary,
+  };
+  mkdirSync(runsDir, { recursive: true });
+  const fd = openSync(inboxPath(runsDir), "a", 0o600);
+  try {
+    writeSync(fd, Buffer.from(`${JSON.stringify(entry)}\n`, "utf8"));
+  } finally {
+    closeSync(fd);
+  }
+  return { appended: true, eventId, entry };
 }
 
 /**
@@ -188,7 +318,12 @@ export class NotifyQueue {
    */
   async enqueue(event) {
     const enriched = { ...event, runDir: this.runDir, costUsd: readRunCostUsd(this.runDir) };
-    const summary = renderNotification(enriched);
+    // A campaign-level line arrives already rendered; a run-level event is
+    // rendered from its counters here. Either way the stored summary is the
+    // one that reaches the transport and the receipt.
+    const summary = typeof enriched.summary === "string" && enriched.summary
+      ? enriched.summary
+      : renderNotification(enriched);
     // Consumers deduplicate by eventId (the Ford adapter rejects an event without
     // one), so every delivery carries a stable id derived from the dedupe key.
     const eventId = enriched.eventId

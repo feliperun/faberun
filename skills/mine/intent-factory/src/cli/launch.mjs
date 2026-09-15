@@ -44,11 +44,27 @@ const CLI_ENTRY = fileURLToPath(new URL("../cli.mjs", import.meta.url));
  * @returns {DetachedChild}
  */
 export function detachSelf(command, target, extraArgs = []) {
-  const nonce = randomUUID();
-  const child = /** @type {DetachedChild} */ (spawn(process.execPath, [CLI_ENTRY, command, target, ...extraArgs], {
+  return detachArgv([command, target, ...extraArgs]);
+}
+
+/**
+ * Spawn this CLI as a detached child with a fresh bootstrap nonce, for argv
+ * shapes `detachSelf`'s (command, target) pair cannot express — a campaign
+ * watch is `campaign watch <id>`, not `<command> <target>`. stdio is discarded
+ * exactly as for every detached controller: a foreground launcher is the only
+ * moment an operator is present.
+ *
+ * @param {string[]} argv
+ * @param {{nonce?: string, env?: NodeJS.ProcessEnv}} [options]
+ * @returns {DetachedChild}
+ */
+export function detachArgv(argv, options = {}) {
+  const nonce = options.nonce ?? randomUUID();
+  const child = /** @type {DetachedChild} */ (spawn(process.execPath, [CLI_ENTRY, ...argv], {
     cwd: process.cwd(),
-    env: { ...process.env, INTENT_FACTORY_BOOTSTRAP_NONCE: nonce },
-    detached: process.platform !== "win32", stdio: "ignore",
+    env: { ...process.env, ...options.env, INTENT_FACTORY_BOOTSTRAP_NONCE: nonce },
+    detached: process.platform !== "win32",
+    stdio: "ignore",
   }));
   child.unref();
   child.bootstrapNonce = nonce;
