@@ -110,7 +110,7 @@ test("renderUsage prints one usage line per verb group", () => {
   const lines = renderUsage().trimEnd().split("\n");
   assert.ok(lines.length > 1, "the usage is no longer a single line");
   for (const line of lines) assert.match(line, /^usage: faberun /u);
-  for (const verb of ["run", "preflight", "resume", "supervise", "status", "doctor", "models", "next", "bulk-read", "contract", "metrics", "campaign", "seat"]) {
+  for (const verb of ["run", "preflight", "resume", "supervise", "status", "doctor", "models", "next", "bulk-read", "contract", "metrics", "campaign", "seat", "skills"]) {
     assert.ok(renderUsage().includes(verb), `usage names ${verb}`);
   }
 });

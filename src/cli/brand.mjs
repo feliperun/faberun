@@ -196,6 +196,8 @@ export function renderUsage() {
     "metrics <campaign-id> [--cwd <dir>] [--json]",
     "campaign <init|watch|attach|note|resolve|close|supervise|show|list|sync|ack> ...",
     "seat <start|attach|status|stop> [<campaign-id>] [--cwd <dir>] ...",
+    "skills list",
+    "skills install [<name>...] [--target <dir>] [--global] [--force]",
   ];
   return `${groups.map((group) => `usage: faberun ${group}`).join("\n")}\n`;
 }

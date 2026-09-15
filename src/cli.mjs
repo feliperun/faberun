@@ -26,6 +26,7 @@ import {
 import { renderRunHandoff } from "./campaign/index.mjs";
 import { campaignCli } from "./cli/campaign.mjs";
 import { seatCli } from "./cli/seat.mjs";
+import { skillsCli } from "./cli/skills.mjs";
 import { updateCommand } from "./cli/update.mjs";
 import { contractCli, validateContractFile } from "./cli/contract.mjs";
 import { METRICS_OPTIONS, renderCampaignMetrics } from "./campaign/metrics.mjs";
@@ -200,6 +201,7 @@ async function main(argv) {
   // supervise <id>` is the same operation reached through the campaign verb.
   if (argv[0] === "supervise" && argv[1] === "campaign") { await campaignCli(["supervise", ...argv.slice(2)]); return; }
   if (argv[0] === "seat") { seatCli(argv.slice(1)); return; }
+  if (argv[0] === "skills") { skillsCli(argv.slice(1)); return; }
   if (argv[0] === "contract") { contractCli(argv.slice(1)); return; }
   const parsed = parseCli(argv);
   if (!parsed) { usage(); return; }
