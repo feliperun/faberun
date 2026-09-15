@@ -21,6 +21,7 @@ import { writeJsonAtomic } from "../run/store.mjs";
 const JOURNAL_TYPES = new Set([
   "campaign.initialized",
   "campaign.closed",
+  "campaign.unparked",
   "run.registered",
   "session.attached",
   "intent",
@@ -49,6 +50,7 @@ const SESSION_REQUIRED_TYPES = new Set([
 const ENTRY_SHAPES = {
   "campaign.initialized": ["at", "type", "eventId"],
   "campaign.closed": ["at", "type", "eventId"],
+  "campaign.unparked": ["at", "type", "eventId", "code", "runId"],
   "run.registered": ["at", "type", "eventId", "runId"],
   "session.attached": ["at", "type", "eventId", "sessionId", "tool", "transcript", "transcriptUnavailable", "format", "cursor"],
   intent: ["at", "type", "eventId", "sessionId", "text"],
@@ -276,6 +278,13 @@ export function validateJournalEntry(entry) {
     return;
   }
   if (type === "campaign.initialized" || type === "campaign.closed") return;
+  if (type === "campaign.unparked") {
+    requireText(record.code, "entry.code");
+    // `runId` is optional, exactly as `outcome` treats it, but the unpark
+    // writer records an explicit null when the parked attention named no run.
+    if (record.runId !== null && record.runId !== undefined) requireText(record.runId, "entry.runId");
+    return;
+  }
   requireText(record.text, "entry.text");
   if (type === "decision") requireText(record.decisionId, "entry.decisionId");
   if (type === "supersede") requireText(record.supersedes, "entry.supersedes");

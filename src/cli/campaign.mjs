@@ -14,6 +14,7 @@ import { lockStale, pidAlive, processStartToken, readLock } from "../run/lock.mj
 import { syncAgentSignal } from "../repo/signal.mjs";
 import { acknowledgeJournalEvent, appendJournal, readJournal, watchJournal } from "../campaign/journal.mjs";
 import { driveCampaignChain } from "../campaign/chain.mjs";
+import { unparkCampaign } from "../campaign/unpark.mjs";
 import { readCampaign } from "../campaign/record.mjs";
 import { notifyQueueFor } from "../engine/notify-queue.mjs";
 import { appendInbox, readInbox, wakeCapabilityNotice } from "../notify/index.mjs";
@@ -81,12 +82,13 @@ const OPERATION_OPTIONS = {
   },
   close: { cwd: { type: "string" }, "event-id": { type: "string" } },
   supervise: { cwd: { type: "string" }, "allow-main": { type: "boolean" } },
+  unpark: { cwd: { type: "string" }, force: { type: "boolean" }, "event-id": { type: "string" } },
   show: { cwd: { type: "string" } },
   sync: { cwd: { type: "string" }, "session-id": { type: "string" } },
   ack: { cwd: { type: "string" }, "session-id": { type: "string" }, "event-id": { type: "string" } },
 };
 
-/** @typedef {{cwd?: string, goal?: string, contract?: string[], landBranch?: string, tool?: string, sessionId?: string, transcript?: string, format?: string, cursor?: string, since?: string, kind?: string, text?: string, runId?: string, supersedes?: string, decisionId?: string, questionId?: string, eventId?: string, noTranscript?: boolean, wake?: boolean, detach?: boolean, interval?: string, once?: boolean, allowMain?: boolean}} CliValues */
+/** @typedef {{cwd?: string, goal?: string, contract?: string[], landBranch?: string, tool?: string, sessionId?: string, transcript?: string, format?: string, cursor?: string, since?: string, kind?: string, text?: string, runId?: string, supersedes?: string, decisionId?: string, questionId?: string, eventId?: string, noTranscript?: boolean, wake?: boolean, detach?: boolean, interval?: string, once?: boolean, allowMain?: boolean, force?: boolean}} CliValues */
 /** @typedef {import("../campaign/index.mjs").Campaign} Campaign */
 
 /**
@@ -110,6 +112,7 @@ export async function campaignCli(args) {
   if (operation === "resolve") return resolveQuestion(campaignId, values);
   if (operation === "close") return close(campaignId, values);
   if (operation === "supervise") return supervise(campaignId, values);
+  if (operation === "unpark") return unpark(campaignId, values);
   if (operation === "show") return show(campaignId, values);
   if (operation === "sync") return sync(campaignId, values);
   if (operation === "ack") return ack(campaignId, values);
@@ -477,6 +480,24 @@ async function supervise(campaignId, values) {
 }
 
 /**
+ * `campaign unpark <id>`: clear the campaign's attention once the run it
+ * points at is no longer parked, so `supervise campaign` can drive the chain
+ * again. `--force` skips the still-parked check.
+ *
+ * @param {string} campaignId
+ * @param {CliValues} values
+ */
+function unpark(campaignId, values) {
+  const { path, runsDir } = selectCampaign(campaignId, values);
+  const result = unparkCampaign(path, {
+    runsDir,
+    force: values.force === true,
+    eventId: values.eventId ?? randomUUID(),
+  });
+  process.stdout.write(`[campaign] ${result.campaign.id} unparked · ${result.cleared.code} cleared\n`);
+}
+
+/**
  * @param {string} campaignId
  * @param {CliValues} values
  */
@@ -703,7 +724,7 @@ function positiveIntervalMs(value) {
 
 function usage() {
   process.stderr.write(
-    "usage: faberun campaign <init|watch|attach|note|resolve|close|supervise|show|list|sync|ack> <campaign-id> [--cwd <dir>] ...\n",
+    "usage: faberun campaign <init|watch|attach|note|resolve|close|supervise|unpark|show|list|sync|ack> <campaign-id> [--cwd <dir>] ...\n",
   );
   process.exitCode = 2;
 }

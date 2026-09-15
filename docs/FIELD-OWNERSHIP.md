@@ -24,7 +24,7 @@ writer per field` — re-derives every writer from `src/` and fails when the
 derivation disagrees with this document. The document is the declaration; the
 test is what keeps it from becoming fiction on the third change.
 
-**Measured 2026-09-14 against this tree:** 29 `events.jsonl` fields and 13
+**Measured 2026-09-14 against this tree:** 29 `events.jsonl` fields and 14
 `journal.jsonl` event types. Fourteen entries have more than one writer today.
 Those fourteen are the ratchet at the end of this file; they are declared, not
 fixed, because changing who writes a field is a behavior change and belongs to
@@ -86,6 +86,7 @@ cannot drift apart.
 | --- | --- | --- | --- |
 | `campaign.initialized` | `initializeCampaign` | `at`, `type`, `eventId` | when the campaign directory is created |
 | `campaign.closed` | `closeCampaign` | `at`, `type`, `eventId` | when a campaign with a retrospective is closed |
+| `campaign.unparked` | `unparkCampaign` | `at`, `type`, `eventId`, `code`, `runId` | when campaign unpark clears a parked campaign |
 | `run.registered` | `registerRun` | `at`, `type`, `eventId`, `runId` | when a run is linked to the campaign |
 | `session.attached` | `attach`, `attachSessionOnceDaily` **(ratchet)** | `at`, `type`, `eventId`, `sessionId`, `tool`, `transcript`, `transcriptUnavailable`, `format`, `cursor` | explicitly on `campaign attach`; implicitly once a day on sync |
 | `intent` | `note` | `at`, `type`, `eventId`, `sessionId`, `text` | when a note of that kind is recorded |
@@ -125,6 +126,7 @@ behavior, and a node that declares must not also move the thing it declares.
   "journal": {
     "campaign.initialized": { "writers": ["initializeCampaign"], "fields": ["at", "type", "eventId"] },
     "campaign.closed": { "writers": ["closeCampaign"], "fields": ["at", "type", "eventId"] },
+    "campaign.unparked": { "writers": ["unparkCampaign"], "fields": ["at", "type", "eventId", "code", "runId"] },
     "run.registered": { "writers": ["registerRun"], "fields": ["at", "type", "eventId", "runId"] },
     "session.attached": { "writers": ["attach", "attachSessionOnceDaily"], "fields": ["at", "type", "eventId", "sessionId", "tool", "transcript", "transcriptUnavailable", "format", "cursor"] },
     "intent": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "text"] },
