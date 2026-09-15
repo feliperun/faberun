@@ -32,7 +32,7 @@ import { validateRunMetadata } from "../contract/snapshot.mjs";
 /**
  * @param {LockHandle} lock
  * @param {SourceIdentity} sourceIdentity
- * @param {{identityWarnings?: string[]}} [resume]
+ * @param {{identityWarnings?: string[], relaunchCount?: number, lastRelaunchProgressAt?: string|null, attention?: {code: string, message: string, at: string}|null}} [resume]
  * @param {string} [integrationRef]
  * @returns {RunMetadata}
  */
@@ -47,6 +47,12 @@ export function createRunMetadata(lock, sourceIdentity, resume = {}, integration
     sourceIdentity,
     ...(integrationRef ? { integrationRef } : {}),
     ...(resume.identityWarnings?.length ? { identityWarnings: resume.identityWarnings } : {}),
+    // The supervisor's relaunch guard and its durable attention record are
+    // carried through a controller restart by the controller itself; a field
+    // not named here is dropped by the fixed field list above.
+    ...(resume.relaunchCount !== undefined ? { relaunchCount: resume.relaunchCount } : {}),
+    ...(resume.lastRelaunchProgressAt !== undefined ? { lastRelaunchProgressAt: resume.lastRelaunchProgressAt } : {}),
+    ...(resume.attention !== undefined ? { attention: resume.attention } : {}),
   };
   return validateRunMetadata(metadata);
 }

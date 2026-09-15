@@ -8,6 +8,7 @@ import { reviewNote } from "../contract/review-modes.mjs";
 import { validateNodeSnapshot, validateRunMetadata } from "../contract/snapshot.mjs";
 import { compactCost, compactTokens, finite, truncateChars } from "../util.mjs";
 import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
+import { readHeartbeat } from "../engine/supervise.mjs";
 
 /** Advisory ceiling for status.json (TECH-SPEC lean, rule 5); never enforced destructively. */
 const STATUS_JSON_MAX_BYTES = 200 * 1024;
@@ -303,23 +304,29 @@ export function writeStatusArtifacts(runDir, runsDir, contract, states) {
  * @param {NodeSnapshot[]} nodes
  * @returns {{line: string, status: {state: "active"|"stale"|"none", pid: number|null, since: string|null, lastTick: string|null}}}
  */
-function controllerStatus(runDir, nodes) {
+export function controllerStatus(runDir, nodes) {
   const lock = readLock(runDir);
+  // The heartbeat's `at` is the live tick, so a working controller and a dead
+  // one are distinguishable on disk. Before this it was hard-coded null here
+  // and computed from node updates only once the lock was already stale, which
+  // is why all 47 recorded status.json files reported a null lastTick.
+  const heartbeat = readHeartbeat(runDir);
+  const lastTick = typeof heartbeat?.at === "string" ? heartbeat.at : null;
   if (!lock || /** @type {{invalid?: true}} */ (lock).invalid) {
-    return { line: "none", status: { state: "none", pid: null, since: null, lastTick: null } };
+    return { line: "none", status: { state: "none", pid: null, since: null, lastTick } };
   }
   const record = /** @type {import("../run/lock.mjs").LockRecord} */ (lock);
   if (!lockStale(record)) {
     return {
       line: `active pid ${record.pid} since ${record.startedAt}`,
-      status: { state: "active", pid: record.pid, since: record.startedAt, lastTick: null },
+      status: { state: "active", pid: record.pid, since: record.startedAt, lastTick },
     };
   }
-  const lastTick = nodes.reduce((latest, node) => (node.updatedAt && node.updatedAt > latest ? node.updatedAt : latest), "") || null;
+  const staleTick = lastTick ?? (nodes.reduce((latest, node) => (node.updatedAt && node.updatedAt > latest ? node.updatedAt : latest), "") || null);
   const reason = pidAlive(record.pid) ? "restarted" : "dead";
   return {
-    line: `stale pid ${record.pid} (${reason}) last tick ${lastTick ?? "-"}`,
-    status: { state: "stale", pid: record.pid, since: record.startedAt, lastTick },
+    line: `stale pid ${record.pid} (${reason}) last tick ${staleTick ?? "-"}`,
+    status: { state: "stale", pid: record.pid, since: record.startedAt, lastTick: staleTick },
   };
 }
 

@@ -39,9 +39,11 @@ import { appendUsageRecord, invocationCost, invocationUsage, recordInvocationUsa
 import { captureNodeScopeBoundaries, checkWorkerScope, emptyScope } from "./scope.mjs";
 import { validateContract } from "../contract/index.mjs";
 import { validateNodeSnapshot } from "../contract/snapshot.mjs";
+import { finalVerificationCommands } from "../contract/final-verification.mjs";
 import { startJudge, startWorker } from "./dispatch.mjs";
 import { assertEnvironmentReady, captureRunIdentity, createRunMetadata, serializableContract, statesFingerprint } from "./run-identity.mjs";
 import { blockDependents, runtimeAssignments } from "./assignment.mjs";
+import { createHeartbeat, HEARTBEAT_INTERVAL_MS } from "./supervise.mjs";
 
 /** @typedef {import("../contract/index.mjs").WorkspaceScopeBoundary} WorkspaceScopeBoundary */
 
@@ -69,6 +71,49 @@ import { blockDependents, runtimeAssignments } from "./assignment.mjs";
 /** @typedef {import("./lifecycle.mjs").InvocationProbe} InvocationProbe */
 /** @typedef {import("../contract/worker-result.mjs").WorkerResult} WorkerResult */
 /** @typedef {{runDir: string, states: Map<string, NodeSnapshot>, ok: boolean, error?: Error}} RunOutcome */
+
+/**
+ * The wall-clock milliseconds one verification-command set may legitimately
+ * occupy: each command's own `timeoutSec` repeated `repeat` times. The schema
+ * already normalizes `timeoutSec` to 120 and `repeat` to 1, but a caller may
+ * hand an un-normalized command, so both are defaulted here too.
+ *
+ * @param {import("../contract/index.mjs").VerificationCommand[]|undefined} commands
+ * @returns {number}
+ */
+export function verificationBudgetMs(commands) {
+  return (commands ?? []).reduce((total, command) => {
+    const timeoutSec = typeof command?.timeoutSec === "number" ? command.timeoutSec : 120;
+    const repeat = Number.isInteger(command?.repeat) && /** @type {number} */ (command.repeat) > 0 ? /** @type {number} */ (command.repeat) : 1;
+    return total + timeoutSec * repeat * 1_000;
+  }, 0);
+}
+
+/**
+ * The budget a node is judged against, in milliseconds. It is the sum of every
+ * bounded phase the node can legitimately occupy without a state transition:
+ * its worker invocation (`timeoutSec`), its packet verification and the
+ * contract's `finalVerification` when it is phase-terminal, an integration
+ * candidate run of that same set, and the bounded command proofs of its gate.
+ * A frozen node is one that has been silent longer than this, not merely
+ * longer than the worker timeout, because a legitimate verification can be
+ * minutes long and must not be mistaken for a freeze.
+ *
+ * @param {ValidatedContract} contract
+ * @param {ValidatedNode} node
+ * @returns {number}
+ */
+export function nodeBudgetBasisMs(contract, node) {
+  const defaultTimeoutMs = (node.timeoutSec ?? contract.timeoutSec ?? 60) * 1_000;
+  const packetMs = verificationBudgetMs(node.taskPacket?.verification);
+  const finalMs = verificationBudgetMs(finalVerificationCommands(contract, node));
+  // The controller runs the packet set once after the worker and once against
+  // the integration candidate, and the finalVerification set with each.
+  const candidateMs = packetMs + finalMs;
+  const gateTimeoutMs = Math.max(1_000, Math.min(defaultTimeoutMs, 120_000));
+  const commandProofs = (node.definitionOfDone ?? []).filter((item) => item.proof?.kind === "command").length;
+  return defaultTimeoutMs + packetMs + candidateMs + commandProofs * gateTimeoutMs + finalMs;
+}
 
 /**
  * @param {string} contractPath
@@ -162,7 +207,7 @@ export async function runContract(contractPath, options = {}) {
  * @param {CampaignRef} campaign
  * @param {LockHandle} lock
  * @param {SourceIdentity} sourceIdentity
- * @param {{identityWarnings?: string[]}} [resume] resume-only records persisted on the run metadata
+ * @param {{identityWarnings?: string[], relaunchCount?: number, lastRelaunchProgressAt?: string|null, attention?: {code: string, message: string, at: string}|null}} [resume] resume-only records persisted on the run metadata
  * @param {{detachedBootstrap?: boolean}} [options] set by the CLI entry alone
  * @returns {Promise<RunOutcome>}
  */
@@ -175,7 +220,16 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
   // by a test must not make the controller wait for an acknowledgement nobody
   // is going to write.
   const detachedBootstrap = options.detachedBootstrap === true;
-  const runMetadata = createRunMetadata(lock, sourceIdentity, resume, runRefName(contract.id));
+  // A controller restart must not erase the supervisor's durable relaunch
+  // guard. `resume.mjs` does not thread those fields, so the controller reads
+  // the run it is rewriting and carries them itself.
+  const persistedMetadata = existsSync(join(runDir, "run.json")) ? readJson(join(runDir, "run.json")) : {};
+  const runMetadata = createRunMetadata(lock, sourceIdentity, {
+    ...resume,
+    ...(persistedMetadata.relaunchCount !== undefined ? { relaunchCount: /** @type {number} */ (persistedMetadata.relaunchCount) } : {}),
+    ...(persistedMetadata.lastRelaunchProgressAt !== undefined ? { lastRelaunchProgressAt: /** @type {string|null} */ (persistedMetadata.lastRelaunchProgressAt) } : {}),
+    ...(persistedMetadata.attention !== undefined ? { attention: /** @type {{code: string, message: string, at: string}|null} */ (persistedMetadata.attention) } : {}),
+  }, runRefName(contract.id));
   writeJsonAtomic(join(runDir, "run.json"), runMetadata);
   writeJsonAtomic(bootstrapPath(runDir), {
     status: "ready",
@@ -247,6 +301,17 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
   process.once("SIGINT", cancel);
   process.once("SIGTERM", cancel);
   process.once("SIGHUP", cancel);
+  // The heartbeat's `at` is owned by an unref'd timer inside this writer, never
+  // by the loop body below: the loop awaits controller verification on its own
+  // critical path and must keep answering "the process is alive" while it does.
+  const heartbeat = createHeartbeat({ runDir, intervalMs: HEARTBEAT_INTERVAL_MS });
+  const heartbeatNodes = new Map(contract.nodes.map((node) => [node.id, node]));
+  let heartbeatFingerprint = statesFingerprint(states);
+  /** @type {Map<string, number>} */
+  const heartbeatOutputAt = new Map();
+  const activeHeartbeatNodes = () => [...states.values()]
+    .filter((state) => state.status === "running" && heartbeatNodes.has(state.id))
+    .map((state) => ({ nodeId: state.id, budgetBasis: nodeBudgetBasisMs(contract, /** @type {ValidatedNode} */ (heartbeatNodes.get(state.id))) }));
   try {
     while ([...states.values()].some((state) => !TERMINAL.has(state.status))) {
       lock.assert();
@@ -337,6 +402,23 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
       renderHandoffIfChanged();
       renderStatusIfChanged();
       await notifyStateChanges();
+      // A node state transition is progress; provider output is progress; a
+      // node merely still existing is neither, which is what keeps a frozen
+      // sibling from hiding behind a healthy one.
+      const heartbeatFingerprintNow = statesFingerprint(states);
+      if (heartbeatFingerprintNow !== heartbeatFingerprint) {
+        heartbeatFingerprint = heartbeatFingerprintNow;
+        heartbeat.progress();
+      }
+      for (const [nodeId, job] of running) {
+        const observed = typeof job.lastOutputAt === "number" ? job.lastOutputAt : 0;
+        if (observed > (heartbeatOutputAt.get(nodeId) ?? 0)) {
+          heartbeatOutputAt.set(nodeId, observed);
+          const node = heartbeatNodes.get(nodeId);
+          if (node) heartbeat.progress(nodeId, nodeBudgetBasisMs(contract, node));
+        }
+      }
+      heartbeat.setActive(activeHeartbeatNodes());
       if ([...states.values()].some((state) => !TERMINAL.has(state.status))) await delay(contract.pollIntervalMs);
     }
   } catch (error) {
@@ -348,6 +430,7 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
     process.removeListener("SIGINT", cancel);
     process.removeListener("SIGTERM", cancel);
     process.removeListener("SIGHUP", cancel);
+    heartbeat.stop();
     lock.release();
   }
   renderStatusIfChanged(false, null);

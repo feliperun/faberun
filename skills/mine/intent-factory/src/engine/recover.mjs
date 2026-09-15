@@ -11,6 +11,7 @@ import { delay } from "../util.mjs";
 import { hasOperationIntent, operationNeedsRecovery, operationNextState, readOperationSettlement, settleInvocation } from "../run/operations.mjs";
 import { invocationAlive, invocationResult, terminateInvocation } from "./process.mjs";
 import { latestTimeoutSec } from "./backoff.mjs";
+import { markRecovering } from "./supervise.mjs";
 import { parseJudge } from "./prompts.mjs";
 import { persistedJudgeResult, persistedWorkerResult } from "./result-file.mjs";
 import { routeRuntimeForState, runtimeSnapshot } from "./failover.mjs";
@@ -100,6 +101,13 @@ export async function recoverOrphan(runDir, contract, node, state, lock) {
       await terminateInvocation(invocation);
       return restartRecovery(invocation, invocationResult(invocation, runtime), `${invocation.phase} invocation ${invocation.id} exceeded its wall-clock budget`);
     }
+    // A resumed controller waiting on a live orphan is a bounded recovery, not
+    // progress. The heartbeat records that phase against the orphan's own
+    // deadline so the supervisor judges `until + grace` instead of a stale
+    // `lastProgressAt`; the poll must never refresh `lastProgressAt` itself, or
+    // an orphan that is alive but never advancing would look like progress.
+    const recoveryUntil = typeof invocation.deadlineAt === "string" ? invocation.deadlineAt : new Date(deadline).toISOString();
+    markRecovering(runDir, recoveryUntil);
     while (invocationAlive(invocation) && Date.now() < deadline) {
       const result = invocationResult(invocation, runtime, { preferStructured: invocation.phase === "judge" });
       if (result?.status === "done") {
@@ -112,6 +120,7 @@ export async function recoverOrphan(runDir, contract, node, state, lock) {
         return /** @type {RecoveryOutcome} */ ({ kind: "adopted", ...result, phase: invocation.phase, invocationId: invocation.id });
       }
       await delay(Math.min(contract.pollIntervalMs, 250));
+      markRecovering(runDir, recoveryUntil);
     }
     const expired = Date.now() >= deadline;
     if (invocationAlive(invocation)) await terminateInvocation(invocation);

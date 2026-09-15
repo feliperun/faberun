@@ -49,13 +49,26 @@ export function validateRunMetadata(value, options = {}) {
   assertObject(value, "run metadata");
   rejectUnknown(value, new Set([
     "schemaVersion", "contractVersion", "pid", "processStartToken", "startedAt", "sourceIdentity",
-    "identityWarnings", "integrationRef",
+    "identityWarnings", "integrationRef", "relaunchCount", "lastRelaunchProgressAt", "attention",
   ]), "run metadata");
   validateMetadata(value, "run metadata");
   requireInteger(value.pid, "run metadata.pid");
   if (value.processStartToken !== undefined && value.processStartToken !== null) requireString(value.processStartToken, "run metadata.processStartToken");
   requireString(value.startedAt, "run metadata.startedAt");
   if (value.integrationRef !== undefined) requireString(value.integrationRef, "run metadata.integrationRef");
+  // The supervisor's no-progress relaunch guard is durable in run.json: an
+  // in-memory counter resets whenever the supervisor restarts, which is an
+  // endless dispatch storm rather than a guard.
+  if (value.relaunchCount !== undefined) nonNegativeInteger(value.relaunchCount, "run metadata.relaunchCount");
+  if (value.lastRelaunchProgressAt !== undefined && value.lastRelaunchProgressAt !== null) requireTimestamp(value.lastRelaunchProgressAt, "run metadata.lastRelaunchProgressAt");
+  if (value.attention !== undefined && value.attention !== null) {
+    assertObject(value.attention, "run metadata.attention");
+    rejectUnknown(/** @type {JsonObject} */ (value.attention), new Set(["code", "message", "at"]), "run metadata.attention");
+    const attention = /** @type {JsonObject} */ (value.attention);
+    requireString(attention.code, "run metadata.attention.code");
+    requireString(attention.message, "run metadata.attention.message");
+    requireTimestamp(attention.at, "run metadata.attention.at");
+  }
   validateSourceIdentity(value.sourceIdentity, "run metadata.sourceIdentity", { kind: "run" });
   if (value.identityWarnings !== undefined) {
     if (!Array.isArray(value.identityWarnings) || value.identityWarnings.length > 8) {
