@@ -77,6 +77,15 @@ function validateCampaign(campaign) {
     }
   }
   if (record.landBranch !== undefined) requireText(record.landBranch, "campaign.landBranch");
+  // The chain's durable park: the campaign stays active but carries the reason
+  // it stopped, naming the contract, the node and the status when they exist.
+  if (record.attention !== undefined && record.attention !== null) {
+    assertObject(record.attention, "campaign.attention");
+    const attention = /** @type {JsonObject} */ (record.attention);
+    requireString(attention.code, "campaign.attention.code");
+    requireString(attention.message, "campaign.attention.message");
+    requireTimestamp(attention.at, "campaign.attention.at");
+  }
   if (record.promotions !== undefined) {
     if (!Array.isArray(record.promotions)) throw new TypeError("campaign.promotions must be an array");
     for (const [index, entry] of record.promotions.entries()) {

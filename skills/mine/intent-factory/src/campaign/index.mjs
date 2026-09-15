@@ -18,7 +18,8 @@ import { handoffFromState, materializeHandoff } from "./handoff.mjs";
 /** @typedef {Record<string, unknown>} JsonObject */
 /** @typedef {{path: string, digest: string}} CampaignContract */
 /** @typedef {{runId: string, contractPath?: string, branch: string, sha: string, previousSha: string|null, at: string}} PromotionRecord */
-/** @typedef {{id: string, goal: string, status: "active"|"closed", linkedRunIds: string[], contracts: CampaignContract[], landBranch: string, promotions: PromotionRecord[], createdAt: string, updatedAt: string, closedAt?: string}} Campaign */
+/** @typedef {{code: string, message: string, at: string, contractPath?: string, contractId?: string, runId?: string, node?: string|null, status?: string|null, resume?: string}} CampaignAttention */
+/** @typedef {{id: string, goal: string, status: "active"|"closed", linkedRunIds: string[], contracts: CampaignContract[], landBranch: string, promotions: PromotionRecord[], attention?: CampaignAttention, createdAt: string, updatedAt: string, closedAt?: string}} Campaign */
 /** @typedef {{type: string, eventId: string, at: string, sessionId?: string, text?: string, tool?: string, transcript?: string|null, transcriptUnavailable?: boolean, format?: string|null, cursor?: string|null, decisionId?: string, supersedes?: string, runId?: string, questionId?: string, campaignId?: string, nodeId?: string|null, phase?: string, checkpointsDone?: number, checkpointsTotal?: number, runtime?: string|null, state?: string, lastProgressAt?: string, attention?: string|null}} JournalEntry */
 /** @typedef {{updatedAt: string|null, decisions: Record<string, JournalEntry>, questions: Record<string, JournalEntry>, constraints: JournalEntry[], intents: JournalEntry[], outcomes: JournalEntry[], sessions: JournalEntry[], next: JournalEntry|null, evicted: Record<string, number>}} Projection */
 /** @typedef {{cursor: number, byte: number, size: number, projection: Projection}} ProjectionRecord */
@@ -214,6 +215,26 @@ export function recordPromotion(campaignPath, entry) {
   campaign.updatedAt = entry.at;
   writeJsonAtomic(join(campaignPath, CAMPAIGN_FILE), campaign);
   return entry;
+}
+
+/**
+ * Record a durable attention entry on the campaign and keep it active. The
+ * chain parks here when a contract's run did not succeed, when a contract no
+ * longer validates, or when two digests disagree; the message names the
+ * contract, the node and the status whenever they exist.
+ *
+ * @param {string} campaignPath
+ * @param {CampaignAttention} attention
+ * @returns {Campaign}
+ */
+export function parkCampaign(campaignPath, attention) {
+  requireString(attention.code, "campaign.attention.code");
+  requireString(attention.message, "campaign.attention.message");
+  requireTimestamp(attention.at, "campaign.attention.at");
+  const campaign = readCampaign(campaignPath);
+  const parked = /** @type {Campaign} */ ({ ...campaign, attention, updatedAt: attention.at });
+  writeJsonAtomic(join(campaignPath, CAMPAIGN_FILE), parked);
+  return parked;
 }
 
 /**

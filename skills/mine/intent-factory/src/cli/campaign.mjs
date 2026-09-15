@@ -13,7 +13,9 @@ import {
 import { lockStale, readLock } from "../run/lock.mjs";
 import { syncAgentSignal } from "../repo/signal.mjs";
 import { acknowledgeJournalEvent, appendJournal, readJournal, watchJournal } from "../campaign/journal.mjs";
+import { driveCampaignChain } from "../campaign/chain.mjs";
 import { readCampaign } from "../campaign/record.mjs";
+import { detachSelf, waitForBootstrap } from "./launch.mjs";
 import { readJsonTolerant } from "../util.mjs";
 
 const SYNC_OUTPUT_MAX_BYTES = 8000;
@@ -76,12 +78,13 @@ const OPERATION_OPTIONS = {
     "event-id": { type: "string" },
   },
   close: { cwd: { type: "string" }, "event-id": { type: "string" } },
+  supervise: { cwd: { type: "string" }, "allow-main": { type: "boolean" } },
   show: { cwd: { type: "string" } },
   sync: { cwd: { type: "string" }, "session-id": { type: "string" } },
   ack: { cwd: { type: "string" }, "session-id": { type: "string" }, "event-id": { type: "string" } },
 };
 
-/** @typedef {{cwd?: string, goal?: string, contract?: string[], landBranch?: string, tool?: string, sessionId?: string, transcript?: string, format?: string, cursor?: string, since?: string, kind?: string, text?: string, runId?: string, supersedes?: string, decisionId?: string, questionId?: string, eventId?: string, noTranscript?: boolean, wake?: boolean, interval?: string, once?: boolean}} CliValues */
+/** @typedef {{cwd?: string, goal?: string, contract?: string[], landBranch?: string, tool?: string, sessionId?: string, transcript?: string, format?: string, cursor?: string, since?: string, kind?: string, text?: string, runId?: string, supersedes?: string, decisionId?: string, questionId?: string, eventId?: string, noTranscript?: boolean, wake?: boolean, interval?: string, once?: boolean, allowMain?: boolean}} CliValues */
 /** @typedef {import("../campaign/index.mjs").Campaign} Campaign */
 
 /**
@@ -104,6 +107,7 @@ export async function campaignCli(args) {
   if (operation === "note") return note(campaignId, values);
   if (operation === "resolve") return resolveQuestion(campaignId, values);
   if (operation === "close") return close(campaignId, values);
+  if (operation === "supervise") return supervise(campaignId, values);
   if (operation === "show") return show(campaignId, values);
   if (operation === "sync") return sync(campaignId, values);
   if (operation === "ack") return ack(campaignId, values);
@@ -329,6 +333,35 @@ function close(campaignId, values) {
   renderHandoff(path, runsDir);
   process.stdout.write(`[campaign] ${closed.campaign.id} closed\n`);
   if (syncAgentSignal(runsDir)) process.stdout.write(`[campaign] AGENTS.md signal updated\n`);
+}
+
+/**
+ * `campaign supervise <id>` (also spelled `supervise campaign <id>`): the
+ * idempotent re-invocation that drives the manifest. It takes the campaign's
+ * `coordinator.lock`, writes the campaign heartbeat, and launches each
+ * contract's run from the same controller snapshot the previous run recorded.
+ * A second invocation against a fresh heartbeat writes nothing and exits 0.
+ *
+ * @param {string} campaignId
+ * @param {CliValues} values
+ */
+async function supervise(campaignId, values) {
+  const cwd = resolve(values.cwd ?? ".");
+  const runsDir = join(cwd, ".runs");
+  const { path } = resolveCampaign(runsDir, campaignId);
+  const outcome = await driveCampaignChain(path, {
+    repo: cwd,
+    allowMain: values.allowMain === true,
+    emit: (line) => process.stdout.write(`${line}\n`),
+    launch: async (contractPath, { baseRef, runDir }) => {
+      const child = detachSelf("run", contractPath, baseRef ? ["--base-ref", baseRef] : []);
+      if (child.pid === undefined) throw new Error("detached run has no pid");
+      await waitForBootstrap(runDir, child.pid, child);
+      process.stdout.write(`[campaign] launched ${contractPath} · pid ${child.pid}\n`);
+    },
+  });
+  process.stdout.write(`[campaign] ${campaignId} ${outcome.state} · ${outcome.launches} launch${outcome.launches === 1 ? "" : "es"}${outcome.reason ? ` · ${outcome.reason}` : ""}\n`);
+  if (outcome.state === "parked" || outcome.state === "stopped") process.exitCode = 1;
 }
 
 /**
@@ -558,7 +591,7 @@ function positiveIntervalMs(value) {
 
 function usage() {
   process.stderr.write(
-    "usage: runner.mjs campaign <init|watch|attach|note|resolve|close|show|list|sync|ack> <campaign-id> [--cwd <dir>] ...\n",
+    "usage: runner.mjs campaign <init|watch|attach|note|resolve|close|supervise|show|list|sync|ack> <campaign-id> [--cwd <dir>] ...\n",
   );
   process.exitCode = 2;
 }

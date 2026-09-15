@@ -188,6 +188,9 @@ function superviseIntervalOf(value) {
  */
 async function main(argv) {
   if (argv[0] === "campaign") { await campaignCli(argv.slice(1)); return; }
+  // `supervise campaign <id>` is the campaign-level watchdog; `campaign
+  // supervise <id>` is the same operation reached through the campaign verb.
+  if (argv[0] === "supervise" && argv[1] === "campaign") { await campaignCli(["supervise", ...argv.slice(2)]); return; }
   if (argv[0] === "seat") { seatCli(argv.slice(1)); return; }
   if (argv[0] === "contract") { contractCli(argv.slice(1)); return; }
   const parsed = parseCli(argv);
@@ -365,7 +368,7 @@ async function main(argv) {
 function usage() {
   process.stderr.write(
     "usage: runner.mjs <run|validate> <contract.json> [--base-ref <ref>] [--detach] | preflight <contract.json> [--static] [--time-verification] [--json] | " +
-    "<resume|cancel> <run-dir> [--detach] | supervise <run-dir> [--detach] [--interval <sec>] | " +
+    "<resume|cancel> <run-dir> [--detach] | supervise <run-dir> [--detach] [--interval <sec>] | supervise campaign <campaign-id> [--cwd <dir>] [--allow-main] | " +
     "<status|report> <run-dir> [--json] | findings <run-dir> | " +
     "doctor [<contract.json>] [--cwd <dir>] [--discover] [--json] | models [--probe] [--json] | " +
     "next [--cwd <dir>] [--json] | " +

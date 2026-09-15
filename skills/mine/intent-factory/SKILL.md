@@ -6,11 +6,7 @@ description: A harness- and model-agnostic development factory that turns plans 
 # Intent Factory
 
 Run a plan outside the main context, with this session as the control plane.
-
-Articles load on demand: read the rows your action needs — several may be
-yours at once — and nothing else.
-
-Read [rules](references/rules.md) first: it binds every path below.
+Read [rules](references/rules.md) first.
 
 | Action | Read |
 | --- | --- |
@@ -19,3 +15,8 @@ Read [rules](references/rules.md) first: it binds every path below.
 | Dispatch a node to a worker | [handoffs](references/handoffs.md) |
 | Supervise a run, answer attention | [operations](references/operations.md), [handoffs](references/handoffs.md) |
 | Verify, judge, settle results | [engineering](references/engineering.md), [handoffs](references/handoffs.md) |
+
+Watchdog re-invocations, armed from launchd/cron (`StartInterval 300`):
+
+    node src/cli.mjs supervise <run-dir>
+    node src/cli.mjs supervise campaign <id> [--allow-main]

@@ -9,6 +9,7 @@ import {
   closeCampaign,
   discoverCampaigns,
   initializeCampaign,
+  parkCampaign,
   recordPromotion,
   registerRun,
   renderHandoff,
@@ -16,7 +17,7 @@ import {
 } from "../../src/campaign/index.mjs";
 import { readCampaign } from "../../src/campaign/record.mjs";
 import { appendJournal, readJournal, validateJournalEntry } from "../../src/campaign/journal.mjs";
-import { HANDOFF_BYTES, HANDOFF_FILE, JOURNAL_FILE, JOURNAL_TEXT_BYTES, PROJECTION_FILE } from "../../src/campaign/layout.mjs";
+import { CAMPAIGN_FILE, HANDOFF_BYTES, HANDOFF_FILE, JOURNAL_FILE, JOURNAL_TEXT_BYTES, PROJECTION_FILE } from "../../src/campaign/layout.mjs";
 
 // Campaign lifecycle: init, discover, resolve, journal append, close.
 // Projection and handoff rendering are in projection.test.mjs.
@@ -550,4 +551,30 @@ test("recording a promotion is idempotent by run and sha", () => {
   const campaign = readCampaign(path);
   assert.equal(campaign.promotions.length, 1);
   assert.equal(campaign.promotions[0].sha, entry.sha);
+});
+
+test("a parked campaign records attention and refuses a malformed one", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-campaign-attention-"));
+  const runsDir = join(directory, ".runs");
+  const { path } = initializeCampaign(runsDir, { campaignId: "parked", goal: "Park with attention" });
+  const at = new Date().toISOString();
+  parkCampaign(path, {
+    code: "run_parked",
+    message: "contract c run parked: node build failed [boom]",
+    at,
+    contractId: "c",
+    node: "build",
+    status: "failed",
+  });
+  const campaign = readCampaign(path);
+  assert.equal(campaign.status, "active", "a parked campaign stays active until an operator closes it");
+  assert.equal(campaign.attention?.code, "run_parked");
+  assert.equal(campaign.attention?.node, "build");
+  assert.equal(campaign.attention?.status, "failed");
+  assert.equal(campaign.updatedAt, at);
+
+  const record = JSON.parse(readFileSync(join(path, CAMPAIGN_FILE), "utf8"));
+  record.attention = { code: "run_parked", at };
+  writeFileSync(join(path, CAMPAIGN_FILE), JSON.stringify(record));
+  assert.throws(() => readCampaign(path), /campaign\.attention\.message/u);
 });
