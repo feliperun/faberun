@@ -1,16 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  acquireCoordinator,
-  coordinatorLockPath,
   driveCampaignChain,
   readCoordinatorLock,
-  releaseCoordinatorLock,
   validateManifestEntryAtLaunch,
   writeCoordinatorLock,
 } from "../../src/campaign/chain.mjs";
@@ -19,7 +16,7 @@ import { readCampaign } from "../../src/campaign/record.mjs";
 import { INTENT_FACTORY_VERSION, PROTOCOL_SCHEMA_VERSION, contractDigest, validateContract } from "../../src/contract/index.mjs";
 import { controllerSnapshotIdentity } from "../../src/engine/run-identity.mjs";
 import { writeHeartbeat } from "../../src/engine/supervise.mjs";
-import { packet } from "../helpers.mjs";
+import { packet, closeResult, waitForValue } from "../helpers.mjs";
 
 /** @typedef {import("../../src/contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {import("../../src/contract/index.mjs").ControllerIdentity} ControllerIdentity */
@@ -34,6 +31,58 @@ function lockPid(campaignPath) {
   const lock = readCoordinatorLock(campaignPath);
   if (!lock || /** @type {{invalid?: true}} */ (lock).invalid) return undefined;
   return /** @type {number|undefined} */ (/** @type {Record<string, unknown>} */ (lock).pid);
+}
+
+/**
+ * Drive the operator surface an operator actually types: `supervise campaign
+ * <id>`, routed by src/cli.mjs through the `supervise` operation in
+ * src/cli/campaign.mjs. Spawned async so a test can observe the coordinator
+ * lock while the invocation is still alive.
+ *
+ * @param {string} campaignId
+ * @param {string} repo
+ * @returns {import("node:child_process").ChildProcess}
+ */
+function coordinatorCliCase(campaignId, repo) {
+  return spawn(process.execPath, [CLI, "supervise", "campaign", campaignId, "--cwd", repo], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+/**
+ * Wait until the invocation's own pid is the coordinator lock's holder. The
+ * lock is released again when the invocation exits, so this is only
+ * answerable while the `supervise` process is alive.
+ *
+ * @param {string} campaignPath
+ * @param {number} pid
+ * @returns {Promise<number>}
+ */
+async function waitForCoordinatorLock(campaignPath, pid) {
+  return /** @type {number} */ (await waitForValue(() => (lockPid(campaignPath) === pid ? pid : null)));
+}
+
+/**
+ * Every file under `dir`, keyed by its path relative to `dir`, as bytes. Two
+ * snapshots compare equal only when nothing was added, removed or rewritten.
+ *
+ * @param {string} dir
+ * @returns {Record<string, string>}
+ */
+function snapshotTree(dir) {
+  /** @type {Record<string, string>} */
+  const snapshot = {};
+  /** @param {string} current @param {string} prefix */
+  const walk = (current, prefix) => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const absolute = join(current, entry.name);
+      const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) walk(absolute, relative);
+      else snapshot[relative] = readFileSync(absolute, "utf8");
+    }
+  };
+  walk(dir, "");
+  return snapshot;
 }
 
 /** @returns {{progress: (nodeId?: string, budgetBasis?: number) => void, setActive: (nodes: {nodeId: string, budgetBasis: number}[]) => void, stop: () => void}} */
@@ -246,44 +295,84 @@ test("done-when 3: a parked second run stops the chain before the third and name
   assert.equal(readCampaign(campaignPath).attention?.node, "build", "the campaign record carries the durable park");
 });
 
-test("done-when 10: a fresh heartbeat is observed, a stale one is taken over, and no coordinator is become", async () => {
+test("done-when 10a: with no coordinator, supervise campaign through the CLI becomes one", async () => {
+  const repo = initRepo();
+  const contractPath = writeChainContract(repo, "cli-become", "b1");
+  const { path: campaignPath } = makeCampaign(repo, "cli-become", [contractPath]);
+  // An in-flight run keeps the newly-become coordinator alive long enough to
+  // observe the lock it wrote, without launching anything.
+  const validated = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
+  writeRunDir({ repo, runDir: join(repo, ".runs", "b1"), contract: validated, node: { id: "build", status: "running", phase: "worker" } });
+  assert.equal(readCoordinatorLock(campaignPath), null, "no coordinator exists before the invocation");
+
+  const child = coordinatorCliCase("cli-become", repo);
+  const childPid = child.pid;
+  assert.ok(childPid !== undefined, "the invocation has a pid");
+  const done = closeResult(child);
+  try {
+    assert.equal(await waitForCoordinatorLock(campaignPath, childPid), childPid, "the invocation wrote its own coordinator lock");
+  } finally {
+    child.kill("SIGTERM");
+    await done;
+  }
+});
+
+test("done-when 10b: a fresh heartbeat is observed through the CLI, exits 0 and writes nothing", async () => {
   const repo = initRepo();
   const { path: campaignPath } = makeCampaign(repo, "watch", []);
-
-  // No coordinator: become one.
-  const became = await acquireCoordinator(campaignPath, { pid: 1111 });
-  assert.equal(became.role, "became");
-  assert.equal(lockPid(campaignPath), 1111);
-  releaseCoordinatorLock(campaignPath, became.lock);
-
-  // A live lock with a fresh heartbeat: observed, having written nothing.
-  const now = Date.parse("2026-09-14T00:00:00Z");
-  writeCoordinatorLock(campaignPath, { schemaVersion: 1, pid: 2222, processStartToken: null, startedAt: new Date(now).toISOString(), hostname: "test" });
+  // A live lock with a fresh heartbeat: the invocation is the observer, not
+  // the coordinator. The holder's pid is this test process, which is provably
+  // alive for the duration.
+  const now = Date.now();
+  writeCoordinatorLock(campaignPath, { schemaVersion: 1, pid: process.pid, processStartToken: null, startedAt: new Date(now).toISOString(), hostname: "test" });
   writeHeartbeat(campaignPath, { at: new Date(now).toISOString(), lastProgressAt: new Date(now).toISOString(), iteration: 1, activeNodes: [] });
-  const lockBefore = readFileSync(coordinatorLockPath(campaignPath), "utf8");
-  const heartbeatBefore = readFileSync(join(campaignPath, "heartbeat.json"), "utf8");
-  const observed = await acquireCoordinator(campaignPath, { pid: 3333, now: () => now, alive: (pid) => pid === 2222 });
-  assert.equal(observed.role, "observed");
-  assert.equal(readFileSync(coordinatorLockPath(campaignPath), "utf8"), lockBefore, "the observer wrote nothing to the lock");
-  assert.equal(readFileSync(join(campaignPath, "heartbeat.json"), "utf8"), heartbeatBefore, "the observer wrote nothing to the heartbeat");
+  const before = snapshotTree(campaignPath);
 
-  // A live lock with a stale heartbeat: terminate the group and take over.
-  const staleAt = now - 10 * 60_000;
+  const child = coordinatorCliCase("watch", repo);
+  const result = await closeResult(child);
+  assert.equal(result.code, 0, `${result.stdout ?? ""}${result.stderr ?? ""}`);
+  assert.match(String(result.stdout), /already-running/u, "the invocation reported the coordinator it observed");
+  assert.deepEqual(snapshotTree(campaignPath), before, "the observer wrote nothing to the campaign directory");
+});
+
+test("done-when 10c: a stale heartbeat is taken over through the CLI, terminating the group and acquiring the lock", async () => {
+  const repo = initRepo();
+  const contractPath = writeChainContract(repo, "cli-takeover", "t1");
+  const { path: campaignPath } = makeCampaign(repo, "cli-takeover", [contractPath]);
+  // An in-flight run keeps the new coordinator alive long enough to observe
+  // that it acquired the lock, without launching anything.
+  const validated = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
+  writeRunDir({ repo, runDir: join(repo, ".runs", "t1"), contract: validated, node: { id: "build", status: "running", phase: "worker" } });
+
+  // The previous coordinator is a real live process group that records the
+  // SIGTERM that takes it down.
+  const marker = join(mkdtempSync(join(tmpdir(), "runner-coordinator-marker-")), "sigterm.txt");
+  const holderScript = join(mkdtempSync(join(tmpdir(), "runner-coordinator-holder-")), "holder.mjs");
+  writeFileSync(holderScript, `import { appendFileSync } from "node:fs";\nprocess.on("SIGTERM", () => { appendFileSync(${JSON.stringify(marker)}, "SIGTERM\\n"); process.exit(0); });\nsetInterval(() => {}, 1000);\n`);
+  const holder = spawn(process.execPath, [holderScript], { detached: true, stdio: "ignore" });
+  const holderPid = holder.pid;
+  assert.ok(holderPid !== undefined, "the previous coordinator has a pid");
+  const holderDone = closeResult(holder);
+  const staleAt = Date.now() - 10 * 60_000;
+  writeCoordinatorLock(campaignPath, { schemaVersion: 1, pid: holderPid, processStartToken: null, startedAt: new Date(staleAt).toISOString(), hostname: "test" });
   writeHeartbeat(campaignPath, { at: new Date(staleAt).toISOString(), lastProgressAt: new Date(staleAt).toISOString(), iteration: 1, activeNodes: [] });
-  let alive = true;
-  /** @type {string[]} */
-  const signals = [];
-  let clock = now;
-  const tookOver = await acquireCoordinator(campaignPath, {
-    pid: 4444,
-    now: () => clock,
-    alive: () => alive,
-    kill: (_pid, signal) => { signals.push(signal); alive = false; },
-    sleep: async (ms) => { clock += ms; },
-  });
-  assert.equal(tookOver.role, "took-over");
-  assert.deepEqual(signals, ["SIGTERM"], "a stale heartbeat terminates the group");
-  assert.equal(lockPid(campaignPath), 4444);
+
+  try {
+    const child = coordinatorCliCase("cli-takeover", repo);
+    const childPid = child.pid;
+    assert.ok(childPid !== undefined, "the invocation has a pid");
+    const done = closeResult(child);
+    try {
+      assert.equal(await waitForCoordinatorLock(campaignPath, childPid), childPid, "the invocation acquired the previous holder's lock");
+      await holderDone;
+      assert.equal(readFileSync(marker, "utf8"), "SIGTERM\n", "exactly one SIGTERM terminated the previous group");
+    } finally {
+      child.kill("SIGTERM");
+      await done;
+    }
+  } finally {
+    if (holder.exitCode === null) holder.kill("SIGTERM");
+  }
 });
 
 test("done-when 11: a waiting first run neither advances nor fails, then advances once the clock passes the reset", async () => {
