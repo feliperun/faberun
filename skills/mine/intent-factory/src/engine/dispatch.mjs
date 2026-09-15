@@ -63,6 +63,32 @@ import { validateNodeSnapshot } from "../contract/snapshot.mjs";
 /** @typedef {import("../contract/index.mjs").VerificationState} VerificationState */
 /** @typedef {import("../contract/index.mjs").WorkspaceScopeBoundary} WorkspaceScopeBoundary */
 
+/** @typedef {{forceFresh?: boolean}} SessionPolicy */
+
+/**
+ * Resolve the session policy one dispatch runs under, then consume the copy the
+ * node persisted. The explicit argument comes from a caller that is dispatching
+ * on the spot; `state.sessionPolicy` is the copy a rejection decision left when
+ * it handed the node back to the scheduler, whose own `startWorker` call passes
+ * nothing at all.
+ *
+ * Persisting is the whole point: `phaseInvocationPlan` rediscovers a compatible
+ * continuation from the persisted ledger, so nulling a local continuation id at
+ * the call site would let the scheduler's later dispatch find it again. Clearing
+ * the stored policy here makes it one-shot — it governs exactly the dispatch it
+ * was recorded for, and the next unrelated attempt reuses normally.
+ *
+ * @param {{sessionPolicy?: SessionPolicy|null}} state
+ * @param {SessionPolicy} [explicit]
+ * @returns {SessionPolicy}
+ */
+export function forceFreshSession(state, explicit = {}) {
+  const persisted = /** @type {SessionPolicy|undefined} */ (state?.sessionPolicy ?? undefined);
+  const policy = { ...(persisted ?? {}), ...explicit };
+  if (state && state.sessionPolicy !== undefined && state.sessionPolicy !== null) state.sessionPolicy = null;
+  return policy;
+}
+
 /**
  * Select the only continuation that is allowed for this plan phase and role.
  * The search is intentionally limited to persisted node snapshots in this run.
@@ -80,7 +106,7 @@ import { validateNodeSnapshot } from "../contract/snapshot.mjs";
  * @param {string} runDir
  * @param {"worker"|"judge"} role
  * @param {string} prompt
- * @param {{forceFresh?: boolean}} [policy]
+ * @param {SessionPolicy} [policy]
  * @returns {{prompt: string, continuationId: string|null, mode: "fresh"|"reuse"|"rotate"}}
  */
 function phaseInvocationPlan(contract, node, state, runDir, role, prompt, policy = {}) {
@@ -355,11 +381,15 @@ function ensureAttemptWorkspace(contract, node, state, runDir, lock) {
  * @param {LockHandle} lock
  * @param {Map<string, NodeSnapshot>} states
  * @param {string} campaignPath
- * @param {{forceFresh?: boolean}} [policy] the session policy the rejection
- *   decision carried into dispatch; `forceFresh` starts a fresh provider
- *   session instead of reusing the failed attempt's continuation.
+ * @param {SessionPolicy} [policy] the session policy the rejection decision
+ *   carried into dispatch; `forceFresh` starts a fresh provider session instead
+ *   of reusing the failed attempt's continuation. A policy persisted on the
+ *   snapshot by `applyRejection` is merged in and consumed.
  */
 export function startWorker(contract, node, state, runDir, running, prompt, lock, states, campaignPath, policy = {}) {
+  // Resolve before the workspace is created: the one-shot policy governs this
+  // dispatch whether the caller passed it or `applyRejection` left it behind.
+  const sessionPolicy = forceFreshSession(state, policy);
   let workspace;
   try {
     workspace = ensureAttemptWorkspace(contract, node, state, runDir, lock);
@@ -369,7 +399,7 @@ export function startWorker(contract, node, state, runDir, running, prompt, lock
     return;
   }
   const runtime = routeRuntimeForState(contract, node, state, "worker");
-  const phasePlan = phaseInvocationPlan(contract, node, state, runDir, "worker", prompt, policy);
+  const phasePlan = phaseInvocationPlan(contract, node, state, runDir, "worker", prompt, sessionPolicy);
   // The previous-attempt section still has to survive on a retried attempt,
   // so it is appended to the resolved prompt rather than the candidate handed
   // to phaseInvocationPlan.

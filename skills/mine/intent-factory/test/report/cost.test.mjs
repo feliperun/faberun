@@ -70,6 +70,54 @@ test("keeps conflicting and legacy no-cost entries ambiguous", () => {
   }
 });
 
+test("totals carry worker and judge role costs without double-counting the node total", () => {
+  const { runDir } = makeRun([{
+    id: "roles",
+    costUsd: 0.3,
+    invocations: [invocation("roles-worker", 0.1, "worker"), invocation("roles-judge", 0.2, "judge")],
+  }]);
+  try {
+    const report = JSON.parse(renderReportJson(runDir));
+    assert.equal(report.totals.workerCostUsd, 0.1, "the worker role is summed from its invocations alone");
+    assert.equal(report.totals.judgeCostUsd, 0.2);
+    assert.equal(report.totals.costUsd, 0.3, "the aggregate is not the role sum added to the node total");
+    const text = renderReport(runDir);
+    assert.match(text, /worker \$0\.100000 · judge \$0\.200000 · cost \$0\.300000 \(known\)/u);
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("an unavailable or partial role cost is null, never a fabricated $0", () => {
+  const { runDir } = makeRun([{
+    id: "partial",
+    costUsd: 0.25,
+    invocations: [invocation("partial-worker-known", 0.1, "worker"), invocation("partial-worker-unknown", undefined, "worker"), invocation("partial-judge", 0.15, "judge")],
+  }]);
+  try {
+    const report = JSON.parse(renderReportJson(runDir));
+    assert.equal(report.totals.workerCostUsd, null, "one unpriced worker invocation makes the whole role unavailable");
+    assert.equal(report.totals.judgeCostUsd, 0.15, "a fully priced judge role is still reported");
+    const text = renderReport(runDir);
+    assert.match(text, /worker - · judge \$0\.150000/u);
+    assert.doesNotMatch(text, /worker \$0\.000000/u);
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("a run with no invocations reports both role costs as unavailable, not $0", () => {
+  const { runDir } = makeRun([{ id: "empty" }]);
+  try {
+    const report = JSON.parse(renderReportJson(runDir));
+    assert.equal(report.totals.workerCostUsd, null);
+    assert.equal(report.totals.judgeCostUsd, null);
+    assert.match(renderReport(runDir), /worker - · judge -/u);
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
 /**
  * @param {Array<{id: string, costUsd?: number, invocations?: Array<{id: string, costUsd?: number}>}>} nodes
  */
@@ -116,15 +164,15 @@ function makeRun(nodes) {
   return { runDir };
 }
 
-/** @param {string} id @param {number|undefined} costUsd */
-function invocation(id, costUsd) {
+/** @param {string} id @param {number|undefined} costUsd @param {"worker"|"judge"} [role] */
+function invocation(id, costUsd, role = "worker") {
   return {
     id,
     pid: process.pid,
     processGroupId: null,
     processStartToken: null,
     harness: "codex",
-    phase: "worker",
+    phase: role,
     promptPath: null,
     stdoutPath: null,
     stderrPath: null,
@@ -140,7 +188,7 @@ function invocation(id, costUsd) {
     runId: "test-run",
     campaignId: "test-campaign",
     planPhase: "fixture-phase-0",
-    role: "worker",
+    role,
     runtimeFingerprint: "fixture",
     model: "gpt-5.6-luna",
     reasoning: null,

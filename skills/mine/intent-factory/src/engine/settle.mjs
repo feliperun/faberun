@@ -47,6 +47,12 @@ export function applyRejection(contract, node, state, runDir, running, lock, sta
   if (node.gate.enabled && state.revisions < (node.gate.maxRevisions ?? 1)) {
     resetPhaseRouting(state);
     state.revisions += 1;
+    // The fresh-session decision travels with the node, not just this call:
+    // the `running === null` branch below hands the retry to the scheduler,
+    // whose own `startWorker` call carries no policy and would otherwise
+    // rediscover the prior compatible continuation from the persisted ledger.
+    // `startWorker` consumes and clears it, so it governs one dispatch only.
+    state.sessionPolicy = forceFresh ? { forceFresh: true } : null;
     process.stdout.write(`[${label}] ${node.id} retry · ${verdict.summary}\n`);
     // The retry is a fresh session when the decision says so, so the evidence
     // it needs has to travel in the prompt, not the transcript. Rendering the

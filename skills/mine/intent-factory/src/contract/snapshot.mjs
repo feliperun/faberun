@@ -129,7 +129,7 @@ export function validateNodeSnapshot(value, expectedNode = null) {
     "schemaVersion", "contractVersion", "id", "type", "sourceIdentity", "packetHash", "status", "phase",
     "attempt", "revisions", "judgeFailures", "runtime", "blockedBy", "startedAt", "updatedAt", "result", "gate", "error", "usage",
     "costUsd", "routing", "progress", "worktree", "invocations", "executionOverrides", "verification", "scope",
-    "scopeFindings", "review", "previousAttempt", "integratedHead",
+    "scopeFindings", "review", "previousAttempt", "sessionPolicy", "integratedHead",
   ]), "node snapshot");
   validateMetadata(value, "node snapshot");
   requireId(value.id, "node snapshot.id");
@@ -174,6 +174,12 @@ export function validateNodeSnapshot(value, expectedNode = null) {
   if (value.verification !== undefined && value.verification !== null) validateVerificationSnapshot(value.verification);
   if (value.scope !== undefined && value.scope !== null) validateScopeSnapshot(value.scope);
   if (value.scopeFindings !== undefined && value.scopeFindings !== null) validateScopeFindings(value.scopeFindings);
+  // The session policy a rejection decision leaves for the dispatch that will
+  // run the retry. It is persisted because the decision can hand the node back
+  // to the scheduler, whose own `startWorker` call carries no argument; without
+  // it `phaseInvocationPlan` would rediscover the prior compatible continuation
+  // from the ledger and re-read the failed transcript (phase 6).
+  if (value.sessionPolicy !== undefined && value.sessionPolicy !== null) validateSessionPolicy(value.sessionPolicy, "node snapshot.sessionPolicy");
   // The bounded `Previous attempt` section a retry in place attaches to the
   // re-dispatched attempt's worker and judge prompts (retry.mjs renders it).
   if (value.previousAttempt !== undefined) {
@@ -382,6 +388,21 @@ function validateSnapshotError(value, label) {
   requireString(value.code, `${label}.code`);
   requireString(value.message, `${label}.message`);
   if (value.exhaustedUntil !== undefined && value.exhaustedUntil !== null) requireTimestamp(value.exhaustedUntil, `${label}.exhaustedUntil`);
+}
+/**
+ * The one persisted session policy: `forceFresh` starts the next dispatch in a
+ * provider session of its own instead of a rediscovered continuation. Only
+ * `true` is meaningful; a false or absent flag is the ordinary reuse path.
+ *
+ * @param {unknown} value
+ * @param {string} label
+ */
+function validateSessionPolicy(value, label) {
+  assertObject(value, label);
+  rejectUnknown(value, new Set(["forceFresh"]), label);
+  if (value.forceFresh !== undefined && typeof value.forceFresh !== "boolean") {
+    throw new TypeError(`${label}.forceFresh must be a boolean`);
+  }
 }
 /**
  * @param {unknown} value
