@@ -11,6 +11,7 @@ The session itself runs only these; everything else runs detached.
 | Advance that cursor past an event | `campaign ack <id> --cwd <repo> --session-id <s> --event-id <e>` |
 | Wake only on actionable change, poll every 30s | `campaign watch <id> --cwd <repo> --wake` |
 | Read the campaign indicators | `metrics <campaign-id> [--cwd <dir>] [--json]` |
+| Ask one question about many large files | `bulk-read --question <text> --paths <a,b,c>` -- bullets only, corpora under 1500 lines are refused |
 
 **Foreground children.** Worker prompts run builds, watchers, and servers in
 the foreground; only the runner is detached. Keep output bounded

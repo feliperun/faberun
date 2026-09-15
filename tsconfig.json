@@ -12,6 +12,5 @@
     "types": ["node"],
     "noUnusedLocals": true
   },
-  "include": [".claude/hooks/**/*.mjs", "skills/mine/intent-factory/src/**/*.mjs",
-    "skills/mine/intent-factory/test/**/*.mjs", "bin/**/*.mjs", "test/**/*.mjs", "skills/mine/intent-factory/evals/**/*.mjs"]
+  "include": [".claude/hooks/**/*.mjs", "src/**/*.mjs", "test/**/*.mjs", "bin/**/*.mjs", "evals/**/*.mjs"]
 }

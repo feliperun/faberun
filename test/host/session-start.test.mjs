@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const HOOK = fileURLToPath(new URL("../.claude/hooks/session-start.mjs", import.meta.url));
+const HOOK = fileURLToPath(new URL("../../.claude/hooks/session-start.mjs", import.meta.url));
 
 /**
  * @param {string} cwd

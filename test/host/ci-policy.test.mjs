@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
+const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const COMMITLINT = join(ROOT, "node_modules", ".bin", "commitlint");
 const COMMIT_MSG_HOOK = join(ROOT, ".husky", "commit-msg");
 
@@ -57,8 +57,8 @@ test("ci.yml runs the required matrix on push to main and pull_request", () => {
     "npm run check",
     "npm run typecheck",
     "npm test",
-    "node skills/mine/intent-factory/evals/run.mjs --class deterministic --assert-no-model",
-    "node skills/mine/intent-factory/evals/run.mjs --verify-discriminating",
+    "node evals/run.mjs --class deterministic --assert-no-model",
+    "node evals/run.mjs --verify-discriminating",
   ]);
 });
 
@@ -90,7 +90,7 @@ test("pr-policy.yml validates every non-merge candidate commit", () => {
 });
 
 test("commitlint extends the conventional config and enforces it offline", async () => {
-  const config = await import(new URL("../commitlint.config.mjs", import.meta.url).href);
+  const config = await import(new URL("../../commitlint.config.mjs", import.meta.url).href);
   assert.deepEqual(config.default.extends, ["@commitlint/config-conventional"]);
   const good = run(COMMITLINT, ["--edit", messageFile(VALID_MESSAGE)]);
   assert.equal(good.status, 0, good.stderr);

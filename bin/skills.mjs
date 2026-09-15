@@ -7,7 +7,7 @@
  *   skills <skill-name>... [--target <dir>] [--global] [--force]
  *   skills list
  *
- * Installs from `skills/mine/` under `.claude/skills/` of the current
+ * Installs from `skills/` under `.claude/skills/` of the current
  * directory. `--global` targets `~/.claude/skills/`. An existing skill is
  * kept unless `--force` removes and recopies it.
  */
@@ -17,8 +17,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const SKILLS_ROOT = fileURLToPath(new URL("../skills", import.meta.url));
-const SKILLS_DIR = join(SKILLS_ROOT, "mine");
+const SKILLS_DIR = fileURLToPath(new URL("../skills", import.meta.url));
 
 const USAGE = `usage:
   skills [--target <dir>] [--global] [--force]

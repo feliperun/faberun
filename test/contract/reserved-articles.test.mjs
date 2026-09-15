@@ -32,7 +32,7 @@ test("reserved article names", () => {
   for (const article of RESERVED_ARTICLES) {
     // Both the bare article path and the same name reached through the skill's
     // directory are a claim on the reserved article.
-    for (const declared of [article, `skills/mine/intent-factory/${article}`]) {
+    for (const declared of [article, `skills/faberun/${article}`]) {
       const path = articleFixture([declared, "output.txt"]);
       const escaped = declared.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       assert.throws(
@@ -45,10 +45,10 @@ test("reserved article names", () => {
 });
 
 test("local articles are allowed", () => {
-  const path = articleFixture(["skills/mine/intent-factory/references/local-boot.md", "output.txt"]);
+  const path = articleFixture(["skills/faberun/references/local-boot.md", "output.txt"]);
   const contract = validateContract(JSON.parse(readFileSync(path, "utf8")), path);
   assert.deepEqual(
     contract.nodes[0].taskPacket.writeFiles,
-    ["skills/mine/intent-factory/references/local-boot.md", "output.txt"],
+    ["skills/faberun/references/local-boot.md", "output.txt"],
   );
 });

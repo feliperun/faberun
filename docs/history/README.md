@@ -35,3 +35,19 @@ The layers under `src/`: `cli`, `contract`, `engine`, `harnesses`, `campaign`,
 The same applies to `evals/golden/*/verify.json`, for a sharper reason: each
 golden task restores its own parent commit from a git bundle, and its recorded
 verification commands belong to *that* tree. See `evals/README.md`.
+
+## Moved to the repository root, 2026-09-15
+
+| then | now |
+| --- | --- |
+| `skills/mine/intent-factory/src/` | `src/` |
+| `skills/mine/intent-factory/test/` | `test/` |
+| `skills/mine/intent-factory/evals/` | `evals/` |
+| `skills/mine/intent-factory/bin/` | `bin/` |
+| `skills/mine/intent-factory/integrations/` | `integrations/` |
+| `skills/mine/intent-factory/docs/` | `docs/history/` (dated records) and `docs/campaigns/` (campaign records) |
+| `skills/mine/intent-factory/docs/FIELD-OWNERSHIP.md` | `docs/FIELD-OWNERSHIP.md` |
+| `skills/mine/intent-factory/docs/ZCODE-CLI.md` | `docs/harnesses/zcode-cli.md` |
+| `skills/mine/intent-factory/SKILL.md` and `references/` | `skills/faberun/` |
+| `skills/mine/init-agentkit` | `skills/init-agentkit` |
+| `skills/mine/bulk-read` | removed (bulk-read stays a CLI command) |

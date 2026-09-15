@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
  * prove a flag works; it proves nobody can advertise a verb that is not there.
  */
 
-const readme = readFileSync(fileURLToPath(new URL("../../../../../README.md", import.meta.url)), "utf8");
+const readme = readFileSync(fileURLToPath(new URL("../../README.md", import.meta.url)), "utf8");
 const cliSource = readFileSync(fileURLToPath(new URL("../../src/cli.mjs", import.meta.url)), "utf8");
 const contractCliSource = readFileSync(fileURLToPath(new URL("../../src/cli/contract.mjs", import.meta.url)), "utf8");
 

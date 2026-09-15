@@ -16,10 +16,13 @@ import { runtimeImportGraph } from "../../src/repo/scope-closure.mjs";
  * The tree is read once, at module scope, and every gate reads that snapshot.
  */
 
-const SKILL_DIR = fileURLToPath(new URL("../..", import.meta.url));
-const SRC_DIR = join(SKILL_DIR, "src");
+const REPO_DIR = fileURLToPath(new URL("../..", import.meta.url));
+const SRC_DIR = join(REPO_DIR, "src");
 
-/** No file in this skill may exceed this. A longer file is doing a second job. */
+/** Directories the repository-wide walk must never descend into. */
+const SKIPPED = new Set([".git", ".runs", "node_modules"]);
+
+/** No file in this repository may exceed this. A longer file is doing a second job. */
 const LINE_CEILING = 800;
 
 /**
@@ -41,22 +44,23 @@ function walk(dir) {
   const found = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) found.push(...walk(path));
-    else if (entry.isFile() && path.endsWith(".mjs")) found.push(path);
+    if (entry.isDirectory()) {
+      if (!SKIPPED.has(entry.name)) found.push(...walk(path));
+    } else if (entry.isFile() && path.endsWith(".mjs")) found.push(path);
   }
   return found;
 }
 
-/** Every `.mjs` in the skill, read once. `src/` is a subset of it. */
-const FILES = walk(SKILL_DIR).map((path) => ({
+/** Every `.mjs` in the repository, read once. `src/` is a subset of it. */
+const FILES = walk(REPO_DIR).map((path) => ({
   path,
-  label: relative(SKILL_DIR, path).split(sep).join("/"),
+  label: relative(REPO_DIR, path).split(sep).join("/"),
   text: readFileSync(path, "utf8"),
 }));
 const SRC_FILES = FILES.filter((file) => file.path.startsWith(SRC_DIR + sep));
-const TEST_FILES = FILES.filter((file) => file.path.startsWith(join(SKILL_DIR, "test") + sep));
+const TEST_FILES = FILES.filter((file) => file.path.startsWith(join(REPO_DIR, "test") + sep));
 
-test(`no file in the skill exceeds ${LINE_CEILING} lines`, () => {
+test(`no file in the repository exceeds ${LINE_CEILING} lines`, () => {
   const oversized = FILES
     .map((file) => ({ path: file.label, lines: file.text.split("\n").length }))
     .filter((file) => file.lines > LINE_CEILING)

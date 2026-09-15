@@ -3,7 +3,7 @@
 Personal catalog of reusable agent skills, installable into any repository
 with a single command.
 
-All skills live under [`skills/mine/`](skills/mine/). Each skill is one folder
+All skills live under [`skills/`](skills/). Each skill is one folder
 with a `SKILL.md`; scripts, references, and templates live inside the skill so
 it stays a single copyable unit.
 
@@ -22,8 +22,8 @@ credentials). Without npx, copy or symlink a skill folder into
 `~/.claude/skills/` or `.claude/skills/`:
 
 ```bash
-cp -r skills/mine/intent-factory ~/.claude/skills/intent-factory
-ln -s "$(pwd)/skills/mine/init-agentkit" ~/.claude/skills/init-agentkit
+cp -r skills/faberun ~/.claude/skills/faberun
+ln -s "$(pwd)/skills/init-agentkit" ~/.claude/skills/init-agentkit
 ```
 
 ## Skills
@@ -48,12 +48,12 @@ run is continued in place by `resume`, never re-authored, and the factory rides
 out provider exhaustion, quota resets, dead leases, and flaky networks
 deterministically. `metrics` reports effectiveness and efficiency of a
 campaign together, from what the runs recorded. Detail:
-[references/release-1.md](skills/mine/intent-factory/references/release-1.md).
+[references/release-1.md](skills/faberun/references/release-1.md).
 
 Quickstart, in the repository that will receive the implementation:
 
 ```bash
-INTENT_FACTORY=/path/to/skills/skills/mine/intent-factory/src/cli.mjs
+INTENT_FACTORY=/path/to/faberun/src/cli.mjs
 TARGET=/path/to/target-repository
 
 rg -qxF '.runs/' "$TARGET/.gitignore" || printf '\n.runs/\n' >> "$TARGET/.gitignore"
@@ -87,8 +87,8 @@ node "$INTENT_FACTORY" supervise --detach "$TARGET/.runs/<run-id>"   # unattende
 | Resume an interrupted run | `resume --detach <run-dir>` |
 | Keep finishing a run whose controller died | `supervise --detach <run-dir> [--interval 30]` |
 
-Operational detail: [SKILL.md](skills/mine/intent-factory/SKILL.md) and the
-[contract reference](skills/mine/intent-factory/references/contract.md).
+Operational detail: [SKILL.md](skills/faberun/SKILL.md) and the
+[contract reference](skills/faberun/references/contract.md).
 
 ### init-agentkit
 
@@ -97,7 +97,7 @@ Bootstraps the agent kit into a repository: canonical `AGENTS.md` with
 ARCHITECTURE, ABSTRACTIONS, GETTING-STARTED), ADRs with template and index, the
 Sentrux structural quality gate, a `create-adr` slash command, and githooks.
 Always ask which compatibility rule applies before running it — see
-[SKILL.md](skills/mine/init-agentkit/SKILL.md).
+[SKILL.md](skills/init-agentkit/SKILL.md).
 
 ### Session continuity
 
@@ -106,7 +106,7 @@ to `.claude/session-handoff.md` while the session is warm, and this
 repository's [SessionStart hook](.claude/hooks/session-start.mjs) injects a
 fresh handoff into every new session automatically. The save/resume protocol
 lives inside intent-factory as
-[references/session-memory.md](skills/mine/intent-factory/references/session-memory.md).
+[references/session-memory.md](skills/faberun/references/session-memory.md).
 
 ## Development
 

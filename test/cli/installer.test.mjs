@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const BIN = fileURLToPath(new URL("../bin/skills.mjs", import.meta.url));
+const BIN = fileURLToPath(new URL("../../bin/skills.mjs", import.meta.url));
 
 /**
  * @param {string[]} args
@@ -30,13 +30,12 @@ test("installs the catalog into .claude/skills by default", () => {
   const cwd = mkdtempSync(join(tmpdir(), "skills-install-"));
   const result = run([], cwd);
   assert.equal(result.status, 0, result.stderr);
-  for (const name of ["intent-factory", "init-agentkit", "bulk-read"]) {
+  for (const name of ["faberun", "init-agentkit"]) {
     assert.ok(existsSync(join(cwd, ".claude", "skills", name, "SKILL.md")), `${name} missing`);
   }
-  assert.match(result.stdout, /installed intent-factory/);
+  assert.match(result.stdout, /installed faberun/);
   assert.match(result.stdout, /installed init-agentkit/);
-  assert.match(result.stdout, /installed bulk-read/);
-  assert.match(result.stdout, /3 installed, 0 skipped/);
+  assert.match(result.stdout, /2 installed, 0 skipped/);
 });
 
 test("installs only named skills", () => {
@@ -44,7 +43,7 @@ test("installs only named skills", () => {
   const result = run(["init-agentkit"], cwd);
   assert.equal(result.status, 0, result.stderr);
   assert.ok(existsSync(join(cwd, ".claude", "skills", "init-agentkit", "SKILL.md")));
-  assert.ok(!existsSync(join(cwd, ".claude", "skills", "intent-factory")));
+  assert.ok(!existsSync(join(cwd, ".claude", "skills", "faberun")));
 });
 
 test("keeps an existing skill unless --force", () => {
@@ -64,7 +63,7 @@ test("keeps an existing skill unless --force", () => {
 test("list prints skill names without bucket markers", () => {
   const result = run(["list"], tmpdir());
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /intent-factory/);
+  assert.match(result.stdout, /faberun/);
   assert.match(result.stdout, /init-agentkit/);
   assert.doesNotMatch(result.stdout, /mine|curated|community|⭐|💎/);
 });

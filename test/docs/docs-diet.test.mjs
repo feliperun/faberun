@@ -27,10 +27,9 @@ const RULES_BYTE_CEILING = 2048;
 const ENGINEERING_BYTE_CEILING = 2048;
 const WORKFLOW_BYTE_CEILING = 2048;
 const HANDOFFS_BYTE_CEILING = 2048;
-const BULK_READ_SKILL_BYTE_CEILING = 500;
 
-const skillPath = fileURLToPath(new URL('../../SKILL.md', import.meta.url));
-const referencesDir = fileURLToPath(new URL('../../references', import.meta.url));
+const skillPath = fileURLToPath(new URL('../../skills/faberun/SKILL.md', import.meta.url));
+const referencesDir = fileURLToPath(new URL('../../skills/faberun/references', import.meta.url));
 
 test('SKILL.md stays within the router byte ceiling', () => {
   const bytes = statSync(skillPath).size;
@@ -38,23 +37,13 @@ test('SKILL.md stays within the router byte ceiling', () => {
   assert.ok(
     bytes <= SKILL_BYTE_CEILING,
     `SKILL.md is ${bytes} bytes; the router ceiling is ${SKILL_BYTE_CEILING} bytes. ` +
-      'Move detail into skills/mine/intent-factory/references/ and link it from the router.',
-  );
-});
-
-test('skills/mine/bulk-read/SKILL.md stays within the bulk-read byte ceiling', () => {
-  const bytes = statSync(fileURLToPath(new URL('../../../bulk-read/SKILL.md', import.meta.url))).size;
-  assert.ok(bytes > 0, 'skills/mine/bulk-read/SKILL.md must not be empty');
-  assert.ok(
-    bytes <= BULK_READ_SKILL_BYTE_CEILING,
-    `skills/mine/bulk-read/SKILL.md is ${bytes} bytes; the bulk-read ceiling is ${BULK_READ_SKILL_BYTE_CEILING} bytes. ` +
-      'The skill is a command and two sentences, not a manual.',
+      'Move detail into skills/faberun/references/ and link it from the router.',
   );
 });
 
 test('references/contract.md and references/operations.md stay within their byte ceilings', () => {
-  const contractBytes = statSync(fileURLToPath(new URL('../../references/contract.md', import.meta.url))).size;
-  const operationsBytes = statSync(fileURLToPath(new URL('../../references/operations.md', import.meta.url))).size;
+  const contractBytes = statSync(fileURLToPath(new URL('../../skills/faberun/references/contract.md', import.meta.url))).size;
+  const operationsBytes = statSync(fileURLToPath(new URL('../../skills/faberun/references/operations.md', import.meta.url))).size;
   assert.ok(contractBytes > 0, 'references/contract.md must not be empty');
   assert.ok(
     contractBytes <= CONTRACT_BYTE_CEILING,
@@ -76,7 +65,7 @@ test('the four reserved articles stay within their byte ceilings', () => {
     ['handoffs.md', HANDOFFS_BYTE_CEILING],
   ];
   for (const [name, ceiling] of ceilings) {
-    const bytes = statSync(fileURLToPath(new URL(`../../references/${name}`, import.meta.url))).size;
+    const bytes = statSync(fileURLToPath(new URL(`../../skills/faberun/references/${name}`, import.meta.url))).size;
     assert.ok(bytes > 0, `references/${name} must not be empty`);
     assert.ok(
       bytes <= ceiling,
@@ -101,7 +90,7 @@ test('every reference the router links to exists', () => {
   );
   assert.ok(links.length > 0, 'the router must link at least one reference');
   for (const link of new Set(links)) {
-    const target = fileURLToPath(new URL(`../../${link}`, import.meta.url));
+    const target = fileURLToPath(new URL(`../../skills/faberun/${link}`, import.meta.url));
     assert.ok(statSync(target).isFile(), `${link} is linked by SKILL.md but missing`);
   }
 });
