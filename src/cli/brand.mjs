@@ -189,6 +189,7 @@ export function renderUsage() {
     "findings <run-dir>",
     "doctor [<contract.json>] [--cwd <dir>] [--discover] [--json]",
     "setup [--yes] [--harnesses <a,b>] [--worker <id>] [--judge <id>] [--json]",
+    "init [--cwd <dir>] [--yes] [--no-skill] [--agentkit] [--greenfield|--stable] [--json]",
     "update [--check] [--json]",
     "models [--probe] [--json]",
     "next [--cwd <dir>] [--json]",

@@ -26,6 +26,7 @@ import {
 import { renderRunHandoff } from "./campaign/index.mjs";
 import { campaignCli } from "./cli/campaign.mjs";
 import { seatCli } from "./cli/seat.mjs";
+import { initCommand } from "./cli/init.mjs";
 import { setupCommand } from "./cli/setup.mjs";
 import { skillsCli } from "./cli/skills.mjs";
 import { updateCommand } from "./cli/update.mjs";
@@ -102,6 +103,7 @@ const COMMAND_OPTIONS = {
   next: { cwd: { type: "string" }, json: { type: "boolean" } },
   update: { check: { type: "boolean" }, json: { type: "boolean" } },
   setup: { yes: { type: "boolean" }, harnesses: { type: "string" }, worker: { type: "string" }, judge: { type: "string" }, json: { type: "boolean" } },
+  init: { cwd: { type: "string" }, yes: { type: "boolean" }, "no-skill": { type: "boolean" }, agentkit: { type: "boolean" }, greenfield: { type: "boolean" }, stable: { type: "boolean" }, json: { type: "boolean" } },
   metrics: METRICS_OPTIONS,
 };
 
@@ -129,7 +131,8 @@ function parseCli(argv, quiet = false) {
   if (command === "next" && parsed.positionals.length !== 0) return null;
   if (command === "update" && parsed.positionals.length !== 0) return null;
   if (command === "setup" && parsed.positionals.length !== 0) return null;
-  if (command !== "doctor" && command !== "models" && command !== "bulk-read" && command !== "next" && command !== "update" && command !== "setup" && parsed.positionals.length !== 1) return null;
+  if (command === "init" && parsed.positionals.length !== 0) return null;
+  if (command !== "doctor" && command !== "models" && command !== "bulk-read" && command !== "next" && command !== "update" && command !== "setup" && command !== "init" && parsed.positionals.length !== 1) return null;
   return {
     command,
     target: parsed.positionals[0],
@@ -248,6 +251,22 @@ async function main(argv) {
       harnesses: typeof values.harnesses === "string" ? values.harnesses : undefined,
       worker: typeof values.worker === "string" ? values.worker : undefined,
       judge: typeof values.judge === "string" ? values.judge : undefined,
+      json: values.json === true,
+      env: process.env,
+      isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    });
+    return;
+  }
+  if (command === "init") {
+    // The two compatibility rules are alternatives, not a union; a caller that
+    // asks for both has not decided and gets the usage error instead.
+    if (values.greenfield === true && values.stable === true) { usage(); return; }
+    process.exitCode = await initCommand({
+      cwd: typeof values.cwd === "string" ? values.cwd : undefined,
+      yes: values.yes === true,
+      skill: values["no-skill"] !== true,
+      agentkit: values.agentkit === true,
+      variant: values.stable === true ? "stable" : values.greenfield === true ? "greenfield" : undefined,
       json: values.json === true,
       env: process.env,
       isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
