@@ -8,8 +8,11 @@
  * what that directory contains. None of those obligations is visible in the
  * packet, and three incidents in two campaigns came from exactly that gap.
  * Three mechanical detectors point at the dragged-along files, and
- * `validateContract` refuses until each is in `readFiles`, `writeFiles`, or the
- * contract author's `scopeAcknowledged` list.
+ * `validateContract` refuses until each is declared. What counts as declared
+ * depends on what the detector asks. The directory enumerator asks what a
+ * listing will show, so `readFiles` answers it. The import and symbol detectors
+ * ask who may *break*, and reading a broken file cannot repair it, so only
+ * `writeFiles`, a covering `writeRoots`, or `scopeAcknowledged` answers those.
  *
  * It reads the target repository to validate a contract, which is why it sits
  * in `repo/` beside declared-paths.mjs. It also carries the runtime import edge
@@ -113,26 +116,30 @@ export function scopeClosureFindings(node, index, cwd) {
   const writeFiles = [...(packet.writeFiles ?? [])];
   if (writeFiles.length === 0) return [];
   const declared = declaredPaths(packet);
+  const repairable = repairablePaths(packet);
   const sources = repositorySources(cwd);
   const findings = [
-    ...reverseImportFindings(packet, declared, sources, cwd),
-    ...symbolMentionFindings(packet, declared, sources),
+    ...reverseImportFindings(packet, repairable, sources, cwd),
+    ...symbolMentionFindings(packet, repairable, sources),
     ...directoryEnumeratorFindings(writeFiles, declared, sources, cwd),
   ];
+  // Each detector has already filtered against the set its own question calls
+  // for; a second filter here would re-admit a `readFiles` path the repair
+  // detectors just refused.
   /** @type {Map<string, ScopeClosureFinding>} */
   const byPath = new Map();
   for (const finding of findings) {
-    if (declared.has(finding.path) || byPath.has(finding.path)) continue;
+    if (byPath.has(finding.path)) continue;
     byPath.set(finding.path, finding);
   }
   return [...byPath.values()];
 }
 
 /**
- * The paths a packet already covers: what it may read, what it may write, its
- * write roots, and what its author explicitly acknowledged. One home for the
- * set, so a detector cannot quietly disagree with another about what "declared"
- * means.
+ * Every path a packet covers at all: what it may read, what it may write, its
+ * write roots, and what its author acknowledged. This answers "is the worker
+ * allowed to look at it", which is the right question for a detector about
+ * what a directory listing will show.
  *
  * @param {TaskPacket} packet
  * @returns {Set<string>}
@@ -140,6 +147,27 @@ export function scopeClosureFindings(node, index, cwd) {
 function declaredPaths(packet) {
   return new Set([
     ...(packet.readFiles ?? []),
+    ...(packet.writeFiles ?? []),
+    ...(packet.writeRoots ?? []),
+    ...(packet.scopeAcknowledged ?? []),
+  ]);
+}
+
+/**
+ * The paths a packet can actually *repair*. `readFiles` is deliberately absent:
+ * a file that imports a symbol this node rewrites may break, and reading it
+ * cannot fix it — only a write, a covering write root, or the author saying out
+ * loud that the breakage is accepted. Detector 4 has always drawn the line here
+ * for the cross-node case; the import and symbol detectors draw it too, because
+ * the obligation is identical. Declaring the file in `readFiles` used to satisfy
+ * them, which is how a node shipped instructions naming a module as a reader it
+ * must account for while its packet withheld permission to touch it.
+ *
+ * @param {TaskPacket} packet
+ * @returns {Set<string>}
+ */
+function repairablePaths(packet) {
+  return new Set([
     ...(packet.writeFiles ?? []),
     ...(packet.writeRoots ?? []),
     ...(packet.scopeAcknowledged ?? []),

@@ -96,6 +96,36 @@ test("scope closure catches the directory globber", () => {
   assert.match(found[0].reason, /enumerates skills\/mine/u);
 });
 
+test("readFiles does not satisfy an importer that may break; writeFiles and an acknowledgement do", () => {
+  // The p2 parked-not-finished node named lifecycle.mjs in its instructions as
+  // a TERMINAL reader to account for, listed it in readFiles, and left it out of
+  // writeFiles. Scope closed, the worker changed it because the instructions
+  // said so, and the node died on unexpected_write 26 minutes in. Reading a file
+  // cannot repair it.
+  const files = {
+    "src/written.mjs": "export function writtenThing() {}\n",
+    "src/importer.mjs": 'import { writtenThing } from "./written.mjs";\nwrittenThing();\n',
+  };
+  const packet = { writeFiles: ["src/written.mjs"], symbols: ["writtenThing"] };
+
+  assert.deepEqual(
+    findings(repository(files), { ...packet, readFiles: ["src/importer.mjs"] })
+      .map((finding) => [finding.path, finding.detector]),
+    [["src/importer.mjs", "imports"]],
+    "readFiles leaves the importer unrepairable, so the finding stands",
+  );
+  assert.deepEqual(
+    findings(repository(files), { ...packet, writeFiles: ["src/written.mjs", "src/importer.mjs"] }),
+    [],
+    "granting the write closes it",
+  );
+  assert.deepEqual(
+    findings(repository(files), { ...packet, scopeAcknowledged: ["src/importer.mjs"] }),
+    [],
+    "so does saying out loud that the breakage is accepted",
+  );
+});
+
 test("scope closure accepts an acknowledged path", () => {
   const root = repository({
     "src/written.mjs": "export function writtenThing() {}\n",
