@@ -192,8 +192,11 @@ from the sealed sha instead of starting over. See
 
 The per-run ref `refs/faberun/<run-id>/run` is the integration head. Integration
 builds a candidate on `refs/faberun/<run-id>/candidate` and
-`.runs/worktrees/<run-id>/.candidate`, where the node's verification runs once.
-A passing candidate advances the run ref with a conditional `update-ref` and
+`.runs/worktrees/<run-id>/.candidate`, where the node's verification runs once,
+except that a command the candidate failed but the attempt passed is retried
+once before the candidate is judged failed, since that disagreement is
+evidence about the two worktrees rather than about the work. A passing
+candidate advances the run ref with a conditional `update-ref` and
 writes the node `done` with `integratedHead`; a failing candidate is removed and
 leaves the run ref untouched; a conflict parks the node `attention` with the
 conflicting paths. The invariant: integration is serialized, a pass advances the

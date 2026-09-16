@@ -176,6 +176,52 @@ export async function recoverVerificationAttempts(runDir, state, lock) {
   writeNode(runDir, state, lock);
 }
 /**
+ * Re-run, once, exactly the candidate commands that failed here but passed in
+ * the attempt's own recorded verification, same argv and same position. A
+ * candidate whose *every* failure disagrees with the attempt this way is
+ * evidence about the two worktrees' environment rather than about the work --
+ * `candidateOnlyFailures` (judge-gate.mjs) already names that disagreement in
+ * the rejection it phrases, and this is what earns the candidate one
+ * independent confirmation before the node pays for a defect that may not be
+ * its own. A candidate with even one failure that also failed in the attempt
+ * is not purely divergent, so nothing is retried and the failure stands.
+ *
+ * `run` is the one side-effecting seam, injected so this stays unit-testable
+ * without a workspace or a git repository.
+ *
+ * @param {import("../contract/verification.mjs").VerificationResult} result the candidate's verification result
+ * @param {{commands?: Array<{argv?: string[], passed?: boolean}>}|null|undefined} attemptEvidence the attempt's own recorded verification
+ * @param {(indexes: number[]) => Promise<import("../contract/verification.mjs").VerificationCommandResult[]>} run re-runs exactly the commands at `indexes`, returning their results in that order
+ * @returns {Promise<import("../contract/verification.mjs").VerificationResult & {retried?: number[]}>}
+ */
+export async function retryDivergentCandidateCommands(result, attemptEvidence, run) {
+  const commands = result?.commands ?? [];
+  const failedIndexes = commands.reduce((indexes, command, index) => {
+    if (!command.passed) indexes.push(index);
+    return indexes;
+  }, /** @type {number[]} */ ([]));
+  if (!failedIndexes.length) return result;
+  const attemptCommands = attemptEvidence?.commands ?? [];
+  const divergent = failedIndexes.every((index) => {
+    const counterpart = attemptCommands[index];
+    return counterpart?.passed === true && argvEqual(commands[index]?.argv, counterpart.argv);
+  });
+  if (!divergent) return result;
+  const retried = await run(failedIndexes);
+  const merged = [...commands];
+  failedIndexes.forEach((index, position) => { merged[index] = retried[position]; });
+  return { ...result, commands: merged, passed: merged.every((command) => command.passed), retried: failedIndexes };
+}
+/**
+ * @param {unknown} a
+ * @param {unknown} b
+ * @returns {boolean}
+ */
+function argvEqual(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  return a.every((item, index) => item === b[index]);
+}
+/**
  * @param {ValidatedContract} contract
  * @param {ValidatedNode} node
  * @param {NodeSnapshot} state
@@ -184,12 +230,26 @@ export async function recoverVerificationAttempts(runDir, state, lock) {
  * @returns {Promise<import("../repo/integrate.mjs").CandidateEvidence>}
  */
 export async function verifyCandidateWorkspace(contract, node, state, runDir, workspace) {
+  const commands = [...node.taskPacket.verification, ...sharedVerificationCommands(contract), ...finalVerificationCommands(contract, node)];
   try {
-    const result = await runVerification([...node.taskPacket.verification, ...sharedVerificationCommands(contract), ...finalVerificationCommands(contract, node)], workspace, {
+    const result = await runVerification(commands, workspace, {
       logDir: join(runDir, "logs", `${node.id}.${state.attempt}.candidate-verification`),
       writeFiles: node.taskPacket.writeFiles ?? [],
     });
-    return compactVerification(result);
+    /** @type {import("../contract/verification.mjs").VerificationResult & {retried?: number[]}} */
+    let settled = result;
+    if (!result.passed) {
+      settled = await retryDivergentCandidateCommands(result, state.verification, async (indexes) => {
+        const subset = indexes.map((index) => commands[index]);
+        const rerun = await runVerification(subset, workspace, {
+          logDir: join(runDir, "logs", `${node.id}.${state.attempt}.candidate-retry`),
+          writeFiles: node.taskPacket.writeFiles ?? [],
+        });
+        return rerun.commands;
+      });
+    }
+    const compacted = compactVerification(settled);
+    return settled.retried ? { ...compacted, retried: settled.retried } : compacted;
   } catch (error) {
     return { passed: false, error: boundedUtf8(errorMessage(error), 4 * 1024) };
   }
