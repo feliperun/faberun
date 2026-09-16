@@ -11,6 +11,24 @@
  * a `no_transport` receipt is recorded instead — there is no implicit desktop
  * fallback. The macOS notifier is reachable only by setting
  * `FABERUN_NOTIFY_BIN=os-macos`, an explicit opt-in, never a default.
+ *
+ * Measured 2026-09-16: `test/cli/cli.test.mjs`'s two notifier fixtures were
+ * instrumented with `{at, phase}` timelines (spawned, stdin-end, exit) and run
+ * over 80 times (targeted loops, four-way parallel full-file bursts, and a
+ * 15-way parallel burst) alongside `node --test test/engine/` and
+ * `test/contract/` as background load; every completed timeline resolved in
+ * under 40ms end to end, and a direct spawn-to-first-line-of-JS measurement
+ * under the same load never exceeded 306ms across 40 concurrent spawns. Two
+ * genuine `notification timed out after 5000ms` receipts turned up in
+ * leftover run directories from other concurrent sessions on this shared
+ * machine (their fixtures unmodified), confirming the flake is real but
+ * requires contention this harness could not reliably reproduce on demand.
+ * Because every reproduced child completed its own work in single-digit
+ * milliseconds once it started running, the 5000ms budget was being spent
+ * before the fixture's first line ever executed -- Node process launch
+ * (fork/exec, V8 boot, ESM resolution) under heavy concurrent load, not a
+ * lingering pipe or an unterminated stdin. `notificationDeliveryTimeoutMs`
+ * below raises the budget with headroom over that measured launch overhead.
  */
 
 import { spawn as defaultSpawn } from "node:child_process";
@@ -31,6 +49,16 @@ export const NOTIFY_LOG_FILE = "notify.jsonl";
  * satisfies that indicator — the metric is unchanged and reports the drop.
  */
 export const MAX_ATTEMPTS = 3;
+
+/**
+ * The spawn-to-delivery budget for a non-macOS transport, in milliseconds.
+ * Measured 2026-09-16 (see the module header): reproduced timeouts always
+ * fired before the fixture's first line ran, so this is headroom over Node's
+ * own process-launch overhead under heavy concurrent load, not the fixture's
+ * own work. Kept at or under 15000ms so a genuinely wedged transport still
+ * settles in bounded time.
+ */
+export const notificationDeliveryTimeoutMs = 12_000;
 
 const SUMMARY_CHARS = 200;
 
@@ -253,7 +281,7 @@ function deliverNotification(event, options = {}) {
  * @param {{spawn?: typeof defaultSpawn, timeoutMs?: number}} options
  * @returns {Promise<DeliveryResult>}
  */
-function spawnDeliver(bin, event, { spawn = defaultSpawn, timeoutMs = 5_000 } = {}) {
+function spawnDeliver(bin, event, { spawn = defaultSpawn, timeoutMs = notificationDeliveryTimeoutMs } = {}) {
   return new Promise((resolveDelivery) => {
     let child;
     try {

@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NotifyQueue, renderNotification } from "../../src/notify/index.mjs";
+import { NotifyQueue, notificationDeliveryTimeoutMs, renderNotification } from "../../src/notify/index.mjs";
 
 const SUMMARY_CHARS = 200;
 
@@ -155,5 +155,28 @@ test("notify is lossy", async () => {
   assert.equal(rejectedReceipts[0].status, "failed");
   assert.equal(rejectedReceipts[0].attempt, 1);
   assert.equal(rejectedReceipts[0].error, "transport exploded");
+});
+
+test("notificationDeliveryTimeoutMs is measured headroom above the old 5s budget, within the 15s ceiling", () => {
+  assert.ok(notificationDeliveryTimeoutMs > 5_000, "raised past the budget that measurably timed out under load");
+  assert.ok(notificationDeliveryTimeoutMs <= 15_000, "a genuinely wedged transport still settles in bounded time");
+});
+
+test("spawnDeliver (through NotifyQueue's default transport) survives a bin slower than the old 5s budget", async () => {
+  const runDir = mkdtempSync(join(tmpdir(), "notify-slow-transport-"));
+  const bin = join(mkdtempSync(join(tmpdir(), "notify-slow-bin-")), "slow-notify.mjs");
+  writeFileSync(bin, `#!${process.execPath}\nsetTimeout(() => process.exit(0), 5300);\n`);
+  chmodSync(bin, 0o755);
+  const previous = process.env.FABERUN_NOTIFY_BIN;
+  process.env.FABERUN_NOTIFY_BIN = bin;
+  try {
+    const queue = new NotifyQueue({ runDir });
+    await queue.enqueue({ type: "run.terminal", runId: "run-a", done: 1, total: 1 });
+  } finally {
+    if (previous === undefined) delete process.env.FABERUN_NOTIFY_BIN;
+    else process.env.FABERUN_NOTIFY_BIN = previous;
+  }
+  const receipts = readFileSync(join(runDir, "notify.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(receipts[0].status, "delivered", "a bin slower than the old 5000ms default still delivers under the raised budget");
 });
 
