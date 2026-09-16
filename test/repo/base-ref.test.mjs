@@ -63,11 +63,25 @@ test("run --base-ref cuts the run ref and attempt worktrees from the base and le
   const runDir = join(directory, ".runs", "base-ref-run");
   const run = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
   assert.equal(run.sourceIdentity.gitHead, baseSha, "the run records the base sha, not the cwd HEAD");
+  assert.equal(run.sourceIdentity.baseRef, baseSha, "the run records the base ref it was launched with");
   const node = JSON.parse(readFileSync(join(runDir, "nodes", "build.json"), "utf8"));
   assert.equal(node.worktree.baseSha, baseSha, "the attempt worktree was cut from the base");
   // The integrated ref's tree is the base tree, not HEAD's: direct proof the
   // run was cut from the base rather than the checkout.
   assert.equal(gitOut(directory, ["show", `${runRefName("base-ref-run")}:version.txt`]), "base");
+});
+
+test("a plain launch records no base ref", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-base-ref-none-"));
+  const contractPath = writeContract(directory, fixture({ id: "base-ref-none-run" }));
+  const result = spawnSync(process.execPath, [CLI, "run", contractPath], {
+    cwd: directory,
+    env: { ...process.env, FABERUN_CODEX_BIN: fakeCodex(directory, "pass") },
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const run = JSON.parse(readFileSync(join(directory, ".runs", "base-ref-none-run", "run.json"), "utf8"));
+  assert.equal(run.sourceIdentity.baseRef, null, "a launch without --base-ref records no base ref");
 });
 
 test("a dirty tree refuses the launch only when the cwd HEAD is the base", () => {

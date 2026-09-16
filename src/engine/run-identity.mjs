@@ -182,6 +182,20 @@ export function setLaunchBaseRef(baseRef) {
 }
 
 /**
+ * The base ref a run was launched against, when it was launched with
+ * `--base-ref`. A run recorded before this field existed, or launched
+ * without the flag, has none — a resume of that run keeps comparing against
+ * the checkout's own HEAD.
+ *
+ * @param {RunMetadata|undefined} metadata
+ * @returns {string|null}
+ */
+export function recordedBaseRef(metadata) {
+  const baseRef = metadata?.sourceIdentity?.baseRef;
+  return typeof baseRef === "string" && baseRef.length > 0 ? baseRef : null;
+}
+
+/**
  * Capture the run's source identity, including one version-only probe per
  * distinct routed runtime (a local binary call, no model tokens) so a later
  * resume can refuse a harness that was upgraded or broke mid-campaign.

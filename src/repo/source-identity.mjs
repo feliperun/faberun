@@ -46,7 +46,7 @@ export function validateSourceIdentity(value, label, expected = null) {
   assertObject(value, label);
   const allowed = new Set([
     "kind", "id", "campaignId", "contractId", "nodeId", "cwd", "gitHead",
-    "dirtyTreeFingerprint", "packetHashes", "harnessVersions",
+    "dirtyTreeFingerprint", "packetHashes", "harnessVersions", "baseRef",
   ]);
   rejectUnknown(value, allowed, label);
   requireString(value.kind, `${label}.kind`);
@@ -54,7 +54,7 @@ export function validateSourceIdentity(value, label, expected = null) {
     if (value[key] !== undefined) requireId(value[key], `${label}.${key}`);
   }
   if (value.cwd !== undefined) requireString(value.cwd, `${label}.cwd`);
-  for (const key of ["gitHead", "dirtyTreeFingerprint"]) {
+  for (const key of ["gitHead", "dirtyTreeFingerprint", "baseRef"]) {
     if (value[key] !== undefined && value[key] !== null) requireString(value[key], `${label}.${key}`);
   }
   if (value.packetHashes !== undefined) validateHashMap(value.packetHashes, `${label}.packetHashes`);
@@ -75,7 +75,7 @@ export function validateSourceIdentity(value, label, expected = null) {
 /**
  * @param {{id: string, campaignId: string, cwd: string, nodes: {id: string, packetHash: string}[]}} contract
  * @param {Record<string, string|null>} harnessVersions
- * @param {{ignorePaths?: string[], ignoreRoots?: string[]}} options
+ * @param {{ignorePaths?: string[], ignoreRoots?: string[], baseRef?: string}} options
  */
 export function captureSourceIdentity(contract, harnessVersions = {}, options = {}) {
   const git = gitIdentity(contract.cwd, options);
@@ -88,6 +88,7 @@ export function captureSourceIdentity(contract, harnessVersions = {}, options = 
     dirtyTreeFingerprint: git.dirtyTreeFingerprint,
     packetHashes: Object.fromEntries(contract.nodes.map((node) => [node.id, node.packetHash])),
     harnessVersions,
+    baseRef: options.baseRef ?? null,
   }, "run source identity", { kind: "run", contractId: contract.id, campaignId: contract.campaignId });
 }
 /**

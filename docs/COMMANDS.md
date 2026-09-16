@@ -111,7 +111,8 @@ faberun resume <run-dir> [--detach] [--node <id>] [--reconcile <node-id>] [--ans
 ```
 Continue an interrupted run in place: the same run, node and frozen packet,
 attempt plus one. It adopts completed work first, then re-dispatches ordinary
-failures; it never re-authors.
+failures; it never re-authors. A run launched with `run --base-ref` resumes
+against that same ref, from any checkout.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |

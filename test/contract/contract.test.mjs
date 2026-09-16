@@ -14,7 +14,7 @@ import { SIGNAL_END, SIGNAL_START } from "../../src/repo/signal-block.mjs";
 import { harnessCapabilities } from "../../src/harnesses/index.mjs";
 import * as helpers from "../helpers.mjs";
 import { validateEvent, validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
-import { captureSourceIdentity } from "../../src/repo/source-identity.mjs";
+import { captureSourceIdentity, validateSourceIdentity } from "../../src/repo/source-identity.mjs";
 import { initializeGit, packet, snapshot, writeFixture } from "./helpers.mjs";
 
 function budgetProfile(overrides = {}) {
@@ -57,6 +57,17 @@ test("source identity ignores only the managed AGENTS signal block", () => {
 
   writeFileSync(join(directory, "AGENTS.md"), `Changed human guidance\n\n${SIGNAL_START}\nnew run state\n${SIGNAL_END}\n`);
   assert.notEqual(captureSourceIdentity(contract).dirtyTreeFingerprint, initial.dirtyTreeFingerprint);
+});
+
+test("run source identity accepts baseRef as a string or null and still rejects an unknown field", () => {
+  const base = { kind: "run", contractId: "contract-test", campaignId: "campaign-test" };
+  assert.equal(validateSourceIdentity({ ...base, baseRef: "main" }, "label").baseRef, "main");
+  assert.equal(validateSourceIdentity({ ...base, baseRef: null }, "label").baseRef, null);
+  assert.equal(validateSourceIdentity(base, "label").baseRef, undefined);
+  assert.throws(
+    () => validateSourceIdentity({ ...base, typo: true }, "label"),
+    /label has unexpected field typo/u,
+  );
 });
 
 test("validation requires a node phase", () => {
