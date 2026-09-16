@@ -26,7 +26,12 @@ const SKILL_BYTE_CEILING = 1024;
 // prose already there pay part of it, so the ceiling moves by the net 420
 // bytes to the file's exact size and nothing else. Raising it again needs the
 // same argument.
-const CONTRACT_BYTE_CEILING = 22073;
+// Raised from 22073 on 2026-09-16 by extending the deferred-path sentence to
+// `scopeAcknowledged`: the extension costs 23 bytes and 21 bytes of redundant
+// "one of that dependency's" prose already there pay part of it, so the
+// ceiling moves by the net 2 bytes to the file's exact size and nothing else.
+// Raising it again needs the same argument.
+const CONTRACT_BYTE_CEILING = 22075;
 // Raised from 10240 on 2026-09-13, deliberately and only once: `supervise`
 // became a real command and an operator cannot run an undocumented one. The
 // ceiling is a ratchet against prose creep, not against surface the product

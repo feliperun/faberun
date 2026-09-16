@@ -28,9 +28,9 @@ const PROMPT_MAX_BYTES = 64 * 1024;
 const VERIFICATION_PARAGRAPH = "The controller runs every command below after you report; its recorded results are the proof of this node. Running a command yourself is optional and only for one that finishes in seconds and spawns no long-lived process. Keep output bounded (pipe through `| tail -n 200`). Never wait on a background job, never run the whole test suite, and never run tests that start and terminate other processes.";
 
 /**
- * `validateRelativePath`'s answer when a read path is absent and the caller
- * asked to defer the missing-read verdict rather than throw it. Only contract
- * loading opts in; every other caller throws the missing-read error in place.
+ * `validateRelativePath`'s answer when a path is absent and the caller asked to
+ * defer the missing-path verdict rather than throw it. Only contract loading
+ * opts in; every other caller throws the missing-path error in place.
  */
 const DEFERRED_MISSING = Symbol("deferred-missing");
 
@@ -54,7 +54,7 @@ const DEFERRED_MISSING = Symbol("deferred-missing");
  * @param {string} contractDir
  * @param {string} cwd
  * @param {number} index
- * @param {{deferMissingReads?: boolean, deferredReads?: {path: string, label: string}[], persisted?: boolean}} [options]
+ * @param {{deferMissingReads?: boolean, deferredReads?: {path: string, label: string, kind: "read"|"acknowledged"}[], persisted?: boolean}} [options]
  * @returns {TaskPacket}
  */
 export function loadTaskPacket(node, contractDir, cwd, index, options = {}) {
@@ -141,7 +141,7 @@ export function renderWorkerPrompt(packet, nodeId) {
  * @param {unknown} packet
  * @param {number} index
  * @param {string} cwd
- * @param {{deferMissingReads?: boolean, deferredReads?: {path: string, label: string}[], persisted?: boolean}} [options]
+ * @param {{deferMissingReads?: boolean, deferredReads?: {path: string, label: string, kind: "read"|"acknowledged"}[], persisted?: boolean}} [options]
  * @returns {TaskPacket}
  */
 export function validateTaskPacket(packet, index, cwd, options = {}) {
@@ -214,18 +214,20 @@ export function validateTaskPacket(packet, index, cwd, options = {}) {
 
   if (!persisted) {
     const deferMissingReads = options.deferMissingReads === true;
-    /** @type {{path: string, label: string}[]} */
+    /** @type {{path: string, label: string, kind: "read"|"acknowledged"}[]} */
     const deferredReads = options.deferredReads ?? [];
     normalizedReadFiles.forEach((path, pathIndex) => {
       const label = `nodes[${index}].taskPacket.readFiles[${pathIndex}]`;
       const result = validateRelativePath(path, label, cwd, true, { deferMissing: deferMissingReads });
-      if (result === DEFERRED_MISSING) deferredReads.push({ path, label });
+      if (result === DEFERRED_MISSING) deferredReads.push({ path, label, kind: "read" });
     });
     if (writeFiles !== undefined) /** @type {string[]} */ (writeFiles).forEach((path, pathIndex) => {
       validateRelativePath(path, `nodes[${index}].taskPacket.writeFiles[${pathIndex}]`, cwd, false);
     });
     /** @type {string[]} */ (scopeAcknowledged).forEach((path, pathIndex) => {
-      validateRelativePath(path, `nodes[${index}].taskPacket.scopeAcknowledged[${pathIndex}]`, cwd, true);
+      const label = `nodes[${index}].taskPacket.scopeAcknowledged[${pathIndex}]`;
+      const result = validateRelativePath(path, label, cwd, true, { deferMissing: deferMissingReads });
+      if (result === DEFERRED_MISSING) deferredReads.push({ path, label, kind: "acknowledged" });
     });
     for (const [commandIndex, command] of verification.entries()) {
       if (command.cwd !== undefined) {

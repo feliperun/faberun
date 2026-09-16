@@ -9,8 +9,8 @@ import { packet, writeFixture } from "./helpers.mjs";
 
 // Deferred reads (Phase 1): a readFiles entry may name a file a transitive
 // dependency produces, which contract loading resolves once the dependency
-// graph is known. Every other caller of validateTaskPacket still rejects a
-// missing read inline.
+// graph is known. scopeAcknowledged defers identically (Phase 2). Every other
+// caller of validateTaskPacket still rejects a missing path inline.
 
 /** @param {Record<string, unknown>} [overrides] */
 function autonomousPacket(overrides = {}) {
@@ -190,4 +190,40 @@ test("packetHash is identical whether the read is present or dependency-produced
   assert.deepEqual(deferredContract.nodes[1].taskPacket, presentContract.nodes[0].taskPacket);
   assert.equal(hashPacket(deferredContract.nodes[1].taskPacket), hashPacket(presentContract.nodes[0].taskPacket));
   assert.equal(deferredContract.nodes[1].packetHash, presentContract.nodes[0].packetHash);
+});
+
+test("a direct dependency's writeFiles satisfies a deferred scopeAcknowledged entry (acknowledged 1)", () => {
+  const { path } = writeFixture({
+    nodes: [
+      { id: "a", type: "backend", taskPacket: packet({ writeFiles: ["ack.txt"] }), gate: false },
+      { id: "b", type: "backend", dependsOn: ["a"], taskPacket: packet({ scopeAcknowledged: ["ack.txt"], writeFiles: ["b.txt"] }), gate: false },
+    ],
+  });
+  const contract = validateContract(JSON.parse(readFileSync(path, "utf8")), path);
+  assert.deepEqual(contract.nodes[1].taskPacket.scopeAcknowledged, ["ack.txt"]);
+});
+
+test("a transitive dependency's writeRoots satisfies a deferred scopeAcknowledged entry (acknowledged 2)", () => {
+  const { directory, path } = writeFixture({
+    nodes: [
+      { id: "a", type: "backend", taskPacket: autonomousPacket({ writeRoots: ["out"] }), gate: false },
+      { id: "c", type: "backend", dependsOn: ["a"], taskPacket: packet({ writeFiles: ["c.txt"] }), gate: false },
+      { id: "b", type: "backend", dependsOn: ["c"], taskPacket: packet({ scopeAcknowledged: ["out/generated.txt"], writeFiles: ["b.txt"] }), gate: false },
+    ],
+  });
+  mkdirSync(join(directory, "out"));
+  const contract = validateContract(JSON.parse(readFileSync(path, "utf8")), path);
+  assert.deepEqual(contract.nodes[2].taskPacket.scopeAcknowledged, ["out/generated.txt"]);
+});
+
+test("a scopeAcknowledged path no dependency declares is rejected naming its index (acknowledged 3)", () => {
+  const { path } = writeFixture({
+    nodes: [
+      { id: "b", type: "backend", taskPacket: packet({ scopeAcknowledged: ["missing.txt"], writeFiles: ["b.txt"] }), gate: false },
+    ],
+  });
+  assert.throws(
+    () => validateContract(JSON.parse(readFileSync(path, "utf8")), path),
+    /nodes\[0\]\.taskPacket\.scopeAcknowledged\[0\] does not exist: missing\.txt/u,
+  );
 });

@@ -147,7 +147,7 @@ export function validateContract(raw, contractPath, options = {}) {
   }
   const rawNodes = /** @type {JsonObject[]} */ (raw.nodes);
   const ids = new Set();
-  /** @type {{path: string, label: string}[][]} */
+  /** @type {{path: string, label: string, kind: "read"|"acknowledged"}[][]} */
   const deferredReadsByNode = [];
   const nodes = rawNodes.map((node, index) => {
     assertObject(node, `nodes[${index}]`);
@@ -165,12 +165,12 @@ export function validateContract(raw, contractPath, options = {}) {
     if (!Array.isArray(dependsOn) || dependsOn.some((id) => typeof id !== "string")) {
       throw new TypeError(`nodes[${index}].dependsOn must be an array of ids`);
     }
-    // A readFiles entry that names a file no dependency has produced yet is a
-    // missing read today, but the graph is not known until every node is
-    // loaded. Collect the candidate here; the second pass below resolves each
-    // against the node's transitive closure once all packets and dependsOn
-    // edges are in hand.
-    /** @type {{path: string, label: string}[]} */
+    // A readFiles -- or scopeAcknowledged -- entry that names a file no
+    // dependency has produced yet is a missing path today, but the graph is not
+    // known until every node is loaded. Collect the candidate here; the second
+    // pass below resolves each against the node's transitive closure once all
+    // packets and dependsOn edges are in hand.
+    /** @type {{path: string, label: string, kind: "read"|"acknowledged"}[]} */
     const deferredReads = [];
     const taskPacket = loadTaskPacket(node, contractDir, cwd, index, { deferMissingReads: true, deferredReads, persisted });
     deferredReadsByNode.push(deferredReads);
@@ -234,21 +234,22 @@ export function validateContract(raw, contractPath, options = {}) {
   }
   assertAcyclic(nodes);
 
-  // Second pass: a readFiles entry deferred at packet load is accepted only
-  // when some transitive dependency produces it -- declares the identical path
-  // in its writeFiles, or the path sits under a dependency's directory-shaped
-  // writeRoots entry (a file-shaped entry authorizes exactly that path). Every
-  // other caller of validateTaskPacket keeps rejecting the missing read inline;
-  // this graph-aware deferral is a contract-loading capability only. Persisted
-  // loads never defer -- they skipped the existence probe, so there is nothing
-  // to resolve and nothing to stat.
+  // Second pass: a readFiles or scopeAcknowledged entry deferred at packet
+  // load is accepted only when some transitive dependency produces it --
+  // declares the identical path in its writeFiles, or the path sits under a
+  // dependency's directory-shaped writeRoots entry (a file-shaped entry
+  // authorizes exactly that path). Every other caller of validateTaskPacket
+  // keeps rejecting the missing path inline; this graph-aware deferral is a
+  // contract-loading capability only. Persisted loads never defer -- they
+  // skipped the existence probe, so there is nothing to resolve and nothing to
+  // stat.
   if (!persisted) {
     for (const [index, node] of nodes.entries()) {
       const deferredReads = deferredReadsByNode[index];
       if (deferredReads.length === 0) continue;
       const closure = transitiveDependencyClosure(node, nodes);
       for (const { path, label } of deferredReads) {
-        if (!dependencyCoversRead(closure, path, cwd)) {
+        if (!dependencyCoversPath(closure, path, cwd)) {
           throw new TypeError(`${label} does not exist: ${path}`);
         }
       }
@@ -595,7 +596,7 @@ function transitiveDependencyClosure(node, nodes) {
 }
 
 /**
- * Whether a transitive dependency produces the deferred read: it declares the
+ * Whether a transitive dependency produces the deferred path: it declares the
  * identical path in `writeFiles`, or the path sits under a directory-shaped
  * `writeRoots` entry. A `writeRoots` entry that names an existing regular file
  * authorizes exactly that path and nothing beneath it, mirroring the
@@ -606,7 +607,7 @@ function transitiveDependencyClosure(node, nodes) {
  * @param {string} cwd
  * @returns {boolean}
  */
-function dependencyCoversRead(closure, path, cwd) {
+function dependencyCoversPath(closure, path, cwd) {
   for (const dependency of closure) {
     const packet = dependency.taskPacket;
     if ((packet.writeFiles ?? []).includes(path)) return true;
