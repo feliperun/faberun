@@ -19,7 +19,7 @@ Read [rules](references/rules.md) first.
 
 Watchdog re-invocations:
 
-    node src/cli.mjs supervise <run-dir>
-    node src/cli.mjs supervise campaign <id> [--allow-main]
+    faberun supervise <run-dir>
+    faberun supervise campaign <id> [--allow-main]
 
 launchd: `StartInterval 300`; `launchctl load -w ~/Library/LaunchAgents/faberun.plist`.

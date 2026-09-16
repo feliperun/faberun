@@ -136,7 +136,7 @@ Every contract requires `campaignId`; campaign state lives at
 `HANDOFF.md`) and can link multiple runs.
 
 ```bash
-node src/cli.mjs campaign <op> <id> [--cwd <dir>] …flags
+faberun campaign <op> <id> [--cwd <dir>] …flags
   init --goal "Goal" | attach --tool codex --session-id <s> --transcript <path> --format jsonl
   note --session-id <s> --kind <intent|decision|supersede|constraint|outcome|next|open-question|retrospective> --text <t>
   resolve --session-id <s> --question-id <q> --text <a> | sync --session-id <s> | ack --session-id <s> --event-id <e>
@@ -169,10 +169,10 @@ The harness registry (`src/seat/harnesses.mjs`) declares five entries — `claud
 marker, and `canRenderAmbient` (claude only).
 
 ```bash
-node src/cli.mjs seat start <campaign-id> --cwd <dir> [--harness <name>]
-node src/cli.mjs seat attach [<campaign-id>] [--cwd <dir>] [--ssh <host>]
-node src/cli.mjs seat status [--json] [--cwd <dir>]
-node src/cli.mjs seat stop [<campaign-id>] [--cwd <dir>]
+faberun seat start <campaign-id> --cwd <dir> [--harness <name>]
+faberun seat attach [<campaign-id>] [--cwd <dir>] [--ssh <host>]
+faberun seat status [--json] [--cwd <dir>]
+faberun seat stop [<campaign-id>] [--cwd <dir>]
 ```
 
 `attach` prints the command to paste rather than running `tmux attach`, which
