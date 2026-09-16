@@ -560,9 +560,7 @@ process.stdin.on("end", () => {
   chmodSync(fake, 0o755);
   const path = writeContract(directory, fixture({
     id: "judge-reask-durable-run",
-    // Wide enough that the closed re-ask stays durable-but-unapplied for a
-    // whole poll interval, the window the verdict-gap image is taken in.
-    pollIntervalMs: 250,
+    pollIntervalMs: 10,
     runtimeDefaults: { worker: "jsonl", judge: "jsonl-judge" },
     runtimes: {
       jsonl: { harness: "exec-jsonl", model: "fake", vendor: "exec-jsonl-worker", executable: fake },
@@ -576,22 +574,19 @@ process.stdin.on("end", () => {
       gate: { review: "blocking", failOn: ["major", "critical"] },
     }],
   }));
-  const nodePath = join(runDir, "nodes", "build.json");
-  let capturedVerdictGap = false;
-  const capturing = setInterval(() => {
-    if (capturedVerdictGap) return;
-    let persisted;
-    try { persisted = JSON.parse(readFileSync(nodePath, "utf8")); } catch { return; }
-    const last = /** @type {Record<string, unknown>[]} */ (persisted.invocations ?? []).at(-1);
-    const spent = /** @type {Record<string, unknown>[]} */ (persisted.executionOverrides ?? []).some((item) => item.kind === "judge-reask");
-    if (!spent || persisted.status !== "running" || last?.phase !== "judge" || last?.status !== "closed") return;
-    capturedVerdictGap = true;
-    cpSync(runDir, verdictGap, { recursive: true, filter: inherited });
-  }, 5);
-  const state = nodeState(await runContract(path).finally(() => clearInterval(capturing)));
-  assert.equal(state.status, "blocked", state.error?.message);
-  assert.equal(state.error?.code, "judge_protocol");
-  assert.equal((state.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 2, "exactly one bounded judge re-ask before attention");
+  // Crash the controller between the two writes: the verdict and the spent
+  // bound land in the node snapshot first, then the interrupt throws and the
+  // blocked transition never runs. The image is the code's own write, so no
+  // sampler has to win a race against the transition.
+  const previousInterrupt = process.env.FABERUN_JUDGE_REASK_INTERRUPT;
+  process.env.FABERUN_JUDGE_REASK_INTERRUPT = "after-verdict";
+  try {
+    await assert.rejects(() => runContract(path), /judge re-ask interrupted after verdict persistence/u);
+  } finally {
+    if (previousInterrupt === undefined) delete process.env.FABERUN_JUDGE_REASK_INTERRUPT;
+    else process.env.FABERUN_JUDGE_REASK_INTERRUPT = previousInterrupt;
+  }
+  cpSync(runDir, verdictGap, { recursive: true, filter: inherited });
   assert.equal(existsSync(join(runDir, "judge-reask")), false, "the bound is node state, not a standalone marker beside it");
   assert.match(readFileSync(promptTwo, "utf8"), /Your previous fail verdict cited no Definition of Done item id/u);
 
@@ -616,10 +611,18 @@ process.stdin.on("end", () => {
   assert.equal((afterDispatch.invocations ?? []).filter((invocation) => invocation.phase === "worker").length, 1, "the worker is never re-run");
   assert.equal((afterDispatch.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 3, "recovery replays the interrupted re-ask exactly once");
 
-  // Gap two: the re-ask verdict is durable and the blocked transition is not,
-  // so recovery reads the spent bound from the node and blocks rather than
-  // treating the second uncited verdict as a first failure.
-  assert.ok(capturedVerdictGap, "the controller persisted the re-ask verdict before the blocked transition");
+  // Gap two: the re-ask verdict and the spent bound are durable and the blocked
+  // transition is not, so recovery reads them from the node and blocks rather
+  // than treating the second uncited verdict as a first failure.
+  const persistedVerdict = JSON.parse(readFileSync(join(verdictGap, "nodes", "build.json"), "utf8"));
+  assert.equal(persistedVerdict.status, "running", "the crash image halted before the blocked transition");
+  assert.ok(
+    /** @type {Record<string, unknown>[]} */ (persistedVerdict.executionOverrides).some((item) => item.kind === "judge-reask"),
+    "the durable record carries the spent bound",
+  );
+  const persistedJudges = /** @type {Record<string, unknown>[]} */ (persistedVerdict.invocations).filter((item) => item.phase === "judge");
+  assert.equal(persistedJudges.length, 2, "the durable record carries the completed re-ask whose bound permits no third ask");
+  assert.equal(persistedJudges.at(-1)?.status, "closed");
   const afterVerdict = nodeState(await resumeRun(verdictGap));
   assert.equal(afterVerdict.status, "blocked", afterVerdict.error?.message);
   assert.equal(afterVerdict.phase, "judge");

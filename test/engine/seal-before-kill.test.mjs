@@ -12,7 +12,7 @@ import { runContract } from "../../src/engine/scheduler.mjs";
 import { TIER_EXHAUSTION_CAP_REASON, TIER_EXHAUSTION_HOLD_CAP_MS, planResumeRetry } from "../../src/engine/retry.mjs";
 import { createAttemptWorktree, createRunRef, git, removeWorktree } from "../../src/repo/worktree.mjs";
 import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
-import { fixture, packet, writeContract } from "../helpers.mjs";
+import { fixture, packet, waitForValue, writeContract } from "../helpers.mjs";
 import { nodeState } from "../runner-helpers.mjs";
 
 // Phase 5b: a timeout seals the attempt before it kills, stall progress is a
@@ -283,14 +283,12 @@ test("done-when 3: the seal is committed before the kill, so a provider's dying 
 import { unlinkSync, writeFileSync } from "node:fs";
 if (process.argv.includes("--version")) { console.log("order-provider 1.0.0"); process.exit(0); }
 process.on("SIGTERM", () => { try { unlinkSync("README.md"); } catch {} ; process.exit(0); });
-let input = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => { input += chunk; });
-process.stdin.on("end", () => {
-  writeFileSync("README.md", "ordered-seal\\n");
-  console.log(JSON.stringify({ type: "thread.started", thread_id: "order-thread" }));
-  setInterval(() => {}, 60_000);
-});
+// The work is on disk before any asynchronous event can gate it: a loaded host
+// must not be able to run the seal before the provider's stdin end fires.
+writeFileSync("README.md", "ordered-seal\\n");
+console.log(JSON.stringify({ type: "thread.started", thread_id: "order-thread" }));
+process.stdin.resume();
+setInterval(() => {}, 60_000);
 `);
   const worktree = createAttemptWorktree({ repo, runDir, runId: contract.id, nodeId: "build", attempt: 1 });
   const state = snapshotFor(contract, worktree);
@@ -313,7 +311,16 @@ process.stdin.on("end", () => {
     onInvocation: () => {},
   });
   try {
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    // The provider writes README.md synchronously at startup and registers its
+    // SIGTERM handler first, so its appearance proves the work the seal must
+    // capture is already there. Bound the wait instead of sleeping toward it.
+    const readme = join(worktree.path, "README.md");
+    await waitForValue(() => (existsSync(readme) ? true : null)).catch(() => {
+      throw new Error(`the provider never wrote ${readme} before the seal could run`);
+    });
+    // Force the wall-clock budget elapsed instead of sleeping through it: this
+    // test exercises the seal, not this machine's real-time performance.
+    job.startedTicks = process.hrtime.bigint() - BigInt(Math.ceil((contract.timeoutSec + 1) * 1e9));
     await detectStalls(contract, new Map([["build", job]]), async () => {});
     const sealedSha = state.worktree?.sealedSha;
     assert.ok(sealedSha, "the timeout sealed a non-empty attempt");

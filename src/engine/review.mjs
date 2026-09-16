@@ -21,7 +21,7 @@ import {
 } from "../contract/review-modes.mjs";
 
 import { errorMessage, excerpt } from "../util.mjs";
-import { appendTransitionEvent, transition } from "./state.mjs";
+import { appendTransitionEvent, transition, writeNode } from "./state.mjs";
 import { startJudge } from "./dispatch.mjs";
 import { applyRejection, raiseNodeAttention, settleDone } from "./settle.mjs";
 
@@ -153,6 +153,14 @@ export async function applyJudgeResult(contract, node, state, result, runDir, lo
       await settleAdvisoryReview(contract, node, state, runDir, lock, states, campaignPath, verdict);
       await raiseNodeAttention(campaignPath, runDir, state, "judge_protocol");
       return;
+    }
+    // The verdict and the spent bound are durable before the blocked
+    // transition: a controller loss in this gap reads the settled re-ask from
+    // the node snapshot instead of spending a second one. No await separates
+    // the two writes, so the durable record cannot be observed only by luck.
+    writeNode(runDir, state, lock);
+    if (process.env.FABERUN_JUDGE_REASK_INTERRUPT === "after-verdict") {
+      throw new Error("judge re-ask interrupted after verdict persistence");
     }
     transition(runDir, state, "blocked", {
       phase: "judge",
