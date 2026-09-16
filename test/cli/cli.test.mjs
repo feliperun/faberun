@@ -326,7 +326,7 @@ test("runner notifies node.terminal and run.terminal only, never a running node"
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));
   const notifier = join(directory, "notify-success.mjs");
-  writeFileSync(notifier, "#!/usr/bin/env node\nprocess.stdin.resume(); process.stdin.on('end', () => process.exit(0));\n");
+  writeFileSync(notifier, `#!${process.execPath}\nprocess.stdin.resume(); process.stdin.on('end', () => process.exit(0));\n`);
   chmodSync(notifier, 0o755);
   const previousNotify = process.env.FABERUN_NOTIFY_BIN;
   process.env.FABERUN_NOTIFY_BIN = notifier;
@@ -404,7 +404,7 @@ test("ordinary runs deliver bounded node and run terminal notifications", async 
   const path = writeContract(directory, fixture({ id: "run-notifications", pollIntervalMs: 10 }));
   const delivered = join(directory, "delivered.jsonl");
   const notifier = join(directory, "notify.mjs");
-  writeFileSync(notifier, `#!/usr/bin/env node\nimport { appendFileSync } from "node:fs"; let input = ""; process.stdin.setEncoding("utf8"); process.stdin.on("data", chunk => { input += chunk; }); process.stdin.on("end", () => { appendFileSync(${JSON.stringify(delivered)}, input); });\n`);
+  writeFileSync(notifier, `#!${process.execPath}\nimport { appendFileSync } from "node:fs"; let input = ""; process.stdin.setEncoding("utf8"); process.stdin.on("data", chunk => { input += chunk; }); process.stdin.on("end", () => { appendFileSync(${JSON.stringify(delivered)}, input); });\n`);
   chmodSync(notifier, 0o755);
   const previous = process.env.FABERUN_NOTIFY_BIN;
   process.env.FABERUN_NOTIFY_BIN = notifier;
