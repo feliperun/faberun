@@ -12,8 +12,8 @@ This tree has two append-only event records, and both are declared here:
 
 - **`events.jsonl`** — a run's node transition events, appended by
   `appendTransitionEvent` in `src/engine/state.mjs`, plus a small number of
-  diagnostics appended directly by `src/engine/run-identity.mjs` and
-  `src/engine/notify-queue.mjs`.
+  diagnostics appended directly by `src/engine/run-identity.mjs`,
+  `src/engine/notify-queue.mjs` and `src/engine/process.mjs`.
 - **`journal.jsonl`** — a campaign's material events, appended through
   `appendJournal` in `src/campaign/journal.mjs` by the emitters that build each
   event type.
@@ -24,11 +24,12 @@ writer per field` — re-derives every writer from `src/` and fails when the
 derivation disagrees with this document. The document is the declaration; the
 test is what keeps it from becoming fiction on the third change.
 
-**Measured 2026-09-14 against this tree:** 29 `events.jsonl` fields and 14
-`journal.jsonl` event types. Fourteen entries have more than one writer today.
-Those fourteen are the ratchet at the end of this file; they are declared, not
+**Measured 2026-09-16 against this tree:** 31 `events.jsonl` fields and 14
+`journal.jsonl` event types. Fifteen entries have more than one writer today.
+Those fifteen are the ratchet at the end of this file; they are declared, not
 fixed, because changing who writes a field is a behavior change and belongs to
-another node.
+another node. The stale-group signal guard added the one new ratchet field,
+`invocationId`, on 2026-09-16.
 
 A type or field nothing writes is not declared here. This document is a
 declaration of owners, and a field with no writer has no owner to declare.
@@ -45,7 +46,7 @@ marked **(ratchet)**.
 | --- | --- | --- |
 | `schemaVersion` | `appendTransitionEvent`, `assertEnvironmentReady` **(ratchet)** | at append, from the protocol constant; the preflight event stamps its own |
 | `contractVersion` | `appendTransitionEvent`, `assertEnvironmentReady` **(ratchet)** | at append, from the version constant; the preflight event stamps its own |
-| `at` | `appendTransitionEvent`, `assertEnvironmentReady`, `renderCampaignHandoffSafely` **(ratchet)** | at append, from `state.updatedAt` (set by `transition`); the two diagnostics take `new Date().toISOString()` |
+| `at` | `appendTransitionEvent`, `assertEnvironmentReady`, `renderCampaignHandoffSafely`, `recordIdentityUnverifiable` **(ratchet)** | at append, from `state.updatedAt` (set by `transition`); the three diagnostics take `new Date().toISOString()` |
 | `node` | `appendTransitionEvent` | at append, from `state.id` |
 | `sourceIdentity` | `appendTransitionEvent` | at append, from the snapshot |
 | `packetHash` | `appendTransitionEvent` | at append, from the snapshot |
@@ -58,7 +59,9 @@ marked **(ratchet)**.
 | `verdict` | `appendTransitionEvent`, `settleAdvisoryReview` **(ratchet)** | at append, `state.gate.verdict` when set; `settleAdvisoryReview` also passes it in `details`, and the spread wins |
 | `summary` | `appendTransitionEvent`, `settleAdvisoryReview` **(ratchet)** | at append, `state.gate.summary` when set; the advisory detail is spread over it |
 | `revisions` | `appendTransitionEvent` | at append, `state.revisions` when set |
-| `invocationId` | `appendTransitionEvent` | at append, the last invocation's id when set |
+| `invocationId` | `appendTransitionEvent`, `recordIdentityUnverifiable` **(ratchet)** | at append, the last invocation's id when set; the identity guard records the invocation it declined to signal |
+| `pid` | `recordIdentityUnverifiable` | when a signal is withheld because the invocation's process identity cannot be proven |
+| `processGroupId` | `recordIdentityUnverifiable` | when a signal is withheld because the invocation's process identity cannot be proven |
 | `override` | `recordExecutionOverride`, `applyRoute` **(ratchet)** | when an execution override is recorded; when a route is applied |
 | `recovery` | `ensureTerminalEvent`, `recordExecutionOverride` **(ratchet)** | when a terminal side effect is replayed; when an override carries a recovery note |
 | `role` | `applyRoute`, `autoRetryNode` **(ratchet)** | when a route is applied; when a node earns its one automatic retry |
@@ -67,7 +70,7 @@ marked **(ratchet)**.
 | `errorCode` | `applyRoute`, `autoRetryNode` **(ratchet)** | when a route is applied; when a node earns its one automatic retry |
 | `unexpectedPaths` | `checkWorkerScope`, `checkPersistedWorkerScope`, `recordScopeFinding` **(ratchet)** | when a scope check fails or an advisory finding is recorded |
 | `unexpectedPathCount` | `checkWorkerScope`, `checkPersistedWorkerScope`, `recordScopeFinding` **(ratchet)** | when a scope check fails or an advisory finding is recorded |
-| `type` | `recordScopeFinding`, `settleAdvisoryReview`, `assertEnvironmentReady`, `renderCampaignHandoffSafely`, `autoRetryNode` **(ratchet)** | each diagnostic sets its own discriminator; there is no single owner today |
+| `type` | `recordScopeFinding`, `settleAdvisoryReview`, `assertEnvironmentReady`, `renderCampaignHandoffSafely`, `autoRetryNode`, `recordIdentityUnverifiable` **(ratchet)** | each diagnostic sets its own discriminator; there is no single owner today |
 | `contractId` | `assertEnvironmentReady` | when the environment preflight fails |
 | `ok` | `assertEnvironmentReady` | when the environment preflight fails |
 | `checks` | `assertEnvironmentReady` | when the environment preflight fails |
@@ -101,19 +104,27 @@ cannot drift apart.
 
 ## The ratchet, measured
 
-Measured 2026-09-14: **14 entries have more than one writer.** They are a
-ratchet, not a target. The test asserts the number is exactly 14 and that every
+Measured 2026-09-16: **15 entries have more than one writer.** They are a
+ratchet, not a target. The test asserts the number is exactly 15 and that every
 declared writer set matches the one derived from `src/`, so a *new* second
 writer fails immediately, and fixing one of these fails until the count and this
 list are lowered together.
 
-**`events.jsonl` (13):** `at`, `contractVersion`, `error`, `errorCode`,
-`override`, `recovery`, `role`, `schemaVersion`, `summary`, `type`,
-`unexpectedPathCount`, `unexpectedPaths`, `verdict`.
+**`events.jsonl` (14):** `at`, `contractVersion`, `error`, `errorCode`,
+`invocationId`, `override`, `recovery`, `role`, `schemaVersion`, `summary`,
+`type`, `unexpectedPathCount`, `unexpectedPaths`, `verdict`.
 
 **`journal.jsonl` (1):** `session.attached` — written both by the explicit
 `attach` command and by the once-a-day implicit attach on sync. The two emitters
 must keep producing the same nine fields.
+
+`invocationId` joined the list when the phase-2 stale-group signal guard landed:
+`recordIdentityUnverifiable` (`src/engine/process.mjs`) appends an
+`invocation_identity_unverifiable` line — with the invocation's id, and, newly
+declared above, its `pid` and `processGroupId` — whenever a signal is withheld
+because the invocation's process identity cannot be proven. The guard needs the
+id in the record, so it is now a second writer of a field `appendTransitionEvent`
+used to own alone.
 
 Nothing on this list is fixed in this node. Changing who writes a field changes
 behavior, and a node that declares must not also move the thing it declares.
@@ -142,7 +153,7 @@ behavior, and a node that declares must not also move the thing it declares.
   "events": {
     "schemaVersion": { "writers": ["appendTransitionEvent", "assertEnvironmentReady"] },
     "contractVersion": { "writers": ["appendTransitionEvent", "assertEnvironmentReady"] },
-    "at": { "writers": ["appendTransitionEvent", "assertEnvironmentReady", "renderCampaignHandoffSafely"] },
+    "at": { "writers": ["appendTransitionEvent", "assertEnvironmentReady", "renderCampaignHandoffSafely", "recordIdentityUnverifiable"] },
     "node": { "writers": ["appendTransitionEvent"] },
     "sourceIdentity": { "writers": ["appendTransitionEvent"] },
     "packetHash": { "writers": ["appendTransitionEvent"] },
@@ -155,7 +166,9 @@ behavior, and a node that declares must not also move the thing it declares.
     "verdict": { "writers": ["appendTransitionEvent", "settleAdvisoryReview"] },
     "summary": { "writers": ["appendTransitionEvent", "settleAdvisoryReview"] },
     "revisions": { "writers": ["appendTransitionEvent"] },
-    "invocationId": { "writers": ["appendTransitionEvent"] },
+    "invocationId": { "writers": ["appendTransitionEvent", "recordIdentityUnverifiable"] },
+    "pid": { "writers": ["recordIdentityUnverifiable"] },
+    "processGroupId": { "writers": ["recordIdentityUnverifiable"] },
     "override": { "writers": ["recordExecutionOverride", "applyRoute"] },
     "recovery": { "writers": ["ensureTerminalEvent", "recordExecutionOverride"] },
     "role": { "writers": ["applyRoute", "autoRetryNode"] },
@@ -164,7 +177,7 @@ behavior, and a node that declares must not also move the thing it declares.
     "errorCode": { "writers": ["applyRoute", "autoRetryNode"] },
     "unexpectedPaths": { "writers": ["checkWorkerScope", "checkPersistedWorkerScope", "recordScopeFinding"] },
     "unexpectedPathCount": { "writers": ["checkWorkerScope", "checkPersistedWorkerScope", "recordScopeFinding"] },
-    "type": { "writers": ["recordScopeFinding", "settleAdvisoryReview", "assertEnvironmentReady", "renderCampaignHandoffSafely", "autoRetryNode"] },
+    "type": { "writers": ["recordScopeFinding", "settleAdvisoryReview", "assertEnvironmentReady", "renderCampaignHandoffSafely", "autoRetryNode", "recordIdentityUnverifiable"] },
     "contractId": { "writers": ["assertEnvironmentReady"] },
     "ok": { "writers": ["assertEnvironmentReady"] },
     "checks": { "writers": ["assertEnvironmentReady"] },
