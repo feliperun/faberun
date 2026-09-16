@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -164,15 +165,29 @@ test("done-when 7: while recovering the supervisor judges against until + grace,
 
 test("done-when 10: status reports a real lastTick from heartbeat.json, where 47 of 47 recorded files report null", () => {
   const runDir = makeRunDir();
-  writeFileSync(lockPath(runDir), JSON.stringify({
-    pid: process.pid,
-    processStartToken: processStartToken(process.pid),
-    startedAt: "2026-09-14T00:00:00.000Z",
-    hostname: "test",
-  }));
-  assert.equal(controllerStatus(runDir, []).status.lastTick, null, "before a heartbeat there is no tick to report");
-  writeRunHeartbeat(runDir, { at: "2026-09-14T00:00:05.000Z", lastProgressAt: "2026-09-14T00:00:05.000Z", iteration: 1 });
-  const status = controllerStatus(runDir, []);
-  assert.equal(status.status.state, "active");
-  assert.equal(status.status.lastTick, "2026-09-14T00:00:05.000Z", "a live lock's lastTick is the heartbeat's at");
+  // A live detached probe holds the lock, so controllerStatus reports an active
+  // controller without naming this test runner's own process group.
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
+  child.unref();
+  const pid = child.pid;
+  if (pid === undefined) throw new Error("lock probe did not start");
+  try {
+    writeFileSync(lockPath(runDir), JSON.stringify({
+      pid,
+      processStartToken: processStartToken(pid),
+      startedAt: "2026-09-14T00:00:00.000Z",
+      hostname: "test",
+    }));
+    assert.equal(controllerStatus(runDir, []).status.lastTick, null, "before a heartbeat there is no tick to report");
+    writeRunHeartbeat(runDir, { at: "2026-09-14T00:00:05.000Z", lastProgressAt: "2026-09-14T00:00:05.000Z", iteration: 1 });
+    const status = controllerStatus(runDir, []);
+    assert.equal(status.status.state, "active");
+    assert.equal(status.status.lastTick, "2026-09-14T00:00:05.000Z", "a live lock's lastTick is the heartbeat's at");
+  } finally {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      // The probe is already gone; the assertion above already read the status.
+    }
+  }
 });

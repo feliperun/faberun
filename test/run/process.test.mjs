@@ -565,13 +565,38 @@ test("terminateInvocation with a fabricated token on the test runner's own pid s
   assert.equal(pidAlive(process.pid), true, "the test runner was not signalled");
 });
 
+test("invocationOwned never owns this process or its parent, even when the token matches", () => {
+  assert.equal(
+    invocationOwned({ pid: process.pid, processGroupId: process.pid, processStartToken: processStartToken(process.pid) }),
+    false,
+    "a controller does not spawn itself",
+  );
+  assert.equal(
+    invocationOwned({ pid: process.ppid, processGroupId: process.ppid, processStartToken: processStartToken(process.ppid) }),
+    false,
+    "a controller does not spawn the process that spawned it",
+  );
+});
+
 test("an injected EPERM from kill is swallowed by terminateInvocation", { skip: process.platform === "win32" }, async () => {
-  const invocation = { id: "eperm-owner", pid: process.pid, processGroupId: process.pid, processStartToken: processStartToken(process.pid) };
+  const probe = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
+  probe.unref();
+  const pid = probe.pid;
+  if (pid === undefined) throw new Error("invocation probe did not start");
+  const invocation = { id: "eperm-owner", pid, processGroupId: pid, processStartToken: processStartToken(pid) };
   const eperm = Object.assign(new Error("not permitted"), { code: "EPERM" });
-  await terminateInvocation(invocation, {
-    graceMs: 25,
-    killGraceMs: 100,
-    kill: () => { throw eperm; },
-  });
-  assert.equal(invocationOwned(invocation), true, "the real process was never signalled and no death was awaited");
+  try {
+    await terminateInvocation(invocation, {
+      graceMs: 25,
+      killGraceMs: 100,
+      kill: () => { throw eperm; },
+    });
+    assert.equal(invocationOwned(invocation), true, "the real process was never signalled and no death was awaited");
+  } finally {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      // The probe is already gone; the EPERM path already returned.
+    }
+  }
 });

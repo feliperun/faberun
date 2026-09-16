@@ -17,6 +17,7 @@ import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, contractDigest, validateCont
 import { controllerSnapshotIdentity, serializableContract, storedContractDigest } from "../../src/engine/run-identity.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { writeHeartbeat } from "../../src/engine/supervise.mjs";
+import { processStartToken } from "../../src/run/lock.mjs";
 import { packet, closeResult, waitForValue, withFakeCodex } from "../helpers.mjs";
 
 /** @typedef {import("../../src/contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -330,19 +331,24 @@ test("done-when 10a: with no coordinator, supervise campaign through the CLI bec
 test("done-when 10b: a fresh heartbeat is observed through the CLI, exits 0 and writes nothing", async () => {
   const repo = initRepo();
   const { path: campaignPath } = makeCampaign(repo, "watch", []);
-  // A live lock with a fresh heartbeat: the invocation is the observer, not
-  // the coordinator. The holder's pid is this test process, which is provably
-  // alive for the duration.
-  const now = Date.now();
-  writeCoordinatorLock(campaignPath, { schemaVersion: 1, pid: process.pid, processStartToken: null, startedAt: new Date(now).toISOString(), hostname: "test" });
-  writeHeartbeat(campaignPath, { at: new Date(now).toISOString(), lastProgressAt: new Date(now).toISOString(), iteration: 1, activeNodes: [] });
-  const before = snapshotTree(campaignPath);
-
-  const child = coordinatorCliCase("watch", repo);
-  const result = await closeResult(child);
-  assert.equal(result.code, 0, `${result.stdout ?? ""}${result.stderr ?? ""}`);
-  assert.match(String(result.stdout), /already-running/u, "the invocation reported the coordinator it observed");
-  assert.deepEqual(snapshotTree(campaignPath), before, "the observer wrote nothing to the campaign directory");
+  // A detached probe holds the lock, so a CLI that considered it stale could
+  // never signal the test runner's own group.
+  const holder = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
+  holder.unref();
+  const holderPid = holder.pid;
+  if (holderPid === undefined) throw new Error("coordinator holder probe did not start");
+  try {
+    const now = Date.now();
+    writeCoordinatorLock(campaignPath, { schemaVersion: 1, pid: holderPid, processStartToken: processStartToken(holderPid), startedAt: new Date(now).toISOString(), hostname: "test" });
+    writeHeartbeat(campaignPath, { at: new Date(now).toISOString(), lastProgressAt: new Date(now).toISOString(), iteration: 1, activeNodes: [] });
+    const before = snapshotTree(campaignPath);
+    const result = await closeResult(coordinatorCliCase("watch", repo));
+    assert.equal(result.code, 0, `${result.stdout ?? ""}${result.stderr ?? ""}`);
+    assert.match(String(result.stdout), /already-running/u, "the invocation reported the coordinator it observed");
+    assert.deepEqual(snapshotTree(campaignPath), before, "the observer wrote nothing to the campaign directory");
+  } finally {
+    try { process.kill(-holderPid, "SIGKILL"); } catch { /* the probe is already gone */ }
+  }
 });
 
 test("done-when 10c: a stale heartbeat is taken over through the CLI, terminating the group and acquiring the lock", async () => {

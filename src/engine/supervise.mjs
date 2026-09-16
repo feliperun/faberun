@@ -34,7 +34,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SETTLED, SUCCESS } from "./prompts.mjs";
-import { invocationOwned } from "./process-identity.mjs";
+import { invocationOwned, refuseSelfSignal } from "./process-identity.mjs";
 import { earliestTierReset } from "./retry.mjs";
 import { lockStale, pidAlive, readLock } from "../run/lock.mjs";
 import { listNodeSnapshots, readNodeSnapshot } from "../run/node-store.mjs";
@@ -504,8 +504,12 @@ export async function waitForGroupGone(pid, alive, graceMs, sleep, now) {
  * left, as it would a dead controller. EPERM is not ownership and not a failure
  * to surface: like ESRCH it means gone-or-not-ours and never escapes.
  *
+ * A lock naming this process or its parent is refused one step earlier: that
+ * lock's group is the caller's own, so the refusal is recorded and returns
+ * false without ever probing or signalling it.
+ *
  * @param {string} runDir
- * @param {{kill?: (pid: number, signal: string) => void, alive?: (pid: number) => boolean, sleep?: (ms: number) => Promise<void>, now?: () => number, graceMs?: number, killGraceMs?: number}} [options]
+ * @param {{kill?: (pid: number, signal: string) => void, alive?: (pid: number) => boolean, sleep?: (ms: number) => Promise<void>, now?: () => number, graceMs?: number, killGraceMs?: number, append?: (event: Record<string, unknown>) => void}} [options]
  * @returns {Promise<boolean>} whether a verified group was found and terminated
  */
 export async function terminateControllerGroup(runDir, options = {}) {
@@ -513,6 +517,7 @@ export async function terminateControllerGroup(runDir, options = {}) {
   if (!lock || /** @type {{invalid?: true}} */ (lock).invalid) return false;
   const record = /** @type {import("../run/lock.mjs").LockRecord} */ (lock);
   const pid = record.pid;
+  if (refuseSelfSignal(pid, options.append)) return false;
   if (!invocationOwned({ pid, processGroupId: pid, processStartToken: record.processStartToken })) return false;
   const kill = options.kill ?? ((target, signal) => {
     try {

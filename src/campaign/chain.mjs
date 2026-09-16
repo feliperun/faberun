@@ -36,6 +36,7 @@ import { assertContractManifestIntact, parkCampaign, promoteRunInCampaign } from
 import { readCampaign } from "./record.mjs";
 import { validateContract } from "../contract/index.mjs";
 import { defaultControllerIdentity, storedContractDigest, verifyControllerIdentity } from "../engine/run-identity.mjs";
+import { refuseSelfSignal } from "../engine/process-identity.mjs";
 import { HEARTBEAT_INTERVAL_MS, createHeartbeat, groupAlive, heartbeatBreach, readHeartbeat, runProgress, waitForGroupGone } from "../engine/supervise.mjs";
 import { pidAlive, processStartToken } from "../run/lock.mjs";
 import { delay, errorCode, errorMessage } from "../util.mjs";
@@ -147,10 +148,12 @@ function groupKill(pid, signal) {
 /**
  * Terminate the coordinator's process group, bounded: `SIGTERM`, then `SIGKILL`
  * after the named grace. The takeover writes its own lock only once the group
- * is gone, so two coordinators never overlap.
+ * is gone, so two coordinators never overlap. A lock naming this process or its
+ * parent is refused before any signal: that group is the caller's own, so the
+ * refusal is recorded and the takeover leaves it alone.
  *
  * @param {string} campaignPath
- * @param {{lock?: Record<string, unknown>|null, kill?: (pid: number, signal: string) => void, alive?: (pid: number) => boolean, sleep?: (ms: number) => Promise<void>, now?: () => number, graceMs?: number, killGraceMs?: number}} [options]
+ * @param {{lock?: Record<string, unknown>|null, kill?: (pid: number, signal: string) => void, alive?: (pid: number) => boolean, sleep?: (ms: number) => Promise<void>, now?: () => number, graceMs?: number, killGraceMs?: number, append?: (event: Record<string, unknown>) => void}} [options]
  * @returns {Promise<boolean>}
  */
 export async function terminateCoordinatorGroup(campaignPath, options = {}) {
@@ -158,6 +161,7 @@ export async function terminateCoordinatorGroup(campaignPath, options = {}) {
   if (!lock || /** @type {{invalid?: true}} */ (lock).invalid) return false;
   const record = /** @type {Record<string, unknown>} */ (lock);
   const pid = /** @type {number} */ (record.pid);
+  if (refuseSelfSignal(pid, options.append)) return false;
   const kill = options.kill ?? groupKill;
   const alive = options.alive ?? ((target) => pidAlive(target) || groupAlive(target));
   const sleep = options.sleep ?? delay;

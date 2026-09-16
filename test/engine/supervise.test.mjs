@@ -1,10 +1,11 @@
-import test from "node:test";
+import test, { afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { controllerAlive, runProgress, superviseRun, terminateControllerGroup, writeHeartbeat } from "../../src/engine/supervise.mjs";
+import { terminateCoordinatorGroup, writeCoordinatorLock } from "../../src/campaign/chain.mjs";
 import { recoverOrphan } from "../../src/engine/recover.mjs";
 import { lockPath, processStartToken } from "../../src/run/lock.mjs";
 
@@ -58,14 +59,46 @@ function makeRunDir() {
   return mkdtempSync(join(tmpdir(), "runner-supervise-"));
 }
 
-/** Make this process the run's demonstrably-live controller holder. @param {string} runDir */
-function liveLock(runDir) {
+/**
+ * Probes spawned to hold a lock. Each is a real detached process group the code
+ * under test may signal without naming -- and so without killing -- the test
+ * runner's own group.
+ * @type {number[]}
+ */
+const lockProbes = [];
+
+afterEach(() => {
+  for (const pid of lockProbes.splice(0)) {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      // The probe is already gone; the next test starts with no live holder.
+    }
+  }
+});
+
+/**
+ * Make a live detached probe the run's controller holder, recording the pid and
+ * its start token so the lock is genuine. A fabricated `token` makes the probe
+ * stand in for a recycled pid. The probe is killed after every test.
+ *
+ * @param {string} runDir
+ * @param {string} [token]
+ * @returns {number}
+ */
+function liveLock(runDir, token) {
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { detached: true, stdio: "ignore" });
+  child.unref();
+  const pid = child.pid;
+  if (pid === undefined) throw new Error("lock probe did not start");
+  lockProbes.push(pid);
   writeFileSync(lockPath(runDir), JSON.stringify({
-    pid: process.pid,
-    processStartToken: processStartToken(process.pid),
+    pid,
+    processStartToken: token === undefined ? processStartToken(pid) : token,
     startedAt: new Date().toISOString(),
     hostname: "test",
   }));
+  return pid;
 }
 
 /** @param {string} runDir @param {Record<string, unknown>} heartbeat */
@@ -178,13 +211,8 @@ test("a torn snapshot is unknown rather than a reason to relaunch", () => {
 test("a live controller lock stops the supervisor from launching a second one", async () => {
   const runDir = makeRunDir();
   writeNodes(runDir, { alpha: "running" });
-  // This process is the holder, and it is demonstrably alive.
-  writeFileSync(lockPath(runDir), JSON.stringify({
-    pid: process.pid,
-    processStartToken: processStartToken(process.pid),
-    startedAt: new Date().toISOString(),
-    hostname: "test",
-  }));
+  // A live detached probe is the holder, so it is demonstrably alive.
+  liveLock(runDir);
   assert.equal(controllerAlive(runDir), true);
 
   /** @type {string[]} */
@@ -317,13 +345,8 @@ test("Phase 1c: a live controller is left alone while a reset is pending", async
   const runDir = makeRunDir();
   const clock = fakeClock("2026-09-14T00:00:00Z");
   writeSnapshot(runDir, "alpha", exhaustedNode("2026-09-14T00:01:00Z"));
-  // This process is the holder, and it is demonstrably alive.
-  writeFileSync(lockPath(runDir), JSON.stringify({
-    pid: process.pid,
-    processStartToken: processStartToken(process.pid),
-    startedAt: new Date().toISOString(),
-    hostname: "test",
-  }));
+  // A live detached probe is the holder, so it is demonstrably alive.
+  liveLock(runDir);
   assert.equal(controllerAlive(runDir), true);
 
   let launches = 0;
@@ -627,17 +650,82 @@ test("done-when 9: termination is SIGTERM then SIGKILL after the named grace, an
 
 test("a lock whose token no longer names the pid is left unsignalled", async () => {
   const runDir = makeRunDir();
-  // process.pid is alive; the fabricated token proves the record was written by
-  // an earlier process that reused this pid. Signalling here would hit this
-  // test runner's own process group, which is exactly the stale-group defect.
+  // The probe is alive; the fabricated token proves the record was written by
+  // an earlier process that reused this pid. Signalling here would hit a
+  // stale-group member, which is exactly the defect the token guard covers.
+  liveLock(runDir, "fabricated-token");
+  const terminated = await terminateControllerGroup(runDir, { alive: () => true });
+  assert.equal(terminated, false, "a recycled pid is proof enough not to signal");
+});
+
+test("terminateControllerGroup refuses a lock naming this process and records the refusal", async () => {
+  const runDir = makeRunDir();
   writeFileSync(lockPath(runDir), JSON.stringify({
     pid: process.pid,
-    processStartToken: "fabricated-token",
+    processStartToken: processStartToken(process.pid),
     startedAt: new Date().toISOString(),
     hostname: "test",
   }));
-  const terminated = await terminateControllerGroup(runDir, { alive: () => true });
-  assert.equal(terminated, false, "a recycled pid is proof enough not to signal");
+  /** @type {Record<string, unknown>[]} */
+  const events = [];
+  let signalled = false;
+  const terminated = await terminateControllerGroup(runDir, {
+    alive: () => true,
+    kill: () => { signalled = true; },
+    append: (event) => { events.push(event); },
+  });
+  assert.equal(terminated, false, "the supervisor never signals its own process group");
+  assert.equal(signalled, false, "no signal was delivered");
+  assert.equal(events.length, 1, "exactly one refusal line is recorded");
+  assert.equal(events[0].type, "controller_self_signal_refused");
+  assert.equal(events[0].pid, process.pid);
+  assert.equal(events[0].relation, "self");
+});
+
+test("terminateControllerGroup refuses a lock naming the parent process and records the refusal", async () => {
+  const runDir = makeRunDir();
+  writeFileSync(lockPath(runDir), JSON.stringify({
+    pid: process.ppid,
+    processStartToken: processStartToken(process.ppid),
+    startedAt: new Date().toISOString(),
+    hostname: "test",
+  }));
+  /** @type {Record<string, unknown>[]} */
+  const events = [];
+  let signalled = false;
+  const terminated = await terminateControllerGroup(runDir, {
+    alive: () => true,
+    kill: () => { signalled = true; },
+    append: (event) => { events.push(event); },
+  });
+  assert.equal(terminated, false, "the supervisor never signals the process that spawned it");
+  assert.equal(signalled, false, "no signal was delivered");
+  assert.equal(events.length, 1, "exactly one refusal line is recorded");
+  assert.equal(events[0].pid, process.ppid);
+  assert.equal(events[0].relation, "parent");
+});
+
+test("terminateCoordinatorGroup refuses a self or parent lock and records the refusal", async () => {
+  /** @type {[number, string][]} */
+  const cases = [[process.pid, "self"], [process.ppid, "parent"]];
+  for (const [pid, relation] of cases) {
+    const campaignPath = mkdtempSync(join(tmpdir(), "runner-coordinator-"));
+    writeCoordinatorLock(campaignPath, { schemaVersion: 1, pid, processStartToken: processStartToken(pid), startedAt: new Date().toISOString(), hostname: "test" });
+    /** @type {Record<string, unknown>[]} */
+    const events = [];
+    let signalled = false;
+    const terminated = await terminateCoordinatorGroup(campaignPath, {
+      alive: () => true,
+      kill: () => { signalled = true; },
+      append: (event) => { events.push(event); },
+    });
+    assert.equal(terminated, false, `the coordinator never signals the ${relation} process group`);
+    assert.equal(signalled, false, "no signal was delivered");
+    assert.equal(events.length, 1, "exactly one refusal line is recorded");
+    assert.equal(events[0].type, "controller_self_signal_refused");
+    assert.equal(events[0].pid, pid);
+    assert.equal(events[0].relation, relation);
+  }
 });
 
 test("an EPERM from the signal is swallowed and reported as not ours, never thrown", async () => {

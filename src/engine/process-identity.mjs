@@ -14,6 +14,41 @@ import { processStartToken } from "../run/lock.mjs";
 /** @typedef {{pid: number|null, processGroupId?: number|null, processStartToken?: string|null}} InvocationProbe */
 
 /**
+ * Whether a controller may signal a pid's process group at all. It may not when
+ * the pid is the calling process -- whose group is the controller's own -- or
+ * its parent, whose group is the runner (or host scheduler) that spawned the
+ * controller: either signal takes down the caller instead of the invocation.
+ * The refusal is recorded and returned, never thrown.
+ *
+ * The line goes to the injected sink when a caller supplied one, otherwise to
+ * stderr; this function owns no run directory and no event-log schema, so
+ * stderr is the one recorder it always has. Recording is diagnostic, so a
+ * failure to record must never turn the refusal into a throw.
+ *
+ * @param {number} pid
+ * @param {((event: Record<string, unknown>) => void)|undefined} [append] injected event sink
+ * @returns {boolean} true when the pid is this process or its parent and the signal was refused
+ */
+export function refuseSelfSignal(pid, append) {
+  const relation = pid === process.pid ? "self" : pid === process.ppid ? "parent" : null;
+  if (relation === null) return false;
+  const event = {
+    type: "controller_self_signal_refused",
+    at: new Date().toISOString(),
+    pid,
+    processPid: process.pid,
+    relation,
+  };
+  try {
+    if (append) append(event);
+    else process.stderr.write(`[warn] controller_self_signal_refused ${JSON.stringify(event)}\n`);
+  } catch {
+    // The refusal is diagnostic: a failed recorder must never become a throw.
+  }
+  return true;
+}
+
+/**
  * A process group answers a signal-0 probe. EPERM means the group exists but is
  * not this user's, which is no more "ours" than a missing group.
  *
@@ -57,6 +92,10 @@ export function processStartTokenMatches(invocation) {
  */
 export function invocationOwned(invocation, options = {}) {
   if (!invocation?.pid || !Number.isInteger(invocation.pid)) return false;
+  // A controller does not spawn itself or its parent: a recorded pid that names
+  // either can never be an invocation this controller owns, whatever token or
+  // child handle accompanies it, and signalling it would hit the caller.
+  if (invocation.pid === process.pid || invocation.pid === process.ppid) return false;
   try {
     process.kill(invocation.pid, 0);
   } catch {
