@@ -1,0 +1,481 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "register-skill-and-harden",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "dsh-deepseek-flash",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "dsh-deepseek-flash": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "workspace-write",
+      "tier": 1,
+      "costRank": 1,
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "fallback": "agy-gemini-flash"
+    },
+    "agy-gemini-flash": {
+      "harness": "agy",
+      "model": "gemini-3.8-flash-low",
+      "vendor": "google",
+      "tier": 1,
+      "costRank": 2
+    }
+  },
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "register-skill-and-harden-2-engine-determinism",
+  "maxParallel": 2,
+  "goal": "Phase 2 (engine-determinism) of campaign register-skill-and-harden: the two load-sensitive engine tests become deterministic at the source, scopeAcknowledged may name a file a predecessor creates, and unpriced usage is visible in reports. Spec: docs/campaigns/register-skill-and-harden/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "deterministic-seal-and-reask",
+      "type": "backend",
+      "phase": "engine-determinism",
+      "dependsOn": [],
+      "timeoutSec": 5400,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "test/engine/seal-before-kill.test.mjs 'done-when 3' and test/engine/judge.test.mjs 'the judge re-ask bound survives a controller crash in either gap' pass four times in a row under the controller because the races they depended on are gone from the code and the fixtures, not because a timeout grew.",
+        "instructions": [
+          "Read docs/campaigns/register-skill-and-harden/spec/SPEC.md ('Deterministic engine tests'). Evidence from become-faberun: with no code change, 'done-when 3: the seal is committed before the kill' failed once with `AssertionError: the timeout sealed a non-empty attempt: actual undefined` while the full suite ran, and 'the judge re-ask bound survives a controller crash in either gap because it is persisted with the node' failed once with `the controller persisted the re-ask verdict before the blocked transition: actual false` -- both passed again on the next run. Each cost a docs-only node its final verification.",
+          "Seal test (test/engine/seal-before-kill.test.mjs from line 279). makeRepoRun({timeoutSec: 0.6}) races a 0.6 s wall clock against a fake provider that writes README.md only on stdin `end`; under load the timeout fires first and there is nothing to seal. Remove the race: the provider writes README.md synchronously at startup before touching stdin, and the test waits (bounded poll, with a clear failure message) until README.md exists in the attempt worktree before the deadline can pass -- prefer moving `job.startedTicks` back to force detectStalls to see the budget elapsed over sleeping through real time, as the surrounding tests do. The assertion stays: the seal commit contains README.md and the provider's SIGTERM deletion cannot erase it. No timeout value grows to hide the race.",
+          "Re-ask durability (test/engine/judge.test.mjs from line 515 and src/engine/review.mjs around the comment 'persists it with ... the drive loop dispatches the one remaining bounded re-ask'). The test takes crash images at two instants and asserts the re-ask verdict (judgeFailures bound) is durable before the blocked transition. Find the two writes; if they are two atomic writes that are not awaited in order, or the transition can be written on a path that skips the verdict persistence, make the order a property of the code: persist the verdict and bound to the node snapshot, then transition, with no interleaving await between them, and make the test observe the durable record through the code's own persisted snapshot after the write completes rather than by sampling at a wall-clock instant. If the code order is already strict, the race is in the test's sampling; fix the test to await the persistence promise the code exposes.",
+          "Keep every other test in both files unchanged. Do not add sleeps, retries or widened timeouts anywhere. The controller runs both files four times in a row as this node's verification; a single failure fails the node.",
+          "Run tsc and test/repo/source-shape.test.mjs yourself. Never run npm install in the worktree; never run the whole suite yourself; never run tests that start and terminate child processes (test/run/, test/engine/seal-before-kill, unfreezable, supervise, judge, resume) -- your dsh sandbox cannot signal processes and they hang until the executor cap; the controller runs them as this node's verification. In particular do NOT run seal-before-kill.test.mjs or judge.test.mjs yourself: they terminate child processes and hang in your sandbox; reason from the code and let the controller prove it."
+        ],
+        "readFiles": [
+          "AGENTS.md",
+          "docs/campaigns/register-skill-and-harden/spec/SPEC.md",
+          "test/engine/seal-before-kill.test.mjs",
+          "test/engine/judge.test.mjs",
+          "src/engine/review.mjs",
+          "src/engine/judge-gate.mjs",
+          "src/engine/settle.mjs",
+          "src/engine/process.mjs",
+          "src/engine/state.mjs",
+          "src/run/node-store.mjs",
+          "test/helpers.mjs",
+          "test/runner-helpers.mjs"
+        ],
+        "writeFiles": [
+          "test/engine/seal-before-kill.test.mjs",
+          "test/engine/judge.test.mjs",
+          "src/engine/review.mjs",
+          "src/engine/judge-gate.mjs",
+          "src/engine/settle.mjs",
+          "src/engine/process.mjs"
+        ],
+        "symbols": [],
+        "scopeAcknowledged": [
+          "test/engine/judge-gate.test.mjs",
+          "test/engine/resume.test.mjs",
+          "test/engine/resume-probe.test.mjs",
+          "test/engine/resume-retry.test.mjs",
+          "test/engine/supervise.test.mjs",
+          "test/engine/unfreezable.test.mjs",
+          "test/engine/spend.test.mjs",
+          "test/engine/scope-usage.test.mjs",
+          "test/run/process.test.mjs",
+          "test/cli/cli.test.mjs",
+          "test/harnesses/replay-run.test.mjs",
+          "test/report/cost.test.mjs",
+          "test/contract/deferred-reads.test.mjs"
+        ],
+        "decisions": [
+          "Races are removed at the source (write order, provider fixture), never hidden by longer timeouts or sleeps.",
+          "Proof is repetition under the controller: repeat 4 on both files."
+        ],
+        "nonGoals": [
+          "Do not touch other tests in those files or other engine behaviour.",
+          "Never run npm install in the worktree; never run the whole suite yourself; never run tests that start and terminate child processes (test/run/, test/engine/seal-before-kill, unfreezable, supervise, judge, resume) -- your dsh sandbox cannot signal processes and they hang until the executor cap; the controller runs them as this node's verification."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/engine/seal-before-kill.test.mjs"
+            ],
+            "timeoutSec": 300,
+            "repeat": 4
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/engine/judge.test.mjs"
+            ],
+            "timeoutSec": 600,
+            "repeat": 4
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/repo/source-shape.test.mjs"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "seal-x4",
+          "text": "seal-before-kill passes four times in a row",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "reask-x4",
+          "text": "judge.test passes four times in a row",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "shape",
+          "text": "source-shape rules hold (no new unbounded waits)",
+          "proof": {
+            "kind": "verification",
+            "ref": "2"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "3"
+          }
+        },
+        {
+          "id": "no-hiding",
+          "text": "no timeout grew and no sleep or retry was added; the fixes are in write ordering and fixture behaviour",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "scope-acknowledged-deferral",
+      "type": "backend",
+      "phase": "engine-determinism",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "A packet's scopeAcknowledged may name a path that does not exist yet when a transitive dependency declares it in writeFiles or under writeRoots, exactly as readFiles already may.",
+        "instructions": [
+          "Read src/contract/task-packet.mjs (loadTaskPacket: readFiles use validateRelativePath with `{deferMissing}` and DEFERRED_MISSING; scopeAcknowledged at line ~220 uses mustExist true with no deferral) and src/contract/index.mjs (deferredReadsByNode, the resolution against dependencies' writeFiles/writeRoots around lines 151-260). Evidence: in become-faberun, contract 4 was refused with `scopeAcknowledged[1] does not exist: test/docs/docs-map.test.mjs` for a test the previous contract created, and a phase-2 node had to move the same entry into writeFiles to validate.",
+          "Generalize the deferral: the deferred list carries `{path, label, kind: 'read'|'acknowledged'}`; scopeAcknowledged entries are validated with the same deferMissing option and resolved by the same dependency walk; an entry no dependency declares is still refused with the existing message. The persisted load path (`persisted: true`) keeps skipping tree probes.",
+          "Tests in test/contract/deferred-reads.test.mjs: a scopeAcknowledged path a direct dependency writes is accepted; one a transitive dependency writes under writeRoots is accepted; one nobody declares is refused naming `scopeAcknowledged[<i>]`; readFiles behaviour is unchanged (existing cases keep passing).",
+          "Documentation: skills/faberun/references/contract.md, the sentence about deferred readFiles gains 'and scopeAcknowledged' (ceiling 21504 in test/docs/docs-diet.test.mjs; trim first, raise only by the bytes added with a dated comment).",
+          "Run tsc, `node --test test/contract/ test/docs/` yourself and fix what they report. Never run npm install in the worktree; never run the whole suite yourself; never run tests that start and terminate child processes (test/run/, test/engine/seal-before-kill, unfreezable, supervise, judge, resume) -- your dsh sandbox cannot signal processes and they hang until the executor cap; the controller runs them as this node's verification."
+        ],
+        "readFiles": [
+          "AGENTS.md",
+          "docs/campaigns/register-skill-and-harden/spec/SPEC.md",
+          "src/contract/task-packet.mjs",
+          "src/contract/index.mjs",
+          "test/contract/deferred-reads.test.mjs",
+          "test/contract/packet.test.mjs",
+          "skills/faberun/references/contract.md",
+          "test/docs/docs-diet.test.mjs"
+        ],
+        "writeFiles": [
+          "src/contract/task-packet.mjs",
+          "src/contract/index.mjs",
+          "test/contract/deferred-reads.test.mjs",
+          "skills/faberun/references/contract.md",
+          "test/docs/docs-diet.test.mjs"
+        ],
+        "symbols": [],
+        "scopeAcknowledged": [
+          "test/contract/contract.test.mjs",
+          "test/contract/persisted-load.test.mjs",
+          "test/contract/verification.test.mjs",
+          "test/contract/packet.test.mjs",
+          "test/cli/cli.test.mjs",
+          "test/repo/scope-closure.test.mjs",
+          "test/docs/link-check.test.mjs",
+          "test/engine/seal-before-kill.test.mjs",
+          "test/engine/judge.test.mjs",
+          "test/report/cost.test.mjs"
+        ],
+        "decisions": [
+          "scopeAcknowledged defers exactly like readFiles; nothing else about scope changes."
+        ],
+        "nonGoals": [
+          "Do not change writeFiles/writeRoots validation.",
+          "Never run npm install in the worktree; never run the whole suite yourself; never run tests that start and terminate child processes (test/run/, test/engine/seal-before-kill, unfreezable, supervise, judge, resume) -- your dsh sandbox cannot signal processes and they hang until the executor cap; the controller runs them as this node's verification."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/contract/",
+              "test/docs/"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "tests",
+          "text": "contract and docs tests pass with the new deferral cases",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "parity",
+          "text": "scopeAcknowledged and readFiles share one deferral path and one error shape",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "unpriced-usage-visible",
+      "type": "backend",
+      "phase": "engine-determinism",
+      "dependsOn": [
+        "deterministic-seal-and-reask",
+        "scope-acknowledged-deferral"
+      ],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "When a role's invocations carry no cost, `report` and `status` say `unpriced` and show the role's token totals instead of a dash, so an operator sees that USD 20 of judge is not the whole spend.",
+        "instructions": [
+          "Read src/report/render.mjs (roleCosts around line 636 returns null for a role with any unknown invocation; the totals line at ~365 prints `worker ${compactCost(...)}`), src/run/usage.mjs and test/report/cost.test.mjs. Evidence: become-faberun's 34 deepseek worker turns (1.90 M input, 1.06 M output, 67.6 M cache-read tokens) rendered as `worker -` while `judge $20.47` printed, so the report read as if the judge were the whole cost.",
+          "Extend roleCosts (or add roleUsage beside it) to return, per role, the cost when complete, and always the token totals (input, output, cache read) and the counts of priced and unpriced invocations. The totals line renders a complete role as today, a role with any unknown invocation as `worker unpriced (in 1.9M · out 1.1M · cache 67.6M)` using compactTokens, and a role with no invocations as `-`. The JSON payloads (renderStatusJson, renderReportJson) gain a `roles` object with the same numbers and a `costProvenance` per role of priced | partial | unpriced | none. Never sum unknown as zero.",
+          "Tests in test/report/cost.test.mjs: an all-unpriced worker role renders `unpriced` with its tokens and the JSON says unpriced; a mixed role says partial and shows no total; a fully priced role is unchanged; the existing assertions keep passing.",
+          "Run tsc and `node --test test/report/ test/docs/` yourself. Never run npm install in the worktree; never run the whole suite yourself; never run tests that start and terminate child processes (test/run/, test/engine/seal-before-kill, unfreezable, supervise, judge, resume) -- your dsh sandbox cannot signal processes and they hang until the executor cap; the controller runs them as this node's verification."
+        ],
+        "readFiles": [
+          "AGENTS.md",
+          "docs/campaigns/register-skill-and-harden/spec/SPEC.md",
+          "src/report/render.mjs",
+          "src/run/usage.mjs",
+          "test/report/cost.test.mjs",
+          "test/helpers.mjs"
+        ],
+        "writeFiles": [
+          "src/report/render.mjs",
+          "test/report/cost.test.mjs"
+        ],
+        "symbols": [
+          "roleUsage"
+        ],
+        "scopeAcknowledged": [
+          "test/cli/cli.test.mjs",
+          "test/web/server.test.mjs",
+          "test/web/api.test.mjs",
+          "test/campaign/metrics.test.mjs",
+          "test/report/next.test.mjs",
+          "test/engine/spend.test.mjs",
+          "test/docs/command-surface.test.mjs",
+          "test/engine/judge.test.mjs",
+          "test/engine/seal-before-kill.test.mjs",
+          "test/contract/deferred-reads.test.mjs"
+        ],
+        "decisions": [
+          "Unknown cost is shown as unpriced with tokens, never as zero or a dash when invocations exist.",
+          "JSON payloads carry roles and per-role provenance."
+        ],
+        "nonGoals": [
+          "Do not add pricing tables or change usage recording.",
+          "Never run npm install in the worktree; never run the whole suite yourself; never run tests that start and terminate child processes (test/run/, test/engine/seal-before-kill, unfreezable, supervise, judge, resume) -- your dsh sandbox cannot signal processes and they hang until the executor cap; the controller runs them as this node's verification."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/report/",
+              "test/web/",
+              "test/docs/"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "tests",
+          "text": "report, web and docs tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "honest-totals",
+          "text": "an unpriced role can no longer read as free, and provenance is explicit in JSON",
+          "judgment": true
+        }
+      ]
+    }
+  ]
+}

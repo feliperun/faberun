@@ -1,0 +1,353 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "register-skill-and-harden",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "dsh-deepseek-flash",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "dsh-deepseek-flash": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "workspace-write",
+      "tier": 1,
+      "costRank": 1,
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "fallback": "agy-gemini-flash"
+    },
+    "agy-gemini-flash": {
+      "harness": "agy",
+      "model": "gemini-3.8-flash-low",
+      "vendor": "google",
+      "tier": 1,
+      "costRank": 2
+    }
+  },
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "register-skill-and-harden-3-skill-registration",
+  "maxParallel": 1,
+  "goal": "Phase 3 (skill-registration) of campaign register-skill-and-harden: `faberun skills register` links the orchestrator skill into every installed harness that keeps skills, `faberun setup` offers it (and `--yes` does it, so install.sh registers on a fresh machine), the manual documents it, and README and GETTING-STARTED say what installing does to each harness. Spec: docs/campaigns/register-skill-and-harden/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "skills-register",
+      "type": "backend",
+      "phase": "skill-registration",
+      "dependsOn": [],
+      "timeoutSec": 5400,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "`faberun skills register [--harness a,b] [--copy] [--force] [--json]` discovers the skill directories of the installed harnesses and links (or copies) the faberun skill into each, and `faberun setup` offers and performs it.",
+        "instructions": [
+          "Read docs/campaigns/register-skill-and-harden/spec/SPEC.md ('faberun skills register'), src/cli/skills.mjs (list/install, installSkills), src/cli/setup.mjs (the ask flow and --yes), src/host/home.mjs (faberunHome, installedVersionDir), src/cli/brand.mjs (renderUsage), src/seat/harnesses.mjs (the five operator harness names) and docs/COMMANDS.md (the section shape and the two-way command-surface test that enforces headings).",
+          "Discovery. A small table in src/cli/skills.mjs maps each harness to how its skills directory is found: claude -> `$HOME/.claude/skills`; codex -> `$HOME/.codex/skills`; the shared convention `$HOME/.agents/skills` (register there too when it exists, since some setups point the harness directories at it); zcode and agy -> measure on this machine: run `zcode --help` (it lists a `skills` command) and inspect `$HOME/.zcode` and `$HOME/.gemini` for a skills directory convention; register only where a real convention exists and record what you measured in a module comment; dsh -> no skill support (measured: its --help mentions none). A harness whose binary is absent is skipped with `[ok] <harness> · not installed`; one whose skills directory does not exist is reported `[warn] <harness> · no skills directory (<path>)` and skipped unless --force creates it.",
+          "Registration. The skill source is `join(faberunHome(env), \"current\", \"skills\", \"faberun\")` when the running CLI lives under the home layout (installedVersionDir(process.argv[1], home) is non-null), so a symlink follows every update; otherwise the checkout's skills/faberun resolved from import.meta.url. Default action: a symlink `<dir>/faberun -> <source>` (replace an existing symlink; refuse a real directory unless --force); `--copy` copies the skill tree instead (for a harness that does not follow symlinks). Lines: `[ok] claude · ~/.claude/skills/faberun · linked` / `copied` / `unchanged`; `--json` returns `[{harness, dir, action}]`. Register `register` in OPERATION_OPTIONS and usage.",
+          "Setup. After the config is written, `faberun setup` asks on a TTY `Register the faberun skill for <detected harnesses with a skills directory>? [Y/n]`, does it with `--yes`, skips it with `--no-skill`, and reports the same lines; `--json` includes `skills`. Reuse the register function; do not duplicate discovery.",
+          "Manual and references. docs/COMMANDS.md gains `### faberun skills register` (synopsis, flags table, what it writes, one example, the harness table with the measured conventions) and the new setup flag; skills/faberun/references/operations.md's 'Install, set up, update' section gains one line (ceiling 10917 in test/docs/docs-diet.test.mjs; trim or raise by the bytes added with a dated comment).",
+          "Tests. New test/cli/skills-register.test.mjs with HOME pointed at a temp directory containing `.claude/skills`, `.codex/skills` and `.agents/skills`: `skills register --json` links faberun into each (readlink resolves to this checkout's skills/faberun); a second run reports unchanged; a real directory in the way is refused without --force and replaced with it; `--copy` produces a real SKILL.md; a missing skills directory is a warn line, not an error; `--harness claude` limits the set. test/cli/setup.test.mjs: `--yes` with the same HOME registers and `--no-skill` does not. Every test spawns only bin/faberun.mjs.",
+          "Run tsc and `node --test test/cli/skills-register.test.mjs test/cli/setup.test.mjs test/cli/installer.test.mjs test/docs/` yourself and fix what they report. Never run npm install in the worktree; never run the whole suite yourself; never run tests that start and terminate child processes (test/run/, test/engine/seal-before-kill, unfreezable, supervise, judge, resume) -- your dsh sandbox cannot signal processes and they hang until the executor cap; the controller runs them as this node's verification."
+        ],
+        "readFiles": [
+          "AGENTS.md",
+          "DESIGN.md",
+          "docs/campaigns/register-skill-and-harden/spec/SPEC.md",
+          "src/cli/skills.mjs",
+          "src/cli/setup.mjs",
+          "src/cli/brand.mjs",
+          "src/host/home.mjs",
+          "src/seat/harnesses.mjs",
+          "test/cli/setup.test.mjs",
+          "test/cli/installer.test.mjs",
+          "test/helpers.mjs",
+          "docs/COMMANDS.md",
+          "skills/faberun/references/operations.md",
+          "test/docs/docs-diet.test.mjs"
+        ],
+        "writeFiles": [
+          "src/cli/skills.mjs",
+          "src/cli/setup.mjs",
+          "src/cli/brand.mjs",
+          "src/host/home.mjs",
+          "test/cli/skills-register.test.mjs",
+          "test/cli/setup.test.mjs",
+          "test/cli/installer.test.mjs",
+          "docs/COMMANDS.md",
+          "skills/faberun/references/operations.md",
+          "test/docs/docs-diet.test.mjs"
+        ],
+        "symbols": [
+          "registerSkills"
+        ],
+        "scopeAcknowledged": [
+          "test/cli/cli.test.mjs",
+          "test/cli/brand.test.mjs",
+          "test/cli/init.test.mjs",
+          "test/cli/update.test.mjs",
+          "test/docs/command-surface.test.mjs",
+          "test/docs/link-check.test.mjs",
+          "test/docs/docs-map.test.mjs",
+          "test/host/install-sh.test.mjs"
+        ],
+        "decisions": [
+          "Symlink by default to the installed current/ skill (follows updates), --copy for harnesses that need a real tree.",
+          "Discovery is measured per harness and recorded; dsh has no skill support.",
+          "setup offers it, --yes performs it, --no-skill skips it."
+        ],
+        "nonGoals": [
+          "Do not change install.sh (it hands off to setup already).",
+          "Do not register per-repository skills; init already does that for Claude Code.",
+          "Never run npm install in the worktree; never run the whole suite yourself; never run tests that start and terminate child processes (test/run/, test/engine/seal-before-kill, unfreezable, supervise, judge, resume) -- your dsh sandbox cannot signal processes and they hang until the executor cap; the controller runs them as this node's verification."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/cli/skills-register.test.mjs",
+              "test/cli/setup.test.mjs",
+              "test/cli/installer.test.mjs",
+              "test/cli/init.test.mjs",
+              "test/docs/"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "tests",
+          "text": "skills-register, setup, installer, init and docs tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "test-exists",
+          "text": "the skills-register test exists",
+          "proof": {
+            "kind": "path",
+            "ref": "test/cli/skills-register.test.mjs"
+          }
+        },
+        {
+          "id": "manual",
+          "text": "docs/COMMANDS.md documents skills register with the measured harness table",
+          "judgment": true
+        },
+        {
+          "id": "follows-updates",
+          "text": "an install.sh installation registers a symlink into current/ so faberun update never leaves a stale skill behind",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "registration-docs",
+      "type": "backend",
+      "phase": "skill-registration",
+      "dependsOn": [
+        "skills-register"
+      ],
+      "timeoutSec": 1800,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "README.md and docs/GETTING-STARTED.md tell a newcomer that installing Faberun registers its skill in Claude Code, Codex and the other harnesses found, and how to redo or undo it.",
+        "instructions": [
+          "Read docs/COMMANDS.md ('faberun skills register' and the setup flags, written by the previous node), README.md (Install and Development sections) and docs/GETTING-STARTED.md (install and setup steps).",
+          "README.md: in Install, one sentence after the one-liner: setup registers the faberun skill for the harnesses it finds (Claude Code, Codex and the shared ~/.agents/skills, plus any measured convention) and `faberun skills register` redoes it. In Development, the skills paragraph names `faberun skills register` beside `faberun skills install`. Stay under 200 lines.",
+          "docs/GETTING-STARTED.md: the `faberun setup` step lists the registration question and what it writes; a short 'Registering the skill later' note with `faberun skills register [--harness]`, `--copy`, and how to undo (remove the link). Keep every other step as written.",
+          "Run `node --test test/docs/` yourself and report done. Never run npm install in the worktree; never run the whole suite yourself; never run tests that start and terminate child processes (test/run/, test/engine/seal-before-kill, unfreezable, supervise, judge, resume) -- your dsh sandbox cannot signal processes and they hang until the executor cap; the controller runs them as this node's verification."
+        ],
+        "readFiles": [
+          "README.md",
+          "docs/GETTING-STARTED.md",
+          "docs/COMMANDS.md",
+          "DESIGN.md",
+          "docs/campaigns/register-skill-and-harden/spec/SPEC.md"
+        ],
+        "writeFiles": [
+          "README.md",
+          "docs/GETTING-STARTED.md"
+        ],
+        "symbols": [],
+        "scopeAcknowledged": [
+          "test/docs/link-check.test.mjs",
+          "test/docs/docs-map.test.mjs"
+        ],
+        "decisions": [
+          "Documentation states what setup does to each harness and how to redo or undo it; nothing else in either file changes."
+        ],
+        "nonGoals": [
+          "Do not edit COMMANDS.md or CONCEPTS.md.",
+          "Never run npm install in the worktree; never run the whole suite yourself; never run tests that start and terminate child processes (test/run/, test/engine/seal-before-kill, unfreezable, supervise, judge, resume) -- your dsh sandbox cannot signal processes and they hang until the executor cap; the controller runs them as this node's verification."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/docs/"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "-e",
+              "const r=require('node:fs').readFileSync('README.md','utf8'),g=require('node:fs').readFileSync('docs/GETTING-STARTED.md','utf8');process.exit(/skills register/.test(r)&&/skills register/.test(g)&&r.split('\\n').length<=200?0:1)"
+            ],
+            "timeoutSec": 30
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "docs-tests",
+          "text": "the docs tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "mentions",
+          "text": "both documents name skills register and README stays under 200 lines",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "clarity",
+          "text": "a newcomer learns what setup does to each harness and how to redo or undo it",
+          "judgment": true
+        }
+      ]
+    }
+  ]
+}
