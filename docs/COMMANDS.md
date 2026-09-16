@@ -266,7 +266,9 @@ faberun setup [--yes] [--no-skill] [--harnesses <a,b>] [--worker <id>] [--judge 
 Onboard a fresh machine: check the two host prerequisites, discover the
 catalogue runtimes, choose which harnesses to enable and which runtime is the
 default worker and judge (the judge must resolve to a different vendor), and
-write the user config. Once the config is written it offers to register the
+write the user config. When `$FABERUN_HOME/config.json` already exists, its
+recorded harnesses, worker and judge seed these defaults instead, narrowed to
+whatever discovery still reports available. Once the config is written it offers to register the
 `faberun` skill into every installed harness's skills directory. `--json` never
 prompts and takes the flags or defaults.
 

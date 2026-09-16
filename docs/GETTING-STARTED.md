@@ -97,7 +97,10 @@ Default judge runtime? [codex-gpt]
 
 - An empty answer keeps the shown default: every available harness, the
   cheapest available runtime as worker, the strongest available runtime of a
-  different vendor as judge.
+  different vendor as judge. When `$FABERUN_HOME/config.json` already exists,
+  the shown defaults are its recorded harnesses, worker and judge instead,
+  narrowed to whatever discovery still reports available; a recorded choice
+  discovery cannot find is dropped rather than kept.
 - A judge that resolves to the worker's vendor is refused once and fails on the
   second answer.
 
