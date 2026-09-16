@@ -18,17 +18,26 @@
  * 15-way parallel burst) alongside `node --test test/engine/` and
  * `test/contract/` as background load; every completed timeline resolved in
  * under 40ms end to end, and a direct spawn-to-first-line-of-JS measurement
- * under the same load never exceeded 306ms across 40 concurrent spawns. Two
- * genuine `notification timed out after 5000ms` receipts turned up in
- * leftover run directories from other concurrent sessions on this shared
- * machine (their fixtures unmodified), confirming the flake is real but
- * requires contention this harness could not reliably reproduce on demand.
- * Because every reproduced child completed its own work in single-digit
- * milliseconds once it started running, the 5000ms budget was being spent
- * before the fixture's first line ever executed -- Node process launch
- * (fork/exec, V8 boot, ESM resolution) under heavy concurrent load, not a
- * lingering pipe or an unterminated stdin. `notificationDeliveryTimeoutMs`
- * below raises the budget with headroom over that measured launch overhead.
+ * under the same load never exceeded 306ms across 40 concurrent spawns --
+ * ruling out class (a) (Node process launch under load), since 306ms is
+ * ~16x below the 5000ms budget that has been observed to fire. Two genuine
+ * `notification timed out after 5000ms` receipts turned up in leftover run
+ * directories from other concurrent sessions on this shared machine (their
+ * fixtures unmodified, so no timeline exists for them), confirming the flake
+ * is real but requires contention this harness could not reliably reproduce
+ * with an instrumented fixture. Class (c) (stdin never ends) is excluded by
+ * inspection: `spawnDeliver` below always calls `child.stdin.end(...)`
+ * synchronously right after spawning, unconditionally. That leaves class (b):
+ * the previous implementation resolved on the child's `close` event, which
+ * Node fires only once every stdio stream (including the piped, accumulating
+ * `stderr`) has finished closing -- a fd inherited or held open by a
+ * lingering grandchild, or slow to flush under load, delays `close` well
+ * past the point the notifier process itself has already exited. `spawnDeliver`
+ * now resolves on `exit` (fires as soon as the process itself terminates,
+ * independent of stdio stream closure) instead of `close`, and no longer
+ * gates delivery on the stderr stream ending. The timeout budget is left at
+ * its original 5000ms: no measurement here justified raising it, and the (b)
+ * fix removes the mechanism that budget was actually timing out on.
  */
 
 import { spawn as defaultSpawn } from "node:child_process";
@@ -52,13 +61,12 @@ export const MAX_ATTEMPTS = 3;
 
 /**
  * The spawn-to-delivery budget for a non-macOS transport, in milliseconds.
- * Measured 2026-09-16 (see the module header): reproduced timeouts always
- * fired before the fixture's first line ran, so this is headroom over Node's
- * own process-launch overhead under heavy concurrent load, not the fixture's
- * own work. Kept at or under 15000ms so a genuinely wedged transport still
- * settles in bounded time.
+ * Unchanged from its original value: the 2026-09-16 measurement (see the
+ * module header) found no evidence this needed to be larger, only that the
+ * previous implementation could time out waiting on `close` while the child
+ * had already exited. That is fixed at the source in `spawnDeliver` below.
  */
-export const notificationDeliveryTimeoutMs = 12_000;
+export const notificationDeliveryTimeoutMs = 5_000;
 
 const SUMMARY_CHARS = 200;
 
@@ -276,6 +284,13 @@ function deliverNotification(event, options = {}) {
 }
 
 /**
+ * Resolves on the child's own `exit`, not `close`: `close` waits for every
+ * stdio stream to finish closing, and a piped `stderr` fd can be held open
+ * by a lingering grandchild or be slow to flush under load well after the
+ * notifier process itself has terminated. Gating delivery on that stream
+ * closing (as the previous implementation did) could stall a healthy,
+ * already-exited delivery until the timeout fired.
+ *
  * @param {string} bin
  * @param {JsonObject} event
  * @param {{spawn?: typeof defaultSpawn, timeoutMs?: number}} options
@@ -303,7 +318,7 @@ function spawnDeliver(bin, event, { spawn = defaultSpawn, timeoutMs = notificati
       stderr = `${stderr}${chunk}`.slice(-1024);
     });
     child.once("error", (error) => finish({ ok: false, error: errorMessage(error) }));
-    child.once("close", (code) => finish(code === 0 ? { ok: true } : { ok: false, error: stderr || `notification exited ${code}` }));
+    child.once("exit", (code) => finish(code === 0 ? { ok: true } : { ok: false, error: stderr || `notification exited ${code}` }));
     const timer = setTimeout(() => {
       try {
         child.kill("SIGTERM");

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NotifyQueue, notificationDeliveryTimeoutMs, renderNotification } from "../../src/notify/index.mjs";
+import { NotifyQueue, renderNotification } from "../../src/notify/index.mjs";
 
 const SUMMARY_CHARS = 200;
 
@@ -157,26 +157,39 @@ test("notify is lossy", async () => {
   assert.equal(rejectedReceipts[0].error, "transport exploded");
 });
 
-test("notificationDeliveryTimeoutMs is measured headroom above the old 5s budget, within the 15s ceiling", () => {
-  assert.ok(notificationDeliveryTimeoutMs > 5_000, "raised past the budget that measurably timed out under load");
-  assert.ok(notificationDeliveryTimeoutMs <= 15_000, "a genuinely wedged transport still settles in bounded time");
-});
-
-test("spawnDeliver (through NotifyQueue's default transport) survives a bin slower than the old 5s budget", async () => {
-  const runDir = mkdtempSync(join(tmpdir(), "notify-slow-transport-"));
-  const bin = join(mkdtempSync(join(tmpdir(), "notify-slow-bin-")), "slow-notify.mjs");
-  writeFileSync(bin, `#!${process.execPath}\nsetTimeout(() => process.exit(0), 5300);\n`);
+test("spawnDeliver (through NotifyQueue's default transport) resolves on the bin's own exit, not on a grandchild holding stderr open", async () => {
+  const runDir = mkdtempSync(join(tmpdir(), "notify-grandchild-"));
+  const bin = join(mkdtempSync(join(tmpdir(), "notify-grandchild-bin-")), "holds-stderr.mjs");
+  // The bin exits immediately after spawning a detached grandchild that
+  // inherits its own fd 2 -- the write end of the pipe spawnDeliver reads as
+  // `child.stderr` -- and holds it open for 3s. If delivery ever again waits
+  // on `close` instead of `exit`, this test takes >3s (or times out at 5s);
+  // resolving on `exit` settles in well under a second.
+  writeFileSync(
+    bin,
+    `#!${process.execPath}\n` +
+      `import { spawn } from "node:child_process";\n` +
+      `process.stdin.resume();\n` +
+      `process.stdin.on("end", () => {\n` +
+      `  const grandchild = spawn(process.execPath, ["-e", "setTimeout(() => {}, 3000)"], { stdio: ["ignore", "ignore", 2], detached: true });\n` +
+      `  grandchild.unref();\n` +
+      `  process.exit(0);\n` +
+      `});\n`,
+  );
   chmodSync(bin, 0o755);
   const previous = process.env.FABERUN_NOTIFY_BIN;
   process.env.FABERUN_NOTIFY_BIN = bin;
   try {
     const queue = new NotifyQueue({ runDir });
+    const startedAt = Date.now();
     await queue.enqueue({ type: "run.terminal", runId: "run-a", done: 1, total: 1 });
+    const elapsedMs = Date.now() - startedAt;
+    assert.ok(elapsedMs < 2_000, `delivery should settle on the bin's own exit, not the grandchild's; took ${elapsedMs}ms`);
   } finally {
     if (previous === undefined) delete process.env.FABERUN_NOTIFY_BIN;
     else process.env.FABERUN_NOTIFY_BIN = previous;
   }
   const receipts = readFileSync(join(runDir, "notify.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
-  assert.equal(receipts[0].status, "delivered", "a bin slower than the old 5000ms default still delivers under the raised budget");
+  assert.equal(receipts[0].status, "delivered", "the bin's own exit code 0 is what determines delivery, independent of the grandchild");
 });
 
