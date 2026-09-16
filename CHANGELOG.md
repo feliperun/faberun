@@ -2,6 +2,20 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.5.0](https://github.com/feliperun/faberun/compare/v0.4.0...v0.5.0) (2026-09-16)
+
+
+### Features
+
+* register the faberun skill in every harness on install ([2a9a3b0](https://github.com/feliperun/faberun/commit/2a9a3b07e9e6b0a9a85c30e03592a14ace623200))
+
+
+### Bug Fixes
+
+* **test:** notifier fixtures run node directly instead of through the PATH shim ([a4606c2](https://github.com/feliperun/faberun/commit/a4606c25acf5b60ebae59b8b1983d95f43146592))
+* **test:** the brand ratchet skips the changelog file itself ([f3fdeb7](https://github.com/feliperun/faberun/commit/f3fdeb723f7a0026eefdba8e3de72c6d54c17a43))
+* **test:** the brand ratchet skips the generated CHANGELOG ([e537650](https://github.com/feliperun/faberun/commit/e5376503a5e70b40c74e3ac9fd74c9430e939b6c))
+
 ## [0.4.0](https://github.com/feliperun/faberun/compare/v0.3.0...v0.4.0) (2026-09-16)
 
 
