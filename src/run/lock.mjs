@@ -70,14 +70,42 @@ export function processStartToken(pid) {
     }
   }
   if (process.platform === "darwin") {
-    try {
-      const started = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8" }).trim();
-      return started.length > 0 ? started : null;
-    } catch {
-      return null;
-    }
+    const started = psStartTime(pid);
+    if (started.length > 0) return started;
+    // Immediately after spawn, `ps` can race the kernel's process-table insert
+    // and report nothing for a pid that is already alive. One short retry
+    // closes that window; a still-empty answer stays null.
+    if (!pidAlive(pid)) return null;
+    sleepMs(20);
+    const retried = psStartTime(pid);
+    return retried.length > 0 ? retried : null;
   }
   return null;
+}
+
+/**
+ * `ps -o lstart=` for one pid, or the empty string when the probe finds
+ * nothing. It is the darwin half of the start-token fingerprint.
+ *
+ * @param {number} pid
+ * @returns {string}
+ */
+function psStartTime(pid) {
+  try {
+    return execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8" }).trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Block without a timer so the synchronous darwin retry above can wait out the
+ * spawn race. The duration is tiny and bounded, so blocking the loop is safe.
+ *
+ * @param {number} milliseconds
+ */
+function sleepMs(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
 }
 
 /** @param {number|null|undefined} pid @returns {boolean} */

@@ -12,7 +12,8 @@ import { LockBusyError, acquire as acquireLock, pidAlive, readLock } from "../ru
 import { SETTLED } from "./prompts.mjs";
 import { assertRunMutable } from "./lifecycle.mjs";
 import { delay, errorCode } from "../util.mjs";
-import { invocationAlive, terminateInvocation } from "./process.mjs";
+import { invocationOwned } from "./process-identity.mjs";
+import { terminateInvocation } from "./process.mjs";
 import { join, resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { readRunNodes } from "./scheduler.mjs";
@@ -42,7 +43,7 @@ export async function cancelRun(runDirPath) {
   }
   if (holder) {
     const controller = { pid: holder.pid, processStartToken: holder.processStartToken };
-    if (invocationAlive(controller)) {
+    if (invocationOwned(controller)) {
       signalController(holder, "SIGTERM");
       if (!await waitForProcessDeath(controller, 2_000)) {
         signalController(holder, "SIGKILL");
@@ -57,19 +58,19 @@ export async function cancelRun(runDirPath) {
     const failures = [];
     for (const state of states) {
       for (const invocation of state.invocations ?? []) {
-        if (invocation.status === "active" || invocationAlive(invocation)) {
+        if (invocation.status === "active" || invocationOwned(invocation)) {
           try {
-            await terminateInvocation(invocation);
+            await terminateInvocation(invocation, { runDir });
           } catch (error) {
             failures.push(error instanceof Error ? error : new Error(String(error)));
           }
         }
       }
       for (const invocation of state.invocations ?? []) {
-        if (invocationAlive(invocation)) failures.push(new Error(`provider invocation ${invocation.id} is still alive after cancellation`));
+        if (invocationOwned(invocation)) failures.push(new Error(`provider invocation ${invocation.id} is still alive after cancellation`));
       }
       for (const attempt of state.verification?.attempts ?? []) {
-        if (attempt.status !== "active" && (!attempt.pid || !invocationAlive(attempt))) continue;
+        if (attempt.status !== "active" && (!attempt.pid || !invocationOwned(attempt))) continue;
         if (attempt.pid) {
           try {
             await terminateInvocation({
@@ -77,12 +78,12 @@ export async function cancelRun(runDirPath) {
               pid: attempt.pid,
               processGroupId: attempt.processGroupId,
               processStartToken: attempt.processStartToken,
-            });
+            }, { runDir });
           } catch (error) {
             failures.push(error instanceof Error ? error : new Error(String(error)));
           }
         }
-        if (attempt.pid && invocationAlive(attempt)) failures.push(new Error(`verification attempt ${attempt.invocationId} is still alive after cancellation`));
+        if (attempt.pid && invocationOwned(attempt)) failures.push(new Error(`verification attempt ${attempt.invocationId} is still alive after cancellation`));
         const completedAt = new Date().toISOString();
         state.verification = state.verification ?? { passed: false, commands: [], completed: false, attempts: [] };
         state.verification.attempts = (state.verification.attempts ?? []).map((item) => item.invocationId === attempt.invocationId
@@ -137,11 +138,12 @@ async function acquireStaleLock(runDir) {
  * @param {NodeJS.Signals} signal
  */
 function signalController(lock, signal) {
-  if (!invocationAlive({ pid: lock.pid, processStartToken: lock.processStartToken })) return;
+  if (!invocationOwned({ pid: lock.pid, processStartToken: lock.processStartToken })) return;
   try {
     process.kill(lock.pid, signal);
   } catch (error) {
-    if (errorCode(error) !== "ESRCH") throw error;
+    // ESRCH: the controller is already gone. EPERM: it is not ours to signal.
+    if (errorCode(error) !== "ESRCH" && errorCode(error) !== "EPERM") throw error;
   }
 }
 /**
@@ -152,10 +154,10 @@ function signalController(lock, signal) {
 async function waitForProcessDeath(invocation, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    if (!invocationAlive(invocation)) return true;
+    if (!invocationOwned(invocation)) return true;
     await delay(50);
   }
-  return !invocationAlive(invocation);
+  return !invocationOwned(invocation);
 }
 /**
  * @param {string} runDir
@@ -168,7 +170,7 @@ async function waitForTerminal(runDir, timeoutMs) {
     const contractPath = join(runDir, "contract.json");
     const contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath, { persisted: true });
     const states = readRunNodes(runDir, contract);
-    if (states.every((state) => SETTLED.has(state.status)) && states.every((state) => (state.invocations ?? []).every((invocation) => !invocationAlive(invocation)))) return true;
+    if (states.every((state) => SETTLED.has(state.status)) && states.every((state) => (state.invocations ?? []).every((invocation) => !invocationOwned(invocation)))) return true;
     await delay(100);
   }
   return false;

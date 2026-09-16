@@ -16,10 +16,11 @@ import { harnessCapabilities, normalizeProviderResult, providerCommand } from ".
 import { latestTimeoutSec } from "./backoff.mjs";
 import { attemptWorkspace, sealAttempt } from "../repo/worktree.mjs";
 
+import { invocationOwned, processGroupAlive, processStartTokenMatches } from "./process-identity.mjs";
 import { processStartToken } from "../run/lock.mjs";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { writeJsonAtomic } from "../run/store.mjs";
+import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
 import { writeNodeSnapshot } from "../run/node-store.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -34,6 +35,7 @@ import { writeNodeSnapshot } from "../run/node-store.mjs";
 /** @typedef {{id: string, pid: number, processGroupId: number|null, processStartToken: string|null, harness: string, runtimeId: string|null, runtimeFingerprint?: string, revision?: number, phase: string, promptPath: string|null, stdoutPath: string, stderrPath: string, startedAt: string, deadlineAt: string|null, updatedAt: string, closedAt: string|null, exitCode: number|null, signal: string|null, status: "active"|"closed"|"terminated", executable: string, snapshotPath?: string, usage?: Usage, usageEstimated?: boolean, costUsd?: number|null, costProvenance?: "priced", runId?: string, campaignId?: string, nodeId?: string, attempt?: number, workspace?: string, worktreeBranch?: string|null, worktreeBaseSha?: string|null, planPhase?: string, role?: "worker"|"judge", model?: string, reasoning?: string|null, sandbox?: string|null, continuationId?: string|null, continuationMode?: "fresh"|"reuse"|"rotate"}} Invocation */
 /** @typedef {{pid: number|null, processGroupId?: number|null, processStartToken?: string|null}} InvocationProbe */
 /** @typedef {{child: ChildProcess, contract: ValidatedContract, node: ValidatedNode, state: NodeSnapshot, runtime: HarnessRuntime & {id: string|null}, cwd: string, paths: PathSet, phase: string, invocation: Invocation, startedAt: string, startedTicks: bigint, progressTicks: bigint, lastOutputAt: number, closed: boolean, exitCode: number|null, signal: string|null, spawnError: Error|null, terminating: Promise<void>|null, gateConfigPath: string, gateReleasePath: string, scopeBaseline?: unknown, scopeChecked?: boolean, scopeViolation?: boolean, resultMaterialization?: boolean, recoveryBaseline?: unknown, observeTimer?: ReturnType<typeof setInterval>, monitorOffset?: number, monitorParser?: import("../harnesses/exec-jsonl/index.mjs").SessionMetricsParser, lastEventCount?: number, observedOnce?: boolean, onClose?: (invocation: Invocation) => void, onInvocationUpdate?: (invocation: Invocation) => void, onProgress?: (state: NodeSnapshot) => void}} Job */
+/** @typedef {{graceMs?: number, killGraceMs?: number, escalate?: boolean, runDir?: string, kill?: (pid: number, signal: string|number) => unknown, child?: ChildProcess|null}} TerminateOptions */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_GRACE_MS = 2_000;
@@ -263,7 +265,7 @@ function cleanupGate(job) {
 }
 /**
  * @param {Job|undefined} job
- * @param {{graceMs?: number, killGraceMs?: number, escalate?: boolean}} options
+ * @param {TerminateOptions} options
  * @returns {Promise<void>}
  */
 export async function terminateProcess(job, options = {}) {
@@ -272,9 +274,15 @@ export async function terminateProcess(job, options = {}) {
   const graceMs = options.graceMs ?? DEFAULT_GRACE_MS;
   job.terminating = (async () => {
     const invocation = job.invocation;
-    signalInvocation(invocation, "SIGTERM");
+    if (!invocationOwned(invocation, { child: job.child })) {
+      noteUnverifiableIdentity(job, invocation);
+      return;
+    }
+    if (!signalInvocation(invocation, "SIGTERM", { child: job.child, kill: options.kill })) return;
     if (await waitForJobTermination(job, invocation, graceMs)) return;
-    if (options.escalate !== false && process.platform !== "win32") signalInvocation(invocation, "SIGKILL");
+    if (options.escalate !== false && process.platform !== "win32") {
+      if (!signalInvocation(invocation, "SIGKILL", { child: job.child, kill: options.kill })) return;
+    }
     if (await waitForJobTermination(job, invocation, options.killGraceMs ?? graceMs)) return;
     throw new Error(`provider invocation ${invocation.id} did not terminate`);
   })();
@@ -286,15 +294,21 @@ export async function terminateProcess(job, options = {}) {
 }
 /**
  * @param {InvocationProbe & {id?: string}|undefined} invocation
- * @param {{graceMs?: number, killGraceMs?: number, escalate?: boolean}} options
+ * @param {TerminateOptions} options
  * @returns {Promise<void>}
  */
 export async function terminateInvocation(invocation, options = {}) {
-  if (!invocation || !invocationAlive(invocation)) return;
+  if (!invocation) return;
+  if (!invocationOwned(invocation, options)) {
+    if (options.runDir && invocationAlive(invocation)) recordIdentityUnverifiable(options.runDir, invocation);
+    return;
+  }
   const graceMs = options.graceMs ?? DEFAULT_GRACE_MS;
-  signalInvocation(invocation, "SIGTERM");
+  if (!signalInvocation(invocation, "SIGTERM", options)) return;
   if (await waitForInvocationDeath(invocation, graceMs)) return;
-  if (options.escalate !== false && process.platform !== "win32") signalInvocation(invocation, "SIGKILL");
+  if (options.escalate !== false && process.platform !== "win32") {
+    if (!signalInvocation(invocation, "SIGKILL", options)) return;
+  }
   if (!await waitForInvocationDeath(invocation, options.killGraceMs ?? graceMs)) {
     throw new Error(`provider invocation ${invocation.id} did not terminate`);
   }
@@ -341,17 +355,18 @@ export function stallTimeoutSecFor(runtime, contract) {
  * timeout is what keeps it from hanging.
  *
  * @param {InvocationProbe & {id?: string}} invocation
+ * @param {{child?: ChildProcess|null}} [options]
  * @returns {boolean}
  */
-function quiesceInvocation(invocation) {
-  if (process.platform === "win32" || !invocationAlive(invocation)) return false;
+function quiesceInvocation(invocation, options = {}) {
+  if (process.platform === "win32" || !invocationOwned(invocation, options)) return false;
   const target = invocation.processGroupId ?? invocation.pid;
   if (target === null || target === undefined) return false;
   try {
     process.kill(-target, "SIGSTOP");
     return true;
   } catch (error) {
-    if (errorCode(error) !== "ESRCH") throw error;
+    if (errorCode(error) !== "ESRCH" && errorCode(error) !== "EPERM") throw error;
     return false;
   }
 }
@@ -370,7 +385,9 @@ function resumeInvocation(invocation) {
   try {
     process.kill(-target, "SIGCONT");
   } catch (error) {
-    if (errorCode(error) !== "ESRCH") throw error;
+    // ESRCH: the group is already gone. EPERM: it is not one this user owns, so
+    // there is nothing to resume.
+    if (errorCode(error) !== "ESRCH" && errorCode(error) !== "EPERM") throw error;
   }
 }
 
@@ -394,7 +411,7 @@ export async function sealBeforeTerminate(job, timeout) {
   const path = attemptWorkspace(job.state);
   if (!path || !job.state.worktree?.branch || !job.state.worktree.baseSha) return;
   const runDir = dirname(dirname(job.paths.stdout));
-  const quiesced = quiesceInvocation(job.invocation);
+  const quiesced = quiesceInvocation(job.invocation, { child: job.child });
   try {
     if (quiesced) await new Promise((resolve) => setTimeout(resolve, QUIESCE_SETTLE_MS));
     const sealed = sealAttempt({
@@ -499,20 +516,8 @@ export function invocationAlive(invocation) {
     leaderAlive = errorCode(error) === "EPERM";
   }
   if (leaderAlive) return processStartTokenMatches(invocation);
-  return processGroupAlive(invocation.processGroupId ?? null);
-}
-/**
- * @param {number|null} processGroupId
- * @returns {boolean}
- */
-function processGroupAlive(processGroupId) {
-  if (process.platform === "win32" || typeof processGroupId !== "number" || !Number.isInteger(processGroupId) || processGroupId <= 0) return false;
-  try {
-    process.kill(-processGroupId, 0);
-    return true;
-  } catch (error) {
-    return errorCode(error) === "EPERM";
-  }
+  if (!processGroupAlive(invocation.processGroupId ?? null)) return false;
+  return processStartTokenMatches(invocation);
 }
 /**
  * @param {{stdoutPath: string}} invocation
@@ -594,27 +599,71 @@ function boundedRegion(path, maxBytes = MAX_PROVIDER_LOG_BYTES) {
   }
 }
 /**
- * @param {InvocationProbe} invocation
- * @returns {boolean}
- */
-function processStartTokenMatches(invocation) {
-  if (!invocation.processStartToken) return true;
-  const current = processStartToken(invocation.pid);
-  return current === invocation.processStartToken;
-}
-/**
+ * Signal the invocation's process group only when ownership is proven. Never
+ * throws: ESRCH is gone, EPERM is a group this user cannot signal and therefore
+ * never spawned, and both mean the caller must treat the invocation as already
+ * gone rather than crash the drive loop.
+ *
  * @param {InvocationProbe & {id?: string}} invocation
  * @param {string} signal
+ * @param {{child?: ChildProcess|null, kill?: (pid: number, signal: string|number) => unknown}} [options]
+ * @returns {boolean} whether a signal was delivered
  */
-function signalInvocation(invocation, signal) {
-  if (!invocationAlive(invocation)) return;
+function signalInvocation(invocation, signal, options = {}) {
+  if (!invocationOwned(invocation, options)) return false;
   const pid = invocation.pid;
-  if (pid === null || pid === undefined) return;
+  if (pid === null || pid === undefined) return false;
   const target = process.platform === "win32" ? pid : -(invocation.processGroupId ?? pid);
+  const kill = options.kill ?? process.kill;
   try {
-    process.kill(target, signal);
-  } catch (error) {
-    if (errorCode(error) !== "ESRCH") throw error;
+    kill(target, signal);
+    return true;
+  } catch {
+    // ESRCH: the process or group is already gone. EPERM: a group this user
+    // cannot signal is not one this controller spawned. Neither is a controller
+    // failure, so neither may escape as an exception.
+    return false;
+  }
+}
+/**
+ * Record that a signal was withheld because ownership could not be proven, but
+ * only while the raw probe still sees a leader or group: a genuinely gone
+ * process needs no line.
+ *
+ * @param {Job} job
+ * @param {InvocationProbe} invocation
+ */
+function noteUnverifiableIdentity(job, invocation) {
+  if (!invocationAlive(invocation)) return;
+  recordIdentityUnverifiable(runDirForJob(job), invocation);
+}
+/**
+ * A job's log directory is `<runDir>/logs`, so two dirnames recover the run.
+ *
+ * @param {Job} job
+ * @returns {string|null}
+ */
+function runDirForJob(job) {
+  const stdout = job.paths?.stdout;
+  return typeof stdout === "string" ? dirname(dirname(stdout)) : null;
+}
+/**
+ * @param {string|null} runDir
+ * @param {InvocationProbe} invocation
+ */
+function recordIdentityUnverifiable(runDir, invocation) {
+  if (!runDir) return;
+  try {
+    appendJsonl(join(runDir, "events.jsonl"), {
+      type: "invocation_identity_unverifiable",
+      at: new Date().toISOString(),
+      invocationId: /** @type {{id?: string}} */ (invocation).id ?? null,
+      pid: invocation.pid,
+      processGroupId: invocation.processGroupId ?? null,
+    });
+  } catch {
+    // The line is diagnostic; a failed append must never turn "we declined to
+    // signal an unverified group" into a controller crash.
   }
 }
 /**

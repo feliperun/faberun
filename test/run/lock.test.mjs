@@ -349,6 +349,24 @@ test("darwin process start token is a stable, non-null fingerprint for a live pr
   assert.equal(processStartToken(process.pid), first);
 });
 
+test("processStartToken is a non-empty fingerprint for two different live pids", { skip: process.platform !== "linux" && process.platform !== "darwin" }, async () => {
+  const first = processStartToken(process.pid);
+  assert.ok(typeof first === "string" && first.length > 0, "the running process carries a non-empty token");
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  const pid = child.pid;
+  if (pid === undefined) throw new Error("child pid unavailable");
+  try {
+    const second = processStartToken(pid);
+    assert.ok(typeof second === "string" && second.length > 0, "a second live pid also carries a non-empty token");
+    // Two processes started within the same kernel clock tick (10ms on linux,
+    // one second on darwin's lstart) may legitimately share a token; the
+    // guarantee is only that neither is ever null while alive.
+  } finally {
+    child.kill("SIGKILL");
+    await new Promise((resolve) => child.once("exit", resolve));
+  }
+});
+
 test("darwin process start token differs for a pid recycled by a later-started process (real child)", { skip: process.platform !== "darwin" }, async () => {
   const first = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
   const firstPid = first.pid;

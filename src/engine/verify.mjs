@@ -13,7 +13,6 @@ import { boundedUtf8, errorMessage } from "../util.mjs";
 import { compactVerification } from "../contract/verification.mjs";
 import { finalVerificationCommands } from "../contract/final-verification.mjs";
 import { join } from "node:path";
-import { processStartToken } from "../run/lock.mjs";
 import { terminateInvocation } from "./process.mjs";
 import { writeNode } from "./state.mjs";
 import { runVerification } from "./run-command.mjs";
@@ -91,10 +90,7 @@ export async function executeControllerVerification(contract, runDir, node, stat
       logDir: join(runDir, "logs", `${node.id}.${state.attempt}.verification`),
       writeFiles: node.taskPacket.writeFiles ?? [],
       onAttemptStart: (attempt) => persistVerificationAttempt(runDir, state, lock, attempt),
-      onAttemptSpawn: (attempt) => persistVerificationAttempt(runDir, state, lock, {
-        ...attempt,
-        processStartToken: processStartToken(attempt.pid),
-      }),
+      onAttemptSpawn: (attempt) => persistVerificationAttempt(runDir, state, lock, attempt),
       onAttemptComplete: (attempt) => persistVerificationAttempt(runDir, state, lock, {
         ...attempt,
         result: boundedVerificationAttemptResult(attempt.result),
@@ -134,7 +130,7 @@ export async function recoverVerificationAttempts(runDir, state, lock) {
       pid: attempt.pid,
       processGroupId: attempt.processGroupId,
       processStartToken: attempt.processStartToken,
-    }, { graceMs: 500, killGraceMs: 1_000 });
+    }, { graceMs: 500, killGraceMs: 1_000, runDir });
       } catch (error) {
         throw new Error(`verification attempt ${attempt.invocationId} could not be terminated: ${errorMessage(error)}`);
       }

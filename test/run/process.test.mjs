@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeJsonAtomic } from "../../src/run/store.mjs";
+import { invocationOwned } from "../../src/engine/process-identity.mjs";
 import {
   bootstrapMatchesChild,
   lockPath,
@@ -528,4 +530,48 @@ test("a persistence failure leaves the gated provider unstarted and terminates i
     if (previousMarker === undefined) delete process.env.FABERUN_MARKER;
     else process.env.FABERUN_MARKER = previousMarker;
   }
+});
+
+// Ownership proof: a group is signalled only while the child handle or the
+// recorded start token still names the process the controller started.
+
+test("invocationOwned proves a freshly spawned child with a recorded token and drops once it exits", { skip: process.platform === "win32" }, async () => {
+  const child = spawn(process.execPath, ["-e", "setTimeout(() => {}, 100)"], { detached: true, stdio: "ignore" });
+  const pid = child.pid;
+  if (pid === undefined) throw new Error("child pid unavailable");
+  const invocation = { pid, processGroupId: pid, processStartToken: processStartToken(pid) };
+  try {
+    assert.ok(invocation.processStartToken, "the spawn path records a non-null start token");
+    assert.equal(invocationOwned(invocation), true, "a live child named by its token is owned");
+  } finally {
+    await new Promise((resolve) => child.once("close", resolve));
+  }
+  assert.equal(invocationOwned(invocation), false, "a reaped child can no longer be proven and is never signalled");
+});
+
+test("invocationOwned rejects a mismatched token even while the pid is alive", () => {
+  assert.equal(
+    invocationOwned({ pid: process.pid, processGroupId: process.pid, processStartToken: "fabricated-not-this-process" }),
+    false,
+    "a live pid whose recorded token does not match must not be treated as ours",
+  );
+});
+
+test("terminateInvocation with a fabricated token on the test runner's own pid signals nothing", async () => {
+  await terminateInvocation(
+    { id: "fabricated-owner", pid: process.pid, processGroupId: process.pid, processStartToken: "fabricated-not-this-process" },
+    { graceMs: 25, killGraceMs: 100 },
+  );
+  assert.equal(pidAlive(process.pid), true, "the test runner was not signalled");
+});
+
+test("an injected EPERM from kill is swallowed by terminateInvocation", { skip: process.platform === "win32" }, async () => {
+  const invocation = { id: "eperm-owner", pid: process.pid, processGroupId: process.pid, processStartToken: processStartToken(process.pid) };
+  const eperm = Object.assign(new Error("not permitted"), { code: "EPERM" });
+  await terminateInvocation(invocation, {
+    graceMs: 25,
+    killGraceMs: 100,
+    kill: () => { throw eperm; },
+  });
+  assert.equal(invocationOwned(invocation), true, "the real process was never signalled and no death was awaited");
 });

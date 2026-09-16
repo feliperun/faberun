@@ -13,6 +13,7 @@
 import { Buffer } from "node:buffer";
 import { VERIFICATION_LIMITS, compactVerification, resolveVerificationCwd, validateVerificationCommands } from "../contract/verification.mjs";
 import { mkdirSync, writeFileSync } from "node:fs";
+import { processStartToken } from "../run/lock.mjs";
 import { randomUUID } from "node:crypto";
 import { runMutation } from "./mutation.mjs";
 import { spawn } from "node:child_process";
@@ -214,7 +215,7 @@ function runCommand(command, baseCwd, commandCwd, attempt, signal, options, comm
           // ESRCH: the child may have exited between spawn and the stop; not pausing is safe.
         }
       }
-      Object.assign(identity, { pid, processGroupId: process.platform === "win32" ? null : pid });
+      Object.assign(identity, { pid, processStartToken: processStartToken(pid), processGroupId: process.platform === "win32" ? null : pid });
       options?.onAttemptSpawn?.({ ...identity });
       if (paused && pid) {
         try { process.kill(-pid, "SIGCONT"); } catch {

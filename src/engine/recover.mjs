@@ -9,7 +9,8 @@
  */
 import { delay } from "../util.mjs";
 import { hasOperationIntent, operationNeedsRecovery, operationNextState, readOperationSettlement, settleInvocation } from "../run/operations.mjs";
-import { invocationAlive, invocationResult, terminateInvocation } from "./process.mjs";
+import { invocationOwned } from "./process-identity.mjs";
+import { invocationResult, terminateInvocation } from "./process.mjs";
 import { latestTimeoutSec } from "./backoff.mjs";
 import { markRecovering } from "./supervise.mjs";
 import { parseJudge } from "./prompts.mjs";
@@ -61,7 +62,7 @@ export async function recoverOrphan(runDir, contract, node, state, lock) {
     ? startedAt + timeoutSec * 1_000
     : null;
   if (deadline === null || !Number.isFinite(deadline)) {
-    if (invocationAlive(invocation)) await terminateInvocation(invocation);
+    if (invocationOwned(invocation)) await terminateInvocation(invocation, { runDir });
     const terminal = invocationResult(invocation, runtime, { preferStructured: invocation.phase === "judge" });
     if (terminal?.status === "done") {
       if (invocation.phase === "judge") return adoptOrRejudgeJudge(state, contract, node, invocation, terminal);
@@ -79,7 +80,7 @@ export async function recoverOrphan(runDir, contract, node, state, lock) {
     return restartRecovery(invocation, terminal, `invocation ${invocation.id} has no reliable start time or timeout deadline`);
   }
   if (invocation.closedAt !== null && !Number.isFinite(Date.parse(invocation.closedAt))) {
-    if (invocationAlive(invocation)) await terminateInvocation(invocation);
+    if (invocationOwned(invocation)) await terminateInvocation(invocation, { runDir });
     const terminal = invocationResult(invocation, runtime, { preferStructured: invocation.phase === "judge" });
     if (terminal?.status === "done") {
       if (invocation.phase === "judge") return adoptOrRejudgeJudge(state, contract, node, invocation, terminal);
@@ -96,9 +97,9 @@ export async function recoverOrphan(runDir, contract, node, state, lock) {
     }
     return restartRecovery(invocation, terminal, `invocation ${invocation.id} has no reliable close time`);
   }
-  if (invocation && invocationAlive(invocation)) {
+  if (invocation && invocationOwned(invocation)) {
     if (Date.now() > deadline) {
-      await terminateInvocation(invocation);
+      await terminateInvocation(invocation, { runDir });
       return restartRecovery(invocation, invocationResult(invocation, runtime), `${invocation.phase} invocation ${invocation.id} exceeded its wall-clock budget`);
     }
     // A resumed controller waiting on a live orphan is a bounded recovery, not
@@ -108,14 +109,14 @@ export async function recoverOrphan(runDir, contract, node, state, lock) {
     // an orphan that is alive but never advancing would look like progress.
     const recoveryUntil = typeof invocation.deadlineAt === "string" ? invocation.deadlineAt : new Date(deadline).toISOString();
     markRecovering(runDir, recoveryUntil);
-    while (invocationAlive(invocation) && Date.now() < deadline) {
+    while (invocationOwned(invocation) && Date.now() < deadline) {
       const result = invocationResult(invocation, runtime, { preferStructured: invocation.phase === "judge" });
       if (result?.status === "done") {
         if (Date.now() > deadline || (invocation.closedAt !== null && Date.parse(invocation.closedAt) > deadline)) {
-          await terminateInvocation(invocation);
+          await terminateInvocation(invocation, { runDir });
           return restartRecovery(invocation, result, `${invocation.phase} invocation ${invocation.id} completed after its wall-clock budget`);
         }
-        await terminateInvocation(invocation);
+        await terminateInvocation(invocation, { runDir });
         if (invocation.phase === "judge") return adoptOrRejudgeJudge(state, contract, node, invocation, result);
         return /** @type {RecoveryOutcome} */ ({ kind: "adopted", ...result, phase: invocation.phase, invocationId: invocation.id });
       }
@@ -123,7 +124,7 @@ export async function recoverOrphan(runDir, contract, node, state, lock) {
       markRecovering(runDir, recoveryUntil);
     }
     const expired = Date.now() >= deadline;
-    if (invocationAlive(invocation)) await terminateInvocation(invocation);
+    if (invocationOwned(invocation)) await terminateInvocation(invocation, { runDir });
     if (expired) return restartRecovery(invocation, null, `${invocation.phase} invocation ${invocation.id} exceeded its wall-clock budget`);
     if (invocation.closedAt === null) {
       const persisted = invocation.phase === "worker"
