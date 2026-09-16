@@ -22,7 +22,15 @@ const CONTRACT_BYTE_CEILING = 21504;
 // actually grew, and the way to honour it is to spend the increase on the new
 // command and pay for part of it — roughly 200 bytes here — by cutting
 // redundancy that was already there. Raising it again needs the same argument.
-const OPERATIONS_BYTE_CEILING = 10496;
+// Raised from 10496 on 2026-09-15 the same way: an orchestrator learns the five
+// phase-2 verbs — `setup`, `init`, `update`, `skills install`,
+// `campaign unpark` — from one new `## Install, set up, update` section in
+// operations.md instead of leaving them to the manual. The section costs 611
+// bytes; 190 bytes of redundant prose already there (a doctor-discovery
+// parenthetical contract.md owns, the notify backoff meta-note, and a repeated
+// "integration stays serialized") pay part of it, so the ceiling moves by the
+// net 421 bytes and nothing else. Raising it again needs the same argument.
+const OPERATIONS_BYTE_CEILING = 10917;
 const RULES_BYTE_CEILING = 2048;
 const ENGINEERING_BYTE_CEILING = 2048;
 const WORKFLOW_BYTE_CEILING = 2048;

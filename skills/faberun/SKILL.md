@@ -11,10 +11,11 @@ Read [rules](references/rules.md) first.
 | Action | Read |
 | --- | --- |
 | Author a contract (fallback) | [contract](references/contract.md), [engineering](references/engineering.md) |
-| Launch, resume, integrate | [workflow](references/workflow.md), [operations](references/operations.md) |
+| Launch and resume | [workflow](references/workflow.md), [operations](references/operations.md) |
 | Dispatch a node | [handoffs](references/handoffs.md) |
-| Supervise, answer attention | [operations](references/operations.md), [handoffs](references/handoffs.md) |
-| Verify, judge, settle | [engineering](references/engineering.md), [handoffs](references/handoffs.md) |
+| Supervise, answer | [operations](references/operations.md), [handoffs](references/handoffs.md) |
+| Verify, judge | [engineering](references/engineering.md) |
+| Install, set up, update | [operations](references/operations.md) |
 
 Watchdog re-invocations:
 

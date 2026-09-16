@@ -19,7 +19,7 @@ the run ref tip.
 
 `contract.maxParallel` bounds concurrent nodes; each tick dispatches every
 `pending` node whose dependencies are `done`, up to the free slots, each into
-its own worktree. Integration stays serialized.
+its own worktree.
 
 ## Integration transaction
 
@@ -65,10 +65,9 @@ directory is never resumed — it has not proved it needs to be.
 ## Runtime discovery
 
 `doctor --discover [--json]` performs mutation-free harness discovery,
-reporting `{available, exhaustedUntil, reason}` per runtime (missing CLI →
-`not_found`; auth failure has no reset; quota keeps its reset, including Z.ai
-code 1310). Omitted `runtimes`/`runtimeDefaults` are composed once and persisted
-in `routing.assignments`; exhaustion re-tiers within the current tier only,
+reporting `{available, exhaustedUntil, reason}` per runtime. Omitted
+`runtimes`/`runtimeDefaults` are composed once and persisted in
+`routing.assignments`; exhaustion re-tiers within the current tier only,
 otherwise the node parks `attention` with `runtime_tier_exhausted`. Failover
 rules: [contract.md](contract.md).
 
@@ -116,8 +115,7 @@ attempt, error code, done/total — never model text), calls the executable name
 by `FABERUN_NOTIFY_BIN` with that event as JSON on stdin, and appends a
 timestamped receipt (`delivered`, `failed`, `no_transport`) to
 `<run-dir>/notify.jsonl`. Delivery is lossy: **exactly one attempt**, no retry,
-no backoff; `FABERUN_NOTIFY_BACKOFF_MS` appears nowhere in `src`. Unset,
-nothing is spawned and the receipt is `no_transport`.
+no backoff. Unset, nothing is spawned and the receipt is `no_transport`.
 `FABERUN_NOTIFY_BIN=os-macos` selects the bundled `osascript` adapter
 (`canWake: false`); any other value is an executable path. A resume never
 re-sends a notification already recorded for the same node, attempt and outcome.
@@ -182,3 +180,11 @@ would nest sessions; `--ssh <host>` prints the remote `ssh -t` line. `status
 --json` lists each window's campaign, harness and ambient capability. tmux is
 optional: every `seat` function returns an explicit unavailable result when the
 binary is absent, and only reattaching is lost.
+
+## Install, set up, update
+
+`faberun setup` writes the user runtime config that composition honours when a contract omits runtimes.
+`faberun init` prepares a target repository (`.runs` ignored, skill installed, agent kit optional and always asked).
+`faberun update --check` reads the release channel and writes the cache the banner shows; `faberun update` switches versions only after the new one proves itself.
+`faberun skills install [name]` installs the shipped skills.
+`faberun campaign unpark <id> [--force]` clears a parked campaign once its run is no longer parked so `supervise campaign` can continue.
