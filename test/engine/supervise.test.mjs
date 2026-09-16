@@ -625,6 +625,32 @@ test("done-when 9: termination is SIGTERM then SIGKILL after the named grace, an
   assert.deepEqual(order, ["group gone", "launch"], "the relaunch happens only after the group is gone");
 });
 
+test("a lock whose token no longer names the pid is left unsignalled", async () => {
+  const runDir = makeRunDir();
+  // process.pid is alive; the fabricated token proves the record was written by
+  // an earlier process that reused this pid. Signalling here would hit this
+  // test runner's own process group, which is exactly the stale-group defect.
+  writeFileSync(lockPath(runDir), JSON.stringify({
+    pid: process.pid,
+    processStartToken: "fabricated-token",
+    startedAt: new Date().toISOString(),
+    hostname: "test",
+  }));
+  const terminated = await terminateControllerGroup(runDir, { alive: () => true });
+  assert.equal(terminated, false, "a recycled pid is proof enough not to signal");
+});
+
+test("an EPERM from the signal is swallowed and reported as not ours, never thrown", async () => {
+  const runDir = makeRunDir();
+  liveLock(runDir);
+  const eperm = Object.assign(new Error("operation not permitted"), { code: "EPERM" });
+  const terminated = await terminateControllerGroup(runDir, {
+    alive: () => true,
+    kill: () => { throw eperm; },
+  });
+  assert.equal(terminated, false, "EPERM means gone-or-not-ours and never escapes");
+});
+
 test("done-when 11: every threshold is driven by a fake clock; no test waits on real time", async () => {
   const runDir = makeRunDir();
   writeNodes(runDir, { alpha: "running" });

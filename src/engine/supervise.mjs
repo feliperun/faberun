@@ -34,6 +34,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { SETTLED, SUCCESS } from "./prompts.mjs";
+import { invocationOwned } from "./process-identity.mjs";
 import { earliestTierReset } from "./retry.mjs";
 import { lockStale, pidAlive, readLock } from "../run/lock.mjs";
 import { listNodeSnapshots, readNodeSnapshot } from "../run/node-store.mjs";
@@ -495,30 +496,40 @@ export async function waitForGroupGone(pid, alive, graceMs, sleep, now) {
  * the previous holder is gone. The kill and liveness probes are injectable so
  * a test can prove the ordering without signalling a real process.
  *
+ * A lock is a claim until it is proven, exactly as the engine proves one: the
+ * signal goes out only after `invocationOwned` confirms the pid still answers
+ * a signal-0 probe and still carries the token the holder recorded. A recycled
+ * pid is never signalled, and a lock that recorded no token is unverifiable --
+ * the function returns false and the caller's takeover path handles whatever is
+ * left, as it would a dead controller. EPERM is not ownership and not a failure
+ * to surface: like ESRCH it means gone-or-not-ours and never escapes.
+ *
  * @param {string} runDir
  * @param {{kill?: (pid: number, signal: string) => void, alive?: (pid: number) => boolean, sleep?: (ms: number) => Promise<void>, now?: () => number, graceMs?: number, killGraceMs?: number}} [options]
- * @returns {Promise<boolean>} whether a group was found and terminated
+ * @returns {Promise<boolean>} whether a verified group was found and terminated
  */
 export async function terminateControllerGroup(runDir, options = {}) {
   const lock = readLock(runDir);
   if (!lock || /** @type {{invalid?: true}} */ (lock).invalid) return false;
   const record = /** @type {import("../run/lock.mjs").LockRecord} */ (lock);
   const pid = record.pid;
+  if (!invocationOwned({ pid, processGroupId: pid, processStartToken: record.processStartToken })) return false;
   const kill = options.kill ?? ((target, signal) => {
     try {
       // The controller is normally detached, so its pid is its process group
       // id; a non-detached holder has no such group, so fall back to the pid.
+      // A group that is gone or not ours falls through to the pid probe.
       if (process.platform !== "win32") {
         try {
           process.kill(-target, signal);
           return;
         } catch (groupError) {
-          if (errorCode(groupError) !== "ESRCH") throw groupError;
+          if (errorCode(groupError) !== "ESRCH" && errorCode(groupError) !== "EPERM") throw groupError;
         }
       }
       process.kill(target, signal);
     } catch (error) {
-      if (errorCode(error) !== "ESRCH") throw error;
+      if (errorCode(error) !== "ESRCH" && errorCode(error) !== "EPERM") throw error;
     }
   });
   const alive = options.alive ?? ((target) => pidAlive(target) || groupAlive(target));
@@ -527,9 +538,19 @@ export async function terminateControllerGroup(runDir, options = {}) {
   const graceMs = options.graceMs ?? DEFAULT_TERMINATE_GRACE_MS;
   const killGraceMs = options.killGraceMs ?? DEFAULT_TERMINATE_KILL_GRACE_MS;
   if (!alive(pid)) return false;
-  kill(pid, "SIGTERM");
+  try {
+    kill(pid, "SIGTERM");
+  } catch (error) {
+    if (errorCode(error) === "ESRCH" || errorCode(error) === "EPERM") return false;
+    throw error;
+  }
   if (await waitForGroupGone(pid, alive, graceMs, sleep, now)) return true;
-  kill(pid, "SIGKILL");
+  try {
+    kill(pid, "SIGKILL");
+  } catch (error) {
+    if (errorCode(error) === "ESRCH" || errorCode(error) === "EPERM") return false;
+    throw error;
+  }
   await waitForGroupGone(pid, alive, killGraceMs, sleep, now);
   return true;
 }
