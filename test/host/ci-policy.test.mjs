@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { accessSync, constants, mkdtempSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
+import { accessSync, constants, mkdirSync, mkdtempSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +23,20 @@ function matrixList(yaml, key) {
 /** @param {string} yaml */
 const runSteps = (yaml) =>
   [...yaml.matchAll(/- run:\s*(.+)$/gm)].map((m) => m[1].trim());
+
+/** Return the lines of one job, from its name to the next job at the same indent.
+ * @param {string} yaml @param {string} name */
+function block(yaml, name) {
+  const lines = yaml.split("\n");
+  const start = lines.findIndex((line) => line.trim() === `${name}:`);
+  assert.ok(start !== -1, `job "${name}" missing`);
+  const body = [];
+  for (let index = start + 1; index < lines.length; index += 1) {
+    if (/^ {2}\S/.test(lines[index])) break;
+    body.push(lines[index]);
+  }
+  return body.join("\n");
+}
 
 /** @param {string} command @param {string[]} args */
 function run(command, args) {
@@ -118,6 +132,106 @@ test("hooks are wired, executable, and enforce Conventional Commits", () => {
   assert.equal(good.status, 0, good.stderr);
   const bad = run(COMMIT_MSG_HOOK, [messageFile(INVALID_MESSAGE)]);
   assert.notEqual(bad.status, 0);
+});
+
+test("release-please.yml triggers only on push to main with exactly the write permissions", () => {
+  const workflow = read(".github/workflows/release-please.yml");
+  assert.match(workflow, /^name: release-please$/m);
+  assert.match(workflow, /^on:\s*\n\s*push:\s*\n\s*branches:\s*\[main\]/m);
+  assert.doesNotMatch(workflow, /pull_request:/);
+  const permissions = workflow.slice(workflow.indexOf("\npermissions:"), workflow.indexOf("jobs:"));
+  assert.deepEqual(
+    [...permissions.matchAll(/^\s{2}(\S+):/gm)].map((m) => m[1]),
+    ["contents", "pull-requests"],
+  );
+});
+
+test("release-please.yml uses the v4 action with the repo config and manifest", () => {
+  const workflow = read(".github/workflows/release-please.yml");
+  const release = block(workflow, "release-please");
+  assert.match(release, /uses: googleapis\/release-please-action@v4/);
+  assert.match(release, /id: release/);
+  assert.match(release, /token: \$\{\{ secrets\.GITHUB_TOKEN \}\}/);
+  assert.match(release, /config-file: release-please-config\.json/);
+  assert.match(release, /manifest-file: \.release-please-manifest\.json/);
+  assert.match(release, /release_created: \$\{\{ steps\.release\.outputs\.release_created \}\}/);
+  assert.match(release, /tag_name: \$\{\{ steps\.release\.outputs\.tag_name \}\}/);
+});
+
+test("release-please.yml publishes the release to npm through trusted publishing", () => {
+  const workflow = read(".github/workflows/release-please.yml");
+  const publish = block(workflow, "publish-npm");
+  assert.match(publish, /needs: release-please/);
+  assert.match(publish, /if: needs\.release-please\.outputs\.release_created == 'true'/);
+  const permissions = publish.match(/^ {4}permissions:\n((?: {6}\S.*\n?)+)/m);
+  assert.ok(permissions, "publish-npm must scope its own permissions");
+  assert.deepEqual(
+    [...permissions[1].matchAll(/^\s{6}(\S+): (.+)$/gm)].map((m) => [m[1], m[2]]),
+    [
+      ["contents", "read"],
+      ["id-token", "write"],
+    ],
+  );
+  assert.match(publish, /uses: actions\/checkout@v4/);
+  assert.match(publish, /ref: \$\{\{ needs\.release-please\.outputs\.tag_name \}\}/);
+  assert.match(publish, /uses: actions\/setup-node@v4/);
+  assert.match(publish, /node-version: 22/);
+  assert.match(publish, /registry-url: https:\/\/registry\.npmjs\.org/);
+  // OIDC trusted publishing needs npm >= 11.5.1, but Node 22 ships npm 10.9.x,
+  // so the job upgrades npm before it relies on the token-free auth path.
+  assert.match(publish, /- run: npm install -g npm@latest/);
+  // The `prepare` hook (husky) is a devDependency absent on this clean runner;
+  // skipping scripts keeps publish from aborting before the upload.
+  assert.match(publish, /npm publish --provenance --access public --ignore-scripts/);
+  assert.doesNotMatch(workflow, /NODE_AUTH_TOKEN|NPM_TOKEN/);
+});
+
+test("release-please config names faberun as a node package tagged without a component", () => {
+  const config = JSON.parse(read("release-please-config.json"));
+  assert.equal(config["release-type"], "node");
+  assert.equal(config["include-component-in-tag"], false);
+  assert.equal(config.packages["."]["package-name"], "faberun");
+});
+
+test("the release-please manifest stays the same version as package.json", () => {
+  const manifest = JSON.parse(read(".release-please-manifest.json"));
+  const pkg = JSON.parse(read("package.json"));
+  assert.equal(manifest["."], pkg.version);
+});
+
+test("CHANGELOG.md exists and starts with the release-please heading", () => {
+  assert.equal(read("CHANGELOG.md").split("\n")[0], "# Changelog");
+});
+
+test("package.json publishes publicly and packs the shipped trees", () => {
+  const pkg = JSON.parse(read("package.json"));
+  assert.deepEqual(pkg.publishConfig, { access: "public" });
+  assert.deepEqual(pkg.files, ["bin", "src", "skills", "integrations"]);
+  mkdirSync(join(tmpdir(), "ci-policy-npm-cache"), { recursive: true });
+  // npm writes the file listing to stderr, and the `prepare` hook would touch
+  // the shared git config, so isolate the cache and skip lifecycle scripts.
+  const result = spawnSync("npm", ["pack", "--dry-run"], {
+    cwd: ROOT,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      npm_config_cache: join(tmpdir(), "ci-policy-npm-cache"),
+      npm_config_ignore_scripts: "true",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const output = `${result.stdout}${result.stderr}`;
+  for (const path of [
+    "bin/faberun.mjs",
+    "package.json",
+    "README.md",
+    "src/",
+    "skills/",
+    "integrations/",
+  ]) {
+    assert.ok(output.includes(path), `npm pack --dry-run did not list ${path}`);
+  }
 });
 
 test("AGENT.md, CLAUDE.md, CURSOR.md and GEMINI.md stay symlinks to AGENTS.md", () => {
