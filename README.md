@@ -1,131 +1,174 @@
-# skills
+<p align="center"><img src="assets/faberun-icon.png" width="160" alt="The hornero on its clay nest, the Faberun mark"></p>
 
-Personal catalog of reusable agent skills, installable into any repository
-with a single command.
+<h1 align="center">faberun</h1>
 
-All skills live under [`skills/`](skills/). Each skill is one folder
-with a `SKILL.md`; scripts, references, and templates live inside the skill so
-it stays a single copyable unit.
+<p align="center">From intent to running software.</p>
+
+<p align="center">
+  <a href="https://github.com/feliperun/faberun/actions/workflows/ci.yml"><img src="https://github.com/feliperun/faberun/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://github.com/feliperun/faberun/releases/latest"><img src="https://img.shields.io/github/v/release/feliperun/faberun" alt="Latest release"></a>
+  <a href="https://www.npmjs.com/package/faberun"><img src="https://img.shields.io/npm/v/faberun" alt="npm version"></a>
+</p>
+
+Faberun is a development orchestration system that turns intent into verified
+software. It manages the process around software creation: plans, tasks,
+dependencies, execution, validation, evidence, retries and progress toward a
+defined outcome. It is not another coding agent, and it does not generate code
+without a definition of done.
+
+Faberun is model- and harness-agnostic. Claude Code, Codex, OpenCode and
+whatever comes next are workers; Claude, GPT, Gemini, DeepSeek, GLM and other
+models are engines; Faberun sits above them. It keeps the intent, coordinates
+the work, tracks what was actually completed, validates the result and decides
+what should happen next.
+
+Software should be built, not merely generated. A craftsman does not depend on
+one hammer, so Faberun does not depend on one model or one agent: tools,
+models and harnesses can change, and the work remains.
 
 ## Install
 
-```bash
-npx github:feliperun/faberun             # every `mine` skill → .claude/skills/ of the current repo
-npx github:feliperun/faberun faberun # one named skill
-npx github:feliperun/faberun list        # show the catalog
-npx github:feliperun/faberun --global    # install into ~/.claude/skills/ instead
-npx github:feliperun/faberun --force     # replace skills that already exist
-```
-
-`npx` needs the repository to be reachable (public, or private with git
-credentials). Without npx, copy or symlink a skill folder into
-`~/.claude/skills/` or `.claude/skills/`:
+The installer resolves the newest release, checks the requirements and runs
+`faberun setup`:
 
 ```bash
-cp -r skills/faberun ~/.claude/skills/faberun
-ln -s "$(pwd)/skills/init-agentkit" ~/.claude/skills/init-agentkit
+curl -fsSL https://raw.githubusercontent.com/feliperun/faberun/main/install.sh | sh
 ```
 
-## Skills
+It needs Node 22 or newer, git, and one harness CLI on `PATH`. The npm and
+source installs need Node and git alone.
 
-### faberun
-
-Executes large implementation plans as observable multi-model DAGs outside the
-orchestrator's context: declarative routing (Claude or Codex workers, including
-DeepSeek through Codex custom providers), closed task packets, structured
-cross-model quality gates, bounded revisions, campaign journaling with
-`HANDOFF.md`, and a built-in `supervise` watchdog that keeps resuming a dead
-controller until the run is terminal — from any host scheduler (launchd, cron,
-CI, or another agent), with no dependency on the orchestrator's runtime.
-
-Release 1 makes a long campaign cheap to watch and cheap to finish. Liveness is
-rendered ambiently from a bounded heartbeat at zero token cost, and the control
-session pulls campaign events on its own cursor instead of being woken by
-progress. Every Definition of Done item now declares how it is proven, so a
-mechanically provable node spends no judge at all, while contract-level
-`finalVerification` keeps a phase from closing on partial proof. An interrupted
-run is continued in place by `resume`, never re-authored, and the factory rides
-out provider exhaustion, quota resets, dead leases, and flaky networks
-deterministically. `metrics` reports effectiveness and efficiency of a
-campaign together, from what the runs recorded. Detail:
-[references/release-1.md](skills/faberun/references/release-1.md).
-
-Quickstart, in the repository that will receive the implementation:
+From the npm registry:
 
 ```bash
-FABERUN=/path/to/faberun/src/cli.mjs
-TARGET=/path/to/target-repository
-
-rg -qxF '.runs/' "$TARGET/.gitignore" || printf '\n.runs/\n' >> "$TARGET/.gitignore"
-node "$FABERUN" campaign init feature-42 --cwd "$TARGET" --goal "Deliver feature 42"
-node "$FABERUN" campaign attach feature-42 --cwd "$TARGET" --tool codex --session-id <session-id> --no-transcript
+npm install -g faberun
 ```
 
-Inspect the target once, write the contract and its task packets, then:
+Or run the package without installing it:
 
 ```bash
-node "$FABERUN" validate contract.json
-node "$FABERUN" preflight contract.json
-node "$FABERUN" run --detach contract.json
-node "$FABERUN" supervise --detach "$TARGET/.runs/<run-id>"   # unattended resume
+npx faberun --help
 ```
 
-| Goal | Command |
-| --- | --- |
-| Find the active campaign | `campaign list --cwd <repo>` |
-| Pull unseen campaign events | `campaign sync <id> --cwd <repo> --session-id <s>` |
-| Advance the session cursor | `campaign ack <id> --cwd <repo> --session-id <s> --event-id <e>` |
-| Validate a contract | `validate <contract.json>` |
-| Check credentials, models, binaries | `preflight <contract.json>` / `doctor [--cwd <dir>]` |
-| Start without blocking the session | `run --detach <contract.json>` |
-| Read current state | `status <run-dir>` / `status --json <run-dir>` |
-| Name the next action per campaign | `next [--cwd <dir>] [--json]` |
-| View attempts and tokens | `report <run-dir>` |
-| Read what a stopped node needs: gate findings and blocking questions | `findings <run-dir>` |
-| Read the campaign indicators | `metrics <campaign-id> --cwd <repo>` |
-| Stop a run and terminate its providers | `cancel <run-dir>` |
-| Resume an interrupted run | `resume --detach <run-dir>` |
-| Keep finishing a run whose controller died | `supervise --detach <run-dir> [--interval 30]` |
+From a checkout, as a contributor:
 
-Operational detail: [SKILL.md](skills/faberun/SKILL.md) and the
-[contract reference](skills/faberun/references/contract.md).
+```bash
+git clone https://github.com/feliperun/faberun.git
+cd faberun
+node src/cli.mjs --help
+```
 
-### init-agentkit
+An installed copy updates itself from the newest GitHub release:
 
-Bootstraps the agent kit into a repository: canonical `AGENTS.md` with
-`CLAUDE.md`/`GEMINI.md`/`CURSOR.md`/`AGENT.md` symlinks, base docs (VISION,
-ARCHITECTURE, ABSTRACTIONS, GETTING-STARTED), ADRs with template and index, the
-Sentrux structural quality gate, a `create-adr` slash command, and githooks.
-Always ask which compatibility rule applies before running it — see
-[SKILL.md](skills/init-agentkit/SKILL.md).
+```bash
+faberun update
+```
 
-### Session continuity
+## Quickstart
 
-Long sessions stay cheap across usage-limit resets: a curated handoff is saved
-to `.claude/session-handoff.md` while the session is warm, and this
-repository's [SessionStart hook](.claude/hooks/session-start.mjs) injects a
-fresh handoff into every new session automatically. The save/resume protocol
-lives inside faberun as
-[references/session-memory.md](skills/faberun/references/session-memory.md).
+The full walkthrough, from a fresh machine to a first verified node, is in
+[Getting started](docs/GETTING-STARTED.md).
+
+| Step | Command | What it does |
+| --- | --- | --- |
+| 1 | `faberun setup` | Onboards the machine: checks node and git, discovers the harnesses, and writes the default worker and judge. |
+| 2 | `faberun init` | Prepares a repository: confirms a git work tree, ignores `.runs/`, and installs the `faberun` skill. |
+| 3 | `faberun campaign init <id> --goal "..."` | Opens the durable campaign that carries the intent across runs. |
+| 4 | write a contract | Fixes `contract.json`: the node DAG, each packet's read and write scope, and each definition of done. |
+| 5 | `faberun validate contract.json` | Parses the contract and prints the report the authoring turn reads. |
+| 6 | `faberun preflight contract.json` | Checks the host, the runtime binaries and their credentials without dispatching a worker. |
+| 7 | `faberun run --detach contract.json` | Starts the run in its own process and returns with the run directory. |
+| 8 | `faberun status <run-dir>` / `faberun next` | Renders one run, or names the most urgent action across the active campaigns. |
+| 9 | `faberun supervise --detach <run-dir>` | Watches the run and resumes it when the controller dies. |
+
+## How it works
+
+The operator writes the intent into a campaign and an authored contract, a
+schema-versioned DAG whose nodes each carry a closed task packet. The controller
+schedules every dependency-ready node and dispatches its packet to a worker
+inside an attempt worktree, where the worker sees only the files the packet
+names. The controller then runs the deterministic verification once, and a
+judge from a different vendor reviews the recorded result without re-running it.
+A passing attempt is sealed and integrated onto the run ref, a campaign promotes
+each run onto its landing branch, and the orchestrator lands that branch.
+Campaigns, handoffs and the `supervise` watchdog carry the work across sessions,
+so an interrupted run is continued in place instead of being re-authored.
+
+```text
+intent
+  └─ contract: validate · preflight
+       └─ controller
+            ├─ worker attempt in an attempt worktree
+            │     └─ deterministic verification · cross-vendor judge
+            └─ integration ref · promotion · landing branch
+```
+
+The vocabulary is in [Concepts](docs/CONCEPTS.md), and the layers, process
+model and gates are in [Architecture](docs/ARCHITECTURE.md).
+
+## Harnesses
+
+A runtime is one harness running one model. Any runtime can be a worker, and a
+judge of another vendor reviews what it produced.
+
+| Harness | Default vendor | Example model |
+| --- | --- | --- |
+| `claude` | Anthropic | `claude-sonnet` |
+| `codex` | OpenAI | `codex-gpt` |
+| `agy` | Google | `agy-gemini` |
+| `dsh` | declared per runtime; DeepSeek in the discovery entry | `dsh-deepseek` |
+| `zcode` | Zhipu | `zcode-glm` |
+| `exec-jsonl` | declared per runtime | the model its command names |
+| `replay` | declared per runtime | the recorded model |
+
+## Documentation
+
+- [Documentation map](docs/README.md): every document and the question it answers.
+- [Vision](docs/VISION.md): why Faberun exists and what it refuses to become.
+- [Concepts](docs/CONCEPTS.md): each term, where it lives, and its invariant.
+- [Getting started](docs/GETTING-STARTED.md): install to a first verified node.
+- [Commands](docs/COMMANDS.md): every verb's synopsis, flags, exit codes and one example.
+- [Architecture](docs/ARCHITECTURE.md): the layers, the process model and the quality gates.
+- [Decisions](docs/adr/README.md): the active ADRs and the format they use.
+- [Design system](DESIGN.md): the identity, the palette and the documentation grammar.
+- [History](docs/history/README.md): the dated records and the path mapping from before the move.
+- [Agent playbook](AGENTS.md): the contributor and agent rules for this repository.
 
 ## Development
 
-- Node.js 22 or newer; the runtime is plain ESM `.mjs` with no runtime
-  dependencies. TypeScript is a development-only check (`checkJs`/`noEmit`).
-- `npm run check` — syntax; `npm run typecheck` — static types; `npm test` — the suite.
-- The skills of this repository stay active inside it through symlinks in
-  `.claude/skills/`.
-- [AGENTS.md](AGENTS.md) is the canonical guidance; the other agent files are
-  symlinks to it — never edit them.
+- `npm run check` runs `node --check` over every `.mjs` under `bin/`, `src/`,
+  `test/`, `evals/` and `.claude/hooks/`.
+- `npm run typecheck` runs `tsc` over the whole tree in `checkJs` mode and must
+  be clean.
+- `npm test` runs the test suite.
+- `node evals/run.mjs --class deterministic --assert-no-model` runs every
+  deterministic case with zero model calls.
+- `node evals/run.mjs --class deterministic --verify-discriminating` requires
+  each case's declared mutation to make the case fail.
 
-## Inspiration
+[AGENTS.md](AGENTS.md) is the playbook. The skills shipped in `skills/` are
+[faberun](skills/faberun/SKILL.md), for orchestrating agents, and
+[init-agentkit](skills/init-agentkit/SKILL.md), an optional kit that bootstraps
+`AGENTS.md`, `docs/`, ADRs and githooks into another repository. Install either
+into a repository with:
 
-The memory-layer split (session handoff / campaign handoff / standing memory)
-draws on [ai-memory](https://github.com/akitaonrails/ai-memory) by Akita on
-Rails. Most other patterns here — compile-not-retrieve summaries,
-start-of-session handoff injection, cross-harness workstreams — converged
-independently.
+```bash
+faberun skills install faberun
+faberun skills install init-agentkit
+```
 
-## License
+Never run `npm install` inside an attempt worktree: husky's `prepare` script
+dirties the ignore snapshot the controller compares against.
+
+## History
+
+Faberun began as an internal orchestration tool under an earlier name, and this
+repository began as a personal library of agent skills. Neither record is
+rewritten: the dated history is under `docs/history/`, and the campaign specs
+and journals are under `docs/campaigns/`. The
+[documentation map](docs/README.md) and the
+[history index](docs/history/README.md) point to both.
+
+## Licence
 
 [MIT](LICENSE).

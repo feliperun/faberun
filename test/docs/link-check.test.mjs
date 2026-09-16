@@ -31,6 +31,7 @@ function relativeLinkTargets(filePath) {
 }
 
 const files = [
+  join(rootDir, 'README.md'),
   join(skillDir, 'SKILL.md'),
   ...markdownFilesIn(join(skillDir, 'references')),
   ...markdownFilesIn(docsDir),
