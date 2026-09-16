@@ -1,0 +1,56 @@
+# Release pipeline: release-please maintains the release PR, then the release
+# publishes the package to npm.
+#
+# One-time npm setup (2026-09-09): npmjs.com -> package faberun ->
+# Settings -> Trusted publisher -> GitHub Actions: owner feliperun,
+# repository faberun, workflow release-please.yml. The package was first
+# created by an orchestrator reservation publish of 0.3.0.
+#
+# The release PR passes the existing gates untouched: the title
+# `chore(main): release X.Y.Z` is a Conventional Commit (type chore, scope
+# main) and release-please always writes a non-blank changelog body, so
+# pr-policy.yml's blank-body and commitlint checks both accept it. ci.yml
+# runs every commit in the release PR the same as any other PR.
+name: release-please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # No checkout: the action reads the repository through the GitHub API.
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish-npm:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing: npm exchanges this job's OIDC token itself, so no
+      # authentication token step or secret exists. --provenance records the build.
+      - run: npm publish --provenance --access public
