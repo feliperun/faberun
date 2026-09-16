@@ -107,6 +107,11 @@ test("an unavailable or partial role cost is null, never a fabricated $0", () =>
     assert.equal(report.roles.worker.costUsd, null, "a partial role shows no total, not the priced half");
     assert.equal(report.roles.worker.pricedInvocations, 1);
     assert.equal(report.roles.worker.unpricedInvocations, 1);
+    const status = JSON.parse(renderStatusJson(runDir));
+    assert.equal(status.roles.worker.costProvenance, "partial", "the status payload carries the same provenance as the report");
+    assert.equal(status.roles.worker.costUsd, null, "the status payload never fabricates the priced half");
+    assert.equal(status.roles.worker.pricedInvocations, 1);
+    assert.equal(status.roles.worker.unpricedInvocations, 1);
     const text = renderReport(runDir);
     assert.match(text, /worker unpriced \(/u, "a partial role still shows its tokens, not a dash");
     assert.match(text, /judge \$0\.150000/u);
