@@ -207,6 +207,8 @@ When this file governs anything in production:
 <!-- faberun-active:start (managed by faberun — read, never edit) -->
 Before starting new work here, check `.runs/`: if a campaign is active or a run is not terminal, continue it instead of starting over — read its `HANDOFF.md`/`STATUS.md`, attach to the campaign, and `resume` or `supervise` the run. Active runs are supervised by a deterministic detached process: do not poll `status` in a loop — on resume, check status once and act only on terminal states.
 
+- faberun campaign `harden-chain-and-verification`: active — read `.runs/campaigns/harden-chain-and-verification/HANDOFF.md`
+  - attention: run become-faberun-2b-install-and-shape-fix needs you · revision_cap
 - faberun run `become-faberun-2b-install-and-shape-fix`: parked — `install-script:exhausted revision_cap` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/become-faberun-2b-install-and-shape-fix`
 - faberun run `factory-autonomy-p2-20260914`: parked — `parked-not-finished:failed unexpected_write` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/factory-autonomy-p2-20260914`
 - faberun run `factory-autonomy-p3a-20260914`: parked — `chain-plumbing:failed judge_prompt_too_large` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/factory-autonomy-p3a-20260914`
@@ -217,6 +219,5 @@ Before starting new work here, check `.runs/`: if a campaign is active or a run 
 - faberun run `if-measure-c0-20260910-take2`: parked — `path-independence:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-measure-c0-20260910-take2`
 - faberun run `if-sp3-derived-and-state-20260912`: parked — `node-store-owner:blocked context_missing`, `state-by-directory:blocked dependency_failed` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-sp3-derived-and-state-20260912`
 - faberun run `if-sp6-layered-constitution-20260912`: parked — `router-and-articles:exhausted revision_cap` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-sp6-layered-constitution-20260912`
-- faberun run `intent-factory-efficiency-p0-foundation-20260901`: parked — `campaign-completed-event-ordering:blocked budget_exceeded`, `ci-ratchets:blocked dependency_failed`, `preflight-json:blocked dependency_failed`, `replay-driver:blocked dependency_failed` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/intent-factory-efficiency-p0-foundation-20260901`
 - … signal truncated; read the campaign HANDOFF.md for the rest
 <!-- faberun-active:end -->
