@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
-import { renderReport, renderReportJson, renderStatusJson } from "../../src/report/render.mjs";
+import { renderReport, renderReportJson, renderStatus, renderStatusJson } from "../../src/report/render.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
 
 const NOW = "2026-01-01T00:00:00.000Z";
@@ -143,6 +143,7 @@ test("an all-unpriced role renders unpriced with its tokens and the JSON says un
     assert.equal(status.roles.worker.costProvenance, "unpriced");
     assert.equal(status.roles.worker.inputTokens, 1_900_000);
     assert.match(renderReport(runDir), /worker unpriced \(in 1\.9M · out 1\.1M · cache 67\.6M\)/u);
+    assert.match(renderStatus(runDir), /worker unpriced \(in 1\.9M · out 1\.1M · cache 67\.6M\)/u, "the human status Cost line shows the unpriced role, not a dash");
   } finally {
     rmSync(runDir, { recursive: true, force: true });
   }
