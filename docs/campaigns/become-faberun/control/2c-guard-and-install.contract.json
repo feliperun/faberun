@@ -1,0 +1,364 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "become-faberun-2c-guard-and-install",
+  "campaignId": "become-faberun",
+  "goal": "Phase 2c (guard-and-install) of campaign become-faberun: install.sh lands (third run of its packet, with the symlink-safe repoint the judge demanded) on top of a controller that never signals a process group it cannot prove is its own. the controller never signals a process group it cannot prove is its own. Measured 2026-09-16 on this campaign: test/engine/seal-before-kill.test.mjs died with `kill EPERM` from signalInvocation, and the phase-2b candidate verification's `node --test test/engine/` was SIGKILLed at 93 s by a sibling test -- both are the same defect: a recorded pid whose process has exited is recycled by macOS within minutes (pids observed jumping 24418 -> 55624 -> 85491 inside one suite), and the engine signals -pgid without an identity check. Spec: docs/campaigns/become-faberun/spec/SPEC.md.",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "maxParallel": 1,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "dsh-deepseek-flash",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "dsh-deepseek-flash": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "workspace-write",
+      "tier": 1,
+      "costRank": 1,
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "fallback": "agy-gemini-flash"
+    },
+    "agy-gemini-flash": {
+      "harness": "agy",
+      "model": "gemini-3.8-flash-low",
+      "vendor": "google",
+      "tier": 1,
+      "costRank": 2
+    }
+  },
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "nodes": [
+    {
+      "id": "stale-group-signal-guard",
+      "type": "backend",
+      "phase": "guard-and-install",
+      "dependsOn": [],
+      "timeoutSec": 5400,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "A recorded invocation is signalled only when the controller can prove the process group is still the one it started: a live child handle, or a start token that still matches. A group that cannot be proven is never signalled, EPERM is treated as 'not ours' instead of crashing the controller, and every child the engine spawns records a start token so the proof exists.",
+        "instructions": [
+          "Read the evidence first. (1) test/engine/seal-before-kill.test.mjs 'done-when 1 and 4: a wall-clock timeout seals, auto-retries on the same runtime, and the next attempt sees the work' failed on 2026-09-16 with `Error: kill EPERM at process.kill ... at signalInvocation (src/engine/process.mjs) at terminateProcess at detectStalls at driveRun at runContract`: detectStalls asked terminateProcess to SIGTERM a job whose fake worker had exited, the pid had been recycled by a process this user cannot signal, invocationAlive said 'alive' (EPERM counts as alive, and processStartTokenMatches returns true whenever the recorded token is null), and process.kill(-pgid) threw EPERM straight through the drive loop -- in production that is a controller crash. (2) In the same campaign a candidate verification's `node --test test/engine/` was killed with SIGKILL after 93 s with no failing assertion: the same stale -pgid signal, this time landing on a group this user could signal. Pids on this machine were observed at 23687, 24418, 55624 and 85491 within one ten-minute suite, so recycling is the normal case, not an edge.",
+          "Read src/engine/process.mjs (startProcess and the identity it records at spawn, invocationAlive, processGroupAlive, processStartTokenMatches, signalInvocation, terminateProcess, terminateInvocation, detectStalls), src/run/lock.mjs (processStartToken: /proc starttime on linux, `ps -o lstart=` on darwin; pidAlive), src/engine/run-command.mjs (the verification child identity record: `pid: null, processStartToken: null, processGroupId: null`, later assigned pid and processGroupId but never a token), src/engine/verify.mjs (how it copies attempt identities), test/run/process.test.mjs and test/run/lock.test.mjs.",
+          "Change 1, ownership proof. Introduce `invocationOwned(invocation, options)` in src/engine/process.mjs, exported: it returns true only when the leader pid is alive (process.kill(pid, 0) succeeds; EPERM is NOT alive-and-ours) AND either `options.child` is a ChildProcess whose `exitCode` and `signalCode` are both null (the handle proves the pid has not been reaped, so it cannot have been recycled) or the invocation carries a non-null processStartToken that equals processStartToken(pid) now. A null token with no handle is unverifiable and returns false. Rewrite `signalInvocation(invocation, signal, options)` to return early when `invocationOwned` is false, and to swallow EPERM as well as ESRCH (a group this user cannot signal is by definition not one this controller spawned); it never throws. terminateProcess(job) passes `{child: job.child}` (use the field name the Job actually carries); terminateInvocation, the recovery pass and cancel have no handle and therefore rely on the token. Keep the existing group-alive fallback for `invocationAlive` only where the leader is gone and the group still answers `kill(-pgid, 0)` -- and make that fallback also require a matching token when one was recorded.",
+          "Change 2, every child records a token. In src/engine/run-command.mjs, where the identity record is assigned `pid` and `processGroupId` after spawn, also assign `processStartToken: processStartToken(pid)` (import from ../run/lock.mjs); src/engine/verify.mjs already copies attempt identities, check it carries the token through. In src/run/lock.mjs make darwin's processStartToken resilient to the one-second race right after spawn: if `ps -o lstart=` returns empty for a pid that `process.kill(pid, 0)` says is alive, retry once after 20 ms before returning null; a still-empty answer stays null. Do not change the linux branch.",
+          "Change 3, no crash path. Audit every caller of signalInvocation, terminateProcess and terminateInvocation in src/engine (detectStalls, cancel, recover, resume, supervise) for an assumption that a signal was delivered; where a group was unverifiable, the invocation is treated as already gone (closed with the existing not-running outcome) and, where the module has a journal or event sink at hand, one event line names `invocation_identity_unverifiable` with the pid. Do not add a new state or error code beyond that string.",
+          "Tests in test/run/process.test.mjs: (a) `invocationOwned` is true for a freshly spawned detached child with a recorded token and false once that child has exited (spawn `node -e 'setTimeout(()=>{},100)'` detached, record pid/pgid/token through the same helper startProcess uses or by calling processStartToken directly, wait for exit, assert false); (b) a mismatched token makes it false even while some process with that pid is alive -- use `process.pid` as the leader with a fabricated token; (c) terminateInvocation on an invocation whose pid is `process.pid`, pgid `process.pid` and token fabricated returns without signalling and without throwing (if it did signal, the test runner itself would die, which is exactly the production defect); (d) an injected kill that throws EPERM does not propagate out of terminateInvocation -- add an `options.kill` seam to terminateInvocation/terminateProcess for this and default it to process.kill. Tests in test/run/lock.test.mjs: processStartToken(process.pid) is a non-empty string on linux and darwin (skip elsewhere), and two different live pids never share a token unless started in the same second (assert non-null for both). Existing tests in both files keep passing.",
+          "Keep src/engine/process.mjs under 800 lines (it is 725 today; if the changes would cross the ceiling, move processGroupAlive, processStartTokenMatches and invocationOwned into a new module src/engine/process-identity.mjs imported by process.mjs, with a header comment saying why identity is its own boundary). No duplicate helper bodies; tsc must be clean with noUnusedLocals.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does, and this node also carries the phase's final verification."
+        ],
+        "readFiles": [
+          "AGENTS.md",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "src/engine/process.mjs",
+          "src/engine/run-command.mjs",
+          "src/engine/verify.mjs",
+          "src/engine/cancel.mjs",
+          "src/engine/recover.mjs",
+          "src/engine/supervise.mjs",
+          "src/run/lock.mjs",
+          "src/util.mjs",
+          "test/run/process.test.mjs",
+          "test/run/lock.test.mjs",
+          "test/engine/seal-before-kill.test.mjs",
+          "test/helpers.mjs"
+        ],
+        "writeFiles": [
+          "src/engine/process.mjs",
+          "src/engine/process-identity.mjs",
+          "src/engine/run-command.mjs",
+          "src/engine/verify.mjs",
+          "src/engine/cancel.mjs",
+          "src/engine/recover.mjs",
+          "src/run/lock.mjs",
+          "test/run/process.test.mjs",
+          "test/run/lock.test.mjs"
+        ],
+        "symbols": [
+          "invocationOwned"
+        ],
+        "scopeAcknowledged": [
+          "test/engine/seal-before-kill.test.mjs",
+          "test/engine/supervise.test.mjs",
+          "test/engine/unfreezable.test.mjs",
+          "test/engine/resume.test.mjs",
+          "test/engine/resume-probe.test.mjs",
+          "test/engine/resume-retry.test.mjs",
+          "test/engine/heartbeat.test.mjs",
+          "test/cli/cli.test.mjs",
+          "test/harnesses/replay-run.test.mjs"
+        ],
+        "decisions": [
+          "A process group is signalled only with proof of ownership: a live child handle or a matching start token; null token plus no handle means unverifiable, never 'alive'.",
+          "EPERM from process.kill is 'not ours', handled like ESRCH, and never propagates out of the drive loop.",
+          "Verification children record a start token like workers do; darwin's ps-based token retries once across the spawn race.",
+          "The regression tests use the test runner's own pid with a fabricated token: a wrong implementation kills the suite, a right one does nothing."
+        ],
+        "nonGoals": [
+          "Do not change stall or wall-clock timeout semantics, the seal, or the supervisor's relaunch rules.",
+          "Do not add a new node state or error code; one event string is enough.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/run/",
+              "test/engine/seal-before-kill.test.mjs",
+              "test/engine/unfreezable.test.mjs",
+              "test/engine/supervise.test.mjs",
+              "test/repo/source-shape.test.mjs"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "targeted-tests",
+          "text": "test/run, the seal, unfreezable and supervise engine tests and the source-shape rules pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "no-unproven-signal",
+          "text": "no code path in src/engine sends a signal to -pgid without a live child handle or a matching start token, and EPERM never propagates",
+          "judgment": true
+        },
+        {
+          "id": "tokens-everywhere",
+          "text": "workers and verification children both record a non-null processStartToken on this platform, and the tests prove it",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "install-script",
+      "type": "backend",
+      "phase": "guard-and-install",
+      "dependsOn": [
+        "stale-group-signal-guard"
+      ],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "`curl -fsSL https://raw.githubusercontent.com/feliperun/faberun/main/install.sh | sh` installs faberun on a fresh machine into the same home layout the self-updater uses, checks the requirements first, and hands off to `faberun setup`.",
+        "instructions": [
+          "Read the 'Install layout' and 'Distribution' decisions in docs/campaigns/become-faberun/spec/SPEC.md, src/host/home.mjs (the layout the script must match exactly: versions/<v>, current, and the bin symlink), src/cli/update.mjs (how the updater verifies a version) and the line grammar in DESIGN.md.",
+          "Write install.sh at the repository root: `#!/bin/sh`, `set -eu`, POSIX only (no arrays, no `[[`, no `local` assumptions beyond what dash and bash share), idempotent. Environment: FABERUN_HOME (default `$HOME/.faberun`), FABERUN_BIN_DIR (default `$HOME/.local/bin`), FABERUN_VERSION (a tag such as `v0.4.0`, `0.4.0`, or `main`), FABERUN_INSTALL_SOURCE (a path to a `.tar.gz` or to a directory to copy from, for offline installs and tests), FABERUN_NO_SETUP (skip the final setup). Steps: (1) requirements -- `node` on PATH with major version 22 or newer (`node -p 'process.versions.node'`), `tar`, and `curl` only when downloading; each failure prints `[fail] <name> · <what is missing and how to get it>` and exits 1, each success `[ok] <name> · <detail>`; (2) resolve the version: FABERUN_VERSION when set; otherwise the `tag_name` of `https://api.github.com/repos/feliperun/faberun/releases/latest` parsed with sed (no jq); when the API answers 404 or no tag parses, fall back to `main` and say so with `[warn] release · no release yet · installing main`; (3) fetch: a tag downloads `https://github.com/feliperun/faberun/archive/refs/tags/<tag>.tar.gz`, `main` downloads `.../archive/refs/heads/main.tar.gz`, FABERUN_INSTALL_SOURCE uses the local tarball or directory instead; extract with `tar -xzf <file> --strip-components=1 -C <home>/versions/<version>.partial` (GitHub tarballs have one top-level directory), then rename the partial directory to `<home>/versions/<version>` (remove an existing same-version directory first so a re-run refreshes it); (4) `chmod +x <dir>/bin/faberun.mjs`, repoint `<home>/current` (symlink, replaced atomically through a temporary name and `mv -f`), and link `<bin dir>/faberun` to `<home>/current/bin/faberun.mjs`; (5) verify with `<bin dir>/faberun --version` and print `[ok] installed · faberun <printed version> · <bin dir>/faberun`; (6) when `<bin dir>` is not in PATH print `[warn] path · add <bin dir> to PATH` with the shell line to add; (7) unless FABERUN_NO_SETUP is set, when stdin and stdout are terminals, exec `<bin dir>/faberun setup`; otherwise print `next · faberun setup`. Use only `printf`, never `echo -e`; quote every path.",
+          "Write test/host/install-sh.test.mjs: build a tarball from the current tree with `tar -czf` containing a single top-level directory `faberun-test/` holding bin/, src/, skills/, integrations/ and package.json (spawnSync tar with `-s` or `--transform` is not portable, so create a temp staging directory named faberun-test, copy those paths into it with cpSync, and tar the staging parent); run `sh install.sh` with FABERUN_INSTALL_SOURCE pointing at the tarball, FABERUN_HOME and FABERUN_BIN_DIR in temp directories, FABERUN_VERSION set to the package.json version, FABERUN_NO_SETUP=1, and PATH inherited; assert `versions/<version>/bin/faberun.mjs` exists, `current` is a symlink to that directory, `<bin>/faberun` is a symlink to `current/bin/faberun.mjs`, `<bin>/faberun --version` prints `faberun <version>`, and stdout has `[ok] installed`; run it again and assert the same state (idempotent); run with FABERUN_INSTALL_SOURCE pointing at the staging directory instead of the tarball; run with a PATH that lacks node (withEmptyPath from test/helpers.mjs, keeping /bin and /usr/bin for sh and tar) and assert exit 1 with `[fail] node`. No test reaches the network.",
+          "This is the third run of this packet. Run one produced a working script whose candidate verification was killed by an unrelated engine race (fixed by the node this one depends on). Run two was rejected by the judge on one major finding, which you must not repeat: install.sh repointed `current` with `ln -s \"versions/$version\" \"$home/current.tmp\" && mv -f \"$home/current.tmp\" \"$home/current\"`. `mv` stats its destination and follows the symlink, so when `current` already points at an existing version directory the temporary link is moved INTO that directory as `current/current.tmp` and `current` keeps pointing at the old version -- every upgrade on an existing install is a no-op. Repoint with `ln -sfn \"versions/$version\" \"$home/current\"` (the -n/-h flag stops ln from following an existing link; both BSD and GNU ln accept -sfn), and give the same treatment to the `$bin_dir/faberun` link. The test suite must cover the upgrade: install version A, then run the script again with FABERUN_VERSION set to a version B built from a second staging directory whose package.json says B, and assert `current` now resolves to versions/B and `<bin>/faberun --version` prints B.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does."
+        ],
+        "readFiles": [
+          "DESIGN.md",
+          "AGENTS.md",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "package.json",
+          "bin/faberun.mjs",
+          "src/host/home.mjs",
+          "src/cli/update.mjs",
+          "test/helpers.mjs"
+        ],
+        "writeFiles": [
+          "install.sh",
+          "test/host/install-sh.test.mjs"
+        ],
+        "symbols": [],
+        "decisions": [
+          "POSIX sh, set -eu, idempotent, no jq; GitHub archive tarballs by tag, main as the pre-release fallback.",
+          "The layout is the one src/host/home.mjs defines; the updater and the installer must agree.",
+          "Verification is the installed binary printing its own version before the script reports success.",
+          "The script hands off to faberun setup on an interactive terminal unless FABERUN_NO_SETUP is set."
+        ],
+        "nonGoals": [
+          "No Windows or PowerShell installer.",
+          "No checksum or signature verification in this version (recorded as a follow-up).",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "sh",
+              "-n",
+              "install.sh"
+            ],
+            "timeoutSec": 30
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/host/install-sh.test.mjs"
+            ],
+            "timeoutSec": 300
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "syntax",
+          "text": "install.sh parses under sh -n",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "install-tests",
+          "text": "the offline installer tests pass: layout, idempotence, directory source, missing node",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "script-exists",
+          "text": "install.sh exists at the repository root",
+          "proof": {
+            "kind": "path",
+            "ref": "install.sh"
+          }
+        },
+        {
+          "id": "layout-parity",
+          "text": "the directories and symlinks install.sh creates are exactly the ones src/host/home.mjs and update.mjs expect, so update works on an install.sh installation",
+          "judgment": true
+        },
+        {
+          "id": "requirements-clarity",
+          "text": "a fresh-machine user with an old Node or no curl gets one line saying what is missing and how to get it",
+          "judgment": true
+        }
+      ]
+    }
+  ]
+}

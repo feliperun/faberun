@@ -1,0 +1,826 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "become-faberun-3-docs-and-releases",
+  "campaignId": "become-faberun",
+  "goal": "Phase 3 (docs-and-releases) of campaign become-faberun: user-facing documentation replaces evolution-internal notes -- a command manual, the vision, the concepts, a getting-started path, an architecture summary and ADRs -- and release-please cuts versioned GitHub releases from Conventional Commits. Spec: docs/campaigns/become-faberun/spec/SPEC.md.",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "maxParallel": 2,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "dsh-deepseek-flash",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "dsh-deepseek-flash": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "workspace-write",
+      "tier": 1,
+      "costRank": 1,
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "fallback": "agy-gemini-flash"
+    },
+    "agy-gemini-flash": {
+      "harness": "agy",
+      "model": "gemini-3.8-flash-low",
+      "vendor": "google",
+      "tier": 1,
+      "costRank": 2
+    }
+  },
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "nodes": [
+    {
+      "id": "supervisor-group-guard",
+      "type": "backend",
+      "phase": "docs-and-releases",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "The supervisor's terminateControllerGroup signals a controller's process group only with proof that the pid still names the controller that wrote the lock (its recorded processStartToken), and an EPERM from that signal never escapes -- closing the one remaining path the stale-group guard of phase 2 left open.",
+        "instructions": [
+          "Read src/engine/supervise.mjs `terminateControllerGroup`: it reads the run lock, decides the target is alive with `pidAlive(target) || groupAlive(target)` -- both true for a recycled pid, and groupAlive even returns true on EPERM -- then sends SIGTERM and SIGKILL to -pid, and its default kill rethrows any non-ESRCH error. The lock record already carries `processStartToken` (src/run/lock.mjs writes it and uses it for staleness), so the proof exists and is unused. Read src/engine/process-identity.mjs (`invocationOwned`, the phase-2 guard) and src/run/lock.mjs (`processStartToken`, `pidAlive`, the staleness check) so the supervisor asks the same question the engine now asks.",
+          "Change terminateControllerGroup: before any signal, require that the lock's pid answers `process.kill(pid, 0)` without EPERM and that, when the lock records a processStartToken, `processStartToken(pid)` still equals it; a lock without a token is treated as unverifiable and is NOT signalled -- the function returns false and the caller proceeds as if the group were already gone (the takeover path already handles a dead controller). Treat EPERM from the group signal and from the pid fallback exactly like ESRCH: not ours or gone, never thrown. Reuse `invocationOwned` from process-identity.mjs by shaping the lock record as an invocation probe ({pid, processGroupId: pid, processStartToken}) rather than writing a second identity check.",
+          "Tests in test/engine/supervise.test.mjs: (a) a lock naming `process.pid` with a fabricated token makes terminateControllerGroup return false without signalling (if it signalled, the test runner would die -- that is the production defect); (b) an injected kill that throws EPERM is swallowed and the function returns false; (c) the existing cases where a real detached fixture controller is terminated keep passing, with the fixture lock carrying the real token. Do not run test/engine/supervise.test.mjs yourself: inside the dsh sandbox process-signalling tests hang until the executor's cap. Run only tsc and test/repo/source-shape.test.mjs; the controller runs the supervise tests as this node's verification.",
+          "Run the two commands you may run in the foreground, fix what they report, and report done."
+        ],
+        "readFiles": [
+          "AGENTS.md",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "src/engine/supervise.mjs",
+          "src/engine/process-identity.mjs",
+          "src/run/lock.mjs",
+          "test/engine/supervise.test.mjs",
+          "test/helpers.mjs"
+        ],
+        "writeFiles": [
+          "src/engine/supervise.mjs",
+          "test/engine/supervise.test.mjs"
+        ],
+        "symbols": [],
+        "scopeAcknowledged": [
+          "test/engine/heartbeat.test.mjs",
+          "test/campaign/chain.test.mjs",
+          "test/cli/cli.test.mjs"
+        ],
+        "decisions": [
+          "The supervisor proves ownership through the lock's processStartToken via invocationOwned; no token means no signal.",
+          "EPERM is handled like ESRCH everywhere in the supervisor path.",
+          "The worker never runs process-signalling tests inside the dsh sandbox; the controller's verification is the proof."
+        ],
+        "nonGoals": [
+          "Do not change relaunch thresholds, heartbeat semantics or the lock format.",
+          "Do not run test/engine/supervise.test.mjs yourself.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/engine/supervise.test.mjs",
+              "test/engine/heartbeat.test.mjs",
+              "test/run/lock.test.mjs",
+              "test/repo/source-shape.test.mjs"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "supervise-tests",
+          "text": "the supervise, heartbeat, lock and source-shape tests pass under the controller",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "no-unproven-signal",
+          "text": "terminateControllerGroup signals only with a matching start token and never lets EPERM escape; the fabricated-token test proves it without killing the runner",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "release-pipeline",
+      "type": "backend",
+      "phase": "docs-and-releases",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Every push to main lets release-please maintain a release pull request from the Conventional Commits; merging it tags vX.Y.Z, publishes a GitHub Release, bumps package.json, and the same workflow publishes that version to npm as `faberun` through npm trusted publishing (OIDC, no token) -- the tags install.sh and faberun update already consume, and the package `npm install -g faberun` installs.",
+        "instructions": [
+          "Read the 'Distribution' decision in docs/campaigns/become-faberun/spec/SPEC.md, .github/workflows/ci.yml and pr-policy.yml (the gates a release PR must pass: non-blank body, title plus body valid under commitlint, every commit valid), and test/host/ci-policy.test.mjs (the test that pins the workflows).",
+          "Create .github/workflows/release-please.yml: name `release-please`; `on: push: branches: [main]`; `permissions: contents: write, pull-requests: write`; one job `release-please` on ubuntu-latest with a single step `uses: googleapis/release-please-action@v4` and `with: token: ${{ secrets.GITHUB_TOKEN }}, config-file: release-please-config.json, manifest-file: .release-please-manifest.json`. No checkout step is needed by the action; add none.",
+          "Create .github/workflows/release-please.yml with two jobs. Job `release-please` (ubuntu-latest): a single step `uses: googleapis/release-please-action@v4` with `id: release` and `with: token: ${{ secrets.GITHUB_TOKEN }}, config-file: release-please-config.json, manifest-file: .release-please-manifest.json`; it declares `outputs: release_created: ${{ steps.release.outputs.release_created }}` and `tag_name: ${{ steps.release.outputs.tag_name }}`. Job `publish-npm` (ubuntu-latest) runs only `if: needs.release-please.outputs.release_created == 'true'` with `needs: release-please` and `permissions: contents: read, id-token: write`: `actions/checkout@v4` with `ref: ${{ needs.release-please.outputs.tag_name }}`, `actions/setup-node@v4` with `node-version: 22` and `registry-url: https://registry.npmjs.org`, then `npm publish --provenance --access public` with no token step -- authentication is npm trusted publishing (the package's npm settings name this repository and this workflow file as its trusted GitHub Actions publisher), so `npm publish` exchanges the job's OIDC token itself and no `NODE_AUTH_TOKEN` or `NPM_TOKEN` appears anywhere. Top-level `permissions: contents: write, pull-requests: write` stay on the first job; the leading comment of the file names the one-time npm setup (npmjs.com -> package faberun -> Settings -> Trusted publisher -> GitHub Actions: owner feliperun, repository faberun, workflow release-please.yml) and the reservation publish of 0.3.0 that created the package. No checkout is needed by the release-please job; add none there.",
+          "Create CHANGELOG.md with the heading `# Changelog`, one sentence saying release-please generates the entries below from Conventional Commits, and a `## 0.3.0 (2026-09-09)` section with one paragraph pointing at docs/history/RETROSPECTIVE-2026-09-08.md as the record of the lean release, so the file has a starting point release-please can append above.",
+          "A release PR carries the title `chore(main): release X.Y.Z` and a changelog body: confirm against pr-policy.yml and commitlint.config.mjs that both gates accept it (the type chore with scope main is conventional; the body is non-blank) and state that in the workflow file's leading comment. Change nothing in pr-policy.yml or ci.yml.",
+          "Extend test/host/ci-policy.test.mjs with tests for the release pipeline: release-please.yml triggers only on push to main, declares exactly the two write permissions, uses googleapis/release-please-action@v4 with the config and manifest paths; release-please-config.json parses, names package `faberun`, release-type node and include-component-in-tag false; .release-please-manifest.json's `.` equals package.json's version (so a manual bump never desynchronises them); CHANGELOG.md exists and starts with `# Changelog`.",
+          "package.json gains `\"publishConfig\": { \"access\": \"public\" }` and keeps `files` as it is (bin, src, skills, integrations); `npm pack --dry-run` must list bin/faberun.mjs, package.json, README.md and the src/, skills/ and integrations/ trees. Nothing else in package.json changes.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does."
+        ],
+        "readFiles": [
+          "AGENTS.md",
+          "DESIGN.md",
+          "package.json",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          ".github/workflows/ci.yml",
+          ".github/workflows/pr-policy.yml",
+          "commitlint.config.mjs",
+          "test/host/ci-policy.test.mjs",
+          "src/host/package.mjs"
+        ],
+        "writeFiles": [
+          ".github/workflows/release-please.yml",
+          "release-please-config.json",
+          ".release-please-manifest.json",
+          "CHANGELOG.md",
+          "test/host/ci-policy.test.mjs",
+          "package.json"
+        ],
+        "symbols": [],
+        "decisions": [
+          "release-please with release-type node, tags vX.Y.Z without a component prefix, 0.x bumping rules.",
+          "npm distribution: the same workflow publishes `faberun` to npm on every release through trusted publishing (OIDC + provenance); no token secret exists. The name was reserved by an orchestrator publish of 0.3.0.",
+          "The manifest version must always equal package.json's version, enforced by test."
+        ],
+        "nonGoals": [
+          "Do not change ci.yml or pr-policy.yml.",
+          "Do not bump the version; release-please does. Do not publish from the worktree.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/host/ci-policy.test.mjs"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "-e",
+              "const {readFileSync}=require('node:fs');const c=JSON.parse(readFileSync('release-please-config.json','utf8'));const m=JSON.parse(readFileSync('.release-please-manifest.json','utf8'));const p=JSON.parse(readFileSync('package.json','utf8'));process.exit(c['release-type']==='node'&&c['include-component-in-tag']===false&&c.packages['.']['package-name']==='faberun'&&m['.']===p.version?0:1)"
+            ],
+            "timeoutSec": 30
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "ci-policy",
+          "text": "the ci-policy tests pass with the release pipeline pinned",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "config-consistent",
+          "text": "config, manifest and package.json agree",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "workflow-exists",
+          "text": "the workflow file exists",
+          "proof": {
+            "kind": "path",
+            "ref": ".github/workflows/release-please.yml"
+          }
+        },
+        {
+          "id": "changelog-exists",
+          "text": "CHANGELOG.md exists",
+          "proof": {
+            "kind": "path",
+            "ref": "CHANGELOG.md"
+          }
+        },
+        {
+          "id": "release-pr-passes-policy",
+          "text": "the release PR release-please opens would pass pr-policy.yml (title and body under commitlint, non-blank body) and the tag format matches what install.sh and update consume",
+          "judgment": true
+        },
+        {
+          "id": "npm-job",
+          "text": "the publish-npm job exists, is gated on release_created, uses provenance and OIDC, and no token secret is referenced",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "command-manual",
+      "type": "backend",
+      "phase": "docs-and-releases",
+      "dependsOn": [],
+      "timeoutSec": 5400,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "docs/COMMANDS.md documents every faberun verb and subcommand accurately from the source, and the command-surface test compares that manual with the CLI in both directions instead of reading the README.",
+        "instructions": [
+          "Read DESIGN.md ('Documentation' and 'Line grammar'), then every CLI module: src/cli.mjs (COMMAND_OPTIONS, parseCli, main, renderUsage in src/cli/brand.mjs), src/cli/campaign.mjs, src/cli/seat.mjs, src/cli/contract.mjs, src/cli/skills.mjs, src/cli/setup.mjs, src/cli/init.mjs, src/cli/update.mjs, plus src/engine/bulk-read.mjs, src/harnesses/catalogue.mjs (models), src/report/next.mjs, src/web/server.mjs and integrations/claude-code/statusline.sh. Every flag you document must exist in an option table or argv parser you read; invent nothing, and where a flag's effect is not obvious from the parser, follow the call into the module it reaches.",
+          "Write docs/COMMANDS.md: (1) how faberun is invoked (`faberun` after install.sh, `node src/cli.mjs` from a checkout, `npx github:feliperun/faberun`), the global flags `--help` and `--version`, the exit codes 0/1/2, and an environment table (FABERUN_HOME, FABERUN_BIN_DIR, FABERUN_RELEASES_URL, FABERUN_NOTIFY_BIN, the `FABERUN_<HARNESS>_BIN` overrides, FABERUN_REQUIRE_CLEAN_WORKTREE, FABERUN_MIN_FREE_DISK_BYTES, FABERUN_GIT_TIMEOUT_MS -- only the ones src/ actually reads; grep for `process.env.FABERUN_` and list what a user, not a test, would set); (2) one `## faberun <verb>` section per top-level verb in the order renderUsage() prints them, and for the verbs with operations (campaign, seat, contract, skills) one `### faberun <verb> <operation>` per operation, in the order of each module's OPERATION_OPTIONS; `supervise campaign` is documented under `## faberun supervise` as its own subsection. Each section: a synopsis code block, one paragraph on what it does and when to use it, a flags table (flag, value, effect, default), what it reads and writes under .runs/ or the home directory, one realistic example, and related commands; (3) an appendix for the dashboard (`node src/web/server.mjs [--port] [--cwd]`) and the Claude Code statusline integration.",
+          "Rewrite test/docs/command-surface.test.mjs so it no longer reads README.md: derive the CLI surface from src/cli.mjs (COMMAND_OPTIONS keys plus the dispatched verbs `campaign`, `seat`, `contract`, `skills`, and `supervise campaign`) and from each verb module's OPERATION_OPTIONS keys; parse the `## faberun <verb>` and `### faberun <verb> <operation>` headings of docs/COMMANDS.md; assert every CLI verb and operation has a heading and every heading names a real verb or operation (both directions), with failure messages listing the missing or extra names. Keep the test's header comment explaining why the check is deliberately dumb.",
+          "Follow DESIGN.md prose rules: sentence-case headings, `faberun` lowercase for the command, `·` in example output exactly as the CLI prints it, no invented output. Keep the file under 900 lines; length comes from completeness, not from repetition.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does."
+        ],
+        "readFiles": [
+          "DESIGN.md",
+          "AGENTS.md",
+          "README.md",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "src/cli.mjs",
+          "src/cli/brand.mjs",
+          "src/cli/campaign.mjs",
+          "src/cli/seat.mjs",
+          "src/cli/contract.mjs",
+          "src/cli/skills.mjs",
+          "src/cli/setup.mjs",
+          "src/cli/init.mjs",
+          "src/cli/update.mjs",
+          "src/engine/bulk-read.mjs",
+          "src/harnesses/catalogue.mjs",
+          "src/report/next.mjs",
+          "src/web/server.mjs",
+          "integrations/claude-code/statusline.sh",
+          "skills/faberun/references/operations.md",
+          "skills/faberun/references/contract.md",
+          "test/docs/command-surface.test.mjs"
+        ],
+        "writeFiles": [
+          "docs/COMMANDS.md",
+          "test/docs/command-surface.test.mjs"
+        ],
+        "symbols": [],
+        "decisions": [
+          "The manual is derived from the source, flag by flag; the test enforces coverage in both directions.",
+          "The README stops being the command reference; the command-surface test reads COMMANDS.md only.",
+          "Order follows the usage text and each module's operation table."
+        ],
+        "nonGoals": [
+          "Do not edit README.md or any src/ file; document what exists.",
+          "Do not document test-only environment variables.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/docs/command-surface.test.mjs",
+              "test/docs/docs-diet.test.mjs"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "-e",
+              "const t=require('node:fs').readFileSync('docs/COMMANDS.md','utf8');process.exit(/^## faberun setup$/m.test(t)&&/^## faberun init$/m.test(t)&&/^## faberun update$/m.test(t)&&/^### faberun skills install$/m.test(t)&&/^### faberun campaign unpark$/m.test(t)?0:1)"
+            ],
+            "timeoutSec": 30
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "surface-test",
+          "text": "the command-surface test passes against COMMANDS.md in both directions",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "new-verbs-present",
+          "text": "the phase-2 verbs are documented",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "manual-exists",
+          "text": "docs/COMMANDS.md exists",
+          "proof": {
+            "kind": "path",
+            "ref": "docs/COMMANDS.md"
+          }
+        },
+        {
+          "id": "accuracy",
+          "text": "spot-check five flags across different verbs against the option tables in src/cli/*.mjs: each documented flag exists with the documented effect, and no documented example output contradicts what the code prints",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "vision-and-concepts",
+      "type": "backend",
+      "phase": "docs-and-releases",
+      "dependsOn": [],
+      "timeoutSec": 5400,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "docs/VISION.md carries the owner's positioning of Faberun in the agent-kit vision structure, and docs/CONCEPTS.md defines the vocabulary an operator needs -- each term with its definition, where it lives, and the invariant that holds.",
+        "instructions": [
+          "Read the appendix 'positioning (the owner's pitch, verbatim)' and the 'Decisions already made' in docs/campaigns/become-faberun/spec/SPEC.md, DESIGN.md ('Identity' and 'Documentation'), the skill references (rules, contract, operations, handoffs, engineering, workflow) for the exact vocabulary, docs/history/RETROSPECTIVE-2026-09-08.md for why the tool is subtractive, and the two agent-kit templates skills/init-agentkit/templates/docs/VISION.md and ABSTRACTIONS.md for the section structure to follow.",
+          "Write docs/VISION.md with the template's sections -- Why this, why now; The problem; The insight; Principles; Near-term horizon; Non-goals (for now); Related docs -- filled from the pitch: model- and harness-agnostic orchestration above the coding agents, software built rather than generated, the transition from making to running, intent kept while tools change. Principles must be the ones the code enforces (closed packets, mechanical proof before judgment, cross-vendor review, no spend ceiling with bounded attempts, history never rewritten, zero runtime dependencies). Near-term horizon: the first Faberun release from this campaign. Keep it opinionated and under 120 lines; no marketing adjectives.",
+          "Write docs/CONCEPTS.md as the vocabulary (it replaces the template's ABSTRACTIONS.md): intent, campaign, contract, run, node, task packet and its three modes (execution, discovery, autonomous), worker, judge, gate (advisory, blocking, failOn, revisions), definition of done and its proofs (command, path, verification, judgment), harness versus model versus vendor versus runtime, tier and costRank and fallback, attempt worktree, seal, integration ref and candidate, promotion and the landing branch, final verification and the phase-terminal node, seat, handoff and journal, attention and parked, supervise and resume, evidence (the .runs/ layout). For each term: one paragraph of definition, where it lives (file, directory or command), and the invariant that always holds -- taken from the references, not invented. Cross-link to docs/COMMANDS.md sections and to skills/faberun/references/*.md; links to COMMANDS.md, GETTING-STARTED.md, ARCHITECTURE.md and adr/README.md are expected even though sibling nodes are writing them right now -- the terminal node of this phase runs the link check.",
+          "Both files in English, sentence-case headings, `Faberun` in prose and `faberun` for the command, no em dashes or arrows in headings. Do not touch README.md.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does."
+        ],
+        "readFiles": [
+          "DESIGN.md",
+          "AGENTS.md",
+          "README.md",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "skills/faberun/SKILL.md",
+          "skills/faberun/references/rules.md",
+          "skills/faberun/references/contract.md",
+          "skills/faberun/references/operations.md",
+          "skills/faberun/references/handoffs.md",
+          "skills/faberun/references/engineering.md",
+          "skills/faberun/references/workflow.md",
+          "skills/init-agentkit/templates/docs/VISION.md",
+          "skills/init-agentkit/templates/docs/ABSTRACTIONS.md",
+          "docs/history/RETROSPECTIVE-2026-09-08.md"
+        ],
+        "writeFiles": [
+          "docs/VISION.md",
+          "docs/CONCEPTS.md"
+        ],
+        "symbols": [],
+        "decisions": [
+          "VISION.md follows the agent-kit template structure and carries the owner's pitch; CONCEPTS.md replaces ABSTRACTIONS.md as the vocabulary.",
+          "Every invariant in CONCEPTS.md is traceable to a reference document or to the code.",
+          "Links to sibling-node documents are allowed; the phase's terminal node runs the link check."
+        ],
+        "nonGoals": [
+          "Do not write GETTING-STARTED, ARCHITECTURE, COMMANDS or ADRs; sibling nodes own them.",
+          "Do not edit README.md or the skill references.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "-e",
+              "const {readFileSync}=require('node:fs');const v=readFileSync('docs/VISION.md','utf8');const c=readFileSync('docs/CONCEPTS.md','utf8');const need=['## Why this, why now','## The problem','## The insight','## Principles','## Near-term horizon','## Non-goals'];const terms=['intent','campaign','contract','run','node','task packet','worker','judge','gate','definition of done','harness','runtime','vendor','worktree','seal','integration','promotion','final verification','seat','handoff','attention','supervise','resume','evidence'];const ok=need.every(h=>v.includes(h))&&terms.every(t=>new RegExp('^##+ .*'+t,'im').test(c))&&v.split('\\n').length<=140;process.exit(ok?0:1)"
+            ],
+            "timeoutSec": 30
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/docs/docs-diet.test.mjs"
+            ],
+            "timeoutSec": 60
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "structure",
+          "text": "VISION.md has the template sections and CONCEPTS.md has a heading for every term in the list",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "skill-untouched",
+          "text": "the skill documents stay within their ceilings (nothing in them changed)",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "vision-exists",
+          "text": "docs/VISION.md exists",
+          "proof": {
+            "kind": "path",
+            "ref": "docs/VISION.md"
+          }
+        },
+        {
+          "id": "concepts-exists",
+          "text": "docs/CONCEPTS.md exists",
+          "proof": {
+            "kind": "path",
+            "ref": "docs/CONCEPTS.md"
+          }
+        },
+        {
+          "id": "pitch-fidelity",
+          "text": "VISION.md states the positioning as the owner wrote it (model- and harness-agnostic, built not generated, from making to running, the work remains when tools change) and its principles are the ones the code enforces",
+          "judgment": true
+        },
+        {
+          "id": "concept-accuracy",
+          "text": "every invariant in CONCEPTS.md matches the references or the code; spot-check gate semantics, judge vendor rule, proofs, and the integration ref versus main",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "getting-started-and-adrs",
+      "type": "backend",
+      "phase": "docs-and-releases",
+      "dependsOn": [],
+      "timeoutSec": 5400,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "A newcomer goes from a fresh machine to a first campaign by following docs/GETTING-STARTED.md; docs/ARCHITECTURE.md summarises the layers and the process model as they are; docs/adr/ records the decisions that shape the code in the agent-kit ADR format.",
+        "instructions": [
+          "Read docs/campaigns/become-faberun/spec/SPEC.md (decisions and phases), DESIGN.md ('Documentation'), the 'Source tree rules' section of AGENTS.md (the layer table is the architecture), skills/faberun/references/operations.md and contract.md (process model, run artefacts, campaigns), src/cli/setup.mjs and src/cli/init.mjs and install.sh (the real onboarding commands and their output), docs/FIELD-OWNERSHIP.md and docs/history/README.md (what already documents internals), and the three agent-kit templates (GETTING-STARTED.md, ARCHITECTURE.md, adr/README.md plus adr/0001 and 0002) whose structure you follow.",
+          "Write docs/GETTING-STARTED.md: prerequisites (Node 22 or newer, git, at least one harness CLI with credentials -- a table for claude, codex, agy, dsh and zcode naming the binary, the vendor, the credential each needs and where the `models` command lists what each accepts); install (the `curl -fsSL https://raw.githubusercontent.com/feliperun/faberun/main/install.sh | sh` one-liner, `npm install -g faberun` from the npm registry (package `faberun`, versions follow the GitHub releases), `git clone` plus `node src/cli.mjs`, and `npx faberun`); `faberun setup` with what it asks; in a target repository `faberun init` with what it changes; a first campaign walkthrough with real commands and a minimal one-node contract JSON (schemaVersion 3, contractVersion 0.3.0, one execution packet with readFiles, writeFiles, a verification command and a definition of done with proofs) -- `campaign init`, `validate`, `preflight`, `run --detach`, `status`, `next`, `supervise --detach`, `campaign close`; daily commands for contributors (`npm run check`, `npm run typecheck`, `npm test`, the two evals commands); the documentation map; a first-contribution checklist pointing at AGENTS.md.",
+          "Write docs/ARCHITECTURE.md: the high-level flow in prose and one small ASCII diagram (intent, contract, controller, worker in an attempt worktree, deterministic verification, cross-vendor judge, integration ref, promotion to the landing branch, land on main); the layer table (cli, contract, engine, harnesses, campaign, repo, run, report, web, host, notify) with one line each, taken from AGENTS.md; the `.runs/` layout; the process model (controller lock, detached children in their own process groups, heartbeat, supervise, resume, the campaign chain and coordinator); quality gates (source-shape rules, tsc in checkJs mode, the deterministic and discriminating evals, the docs ratchets); the security model (closed packets are detectors, not sandboxes; credentials travel as variable names; bypassPermissions only in a recoverable repository; the workspace snapshot); related docs. Present tense, current state only; history and rationale belong in ADRs and docs/history/.",
+          "Write docs/adr/README.md from the template (format, status lifecycle, rules, index) and six ADRs dated 2026-09-15 with status active, each with Context, Decision, Options considered (at least two, the chosen one marked) and Consequences: 0001 record architecture decisions; 0002 root-managed AI guidance (AGENTS.md with CLAUDE.md, GEMINI.md, CURSOR.md, AGENT.md symlinks, the managed signal block); 0003 harness- and model-agnostic orchestration (harness versus model versus vendor, the adapter registry, no model-specific branches in prose); 0004 closed task packets with mechanical proof and cross-vendor judges (closed scope, proofs before judgment, judge vendor rule, bounded revisions, no spend ceiling); 0005 the repository becomes the Faberun CLI (rename, root layout, history never rewritten, skills as CLI features, the agent kit optional); 0006 GitHub Releases and npm distribution with install.sh and self-update (release-please, vX.Y.Z tags, npm trusted publishing with provenance, the home layout, verify-before-switch). Cite the references and SPEC.md sections each decision comes from. Do not write a Sentrux ADR: this repository does not adopt Sentrux, and the README's index says so in one sentence.",
+          "Links to docs/COMMANDS.md, docs/VISION.md and docs/CONCEPTS.md are expected even though sibling nodes are writing them right now; the phase's terminal node runs the link check. Do not touch README.md, AGENTS.md or the skill references.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does."
+        ],
+        "readFiles": [
+          "DESIGN.md",
+          "AGENTS.md",
+          "README.md",
+          "package.json",
+          "install.sh",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "docs/FIELD-OWNERSHIP.md",
+          "docs/history/README.md",
+          "skills/faberun/references/operations.md",
+          "skills/faberun/references/contract.md",
+          "skills/init-agentkit/templates/docs/GETTING-STARTED.md",
+          "skills/init-agentkit/templates/docs/ARCHITECTURE.md",
+          "skills/init-agentkit/templates/docs/adr/README.md",
+          "skills/init-agentkit/templates/docs/adr/0001-record-architecture-decisions.md",
+          "skills/init-agentkit/templates/docs/adr/0002-root-managed-ai-guidance.md",
+          "src/cli/setup.mjs",
+          "src/cli/init.mjs"
+        ],
+        "writeFiles": [
+          "docs/GETTING-STARTED.md",
+          "docs/ARCHITECTURE.md",
+          "docs/adr/README.md",
+          "docs/adr/0001-record-architecture-decisions.md",
+          "docs/adr/0002-root-managed-ai-guidance.md",
+          "docs/adr/0003-harness-and-model-agnostic-orchestration.md",
+          "docs/adr/0004-closed-task-packets-and-cross-vendor-judges.md",
+          "docs/adr/0005-repository-becomes-the-faberun-cli.md",
+          "docs/adr/0006-github-releases-distribution-and-self-update.md"
+        ],
+        "symbols": [],
+        "decisions": [
+          "The agent-kit templates give the structure; the content is Faberun's current state and real decisions.",
+          "ARCHITECTURE reflects active decisions only; rationale lives in the ADRs.",
+          "No Sentrux ADR; the repository's structural gate is test/repo/source-shape.test.mjs."
+        ],
+        "nonGoals": [
+          "Do not write VISION, CONCEPTS or COMMANDS; sibling nodes own them.",
+          "Do not edit README.md, AGENTS.md, the templates or the skill references.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "-e",
+              "const {readFileSync,existsSync}=require('node:fs');const gs=readFileSync('docs/GETTING-STARTED.md','utf8');const ar=readFileSync('docs/ARCHITECTURE.md','utf8');const idx=readFileSync('docs/adr/README.md','utf8');const adrs=['0001-record-architecture-decisions','0002-root-managed-ai-guidance','0003-harness-and-model-agnostic-orchestration','0004-closed-task-packets-and-cross-vendor-judges','0005-repository-becomes-the-faberun-cli','0006-github-releases-distribution-and-self-update'];const ok=gs.includes('install.sh')&&gs.includes('faberun setup')&&gs.includes('faberun init')&&gs.includes('\"contractVersion\": \"0.3.0\"')&&ar.includes('harnesses')&&ar.includes('.runs/')&&adrs.every(a=>existsSync('docs/adr/'+a+'.md')&&idx.includes(a)&&/^status: active$/m.test(readFileSync('docs/adr/'+a+'.md','utf8')));process.exit(ok?0:1)"
+            ],
+            "timeoutSec": 30
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/docs/docs-diet.test.mjs"
+            ],
+            "timeoutSec": 60
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "structure",
+          "text": "GETTING-STARTED names the real commands and a valid minimal contract, ARCHITECTURE names the layers and .runs/, and all six ADRs exist, are active and indexed",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "skill-untouched",
+          "text": "the skill documents stay within their ceilings",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "getting-started-exists",
+          "text": "docs/GETTING-STARTED.md exists",
+          "proof": {
+            "kind": "path",
+            "ref": "docs/GETTING-STARTED.md"
+          }
+        },
+        {
+          "id": "architecture-exists",
+          "text": "docs/ARCHITECTURE.md exists",
+          "proof": {
+            "kind": "path",
+            "ref": "docs/ARCHITECTURE.md"
+          }
+        },
+        {
+          "id": "walkthrough-works",
+          "text": "the first-campaign walkthrough uses only commands and flags that exist, and the minimal contract JSON would validate (schema 3, contractVersion 0.3.0, proofs on every definition-of-done item, non-empty verification)",
+          "judgment": true
+        },
+        {
+          "id": "adr-quality",
+          "text": "each ADR records a real decision with real alternatives and consequences, in the template format, citing where the decision lives",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "docs-index",
+      "type": "backend",
+      "phase": "docs-and-releases",
+      "dependsOn": [
+        "release-pipeline",
+        "command-manual",
+        "vision-and-concepts",
+        "getting-started-and-adrs",
+        "supervisor-group-guard"
+      ],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "docs/README.md maps every document to the question it answers, AGENTS.md links the documentation from its top, every relative link under docs/ resolves, and a ratchet keeps new documents from going unlisted.",
+        "instructions": [
+          "Read every document now under docs/ (COMMANDS, VISION, CONCEPTS, GETTING-STARTED, ARCHITECTURE, adr/README and the ADRs, FIELD-OWNERSHIP, harnesses/zcode-cli, history/README, campaigns/become-faberun/spec/SPEC.md), DESIGN.md, AGENTS.md and test/docs/link-check.test.mjs.",
+          "Write docs/README.md as the documentation map: a table with one row per document -- path, the question it answers, who reads it (newcomer, operator, contributor, orchestrating agent) -- covering every file directly under docs/, docs/adr/README.md, docs/harnesses/, docs/history/README.md, docs/campaigns/ (one row for the directory plus one for the become-faberun spec), DESIGN.md at the root and skills/faberun/references/ (one row for the directory). One introductory paragraph on how the documents divide: user-facing (docs/*.md), decisions (adr/), living internals (FIELD-OWNERSHIP, harnesses/), records (history/, campaigns/).",
+          "AGENTS.md: insert, directly after the `# AGENTS.md` heading, the link line the agent-kit template uses: `> [Vision](docs/VISION.md) · [Concepts](docs/CONCEPTS.md) · [Architecture](docs/ARCHITECTURE.md) · [Getting started](docs/GETTING-STARTED.md) · [Commands](docs/COMMANDS.md) · [ADRs](docs/adr/README.md) · [Design](DESIGN.md)`. Change nothing else in AGENTS.md; never touch its managed block.",
+          "Extend test/docs/link-check.test.mjs to also check the markdown files directly inside docs/adr/ and the root DESIGN.md and AGENTS.md, keeping the existing coverage. Run it and fix every broken relative link it reports across docs/ by correcting the link in the document that carries it -- sibling nodes wrote toward each other's files and small mismatches are expected. Add test/docs/docs-map.test.mjs: every `.md` directly under docs/, docs/adr/README.md, docs/harnesses/*.md and docs/history/README.md must be linked from docs/README.md, with the unlisted paths in the failure message.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does, and this node also carries the phase's final verification."
+        ],
+        "readFiles": [
+          "DESIGN.md",
+          "AGENTS.md",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "docs/FIELD-OWNERSHIP.md",
+          "docs/harnesses/zcode-cli.md",
+          "docs/history/README.md",
+          "docs/COMMANDS.md",
+          "docs/VISION.md",
+          "docs/CONCEPTS.md",
+          "docs/GETTING-STARTED.md",
+          "docs/ARCHITECTURE.md",
+          "docs/adr/README.md",
+          "test/docs/link-check.test.mjs"
+        ],
+        "writeFiles": [
+          "docs/README.md",
+          "AGENTS.md",
+          "test/docs/link-check.test.mjs",
+          "test/docs/docs-map.test.mjs",
+          "docs/COMMANDS.md",
+          "docs/VISION.md",
+          "docs/CONCEPTS.md",
+          "docs/GETTING-STARTED.md",
+          "docs/ARCHITECTURE.md",
+          "docs/adr/README.md"
+        ],
+        "symbols": [],
+        "decisions": [
+          "docs/README.md is the map; every document under docs/ is listed there, enforced by test.",
+          "AGENTS.md carries the documentation link line at the top, as the agent-kit template does.",
+          "Link fixes are made in the document that carries the broken link, with no content rewrites."
+        ],
+        "nonGoals": [
+          "Do not rewrite the sibling documents beyond fixing broken links.",
+          "Do not edit README.md at the root; phase 4 owns it.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/docs/"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "-e",
+              "const t=require('node:fs').readFileSync('AGENTS.md','utf8');process.exit(/^> \\[Vision\\]\\(docs\\/VISION\\.md\\)/m.test(t)?0:1)"
+            ],
+            "timeoutSec": 30
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "docs-tests",
+          "text": "link check, docs map, command surface and docs diet pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "agents-links",
+          "text": "AGENTS.md starts with the documentation link line",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "map-exists",
+          "text": "docs/README.md exists",
+          "proof": {
+            "kind": "path",
+            "ref": "docs/README.md"
+          }
+        },
+        {
+          "id": "map-quality",
+          "text": "each row of the map states the question the document answers in one clause and the reader it serves, and the four divisions are explained",
+          "judgment": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,311 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "become-faberun-2b-install-and-shape-fix",
+  "campaignId": "become-faberun",
+  "goal": "Phase 2b (install-and-shape-fix) of campaign become-faberun: the one source-shape violation the phase-2 final verification found (a raw git spawn in src/cli/setup.mjs) is fixed, and install.sh lands with the phase's full final verification green, so the phase-2 tree can be promoted. Based on run 2's integration tip 0e03f62. Spec: docs/campaigns/become-faberun/spec/SPEC.md.",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "maxParallel": 1,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "dsh-deepseek-flash",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "dsh-deepseek-flash": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "workspace-write",
+      "tier": 1,
+      "costRank": 1,
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "fallback": "agy-gemini-flash"
+    },
+    "agy-gemini-flash": {
+      "harness": "agy",
+      "model": "gemini-3.8-flash-low",
+      "vendor": "google",
+      "tier": 1,
+      "costRank": 2
+    }
+  },
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "nodes": [
+    {
+      "id": "bounded-git-in-setup",
+      "type": "backend",
+      "phase": "install-and-shape-fix",
+      "dependsOn": [],
+      "timeoutSec": 1800,
+      "gate": false,
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "src/cli/setup.mjs probes git through boundedGitSync like every other synchronous git spawn in src/, so test/repo/source-shape.test.mjs passes again and the git requirement line keeps its text.",
+        "instructions": [
+          "test/repo/source-shape.test.mjs ('every synchronous git spawn in src/ is bounded or a named exemption') fails on the integrated tree with exactly one offender: `src/cli/setup.mjs:278  const probe = spawnSync(\"git\", [\"--version\"], { encoding: \"utf8\" });` in `gitRequirement()`. Every other git spawn in src/ goes through `boundedGitSync(args, options)` in src/repo/worktree.mjs, which spawns `git` itself with a timeout and returns the spawnSync result plus `timedOut`.",
+          "Replace the raw spawn with `const probe = boundedGitSync([\"--version\"], { encoding: \"utf8\" });`, import `boundedGitSync` from \"../repo/worktree.mjs\", and remove the now-unused `spawnSync` import from node:child_process (noUnusedLocals makes a dead import a typecheck failure; keep it only if something else in the file still uses it). The requirement line stays `[ok] git · git version …` / `[fail] git · not found on PATH`: `probe.error || probe.status !== 0` still means missing, and a `timedOut` probe counts as missing too.",
+          "Do not add an exemption to SYNC_GIT_EXEMPTIONS; the rule is right and the call site is wrong. Do not change anything else in setup.mjs.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done."
+        ],
+        "readFiles": [
+          "AGENTS.md",
+          "src/cli/setup.mjs",
+          "src/repo/worktree.mjs",
+          "test/repo/source-shape.test.mjs",
+          "test/cli/setup.test.mjs"
+        ],
+        "writeFiles": [
+          "src/cli/setup.mjs"
+        ],
+        "symbols": [],
+        "scopeAcknowledged": [
+          "test/cli/setup.test.mjs",
+          "test/cli/cli.test.mjs"
+        ],
+        "decisions": [
+          "The probe goes through boundedGitSync; no exemption is added.",
+          "The requirement line text does not change."
+        ],
+        "nonGoals": [
+          "Do not touch any other file.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/repo/source-shape.test.mjs",
+              "test/cli/setup.test.mjs"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "shape-and-setup-tests",
+          "text": "the source-shape rule and the setup tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean (no unused import left behind)",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        }
+      ]
+    },
+    {
+      "id": "install-script",
+      "type": "backend",
+      "phase": "install-and-shape-fix",
+      "dependsOn": [
+        "bounded-git-in-setup"
+      ],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "`curl -fsSL https://raw.githubusercontent.com/feliperun/faberun/main/install.sh | sh` installs faberun on a fresh machine into the same home layout the self-updater uses, checks the requirements first, and hands off to `faberun setup`.",
+        "instructions": [
+          "Read the 'Install layout' and 'Distribution' decisions in docs/campaigns/become-faberun/spec/SPEC.md, src/host/home.mjs (the layout the script must match exactly: versions/<v>, current, and the bin symlink), src/cli/update.mjs (how the updater verifies a version) and the line grammar in DESIGN.md.",
+          "Write install.sh at the repository root: `#!/bin/sh`, `set -eu`, POSIX only (no arrays, no `[[`, no `local` assumptions beyond what dash and bash share), idempotent. Environment: FABERUN_HOME (default `$HOME/.faberun`), FABERUN_BIN_DIR (default `$HOME/.local/bin`), FABERUN_VERSION (a tag such as `v0.4.0`, `0.4.0`, or `main`), FABERUN_INSTALL_SOURCE (a path to a `.tar.gz` or to a directory to copy from, for offline installs and tests), FABERUN_NO_SETUP (skip the final setup). Steps: (1) requirements -- `node` on PATH with major version 22 or newer (`node -p 'process.versions.node'`), `tar`, and `curl` only when downloading; each failure prints `[fail] <name> · <what is missing and how to get it>` and exits 1, each success `[ok] <name> · <detail>`; (2) resolve the version: FABERUN_VERSION when set; otherwise the `tag_name` of `https://api.github.com/repos/feliperun/faberun/releases/latest` parsed with sed (no jq); when the API answers 404 or no tag parses, fall back to `main` and say so with `[warn] release · no release yet · installing main`; (3) fetch: a tag downloads `https://github.com/feliperun/faberun/archive/refs/tags/<tag>.tar.gz`, `main` downloads `.../archive/refs/heads/main.tar.gz`, FABERUN_INSTALL_SOURCE uses the local tarball or directory instead; extract with `tar -xzf <file> --strip-components=1 -C <home>/versions/<version>.partial` (GitHub tarballs have one top-level directory), then rename the partial directory to `<home>/versions/<version>` (remove an existing same-version directory first so a re-run refreshes it); (4) `chmod +x <dir>/bin/faberun.mjs`, repoint `<home>/current` (symlink, replaced atomically through a temporary name and `mv -f`), and link `<bin dir>/faberun` to `<home>/current/bin/faberun.mjs`; (5) verify with `<bin dir>/faberun --version` and print `[ok] installed · faberun <printed version> · <bin dir>/faberun`; (6) when `<bin dir>` is not in PATH print `[warn] path · add <bin dir> to PATH` with the shell line to add; (7) unless FABERUN_NO_SETUP is set, when stdin and stdout are terminals, exec `<bin dir>/faberun setup`; otherwise print `next · faberun setup`. Use only `printf`, never `echo -e`; quote every path.",
+          "Write test/host/install-sh.test.mjs: build a tarball from the current tree with `tar -czf` containing a single top-level directory `faberun-test/` holding bin/, src/, skills/, integrations/ and package.json (spawnSync tar with `-s` or `--transform` is not portable, so create a temp staging directory named faberun-test, copy those paths into it with cpSync, and tar the staging parent); run `sh install.sh` with FABERUN_INSTALL_SOURCE pointing at the tarball, FABERUN_HOME and FABERUN_BIN_DIR in temp directories, FABERUN_VERSION set to the package.json version, FABERUN_NO_SETUP=1, and PATH inherited; assert `versions/<version>/bin/faberun.mjs` exists, `current` is a symlink to that directory, `<bin>/faberun` is a symlink to `current/bin/faberun.mjs`, `<bin>/faberun --version` prints `faberun <version>`, and stdout has `[ok] installed`; run it again and assert the same state (idempotent); run with FABERUN_INSTALL_SOURCE pointing at the staging directory instead of the tarball; run with a PATH that lacks node (withEmptyPath from test/helpers.mjs, keeping /bin and /usr/bin for sh and tar) and assert exit 1 with `[fail] node`. No test reaches the network.",
+          "This is the second run of this packet. The first run's attempt produced a working install.sh and test but the phase's final verification failed on a source-shape rule in a file outside this packet (src/cli/setup.mjs, fixed by the node this one depends on). Nothing about install.sh changes; deliver it again exactly as specified.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does."
+        ],
+        "readFiles": [
+          "DESIGN.md",
+          "AGENTS.md",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "package.json",
+          "bin/faberun.mjs",
+          "src/host/home.mjs",
+          "src/cli/update.mjs",
+          "test/helpers.mjs"
+        ],
+        "writeFiles": [
+          "install.sh",
+          "test/host/install-sh.test.mjs"
+        ],
+        "symbols": [],
+        "decisions": [
+          "POSIX sh, set -eu, idempotent, no jq; GitHub archive tarballs by tag, main as the pre-release fallback.",
+          "The layout is the one src/host/home.mjs defines; the updater and the installer must agree.",
+          "Verification is the installed binary printing its own version before the script reports success.",
+          "The script hands off to faberun setup on an interactive terminal unless FABERUN_NO_SETUP is set."
+        ],
+        "nonGoals": [
+          "No Windows or PowerShell installer.",
+          "No checksum or signature verification in this version (recorded as a follow-up).",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "sh",
+              "-n",
+              "install.sh"
+            ],
+            "timeoutSec": 30
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/host/install-sh.test.mjs"
+            ],
+            "timeoutSec": 300
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "syntax",
+          "text": "install.sh parses under sh -n",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "install-tests",
+          "text": "the offline installer tests pass: layout, idempotence, directory source, missing node",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "script-exists",
+          "text": "install.sh exists at the repository root",
+          "proof": {
+            "kind": "path",
+            "ref": "install.sh"
+          }
+        },
+        {
+          "id": "layout-parity",
+          "text": "the directories and symlinks install.sh creates are exactly the ones src/host/home.mjs and update.mjs expect, so update works on an install.sh installation",
+          "judgment": true
+        },
+        {
+          "id": "requirements-clarity",
+          "text": "a fresh-machine user with an old Node or no curl gets one line saying what is missing and how to get it",
+          "judgment": true
+        }
+      ]
+    }
+  ]
+}

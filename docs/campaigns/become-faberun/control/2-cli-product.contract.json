@@ -1,0 +1,1099 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "become-faberun-2-cli-product",
+  "campaignId": "become-faberun",
+  "goal": "Phase 2 (cli-product) of campaign become-faberun: the CLI becomes a product -- a visual identity from DESIGN.md, a version and a self-updater, the skills installer as a verb, first-run onboarding (setup) and repository bootstrap (init), a POSIX installer, and a way back from a parked campaign. Spec: docs/campaigns/become-faberun/spec/SPEC.md.",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "maxParallel": 2,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "dsh-deepseek-flash",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "dsh-deepseek-flash": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "workspace-write",
+      "tier": 1,
+      "costRank": 1,
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "fallback": "agy-gemini-flash"
+    },
+    "agy-gemini-flash": {
+      "harness": "agy",
+      "model": "gemini-3.8-flash-low",
+      "vendor": "google",
+      "tier": 1,
+      "costRank": 2
+    }
+  },
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "nodes": [
+    {
+      "id": "brand-and-banner",
+      "type": "backend",
+      "phase": "cli-product",
+      "dependsOn": [],
+      "timeoutSec": 5400,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "The command line wears the identity DESIGN.md specifies: a colour-capable brand module, the hornero-nest banner on `faberun` with no arguments and on --help, `faberun --version` from package.json, and coloured [ok]/[warn]/[fail] tokens in doctor and preflight whose text does not change.",
+        "instructions": [
+          "Read DESIGN.md in full; it is the specification for this node and the judge reads it too. Read the layout and conventions in AGENTS.md ('Source tree rules': files under 800 lines, no import cycles, no duplicate bodies, every module has a header comment saying what it owns and why it is separate).",
+          "Create src/cli/brand.mjs. It exports: `colorLevel(env, isTTY)` returning 0, 1, 2 or 3 in exactly the order DESIGN.md gives (NO_COLOR wins; FORCE_COLOR sets the level, empty meaning 3; not a TTY or TERM=dumb means 0; COLORTERM truecolor/24bit means 3; otherwise 2); `paint(text, role, level)` for the roles brand, ok, progress, warn, fail, muted and text, emitting the exact 24-bit sequences, the 256-colour indexes and the 16-colour codes from the table in DESIGN.md, with bold for brand, warn and fail and the dim attribute for muted, and returning the text untouched at level 0; `useUnicodeGlyphs(env)` true when LANG, LC_ALL or LC_CTYPE contains UTF-8 and TERM is not dumb; `glyph(role, env)` returning the Unicode glyph or its ASCII fallback; `statusToken(kind, level)` returning `[ok]`, `[warn]` or `[fail]` painted in the ok, warn or fail role -- the bracketed text never changes; `renderBanner({version, nodeVersion, harnessCount, level})` returning the five-line banner exactly as drawn in DESIGN.md (dome lines painted brand-coloured Terra without bold, the opening characters muted, the word faberun in the brand role, the tagline as plain text, the last line muted and filled as `v<version> · node <nodeVersion> · <n> harnesses detected`), ASCII apart from the middle dot, at most 64 columns before escape codes; and `renderUsage()` returning the usage text as one `usage: faberun <verb> ...` line per verb group (run/validate, preflight, resume/cancel, supervise, supervise campaign, status/report, findings, doctor, models, next, bulk-read, contract, metrics, campaign, seat) with the same verbs and flags the current one-line usage in src/cli.mjs carries.",
+          "Create src/host/package.mjs exporting `packageVersion()` and `packageName()`, read once from ../../package.json relative to the module (fileURLToPath), so `faberun --version` and the banner never hard-code a number.",
+          "In src/cli.mjs `main`: an empty argv, `--help` or `-h` print the banner (only when process.stdout.isTTY and colorLevel is not forced off by NO_COLOR) followed by renderUsage() to stdout and exit 0; `--version` or `-v` print `faberun <packageVersion()>` and a newline to stdout and exit 0; an unknown verb keeps printing the usage to stderr with exit code 2 and never the banner. `usage()` now writes renderUsage(). Keep the `const COMMAND_OPTIONS = {` table and `parseCli` exactly as they are: test/docs/command-surface.test.mjs parses that table. The banner's harness count is the number of the binaries claude, codex, agy, dsh, zcode found on PATH; src/host/preflight.mjs already has `findExecutable` -- export it rather than writing a second one.",
+          "Colour the tokens: in src/host/preflight.mjs `doctorCommand` and in the preflight branch of src/cli.mjs, the `[ok]`/`[warn]`/`[fail]` prefixes go through `statusToken(kind, level)` with level from `colorLevel(process.env, process.stdout.isTTY)`. Every `[warn]` written to stderr in src/cli.mjs and src/host/preflight.mjs uses the warn token with the level for stderr. `--json` output is never coloured. The tests run without a TTY, so their plain-text expectations must keep passing unchanged.",
+          "Write test/cli/brand.test.mjs: the colorLevel matrix (NO_COLOR beats FORCE_COLOR; FORCE_COLOR=1/2/3 and empty; non-TTY is 0; TERM=dumb is 0; COLORTERM=truecolor is 3; a TTY without COLORTERM is 2); paint emits `\\u001b[38;2;181;82;42m` for Terra, `\\u001b[38;2;217;123;79m` for Argila and `\\u001b[38;2;85;107;63m` for Folha at level 3 and returns plain text at level 0; statusToken keeps the bracketed text; renderBanner returns exactly five lines, each at most 64 columns once escape sequences are stripped, containing `faberun`, the tagline `from intent to running software` and the version; through bin/faberun.mjs (spawnSync, no TTY): `--version` prints `faberun <version from package.json>` with exit 0, no arguments prints the usage to stdout with exit 0 and no banner line (stdout is not a TTY), an unknown verb exits 2 with `usage: faberun` on stderr.",
+          "Update test/cli/cli.test.mjs only where the usage assertions need the multi-line form; `usage: faberun seat <` and the `seat <` match must still hold.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does."
+        ],
+        "readFiles": [
+          "DESIGN.md",
+          "AGENTS.md",
+          "package.json",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "src/cli.mjs",
+          "src/cli/seat.mjs",
+          "src/cli/contract.mjs",
+          "src/host/preflight.mjs",
+          "src/util.mjs",
+          "test/cli/cli.test.mjs",
+          "test/helpers.mjs",
+          "test/runner-helpers.mjs",
+          "test/host/preflight.test.mjs",
+          "integrations/claude-code/statusline.sh"
+        ],
+        "writeFiles": [
+          "src/cli/brand.mjs",
+          "src/host/package.mjs",
+          "src/cli.mjs",
+          "src/host/preflight.mjs",
+          "test/cli/brand.test.mjs",
+          "test/cli/cli.test.mjs"
+        ],
+        "symbols": [
+          "renderBanner"
+        ],
+        "scopeAcknowledged": [
+          "test/docs/command-surface.test.mjs",
+          "test/campaign/chain.test.mjs"
+        ],
+        "decisions": [
+          "DESIGN.md is the specification: palette, roles, capability order, banner, line grammar.",
+          "The [ok]/[warn]/[fail] tokens keep their text and only gain colour; --json is never coloured.",
+          "The banner appears only on a TTY, for no arguments, --help and (later) setup; --version is one plain line.",
+          "COMMAND_OPTIONS and parseCli stay intact; --help/--version are handled before verb dispatch.",
+          "The package version comes from package.json through src/host/package.mjs; the contract protocol version (CONTRACT_VERSION) is a different thing and stays."
+        ],
+        "nonGoals": [
+          "Do not restyle the status/report tables or the web dashboard.",
+          "Do not add the update hint yet; the update node owns the cache and the banner's hint line.",
+          "Do not touch integrations/claude-code/statusline.sh.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/cli/",
+              "test/host/",
+              "test/docs/"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "cli-tests",
+          "text": "test/cli, test/host and test/docs pass with the brand tests included",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "brand-module",
+          "text": "src/cli/brand.mjs exists",
+          "proof": {
+            "kind": "path",
+            "ref": "src/cli/brand.mjs"
+          }
+        },
+        {
+          "id": "design-fidelity",
+          "text": "colour sequences, capability order, roles, glyph fallbacks and the banner match DESIGN.md character for character; the check-line grammar is unchanged",
+          "judgment": true
+        },
+        {
+          "id": "tree-rules",
+          "text": "the new modules carry header comments, no file passes 800 lines, no helper is duplicated (findExecutable is exported, not copied)",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "self-update",
+      "type": "backend",
+      "phase": "cli-product",
+      "dependsOn": [
+        "brand-and-banner"
+      ],
+      "timeoutSec": 5400,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "`faberun update --check` tells the operator whether a newer GitHub release exists and `faberun update` installs it into the versioned home layout and switches `current` only after the new version proves it runs; the banner shows a hint from the cached check, and nothing ever calls the network implicitly.",
+        "instructions": [
+          "Read the 'Install layout' and 'Distribution' decisions in docs/campaigns/become-faberun/spec/SPEC.md and the line grammar in DESIGN.md (no arrows or dashes in product output; `·` is the only separator; errors are one line on stderr, exit 1, never a stack trace).",
+          "Create src/host/home.mjs owning the install layout: `faberunHome(env)` is `env.FABERUN_HOME` or `~/.faberun`; `versionsDir(home)`, `currentLink(home)`, `configPath(home)`, `updateCheckPath(home)`, `tmpDir(home)`; `installedVersionDir(entryPath, home)` returns the `versions/<v>` directory when the entry path (process.argv[1], not realpath-resolved, so a symlinked bin still counts) lies under it, else null; `readUpdateCheck(home)` / `writeUpdateCheck(home, record)` for `{checkedAt, current, latest}` written atomically.",
+          "Create src/cli/update.mjs exporting `updateCommand({check, json, env, fetchImpl, entryPath, stdout, stderr})` and returning the exit code. Release lookup: GET `env.FABERUN_RELEASES_URL` or `https://api.github.com/repos/feliperun/faberun/releases/latest` with headers `Accept: application/vnd.github+json` and `User-Agent: faberun/<packageVersion()>`, a 10 second AbortSignal timeout, and `tag_name` parsed as `vX.Y.Z` (a tag that does not parse is an error). Compare with packageVersion() numerically on the three parts (no prerelease handling; document that). `--check`: print `faberun <current> · latest <latest>` and either `update available · run faberun update` or `up to date`, write the cache record, exit 0. Without --check: when `installedVersionDir` is null print `faberun is not installed under <home>; update it the way it was installed (git pull, or re-run install.sh)` to stderr, exit 1; when already current print `up to date`, exit 0; otherwise download the release's `tarball_url` to `<home>/tmp/<tag>.tgz`, extract with `tar -xzf <file> --strip-components=1 -C <home>/versions/<tag>.partial`, run `node <partial>/bin/faberun.mjs --version` and require it to print `faberun <X.Y.Z>`, rename the partial directory to `<home>/versions/<X.Y.Z>`, repoint `current` atomically (create `current.tmp` as a symlink to the new directory, then rename it over `current`), delete the tarball, print `updated · <old> to <new>`, refresh the cache, exit 0. Any failure removes the partial directory, leaves `current` untouched and exits 1 with one line. `--json` prints `{current, latest, updated, installedUnderHome, home}`.",
+          "Wire `update` into src/cli.mjs: add `update: { check: { type: \"boolean\" }, json: { type: \"boolean\" } }` to COMMAND_OPTIONS (this is a row in the existing table, which test/docs/command-surface.test.mjs parses -- keep the table's shape), accept it with zero positionals in parseCli, dispatch to updateCommand with `entryPath: process.argv[1]`, and add its line to renderUsage() in src/cli/brand.mjs. The banner's last line in renderBanner gains ` · update available: <latest>` when `readUpdateCheck` shows a latest newer than the current version; the banner reads the cache only and never fetches.",
+          "No implicit network: doctor, the banner and every other command must not call the releases URL. Only `update` and `update --check` do.",
+          "Write test/cli/update.test.mjs with a local node:http server: it serves `/latest` as the releases JSON (tag_name and a tarball_url pointing back at the same server) and `/tarball` as a gzipped tarball built with `tar -czf` from a fixture directory shaped `faberun-x/bin/faberun.mjs` + `faberun-x/package.json` where the fixture bin prints `faberun <its package version>`. Cases: `--check` with a newer tag prints `update available` and writes the cache; `--check` with the current version prints `up to date`; `update` with an entry path outside the home exits 1 with the not-installed line; `update` with the entry under `<home>/versions/<current>/bin/faberun.mjs` downloads, extracts, verifies and moves `current` to the new version; a fixture whose bin prints the wrong version leaves `current` untouched, removes the partial directory and exits 1; a 500 from the server exits 1 with one line and no stack trace; `renderBanner` shows the hint when the cache names a newer version and not otherwise. Every test sets FABERUN_HOME to a temp directory and FABERUN_RELEASES_URL to the local server; nothing reaches the network.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does."
+        ],
+        "readFiles": [
+          "DESIGN.md",
+          "AGENTS.md",
+          "package.json",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "src/cli.mjs",
+          "src/cli/brand.mjs",
+          "src/cli/seat.mjs",
+          "src/host/package.mjs",
+          "src/host/preflight.mjs",
+          "src/util.mjs",
+          "test/helpers.mjs",
+          "test/cli/brand.test.mjs"
+        ],
+        "writeFiles": [
+          "src/host/home.mjs",
+          "src/cli/update.mjs",
+          "src/cli.mjs",
+          "src/cli/brand.mjs",
+          "test/cli/update.test.mjs",
+          "test/cli/brand.test.mjs"
+        ],
+        "symbols": [
+          "updateCommand"
+        ],
+        "scopeAcknowledged": [
+          "test/cli/cli.test.mjs",
+          "test/docs/command-surface.test.mjs",
+          "test/campaign/chain.test.mjs"
+        ],
+        "decisions": [
+          "GitHub Releases are the channel; the tag is vX.Y.Z; the tarball is the release's tarball_url.",
+          "Home layout per SPEC.md: $FABERUN_HOME (default ~/.faberun) with versions/<v>, current, config.json, update-check.json, tmp/.",
+          "The new version proves itself by printing its own --version before current moves; a failure never touches current.",
+          "No implicit network calls: only update and update --check reach the releases URL; the banner reads the cache.",
+          "Version comparison is numeric on three parts; prereleases are out of scope and said so in the module header."
+        ],
+        "nonGoals": [
+          "Do not write install.sh; the installer node owns it (it must agree with home.mjs, which is why the layout lives in one module).",
+          "Do not add channels, pinning flags or rollback commands.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/cli/update.test.mjs",
+              "test/cli/brand.test.mjs",
+              "test/cli/cli.test.mjs",
+              "test/docs/"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "update-tests",
+          "text": "update, brand, cli and docs tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "home-module",
+          "text": "src/host/home.mjs exists and is the single owner of the install layout",
+          "proof": {
+            "kind": "path",
+            "ref": "src/host/home.mjs"
+          }
+        },
+        {
+          "id": "safe-switch",
+          "text": "current is repointed only after the downloaded version prints its own --version, and every failure path leaves current untouched",
+          "judgment": true
+        },
+        {
+          "id": "no-implicit-network",
+          "text": "no code path other than update reaches the releases URL; the banner reads only the cache",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "skills-verb",
+      "type": "backend",
+      "phase": "cli-product",
+      "dependsOn": [
+        "self-update"
+      ],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "`faberun skills list` and `faberun skills install [name...] [--target <dir>] [--global] [--force]` replace the standalone bin/skills.mjs installer, which is deleted along with its package.json bin entry.",
+        "instructions": [
+          "Read bin/skills.mjs (the behaviour to port), test/cli/installer.test.mjs (the cases to keep), src/cli/seat.mjs (the per-operation option table pattern every verb module follows) and the line grammar in DESIGN.md.",
+          "Create src/cli/skills.mjs exporting `skillsCli(args)` (the wire: OPERATION_OPTIONS for `list` and `install`, strict parseArgs, usage to stderr with exit 2 on misuse) and `installSkills({names, skillsDir, force, stdout})` (the behaviour, exported so `faberun init` can reuse it). The catalogue root is `new URL(\"../../skills\", import.meta.url)`; a skill is a directory there with a SKILL.md. `list` prints one name per line. `install` copies every catalogue skill by default, or only the named ones; destination is `<--target or cwd>/.claude/skills/` or `~/.claude/skills/` with --global; existing skills are kept unless --force; lines read `installed <name> · <dir>`, `skipped <name> · exists, use --force`, and the summary `<n> installed · <m> skipped`; an unknown name is a usage error naming `faberun skills list`.",
+          "Dispatch in src/cli.mjs exactly like `seat`: `if (argv[0] === \"skills\") { skillsCli(argv.slice(1)); return; }`, and add `skills list` / `skills install` lines to renderUsage() in src/cli/brand.mjs. Do not touch COMMAND_OPTIONS.",
+          "Delete bin/skills.mjs. In package.json remove the `skills` bin entry so `bin` is `{\"faberun\": \"bin/faberun.mjs\"}`; the `check` script glob `bin/*.mjs` still matches the remaining entry.",
+          "Rewrite test/cli/installer.test.mjs to drive `bin/faberun.mjs skills ...` with spawnSync: default install puts faberun and init-agentkit under `.claude/skills/` and prints `2 installed · 0 skipped`; a named install installs only that skill; a second install skips and --force replaces (SKILL.md front matter starts with `---\\nname: init-agentkit`); `skills list` names both skills; `--global` with HOME pointed at a temp directory installs under `<HOME>/.claude/skills/`; an unknown skill exits 2.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does."
+        ],
+        "readFiles": [
+          "DESIGN.md",
+          "AGENTS.md",
+          "package.json",
+          "bin/skills.mjs",
+          "bin/faberun.mjs",
+          "src/cli.mjs",
+          "src/cli/seat.mjs",
+          "src/cli/brand.mjs",
+          "test/cli/installer.test.mjs",
+          "test/helpers.mjs"
+        ],
+        "writeFiles": [
+          "src/cli/skills.mjs",
+          "src/cli.mjs",
+          "src/cli/brand.mjs",
+          "bin/skills.mjs",
+          "package.json",
+          "test/cli/installer.test.mjs",
+          "test/cli/brand.test.mjs"
+        ],
+        "symbols": [
+          "skillsCli"
+        ],
+        "scopeAcknowledged": [
+          "test/cli/cli.test.mjs",
+          "test/docs/command-surface.test.mjs",
+          "test/host/ci-policy.test.mjs",
+          "test/campaign/chain.test.mjs"
+        ],
+        "decisions": [
+          "skills is a verb with subcommands, dispatched like seat and contract; installSkills is exported for init.",
+          "bin/skills.mjs and its bin entry are removed; npx github:feliperun/faberun now runs the faberun bin.",
+          "Output follows the DESIGN.md line grammar: middle dot separators, one fact per line."
+        ],
+        "nonGoals": [
+          "Do not implement init; it comes next and reuses installSkills.",
+          "Do not touch README.md; the front door is rewritten in phase 4.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/cli/installer.test.mjs",
+              "test/cli/cli.test.mjs",
+              "test/docs/",
+              "test/host/ci-policy.test.mjs"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "-e",
+              "process.exit(require('node:fs').existsSync('bin/skills.mjs') ? 1 : 0)"
+            ],
+            "timeoutSec": 30
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "installer-tests",
+          "text": "the installer, cli, docs and ci-policy tests pass through the new verb",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "old-bin-gone",
+          "text": "bin/skills.mjs no longer exists",
+          "proof": {
+            "kind": "verification",
+            "ref": "2"
+          }
+        },
+        {
+          "id": "behaviour-kept",
+          "text": "every behaviour of the old installer (default, named, force, list, global) survives with the new output grammar",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "setup-onboarding",
+      "type": "backend",
+      "phase": "cli-product",
+      "dependsOn": [
+        "skills-verb"
+      ],
+      "timeoutSec": 5400,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "`faberun setup` onboards a fresh machine: it checks Node and git, discovers which harnesses are installed and usable, asks which to enable and which runtimes are the default worker and judge, writes the user config, and runtime composition honours that config from then on.",
+        "instructions": [
+          "Read the 'Onboarding' decision in docs/campaigns/become-faberun/spec/SPEC.md, the prompt and line grammar in DESIGN.md, src/engine/runtime-discovery.mjs (DISCOVERY_RUNTIME_DEFINITIONS, discoverRuntimes, composeAssignments and its private cheapest/strongest helpers) and src/engine/assignment.mjs (runtimeAssignments, the only production caller of composeAssignments).",
+          "Create src/host/config.mjs owning the user config at `configPath(faberunHome(env))` from src/host/home.mjs: `readUserConfig(env)` returns `{schemaVersion: 1, harnesses: string[], worker?: string, judge?: string, updatedAt: string}` or null when the file is absent; a malformed file is reported once on stderr as `[warn] config · <path> is not valid; ignoring it` and treated as absent; `writeUserConfig(env, config)` writes atomically (temp file plus rename) and creates the home directory.",
+          "Create src/cli/setup.mjs exporting `setupCommand({yes, harnesses, worker, judge, json, env, discover, ask, stdout, stderr, isTTY})` returning the exit code, with `discover` defaulting to `discoverRuntimes(DISCOVERY_RUNTIME_DEFINITIONS)` and `ask` to a node:readline/promises question. Steps and output: (1) the banner when isTTY; (2) requirements as check lines -- `[ok] node · <process.version> (22 or newer required)` or `[fail] node · <version> · 22 or newer required` (exit 1), `[ok] git · <git --version>` or `[fail] git · not found on PATH` (exit 1); (3) discovery, one line per catalogue runtime: `[ok] dsh-deepseek · available · dsh · deepseek-flash`, `[warn] codex-gpt · authentication_required · codex · gpt-5.6`, `[fail] claude-sonnet · not_found · claude · claude-sonnet-5`, plus for a runtime whose config names an `*.env_key` that is unset the detail `set <VAR>`; (4) selection: interactive when isTTY and neither --yes nor the selection flags are given -- `Enable which harnesses? [<comma list of available harnesses>]`, `Default worker runtime? [<cheapest available tier-1 id>]`, `Default judge runtime? [<strongest available id of another vendor>]`; an answer naming a judge of the worker's vendor is refused once with `the judge must come from a different vendor than the worker` and asked again, then fails with exit 1; non-interactive (--yes, or any of --harnesses/--worker/--judge) takes the flags or those defaults; zero available runtimes prints `[fail] harnesses · none available · install one of: claude, codex, agy, dsh, zcode` and exits 1; (5) write the config and print `[ok] config · <path>` then `next · faberun init in a repository · faberun doctor`. `--json` prints `{requirements, runtimes, config}` and asks nothing.",
+          "Composition honours the config. Extend `composeAssignments(contract, availability, options)` with an optional `options.config`: when present, candidates are restricted to runtimes whose `harness` is in `config.harnesses` (an empty result falls back to the unrestricted candidates and is reported as a warning string in the returned assignments' `warnings` array, or through an `onWarning` callback -- pick one and document it); `config.worker` is used for an omitted worker role when it is an available candidate, and `config.judge` for an omitted judge role when it is an available candidate of a different vendor than the chosen worker; otherwise the existing cheapest/strongest rule applies. Explicit `nodes[].runtime`, `gate.runtime` and `runtimeDefaults` are never overridden. `runtimeAssignments` in src/engine/assignment.mjs loads the config through `readUserConfig(process.env)` and passes it. Export the selection helpers you need for setup's defaults instead of copying them.",
+          "Register `setup` in src/cli.mjs: `setup: { yes: { type: \"boolean\" }, harnesses: { type: \"string\" }, worker: { type: \"string\" }, judge: { type: \"string\" }, json: { type: \"boolean\" } }` in COMMAND_OPTIONS (a row in the existing table; keep its shape), zero positionals, and the usage line in renderUsage() in src/cli/brand.mjs.",
+          "Tests. test/cli/setup.test.mjs: config round trip and the malformed-file warning with FABERUN_HOME in a temp directory; setupCommand with an injected `discover` returning all runtimes available and --yes writes a config whose worker is the cheapest tier-1 id and whose judge is of a different vendor; with only one vendor available it exits 1 naming the judge problem; with none available it exits 1 with the install hint; with `--harnesses dsh,claude --worker dsh-deepseek --judge claude-sonnet` it writes exactly that; the interactive path with an injected `ask` refuses a same-vendor judge once then accepts a valid one; through bin/faberun.mjs with `withEmptyPath` from test/helpers.mjs and `--yes --json` it exits 1 because no harness is found. test/engine/runtime-discovery.test.mjs: composeAssignments with a config restricting harnesses picks only from them, honours a preferred worker and judge when available and cross-vendor, ignores a preferred judge of the worker's vendor, and falls back to the unrestricted set when the restriction leaves nothing. Every existing test in that file keeps passing unchanged.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does."
+        ],
+        "readFiles": [
+          "DESIGN.md",
+          "AGENTS.md",
+          "package.json",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "src/cli.mjs",
+          "src/cli/brand.mjs",
+          "src/cli/seat.mjs",
+          "src/host/home.mjs",
+          "src/host/preflight.mjs",
+          "src/engine/runtime-discovery.mjs",
+          "src/engine/assignment.mjs",
+          "src/harnesses/index.mjs",
+          "src/seat/harnesses.mjs",
+          "test/engine/runtime-discovery.test.mjs",
+          "test/harnesses/catalogue.test.mjs",
+          "test/helpers.mjs"
+        ],
+        "writeFiles": [
+          "src/host/config.mjs",
+          "src/cli/setup.mjs",
+          "src/cli.mjs",
+          "src/cli/brand.mjs",
+          "src/engine/runtime-discovery.mjs",
+          "src/engine/assignment.mjs",
+          "test/cli/setup.test.mjs",
+          "test/engine/runtime-discovery.test.mjs",
+          "test/cli/brand.test.mjs"
+        ],
+        "symbols": [
+          "setupCommand"
+        ],
+        "scopeAcknowledged": [
+          "test/cli/cli.test.mjs",
+          "test/docs/command-surface.test.mjs",
+          "test/harnesses/catalogue.test.mjs",
+          "test/engine/routing.test.mjs",
+          "test/engine/tier-exhaustion.test.mjs",
+          "test/campaign/chain.test.mjs"
+        ],
+        "decisions": [
+          "Discovery reuses discoverRuntimes over DISCOVERY_RUNTIME_DEFINITIONS; setup adds no second catalogue.",
+          "The config lives at $FABERUN_HOME/config.json (src/host/home.mjs) with schemaVersion 1, harnesses, worker, judge, updatedAt.",
+          "Config narrows and prefers; it never overrides an explicit contract declaration and never breaks the cross-vendor judge rule.",
+          "Prompts follow DESIGN.md: one question per line, ending in ?, default in brackets.",
+          "Interactive only on a TTY without --yes or selection flags; --json never asks."
+        ],
+        "nonGoals": [
+          "Do not implement init; the next node does.",
+          "Do not probe models or send prompts; discovery is binary-and-credential level only.",
+          "Do not add a config editor or per-repository config.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/cli/setup.test.mjs",
+              "test/engine/runtime-discovery.test.mjs",
+              "test/harnesses/catalogue.test.mjs",
+              "test/cli/cli.test.mjs",
+              "test/docs/"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "setup-tests",
+          "text": "setup, discovery, catalogue, cli and docs tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "config-module",
+          "text": "src/host/config.mjs exists",
+          "proof": {
+            "kind": "path",
+            "ref": "src/host/config.mjs"
+          }
+        },
+        {
+          "id": "cross-vendor-kept",
+          "text": "no path through setup or composition can produce a judge of the worker's vendor, and explicit contract declarations are never overridden by the config",
+          "judgment": true
+        },
+        {
+          "id": "onboarding-clarity",
+          "text": "a first-time user reading the setup output knows which harnesses were found, why one is unusable (missing binary or credential), and what to do next",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "init-repository",
+      "type": "backend",
+      "phase": "cli-product",
+      "dependsOn": [
+        "setup-onboarding"
+      ],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "`faberun init` prepares a target repository for campaigns: .runs/ is git-ignored, the faberun skill is installed into .claude/skills/, and the agent kit is offered as an optional extra and run through the shipped installer script when accepted.",
+        "instructions": [
+          "Read the 'Onboarding' decision in docs/campaigns/become-faberun/spec/SPEC.md, skills/init-agentkit/SKILL.md (the rule that the compatibility variant is always asked, never defaulted silently), skills/init-agentkit/scripts/install-agentkit.sh (its flags: target dir, --greenfield, --stable, --no-hooks, --dry-run, --force), src/cli/skills.mjs (installSkills) and src/cli/setup.mjs (the prompt and check-line style to match).",
+          "Create src/cli/init.mjs exporting `initCommand({cwd, yes, skill, agentkit, variant, json, env, ask, stdout, stderr, isTTY})` returning the exit code. Steps: (1) the target must be a git work tree (`git -C <cwd> rev-parse --is-inside-work-tree`), else `[fail] git · <cwd> is not a git work tree` and exit 1; (2) `.gitignore` gains a `.runs/` line when no line equals `.runs/` or `.runs` (create the file if missing; append with a preceding newline when the file does not end in one) and prints `[ok] .runs ignored · <path>`; (3) the faberun skill: on a TTY without --yes ask `Install the faberun skill into .claude/skills? [Y/n]`; `--no-skill` skips; otherwise call installSkills with names [\"faberun\"] into `<cwd>/.claude/skills/` and print its lines; (4) the agent kit: on a TTY without --yes ask `Install the agent kit (AGENTS.md, docs/, ADRs, Sentrux gate)? [y/N]`, and when accepted `Compatibility rule: greenfield (break freely) or stable (preserve published contracts)? [greenfield]`; non-interactively the kit is installed only with `--agentkit`, with `--stable` or `--greenfield` (default greenfield); run `bash <repo>/skills/init-agentkit/scripts/install-agentkit.sh <cwd> --<variant>` (the script path resolved from `new URL(\"../../skills/init-agentkit/scripts/install-agentkit.sh\", import.meta.url)`) with inherited stdio and propagate a non-zero exit; (5) print `next · faberun doctor --cwd <cwd> · faberun campaign init <id> --cwd <cwd> --goal \"...\"`. `--json` prints `{cwd, runsIgnored, skillInstalled, agentkit}` and asks nothing.",
+          "Register `init` in src/cli.mjs: `init: { cwd: { type: \"string\" }, yes: { type: \"boolean\" }, \"no-skill\": { type: \"boolean\" }, agentkit: { type: \"boolean\" }, greenfield: { type: \"boolean\" }, stable: { type: \"boolean\" }, json: { type: \"boolean\" } }` in COMMAND_OPTIONS (a row in the existing table; keep its shape), zero positionals, `--greenfield` and `--stable` together is a usage error, and the usage line in renderUsage() in src/cli/brand.mjs.",
+          "Write test/cli/init.test.mjs against temp git repositories (initializeGit from test/helpers.mjs, or git init with a first commit): `init --yes` adds `.runs/` to .gitignore, installs the skill, installs no agent kit; a second `init --yes` is idempotent (one `.runs/` line, skill skipped); `--no-skill --yes` installs nothing under .claude; `--agentkit --greenfield --yes` produces AGENTS.md, docs/VISION.md and a CLAUDE.md symlink in the temp repo; a non-git directory exits 1; `--greenfield --stable` exits 2. Drive at least the first and the last case through bin/faberun.mjs.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does."
+        ],
+        "readFiles": [
+          "DESIGN.md",
+          "AGENTS.md",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "src/cli.mjs",
+          "src/cli/brand.mjs",
+          "src/cli/skills.mjs",
+          "src/cli/setup.mjs",
+          "src/host/home.mjs",
+          "src/host/preflight.mjs",
+          "skills/init-agentkit/SKILL.md",
+          "skills/init-agentkit/scripts/install-agentkit.sh",
+          "test/cli/installer.test.mjs",
+          "test/helpers.mjs"
+        ],
+        "writeFiles": [
+          "src/cli/init.mjs",
+          "src/cli.mjs",
+          "src/cli/brand.mjs",
+          "test/cli/init.test.mjs",
+          "test/cli/brand.test.mjs"
+        ],
+        "symbols": [
+          "initCommand"
+        ],
+        "scopeAcknowledged": [
+          "test/cli/cli.test.mjs",
+          "test/docs/command-surface.test.mjs",
+          "test/campaign/chain.test.mjs"
+        ],
+        "decisions": [
+          "The agent kit is optional and its compatibility variant is always asked interactively or given by flag; the shipped shell installer does the work.",
+          "init reuses installSkills; it does not copy skill files itself.",
+          "Output and prompts follow DESIGN.md and match setup."
+        ],
+        "nonGoals": [
+          "Do not modify the agent kit templates or installer script.",
+          "Do not create a campaign or a contract; init only prepares the repository.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/cli/init.test.mjs",
+              "test/cli/installer.test.mjs",
+              "test/cli/cli.test.mjs",
+              "test/docs/"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "init-tests",
+          "text": "init, installer, cli and docs tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "init-module",
+          "text": "src/cli/init.mjs exists",
+          "proof": {
+            "kind": "path",
+            "ref": "src/cli/init.mjs"
+          }
+        },
+        {
+          "id": "agentkit-asked",
+          "text": "the agent kit is never installed without the variant being chosen by the user or a flag, and the installer script is the only thing that writes it",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "campaign-unpark",
+      "type": "backend",
+      "phase": "cli-product",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "A parked campaign has a way back: `faberun campaign unpark <id>` clears the campaign's attention once the run it points at is no longer parked, records a `campaign.unparked` journal event, and `supervise campaign` can drive the chain again.",
+        "instructions": [
+          "Read src/campaign/chain.mjs: `driveCampaignChain` returns `parked` whenever `campaign.attention` is set (before it even looks at the runs), and `parkCampaign` in src/campaign/index.mjs is the only writer of that field. Nothing deletes it today, so an operator who resumes the parked run and gets it to done still cannot restart the chain -- this node is the missing half.",
+          "Implement `unparkCampaign(campaignPath, {runsDir, force, at, eventId})`: refuse a closed campaign (`campaign is closed`) and a campaign without attention (`campaign is not parked`); when `attention.runId` names a run directory under runsDir and `classifyRunProgress(runProgress(runDir, now))` is `parked` or `canceled`, refuse with `run <id> is still <state>; resume it first or pass --force`; otherwise remove `attention`, set `updatedAt`, write campaign.json atomically, append the journal event `{type: \"campaign.unparked\", at, eventId, code: <the cleared attention code>, runId: <attention.runId or null>}` and return `{campaign, cleared: attention}`. Place the function where no runtime import cycle forms (chain.mjs imports index.mjs, so index.mjs must not import chain.mjs); a new module src/campaign/unpark.mjs importing both is the clean answer -- test/repo/source-shape.test.mjs fails the suite on a cycle and on a file over 800 lines.",
+          "Journal schema: add `\"campaign.unparked\": [\"at\", \"type\", \"eventId\", \"code\", \"runId\"]` to ENTRY_SHAPES in src/campaign/journal.mjs (runId may be null, as `outcome` treats an optional field). docs/FIELD-OWNERSHIP.md is the declaration the field-ownership test re-derives from src/: add the `campaign.unparked` row to the journal table (writer `unparkCampaign`, when: `when campaign unpark clears a parked campaign`) and the matching entry to the JSON block after `<!-- FIELD-OWNERSHIP-SOURCE -->`. Do not change the measured multi-writer count (14) or any other row.",
+          "CLI: add `unpark: { cwd: { type: \"string\" }, force: { type: \"boolean\" }, \"event-id\": { type: \"string\" } }` to OPERATION_OPTIONS in src/cli/campaign.mjs (a row in the existing table, which test/docs/command-surface.test.mjs parses), route it in `campaignCli`, print `[campaign] <id> unparked · <code> cleared` on success, and add `unpark` to the usage line. Refusals print one line to stderr and exit 1.",
+          "Write test/campaign/unpark.test.mjs using the fixtures test/campaign/chain.test.mjs builds (a repo with a campaign, a run directory with node snapshots): parkCampaign with a `run_parked` attention naming a run whose node is `failed` -- unpark refuses; mark the node `done` -- unpark clears the attention, the journal holds one `campaign.unparked` event with the code and runId, campaign.json has no attention; a second unpark refuses with `not parked`; a closed campaign refuses; `--force` clears even while the run is parked; through the CLI (`bin/faberun.mjs campaign unpark <id> --cwd <repo>`) the success line and the exit codes are as specified; and `driveCampaignChain` with `maxTicks: 1` after an unpark no longer returns `parked`.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does."
+        ],
+        "readFiles": [
+          "AGENTS.md",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "src/campaign/index.mjs",
+          "src/campaign/chain.mjs",
+          "src/campaign/journal.mjs",
+          "src/campaign/record.mjs",
+          "src/cli/campaign.mjs",
+          "docs/FIELD-OWNERSHIP.md",
+          "test/campaign/chain.test.mjs",
+          "test/campaign/field-ownership.test.mjs",
+          "test/helpers.mjs"
+        ],
+        "writeFiles": [
+          "src/campaign/unpark.mjs",
+          "src/campaign/journal.mjs",
+          "src/cli/campaign.mjs",
+          "docs/FIELD-OWNERSHIP.md",
+          "test/campaign/unpark.test.mjs"
+        ],
+        "symbols": [
+          "unparkCampaign"
+        ],
+        "scopeAcknowledged": [
+          "test/campaign/campaign.test.mjs",
+          "test/campaign/chain.test.mjs",
+          "test/campaign/field-ownership.test.mjs",
+          "test/docs/command-surface.test.mjs",
+          "test/cli/cli.test.mjs"
+        ],
+        "decisions": [
+          "unpark refuses while the referenced run is still parked or canceled unless --force; the run is fixed with resume first.",
+          "The event is campaign.unparked with code and runId; FIELD-OWNERSHIP.md declares it and the ratchet count stays at 14.",
+          "The function lives in src/campaign/unpark.mjs to keep index.mjs and chain.mjs acyclic."
+        ],
+        "nonGoals": [
+          "Do not change how or when the chain parks.",
+          "Do not add automatic unparking to supervise or resume.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/campaign/",
+              "test/repo/source-shape.test.mjs",
+              "test/docs/"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "campaign-tests",
+          "text": "test/campaign passes including the new unpark cases, and the source-shape and docs tests stay green",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "unpark-module",
+          "text": "src/campaign/unpark.mjs exists",
+          "proof": {
+            "kind": "path",
+            "ref": "src/campaign/unpark.mjs"
+          }
+        },
+        {
+          "id": "chain-resumable",
+          "text": "after unpark, driveCampaignChain proceeds instead of returning parked, proven by a test that drives the chain rather than only reading campaign.json",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "chain-digest-fix",
+      "type": "backend",
+      "phase": "cli-product",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "supervise campaign no longer parks a healthy campaign on the tick after it launches a run: the chain's contract_digest_mismatch check compares like with like, and a test drives the real path (a run created by the controller, then a chain tick) to prove it.",
+        "instructions": [
+          "Read src/campaign/chain.mjs around the `contract_digest_mismatch` park (the block that reads run.json after `existsSync(join(runDir, \"run.json\"))`), src/engine/run-identity.mjs `readContractDigest` (what the controller records in run.json: `contractDigest(raw)` over the run's own stored `.runs/<id>/contract.json`, the inlined normalized copy, not the authored file) and src/contract/index.mjs `contractDigest` and `loadPersistedContract`.",
+          "The defect, measured on 2026-09-15 in campaign become-faberun run become-faberun-1-move-and-rename: three different digests exist for one contract -- the authored file's `contractDigest(raw)` d5e6b006…, the chain's `contractDigest(validatedContract)` d0d6174a…, and run.json's recorded 314ae717… (the stored contract.json). chain.mjs compares the second against the third, so every chained campaign parks with `contract_digest_mismatch` on the first tick after a launch, before the run has done anything. The smoke campaign never saw it because it did not use the chain, and test/campaign/chain.test.mjs did not either: its fixtures write run.json by hand with a digest computed the same way the chain computes it.",
+          "Fix: the chain must ask the question the controller can answer. Replace the recomputation with the same read the controller performs -- digest the run's stored `.runs/<id>/contract.json` with `contractDigest` (export a small `storedContractDigest(runDir)` from src/engine/run-identity.mjs, built from the existing `readContractDigest`, and import it in chain.mjs; do not copy the function) -- and additionally require the stored contract's `sourceIdentity.contractId` (or its `id`) to equal the manifest entry's contract id, so a run directory belonging to a different contract is still refused. Keep the park code `contract_digest_mismatch` and make its message name the two digests it compared.",
+          "Test: add to test/campaign/chain.test.mjs a case that creates a real run through the controller path the tests already use for runs (runContract or the CLI with a replay/fake harness fixture, whichever the surrounding tests use), then calls `driveCampaignChain` with `maxTicks` small enough to observe one tick over that run, and asserts the chain does NOT park with `contract_digest_mismatch` -- it must classify the run and either promote or wait. Add a second case where the stored contract.json is edited after creation and assert the chain parks with `contract_digest_mismatch`, and a third where the run directory's stored contract carries a different contract id and assert it parks too. Update the existing fixtures that wrote run.json digests by hand so they compute them the way the controller now does; every existing chain test must keep passing.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does."
+        ],
+        "readFiles": [
+          "AGENTS.md",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "src/campaign/chain.mjs",
+          "src/campaign/index.mjs",
+          "src/engine/run-identity.mjs",
+          "src/contract/index.mjs",
+          "src/cli/campaign.mjs",
+          "test/campaign/chain.test.mjs",
+          "test/helpers.mjs",
+          "test/runner-helpers.mjs"
+        ],
+        "writeFiles": [
+          "src/campaign/chain.mjs",
+          "src/engine/run-identity.mjs",
+          "test/campaign/chain.test.mjs"
+        ],
+        "symbols": [
+          "storedContractDigest"
+        ],
+        "scopeAcknowledged": [
+          "test/campaign/campaign.test.mjs",
+          "test/engine/resume.test.mjs",
+          "test/engine/resume-probe.test.mjs",
+          "test/cli/cli.test.mjs"
+        ],
+        "decisions": [
+          "The chain verifies the run directory against itself (stored contract.json versus run.json digest) plus the contract id, instead of recomputing a digest over a differently shaped object.",
+          "The regression test goes through a real controller-created run, not a hand-written run.json.",
+          "The park code contract_digest_mismatch is kept; only what it compares changes."
+        ],
+        "nonGoals": [
+          "Do not change promotion, validation-at-launch or the manifest digest (assertContractManifestIntact); they are correct.",
+          "Do not touch campaign-unpark's files (src/campaign/unpark.mjs, src/cli/campaign.mjs); that node runs in parallel.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/campaign/",
+              "test/engine/resume.test.mjs",
+              "test/engine/resume-probe.test.mjs"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "chain-tests",
+          "text": "test/campaign passes including the three digest cases, and the resume tests that read run.json digests stay green",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "real-path-proven",
+          "text": "the regression test creates the run through the controller and observes a chain tick that does not park; the positive and the two negative cases are distinct named tests",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "install-script",
+      "type": "backend",
+      "phase": "cli-product",
+      "dependsOn": [
+        "init-repository",
+        "campaign-unpark",
+        "chain-digest-fix"
+      ],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "`curl -fsSL https://raw.githubusercontent.com/feliperun/faberun/main/install.sh | sh` installs faberun on a fresh machine into the same home layout the self-updater uses, checks the requirements first, and hands off to `faberun setup`.",
+        "instructions": [
+          "Read the 'Install layout' and 'Distribution' decisions in docs/campaigns/become-faberun/spec/SPEC.md, src/host/home.mjs (the layout the script must match exactly: versions/<v>, current, and the bin symlink), src/cli/update.mjs (how the updater verifies a version) and the line grammar in DESIGN.md.",
+          "Write install.sh at the repository root: `#!/bin/sh`, `set -eu`, POSIX only (no arrays, no `[[`, no `local` assumptions beyond what dash and bash share), idempotent. Environment: FABERUN_HOME (default `$HOME/.faberun`), FABERUN_BIN_DIR (default `$HOME/.local/bin`), FABERUN_VERSION (a tag such as `v0.4.0`, `0.4.0`, or `main`), FABERUN_INSTALL_SOURCE (a path to a `.tar.gz` or to a directory to copy from, for offline installs and tests), FABERUN_NO_SETUP (skip the final setup). Steps: (1) requirements -- `node` on PATH with major version 22 or newer (`node -p 'process.versions.node'`), `tar`, and `curl` only when downloading; each failure prints `[fail] <name> · <what is missing and how to get it>` and exits 1, each success `[ok] <name> · <detail>`; (2) resolve the version: FABERUN_VERSION when set; otherwise the `tag_name` of `https://api.github.com/repos/feliperun/faberun/releases/latest` parsed with sed (no jq); when the API answers 404 or no tag parses, fall back to `main` and say so with `[warn] release · no release yet · installing main`; (3) fetch: a tag downloads `https://github.com/feliperun/faberun/archive/refs/tags/<tag>.tar.gz`, `main` downloads `.../archive/refs/heads/main.tar.gz`, FABERUN_INSTALL_SOURCE uses the local tarball or directory instead; extract with `tar -xzf <file> --strip-components=1 -C <home>/versions/<version>.partial` (GitHub tarballs have one top-level directory), then rename the partial directory to `<home>/versions/<version>` (remove an existing same-version directory first so a re-run refreshes it); (4) `chmod +x <dir>/bin/faberun.mjs`, repoint `<home>/current` (symlink, replaced atomically through a temporary name and `mv -f`), and link `<bin dir>/faberun` to `<home>/current/bin/faberun.mjs`; (5) verify with `<bin dir>/faberun --version` and print `[ok] installed · faberun <printed version> · <bin dir>/faberun`; (6) when `<bin dir>` is not in PATH print `[warn] path · add <bin dir> to PATH` with the shell line to add; (7) unless FABERUN_NO_SETUP is set, when stdin and stdout are terminals, exec `<bin dir>/faberun setup`; otherwise print `next · faberun setup`. Use only `printf`, never `echo -e`; quote every path.",
+          "Write test/host/install-sh.test.mjs: build a tarball from the current tree with `tar -czf` containing a single top-level directory `faberun-test/` holding bin/, src/, skills/, integrations/ and package.json (spawnSync tar with `-s` or `--transform` is not portable, so create a temp staging directory named faberun-test, copy those paths into it with cpSync, and tar the staging parent); run `sh install.sh` with FABERUN_INSTALL_SOURCE pointing at the tarball, FABERUN_HOME and FABERUN_BIN_DIR in temp directories, FABERUN_VERSION set to the package.json version, FABERUN_NO_SETUP=1, and PATH inherited; assert `versions/<version>/bin/faberun.mjs` exists, `current` is a symlink to that directory, `<bin>/faberun` is a symlink to `current/bin/faberun.mjs`, `<bin>/faberun --version` prints `faberun <version>`, and stdout has `[ok] installed`; run it again and assert the same state (idempotent); run with FABERUN_INSTALL_SOURCE pointing at the staging directory instead of the tarball; run with a PATH that lacks node (withEmptyPath from test/helpers.mjs, keeping /bin and /usr/bin for sh and tar) and assert exit 1 with `[fail] node`. No test reaches the network.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does."
+        ],
+        "readFiles": [
+          "DESIGN.md",
+          "AGENTS.md",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "package.json",
+          "bin/faberun.mjs",
+          "src/host/home.mjs",
+          "src/cli/update.mjs",
+          "test/helpers.mjs"
+        ],
+        "writeFiles": [
+          "install.sh",
+          "test/host/install-sh.test.mjs"
+        ],
+        "symbols": [],
+        "decisions": [
+          "POSIX sh, set -eu, idempotent, no jq; GitHub archive tarballs by tag, main as the pre-release fallback.",
+          "The layout is the one src/host/home.mjs defines; the updater and the installer must agree.",
+          "Verification is the installed binary printing its own version before the script reports success.",
+          "The script hands off to faberun setup on an interactive terminal unless FABERUN_NO_SETUP is set."
+        ],
+        "nonGoals": [
+          "No Windows or PowerShell installer.",
+          "No checksum or signature verification in this version (recorded as a follow-up).",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "sh",
+              "-n",
+              "install.sh"
+            ],
+            "timeoutSec": 30
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/host/install-sh.test.mjs"
+            ],
+            "timeoutSec": 300
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "syntax",
+          "text": "install.sh parses under sh -n",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "install-tests",
+          "text": "the offline installer tests pass: layout, idempotence, directory source, missing node",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "script-exists",
+          "text": "install.sh exists at the repository root",
+          "proof": {
+            "kind": "path",
+            "ref": "install.sh"
+          }
+        },
+        {
+          "id": "layout-parity",
+          "text": "the directories and symlinks install.sh creates are exactly the ones src/host/home.mjs and update.mjs expect, so update works on an install.sh installation",
+          "judgment": true
+        },
+        {
+          "id": "requirements-clarity",
+          "text": "a fresh-machine user with an old Node or no curl gets one line saying what is missing and how to get it",
+          "judgment": true
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+Answer from the orchestrator (2026-09-16).
+
+The two files you asked for are out of scope on purpose, and you do not need them. The failures you saw under test/engine/ are not caused by README.md: (1) the first attempt's final verification failed once in test/engine/seal-before-kill.test.mjs, a load-sensitive test that passed again minutes later; (2) the failures you reproduced yourself in resume.test.mjs and supervise.test.mjs happen because the dsh sandbox you run in cannot signal other processes or read `ps`, so any test that terminates a child fails or hangs inside your turn. Both are already recorded as findings of this campaign.
+
+Do NOT run any test under test/engine/ or test/run/. Run only `node --test test/docs/` to confirm the link check passes with README.md included. The README.md and test/docs/link-check.test.mjs you produced in the previous attempt are preserved in this worktree; check they are present, keep them, and report `done` with a summary of the README's sections. The controller runs the whole suite as the phase's final verification after you report; that is the proof, not your own run.

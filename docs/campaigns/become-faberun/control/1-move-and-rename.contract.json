@@ -1,0 +1,494 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "become-faberun-1-move-and-rename",
+  "campaignId": "become-faberun",
+  "goal": "Phase 1 (move-and-rename) of campaign become-faberun: the tool that lived under skills/mine/intent-factory/ moves to the repository root with its history intact, and every live reference to intent-factory becomes Faberun. Spec: skills/mine/intent-factory/docs/campaigns/become-faberun/spec/SPEC.md (docs/campaigns/become-faberun/spec/SPEC.md after the move).",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "maxParallel": 1,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "dsh-deepseek-flash",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "dsh-deepseek-flash": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "workspace-write",
+      "tier": 1,
+      "costRank": 1,
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "fallback": "agy-gemini-flash"
+    },
+    "agy-gemini-flash": {
+      "harness": "agy",
+      "model": "gemini-3.8-flash-low",
+      "vendor": "google",
+      "tier": 1,
+      "costRank": 2
+    }
+  },
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "nodes": [
+    {
+      "id": "move-to-root",
+      "type": "backend",
+      "phase": "move-and-rename",
+      "dependsOn": [],
+      "timeoutSec": 5400,
+      "gate": {
+        "review": "advisory",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "The whole tool lives at the repository root -- src/, test/, evals/, bin/, integrations/, docs/ and skills/faberun/ -- with every path reference updated, the suite green, and skills/mine/ gone. Names and identifiers do NOT change in this node (the next node renames intent-factory to faberun); this node moves files and fixes paths only.",
+        "instructions": [
+          "Read skills/mine/intent-factory/docs/campaigns/become-faberun/spec/SPEC.md first (sections 'Decisions already made' and 'Phase 1'). It is the accepted plan; do not reopen its decisions.",
+          "Move with plain `mv` and `mkdir -p`. Never run `git mv`, `git add`, `git rm`, `git commit`, `git stash` or `npm install`: your sandbox cannot write the shared .git directory, the controller seals your worktree itself, and husky's prepare hook dirties the ignore snapshot and fails the node. Git detects the renames from content, so `git log --follow` keeps the history.",
+          "First fold the four root tests into the tool's test tree so the two trees can merge: `mv test/installer.test.mjs skills/mine/intent-factory/test/cli/installer.test.mjs`; `mv test/signal.test.mjs skills/mine/intent-factory/test/repo/signal.test.mjs`; `mv test/session-start.test.mjs skills/mine/intent-factory/test/host/session-start.test.mjs`; `mv test/ci-policy.test.mjs skills/mine/intent-factory/test/host/ci-policy.test.mjs`; then `rmdir test`. Fix their relative paths afterwards: installer BIN becomes `../../bin/skills.mjs`; signal imports become `../../src/repo/signal.mjs`, `../../src/campaign/index.mjs`, `../../src/campaign/journal.mjs`; session-start HOOK becomes `../../.claude/hooks/session-start.mjs`; ci-policy ROOT becomes `new URL(\"../..\", import.meta.url)` and its commitlint config import `../../commitlint.config.mjs`.",
+          "Then move the tool: `mv skills/mine/intent-factory/src src`; `mv skills/mine/intent-factory/test test`; `mv skills/mine/intent-factory/evals evals`; `mkdir -p bin && mv skills/mine/intent-factory/bin/intent-factory.mjs bin/intent-factory.mjs`; `mv skills/mine/intent-factory/integrations integrations`.",
+          "Docs: `mkdir -p docs/history docs/harnesses`; `mv skills/mine/intent-factory/docs/campaigns docs/campaigns`; `mv skills/mine/intent-factory/docs/FIELD-OWNERSHIP.md docs/FIELD-OWNERSHIP.md`; `mv skills/mine/intent-factory/docs/ZCODE-CLI.md docs/harnesses/zcode-cli.md`; move every remaining skills/mine/intent-factory/docs/*.md (README.md, ADENDO-*.md, PRD-*.md, RETROSPECTIVE-*.md, REVIEW-*.md, TECH-SPEC-*.md) into docs/history/. Do not edit the content of any moved historical document except docs/history/README.md, where you append one table with the 2026-09-15 mapping: skills/mine/intent-factory/src/ -> src/, .../test/ -> test/, .../evals/ -> evals/, .../bin/ -> bin/, .../integrations/ -> integrations/, .../docs/ -> docs/history/ (dated records) and docs/campaigns/ (campaign records), .../docs/FIELD-OWNERSHIP.md -> docs/FIELD-OWNERSHIP.md, .../docs/ZCODE-CLI.md -> docs/harnesses/zcode-cli.md, .../SKILL.md and references/ -> skills/faberun/, skills/mine/init-agentkit -> skills/init-agentkit, skills/mine/bulk-read -> removed (bulk-read stays a CLI command).",
+          "Skills: `mkdir -p skills/faberun && mv skills/mine/intent-factory/SKILL.md skills/faberun/SKILL.md && mv skills/mine/intent-factory/references skills/faberun/references`; `mv skills/mine/init-agentkit skills/init-agentkit`; delete skills/mine/bulk-read (its one-paragraph guidance is already what `bulk-read` prints and what references/engineering.md's tool table can say in one row: add the row `| Ask one question about many large files | \\`bulk-read --question <text> --paths <a,b,c>\\` -- bullets only, corpora under 1500 lines are refused |` only if references/engineering.md stays at or under 2048 bytes; otherwise skip the row); delete skills/README.md; then `rmdir skills/mine/intent-factory skills/mine` (both must be empty by now -- if not, something was missed).",
+          "Merge skills/mine/intent-factory/AGENTS.md into the root AGENTS.md as a new `## Source tree rules` section placed before `## Production note`: keep its Layout table, Enforced rules, Conventions, Extraction and Tests subsections as `###` headings, rewrite 'this skill' to 'this repository', point the historical-record sentence at docs/history/ and docs/history/README.md, and delete the moved file. Do not touch the managed `<!-- intent-factory-active:start ... -->` block at the bottom of AGENTS.md.",
+          "`.claude/skills/`: remove the `intent-factory` and `init-agentkit` symlinks and create `faberun -> ../../skills/faberun` and `init-agentkit -> ../../skills/init-agentkit` (relative symlinks, `ln -s`).",
+          "package.json: `check` becomes `for f in bin/*.mjs .claude/hooks/*.mjs src/*.mjs src/*/*.mjs src/*/*/*.mjs evals/*.mjs test/*.mjs test/*/*.mjs; do node --check \"$f\" || exit 1; done`; `test` becomes `node --test test/*.test.mjs test/*/*.test.mjs`; `files` becomes [\"bin\", \"src\", \"skills\", \"integrations\"]. tsconfig.json `include` becomes [\".claude/hooks/**/*.mjs\", \"src/**/*.mjs\", \"test/**/*.mjs\", \"bin/**/*.mjs\", \"evals/**/*.mjs\"]. .github/workflows/ci.yml: the two evals steps become `node evals/run.mjs --class deterministic --assert-no-model` and `node evals/run.mjs --verify-discriminating`; test/host/ci-policy.test.mjs pins those exact strings, so update both together.",
+          "bin/skills.mjs: SKILLS_DIR is now `fileURLToPath(new URL(\"../skills\", import.meta.url))` (there is no `mine` bucket); drop the SKILLS_ROOT constant and fix the header comment. test/cli/installer.test.mjs then expects the catalogue [\"intent-factory\"? no: \"faberun\", \"init-agentkit\"] -- the folder is named faberun even though its SKILL.md still says intent-factory until the next node -- so the default install asserts `installed faberun`, `installed init-agentkit`, `2 installed, 0 skipped`, the list output names both, and the single-skill cases keep using init-agentkit.",
+          "Path-fixing tests. test/repo/source-shape.test.mjs: SKILL_DIR becomes REPO_DIR = `new URL(\"../..\", import.meta.url)` and `walk` must skip the directories `.git`, `.runs`, `node_modules` (add a SKIPPED set; without it the walk reads thousands of vendored files); rename labels from 'skill' to 'repository'. test/docs/docs-diet.test.mjs: skillPath `../../skills/faberun/SKILL.md`, referencesDir `../../skills/faberun/references`, delete the bulk-read test and its constant, fix the paths in messages. test/docs/link-check.test.mjs: skillDir `../../skills/faberun`, and check the markdown files directly inside docs/, docs/history/ and docs/harnesses/ (three directories, not one). test/docs/command-surface.test.mjs: the README is `../../README.md`. test/contract/reserved-articles.test.mjs: `skills/mine/intent-factory/${article}` becomes `skills/faberun/${article}` and the local-boot fixture path likewise. test/campaign/field-ownership.test.mjs: DOC_PATH must resolve to docs/FIELD-OWNERSHIP.md at the repository root (SKILL_DIR was `../..`, which is now the root, so verify rather than assume). Search the moved tests and evals for any other literal `skills/mine` and fix it, except inside evals/golden/ and test/repo/scope-closure.test.mjs (synthetic fixture strings; leave them).",
+          "evals/README.md: the replay harness path is now `src/harnesses/replay/index.mjs`. README.md: every `skills/mine/intent-factory/...` and `skills/mine/init-agentkit/...` path points at the new location (`src/cli.mjs`, `skills/faberun/SKILL.md`, `skills/faberun/references/contract.md`, `skills/init-agentkit/SKILL.md`, `docs/...`), the quickstart variable points at `/path/to/faberun/src/cli.mjs`; keep the `| Goal | Command |` table and every command name in it exactly as they are. Do not rename intent-factory anywhere in this node.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite: the controller runs it after you report."
+        ],
+        "readFiles": [
+          "skills/mine/intent-factory/docs/campaigns/become-faberun/spec/SPEC.md",
+          "package.json",
+          "tsconfig.json",
+          ".github/workflows/ci.yml",
+          "bin/skills.mjs",
+          "AGENTS.md",
+          "README.md",
+          "skills/mine/intent-factory/AGENTS.md",
+          "skills/mine/intent-factory/docs/README.md",
+          "skills/mine/intent-factory/test/repo/source-shape.test.mjs",
+          "skills/mine/intent-factory/test/docs/docs-diet.test.mjs",
+          "skills/mine/intent-factory/test/docs/link-check.test.mjs",
+          "skills/mine/intent-factory/test/docs/command-surface.test.mjs",
+          "skills/mine/intent-factory/test/contract/reserved-articles.test.mjs",
+          "skills/mine/intent-factory/test/campaign/field-ownership.test.mjs",
+          "test/installer.test.mjs",
+          "test/signal.test.mjs",
+          "test/session-start.test.mjs",
+          "test/ci-policy.test.mjs"
+        ],
+        "writeRoots": [
+          "src",
+          "test",
+          "evals",
+          "bin",
+          "integrations",
+          "docs",
+          "skills",
+          ".claude",
+          ".github",
+          "package.json",
+          "tsconfig.json",
+          "README.md",
+          "AGENTS.md"
+        ],
+        "symbols": [],
+        "decisions": [
+          "Layout per SPEC.md: src/, test/, evals/, bin/, integrations/ at the root; docs/history/ for dated records; docs/campaigns/ for campaign records; docs/FIELD-OWNERSHIP.md live; docs/harnesses/zcode-cli.md; skills/faberun/ and skills/init-agentkit/; bulk-read folder removed.",
+          "Moves use mv, never git mv; the controller seals the worktree and git infers the renames.",
+          "The four root tests join test/ (cli/installer, repo/signal, host/session-start, host/ci-policy).",
+          "The skill AGENTS.md merges into the root AGENTS.md as '## Source tree rules'.",
+          "Historical documents are moved, never edited; docs/history/README.md gains the mapping table only.",
+          "No identifier, string or file-name rename from intent-factory to faberun happens in this node."
+        ],
+        "nonGoals": [
+          "Do not rename intent-factory, INTENT_FACTORY_*, refs, branches or markers; the next node owns the rename.",
+          "Do not touch evals/golden/, .runs/, node_modules/, assets/, DESIGN.md or LICENSE.",
+          "Do not change behaviour in src/; only import paths inside moved files if any break (they are relative and should not).",
+          "Never run git mv, git add, git commit, git stash or npm install in the worktree.",
+          "Do not run the whole test suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "-e",
+              "const {existsSync}=require('node:fs');const bad=existsSync('skills/mine')||existsSync('skills/README.md')||!existsSync('src/cli.mjs')||!existsSync('bin/intent-factory.mjs')||!existsSync('skills/faberun/SKILL.md')||!existsSync('skills/faberun/references/contract.md')||!existsSync('skills/init-agentkit/SKILL.md')||!existsSync('test/repo/source-shape.test.mjs')||!existsSync('test/host/ci-policy.test.mjs')||!existsSync('docs/history/README.md')||!existsSync('docs/campaigns/become-faberun/spec/SPEC.md')||!existsSync('docs/FIELD-OWNERSHIP.md')||!existsSync('docs/harnesses/zcode-cli.md')||!existsSync('evals/run.mjs')||!existsSync('integrations/claude-code/statusline.sh');process.exit(bad?1:0)"
+            ],
+            "timeoutSec": 30
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+              "run",
+              "check"
+            ],
+            "timeoutSec": 180
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/repo/",
+              "test/docs/",
+              "test/host/",
+              "test/cli/installer.test.mjs",
+              "test/contract/reserved-articles.test.mjs",
+              "test/campaign/field-ownership.test.mjs"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--class",
+              "deterministic",
+              "--assert-no-model"
+            ],
+            "timeoutSec": 600
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "layout",
+          "text": "skills/mine is gone and every moved tree exists at its new root path",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "check",
+          "text": "npm run check passes with the new globs",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean over the new include set",
+          "proof": {
+            "kind": "verification",
+            "ref": "2"
+          }
+        },
+        {
+          "id": "path-tests",
+          "text": "the path-fixing tests, host tests and installer test pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "3"
+          }
+        },
+        {
+          "id": "evals",
+          "text": "the deterministic evals run from evals/ with no model",
+          "proof": {
+            "kind": "verification",
+            "ref": "4"
+          }
+        },
+        {
+          "id": "renames-not-rewrites",
+          "text": "the moved files are byte-identical to their sources except for the path fixes the instructions name (check with git diff --stat -M against HEAD)",
+          "judgment": true
+        },
+        {
+          "id": "agents-merged",
+          "text": "the root AGENTS.md carries the Source tree rules section and the skill AGENTS.md no longer exists",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "rename-to-faberun",
+      "type": "backend",
+      "phase": "move-and-rename",
+      "dependsOn": [
+        "move-to-root"
+      ],
+      "timeoutSec": 5400,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "Every live reference to intent-factory is Faberun: identifiers, env variables, refs, branches, markers, file names, package name, usage lines, dashboard and skill names -- while the historical record keeps the old name untouched and a ratchet test keeps the old name from returning.",
+        "instructions": [
+          "Read docs/campaigns/become-faberun/spec/SPEC.md ('Decisions already made' and 'Phase 1 -- rename-to-faberun') and DESIGN.md ('Documentation' section: `faberun` lowercase for the command and package, `Faberun` in prose).",
+          "Scope of the rename is the live tree only: src/, test/, evals/ (EXCEPT evals/golden/), bin/, integrations/, skills/, .github/, .husky/, .claude/, package.json, package-lock.json, tsconfig.json, README.md, AGENTS.md, docs/FIELD-OWNERSHIP.md, docs/harnesses/. Never edit docs/history/, docs/campaigns/, evals/golden/, .runs/, node_modules/, assets/ or DESIGN.md: a contract records what a worker was told and rewriting it makes the record lie. The verification runs `git diff --quiet HEAD -- docs/history docs/campaigns evals/golden` and fails the node if you touched them.",
+          "Apply the replacements in this order, with a small node script or `perl -pi -e` (BSD sed on macOS has no GNU `-i` semantics; do not rely on it): (1) `INTENT_FACTORY_VERSION` -> `CONTRACT_VERSION` -- this constant is the contract protocol version, it stays \"0.3.0\", and every contract in this campaign says contractVersion 0.3.0, so it must keep validating; (2) `INTENT_FACTORY_` -> `FABERUN_` (every env variable: FABERUN_CODEX_BIN, FABERUN_NOTIFY_BIN, FABERUN_RUN_DIR, ... all 34 names); (3) `Intent Factory` -> `Faberun`; (4) `IntentFactory` -> `Faberun`; (5) `intent-factory` -> `faberun`; (6) `intentfactory` -> `faberun`. Run the replacement over every text file in scope (.mjs, .json, .md, .yml, .sh, .html, .css, .yaml, .txt) and then grep case-insensitively for `intent[-_ ]\\?factory` inside the scope to confirm zero hits.",
+          "Rename the entry point: `mv bin/intent-factory.mjs bin/faberun.mjs` and fix its header comment (the usage examples become `faberun preflight ...`). src/cli.mjs's comment near runCli names the bin file; the generic replacement already fixes it.",
+          "Attempt branches: in src/repo/worktree.mjs the branch name `if/${runId}/${nodeId}/${attempt}` becomes `faberun/${runId}/${nodeId}/${attempt}` (and the nearby comment); update the tests that assert the old prefix (test/harnesses/replay-run.test.mjs `if/${fixture.id}/build/1`, test/engine/seal-before-kill.test.mjs `if/seal-e2e-run/build/1` and `if/seal-stall-run/build/1`). The ref namespace `refs/intent-factory/` becomes `refs/faberun/` through the generic replacement (src/repo/worktree.mjs and the tests in test/campaign/chain.test.mjs, test/harnesses/replay-run.test.mjs, test/engine/seal-before-kill.test.mjs). The tmux session `intent-factory-seat` becomes `faberun-seat` (src/seat/tmux.mjs, test/seat/seat.test.mjs). The managed block markers become `<!-- faberun-active:start (managed by faberun -- read, never edit) -->` and `<!-- faberun-active:end -->` -- keep the em dash character exactly as the source has it -- in src/repo/signal-block.mjs, test/contract/verification.test.mjs, and in the existing block at the bottom of the root AGENTS.md, so the tool finds its own block next time it writes. Seal and candidate commit messages become `faberun ${runId} ${nodeId} attempt ${attempt}` and `faberun candidate ...` (src/repo/worktree.mjs, src/repo/integrate.mjs).",
+          "Usage lines: every `usage: runner.mjs` in src/cli.mjs, src/cli/campaign.mjs, src/cli/seat.mjs, src/cli/contract.mjs becomes `usage: faberun`, and the tests pinning them follow (test/cli/cli.test.mjs asserts `usage: runner.mjs contract validate` and `usage: runner\\.mjs seat <`; make them `usage: faberun contract validate` and `usage: faberun seat <`). The skill's SKILL.md front matter becomes `name: faberun`, its title `# Faberun`, its description `Faberun: a harness- and model-agnostic development orchestrator that turns plans into verified software changes.`; it must stay at or under 1024 bytes and references/operations.md at or under 10496 bytes, references/contract.md 21504, rules/engineering/workflow/handoffs 2048 each (test/docs/docs-diet.test.mjs) -- the rename shortens every file, so this holds unless you add prose; do not add prose. The launchd example becomes `faberun.plist`.",
+          "package.json: `name` is `faberun`; `description` is `Faberun is a development orchestration system that turns intent into verified software: harness- and model-agnostic, it keeps the intent, coordinates the work, verifies the result and decides what happens next.`; `bin` is {\"faberun\": \"bin/faberun.mjs\", \"skills\": \"bin/skills.mjs\"} (the skills installer is replaced in phase 2, not here); add `\"repository\": \"github:feliperun/faberun\"` and `\"homepage\": \"https://github.com/feliperun/faberun\"`. package-lock.json: both `\"name\": \"@feliperun/skills\"` entries (top level and packages[\"\"]) become `\"name\": \"faberun\"`; change nothing else in the lockfile.",
+          "Dashboard and integrations: src/web/index.html `<title>` and the `.brand` span read `Faberun`; integrations/claude-code/statusline.sh comments and the seat-switch hint read faberun (`faberun seat switch --harness <id>`). README.md: the generic replacement plus `npx github:feliperun/skills` -> `npx github:feliperun/faberun`, the quickstart variable `INTENT_FACTORY=` -> `FABERUN=`; keep the `| Goal | Command |` table and its command names intact (test/docs/command-surface.test.mjs reads it). AGENTS.md: the section `## Intent Factory protocol` becomes `## Faberun protocol` (generic replacement) and the sentence `When using \\`intent-factory\\`` becomes `When using \\`faberun\\``.",
+          "Add the ratchet test test/repo/brand.test.mjs. It walks the repository from `new URL(\"../..\", import.meta.url)`, skipping `.git`, `.runs`, `node_modules`, `docs/history`, `docs/campaigns`, `evals/golden` and `assets`, reads every file whose extension is one of .mjs .js .json .md .yml .yaml .sh .html .css .txt .toml, and asserts with a named `LEGACY_NAME_PATTERN = /intent[-_ ]?factory/iu` that no file matches, listing offenders in the failure message. A second test asserts package.json `name` is `faberun` and `bin.faberun` is `bin/faberun.mjs`. Header comment: what the file owns and why the excluded directories are excluded (history is a record, not a stale path).",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite: the controller runs it after you report, as this phase's final verification."
+        ],
+        "readFiles": [
+          "DESIGN.md",
+          "package.json",
+          "package-lock.json",
+          "AGENTS.md",
+          "README.md"
+        ],
+        "writeRoots": [
+          "src",
+          "test",
+          "evals",
+          "bin",
+          "integrations",
+          "skills",
+          ".github",
+          ".husky",
+          ".claude",
+          "docs/FIELD-OWNERSHIP.md",
+          "docs/harnesses",
+          "package.json",
+          "package-lock.json",
+          "tsconfig.json",
+          "README.md",
+          "AGENTS.md"
+        ],
+        "symbols": [
+          "LEGACY_NAME_PATTERN"
+        ],
+        "decisions": [
+          "Names per SPEC.md: faberun (command, package, env prefix FABERUN_, refs/faberun/, faberun/<run>/<node>/<attempt> branches, faberun-seat, faberun-active markers, seal messages).",
+          "INTENT_FACTORY_VERSION becomes CONTRACT_VERSION and stays 0.3.0; the package version is a separate concern handled in phase 2.",
+          "The historical record (docs/history, docs/campaigns, evals/golden) is never edited.",
+          "The ratchet test enforces the rename on the live tree from now on."
+        ],
+        "nonGoals": [
+          "Do not add features, colours or new commands; phase 2 owns them.",
+          "Do not edit docs/history/, docs/campaigns/, evals/golden/, .runs/, assets/, DESIGN.md or LICENSE.",
+          "Do not change the byte ceilings in test/docs/docs-diet.test.mjs.",
+          "Never run git mv, git add, git commit, git stash or npm install in the worktree.",
+          "Do not run the whole test suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/repo/",
+              "test/docs/",
+              "test/cli/",
+              "test/campaign/",
+              "test/seat/",
+              "test/contract/verification.test.mjs",
+              "test/harnesses/replay-run.test.mjs",
+              "test/engine/seal-before-kill.test.mjs"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          },
+          {
+            "argv": [
+              "git",
+              "diff",
+              "--quiet",
+              "HEAD",
+              "--",
+              "docs/history",
+              "docs/campaigns",
+              "evals/golden"
+            ],
+            "timeoutSec": 60
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--class",
+              "deterministic",
+              "--assert-no-model"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "bin/faberun.mjs",
+              "models",
+              "--json"
+            ],
+            "timeoutSec": 60
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "ratchet-and-targeted-tests",
+          "text": "the brand ratchet, the path tests, the CLI, campaign, seat, signal-block, branch-prefix and seal tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "history-untouched",
+          "text": "docs/history, docs/campaigns and evals/golden are byte-identical to HEAD",
+          "proof": {
+            "kind": "verification",
+            "ref": "2"
+          }
+        },
+        {
+          "id": "evals",
+          "text": "the deterministic evals pass with the renamed env variables",
+          "proof": {
+            "kind": "verification",
+            "ref": "3"
+          }
+        },
+        {
+          "id": "entry-point",
+          "text": "bin/faberun.mjs runs a command end to end",
+          "proof": {
+            "kind": "verification",
+            "ref": "4"
+          }
+        },
+        {
+          "id": "prose-quality",
+          "text": "user-facing prose reads naturally: Faberun capitalised in prose, faberun for the command and package, no half-renamed identifiers such as FaberunVersion or intent_factory, no leftover 'runner.mjs' in usage lines",
+          "judgment": true
+        },
+        {
+          "id": "markers-and-refs",
+          "text": "the managed block in AGENTS.md, the ref namespace, the branch prefix, the tmux session name and the seal messages all use the faberun names consistently between src/ and the tests",
+          "judgment": true
+        }
+      ]
+    }
+  ]
+}

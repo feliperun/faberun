@@ -1,0 +1,297 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "become-faberun-2e-install-review-and-field-ownership",
+  "campaignId": "become-faberun",
+  "goal": "Phase 2e (install-review-and-field-ownership) of campaign become-faberun: the installer sealed by run 2d (091949b) is reviewed and landed, and docs/FIELD-OWNERSHIP.md declares the events.jsonl line the phase-2 signal guard introduced, so the phase-2 tree finally passes its full final verification and can be promoted. Spec: docs/campaigns/become-faberun/spec/SPEC.md.",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "maxParallel": 1,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "dsh-deepseek-flash",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "dsh-deepseek-flash": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "workspace-write",
+      "tier": 1,
+      "costRank": 1,
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "fallback": "agy-gemini-flash"
+    },
+    "agy-gemini-flash": {
+      "harness": "agy",
+      "model": "gemini-3.8-flash-low",
+      "vendor": "google",
+      "tier": 1,
+      "costRank": 2
+    }
+  },
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "nodes": [
+    {
+      "id": "install-review",
+      "type": "backend",
+      "phase": "install-review-and-field-ownership",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "install.sh and test/host/install-sh.test.mjs, already in this tree from the previous run's worker (sealed 091949b, own verification green), are reviewed against the installer decisions and corrected where needed, so the installer lands without a fourth full rewrite.",
+        "instructions": [
+          "The installer is ALREADY in the tree: the previous run's worker wrote install.sh (193 lines) and test/host/install-sh.test.mjs (177 lines); `sh -n install.sh` and the test passed under the controller, and the only failure of that run was an unrelated documentation ratchet (test/campaign/field-ownership.test.mjs), fixed by the node that follows this one. Your job is a review with fixes, not a rewrite.",
+          "Check install.sh against the decisions in docs/campaigns/become-faberun/spec/SPEC.md ('Install layout', 'Distribution') and src/host/home.mjs (the layout the updater expects: $FABERUN_HOME/versions/<v>, current, and <bin dir>/faberun -> current/bin/faberun.mjs): POSIX sh with `set -eu`; requirements node >= 22 (major from `node -p process.versions.node`), tar, and curl only when downloading, each as `[ok] name · detail` / `[fail] name · what is missing and how to get it`; version resolution FABERUN_VERSION, else the latest release tag_name parsed with sed, else `main` with a `[warn] release · no release yet · installing main` line; FABERUN_INSTALL_SOURCE accepting a .tar.gz or a directory; extraction with --strip-components=1 into a .partial directory then a rename, refreshing an existing same-version directory; `chmod +x` on bin/faberun.mjs; `current` and `<bin dir>/faberun` repointed with `ln -sfn` (never `ln -s` + `mv`, which follows the existing link and moves the temporary link into the version directory); verification by running `<bin dir>/faberun --version` before `[ok] installed · faberun <version> · <path>`; the PATH hint when the bin dir is not on PATH; `exec faberun setup` on an interactive TTY unless FABERUN_NO_SETUP is set, otherwise `next · faberun setup`; only `printf`, never `echo -e`; every path quoted.",
+          "Check the test covers: install from a tarball with a single top-level directory; idempotent second run; install from a staging directory; the upgrade A -> B (second run with FABERUN_VERSION naming a version built from a second staging directory whose package.json says B: `current` resolves to versions/B and `<bin>/faberun --version` prints B); missing node (PATH without node, keeping /bin and /usr/bin) exits 1 with `[fail] node`; no network anywhere. Add whatever is missing; keep the existing cases.",
+          "You may run `sh -n install.sh` and `node --test test/host/install-sh.test.mjs` yourself (they spawn nothing that signals other processes). Do not run any other test directory. Report done with a summary of what you verified and changed; an empty diff is a valid outcome."
+        ],
+        "readFiles": [
+          "DESIGN.md",
+          "AGENTS.md",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "package.json",
+          "bin/faberun.mjs",
+          "src/host/home.mjs",
+          "src/cli/update.mjs",
+          "install.sh",
+          "test/host/install-sh.test.mjs",
+          "test/helpers.mjs"
+        ],
+        "writeFiles": [
+          "install.sh",
+          "test/host/install-sh.test.mjs"
+        ],
+        "symbols": [],
+        "decisions": [
+          "The installer is reviewed and corrected, not rewritten; the layout is the one src/host/home.mjs defines.",
+          "Symlinks are repointed with ln -sfn; verification is the installed binary printing its own version."
+        ],
+        "nonGoals": [
+          "No Windows installer, no checksum verification (follow-ups).",
+          "Do not run test directories other than the installer test.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "sh",
+              "-n",
+              "install.sh"
+            ],
+            "timeoutSec": 30
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/host/install-sh.test.mjs"
+            ],
+            "timeoutSec": 300
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "syntax",
+          "text": "install.sh parses under sh -n",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "install-tests",
+          "text": "the offline installer tests pass, including the upgrade case",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "layout-parity",
+          "text": "the directories and symlinks install.sh creates are exactly the ones src/host/home.mjs and update.mjs expect, and the repoint is symlink-safe (ln -sfn), so update works on an install.sh installation and an upgrade replaces current",
+          "judgment": true
+        },
+        {
+          "id": "requirements-clarity",
+          "text": "a fresh-machine user with an old Node or no curl gets one line saying what is missing and how to get it",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "field-ownership-declaration",
+      "type": "backend",
+      "phase": "install-review-and-field-ownership",
+      "dependsOn": [
+        "install-review"
+      ],
+      "timeoutSec": 1800,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "docs/FIELD-OWNERSHIP.md declares the events.jsonl line the stale-group signal guard introduced, so the single-writer ratchet test passes again and the document stays the source of truth for every append-only field.",
+        "instructions": [
+          "test/campaign/field-ownership.test.mjs ('single writer per field') fails on this tree with `events.jsonl field(s) the document omits: pid, processGroupId`. The cause is the phase-2 guard: `recordIdentityUnverifiable` in src/engine/process.mjs appends `{type: \"invocation_identity_unverifiable\", at, invocationId, pid, processGroupId}` to `<runDir>/events.jsonl`, and docs/FIELD-OWNERSHIP.md was not updated. Read the test to see exactly how it derives writers and fields from src/ (which call shapes it parses, how it names a writer, what it compares against the machine-readable block after `<!-- FIELD-OWNERSHIP-SOURCE -->`), then read the document's events.jsonl section and the ratchet paragraph ('Measured 2026-09-14: 14 entries have more than one writer', 13 of them events.jsonl fields).",
+          "Update docs/FIELD-OWNERSHIP.md so the derivation and the declaration agree: add `pid` and `processGroupId` as fields with the single writer `recordIdentityUnverifiable` (moment: 'when a signal is withheld because the invocation's process identity cannot be proven'), and add that writer to the existing declarations of `type`, `at` and `invocationId` if the test derives it as a writer of those fields too. If that raises the measured multi-writer count (a field that had one writer now has two), update the count and the list in the ratchet paragraph together, in the same style as the existing text, and say why the new writer exists. Do not change any src/ file and do not weaken the test.",
+          "Run `node --test test/campaign/field-ownership.test.mjs` yourself until it is green (it reads files and spawns nothing). Do not run other test directories; the controller runs the suite as this phase's final verification. Report done."
+        ],
+        "readFiles": [
+          "AGENTS.md",
+          "docs/FIELD-OWNERSHIP.md",
+          "test/campaign/field-ownership.test.mjs",
+          "src/engine/process.mjs",
+          "src/engine/process-identity.mjs",
+          "src/engine/state.mjs"
+        ],
+        "writeFiles": [
+          "docs/FIELD-OWNERSHIP.md"
+        ],
+        "symbols": [],
+        "scopeAcknowledged": [
+          "test/campaign/field-ownership.test.mjs"
+        ],
+        "decisions": [
+          "The document is updated to match the code; the code and the test are not changed.",
+          "The multi-writer ratchet moves only if the derivation says so, with the reason written next to the number."
+        ],
+        "nonGoals": [
+          "Do not edit src/ or the test.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/campaign/field-ownership.test.mjs"
+            ],
+            "timeoutSec": 120
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "ratchet-green",
+          "text": "the field-ownership test passes",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "declaration-quality",
+          "text": "the new event's fields and writer are declared with the moment they are written, in the document's existing style, and the ratchet paragraph still tells the truth",
+          "judgment": true
+        }
+      ]
+    }
+  ]
+}

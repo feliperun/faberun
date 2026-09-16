@@ -1,0 +1,441 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "become-faberun-4-front-door",
+  "campaignId": "become-faberun",
+  "goal": "Phase 4 (front-door) of campaign become-faberun: the README becomes the front door of Faberun for a stranger, and the orchestrator skill learns the new verbs within its byte ceilings. Spec: docs/campaigns/become-faberun/spec/SPEC.md.",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "maxParallel": 2,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "dsh-deepseek-flash",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "dsh-deepseek-flash": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "workspace-write",
+      "tier": 1,
+      "costRank": 1,
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "fallback": "agy-gemini-flash"
+    },
+    "agy-gemini-flash": {
+      "harness": "agy",
+      "model": "gemini-3.8-flash-low",
+      "vendor": "google",
+      "tier": 1,
+      "costRank": 2
+    }
+  },
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "nodes": [
+    {
+      "id": "readme-front-door",
+      "type": "backend",
+      "phase": "front-door",
+      "dependsOn": [
+        "skill-references"
+      ],
+      "timeoutSec": 5400,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "README.md is the front door: a stranger learns what Faberun is, installs it, runs setup and a first campaign, and finds the deeper documents -- with the hornero icon, the owner's positioning and no trace of the old skills-catalogue framing.",
+        "instructions": [
+          "Read the current README.md (what to drop: the skills-catalogue framing, the intent-factory quickstart, the command table now owned by docs/COMMANDS.md, the session-continuity section), DESIGN.md ('Identity', 'Assets', 'Documentation'), docs/VISION.md, docs/CONCEPTS.md, docs/GETTING-STARTED.md, docs/COMMANDS.md, docs/ARCHITECTURE.md, docs/README.md, install.sh, package.json, skills/faberun/SKILL.md and the pitch appendix in docs/campaigns/become-faberun/spec/SPEC.md.",
+          "Write the new README.md, under 200 lines, in this order: (1) a centred hero -- `<p align=\"center\"><img src=\"assets/faberun-icon.png\" width=\"160\" alt=\"The hornero on its clay nest, the Faberun mark\"></p>`, `<h1 align=\"center\">faberun</h1>`, a centred tagline `From intent to running software.`, and the CI badge `https://github.com/feliperun/faberun/actions/workflows/ci.yml/badge.svg` plus the latest-release badge `https://img.shields.io/github/v/release/feliperun/faberun` and the npm badge `https://img.shields.io/npm/v/faberun`; (2) three short paragraphs of positioning taken from the pitch (what it is; model- and harness-agnostic, harnesses are workers and models are engines and Faberun sits above them; built not generated, the work remains when tools change); (3) Install: the `curl -fsSL https://raw.githubusercontent.com/feliperun/faberun/main/install.sh | sh` one-liner with the requirements in one line (Node 22 or newer, git, one harness CLI), then `npm install -g faberun` (or `npx faberun`) from the npm registry, `git clone` plus `node src/cli.mjs` as the contributor route, and `faberun update` for later; (4) Quickstart: `faberun setup`, `faberun init` in a repository, `faberun campaign init`, write a contract, `faberun validate`, `faberun preflight`, `faberun run --detach`, `faberun status` / `faberun next`, `faberun supervise --detach` -- each with one line of what it does, linking to GETTING-STARTED for the full walkthrough; (5) How it works: five sentences (intent to contract; closed packets to workers in attempt worktrees; mechanical verification then a cross-vendor judge; integration ref, promotion, landing; campaigns, handoffs and supervise) and a small ASCII flow, linking to CONCEPTS and ARCHITECTURE; (6) Harnesses: a table of claude, codex, agy, dsh, zcode, exec-jsonl and replay with the vendor each defaults to and one example model, and the sentence that any runtime can be a worker and a judge of another vendor reviews it; (7) Documentation: the map's main entries with one clause each; (8) Development: the check, typecheck, test and evals commands, AGENTS.md as the playbook, the skills shipped in skills/ (faberun for orchestrating agents, init-agentkit as an optional kit) and how to install them with `faberun skills install`; (9) History: one paragraph -- Faberun was intent-factory, this repository was a personal skills catalogue, the record lives in docs/history/ and docs/campaigns/; (10) Licence: MIT.",
+          "Extend test/docs/link-check.test.mjs so README.md at the root is link-checked too (its relative links to assets/ and docs/ must resolve). Do not otherwise change the test.",
+          "Follow DESIGN.md: `faberun` for the command and package, `Faberun` in prose, sentence-case headings, no marketing adjectives, English throughout.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does, and this node also carries the phase's final verification."
+        ],
+        "readFiles": [
+          "README.md",
+          "DESIGN.md",
+          "AGENTS.md",
+          "package.json",
+          "install.sh",
+          "LICENSE",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "docs/README.md",
+          "docs/VISION.md",
+          "docs/CONCEPTS.md",
+          "docs/GETTING-STARTED.md",
+          "docs/COMMANDS.md",
+          "docs/ARCHITECTURE.md",
+          "skills/faberun/SKILL.md",
+          "test/docs/link-check.test.mjs"
+        ],
+        "writeFiles": [
+          "README.md",
+          "test/docs/link-check.test.mjs"
+        ],
+        "symbols": [],
+        "decisions": [
+          "The README is a front door, not a reference: under 200 lines, linking into docs/ for depth.",
+          "The hero uses assets/faberun-icon.png per DESIGN.md; the command table moved to docs/COMMANDS.md.",
+          "The positioning paragraphs come from the owner's pitch."
+        ],
+        "nonGoals": [
+          "Do not edit docs/ documents or the skill; only README.md and the link-check test.",
+          "Do not add a table of every command; COMMANDS.md owns that.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/docs/"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "-e",
+              "const t=require('node:fs').readFileSync('README.md','utf8');const ok=t.includes('assets/faberun-icon.png')&&t.includes('install.sh | sh')&&t.includes('faberun setup')&&t.includes('faberun init')&&t.includes('docs/GETTING-STARTED.md')&&t.includes('docs/COMMANDS.md')&&!/intent-factory|skills\\/mine/i.test(t)&&t.split('\\n').length<=200;process.exit(ok?0:1)"
+            ],
+            "timeoutSec": 30
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "docs-tests",
+          "text": "the docs tests pass with README.md link-checked",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "front-door-shape",
+          "text": "the README has the hero, the installer, setup, init, the documentation links, no old framing, and is under 200 lines",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "stranger-test",
+          "text": "a reader who has never heard of Faberun understands what it is and what it is not within the first screen, can install and run setup from the README alone, and knows where to go next",
+          "judgment": true
+        },
+        {
+          "id": "positioning",
+          "text": "the model- and harness-agnostic stance, harnesses as workers and models as engines, and built-not-generated appear in the README's own words without marketing adjectives",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "skill-references",
+      "type": "backend",
+      "phase": "front-door",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "An orchestrating agent reading the faberun skill learns the phase-2 verbs (setup, init, update, skills, campaign unpark) in one place, within the docs-diet byte ceilings, raising a ceiling only by what the new lines cost.",
+        "instructions": [
+          "Read skills/faberun/SKILL.md and every file under skills/faberun/references/, test/docs/docs-diet.test.mjs (the ceilings and the comments that justify each past raise), docs/COMMANDS.md (the authoritative flags) and DESIGN.md ('Documentation').",
+          "In skills/faberun/references/operations.md add a short section `## Install, set up, update` with one line per verb, each stating the one fact an orchestrator needs: `faberun setup` writes the user runtime config that composition honours when a contract omits runtimes; `faberun init` prepares a target repository (.runs ignored, skill installed, agent kit optional and always asked); `faberun update --check` reads the release channel and writes the cache the banner shows, `faberun update` switches versions only after the new one proves itself; `faberun skills install [name]` installs the shipped skills; `faberun campaign unpark <id> [--force]` clears a parked campaign once its run is no longer parked so `supervise campaign` can continue. Measure the file's bytes before and after; if it exceeds OPERATIONS_BYTE_CEILING in test/docs/docs-diet.test.mjs, first trim redundancy elsewhere in the file, and only if that is not enough raise the ceiling by exactly the bytes the new section costs, adding a dated comment in the test in the style of the existing raises (what the increase is spent on, and that raising it again needs the same argument).",
+          "In skills/faberun/SKILL.md add a table row `| Install, set up, update | [operations](references/operations.md) |` if the file stays at or under SKILL_BYTE_CEILING (1024 bytes); otherwise shorten an existing row instead of raising that ceiling.",
+          "Keep the naming rule in skills/faberun/references/workflow.md ('Name things for what they do') exactly as it is. Change nothing in rules.md, contract.md, engineering.md or handoffs.md.",
+          "Run the verification commands yourself in the foreground with explicit timeouts and fix what they report before reporting done. Do not run the whole suite; the controller does."
+        ],
+        "readFiles": [
+          "DESIGN.md",
+          "AGENTS.md",
+          "docs/COMMANDS.md",
+          "skills/faberun/SKILL.md",
+          "skills/faberun/references/operations.md",
+          "skills/faberun/references/workflow.md",
+          "skills/faberun/references/rules.md",
+          "skills/faberun/references/contract.md",
+          "skills/faberun/references/engineering.md",
+          "skills/faberun/references/handoffs.md",
+          "test/docs/docs-diet.test.mjs"
+        ],
+        "writeFiles": [
+          "skills/faberun/SKILL.md",
+          "skills/faberun/references/operations.md",
+          "test/docs/docs-diet.test.mjs"
+        ],
+        "symbols": [],
+        "scopeAcknowledged": [
+          "test/docs/link-check.test.mjs",
+          "test/cli/installer.test.mjs"
+        ],
+        "decisions": [
+          "One line per verb in operations.md; the skill is a router, not a manual (COMMANDS.md is).",
+          "A ceiling moves only by the bytes the new lines cost, with the argument written next to the number."
+        ],
+        "nonGoals": [
+          "Do not rewrite the references or change their structure.",
+          "Do not edit README.md or docs/.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/docs/"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "-e",
+              "const t=require('node:fs').readFileSync('skills/faberun/references/operations.md','utf8');process.exit(t.includes('faberun setup')&&t.includes('faberun init')&&t.includes('faberun update')&&t.includes('campaign unpark')&&t.includes('skills install')?0:1)"
+            ],
+            "timeoutSec": 30
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "docs-tests",
+          "text": "docs diet, link check and the other docs tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "verbs-present",
+          "text": "operations.md names setup, init, update, skills install and campaign unpark",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "ceiling-discipline",
+          "text": "if a ceiling moved, it moved by the bytes the new section costs and the test comment says so; the rest of the references are unchanged",
+          "judgment": true
+        }
+      ]
+    },
+    {
+      "id": "docs-accuracy",
+      "type": "backend",
+      "phase": "front-door",
+      "dependsOn": [],
+      "timeoutSec": 1800,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "docs/CONCEPTS.md states four invariants exactly as the code enforces them, and docs/GETTING-STARTED.md's first-campaign walkthrough commits the repository after `faberun init` so `faberun run` does not refuse a dirty tree -- closing the accuracy findings the phase-3 judges recorded.",
+        "instructions": [
+          "The phase-3 judge accepted docs/CONCEPTS.md with four minor accuracy findings. Fix exactly these, changing no other content: (1) 'Attention and parked' lists `judge_fallback_vendor_conflict` as a campaign-level parked reason; it is a node-level attention code. The chain parks a campaign only with `run_parked` / `run_canceled` (a settled, unsuccessful run), `contract_validation_failed`, `contract_authored_bytes_changed`, `contract_digest_mismatch`, or a promotion refusal code (see `park(` call sites in src/campaign/chain.mjs); a node's `judge_fallback_vendor_conflict` appears only inside the run's own attention, which `run_parked` then names. (2) 'Promotion and the landing branch' says promotion 'is the only place a branch other than the per-run ref moves'; attempt branches (`refs/heads/faberun/<run>/<node>/<attempt>`) move on every seal commit and the candidate ref moves during integration (src/repo/worktree.mjs, src/repo/integrate.mjs). State the true invariant: promotion is the only place a shared landing branch moves, and the chain never force-updates it. (3) 'Tier, costRank and fallback' says 'a self-loop or cycle is rejected' without qualification; per skills/faberun/references/contract.md validation rejects a self-loop outright and walks for cycles only the fallback chain a gated worker reaches -- not a chain no gated worker reaches, nor a judge's chain. (4) 'Attention and parked' says `campaign unpark <id>` 'clears it only once the named run is no longer parked'; src/campaign/unpark.mjs refuses a still-parked or canceled run unless `--force` is passed, and clears the attention outright when the run directory no longer exists. State both.",
+          "Fifth fix, in docs/GETTING-STARTED.md: the first-campaign walkthrough runs `faberun init` (which edits .gitignore and adds .claude/skills/faberun) and then `faberun run --detach`, but `run` calls assertLaunchBaseClean (src/repo/source-identity.mjs): when the cwd HEAD is the base and the tree has any uncommitted path (the pathspec ignores only .runs, AGENTS.md and the contract file itself), it refuses with `dirty_work_tree`. Insert a step between 'Prepare a repository' and the run: commit the init changes (`git add -A && git commit -m \"chore: prepare the repository for faberun\"`) and keep the contract file outside the tree or committed too, with one sentence saying why (`run` cuts every worktree from HEAD and refuses to launch over uncommitted paths; `--base-ref <ref>` is the alternative when the base is another ref). Keep every other step as written.",
+          "Verify each corrected sentence against the cited source before writing it; quote the code's own vocabulary (error codes, ref names) exactly. Keep the document's structure, headings and every other sentence as they are.",
+          "Run `node --test test/docs/` yourself (file reads only; it spawns nothing) and report done."
+        ],
+        "readFiles": [
+          "AGENTS.md",
+          "docs/CONCEPTS.md",
+          "skills/faberun/references/contract.md",
+          "skills/faberun/references/operations.md",
+          "src/campaign/chain.mjs",
+          "src/campaign/unpark.mjs",
+          "src/repo/integrate.mjs",
+          "src/repo/worktree.mjs",
+          "docs/GETTING-STARTED.md",
+          "src/repo/source-identity.mjs"
+        ],
+        "writeFiles": [
+          "docs/CONCEPTS.md",
+          "docs/GETTING-STARTED.md"
+        ],
+        "symbols": [],
+        "scopeAcknowledged": [
+          "test/docs/link-check.test.mjs"
+        ],
+        "decisions": [
+          "Only the sentences the judges named change; the rest of CONCEPTS.md and GETTING-STARTED.md is untouched.",
+          "Every invariant is traceable to a cited file."
+        ],
+        "nonGoals": [
+          "Do not restructure or expand the document.",
+          "Never run npm install in the worktree; never run the whole suite yourself."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/docs/"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "-e",
+              "const t=require('node:fs').readFileSync('docs/CONCEPTS.md','utf8');process.exit(/--force/.test(t)&&/run_parked/.test(t)&&!/judge_fallback_vendor_conflict[^\\n]*campaign[^\\n]*park/i.test(t)?0:1)"
+            ],
+            "timeoutSec": 30
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "-e",
+              "const t=require('node:fs').readFileSync('docs/GETTING-STARTED.md','utf8');process.exit(/git commit/.test(t)&&/dirty_work_tree|uncommitted/.test(t)?0:1)"
+            ],
+            "timeoutSec": 30
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "docs-tests",
+          "text": "the docs tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "sentences-fixed",
+          "text": "the unpark override and the chain's park codes are stated",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "commit-step",
+          "text": "the walkthrough commits after init and explains the dirty-tree refusal",
+          "proof": {
+            "kind": "verification",
+            "ref": "2"
+          }
+        },
+        {
+          "id": "accuracy",
+          "text": "each of the five corrected passages matches the cited code and reference; nothing else in either document changed",
+          "judgment": true
+        }
+      ]
+    }
+  ]
+}
