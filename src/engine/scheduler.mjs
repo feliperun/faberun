@@ -154,6 +154,26 @@ export function enforceRunningInvariant(runDir, states, running, lock) {
 }
 
 /**
+ * The fingerprint that decides whether a render is due: the shared
+ * `statesFingerprint` (status, phase, attempt, revisions) plus each running
+ * node's verification progress. A verification command completing and the
+ * next one starting changes neither status nor phase, so the shared
+ * fingerprint alone would never notice it; this is the one used to gate
+ * `renderStatusIfChanged` and nothing else, so a resume's drift comparison
+ * still uses the unextended `statesFingerprint`.
+ *
+ * @param {Map<string, NodeSnapshot>} states
+ * @returns {string}
+ */
+function renderFingerprint(states) {
+  const progress = [...states.values()].map((state) => {
+    const verification = /** @type {{progress?: {index: number, total: number, argv: string}}|null|undefined} */ (state.verification);
+    return verification?.progress ? `${state.id}:${verification.progress.index}/${verification.progress.total}:${verification.progress.argv}` : "";
+  }).join("|");
+  return `${statesFingerprint(states)}#${progress}`;
+}
+
+/**
  * @param {string} contractPath
  * @param {{detachedBootstrap?: boolean}} [options] `detachedBootstrap` is set
  *   only by the CLI entry when this process is its own detached child, and
@@ -294,11 +314,19 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
   let statusFingerprint = null;
   /** @param {boolean} force @param {LockHandle|null} [renderLock] */
   const renderStatusIfChanged = (force = false, renderLock = lock) => {
-    const fingerprint = statesFingerprint(states);
+    const fingerprint = renderFingerprint(states);
     if (!force && fingerprint === statusFingerprint) return;
     statusFingerprint = fingerprint;
     render(runDir, runsDir, contract, states, renderLock);
   };
+  // The tick that owns a running node's verification can be minutes long
+  // (`executeControllerVerification` is awaited on the critical path below),
+  // and that whole time status.json would otherwise report whatever the last
+  // tick left it at. A timer renders between ticks too; it is cheap even when
+  // idle because `renderFingerprint` still change-detects, so a quiet run
+  // writes nothing extra.
+  const statusTimer = setInterval(() => renderStatusIfChanged(), contract.pollIntervalMs);
+  statusTimer.unref();
   let handoffFingerprint = statesFingerprint(states);
   const renderHandoffIfChanged = () => {
     const fingerprint = statesFingerprint(states);
@@ -479,6 +507,7 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
     notifyQueuesByRun.delete(runDir);
     return { runDir, states, ok: false, error };
   } finally {
+    clearInterval(statusTimer);
     process.removeListener("SIGINT", cancel);
     process.removeListener("SIGTERM", cancel);
     process.removeListener("SIGHUP", cancel);

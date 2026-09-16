@@ -24,8 +24,24 @@ import { runVerification } from "./run-command.mjs";
 /** @typedef {import("../contract/index.mjs").ValidatedNode} ValidatedNode */
 /** @typedef {import("../contract/verification.mjs").VerificationAttempt} VerificationAttempt */
 /** @typedef {import("../contract/verification.mjs").VerificationAttemptResult} VerificationAttemptResult */
+/** @typedef {import("../contract/verification.mjs").VerificationCommand} VerificationCommand */
 /** @typedef {import("../contract/index.mjs").VerificationState} VerificationState */
+/** @typedef {{index: number, total: number, argv: string}} VerificationProgress */
 
+/**
+ * The bounded `k/n · argv` shape a running node's status surfaces while a
+ * verification command is in flight: the command's 1-based position among
+ * every command this pass runs, and its argv joined and bounded so a long
+ * command line can never threaten the node snapshot's byte ceiling.
+ *
+ * @param {number} index 1-based position of the command now running
+ * @param {number} total command count in this verification pass
+ * @param {string[]|undefined} argv
+ * @returns {VerificationProgress}
+ */
+export function verificationProgress(index, total, argv) {
+  return { index, total, argv: boundedUtf8((argv ?? []).join(" "), 120) };
+}
 /**
  * @param {VerificationAttemptResult|null|undefined} result
  * @returns {VerificationAttemptResult}
@@ -57,14 +73,21 @@ function verificationAttemptRecords(state) {
  * @param {NodeSnapshot} state
  * @param {LockHandle} lock
  * @param {VerificationAttempt} attempt
+ * @param {VerificationProgress} [progress] the running command's `k/n · argv`
+ *   shape; omitted on completion, since a following `onAttemptStart` replaces
+ *   it or the pass's final rewrite of `state.verification` drops it
  */
-function persistVerificationAttempt(runDir, state, lock, attempt) {
+function persistVerificationAttempt(runDir, state, lock, attempt, progress) {
   const attempts = verificationAttemptRecords(state);
   const index = attempts.findIndex((item) => item.invocationId === attempt.invocationId);
   if (index >= 0) attempts[index] = { ...attempts[index], ...attempt };
   else attempts.push({ ...attempt, completedAt: attempt.completedAt ?? null, result: attempt.result ?? null });
   state.verification ??= { passed: false, commands: [], completed: false, attempts: [] };
   state.verification.attempts = attempts.slice(-16);
+  if (progress) {
+    /** @type {VerificationState & {progress?: VerificationProgress}} */
+    (state.verification).progress = progress;
+  }
   writeNode(runDir, state, lock);
 }
 /**
@@ -85,12 +108,15 @@ export async function executeControllerVerification(contract, runDir, node, stat
   };
   writeNode(runDir, state, lock);
   const workspace = attemptWorkspace(state) ?? contract.cwd;
+  const commands = [...node.taskPacket.verification, ...sharedVerificationCommands(contract), ...finalVerificationCommands(contract, node)];
+  /** @param {VerificationAttempt} attempt @returns {VerificationProgress} */
+  const progressFor = (attempt) => verificationProgress(attempt.commandIndex + 1, commands.length, /** @type {VerificationCommand|undefined} */ (commands[attempt.commandIndex])?.argv);
   try {
-    const result = await runVerification([...node.taskPacket.verification, ...sharedVerificationCommands(contract), ...finalVerificationCommands(contract, node)], workspace, {
+    const result = await runVerification(commands, workspace, {
       logDir: join(runDir, "logs", `${node.id}.${state.attempt}.verification`),
       writeFiles: node.taskPacket.writeFiles ?? [],
-      onAttemptStart: (attempt) => persistVerificationAttempt(runDir, state, lock, attempt),
-      onAttemptSpawn: (attempt) => persistVerificationAttempt(runDir, state, lock, attempt),
+      onAttemptStart: (attempt) => persistVerificationAttempt(runDir, state, lock, attempt, progressFor(attempt)),
+      onAttemptSpawn: (attempt) => persistVerificationAttempt(runDir, state, lock, attempt, progressFor(attempt)),
       onAttemptComplete: (attempt) => persistVerificationAttempt(runDir, state, lock, {
         ...attempt,
         result: boundedVerificationAttemptResult(attempt.result),
@@ -102,10 +128,13 @@ export async function executeControllerVerification(contract, runDir, node, stat
       attempts: verificationAttemptRecords(state),
     };
   } catch (error) {
+    // A rebuilt object, not a spread of the prior one: a thrown error can land
+    // between an `onAttemptStart` and the matching `onAttemptComplete`, and the
+    // stale `progress` that start wrote must not survive into the terminal record.
     state.verification = {
-      ...state.verification,
-      completed: true,
       passed: false,
+      commands: state.verification?.commands ?? [],
+      completed: true,
       error: boundedUtf8(errorMessage(error), 4 * 1024),
       attempts: verificationAttemptRecords(state),
     };
