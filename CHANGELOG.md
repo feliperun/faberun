@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.6.0](https://github.com/feliperun/faberun/compare/v0.5.0...v0.6.0) (2026-09-16)
+
+
+### Features
+
+* harden the chain, resume and verification ([6a9fec1](https://github.com/feliperun/faberun/commit/6a9fec115a3794f8e2cb49776c36c55524e2db9a))
+
 ## [0.5.0](https://github.com/feliperun/faberun/compare/v0.4.0...v0.5.0) (2026-09-16)
 
 
