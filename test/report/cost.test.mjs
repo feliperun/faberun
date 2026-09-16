@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
-import { renderReport, renderReportJson } from "../../src/report/render.mjs";
+import { renderReport, renderReportJson, renderStatusJson } from "../../src/report/render.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
 
 const NOW = "2026-01-01T00:00:00.000Z";
@@ -81,6 +81,11 @@ test("totals carry worker and judge role costs without double-counting the node 
     assert.equal(report.totals.workerCostUsd, 0.1, "the worker role is summed from its invocations alone");
     assert.equal(report.totals.judgeCostUsd, 0.2);
     assert.equal(report.totals.costUsd, 0.3, "the aggregate is not the role sum added to the node total");
+    assert.equal(report.roles.worker.costProvenance, "priced");
+    assert.equal(report.roles.worker.costUsd, 0.1);
+    assert.equal(report.roles.worker.pricedInvocations, 1);
+    assert.equal(report.roles.worker.unpricedInvocations, 0);
+    assert.equal(report.roles.judge.costProvenance, "priced");
     const text = renderReport(runDir);
     assert.match(text, /worker \$0\.100000 · judge \$0\.200000 · cost \$0\.300000 \(known\)/u);
   } finally {
@@ -98,9 +103,41 @@ test("an unavailable or partial role cost is null, never a fabricated $0", () =>
     const report = JSON.parse(renderReportJson(runDir));
     assert.equal(report.totals.workerCostUsd, null, "one unpriced worker invocation makes the whole role unavailable");
     assert.equal(report.totals.judgeCostUsd, 0.15, "a fully priced judge role is still reported");
+    assert.equal(report.roles.worker.costProvenance, "partial", "a mixed role is partial, not priced");
+    assert.equal(report.roles.worker.costUsd, null, "a partial role shows no total, not the priced half");
+    assert.equal(report.roles.worker.pricedInvocations, 1);
+    assert.equal(report.roles.worker.unpricedInvocations, 1);
     const text = renderReport(runDir);
-    assert.match(text, /worker - · judge \$0\.150000/u);
+    assert.match(text, /worker unpriced \(/u, "a partial role still shows its tokens, not a dash");
+    assert.match(text, /judge \$0\.150000/u);
     assert.doesNotMatch(text, /worker \$0\.000000/u);
+    assert.doesNotMatch(text, /worker \$0\.100000/u, "the priced half of a partial role is never shown as the total");
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("an all-unpriced role renders unpriced with its tokens and the JSON says unpriced", () => {
+  const tokens = { inputTokens: 1_900_000, outputTokens: 1_060_000, cacheReadInputTokens: 67_600_000 };
+  const { runDir } = makeRun([{
+    id: "unpriced",
+    invocations: [invocation("unpriced-worker", undefined, "worker", tokens)],
+  }]);
+  try {
+    const report = JSON.parse(renderReportJson(runDir));
+    assert.equal(report.roles.worker.costProvenance, "unpriced");
+    assert.equal(report.roles.worker.costUsd, null, "an unpriced role never fabricates a total");
+    assert.equal(report.roles.worker.inputTokens, 1_900_000);
+    assert.equal(report.roles.worker.outputTokens, 1_060_000);
+    assert.equal(report.roles.worker.cacheReadInputTokens, 67_600_000);
+    assert.equal(report.roles.worker.pricedInvocations, 0);
+    assert.equal(report.roles.worker.unpricedInvocations, 1);
+    assert.equal(report.roles.judge.costProvenance, "none");
+    assert.equal(report.totals.workerCostUsd, null);
+    const status = JSON.parse(renderStatusJson(runDir));
+    assert.equal(status.roles.worker.costProvenance, "unpriced");
+    assert.equal(status.roles.worker.inputTokens, 1_900_000);
+    assert.match(renderReport(runDir), /worker unpriced \(in 1\.9M · out 1\.1M · cache 67\.6M\)/u);
   } finally {
     rmSync(runDir, { recursive: true, force: true });
   }
@@ -112,6 +149,9 @@ test("a run with no invocations reports both role costs as unavailable, not $0",
     const report = JSON.parse(renderReportJson(runDir));
     assert.equal(report.totals.workerCostUsd, null);
     assert.equal(report.totals.judgeCostUsd, null);
+    assert.equal(report.roles.worker.costProvenance, "none");
+    assert.equal(report.roles.worker.costUsd, null);
+    assert.equal(report.roles.worker.unpricedInvocations, 0);
     assert.match(renderReport(runDir), /worker - · judge -/u);
   } finally {
     rmSync(runDir, { recursive: true, force: true });
@@ -164,8 +204,13 @@ function makeRun(nodes) {
   return { runDir };
 }
 
-/** @param {string} id @param {number|undefined} costUsd @param {"worker"|"judge"} [role] */
-function invocation(id, costUsd, role = "worker") {
+/**
+ * @param {string} id
+ * @param {number|undefined} costUsd
+ * @param {"worker"|"judge"} [role]
+ * @param {{inputTokens: number, outputTokens: number, cacheReadInputTokens: number}} [usage]
+ */
+function invocation(id, costUsd, role = "worker", usage) {
   return {
     id,
     pid: process.pid,
@@ -185,6 +230,7 @@ function invocation(id, costUsd, role = "worker") {
     signal: null,
     status: "closed",
     costUsd,
+    ...(usage ? { usage } : {}),
     runId: "test-run",
     campaignId: "test-campaign",
     planPhase: "fixture-phase-0",
