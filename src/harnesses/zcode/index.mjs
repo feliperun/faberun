@@ -70,6 +70,9 @@ export const zcodeHarness = {
     // log held its full 26 lines only once the process exited. Stall
     // detection must not watch this harness's stdout/stderr mtime.
     streamsOutput: false,
+    // Unmeasured: no run has proven whether zcode's sandbox can signal child
+    // processes or read the process table.
+    signalsProcesses: null,
   },
 
   // build/edit/plan do not execute commands; command() defaults to yolo.

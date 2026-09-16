@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   validateContract,
 } from "../../src/contract/index.mjs";
+import { renderWorkerPrompt } from "../../src/contract/task-packet.mjs";
 import { judgePrompt } from "../../src/engine/prompts.mjs";
 import { JUDGE_LIMITS } from "../../src/contract/judge-envelope.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
@@ -17,6 +18,20 @@ import { initializeGit, packet, writeFixture } from "./helpers.mjs";
 
 // Task packets and the prompts rendered from them.
 // Runtime declaration, fallback edges and vendor rules are in runtime.test.mjs.
+
+test("every worker prompt states the controller's verification is the proof", () => {
+  const prompts = [
+    renderWorkerPrompt(/** @type {import("../../src/contract/index.mjs").TaskPacket} */ (helpers.packet()), "build"),
+    renderWorkerPrompt(/** @type {import("../../src/contract/index.mjs").TaskPacket} */ (helpers.packet({ mode: "discovery", readFiles: [], writeFiles: [] })), "discover"),
+    renderWorkerPrompt(/** @type {import("../../src/contract/index.mjs").TaskPacket} */ (helpers.packet({ mode: "autonomous", writeRoots: ["src"] })), "build"),
+  ];
+  for (const prompt of prompts) {
+    assert.match(prompt, /## Verification\nThe controller runs every command below after you report; its recorded results are the proof of this node\./u);
+    assert.match(prompt, /Running a command yourself is optional and only for one that finishes in seconds and spawns no long-lived process\./u);
+    assert.match(prompt, /never run tests that start and terminate other processes\./u);
+    assert.match(prompt, /## Required output/u, "the Required output section is untouched");
+  }
+});
 
 test("validate loads taskPacketFile and renders a closed execution prompt", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-task-packet-file-"));

@@ -74,6 +74,8 @@ export const execJsonlHarness = {
     // The protocol allows zero `message` events before the terminal one, so
     // an arbitrary wrapper cannot honestly advertise incremental output either.
     streamsOutput: false,
+    // Unmeasured: an arbitrary wrapper executable names no sandbox to measure.
+    signalsProcesses: null,
   },
 
   // The wrapper protocol exposes no permission mode.

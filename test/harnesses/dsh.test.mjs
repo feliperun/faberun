@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -80,6 +80,91 @@ test("a judge prompt carries the output schema the harness cannot take as a flag
   assert.ok(input.startsWith("review this\n\nOutput schema"));
   assert.ok(input.includes(JSON.stringify(schema)));
   assert.equal(providerCommand(runtime(), "review this", {}).input, "review this");
+});
+
+const GIT_CONFIG_FAMILY = /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u;
+
+/**
+ * Run `body` with the broken `GIT_CONFIG_*` family and a sentinel set in the
+ * ambient environment, restoring both afterward.
+ *
+ * @template T
+ * @param {() => T | Promise<T>} body
+ * @returns {Promise<T>}
+ */
+async function withBrokenGitEnvironment(body) {
+  const broken = {
+    GIT_CONFIG_COUNT: "2",
+    GIT_CONFIG_KEY_0: "user.name",
+    GIT_CONFIG_VALUE_0: "worker",
+    GIT_CONFIG_KEY_1: "user.email",
+    GIT_CONFIG_VALUE_1: "worker@example.test",
+  };
+  const sentinel = "FABERUN_TEST_DSH_ENV_SENTINEL";
+  const previous = new Map();
+  for (const [key, value] of Object.entries(broken)) {
+    previous.set(key, process.env[key]);
+    process.env[key] = value;
+  }
+  previous.set(sentinel, process.env[sentinel]);
+  process.env[sentinel] = "kept";
+  try {
+    return await body();
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+test("the dsh command removes the broken GIT_CONFIG family and sets GIT_TERMINAL_PROMPT", async () => {
+  await withBrokenGitEnvironment(() => {
+    const command = providerCommand(runtime(), "hello", {});
+    assert.equal(command.env?.GIT_TERMINAL_PROMPT, "0");
+    for (const key of ["GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "GIT_CONFIG_KEY_1", "GIT_CONFIG_VALUE_1"]) {
+      assert.ok(command.env && Object.hasOwn(command.env, key) && command.env[key] === null, `${key} must be removed`);
+    }
+    assert.equal(Object.hasOwn(command.env ?? {}, "PATH"), false, "the overlay carries only the variables it changes");
+  });
+});
+
+test("a fake dsh harness sees the stripped family, GIT_TERMINAL_PROMPT, and every other variable", async () => {
+  const directory = scratch("dsh-env-dump-");
+  const dump = join(directory, "env.json");
+  const fixturePath = join(directory, "fake-dsh-env.mjs");
+  writeFileSync(fixturePath, `#!${process.execPath}
+import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(dump)}, JSON.stringify(process.env));
+`);
+  chmodSync(fixturePath, 0o755);
+  const previousBin = process.env.FABERUN_DSH_BIN;
+  process.env.FABERUN_DSH_BIN = fixturePath;
+  try {
+    await withBrokenGitEnvironment(async () => {
+      const command = providerCommand(runtime(), "hello", {});
+      /** @type {Record<string, string|undefined>} */
+      const env = { ...process.env };
+      for (const [key, value] of Object.entries(command.env ?? {})) {
+        if (value === null) delete env[key];
+        else env[key] = value;
+      }
+      const child = spawn(process.execPath, [fixturePath], { cwd: directory, env, stdio: ["ignore", "ignore", "ignore"] });
+      await closeResult(child);
+      const dumped = JSON.parse(readFileSync(dump, "utf8"));
+      assert.equal(dumped.GIT_CONFIG_COUNT, undefined);
+      assert.equal(dumped.GIT_CONFIG_KEY_0, undefined);
+      assert.equal(dumped.GIT_CONFIG_VALUE_0, undefined);
+      assert.equal(dumped.GIT_TERMINAL_PROMPT, "0");
+      for (const [key, value] of Object.entries(process.env)) {
+        if (key === "GIT_TERMINAL_PROMPT" || key === "GIT_CONFIG_COUNT" || GIT_CONFIG_FAMILY.test(key)) continue;
+        assert.equal(dumped[key], value, `${key} must survive the overlay`);
+      }
+    });
+  } finally {
+    if (previousBin === undefined) delete process.env.FABERUN_DSH_BIN;
+    else process.env.FABERUN_DSH_BIN = previousBin;
+  }
 });
 
 test("a completed turn reports the final message and the token split the harness streamed", () => {

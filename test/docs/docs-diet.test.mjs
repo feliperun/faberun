@@ -15,7 +15,13 @@ const SKILL_BYTE_CEILING = 1024;
 // Raised again from 20992 the same day: `resume --answer` is a second real
 // command, documented after trimming the paragraph describing it once
 // already.
-const CONTRACT_BYTE_CEILING = 21504;
+// Raised from 21504 on 2026-09-16 by the one `signalsProcesses` sentence added
+// to the `permissionExecution` paragraph: the sentence costs 317 bytes, and
+// 168 bytes of redundant prose already there (a repeated `acceptEdits` denial
+// rationale and a restated 600s-suite warning) pay part of it, so the ceiling
+// moves by the net 149 bytes and nothing else. Raising it again needs the same
+// argument.
+const CONTRACT_BYTE_CEILING = 21653;
 // Raised from 10240 on 2026-09-13, deliberately and only once: `supervise`
 // became a real command and an operator cannot run an undocumented one. The
 // ceiling is a ratchet against prose creep, not against surface the product

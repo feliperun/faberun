@@ -93,8 +93,6 @@ rejected; a node has `taskPacket` or `taskPacketFile`, never both. Measure a
 candidate command's real duration before naming it in `verification` or a
 worker instruction — `preflight <contract.json> --time-verification` runs each
 declared command once and fails the contract when it cannot fit that timeout.
-A suite past 600s never fits: target what the change touches and run the whole
-suite out of band.
 
 An `autonomous` packet declares `writeRoots` instead of `writeFiles`:
 whole-repo read, write bounded to the listed files/directories. Scope is
@@ -174,12 +172,17 @@ worker fallback cannot execute commands. Adapters declare
 `acceptEdits`), `zcode` only `yolo` (also default), `dsh` both its default
 `workspace-write` (measured: executes and writes inside the worktree) and
 `danger-full-access` (only for effects outside it); every `codex` sandbox mode
-executes, and `agy`/`exec-jsonl`/`replay` expose no denying mode. Judge modes
+executes, and `agy`/`exec-jsonl`/`replay` expose no denying mode. Each adapter
+also declares `signalsProcesses` (`true`, `false`, or `null` when unmeasured):
+a worker whose adapter declares `false` gets a `## Sandbox` prompt warning not
+to run tests that start and terminate child processes, and
+`requiredCapabilities.signalsProcesses: true` admits only an adapter declaring
+`true`. Judge modes
 are excluded because judges review captured results.
 
-- `claude`: `permissionMode` (default `acceptEdits`; a node that runs
-  commands needs `bypassPermissions`, since headless `acceptEdits` denies
-  execution and the worker can only return `blocked_context`). Executable
+- `claude`: `permissionMode` (a node that runs commands needs
+  `bypassPermissions`, or the worker can only return `blocked_context`).
+  Executable
   override: `executable` or `FABERUN_CLAUDE_BIN`. It disables slash
   commands, MCP, and settings files on every invocation and restricts tools to
   `runtime.tools` (default `Read, Edit, Write, Bash, Glob, Grep`); `--bare` is

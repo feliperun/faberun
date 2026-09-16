@@ -51,6 +51,11 @@ export const dshHarness = {
     // deepseek-official/deepseek-flash grew the redirected stdout file from
     // 67 to 1,380 to 1,441 to 2,084 bytes across a 14s turn.
     streamsOutput: true,
+    // Measured 2026-09-16 in the controller's workspace-write sandbox: a test
+    // that starts and terminates a child process cannot signal it or read the
+    // process table, so it hangs until the executor's cap. `danger-full-access`
+    // was not measured.
+    signalsProcesses: false,
   },
 
   // sandbox maps to DSH_PERMISSION_MODE, which is the harness's file-effect
@@ -98,6 +103,7 @@ export const dshHarness = {
       args,
       promptTransport: "stdin",
       input: withSchema(prompt, options.schema),
+      env: dshEnvironmentOverlay(process.env),
     };
   },
 
@@ -155,6 +161,26 @@ export const dshHarness = {
     };
   },
 };
+
+/**
+ * The environment overlay every dsh turn spawns with. The Claude Code shell
+ * exports `GIT_CONFIG_COUNT` with the VALUE half of each `GIT_CONFIG_{KEY,VALUE}_<n>`
+ * pair but not the key half, so `git init` inside the worker fails with status
+ * 128; the overlay removes the whole family. `GIT_TERMINAL_PROMPT=0` takes over
+ * the prompting that family was for. A null value removes the ambient variable
+ * when the gate merges the overlay over the runner environment.
+ *
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {Record<string, string|null>}
+ */
+function dshEnvironmentOverlay(env) {
+  /** @type {Record<string, string|null>} */
+  const overlay = { GIT_TERMINAL_PROMPT: "0" };
+  for (const key of Object.keys(env)) {
+    if (key === "GIT_CONFIG_COUNT" || /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(key)) overlay[key] = null;
+  }
+  return overlay;
+}
 
 /**
  * Append the output schema the judge prompt refers to. Codex and Claude receive

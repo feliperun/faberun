@@ -5,11 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   harnessCapabilities,
+  missingCapabilities,
   normalizeProviderAvailability,
   normalizeProviderResult,
   probeRuntime,
   providerCommand,
   resolvePermissionExecution,
+  validateCapabilityRequirements,
 } from "../../src/harnesses/index.mjs";
 import {
   EXEC_JSONL_PROTOCOL,
@@ -46,6 +48,7 @@ test("all provider adapters report explicit capabilities and transport", () => {
       cost: false,
       toolPolicy: false,
       streamsOutput: true,
+      signalsProcesses: null,
     },
     {
       structuredOutput: true,
@@ -59,6 +62,7 @@ test("all provider adapters report explicit capabilities and transport", () => {
       cost: true,
       toolPolicy: true,
       streamsOutput: true,
+      signalsProcesses: true,
     },
     {
       structuredOutput: true,
@@ -73,6 +77,7 @@ test("all provider adapters report explicit capabilities and transport", () => {
       cost: false,
       toolPolicy: false,
       streamsOutput: true,
+      signalsProcesses: null,
     },
     {
       structuredOutput: false,
@@ -87,6 +92,7 @@ test("all provider adapters report explicit capabilities and transport", () => {
       cost: false,
       toolPolicy: false,
       streamsOutput: false,
+      signalsProcesses: null,
     },
     {
       structuredOutput: true,
@@ -100,6 +106,7 @@ test("all provider adapters report explicit capabilities and transport", () => {
       cost: false,
       toolPolicy: false,
       streamsOutput: true,
+      signalsProcesses: false,
     },
     {
       structuredOutput: true,
@@ -113,6 +120,7 @@ test("all provider adapters report explicit capabilities and transport", () => {
       cost: true,
       toolPolicy: false,
       streamsOutput: false,
+      signalsProcesses: null,
     },
   ];
   for (let index = 0; index < runtimes.length; index += 1) {
@@ -122,6 +130,23 @@ test("all provider adapters report explicit capabilities and transport", () => {
     assert.ok(Object.keys(capabilities).includes("costBudget"));
     assert.deepEqual(JSON.parse(JSON.stringify(capabilities)), expected[index]);
   }
+});
+
+test("signalsProcesses is tri-state and a requirement admits only its declared value", () => {
+  // `null` is unmeasured, so it satisfies neither a true nor a false demand.
+  assert.deepEqual(validateCapabilityRequirements({ signalsProcesses: true }), { signalsProcesses: true });
+  assert.deepEqual(validateCapabilityRequirements({ signalsProcesses: false }), { signalsProcesses: false });
+  assert.deepEqual(validateCapabilityRequirements({ signalsProcesses: null }), { signalsProcesses: null });
+  assert.throws(() => validateCapabilityRequirements(/** @type {any} */ ({ signalsProcesses: "yes" })), /signalsProcesses must be true, false, or null/u);
+
+  const dsh = harnessCapabilities({ harness: "dsh" });
+  const claude = harnessCapabilities({ harness: "claude" });
+  const codex = harnessCapabilities({ harness: "codex" });
+  assert.deepEqual(missingCapabilities(claude, { signalsProcesses: true }), []);
+  assert.equal(missingCapabilities(dsh, { signalsProcesses: true }).length, 1, "dsh declares false, so a true requirement is missing");
+  assert.equal(missingCapabilities(codex, { signalsProcesses: true }).length, 1, "an unmeasured adapter satisfies no true requirement");
+  assert.deepEqual(missingCapabilities(dsh, { signalsProcesses: false }), []);
+  assert.equal(missingCapabilities(codex, { signalsProcesses: false }).length, 1, "an unmeasured adapter satisfies no false requirement");
 });
 
 test("provider adapters declare the permission modes that execute commands and their defaults", () => {

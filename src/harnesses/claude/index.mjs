@@ -45,6 +45,11 @@ export const claudeHarness = {
     // `--output-format stream-json --verbose` writes one JSON line per event
     // as the turn runs, not one dump at exit.
     streamsOutput: true,
+    // Measured 2026-09-16: `bypassPermissions` runs an unsandboxed Bash that
+    // signals child processes and reads the process table; headless
+    // `acceptEdits` cannot run commands at all, so the flag describes the
+    // executing mode.
+    signalsProcesses: true,
   },
 
   // Headless acceptEdits denies Bash; bypassPermissions executes commands.

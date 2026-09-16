@@ -41,6 +41,9 @@ export const codexHarness = {
     // `--json` writes one JSONL event per item/turn as it happens, not one
     // dump at exit.
     streamsOutput: true,
+    // Unmeasured: no run has proven whether codex's sandbox can signal child
+    // processes or read the process table.
+    signalsProcesses: null,
   },
 
   // Every sandbox mode executes commands; sandbox only bounds their effects.

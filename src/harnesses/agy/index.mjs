@@ -19,6 +19,9 @@ export const agyHarness = {
     // `--output-format=stream-json` writes one JSON line per event as the
     // turn runs, not one dump at exit.
     streamsOutput: true,
+    // Unmeasured: no run has proven whether agy's sandbox can signal child
+    // processes or read the process table.
+    signalsProcesses: null,
   },
 
   // command() always passes --dangerously-skip-permissions.

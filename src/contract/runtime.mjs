@@ -41,7 +41,7 @@ const PRICING_FIELDS = new Set(["inputPerMTok", "cachedInputPerMTok", "outputPer
 const SNAPSHOT_RUNTIME_FIELDS = new Set(["id", ...RUNTIME_FIELDS, "capabilities"]);
 const CAPABILITY_FIELDS = new Set([
   "structuredOutput", "promptTransport", "sandbox", "permissions", "continuation", "tokenBudget", "costBudget",
-  "usage", "cost", "toolPolicy", "streamsOutput", "maxArgvPromptBytes",
+  "usage", "cost", "toolPolicy", "streamsOutput", "signalsProcesses", "maxArgvPromptBytes",
 ]);
 /** @typedef {{id: string, type?: string, runtime?: string, gate: {runtime?: string}, status?: NodeStatus, errorCode?: string, currentRuntime?: string}} RoutableNode */
 /** @typedef {{status?: NodeStatus, errorCode?: string, currentRuntime?: string, assignment?: string, availability?: Record<string, RuntimeAvailability>}} RoutingEvent */
@@ -186,6 +186,10 @@ export function validateCapabilities(value, label) {
   rejectUnknown(value, CAPABILITY_FIELDS, label);
   for (const name of ["structuredOutput", "sandbox", "permissions", "continuation", "tokenBudget", "costBudget", "usage", "cost", "toolPolicy", "streamsOutput"]) {
     if (typeof value[name] !== "boolean") throw new TypeError(`${label}.${name} must be boolean`);
+  }
+  // `signalsProcesses` is tri-state: null is a sandbox nobody has measured.
+  if (value.signalsProcesses !== null && typeof value.signalsProcesses !== "boolean") {
+    throw new TypeError(`${label}.signalsProcesses must be boolean or null`);
   }
   if (!["stdin", "argv"].includes(/** @type {string} */ (value.promptTransport))) {
     throw new TypeError(`${label}.promptTransport is invalid`);

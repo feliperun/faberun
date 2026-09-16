@@ -1,6 +1,7 @@
 import { validateWorkerResult } from "../contract/worker-result.mjs";
 import { scopeFindingsPromptSection } from "../contract/scope-findings.mjs";
 import { JUDGE_ENVELOPE_REASON, JUDGE_FINDING_ENVELOPE_REASON, JUDGE_LIMITS } from "../contract/judge-envelope.mjs";
+import { harnessCapabilities } from "../harnesses/index.mjs";
 
 /** @typedef {{id: string, definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], taskPacket: {mode?: "execution"|"discovery"|"autonomous", objective: string, instructions: string[], writeFiles?: string[], writeRoots?: string[], verification: {argv: string[]}[]}}} JudgeNode */
 /** @typedef {{verdict: "pass"|"fail"|"invalid_judge_output", maxSeverity: "none"|"minor"|"major"|"critical", summary: string, findings: {severity: "minor"|"major"|"critical", description: string, evidence: string}[]}} JudgeVerdict */
@@ -274,6 +275,23 @@ export function retryPrompt(node, verdict) {
   return Buffer.byteLength(prompt, "utf8") > 64 * 1024
     ? `${node.prompt}\n\nA quality gate rejected the previous attempt. Review the bounded structured findings in the state snapshot and fix the working tree inside the closed context.`
     : prompt;
+}
+
+/**
+ * Append the `## Sandbox` warning a resolved worker runtime earns. Only a
+ * harness whose adapter declares `signalsProcesses === false` gets it: that
+ * sandbox cannot signal child processes or read the process table, so a test
+ * that starts and terminates a child hangs until the executor's cap. An
+ * unmeasured harness (`null`) is left alone — no measurement justifies the
+ * warning.
+ *
+ * @param {string} prompt
+ * @param {{harness: string}} runtime
+ * @returns {string}
+ */
+export function appendSandboxNotice(prompt, runtime) {
+  if (harnessCapabilities(runtime).signalsProcesses !== false) return prompt;
+  return `${prompt}\n\n## Sandbox\nYour harness runs you in a sandbox that cannot signal other processes or read the process table. A test that starts and terminates a child process hangs here until the executor's cap and is then killed as a stall. Do not run such tests; the controller runs them after you report.`;
 }
 
 /**

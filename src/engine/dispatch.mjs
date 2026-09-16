@@ -9,7 +9,7 @@
  * which made dispatch depend on review policy and on settlement, and that is
  * the shape that kept `engine/` a web instead of a stack.
  */
-import { JUDGE_SCHEMA, judgePrompt } from "./prompts.mjs";
+import { JUDGE_SCHEMA, appendSandboxNotice, judgePrompt } from "./prompts.mjs";
 import { LockLostError } from "../run/lock.mjs";
 import { TOOL_OUTPUT_LIMIT_BYTES } from "../harnesses/exec-jsonl/index.mjs";
 import { appendPreviousAttempt } from "./retry.mjs";
@@ -404,6 +404,8 @@ export function startWorker(contract, node, state, runDir, running, prompt, lock
   // so it is appended to the resolved prompt rather than the candidate handed
   // to phaseInvocationPlan.
   phasePlan.prompt = appendPreviousAttempt(phasePlan.prompt, state.previousAttempt);
+  // The resolved worker's sandbox is a dispatch-time fact, not a packet one.
+  phasePlan.prompt = appendSandboxNotice(phasePlan.prompt, runtime);
   // The worker prompt directs the provider to write the canonical result file;
   // make sure the directory exists before the provider is asked to.
   const resultPath = attemptWorkerResultPath(runDir, node.id, workspace);
@@ -526,11 +528,11 @@ export function startResultMaterialization(contract, node, state, runDir, runnin
   const paths = logPaths(runDir, node.id, "worker", state.attempt);
   const workspace = attemptWorkspace(state) ?? contract.cwd;
   const resultPath = attemptWorkerResultPath(runDir, node.id, workspace);
-  const prompt = [
+  const prompt = appendSandboxNotice([
     `${RESULT_MATERIALIZATION_PROMPT_HEADER} Do not inspect, implement, verify, or invoke tools.`,
     `Your only job in this single bounded turn is to write the required worker-result JSON object to: ${resultPath}`,
     "Then return that same JSON object as the final message.",
-  ].join("\n\n");
+  ].join("\n\n"), materializationRuntime);
   let baseline;
   try {
     baseline = captureWorkspaceSnapshot(workspace);

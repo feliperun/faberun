@@ -37,6 +37,8 @@ export const replayHarness = {
     // replay/bin.mjs writes its one envelope line after the recorded delay,
     // never incrementally.
     streamsOutput: false,
+    // A recording executes nothing, so it never starts a process to signal.
+    signalsProcesses: false,
   },
 
   // A recording exposes no permission mode.

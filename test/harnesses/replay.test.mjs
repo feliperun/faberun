@@ -73,6 +73,7 @@ test("replay adapter declares explicit capabilities and builds stdin commands", 
     cost: true,
     toolPolicy: false,
     streamsOutput: false,
+    signalsProcesses: false,
   };
   assert.deepEqual(replayHarness.capabilities, expectedCapabilities);
   assert.deepEqual(harnessCapabilities({ harness: "replay" }), expectedCapabilities);

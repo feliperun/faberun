@@ -35,13 +35,14 @@ const CAPABILITY_NAMES = new Set([
   "cost",
   "toolPolicy",
   "streamsOutput",
+  "signalsProcesses",
 ]);
 
-/** @typedef {"structuredOutput"|"promptTransport"|"sandbox"|"permissions"|"continuation"|"tokenBudget"|"costBudget"|"usage"|"cost"|"toolPolicy"|"streamsOutput"} CapabilityName */
+/** @typedef {"structuredOutput"|"promptTransport"|"sandbox"|"permissions"|"continuation"|"tokenBudget"|"costBudget"|"usage"|"cost"|"toolPolicy"|"streamsOutput"|"signalsProcesses"} CapabilityName */
 
-/** @typedef {{structuredOutput: boolean, promptTransport: "stdin"|"argv", sandbox: boolean, permissions: boolean, continuation: boolean, tokenBudget: boolean, costBudget: boolean, usage: boolean, cost: boolean, toolPolicy: boolean, streamsOutput: boolean, maxArgvPromptBytes?: number}} HarnessCapabilities */
+/** @typedef {{structuredOutput: boolean, promptTransport: "stdin"|"argv", sandbox: boolean, permissions: boolean, continuation: boolean, tokenBudget: boolean, costBudget: boolean, usage: boolean, cost: boolean, toolPolicy: boolean, streamsOutput: boolean, signalsProcesses: boolean|null, maxArgvPromptBytes?: number}} HarnessCapabilities */
 
-/** @typedef {{structuredOutput?: boolean, promptTransport?: "stdin"|"argv", sandbox?: boolean, permissions?: boolean, continuation?: boolean, tokenBudget?: boolean, costBudget?: boolean, usage?: boolean, cost?: boolean, toolPolicy?: boolean, streamsOutput?: boolean}} CapabilityRequirements */
+/** @typedef {{structuredOutput?: boolean, promptTransport?: "stdin"|"argv", sandbox?: boolean, permissions?: boolean, continuation?: boolean, tokenBudget?: boolean, costBudget?: boolean, usage?: boolean, cost?: boolean, toolPolicy?: boolean, streamsOutput?: boolean, signalsProcesses?: boolean|null}} CapabilityRequirements */
 
 /** @typedef {{executable: string, args: string[], promptTransport: "stdin"|"argv", input: string|null, env?: Record<string, string|null>}} HarnessCommand */
 
@@ -324,6 +325,12 @@ export function validateCapabilityRequirements(requirements, label = "requiredCa
     if (!isCapabilityName(name)) throw new TypeError(`${label}.${name} is unknown`);
     if (name === "promptTransport") {
       if (value !== "stdin" && value !== "argv") throw new TypeError(`${label}.promptTransport is invalid`);
+    } else if (name === "signalsProcesses") {
+      // Tri-state: `null` is a harness whose sandbox has not been measured, so
+      // it can never satisfy a true or false requirement.
+      if (value !== true && value !== false && value !== null) {
+        throw new TypeError(`${label}.signalsProcesses must be true, false, or null`);
+      }
     } else if (typeof value !== "boolean") {
       throw new TypeError(`${label}.${name} must be boolean`);
     }

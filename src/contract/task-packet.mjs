@@ -19,6 +19,13 @@ const FIELDS = new Set([
   "verification",
 ]);
 const PROMPT_MAX_BYTES = 64 * 1024;
+/**
+ * The `## Verification` preamble every worker prompt carries. The controller's
+ * recorded run is the proof; a self-run is optional and must be a quick,
+ * process-free command, so a sandbox that cannot signal processes never hangs
+ * on the node's own verification.
+ */
+const VERIFICATION_PARAGRAPH = "The controller runs every command below after you report; its recorded results are the proof of this node. Running a command yourself is optional and only for one that finishes in seconds and spawns no long-lived process. Keep output bounded (pipe through `| tail -n 200`). Never wait on a background job, never run the whole test suite, and never run tests that start and terminate other processes.";
 
 /**
  * `validateRelativePath`'s answer when a read path is absent and the caller
@@ -117,7 +124,7 @@ export function renderWorkerPrompt(packet, nodeId) {
     ...bulletOrNone(packet.nonGoals),
     "",
     "## Verification",
-    "Run each command yourself before reporting done. Keep command output bounded: pipe long output through `| tail -n 200` (or similar) and never paste full test or fuzz logs into your context or results.",
+    VERIFICATION_PARAGRAPH,
     ...packet.verification.map((command) => `- ${command.argv.join(" ")}`),
     "",
     "## Required output",
@@ -426,6 +433,7 @@ function renderDiscoveryPrompt(packet, nodeId) {
     'Return exactly one worker-result JSON object, with no markdown or prose. Set status to "done", missingContext to [], and artifacts to an array containing exactly one JSON-stringified execution task packet with every required taskPacket field. The packet readFiles and writeFiles must be non-empty and scoped to this repository.',
     "",
     "## Verification",
+    VERIFICATION_PARAGRAPH,
     ...packet.verification.map((command) => `- ${command.argv.join(" ")}`),
   ];
   const prompt = `${lines.join("\n")}\n`;
@@ -467,6 +475,7 @@ function renderAutonomousPrompt(packet, nodeId) {
     ...bulletOrNone(packet.nonGoals),
     "",
     "## Verification",
+    VERIFICATION_PARAGRAPH,
     ...packet.verification.map((command) => `- ${command.argv.join(" ")}`),
     "",
     "## Required output",
