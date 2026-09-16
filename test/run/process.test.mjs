@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -80,6 +80,21 @@ function nodeSnapshot(node, executionOverrides) {
 
 // The other half of lock.test.mjs: spawning an invocation behind the gate,
 // watching it, detecting a stall, and taking it down.
+
+/**
+ * A raw process-group SIGKILL for a gate a test spawned directly. Tests that
+ * hold the invocation straight from `startProcess` know they own it, so this
+ * skips `terminateInvocation`'s ownership proof (which a flaky
+ * `processStartToken` read could fail) and just kills, ignoring ESRCH.
+ * @param {{pid: number|null, processGroupId?: number|null}|undefined} invocation
+ */
+function killGateGroup(invocation) {
+  const target = invocation?.processGroupId ?? invocation?.pid;
+  if (target === null || target === undefined) return;
+  try { process.kill(-target, "SIGKILL"); } catch (error) {
+    if (/** @type {{code?: string}} */ (error).code !== "ESRCH") throw error;
+  }
+}
 
 test("two synthetic records with different tokens are a mismatch, not just an unequal-string coincidence", () => {
   const nonce = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -484,7 +499,7 @@ setInterval(() => {}, 1000);
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
-    try { await terminateInvocation(job.invocation, { graceMs: 25, killGraceMs: 500 }); } catch {}
+    killGateGroup(job.invocation);
   }
 });
 
@@ -529,6 +544,50 @@ test("a persistence failure leaves the gated provider unstarted and terminates i
     else process.env.FABERUN_CODEX_BIN = previous;
     if (previousMarker === undefined) delete process.env.FABERUN_MARKER;
     else process.env.FABERUN_MARKER = previousMarker;
+    killGateGroup(persistedInvocation);
+  }
+});
+
+test("a gate exits once the directory holding its release file is gone", async () => {
+  const runDir = mkdtempSync(join(tmpdir(), "lock-gate-release-dir-gone-"));
+  const logs = join(runDir, "logs");
+  mkdirSync(logs);
+  const provider = join(runDir, "provider.mjs");
+  writeFileSync(provider, "#!/usr/bin/env node\nprocess.stdin.resume();\nsetInterval(() => {}, 1000);\n");
+  chmodSync(provider, 0o755);
+  const previous = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_CODEX_BIN = provider;
+  const { contract, node } = validatedRun(runDir);
+  const state = nodeSnapshot(node, []);
+  const job = startProcess({
+    contract,
+    node,
+    state,
+    runtime: { id: "luna", harness: "codex", model: "test" },
+    prompt: "task",
+    paths: {
+      prompt: join(logs, "worker.prompt"),
+      stdout: join(logs, "worker.jsonl"),
+      stderr: join(logs, "worker.err"),
+    },
+    phase: "worker",
+    onInvocation: () => {},
+  });
+  try {
+    const pid = job.invocation.pid;
+    // The gate's release path lives under logs/: removing the whole directory
+    // is what a vanished run directory looks like from the gate's side.
+    rmSync(logs, { recursive: true, force: true });
+    // A generous deadline, not a claim about how fast the gate reacts: the
+    // ratchet in test/repo/source-shape.test.mjs caps deadlines under 60s at
+    // three, and this one is a fourth if it races under that line.
+    const deadline = Date.now() + 60_000;
+    while (pidAlive(pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(pidAlive(pid), false, "the gate exits once its release file's directory is gone, never waiting for a release that can now never appear");
+  } finally {
+    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previous;
+    killGateGroup(job.invocation);
   }
 });
 

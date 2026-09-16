@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { lstatSync, realpathSync } from "node:fs";
 
 import { candidateOnlyFailures } from "../../src/engine/judge-gate.mjs";
+import { retryDivergentCandidateCommands } from "../../src/engine/verify.mjs";
 import {
   candidateRefName,
   git,
@@ -16,7 +17,7 @@ import {
   gitHead,
   sealAttempt,
 } from "../../src/repo/worktree.mjs";
-import { promoteRun } from "../../src/repo/integrate.mjs";
+import { integrateAttempt, promoteRun } from "../../src/repo/integrate.mjs";
 import { initializeCampaign, recordPromotion } from "../../src/campaign/index.mjs";
 import { readCampaign } from "../../src/campaign/record.mjs";
 import { captureSourceIdentity } from "../../src/repo/source-identity.mjs";
@@ -153,6 +154,98 @@ test("candidate-only verification failures name the environment divergence", () 
     [],
   );
   assert.deepEqual(candidateOnlyFailures(null, null), []);
+});
+
+test("a verifyCandidate stub built on retryDivergentCandidateCommands retries a divergent failure exactly once before the candidate is accepted", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "runner-candidate-retry-"));
+  const run = /** @param {...string} args */ (...args) => execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
+  run("init", "-q");
+  run("config", "user.email", "test@example.test");
+  run("config", "user.name", "test");
+  writeFileSync(join(repo, "README.md"), "base\n");
+  run("add", "-A");
+  run("-c", "commit.gpgSign=false", "commit", "-qm", "base");
+  const runDir = join(repo, ".runs", "candidate-retry-run");
+  mkdirSync(runDir, { recursive: true });
+  const head = gitHead(repo, "HEAD");
+  createRunRef(repo, "candidate-retry-run", head);
+
+  const worktree = createAttemptWorktree({ repo, runDir, runId: "candidate-retry-run", nodeId: "build", attempt: 1 });
+  writeFileSync(join(worktree.path, "output.txt"), "worker\n");
+  const sealed = sealAttempt({ repo, path: worktree.path, baseSha: worktree.baseSha, runId: "candidate-retry-run", nodeId: "build", attempt: 1 });
+
+  // The attempt's own recorded verification: the command that will diverge in
+  // the candidate worktree already passed here.
+  const attemptEvidence = { passed: true, commands: [{ argv: ["npm", "test"], passed: true }] };
+  let retryCalls = 0;
+  const verifyCandidate = async () => retryDivergentCandidateCommands(
+    { passed: false, commands: [{ argv: ["npm", "test"], passed: false, attempts: [] }] },
+    attemptEvidence,
+    async (indexes) => {
+      retryCalls += 1;
+      return indexes.map(() => ({ argv: ["npm", "test"], passed: true, attempts: [] }));
+    },
+  );
+
+  const result = await integrateAttempt({
+    repo,
+    runDir,
+    runId: "candidate-retry-run",
+    nodeId: "build",
+    attempt: 1,
+    attemptSha: sealed.sha,
+    branch: worktree.branch,
+    verificationEvidence: attemptEvidence,
+    verifyCandidate,
+  });
+
+  assert.equal(retryCalls, 1, "the retry hook ran exactly once");
+  assert.equal(result?.status, "accepted", "the candidate is accepted once the retry agrees with the attempt");
+});
+
+test("a verifyCandidate stub whose retry still fails leaves the candidate rejected", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "runner-candidate-retry-fail-"));
+  const run = /** @param {...string} args */ (...args) => execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
+  run("init", "-q");
+  run("config", "user.email", "test@example.test");
+  run("config", "user.name", "test");
+  writeFileSync(join(repo, "README.md"), "base\n");
+  run("add", "-A");
+  run("-c", "commit.gpgSign=false", "commit", "-qm", "base");
+  const runDir = join(repo, ".runs", "candidate-retry-fail-run");
+  mkdirSync(runDir, { recursive: true });
+  const head = gitHead(repo, "HEAD");
+  createRunRef(repo, "candidate-retry-fail-run", head);
+
+  const worktree = createAttemptWorktree({ repo, runDir, runId: "candidate-retry-fail-run", nodeId: "build", attempt: 1 });
+  writeFileSync(join(worktree.path, "output.txt"), "worker\n");
+  const sealed = sealAttempt({ repo, path: worktree.path, baseSha: worktree.baseSha, runId: "candidate-retry-fail-run", nodeId: "build", attempt: 1 });
+
+  const attemptEvidence = { passed: true, commands: [{ argv: ["npm", "test"], passed: true }] };
+  let retryCalls = 0;
+  const verifyCandidate = async () => retryDivergentCandidateCommands(
+    { passed: false, commands: [{ argv: ["npm", "test"], passed: false, attempts: [] }] },
+    attemptEvidence,
+    async (indexes) => {
+      retryCalls += 1;
+      return indexes.map(() => ({ argv: ["npm", "test"], passed: false, attempts: [] }));
+    },
+  );
+
+  const result = await integrateAttempt({
+    repo,
+    runDir,
+    runId: "candidate-retry-fail-run",
+    nodeId: "build",
+    attempt: 1,
+    attemptSha: sealed.sha,
+    branch: worktree.branch,
+    verificationEvidence: attemptEvidence,
+    verifyCandidate,
+  });
+
+  assert.equal(retryCalls, 1, "the retry hook still ran exactly once, not repeatedly");
+  assert.equal(result?.status, "verification_failed", "a second failure on retry stands as the verdict");
 });
 
 test("a failing git command carries git's own reason into the error", () => {

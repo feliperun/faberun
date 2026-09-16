@@ -5,9 +5,12 @@
  * It checks the two host prerequisites, discovers the catalogue runtimes
  * through the same `discoverRuntimes` the engine uses, asks which harnesses to
  * enable and which runtime is the default worker and judge, and writes the user
- * config at `$FABERUN_HOME/config.json`. The judge must resolve to a vendor
- * other than the worker's; the prompt refuses a same-vendor answer once and the
- * command fails on the second. Once the config is written it offers to register
+ * config at `$FABERUN_HOME/config.json`. When a config already exists, its
+ * recorded harnesses, worker and judge seed the defaults instead of the
+ * fresh-machine ones, narrowed to whatever discovery still reports available;
+ * an explicit `--harnesses`, `--worker` or `--judge` still wins. The judge must
+ * resolve to a vendor other than the worker's; the prompt refuses a same-vendor
+ * answer once and the command fails on the second. Once the config is written it offers to register
  * the faberun skill into every installed harness's skills directory, reusing
  * `registerSkills` from `./skills.mjs` so discovery has one home.
  *
@@ -27,7 +30,7 @@ import { boundedGitSync } from "../repo/worktree.mjs";
 import { colorLevel, renderBanner, statusToken } from "./brand.mjs";
 import { packageVersion } from "../host/package.mjs";
 import { configPath, faberunHome } from "../host/home.mjs";
-import { writeUserConfig } from "../host/config.mjs";
+import { readUserConfig, writeUserConfig } from "../host/config.mjs";
 import { discoverSkillTargets, registerSkills } from "./skills.mjs";
 
 /** @typedef {import("../engine/runtime-discovery.mjs").RuntimeAvailability} RuntimeAvailability */
@@ -121,7 +124,9 @@ export async function setupCommand(options = {}) {
   }
 
   const candidates = availableCandidates(DISCOVERY_RUNTIME_DEFINITIONS, availability);
-  const defaultWorker = cheapest(candidates)?.id ?? "";
+  const kept = mergeExistingConfig(readUserConfig(env), availability);
+  const defaultHarnesses = kept.harnesses.length > 0 ? kept.harnesses : availableHarnesses;
+  const defaultWorker = kept.worker || (cheapest(candidates)?.id ?? "");
   const interactive = isTTY && !json && !yes
     && options.harnesses === undefined && options.worker === undefined && options.judge === undefined;
 
@@ -134,14 +139,15 @@ export async function setupCommand(options = {}) {
   let skills = [];
   try {
     if (interactive) {
-      const harnessAnswer = (await asker.ask(`Enable which harnesses? [${availableHarnesses.join(", ")}] `)).trim();
-      selectedHarnesses = splitHarnesses(harnessAnswer).length ? splitHarnesses(harnessAnswer) : availableHarnesses;
+      const harnessAnswer = (await asker.ask(`Enable which harnesses? [${defaultHarnesses.join(", ")}] `)).trim();
+      selectedHarnesses = splitHarnesses(harnessAnswer).length ? splitHarnesses(harnessAnswer) : defaultHarnesses;
 
       const workerAnswer = (await asker.ask(`Default worker runtime? [${defaultWorker}] `)).trim();
       selectedWorker = workerAnswer || defaultWorker;
 
-      let judgeAnswer = (await asker.ask(`Default judge runtime? [${defaultJudge(selectedWorker, candidates)}] `)).trim();
-      let judge = judgeAnswer || defaultJudge(selectedWorker, candidates);
+      const judgeDefault = keptJudgeDefault(kept, selectedWorker, candidates);
+      let judgeAnswer = (await asker.ask(`Default judge runtime? [${judgeDefault}] `)).trim();
+      let judge = judgeAnswer || judgeDefault;
       if (!crossVendor(judge, selectedWorker)) {
         stderr("the judge must come from a different vendor than the worker\n");
         judgeAnswer = (await asker.ask(`Default judge runtime? [${defaultJudge(selectedWorker, candidates)}] `)).trim();
@@ -150,9 +156,9 @@ export async function setupCommand(options = {}) {
       }
       selectedJudge = judge;
     } else {
-      selectedHarnesses = splitHarnesses(options.harnesses ?? "").length ? splitHarnesses(options.harnesses ?? "") : availableHarnesses;
+      selectedHarnesses = splitHarnesses(options.harnesses ?? "").length ? splitHarnesses(options.harnesses ?? "") : defaultHarnesses;
       selectedWorker = options.worker ?? defaultWorker;
-      selectedJudge = options.judge ?? defaultJudge(selectedWorker, candidates);
+      selectedJudge = options.judge ?? keptJudgeDefault(kept, selectedWorker, candidates);
       if (!crossVendor(selectedJudge, selectedWorker)) {
         if (json) stdout(`${JSON.stringify({ requirements, runtimes, config: null, skills }, null, 2)}\n`);
         else stdout(`${statusToken("fail", level)} judge · the judge must come from a different vendor than the worker\n`);
@@ -252,6 +258,50 @@ function missingEnvKeys(runtime, env) {
     if (typeof value === "string" && value.length > 0 && !env[value]) names.push(value);
   }
   return [...new Set(names)];
+}
+
+/**
+ * The recorded harnesses, worker and judge that discovery still reports
+ * available, so a re-run of setup keeps an operator's earlier choices instead
+ * of resetting them to the fresh-machine defaults. A choice discovery cannot
+ * find is dropped, not kept blindly; the caller fills anything empty with
+ * today's defaults. A null `existing` (no config yet, or a malformed one)
+ * yields nothing kept.
+ *
+ * @param {UserConfig|null} existing
+ * @param {Record<string, RuntimeAvailability>} availability
+ * @returns {{harnesses: string[], worker: string, judge: string}}
+ */
+export function mergeExistingConfig(existing, availability) {
+  if (!existing) return { harnesses: [], worker: "", judge: "" };
+  const availableHarnesses = new Set(
+    Object.entries(DISCOVERY_RUNTIME_DEFINITIONS)
+      .filter(([id]) => availability[id]?.available === true)
+      .map(([, definition]) => definition.harness),
+  );
+  const candidateIds = new Set(
+    availableCandidates(DISCOVERY_RUNTIME_DEFINITIONS, availability).map((candidate) => candidate.id),
+  );
+  return {
+    harnesses: existing.harnesses.filter((harness) => availableHarnesses.has(harness)),
+    worker: existing.worker && candidateIds.has(existing.worker) ? existing.worker : "",
+    judge: existing.judge && candidateIds.has(existing.judge) ? existing.judge : "",
+  };
+}
+
+/**
+ * The judge default for the interactive prompt and `--yes`: the recorded judge
+ * when it is still available and still a different vendor than `workerId`,
+ * otherwise the strongest cross-vendor candidate as today.
+ *
+ * @param {{judge: string}} kept
+ * @param {string} workerId
+ * @param {import("../engine/runtime-discovery.mjs").RuntimeCandidate[]} candidates
+ * @returns {string}
+ */
+function keptJudgeDefault(kept, workerId, candidates) {
+  if (kept.judge && crossVendor(kept.judge, workerId)) return kept.judge;
+  return defaultJudge(workerId, candidates);
 }
 
 /**

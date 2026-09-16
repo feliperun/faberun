@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -10,6 +11,7 @@ import {
   discoverCampaigns,
   initializeCampaign,
   parkCampaign,
+  promoteRunInCampaign,
   recordPromotion,
   registerRun,
   renderHandoff,
@@ -551,6 +553,32 @@ test("recording a promotion is idempotent by run and sha", () => {
   const campaign = readCampaign(path);
   assert.equal(campaign.promotions.length, 1);
   assert.equal(campaign.promotions[0].sha, entry.sha);
+});
+
+test("promoting the same run twice through the campaign records one promotion", () => {
+  const repo = mkdtempSync(join(tmpdir(), "runner-campaign-promote-repo-"));
+  execFileSync("git", ["-C", repo, "init", "-q"], { stdio: "ignore" });
+  execFileSync("git", ["-C", repo, "config", "user.email", "test@example.test"], { stdio: "ignore" });
+  execFileSync("git", ["-C", repo, "config", "user.name", "test"], { stdio: "ignore" });
+  writeFileSync(join(repo, "base.txt"), "base\n");
+  execFileSync("git", ["-C", repo, "add", "-A"], { stdio: "ignore" });
+  execFileSync("git", ["-C", repo, "-c", "commit.gpgSign=false", "commit", "-qm", "base"], { stdio: "ignore" });
+  const base = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  writeFileSync(join(repo, "run.txt"), "run\n");
+  execFileSync("git", ["-C", repo, "add", "-A"], { stdio: "ignore" });
+  execFileSync("git", ["-C", repo, "-c", "commit.gpgSign=false", "commit", "-qm", "run"], { stdio: "ignore" });
+  const runHead = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+
+  const runsDir = join(mkdtempSync(join(tmpdir(), "runner-campaign-promote-")), ".runs");
+  const { path: campaignPath } = initializeCampaign(runsDir, { campaignId: "promote-twice", goal: "Promote once, replay once" });
+
+  const first = promoteRunInCampaign({ campaignPath, repo, runId: "run-1", runHead, baseSha: base, finalVerificationPassed: true });
+  assert.equal(first.status, "promoted");
+  const second = promoteRunInCampaign({ campaignPath, repo, runId: "run-1", runHead, baseSha: base, finalVerificationPassed: true });
+  assert.equal(second.status, "already_promoted");
+
+  const promotions = readCampaign(campaignPath).promotions;
+  assert.equal(promotions.length, 1, "a replayed promotion does not add a second record");
 });
 
 test("a parked campaign records attention and refuses a malformed one", () => {

@@ -129,7 +129,9 @@ judge, capped at `min(timeoutSec, 120s)`, and a contract-level
 verification, so a node whose write set breaks one fails on its own attempt
 rather than on the phase-terminal node's full suite. The invariant: every item
 declares its own proof; proofs gate before any judge runs, so a fully mechanical
-node costs no judge, and a schema-1 string item is rejected. See
+node costs no judge, and a schema-1 string item is rejected. An attempt killed
+by a signal the controller did not itself send is retried once, with both
+attempts kept in the record and the first flagged `signalDeath`. See
 [contract.md](../skills/faberun/references/contract.md) and
 [rules.md](../skills/faberun/references/rules.md).
 
@@ -190,8 +192,11 @@ from the sealed sha instead of starting over. See
 
 The per-run ref `refs/faberun/<run-id>/run` is the integration head. Integration
 builds a candidate on `refs/faberun/<run-id>/candidate` and
-`.runs/worktrees/<run-id>/.candidate`, where the node's verification runs once.
-A passing candidate advances the run ref with a conditional `update-ref` and
+`.runs/worktrees/<run-id>/.candidate`, where the node's verification runs once,
+except that a command the candidate failed but the attempt passed is retried
+once before the candidate is judged failed, since that disagreement is
+evidence about the two worktrees rather than about the work. A passing
+candidate advances the run ref with a conditional `update-ref` and
 writes the node `done` with `integratedHead`; a failing candidate is removed and
 leaves the run ref untouched; a conflict parks the node `attention` with the
 conflicting paths. The invariant: integration is serialized, a pass advances the
@@ -206,7 +211,10 @@ default `campaign/<campaign-id>`) onto a run's integrated ref and records a
 promotion entry on the campaign. It is the only place a shared landing branch
 moves, and the chain never force-updates it. The invariant: promotion requires
 green `finalVerification`, refuses a landing branch that is checked out in a
-worktree, and refuses `main` unless the operator passes `--allow-main`. See
+worktree, and refuses `main` unless the operator passes `--allow-main`. A run
+already reflected on the landing branch, including a coordinator restart
+replaying that promotion after the branch has since moved further, is
+reported as `already_promoted` and adds no promotion record. See
 [operations.md](../skills/faberun/references/operations.md) and
 [COMMANDS.md](COMMANDS.md#supervise).
 

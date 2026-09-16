@@ -87,6 +87,33 @@ export function applyVerificationFailure(contract, node, state, runDir, running,
 }
 
 /**
+ * The bounded operator-facing note when the integration candidate needed
+ * `verifyCandidateWorkspace`'s one retry to agree with the attempt. The node
+ * snapshot schema has no free-text `note` field of its own; `gate.summary` is
+ * the one it already carries that `statusNote` (report/render.mjs) surfaces,
+ * so a retried acceptance folds its note there instead of failing on an
+ * unknown field the next time the state is written.
+ *
+ * @param {unknown} candidateEvidence
+ * @returns {string|null}
+ */
+function candidateRetryNote(candidateEvidence) {
+  const record = /** @type {{retried?: unknown, commands?: Array<{argv?: string[]}>}} */ (candidateEvidence ?? {});
+  const indexes = Array.isArray(record.retried) ? record.retried : [];
+  if (!indexes.length) return null;
+  const argvList = indexes.map((index) => (record.commands?.[/** @type {number} */ (index)]?.argv ?? []).join(" ")).join(", ");
+  return boundedUtf8(`candidate verification retried: ${argvList}`, 256);
+}
+/**
+ * @param {import("../contract/index.mjs").GateResult|null|undefined} gate
+ * @param {string} note
+ * @returns {import("../contract/index.mjs").GateResult}
+ */
+function withCandidateRetryNote(gate, note) {
+  if (!gate) return { verdict: "pass", maxSeverity: "none", summary: note, findings: [] };
+  return { ...gate, summary: boundedUtf8(`${gate.summary} · ${note}`, 4 * 1024) };
+}
+/**
  * Seal the current attempt, verify its candidate in a detached worktree, and
  * only then perform the single done-state transition. The integration module
  * owns the journal and conditional ref update; this callback owns node state.
@@ -142,8 +169,10 @@ export async function settleDone(contract, node, state, runDir, lock, states, ca
     onAccepted: async (transaction) => {
       const acceptedPath = state.worktree?.path ?? attemptWorktreePath(runDir, contract.id, node.id, transaction.attempt);
       if (state.attempt === transaction.attempt && state.status !== "done") {
+        const retryNote = candidateRetryNote(/** @type {{verificationEvidence?: {candidate?: unknown}}} */ (transaction).verificationEvidence?.candidate);
         transition(runDir, state, "done", {
           ...patch,
+          ...(retryNote ? { gate: withCandidateRetryNote(/** @type {import("../contract/index.mjs").GateResult|null|undefined} */ (patch.gate ?? state.gate), retryNote) } : {}),
           integratedHead: transaction.candidateSha,
           worktree: { ...(state.worktree ?? {}), status: "removed", commit: transaction.attemptSha, baseSha: transaction.previousRunRefTip },
         }, lock);

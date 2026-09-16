@@ -21,8 +21,14 @@
  *
  * Nothing here is exported for a caller: this file is a program. Every name
  * below is module-local.
+ *
+ * It also exits when the release file's directory is gone (measured
+ * 2026-09-16: gate processes from a prior day's test runs, spawned into a
+ * temp directory the failed test never cleaned up, were still alive and
+ * waiting for a release file that could now never appear).
  */
 import { existsSync, readFileSync, statSync, openSync, closeSync, readSync, writeSync } from "node:fs";
+import { dirname } from "node:path";
 import { spawn } from "node:child_process";
 
 /** @typedef {{executable: string, args: string[], cwd: string, promptTransport: "stdin"|"argv", harness: string, env: Record<string, string|null>|null, stdoutPath: string, stderrPath: string}} GateConfig */
@@ -158,8 +164,14 @@ function childEnv() {
 process.on("SIGTERM", () => stopProvider());
 process.on("SIGINT", () => stopProvider());
 
+/** @returns {boolean} */
+function releaseDirectoryGone() {
+  return !existsSync(dirname(releasePath));
+}
+
 const timer = setInterval(() => {
   if (!parentAlive()) { clearInterval(timer); stopProvider(); return; }
+  if (releaseDirectoryGone()) { clearInterval(timer); stopProvider(); return; }
   if (!existsSync(releasePath)) return;
   clearInterval(timer);
   const stdoutFd = openSync(config.stdoutPath, "wx", 0o600);

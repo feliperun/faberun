@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { readUserConfig, writeUserConfig } from "../../src/host/config.mjs";
 import { configPath, faberunHome } from "../../src/host/home.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS } from "../../src/engine/runtime-discovery.mjs";
-import { setupCommand } from "../../src/cli/setup.mjs";
+import { mergeExistingConfig, setupCommand } from "../../src/cli/setup.mjs";
 import { withEmptyPath } from "../helpers.mjs";
 
 const BIN = fileURLToPath(new URL("../../bin/faberun.mjs", import.meta.url));
@@ -226,6 +226,100 @@ function registerableHome() {
   }
   return { home, env: { ...process.env, HOME: home, PATH: `${bin}:/usr/bin:/bin` } };
 }
+
+test("mergeExistingConfig keeps only what discovery still reports available", () => {
+  const availability = allAvailable();
+  availability["zcode-glm"] = { available: false, exhaustedUntil: null, reason: "not_found" };
+  assert.deepEqual(mergeExistingConfig(null, availability), { harnesses: [], worker: "", judge: "" });
+  assert.deepEqual(
+    mergeExistingConfig({ schemaVersion: 1, harnesses: ["dsh", "claude"], worker: "dsh-deepseek", judge: "claude-sonnet", updatedAt: "2026-09-15T00:00:00.000Z" }, availability),
+    { harnesses: ["dsh", "claude"], worker: "dsh-deepseek", judge: "claude-sonnet" },
+    "a still-available choice is kept as-is",
+  );
+  assert.deepEqual(
+    mergeExistingConfig({ schemaVersion: 1, harnesses: ["dsh", "zcode"], worker: "zcode-glm", judge: "claude-sonnet", updatedAt: "2026-09-15T00:00:00.000Z" }, availability),
+    { harnesses: ["dsh"], worker: "", judge: "claude-sonnet" },
+    "a harness or worker discovery cannot find is dropped, not kept blindly",
+  );
+});
+
+test("setup --yes with an existing config keeps its worker and judge and narrows harnesses to what discovery still finds", async () => {
+  const env = { FABERUN_HOME: home() };
+  writeUserConfig(env, SAMPLE);
+  const code = await setupCommand({
+    skill: false,
+    yes: true,
+    env,
+    discover: async () => allAvailable(),
+    isTTY: false,
+    stdout: () => {},
+    stderr: () => {},
+  });
+  assert.equal(code, 0);
+  const config = readUserConfig(env);
+  assert.ok(config, "setup wrote a config");
+  assert.deepEqual(config.harnesses, SAMPLE.harnesses, "the recorded harnesses are kept rather than widened to every available one");
+  assert.equal(config.worker, SAMPLE.worker);
+  assert.equal(config.judge, SAMPLE.judge);
+});
+
+test("setup --yes drops a recorded harness that is no longer available", async () => {
+  const env = { FABERUN_HOME: home() };
+  writeUserConfig(env, { ...SAMPLE, harnesses: ["dsh", "claude", "zcode"] });
+  const availability = allAvailable();
+  availability["zcode-glm"] = { available: false, exhaustedUntil: null, reason: "not_found" };
+  const code = await setupCommand({
+    skill: false,
+    yes: true,
+    env,
+    discover: async () => availability,
+    isTTY: false,
+    stdout: () => {},
+    stderr: () => {},
+  });
+  assert.equal(code, 0);
+  const config = readUserConfig(env);
+  assert.ok(config);
+  assert.deepEqual(config.harnesses, ["dsh", "claude"], "zcode is dropped since discovery no longer reports it");
+});
+
+test("setup --yes --judge overrides a recorded judge", async () => {
+  const env = { FABERUN_HOME: home() };
+  writeUserConfig(env, SAMPLE);
+  const code = await setupCommand({
+    skill: false,
+    yes: true,
+    judge: "codex-gpt",
+    env,
+    discover: async () => allAvailable(),
+    isTTY: false,
+    stdout: () => {},
+    stderr: () => {},
+  });
+  assert.equal(code, 0);
+  const config = readUserConfig(env);
+  assert.ok(config);
+  assert.equal(config.worker, SAMPLE.worker, "the recorded worker is still kept");
+  assert.equal(config.judge, "codex-gpt", "the explicit --judge wins over the recorded one");
+});
+
+test("setup --yes writes today's defaults on a fresh home with no existing config", async () => {
+  const env = { FABERUN_HOME: home() };
+  const code = await setupCommand({
+    skill: false,
+    yes: true,
+    env,
+    discover: async () => allAvailable(),
+    isTTY: false,
+    stdout: () => {},
+    stderr: () => {},
+  });
+  assert.equal(code, 0);
+  const config = readUserConfig(env);
+  assert.ok(config);
+  assert.deepEqual(config.harnesses, ["dsh", "zcode", "agy", "codex", "claude"]);
+  assert.equal(config.worker, "dsh-deepseek");
+});
 
 test("setup --yes registers the skill and --no-skill skips it", () => {
   const args = ["setup", "--yes", "--harnesses", "codex,claude", "--worker", "codex-gpt", "--judge", "claude-sonnet"];

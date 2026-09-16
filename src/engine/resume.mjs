@@ -17,7 +17,7 @@ import { Buffer } from "node:buffer";
 import { acquire as acquireLock } from "../run/lock.mjs";
 import { applyInvalidWorkerResult, assertRunMutable, handleProviderExhaustion } from "./lifecycle.mjs";
 import { applyJudgeResult } from "./review.mjs";
-import { assertSourceUnchanged, captureRunIdentity, statesFingerprint } from "./run-identity.mjs";
+import { assertSourceUnchanged, captureRunIdentity, recordedBaseRef, statesFingerprint } from "./run-identity.mjs";
 import { attemptWorkspace, attemptWorktreePath, gitHead, removeWorktree, runRefName } from "../repo/worktree.mjs";
 import { canonicalWorkerResultText, isResultMaterializationInvocation, materializeAttemptResult, recoverWorkerResult } from "./result-file.mjs";
 import { checkPersistedWorkerScope, persistedScopeBoundary, reconcileAmbiguousWorkerRestart, resolveUnknownEffect } from "./scope.mjs";
@@ -114,7 +114,7 @@ export async function resumeRun(runDirPath, options = {}) {
       node.id,
       persistedScopeBoundary(contract, node, states.get(node.id), attemptWorkspace(states.get(node.id)) ?? contract.cwd),
     ]));
-    const sourceIdentity = await captureRunIdentity(contract, scopeBoundaries);
+    const sourceIdentity = await captureRunIdentity(contract, scopeBoundaries, recordedBaseRef(storedMetadata) ?? undefined);
     const identity = assertSourceUnchanged(storedMetadata.sourceIdentity, sourceIdentity);
     // A resume is an explicit instruction to continue the run: it consumes a
     // stale cancel request instead of letting it re-cancel the retried nodes.
