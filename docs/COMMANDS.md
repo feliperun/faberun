@@ -260,21 +260,25 @@ Related: `faberun preflight`, `faberun setup`, `faberun models`.
 
 ## faberun setup
 ```text
-faberun setup [--yes] [--harnesses <a,b>] [--worker <id>] [--judge <id>] [--json]
+faberun setup [--yes] [--no-skill] [--harnesses <a,b>] [--worker <id>] [--judge <id>] [--json]
 ```
 Onboard a fresh machine: check the two host prerequisites, discover the
 catalogue runtimes, choose which harnesses to enable and which runtime is the
 default worker and judge (the judge must resolve to a different vendor), and
-write the user config. `--json` never prompts and takes the flags or defaults.
+write the user config. Once the config is written it offers to register the
+`faberun` skill into every installed harness's skills directory. `--json` never
+prompts and takes the flags or defaults.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
 | `--yes` | none | Skip the questions and take the flags or defaults. | off |
+| `--no-skill` | none | Do not register the `faberun` skill. | registration offered |
 | `--harnesses` | comma-separated ids | Enable these harnesses. | every available harness |
 | `--worker` | runtime id | Default worker runtime. | cheapest available candidate |
 | `--judge` | runtime id | Default judge runtime; must differ in vendor from the worker. | strongest cross-vendor candidate |
-| `--json` | none | Emit the report as one object; never prompts. | off |
-Reads the host and writes `$FABERUN_HOME/config.json`.
+| `--json` | none | Emit the report as one object, including `skills`; never prompts. | off |
+Reads the host and writes `$FABERUN_HOME/config.json` and the skill links or
+copies described under `faberun skills register`.
 ```bash
 node src/cli.mjs setup --yes --harnesses claude,codex --worker codex-gpt --judge claude-sonnet
 ```
@@ -803,17 +807,20 @@ Related: `faberun seat status`, `faberun seat start`.
 
 ## faberun skills
 ```text
-faberun skills <operation> [<name>...] [--target <dir>] [--global] [--force]
+faberun skills <operation> [<name>...] [--target <dir>] [--global] [--force] [--copy] [--harness <a,b>] [--json]
 ```
 Manage the skills catalogue shipped with `faberun`. `list` prints the catalogue;
-`install` copies one or more into a `.claude/skills/` directory.
+`install` copies one or more into a `.claude/skills/` directory; `register`
+discovers each installed harness's own skills directory and links the `faberun`
+skill into it.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
 | `--target` | directory | Repository whose `.claude/skills/` receives the install. | current directory |
 | `--global` | none | Install into `~/.claude/skills/` instead of the target. | off |
 | `--force` | none | Replace a skill that already exists. | off |
-Reads the shipped `skills/` catalogue; writes into the chosen `.claude/skills/`.
+Reads the shipped `skills/` catalogue; writes into the chosen `.claude/skills/`
+or the registered harness directories.
 ```bash
 node src/cli.mjs skills install faberun --target /repo
 ```
@@ -853,6 +860,45 @@ installed faberun · /repo/.claude/skills
 1 installed · 0 skipped
 ```
 Related: `faberun skills list`, `faberun init`.
+### faberun skills register
+```text
+faberun skills register [--harness <a,b>] [--copy] [--force] [--json]
+```
+Link the `faberun` skill into the skills directory of every installed harness.
+The source is `$FABERUN_HOME/current/skills/faberun` when this CLI runs from the
+installed home layout, so the link follows every update, and this checkout's
+`skills/faberun` otherwise. `--copy` writes a real tree instead, for a harness
+that does not follow symlinks.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--harness` | comma-separated names | Limit the set to these harnesses. | every discovered harness |
+| `--copy` | none | Copy the skill tree instead of linking it. | symlink |
+| `--force` | none | Create a missing skills directory and replace a real directory at the destination. | off |
+| `--json` | none | Emit `[{harness, dir, action}]` instead of lines. | off |
+Reads the shipped `skills/faberun`; writes a `faberun` symlink or directory
+under each discovered skills directory. A harness whose binary is absent is
+reported `[ok] <harness> · not installed`; a missing directory is a `[warn]`
+unless `--force` creates it; a real directory at the destination is left alone
+unless `--force`.
+
+| Harness | Skills directory | Measured 2026-09-16 |
+| --- | --- | --- |
+| `claude` | `~/.claude/skills` | documented convention |
+| `codex` | `~/.codex/skills` | documented convention |
+| `zcode` | `~/.agents/skills` | `zcode skills list` labels its local entries `(user/agents)` |
+| `agy` | `~/.gemini/config/skills` | the binary's guide names `~/.gemini/config/` as the global root |
+| `dsh` | — | `dsh --help` has no skills command; no support |
+The shared `~/.agents/skills` is discovered as its own `agents` target when an
+installed harness does not already claim it, so a setup whose harness
+directories are absent or symlinked to it is still registered.
+
+```bash
+node src/cli.mjs skills register --harness claude,codex
+[ok] claude · ~/.claude/skills/faberun · linked
+[ok] codex · ~/.codex/skills/faberun · linked
+```
+Related: `faberun setup`, `faberun skills install`, `faberun init`.
 
 ## Dashboard
 ```text

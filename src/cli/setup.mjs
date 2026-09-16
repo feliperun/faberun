@@ -7,7 +7,9 @@
  * enable and which runtime is the default worker and judge, and writes the user
  * config at `$FABERUN_HOME/config.json`. The judge must resolve to a vendor
  * other than the worker's; the prompt refuses a same-vendor answer once and the
- * command fails on the second.
+ * command fails on the second. Once the config is written it offers to register
+ * the faberun skill into every installed harness's skills directory, reusing
+ * `registerSkills` from `./skills.mjs` so discovery has one home.
  *
  * Discovery and the question function are injected so tests never touch a real
  * binary or a terminal. `--json` never asks: it reports the same facts as one
@@ -26,9 +28,11 @@ import { colorLevel, renderBanner, statusToken } from "./brand.mjs";
 import { packageVersion } from "../host/package.mjs";
 import { configPath, faberunHome } from "../host/home.mjs";
 import { writeUserConfig } from "../host/config.mjs";
+import { discoverSkillTargets, registerSkills } from "./skills.mjs";
 
 /** @typedef {import("../engine/runtime-discovery.mjs").RuntimeAvailability} RuntimeAvailability */
 /** @typedef {import("../host/config.mjs").UserConfig} UserConfig */
+/** @typedef {import("./skills.mjs").SkillRegistration} SkillRegistration */
 /** @typedef {(text: string) => void} Writer */
 /** @typedef {(question: string) => Promise<string>} Asker */
 /** @typedef {{id: string, harness: string, model: string, available: boolean, status: string, missing: string[]}} RuntimeView */
@@ -39,9 +43,11 @@ import { writeUserConfig } from "../host/config.mjs";
  * @property {string} [harnesses]
  * @property {string} [worker]
  * @property {string} [judge]
+ * @property {boolean} [skill] whether to register the faberun skill (default true)
  * @property {boolean} [json]
  * @property {NodeJS.ProcessEnv} [env]
  * @property {() => Promise<Record<string, RuntimeAvailability>>} [discover]
+ * @property {(name: string) => boolean} [isInstalled]
  * @property {Asker} [ask]
  * @property {Writer} [stdout]
  * @property {Writer} [stderr]
@@ -94,7 +100,7 @@ export async function setupCommand(options = {}) {
   }
 
   if (requirements.some((requirement) => !requirement.ok)) {
-    if (json) stdout(`${JSON.stringify({ requirements, runtimes, config: null }, null, 2)}\n`);
+    if (json) stdout(`${JSON.stringify({ requirements, runtimes, config: null, skills: [] }, null, 2)}\n`);
     return 1;
   }
 
@@ -107,7 +113,7 @@ export async function setupCommand(options = {}) {
 
   if (availableHarnesses.length === 0) {
     if (json) {
-      stdout(`${JSON.stringify({ requirements, runtimes, config: null }, null, 2)}\n`);
+      stdout(`${JSON.stringify({ requirements, runtimes, config: null, skills: [] }, null, 2)}\n`);
     } else {
       stdout(`${statusToken("fail", level)} harnesses · none available · install one of: ${INSTALL_HARNESSES.join(", ")}\n`);
     }
@@ -124,6 +130,8 @@ export async function setupCommand(options = {}) {
   let selectedWorker;
   let selectedJudge;
   const asker = makeAsker(options.ask);
+  /** @type {SkillRegistration[]} */
+  let skills = [];
   try {
     if (interactive) {
       const harnessAnswer = (await asker.ask(`Enable which harnesses? [${availableHarnesses.join(", ")}] `)).trim();
@@ -146,31 +154,52 @@ export async function setupCommand(options = {}) {
       selectedWorker = options.worker ?? defaultWorker;
       selectedJudge = options.judge ?? defaultJudge(selectedWorker, candidates);
       if (!crossVendor(selectedJudge, selectedWorker)) {
-        if (json) stdout(`${JSON.stringify({ requirements, runtimes, config: null }, null, 2)}\n`);
+        if (json) stdout(`${JSON.stringify({ requirements, runtimes, config: null, skills }, null, 2)}\n`);
         else stdout(`${statusToken("fail", level)} judge · the judge must come from a different vendor than the worker\n`);
         return 1;
       }
     }
+
+    const config = {
+      schemaVersion: /** @type {1} */ (1),
+      harnesses: selectedHarnesses,
+      worker: selectedWorker,
+      judge: selectedJudge,
+      updatedAt: new Date().toISOString(),
+    };
+    writeUserConfig(env, config);
+    if (!json) stdout(`${statusToken("ok", level)} config · ${configPath(faberunHome(env))}\n`);
+
+    // The offer comes after the config is durable, so a machine that answers
+    // no still has a usable setup. Discovery is `skills.mjs`'s table, reused
+    // rather than re-probed here.
+    const detected = discoverSkillTargets({ env, isInstalled: options.isInstalled })
+      .filter((target) => target.dir !== null && target.dirExists && target.installed && !target.unsupported);
+    if (options.skill !== false && detected.length > 0) {
+      let register = true;
+      if (interactive) {
+        const answer = (await asker.ask(`Register the faberun skill for ${detected.map((target) => target.harness).join(", ")}? [Y/n] `)).trim();
+        register = !answer.toLowerCase().startsWith("n");
+      }
+      if (register) {
+        skills = registerSkills({
+          env,
+          level,
+          isInstalled: options.isInstalled,
+          stdout: json ? () => {} : stdout,
+        });
+      }
+    }
+
+    if (json) {
+      stdout(`${JSON.stringify({ requirements, runtimes, config, skills }, null, 2)}\n`);
+      return 0;
+    }
+    stdout("next · faberun init in a repository · faberun doctor\n");
+    return 0;
   } finally {
     asker.close();
   }
-
-  const config = {
-    schemaVersion: /** @type {1} */ (1),
-    harnesses: selectedHarnesses,
-    worker: selectedWorker,
-    judge: selectedJudge,
-    updatedAt: new Date().toISOString(),
-  };
-  writeUserConfig(env, config);
-
-  if (json) {
-    stdout(`${JSON.stringify({ requirements, runtimes, config }, null, 2)}\n`);
-    return 0;
-  }
-  stdout(`${statusToken("ok", level)} config · ${configPath(faberunHome(env))}\n`);
-  stdout("next · faberun init in a repository · faberun doctor\n");
-  return 0;
 }
 
 /**

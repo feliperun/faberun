@@ -187,4 +187,5 @@ binary is absent, and only reattaching is lost.
 `faberun init` prepares a target repository (`.runs` ignored, skill installed, agent kit optional and always asked).
 `faberun update --check` reads the release channel and writes the cache the banner shows; `faberun update` switches versions only after the new one proves itself.
 `faberun skills install [name]` installs the shipped skills.
+`faberun skills register [--harness a,b] [--copy] [--force]` links the faberun skill into each installed harness's skills directory.
 `faberun campaign unpark <id> [--force]` clears a parked campaign once its run is no longer parked so `supervise campaign` can continue.

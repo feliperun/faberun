@@ -102,7 +102,7 @@ const COMMAND_OPTIONS = {
   "bulk-read": { question: { type: "string" }, paths: { type: "string", multiple: true }, json: { type: "boolean" } },
   next: { cwd: { type: "string" }, json: { type: "boolean" } },
   update: { check: { type: "boolean" }, json: { type: "boolean" } },
-  setup: { yes: { type: "boolean" }, harnesses: { type: "string" }, worker: { type: "string" }, judge: { type: "string" }, json: { type: "boolean" } },
+  setup: { yes: { type: "boolean" }, harnesses: { type: "string" }, worker: { type: "string" }, judge: { type: "string" }, "no-skill": { type: "boolean" }, json: { type: "boolean" } },
   init: { cwd: { type: "string" }, yes: { type: "boolean" }, "no-skill": { type: "boolean" }, agentkit: { type: "boolean" }, greenfield: { type: "boolean" }, stable: { type: "boolean" }, json: { type: "boolean" } },
   metrics: METRICS_OPTIONS,
 };
@@ -251,6 +251,7 @@ async function main(argv) {
       harnesses: typeof values.harnesses === "string" ? values.harnesses : undefined,
       worker: typeof values.worker === "string" ? values.worker : undefined,
       judge: typeof values.judge === "string" ? values.judge : undefined,
+      skill: values["no-skill"] !== true,
       json: values.json === true,
       env: process.env,
       isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),

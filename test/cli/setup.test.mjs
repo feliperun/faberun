@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -85,6 +85,7 @@ test("setup --yes writes the cheapest worker and a cross-vendor judge", async ()
   const out = capture();
   const err = capture();
   const code = await setupCommand({
+    skill: false,
     yes: true,
     env,
     discover: async () => allAvailable(),
@@ -113,6 +114,7 @@ test("setup exits 1 and names the judge problem when only one vendor is availabl
   const out = capture();
   const err = capture();
   const code = await setupCommand({
+    skill: false,
     yes: true,
     env,
     discover: async () => ({ "dsh-deepseek": READY }),
@@ -131,6 +133,7 @@ test("setup exits 1 with the install hint when no runtime is available", async (
   const out = capture();
   const err = capture();
   const code = await setupCommand({
+    skill: false,
     yes: true,
     env,
     discover: async () => allUnavailable("not_found"),
@@ -148,6 +151,7 @@ test("setup takes --harnesses, --worker and --judge verbatim", async () => {
   const out = capture();
   const err = capture();
   const code = await setupCommand({
+    skill: false,
     harnesses: "dsh,claude",
     worker: "dsh-deepseek",
     judge: "claude-sonnet",
@@ -181,6 +185,7 @@ test("setup refuses a same-vendor judge once and then accepts a valid one", asyn
     throw new Error(`unexpected question: ${question}`);
   };
   const code = await setupCommand({
+    skill: false,
     env,
     discover: async () => allAvailable(),
     ask,
@@ -202,3 +207,39 @@ test("setup --yes --json exits 1 on a host with no harness", async () => {
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.config, null);
 });
+
+/**
+ * A throwaway HOME with the claude and codex skills directories and fake
+ * harness binaries on a narrow PATH, so discovery and registration are
+ * deterministic and never touch the developer's real harnesses.
+ *
+ * @returns {{home: string, env: Record<string, string|undefined>}}
+ */
+function registerableHome() {
+  const home = mkdtempSync(join(tmpdir(), "setup-register-"));
+  const bin = mkdtempSync(join(tmpdir(), "setup-register-bin-"));
+  for (const dir of [".claude/skills", ".codex/skills"]) mkdirSync(join(home, dir), { recursive: true });
+  for (const harness of ["claude", "codex"]) {
+    const path = join(bin, harness);
+    writeFileSync(path, `#!${process.execPath}\nconsole.log("fake ${harness} 1.0.0");\n`);
+    chmodSync(path, 0o755);
+  }
+  return { home, env: { ...process.env, HOME: home, PATH: `${bin}:/usr/bin:/bin` } };
+}
+
+test("setup --yes registers the skill and --no-skill skips it", () => {
+  const args = ["setup", "--yes", "--harnesses", "codex,claude", "--worker", "codex-gpt", "--judge", "claude-sonnet"];
+
+  const registered = registerableHome();
+  const done = spawnSync(process.execPath, [BIN, ...args], { env: registered.env, encoding: "utf8" });
+  assert.equal(done.status, 0, done.stderr);
+  assert.ok(existsSync(join(registered.home, ".claude", "skills", "faberun", "SKILL.md")), "claude receives the skill");
+  assert.ok(existsSync(join(registered.home, ".codex", "skills", "faberun", "SKILL.md")), "codex receives the skill");
+
+  const skipped = registerableHome();
+  const noSkill = spawnSync(process.execPath, [BIN, ...args, "--no-skill"], { env: skipped.env, encoding: "utf8" });
+  assert.equal(noSkill.status, 0, noSkill.stderr);
+  assert.equal(existsSync(join(skipped.home, ".claude", "skills", "faberun")), false, "--no-skill registers nothing");
+  assert.equal(existsSync(join(skipped.home, ".codex", "skills", "faberun")), false, "--no-skill registers nothing");
+});
+

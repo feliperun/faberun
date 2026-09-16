@@ -46,7 +46,11 @@ const CONTRACT_BYTE_CEILING = 22075;
 // parenthetical contract.md owns, the notify backoff meta-note, and a repeated
 // "integration stays serialized") pay part of it, so the ceiling moves by the
 // net 421 bytes and nothing else. Raising it again needs the same argument.
-const OPERATIONS_BYTE_CEILING = 10917;
+// Raised from 10917 on 2026-09-16 by the one `skills register` line the new
+// operation needs in the `## Install, set up, update` section: the line costs
+// 133 bytes, so the ceiling moves to the file's exact size and nothing else.
+// Raising it again needs the same argument.
+const OPERATIONS_BYTE_CEILING = 10943;
 const RULES_BYTE_CEILING = 2048;
 const ENGINEERING_BYTE_CEILING = 2048;
 const WORKFLOW_BYTE_CEILING = 2048;

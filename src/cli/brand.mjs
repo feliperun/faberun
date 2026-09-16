@@ -188,7 +188,7 @@ export function renderUsage() {
     "<status|report> <run-dir> [--json]",
     "findings <run-dir>",
     "doctor [<contract.json>] [--cwd <dir>] [--discover] [--json]",
-    "setup [--yes] [--harnesses <a,b>] [--worker <id>] [--judge <id>] [--json]",
+    "setup [--yes] [--no-skill] [--harnesses <a,b>] [--worker <id>] [--judge <id>] [--json]",
     "init [--cwd <dir>] [--yes] [--no-skill] [--agentkit] [--greenfield|--stable] [--json]",
     "update [--check] [--json]",
     "models [--probe] [--json]",
@@ -200,6 +200,7 @@ export function renderUsage() {
     "seat <start|attach|status|stop> [<campaign-id>] [--cwd <dir>] ...",
     "skills list",
     "skills install [<name>...] [--target <dir>] [--global] [--force]",
+    "skills register [--harness <a,b>] [--copy] [--force] [--json]",
   ];
   return `${groups.map((group) => `usage: faberun ${group}`).join("\n")}\n`;
 }
