@@ -22,7 +22,9 @@ declares done. Measure a verification command's real duration before setting
 its `timeoutSec`; a suite can silently outgrow the 600s per-entry cap as it
 grows, and a worker forced to wait past its own timeout backgrounds the
 command and returns prose instead of a result — a protocol failure, not a
-`done`.
+`done`. A harness whose adapter declares `signalsProcesses: false` never
+runs a test that terminates processes; the controller's verification is the
+proof.
 
 Keep secrets in env vars; contracts carry variable names only. Claude
 `bypassPermissions` only in a repository-scoped, recoverable environment;

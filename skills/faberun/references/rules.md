@@ -8,7 +8,9 @@ physical runtime. Use `mode: "discovery"` only when no packet is possible.
 **Prove mechanically.** Every Definition of Done item is an object declaring
 its own proof: a verification `command`, a workspace `path`, or `judgment`.
 Proofs gate before any judge runs, so a fully mechanical node costs no judge.
-Contract-level `finalVerification` runs on the phase-terminal node.
+Contract-level `finalVerification` runs on the phase-terminal node;
+`sharedVerification` runs on every node, so a ratchet-breaking write set
+fails on its own attempt.
 
 **Never wait inside a turn.** No `sleep`/`while` loops, no repeated `status`
 calls, no watched background jobs — every tool call re-sends the whole session
