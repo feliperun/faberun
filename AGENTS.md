@@ -1,5 +1,7 @@
 # AGENTS.md
 
+> [Vision](docs/VISION.md) · [Concepts](docs/CONCEPTS.md) · [Architecture](docs/ARCHITECTURE.md) · [Getting started](docs/GETTING-STARTED.md) · [Commands](docs/COMMANDS.md) · [ADRs](docs/adr/README.md) · [Design](DESIGN.md)
+
 Write the minimum code that runs. No fluff, no gold-plating.
 
 - Do not preserve backward compatibility. Remove obsolete paths instead of adding

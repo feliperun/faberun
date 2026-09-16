@@ -4,6 +4,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const rootDir = fileURLToPath(new URL('../..', import.meta.url));
 const skillDir = fileURLToPath(new URL('../../skills/faberun', import.meta.url));
 const docsDir = fileURLToPath(new URL('../../docs', import.meta.url));
 
@@ -33,8 +34,11 @@ const files = [
   join(skillDir, 'SKILL.md'),
   ...markdownFilesIn(join(skillDir, 'references')),
   ...markdownFilesIn(docsDir),
+  ...markdownFilesIn(join(docsDir, 'adr')),
   ...markdownFilesIn(join(docsDir, 'history')),
   ...markdownFilesIn(join(docsDir, 'harnesses')),
+  join(rootDir, 'DESIGN.md'),
+  join(rootDir, 'AGENTS.md'),
 ];
 
 test('every relative markdown link in the skill docs resolves to a real file', () => {
