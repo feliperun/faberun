@@ -25,7 +25,8 @@ const POINTER_ATTENTION_CHARS = 80;
 /** @typedef {"priced"|"partial"|"unpriced"|"none"} CostProvenance */
 /** @typedef {{costUsd: number|null, costProvenance: CostProvenance, inputTokens: number, outputTokens: number, cacheReadInputTokens: number, pricedInvocations: number, unpricedInvocations: number}} RoleUsage */
 /** @typedef {{inputTokens: number|null, outputTokens: number|null, cacheReadInputTokens: number|null}} StatusPayloadUsage */
-/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, verdict: string|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, errorCode: string|null, blockedBy: string[]}} StatusPayloadNode */
+/** @typedef {{index: number, total: number, argv: string}} VerificationProgress */
+/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, verdict: string|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, errorCode: string|null, blockedBy: string[], verificationProgress: VerificationProgress|null}} StatusPayloadNode */
 /** @typedef {{schemaVersion: 1, run: string, contractId: string, campaignId: string, goal: string, usage: {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUsd: number|null}, roles: {worker: RoleUsage, judge: RoleUsage}, controller: JsonObject, identityWarnings: string[], summary: string, nodes: StatusPayloadNode[]}} StatusPayload */
 
 /** The glyph each terminal state prints in a status table. */
@@ -99,7 +100,9 @@ export function renderStatus(runDir) {
  * The node the operator should look at right now, formatted the same way
  * the dashboard's now strip is (TECH-SPEC lean, section 4, item 1): the
  * active node's elapsed time and cost so far, or an idle line once every
- * node has settled.
+ * node has settled. A node awaiting a controller verification command
+ * appends which one, `k/n`, and its argv, so a minutes-long suite is not
+ * silent between ticks.
  *
  * @param {StatusPayload} payload
  * @param {number} now epoch ms
@@ -107,9 +110,27 @@ export function renderStatus(runDir) {
  */
 function nowLine(payload, now) {
   const active = activeStatusNode(payload.nodes);
-  if (active) return `now: ${active.id} ${active.status} (${formatElapsed(active, now)}) · ${active.runtime ?? "-"} · ${compactCost(active.costUsd)}`;
+  if (active) {
+    const progress = active.verificationProgress;
+    const verification = progress ? ` · verification ${progress.index}/${progress.total} · ${progress.argv}` : "";
+    return `now: ${active.id} ${active.status} (${formatElapsed(active, now)}) · ${active.runtime ?? "-"} · ${compactCost(active.costUsd)}${verification}`;
+  }
   const allTerminal = payload.nodes.every((node) => SUCCESS.has(node.status));
   return allTerminal ? `now: idle · run done · ${compactCost(payload.usage.costUsd)}` : "now: idle";
+}
+
+/**
+ * The `verificationProgress` a controller verification pass leaves on a
+ * running node's persisted `verification` record — nested there rather than
+ * as its own node-snapshot field, since `VerificationState`'s own validator
+ * accepts extra keys where the node snapshot's does not.
+ *
+ * @param {NodeSnapshot} node
+ * @returns {VerificationProgress|null}
+ */
+function verificationProgress(node) {
+  const verification = /** @type {{progress?: VerificationProgress}|null|undefined} */ (node.verification);
+  return verification?.progress ?? null;
 }
 
 /**
@@ -185,27 +206,34 @@ function buildStatusPayload(runDir, contract, nodes, identityWarnings, usage) {
     controller: controllerStatus(runDir, nodes).status,
     identityWarnings,
     summary: [...counts].map(([status, count]) => `${count} ${status}`).join(" · "),
-    nodes: nodes.map((node) => ({
-      id: node.id,
-      status: node.status,
-      phase: contract.nodes.find((candidate) => candidate.id === node.id)?.phase ?? null,
-      executionPhase: node.phase,
-      runtime: node.runtime ? `${node.runtime.harness}/${node.runtime.model}` : null,
-      workerRuntime: workerRuntimeLabel(node),
-      continuation: continuationMode(node),
-      attempt: node.attempt,
-      revisions: node.revisions,
-      startedAt: node.startedAt ?? null,
-      updatedAt: node.updatedAt ?? null,
-      usage: node.usage ? { inputTokens: node.usage.inputTokens ?? null, outputTokens: node.usage.outputTokens ?? null, cacheReadInputTokens: node.usage.cacheReadInputTokens ?? null } : null,
-      costUsd: typeof node.costUsd === "number" ? node.costUsd : null,
-      verdict: node.gate?.verdict ?? null,
-      pendingHandoff: pendingHandoff(node),
-      note: statusNote(node),
-      scopeFindings: node.scopeFindings?.unexpectedPaths ?? null,
-      errorCode: node.error?.code ?? null,
-      blockedBy: node.blockedBy ?? [],
-    })),
+    nodes: nodes.map((node) => {
+      const progress = verificationProgress(node);
+      return {
+        id: node.id,
+        status: node.status,
+        phase: contract.nodes.find((candidate) => candidate.id === node.id)?.phase ?? null,
+        // A running controller verification command does not move
+        // `node.phase` (it stays `worker`, the phase that dispatched it), so
+        // the surface that shows it is computed here rather than persisted.
+        executionPhase: progress ? "verification" : node.phase,
+        runtime: node.runtime ? `${node.runtime.harness}/${node.runtime.model}` : null,
+        workerRuntime: workerRuntimeLabel(node),
+        continuation: continuationMode(node),
+        attempt: node.attempt,
+        revisions: node.revisions,
+        startedAt: node.startedAt ?? null,
+        updatedAt: node.updatedAt ?? null,
+        usage: node.usage ? { inputTokens: node.usage.inputTokens ?? null, outputTokens: node.usage.outputTokens ?? null, cacheReadInputTokens: node.usage.cacheReadInputTokens ?? null } : null,
+        costUsd: typeof node.costUsd === "number" ? node.costUsd : null,
+        verdict: node.gate?.verdict ?? null,
+        pendingHandoff: pendingHandoff(node),
+        note: statusNote(node),
+        scopeFindings: node.scopeFindings?.unexpectedPaths ?? null,
+        errorCode: node.error?.code ?? null,
+        blockedBy: node.blockedBy ?? [],
+        verificationProgress: progress,
+      };
+    }),
   };
 }
 
