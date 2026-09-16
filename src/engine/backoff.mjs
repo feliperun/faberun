@@ -9,7 +9,7 @@
  * third time buys nothing: change provider, or stop and say so.
  *
  * Everything here is a pure decision. Persisting it — the routing history,
- * the override, the node transition — stays in runner.mjs, so this module can
+ * the override, the node transition — stays in cli.mjs, so this module can
  * be tested without a run directory, a lease, or a provider.
  */
 import { nextHop, nextSynthesizedRuntime, synthesizedChain } from "./failover.mjs";

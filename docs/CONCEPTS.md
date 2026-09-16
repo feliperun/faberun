@@ -243,10 +243,11 @@ never rewritten. See
 
 Attention is the state that asks a human to act: a node or campaign records an
 `attention` entry with a code and a resolving command. Parked is the
-campaign-level consequence, written by the chain when a run settles
-unsuccessful, with a reason such as `run_parked`, `run_canceled`,
-`contract_validation_failed`, `contract_authored_bytes_changed`,
-`contract_digest_mismatch`, or a promotion refusal code; a node's
+campaign-level consequence, written by the chain when it cannot continue:
+a run settled unsuccessful (`run_parked`, `run_canceled`), a contract that no
+longer validates or was edited after authoring (`contract_validation_failed`,
+`contract_authored_bytes_changed`), a run directory whose stored contract does
+not match its record (`contract_digest_mismatch`), or a promotion refusal; a node's
 `judge_fallback_vendor_conflict` stays inside the run's own attention, which
 `run_parked` then names. The invariant: attention is a durable human boundary
 rather than a failure to retry blindly, and `campaign unpark <id>` refuses a

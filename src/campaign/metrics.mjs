@@ -23,7 +23,7 @@
  * 1 only when a whole run had to be re-authored after a failure that
  * `resume` could not repair.
  *
- * The second half of this module is the `runner.mjs metrics` command: reading
+ * The second half of this module is the `faberun metrics` command: reading
  * a campaign's linked runs and parsing the command's flags live here, while
  * `metrics-report.mjs` decides how the projection is printed.
  */
@@ -397,7 +397,7 @@ function orderOf(entry) {
   return Number.isFinite(entry.atMs) ? entry.atMs : 0;
 }
 
-/** Flags of `runner.mjs metrics`, declared here so the router only names them. */
+/** Flags of `faberun metrics`, declared here so the router only names them. */
 /** @type {import("node:util").ParseArgsOptionsConfig} */
 export const METRICS_OPTIONS = { cwd: { type: "string" }, json: { type: "boolean" } };
 
@@ -479,7 +479,7 @@ function readRunNodes(runDir) {
 }
 
 /**
- * `runner.mjs metrics <campaign-id> [--cwd <dir>] [--json]`: project the
+ * `faberun metrics <campaign-id> [--cwd <dir>] [--json]`: project the
  * campaign's recorded artefacts and return what the command prints. Reading
  * only, and never a write: a report of a closed campaign must not touch it.
  *

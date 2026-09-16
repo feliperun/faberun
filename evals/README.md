@@ -13,8 +13,10 @@ list -- nothing ever runs them against the current tree, and nothing should.
 Each task restores its own `meta.parentSha` from `golden/fixtures.bundle`, so its
 commands belong to *that* commit's layout.
 
-That is why several of them still name `scripts/…`, a directory that stopped
-existing on 2026-09-11. Those are not stale paths to repair: rewriting them to
+That is why several of them still name a `scripts/…` directory under the old
+`skills/mine/` skill path: the scripts moved to `src/` on 2026-09-11 and the
+whole tool moved to the repository root on 2026-09-15, but each task's parent
+commit predates both. Those are not stale paths to repair: rewriting them to
 today's `src/…` would point a historical task at files its own parent commit
 does not contain. See `../docs/history/README.md` for the mapping if you are
 reading one and want the file as it is now.
@@ -334,9 +336,8 @@ repository's own history — never a hand-written scenario. `build-golden.mjs`
 (re)builds the whole directory from git plumbing: a curated list of commits
 the faberun itself integrated into `main` (see
 `docs/history/TECH-SPEC-2026-09-09.md` §C1.3), plus every `fix`
-commit whose own diff touches both
-`src/` and `test/`
-in the same commit — a correction landed together with the test that pins
+commit whose own diff touches both the source and the test tree (the paths as
+they were at that commit) in the same commit — a correction landed together with the test that pins
 it, discovered by walking `main`, not picked by hand.
 
 Each task directory has:

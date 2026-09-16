@@ -110,7 +110,7 @@ export function resolveCampaign(runsDir, campaignId) {
     if (campaigns.length) {
       throw new Error(`no active campaign under ${campaignsDir(runsDir)}; all campaigns are closed`);
     }
-    throw new Error(`no campaign found under ${campaignsDir(runsDir)}; initialize one with: runner.mjs campaign init`);
+    throw new Error(`no campaign found under ${campaignsDir(runsDir)}; initialize one with: faberun campaign init`);
   }
   if (active.length > 1) {
     const ids = active.map((entry) => entry.campaign.id).join(", ");

@@ -6,7 +6,10 @@
   "bin": {
     "faberun": "bin/faberun.mjs"
   },
-  "repository": "github:feliperun/faberun",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/feliperun/faberun.git"
+  },
   "homepage": "https://github.com/feliperun/faberun",
   "files": [
     "bin",

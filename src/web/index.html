@@ -208,7 +208,7 @@ function handoffHtml(handoff) {
 }
 
 function renderSectionsHtml(snapshot) {
-  if (!snapshot?.selectedCampaignId) return `<p class="empty">no campaign found under .runs; initialize one with: runner.mjs campaign init</p>`;
+  if (!snapshot?.selectedCampaignId) return `<p class="empty">no campaign found under .runs; initialize one with: faberun campaign init</p>`;
   return nowHtml(snapshot.now) + needsYouHtml(snapshot.needsYou) + runsHtml(snapshot.runs, state.runId) + drawerHtml(snapshot.drawer, state.tab) + handoffHtml(snapshot.handoff);
 }
 

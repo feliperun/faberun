@@ -109,7 +109,7 @@ them, so they keep their spelling and only gain color.
 
 Shown by `faberun` with no arguments, `faberun --help` and `faberun setup`,
 and only when stdout is a TTY. Piped output and `--json` never receive it.
-ASCII only, so it survives every monospace font; five lines, at most 64
+ASCII only, so it survives every monospace font; five lines, at most 72
 columns.
 
 ```
