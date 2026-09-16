@@ -35,6 +35,11 @@ The installer resolves the newest release, checks the requirements and runs
 curl -fsSL https://raw.githubusercontent.com/feliperun/faberun/main/install.sh | sh
 ```
 
+`faberun setup` runs at the end of the installer and registers the `faberun`
+skill for the harnesses it finds (Claude Code, Codex and the shared
+`~/.agents/skills`, plus any measured convention); `faberun skills register`
+redoes it.
+
 It needs Node 22 or newer, git, and one harness CLI on `PATH`. The npm and
 source installs need Node and git alone.
 
@@ -156,6 +161,10 @@ into a repository with:
 faberun skills install faberun
 faberun skills install init-agentkit
 ```
+
+`faberun skills install` copies a skill into a repository; `faberun skills
+register` links the `faberun` skill into every installed harness's own skills
+directory instead, so the harness has it in every repository.
 
 Never run `npm install` inside an attempt worktree: husky's `prepare` script
 dirties the ignore snapshot the controller compares against.

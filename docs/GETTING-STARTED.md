@@ -102,11 +102,30 @@ Default judge runtime? [codex-gpt]
   second answer.
 
 `setup` writes `$FABERUN_HOME/config.json` (schema version, enabled harnesses,
-default worker and judge) and prints the next commands. Non-interactive:
-`--yes` takes the defaults, `--harnesses a,b`, `--worker <id>` and `--judge <id>`
-set values directly, and `--json` reports the same facts as one object without
-asking. Run `faberun doctor` afterwards to re-check the host and the enabled
-runtimes.
+default worker and judge), then asks one more question: whether to register the
+`faberun` skill for every harness it found, with yes as the default. A yes
+writes a `faberun` link into each discovered skills directory: `~/.claude/skills`
+for Claude Code, `~/.codex/skills` for Codex, and the shared `~/.agents/skills`
+or another measured convention. It then prints the next commands.
+Non-interactive: `--yes` takes the defaults including registration, `--no-skill`
+skips it, `--harnesses a,b`, `--worker <id>` and `--judge <id>` set values
+directly, and `--json` reports the same facts as one object without asking. Run
+`faberun doctor` afterwards to re-check the host and the enabled runtimes.
+
+### Registering the skill later
+
+`faberun setup` registers once; redo or repair it with:
+
+```bash
+faberun skills register
+faberun skills register --harness claude,codex
+```
+
+`--harness` limits the run to the named harnesses and `--copy` writes a real
+tree instead of a symlink, for a harness that does not follow links. To undo the
+registration, remove the `faberun` entry from each listed skills directory
+(`~/.claude/skills/faberun`, `~/.codex/skills/faberun`, or the shared
+`~/.agents/skills/faberun`).
 
 ## Prepare a repository
 
