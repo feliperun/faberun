@@ -57,6 +57,15 @@ attempt; a spent allowance is handled by runtime re-tiering (below). `usage.json
 tokens and cost per invocation for **reporting only** — no control path reads
 it.
 
+At the contract level, `sharedVerification` is the same command schema as
+`finalVerification`, appended to every node's attempt and integration-candidate
+verification after the packet's own commands and before `finalVerification`,
+which only the phase-terminal node carries. Declare it for the fast repository
+ratchets (source shape, field ownership, brand, docs diet): a node whose write
+set breaks a rule then fails on its own attempt instead of on the
+phase-terminal node's full suite. Both sets count in the node budget and in
+`preflight --time-verification`.
+
 ## Task packets
 
 ```json
@@ -337,7 +346,7 @@ settles `reconciled` and blocks the node with `unknown_effect_reconciled` — a
 durable manual-stop attention boundary. All writes happen under the
 controller lock. `usage.jsonl` is one line per invocation: tokens by kind
 (uncached input, cache read, output), `costUsd` with provenance (`priced`, else
-`provider`, else `unknown`), timestamps — reporting only. See
+`provider`, else `unknown`), timestamps. See
 [operations.md](operations.md) for worktrees, integration, `status.json`,
 notify, the controller lock, and campaigns.
 

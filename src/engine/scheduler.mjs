@@ -41,7 +41,7 @@ import { appendUsageRecord, invocationCost, invocationUsage, recordInvocationUsa
 import { captureNodeScopeBoundaries, checkWorkerScope, emptyScope } from "./scope.mjs";
 import { validateContract } from "../contract/index.mjs";
 import { validateNodeSnapshot } from "../contract/snapshot.mjs";
-import { finalVerificationCommands } from "../contract/final-verification.mjs";
+import { finalVerificationCommands, sharedVerificationCommands } from "../contract/final-verification.mjs";
 import { startJudge, startWorker } from "./dispatch.mjs";
 import { assertEnvironmentReady, captureRunIdentity, createRunMetadata, serializableContract, statesFingerprint } from "./run-identity.mjs";
 import { blockDependents, runtimeAssignments } from "./assignment.mjs";
@@ -94,12 +94,13 @@ export function verificationBudgetMs(commands) {
 /**
  * The budget a node is judged against, in milliseconds. It is the sum of every
  * bounded phase the node can legitimately occupy without a state transition:
- * its worker invocation (`timeoutSec`), its packet verification and the
- * contract's `finalVerification` when it is phase-terminal, an integration
- * candidate run of that same set, and the bounded command proofs of its gate.
- * A frozen node is one that has been silent longer than this, not merely
- * longer than the worker timeout, because a legitimate verification can be
- * minutes long and must not be mistaken for a freeze.
+ * its worker invocation (`timeoutSec`), its packet verification plus the
+ * contract's `sharedVerification` and, when it is phase-terminal, the
+ * contract's `finalVerification`, an integration candidate run of that same
+ * set, and the bounded command proofs of its gate. A frozen node is one that
+ * has been silent longer than this, not merely longer than the worker timeout,
+ * because a legitimate verification can be minutes long and must not be
+ * mistaken for a freeze.
  *
  * @param {ValidatedContract} contract
  * @param {ValidatedNode} node
@@ -107,14 +108,17 @@ export function verificationBudgetMs(commands) {
  */
 export function nodeBudgetBasisMs(contract, node) {
   const defaultTimeoutMs = (node.timeoutSec ?? contract.timeoutSec ?? 60) * 1_000;
+  const sharedMs = verificationBudgetMs(sharedVerificationCommands(contract));
   const packetMs = verificationBudgetMs(node.taskPacket?.verification);
   const finalMs = verificationBudgetMs(finalVerificationCommands(contract, node));
-  // The controller runs the packet set once after the worker and once against
-  // the integration candidate, and the finalVerification set with each.
-  const candidateMs = packetMs + finalMs;
+  // The controller runs the packet set (with the contract-level shared set) once
+  // after the worker and once against the integration candidate, and the
+  // finalVerification set with each.
+  const attemptMs = packetMs + sharedMs;
+  const candidateMs = attemptMs + finalMs;
   const gateTimeoutMs = Math.max(1_000, Math.min(defaultTimeoutMs, 120_000));
   const commandProofs = (node.definitionOfDone ?? []).filter((item) => item.proof?.kind === "command").length;
-  return defaultTimeoutMs + packetMs + candidateMs + commandProofs * gateTimeoutMs + finalMs;
+  return defaultTimeoutMs + attemptMs + candidateMs + commandProofs * gateTimeoutMs + finalMs;
 }
 
 /**

@@ -133,6 +133,31 @@ test("validation rejects unknown fields at every protocol layer", () => {
   }
 });
 
+test("validation accepts sharedVerification with the finalVerification schema and rejects bad entries and unknown fields", () => {
+  const accepted = writeFixture({
+    sharedVerification: [{ argv: ["node", "--test", "test/repo/source-shape.test.mjs"], timeoutSec: 60, repeat: 2 }],
+  });
+  const contract = validateContract(JSON.parse(readFileSync(accepted.path, "utf8")), accepted.path);
+  assert.deepEqual(contract.sharedVerification, [{
+    argv: ["node", "--test", "test/repo/source-shape.test.mjs"],
+    timeoutSec: 60,
+    repeat: 2,
+    env: [],
+  }]);
+
+  const bad = writeFixture({ sharedVerification: [{ argv: [] }] });
+  assert.throws(
+    () => validateContract(JSON.parse(readFileSync(bad.path, "utf8")), bad.path),
+    /contract\.sharedVerification\[0\]/u,
+  );
+
+  const unknown = writeFixture({ sharedVerificationTypo: true });
+  assert.throws(
+    () => validateContract(JSON.parse(readFileSync(unknown.path, "utf8")), unknown.path),
+    /contract has unexpected field sharedVerificationTypo/u,
+  );
+});
+
 test("validation rejects unsupported protocol versions and stale packet hashes", () => {
   const versioned = writeFixture({ schemaVersion: 99 });
   assert.throws(() => validateContract(JSON.parse(readFileSync(versioned.path, "utf8")), versioned.path), new RegExp(`schemaVersion must be ${PROTOCOL_SCHEMA_VERSION}`, "u"));

@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { loadTaskPacket, renderWorkerPrompt } from "./task-packet.mjs";
 import { RESERVED_ARTICLES } from "./articles.mjs";
 import { validateDefinitionOfDone } from "./definition-of-done.mjs";
-import { validateFinalVerification } from "./final-verification.mjs";
+import { validateFinalVerification, validateSharedVerification } from "./final-verification.mjs";
 import { VERIFICATION_LIMITS } from "./verification.mjs";
 import {
   validateCapabilityRequirements,
@@ -23,7 +23,7 @@ export { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mj
 const CONTRACT_FIELDS = new Set([
   "schemaVersion", "contractVersion", "id", "campaignId", "goal", "cwd", "sourceIdentity",
   "maxParallel", "pollIntervalMs", "stallTimeoutSec", "timeoutSec",
-  "runtimeDefaults", "runtimes", "nodes", "warnings", "finalVerification", "nodeAdvisory",
+  "runtimeDefaults", "runtimes", "nodes", "warnings", "finalVerification", "sharedVerification", "nodeAdvisory",
 ]);
 const DEFAULTS_FIELDS = new Set(["worker", "judge"]);
 const NODE_FIELDS = new Set([
@@ -51,7 +51,7 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 
 /** @typedef {{id: string, type: string, phase: string, runtime?: string, dependsOn: string[], taskPacket: TaskPacket, taskPacketFile?: string, prompt: string, definitionOfDone: import("./definition-of-done.mjs").DefinitionOfDoneItem[], gate: ValidatedGate, timeoutSec?: number, requiredCapabilities: CapabilityRequirements, packetHash: string, sourceIdentity: SourceIdentity, replayPolicy: "safe"|"reconcile"|"never"}} ValidatedNode */
 
-/** @typedef {{schemaVersion: number, contractVersion: string, id: string, campaignId: string, goal: string, cwd: string, sourceIdentity: SourceIdentity, runtimes: Record<string, ValidatedRuntime>, runtimeDefaults: {worker?: string, judge?: string}, nodes: ValidatedNode[], maxParallel: number, pollIntervalMs: number, stallTimeoutSec: number, timeoutSec: number, finalVerification?: VerificationCommand[], nodeAdvisory?: NodeAdvisoryPolicy, warnings: string[]}} ValidatedContract */
+/** @typedef {{schemaVersion: number, contractVersion: string, id: string, campaignId: string, goal: string, cwd: string, sourceIdentity: SourceIdentity, runtimes: Record<string, ValidatedRuntime>, runtimeDefaults: {worker?: string, judge?: string}, nodes: ValidatedNode[], maxParallel: number, pollIntervalMs: number, stallTimeoutSec: number, timeoutSec: number, finalVerification?: VerificationCommand[], sharedVerification?: VerificationCommand[], nodeAdvisory?: NodeAdvisoryPolicy, warnings: string[]}} ValidatedContract */
 /** @typedef {{costUsd?: number, durationSec?: number}} NodeAdvisoryPolicy */
 
 /** @typedef {"pending"|"running"|"done"|"no-op"|"blocked"|"failed"|"exhausted"|"stalled"|"canceled"} NodeStatus */
@@ -351,13 +351,15 @@ export function validateContract(raw, contractPath, options = {}) {
     stallTimeoutSec: positiveNumber(raw.stallTimeoutSec ?? 300, "contract.stallTimeoutSec"),
     timeoutSec: positiveNumber(raw.timeoutSec ?? 2_400, "contract.timeoutSec"),
     finalVerification: validateFinalVerification(raw.finalVerification, "contract.finalVerification"),
+    sharedVerification: validateSharedVerification(raw.sharedVerification, "contract.sharedVerification"),
     nodeAdvisory: validateNodeAdvisory(raw.nodeAdvisory),
     warnings,
   });
   // The persisted load is a replay, not a re-authoring: it accepts only bytes
   // whose digest matches the decision frozen at launch. A changed DAG, gate,
-  // runtime selection, timeout, definition of done or finalVerification leaves
-  // every packetHash untouched, so only this digest refuses it.
+  // runtime selection, timeout, definition of done, finalVerification or
+  // sharedVerification leaves every packetHash untouched, so only this digest
+  // refuses it.
   if (persisted && options.contractDigest !== undefined && contractDigest(raw) !== options.contractDigest) {
     throw new TypeError("persisted contract does not match the contractDigest recorded at run creation; the stored contract was modified after the run was created");
   }

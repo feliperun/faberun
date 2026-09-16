@@ -20,6 +20,7 @@ import { delimiter, join, resolve } from "node:path";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, getHarness, probeRuntime } from "../harnesses/index.mjs";
 import { addRuntimeRequirement, failoverTargets, runtimeSnapshot } from "../engine/failover.mjs";
 import { validateContract } from "../contract/index.mjs";
+import { sharedVerificationCommands } from "../contract/final-verification.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS, discoverRuntimes } from "../engine/runtime-discovery.mjs";
 import { errorMessage } from "../util.mjs";
 import { boundedGitSync } from "../repo/worktree.mjs";
@@ -220,7 +221,9 @@ const VERIFICATION_DURATION_WARN_RATIO = 0.8;
 
 /**
  * Every distinct verification command the contract declares, with the
- * strictest timeout any node gives it and the nodes that share it.
+ * strictest timeout any node gives it and the nodes that share it. The
+ * contract-wide `sharedVerification` set is included once, under the name
+ * `sharedVerification`, because every node runs it.
  *
  * Commands are keyed by argv and cwd, never merged across different argv, so
  * one measurement stands in for every node that declares the same command —
@@ -234,6 +237,7 @@ export function declaredVerificationCommands(contract) {
   const commands = new Map();
   const declarations = [
     ...contract.nodes.flatMap((node) => (node.taskPacket?.verification ?? []).map((command) => ({ command, node: node.id }))),
+    ...sharedVerificationCommands(contract).map((command) => ({ command, node: "sharedVerification" })),
     ...(contract.finalVerification ?? []).map((command) => ({ command, node: "finalVerification" })),
   ];
   for (const { command, node } of declarations) {

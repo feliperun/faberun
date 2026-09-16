@@ -5,8 +5,11 @@
  * `contract.finalVerification` is the contract-wide proof that the phase as a
  * whole closes: the controller runs it before the judge on the phase-terminal
  * node (the node no other node depends on), so no final checkpoint is ever
- * approved on partial verification. The persisted node-snapshot shape for
- * verification evidence lives here too, next to the schema it records.
+ * approved on partial verification. `contract.sharedVerification` carries the
+ * same command schema but is appended to every node's attempt and integration
+ * candidate, for the fast repository ratchets a node's write set can break.
+ * The persisted node-snapshot shape for verification evidence lives here too,
+ * next to the schema it records.
  */
 
 import { Buffer } from "node:buffer";
@@ -27,6 +30,32 @@ import { assertObject, nonNegativeInteger, positiveInteger, rejectUnknown, requi
 export function validateFinalVerification(value, label = "contract.finalVerification") {
   if (value === undefined) return undefined;
   return validateVerificationCommands(value, label);
+}
+
+/**
+ * Validate the optional contract-level `sharedVerification` field. It carries
+ * the identical verification-command schema as `finalVerification`; only the
+ * audience differs.
+ *
+ * @param {unknown} value
+ * @param {string} label
+ * @returns {VerificationCommand[]|undefined}
+ */
+export function validateSharedVerification(value, label = "contract.sharedVerification") {
+  if (value === undefined) return undefined;
+  return validateVerificationCommands(value, label);
+}
+
+/**
+ * The contract's `sharedVerification` commands, which every node's verification
+ * carries on both its attempt and its integration candidate. Absent means none,
+ * so a contract that declares nothing is unchanged.
+ *
+ * @param {{sharedVerification?: VerificationCommand[]}} contract
+ * @returns {VerificationCommand[]}
+ */
+export function sharedVerificationCommands(contract) {
+  return contract.sharedVerification ?? [];
 }
 
 /**

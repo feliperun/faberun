@@ -124,7 +124,10 @@ The list of conditions a node must satisfy, one item per claim, each declaring
 workspace `path`, the `judgment` of a judge, or `verification` by reference to
 an already recorded command result by position. `command` proofs run before any
 judge, capped at `min(timeoutSec, 120s)`, and a contract-level
-`finalVerification` adds the phase-wide proof. The invariant: every item
+`finalVerification` adds the phase-wide proof. A contract-level
+`sharedVerification` adds the fast repository ratchets to every node's
+verification, so a node whose write set breaks one fails on its own attempt
+rather than on the phase-terminal node's full suite. The invariant: every item
 declares its own proof; proofs gate before any judge runs, so a fully mechanical
 node costs no judge, and a schema-1 string item is rejected. See
 [contract.md](../skills/faberun/references/contract.md) and

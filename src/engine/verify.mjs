@@ -11,7 +11,7 @@
 import { attemptWorkspace } from "../repo/worktree.mjs";
 import { boundedUtf8, errorMessage } from "../util.mjs";
 import { compactVerification } from "../contract/verification.mjs";
-import { finalVerificationCommands } from "../contract/final-verification.mjs";
+import { finalVerificationCommands, sharedVerificationCommands } from "../contract/final-verification.mjs";
 import { join } from "node:path";
 import { terminateInvocation } from "./process.mjs";
 import { writeNode } from "./state.mjs";
@@ -86,7 +86,7 @@ export async function executeControllerVerification(contract, runDir, node, stat
   writeNode(runDir, state, lock);
   const workspace = attemptWorkspace(state) ?? contract.cwd;
   try {
-    const result = await runVerification([...node.taskPacket.verification, ...finalVerificationCommands(contract, node)], workspace, {
+    const result = await runVerification([...node.taskPacket.verification, ...sharedVerificationCommands(contract), ...finalVerificationCommands(contract, node)], workspace, {
       logDir: join(runDir, "logs", `${node.id}.${state.attempt}.verification`),
       writeFiles: node.taskPacket.writeFiles ?? [],
       onAttemptStart: (attempt) => persistVerificationAttempt(runDir, state, lock, attempt),
@@ -156,7 +156,7 @@ export async function recoverVerificationAttempts(runDir, state, lock) {
  */
 export async function verifyCandidateWorkspace(contract, node, state, runDir, workspace) {
   try {
-    const result = await runVerification([...node.taskPacket.verification, ...finalVerificationCommands(contract, node)], workspace, {
+    const result = await runVerification([...node.taskPacket.verification, ...sharedVerificationCommands(contract), ...finalVerificationCommands(contract, node)], workspace, {
       logDir: join(runDir, "logs", `${node.id}.${state.attempt}.candidate-verification`),
       writeFiles: node.taskPacket.writeFiles ?? [],
     });
