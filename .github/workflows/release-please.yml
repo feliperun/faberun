@@ -51,6 +51,11 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+      # OIDC trusted publishing landed in npm 11.5.1; Node 22 ships npm 10.9.x,
+      # so upgrade npm before publishing or the token-free auth below cannot run.
+      - run: npm install -g npm@latest
       # Trusted publishing: npm exchanges this job's OIDC token itself, so no
       # authentication token step or secret exists. --provenance records the build.
-      - run: npm publish --provenance --access public
+      # --ignore-scripts skips the `prepare` (husky) hook, which is a devDependency
+      # absent from this clean runner and does not affect the published tarball.
+      - run: npm publish --provenance --access public --ignore-scripts

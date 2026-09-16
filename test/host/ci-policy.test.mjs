@@ -177,7 +177,12 @@ test("release-please.yml publishes the release to npm through trusted publishing
   assert.match(publish, /uses: actions\/setup-node@v4/);
   assert.match(publish, /node-version: 22/);
   assert.match(publish, /registry-url: https:\/\/registry\.npmjs\.org/);
-  assert.match(publish, /npm publish --provenance --access public/);
+  // OIDC trusted publishing needs npm >= 11.5.1, but Node 22 ships npm 10.9.x,
+  // so the job upgrades npm before it relies on the token-free auth path.
+  assert.match(publish, /- run: npm install -g npm@latest/);
+  // The `prepare` hook (husky) is a devDependency absent on this clean runner;
+  // skipping scripts keeps publish from aborting before the upload.
+  assert.match(publish, /npm publish --provenance --access public --ignore-scripts/);
   assert.doesNotMatch(workflow, /NODE_AUTH_TOKEN|NPM_TOKEN/);
 });
 
