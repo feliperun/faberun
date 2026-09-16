@@ -238,6 +238,21 @@ export function parkCampaign(campaignPath, attention) {
 }
 
 /**
+ * A promotion record is only worth keeping when it actually moved the land
+ * branch. `promoteRun`'s `already_promoted` result reports the branch's
+ * *current* head, which may have advanced past this run since it last landed
+ * (another run promoted in between, or a coordinator restart is replaying the
+ * same call); recording it would add a second entry for a run that never
+ * moved anything.
+ *
+ * @param {import("../repo/integrate.mjs").PromoteRecord} record
+ * @returns {boolean}
+ */
+export function promotionMovedBranch(record) {
+  return record.status === "promoted";
+}
+
+/**
  * Promote a run onto the campaign's landing branch and record it. The branch
  * name comes from the campaign record, never from the caller, so a campaign
  * cannot be promoted somewhere its manifest does not name.
@@ -257,6 +272,7 @@ export function promoteRunInCampaign({ campaignPath, repo, runId, runHead, baseS
     finalVerificationPassed,
     allowMain,
     onPromoted: (record) => {
+      if (!promotionMovedBranch(record)) return;
       recordPromotion(campaignPath, {
         runId: record.runId,
         ...(contractPath === undefined ? {} : { contractPath }),

@@ -206,7 +206,10 @@ default `campaign/<campaign-id>`) onto a run's integrated ref and records a
 promotion entry on the campaign. It is the only place a shared landing branch
 moves, and the chain never force-updates it. The invariant: promotion requires
 green `finalVerification`, refuses a landing branch that is checked out in a
-worktree, and refuses `main` unless the operator passes `--allow-main`. See
+worktree, and refuses `main` unless the operator passes `--allow-main`. A run
+already reflected on the landing branch, including a coordinator restart
+replaying that promotion after the branch has since moved further, is
+reported as `already_promoted` and adds no promotion record. See
 [operations.md](../skills/faberun/references/operations.md) and
 [COMMANDS.md](COMMANDS.md#supervise).
 
