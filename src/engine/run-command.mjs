@@ -99,9 +99,30 @@ async function runRepeatedCommand(command, baseCwd, commandIndex, options) {
   const attempts = [];
   const repeat = command.repeat ?? 1;
   for (let attempt = 1; attempt <= repeat; attempt += 1) {
-    attempts.push(await runCommand(command, baseCwd, command.cwd ?? ".", attempt, options.signal, options, commandIndex));
+    const result = await runCommand(command, baseCwd, command.cwd ?? ".", attempt, options.signal, options, commandIndex);
+    if (signalDeathRetry(result, options.signal)) {
+      attempts.push({ ...result, signalDeath: true });
+      attempts.push(await runCommand(command, baseCwd, command.cwd ?? ".", attempt, options.signal, options, commandIndex));
+    } else {
+      attempts.push(result);
+    }
   }
-  return { ...command, cwd: resolveVerificationCwd(baseCwd, command.cwd ?? "."), passed: attempts.every((item) => item.passed), attempts };
+  const passed = attempts.filter((item) => !item.signalDeath).every((item) => item.passed);
+  return { ...command, cwd: resolveVerificationCwd(baseCwd, command.cwd ?? "."), passed, attempts };
+}
+/**
+ * Whether an attempt died from a signal the controller itself did not send.
+ * `terminateGroup` only fires from the timeout and abort paths below, so a
+ * `signal` with neither set is evidence of an external kill (OOM, an operator
+ * `kill`, a flaky sandbox) rather than a verdict on the command under test,
+ * and gets one retry instead of failing the node outright.
+ *
+ * @param {VerificationAttemptResult} result
+ * @param {AbortSignal|undefined} signal
+ * @returns {boolean}
+ */
+function signalDeathRetry(result, signal) {
+  return Boolean(result.signal) && !result.timedOut && !signal?.aborted;
 }
 /**
  * The mutation case: the entry passes on the mutant-kill fraction, and every

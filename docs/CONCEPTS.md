@@ -129,7 +129,9 @@ judge, capped at `min(timeoutSec, 120s)`, and a contract-level
 verification, so a node whose write set breaks one fails on its own attempt
 rather than on the phase-terminal node's full suite. The invariant: every item
 declares its own proof; proofs gate before any judge runs, so a fully mechanical
-node costs no judge, and a schema-1 string item is rejected. See
+node costs no judge, and a schema-1 string item is rejected. An attempt killed
+by a signal the controller did not itself send is retried once, with both
+attempts kept in the record and the first flagged `signalDeath`. See
 [contract.md](../skills/faberun/references/contract.md) and
 [rules.md](../skills/faberun/references/rules.md).
 

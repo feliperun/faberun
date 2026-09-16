@@ -38,7 +38,7 @@ export const VERIFICATION_LIMITS = Object.freeze({
 /**
  * Bounded evidence captured for one attempt.
  *
- * @typedef {{passed: boolean, stdout: string, stderr: string, error: string|null, exitCode: number|null, signal: string|null, timedOut: boolean, durationMs: number|null}} VerificationAttemptResult
+ * @typedef {{passed: boolean, stdout: string, stderr: string, error: string|null, exitCode: number|null, signal: string|null, timedOut: boolean, durationMs: number|null, signalDeath?: boolean}} VerificationAttemptResult
  */
 
 /**
