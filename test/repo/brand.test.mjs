@@ -52,7 +52,7 @@ function walk(dir) {
     const label = relative(REPO_DIR, path).split(sep).join("/");
     if (entry.isDirectory()) {
       if (!SKIPPED_NAMES.has(entry.name) && !SKIPPED_PATHS.has(label)) found.push(...walk(path));
-    } else if (entry.isFile()) {
+    } else if (entry.isFile() && !SKIPPED_PATHS.has(label)) {
       const dot = entry.name.lastIndexOf(".");
       if (dot >= 0 && TEXT_EXTENSIONS.has(entry.name.slice(dot))) found.push(path);
     }
