@@ -150,9 +150,11 @@ fallback chain. See
 `tier` groups runtimes for composed re-tiering, cheapest tier first; `costRank`
 breaks ties within a tier; `fallback` names at most one other runtime for a
 single hop taken on provider exhaustion. The invariant: a fallback is a single
-hop, a self-loop or cycle is rejected, a judge fallback is admissible only when
-it differs in vendor from the worker that actually ran the attempt, and budget,
-scope, permission or authority failures never trigger failover. See
+hop, a self-loop is rejected outright, and validation walks for a cycle only the
+fallback chain a gated worker reaches, not a chain no gated worker reaches or a
+judge's; a judge fallback is admissible only when it differs in vendor from the
+worker that actually ran the attempt, and budget, scope, permission or authority
+failures never trigger failover. See
 [contract.md](../skills/faberun/references/contract.md) and
 [operations.md](../skills/faberun/references/operations.md).
 
@@ -198,10 +200,10 @@ run ref. See
 
 Promotion fast-forwards a campaign's landing branch (`campaign.landBranch`,
 default `campaign/<campaign-id>`) onto a run's integrated ref and records a
-promotion entry on the campaign. It is the only place a branch other than the
-per-run ref moves. The invariant: promotion requires green `finalVerification`,
-never force-updates, refuses a landing branch that is checked out in a worktree,
-and refuses `main` unless the operator passes `--allow-main`. See
+promotion entry on the campaign. It is the only place a shared landing branch
+moves, and the chain never force-updates it. The invariant: promotion requires
+green `finalVerification`, refuses a landing branch that is checked out in a
+worktree, and refuses `main` unless the operator passes `--allow-main`. See
 [operations.md](../skills/faberun/references/operations.md) and
 [COMMANDS.md](COMMANDS.md#supervise).
 
@@ -242,10 +244,14 @@ never rewritten. See
 Attention is the state that asks a human to act: a node or campaign records an
 `attention` entry with a code and a resolving command. Parked is the
 campaign-level consequence, written by the chain when a run settles
-unsuccessful, with a reason such as `run_parked`, `final_verification_not_green`
-or `judge_fallback_vendor_conflict`. The invariant: attention is a durable human
-boundary rather than a failure to retry blindly, and `campaign unpark <id>`
-clears it only once the named run is no longer parked, appending a
+unsuccessful, with a reason such as `run_parked`, `run_canceled`,
+`contract_validation_failed`, `contract_authored_bytes_changed`,
+`contract_digest_mismatch`, or a promotion refusal code; a node's
+`judge_fallback_vendor_conflict` stays inside the run's own attention, which
+`run_parked` then names. The invariant: attention is a durable human boundary
+rather than a failure to retry blindly, and `campaign unpark <id>` refuses a
+run that is still parked or canceled unless `--force` is passed, and clears the
+attention outright when the run directory no longer exists, appending a
 `campaign.unparked` journal event. See
 [operations.md](../skills/faberun/references/operations.md) and
 [COMMANDS.md](COMMANDS.md#campaign).

@@ -233,14 +233,24 @@ valid
 [ok] codex-gpt · codex · codex · gpt-5.6 · codex-cli 0.154.0
 ```
 
-**4. Run detached.** `run --detach` returns immediately with the run
+**4. Commit the init changes.** `faberun init` edited `.gitignore` and added
+`.claude/skills/faberun`; commit them before running, and keep the contract file
+outside the tree or commit it too. `run` cuts every worktree from HEAD and
+refuses to launch over uncommitted paths; `--base-ref <ref>` is the alternative
+when the base is another ref.
+
+```bash
+git add -A && git commit -m "chore: prepare the repository for faberun"
+```
+
+**5. Run detached.** `run --detach` returns immediately with the run
 directory; the controller keeps working in its own process group.
 
 ```bash
 faberun run --detach contract.json
 ```
 
-**5. Watch it.** `status` renders Needs you, Now, Nodes and Cost for one run;
+**6. Watch it.** `status` renders Needs you, Now, Nodes and Cost for one run;
 `next` names the most urgent action across the active campaigns.
 
 ```bash
@@ -248,7 +258,7 @@ faberun status .runs/<run-id>
 faberun next --cwd .
 ```
 
-**6. Keep it finishing.** `supervise` resumes a run whose controller died,
+**7. Keep it finishing.** `supervise` resumes a run whose controller died,
 without holding a lock. `supervise campaign hello` drives the whole campaign
 chain instead.
 
@@ -256,7 +266,7 @@ chain instead.
 faberun supervise --detach .runs/<run-id>
 ```
 
-**7. Close the campaign.** A campaign refuses to close until a `retrospective`
+**8. Close the campaign.** A campaign refuses to close until a `retrospective`
 note exists; that note is the record of what the campaign learned.
 
 ```bash
