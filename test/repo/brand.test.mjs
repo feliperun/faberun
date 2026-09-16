@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { normalizeManagedSignalBlock } from "../../src/repo/signal-block.mjs";
 
 /**
  * The brand ratchet: the live tree carries one name, and it is Faberun.
@@ -59,7 +60,10 @@ function walk(dir) {
 
 const FILES = walk(REPO_DIR).map((path) => ({
   label: relative(REPO_DIR, path).split(sep).join("/"),
-  text: readFileSync(path, "utf8"),
+  // The managed signal block mirrors run directory names under .runs/, which
+  // are records of campaigns that already happened (some still carry the old
+  // name); the block is machine-written and excluded like .runs itself.
+  text: normalizeManagedSignalBlock(readFileSync(path, "utf8")),
 }));
 
 test("no live file carries the previous brand name", () => {
