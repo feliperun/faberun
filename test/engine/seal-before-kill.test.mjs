@@ -283,8 +283,8 @@ test("done-when 3: the seal is committed before the kill, so a provider's dying 
 import { unlinkSync, writeFileSync } from "node:fs";
 if (process.argv.includes("--version")) { console.log("order-provider 1.0.0"); process.exit(0); }
 process.on("SIGTERM", () => { try { unlinkSync("README.md"); } catch {} ; process.exit(0); });
-// The work is on disk before any asynchronous event can gate it: a loaded host
-// must not be able to run the seal before the provider's stdin end fires.
+// The work is on disk before the provider touches stdin: a loaded host must
+// not be able to run the seal before the work the seal captures exists.
 writeFileSync("README.md", "ordered-seal\\n");
 console.log(JSON.stringify({ type: "thread.started", thread_id: "order-thread" }));
 process.stdin.resume();
@@ -312,11 +312,15 @@ setInterval(() => {}, 60_000);
   });
   try {
     // The provider writes README.md synchronously at startup and registers its
-    // SIGTERM handler first, so its appearance proves the work the seal must
-    // capture is already there. Bound the wait instead of sleeping toward it.
+    // SIGTERM handler first, so the sealed content proves the work the seal
+    // must capture is already on disk. Mere existence is not enough: the
+    // fixture's base commit ships an empty README.md, so a poll on existence
+    // returns before the provider has run and lets the seal race an unwritten
+    // worktree. Bound the wait on the content instead of sleeping toward it.
     const readme = join(worktree.path, "README.md");
-    await waitForValue(() => (existsSync(readme) ? true : null)).catch(() => {
-      throw new Error(`the provider never wrote ${readme} before the seal could run`);
+    const sealedWork = "ordered-seal\n";
+    await waitForValue(() => (existsSync(readme) && readFileSync(readme, "utf8") === sealedWork ? true : null)).catch(() => {
+      throw new Error(`the provider never wrote its sealed work to ${readme} before the seal could run`);
     });
     // Force the wall-clock budget elapsed instead of sleeping through it: this
     // test exercises the seal, not this machine's real-time performance.
