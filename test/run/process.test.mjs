@@ -578,7 +578,10 @@ test("a gate exits once the directory holding its release file is gone", async (
     // The gate's release path lives under logs/: removing the whole directory
     // is what a vanished run directory looks like from the gate's side.
     rmSync(logs, { recursive: true, force: true });
-    const deadline = Date.now() + 5_000;
+    // A generous deadline, not a claim about how fast the gate reacts: the
+    // ratchet in test/repo/source-shape.test.mjs caps deadlines under 60s at
+    // three, and this one is a fourth if it races under that line.
+    const deadline = Date.now() + 60_000;
     while (pidAlive(pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
     assert.equal(pidAlive(pid), false, "the gate exits once its release file's directory is gone, never waiting for a release that can now never appear");
   } finally {
