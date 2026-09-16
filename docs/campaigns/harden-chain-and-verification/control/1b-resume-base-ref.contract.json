@@ -1,0 +1,247 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "harden-chain-and-verification",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "claude-sonnet-worker",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic-opus",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "claude-sonnet-worker": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic-sonnet",
+      "permissionMode": "bypassPermissions",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/repo/source-shape.test.mjs",
+        "test/campaign/field-ownership.test.mjs",
+        "test/repo/brand.test.mjs",
+        "test/docs/docs-diet.test.mjs"
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "harden-chain-and-verification-1b-resume-base-ref",
+  "maxParallel": 1,
+  "goal": "Phase 1b (resume-base-ref) of campaign harden-chain-and-verification: a run launched with --base-ref records that ref in its source identity, and resume captures the current identity against the same ref, so a chain-launched run resumes from any checkout. Supersedes node resume-honours-base-ref of contract 1, which blocked on an incomplete write scope. Spec: docs/campaigns/harden-chain-and-verification/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "resume-base-ref-recorded",
+      "type": "backend",
+      "phase": "resume-base-ref",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "resume-tests",
+          "text": "base-ref, resume-base-ref, resume, contract and command-surface tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "recorded-ref",
+          "text": "the base ref is recorded once, in the source identity, accepted by its validator, and resume reads it from run.json rather than from the checkout or a flag",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "A run launched with --base-ref records that ref in its source identity, and resume captures the current identity against the same ref, so a chain-launched run resumes from any checkout without 'source drift detected in gitHead'.",
+        "instructions": [
+          "Evidence (measured 2026-09-16): `faberun resume --detach .runs/register-skill-and-harden-2-engine-determinism --node unpriced-usage-visible` was refused with 'source drift detected in gitHead' while HEAD was main; the run had been launched by the chain with `--base-ref campaign/register-skill-and-harden` (gitHead 9d42573). Detaching HEAD at 9d42573 made resume work. Cause: src/engine/run-identity.mjs captureRunIdentity takes the base from the module-level pendingLaunchBaseRef that only `run --base-ref` sets (src/cli.mjs setLaunchBaseRef); src/engine/resume.mjs:117 calls captureRunIdentity(contract, scopeBoundaries) with no base, so it measures HEAD. A first attempt of this change (node resume-honours-base-ref, contract 1) found that src/repo/source-identity.mjs validateSourceIdentity's allowed-field Set rejects any new field on the identity and that src/contract/snapshot.mjs validateRunMetadata re-runs that validation on every resume; both files are in scope here.",
+          "Change 1, src/repo/source-identity.mjs: captureSourceIdentity records `baseRef: options.baseRef ?? null` on the identity it builds, and validateSourceIdentity's allowed Set gains 'baseRef', validated as an optional string or null (reuse the file's existing string validators). Identities of kind node and event pass through the same validator, so the field stays optional everywhere.",
+          "Change 2, src/contract/index.mjs: the SourceIdentity typedef gains `baseRef?: string|null`.",
+          "Change 3, src/engine/run-identity.mjs: introduce `recordedBaseRef(metadata)` returning metadata.sourceIdentity.baseRef when it is a non-empty string, else null. captureRunIdentity keeps its third argument. assertSourceUnchanged does not compare baseRef: the compared fields stay cwd, gitHead, dirtyTreeFingerprint, packetHashes, harnessVersions.",
+          "Change 4, src/engine/resume.mjs: before recapturing the identity, pass recordedBaseRef(storedMetadata) ?? undefined as captureRunIdentity's third argument, so a run launched with --base-ref is compared against that ref's current head (isDescendantHead still applies) and a run recorded before this change keeps today's HEAD comparison.",
+          "Tests: extend test/repo/base-ref.test.mjs (its first test launches with --base-ref against a real temp repo) to assert run.json's sourceIdentity.baseRef equals the ref and a plain launch records null; add a case to test/contract/contract.test.mjs that validateSourceIdentity accepts baseRef as string or null and still rejects an unknown field; add test/engine/resume-base-ref.test.mjs that launches with --base-ref, moves the checkout HEAD to an unrelated commit, and shows resume proceeds (reuse the fixtures test/engine/resume.test.mjs uses; that file is 649 lines, do not grow it).",
+          "Docs: one sentence under `## faberun resume` in docs/COMMANDS.md saying a run launched with --base-ref resumes against that ref from any checkout. Do not touch skills/faberun/references/operations.md (at its byte ceiling) or docs/FIELD-OWNERSHIP.md (run.json is outside its scope; confirm by running test/campaign/field-ownership.test.mjs, which is in sharedVerification anyway)."
+        ],
+        "readFiles": [
+          "src/repo/source-identity.mjs",
+          "src/contract/index.mjs",
+          "src/contract/snapshot.mjs",
+          "src/engine/run-identity.mjs",
+          "src/engine/resume.mjs",
+          "src/engine/state.mjs",
+          "src/engine/scheduler.mjs",
+          "src/cli.mjs",
+          "test/repo/base-ref.test.mjs",
+          "test/contract/contract.test.mjs",
+          "test/engine/resume.test.mjs",
+          "docs/COMMANDS.md"
+        ],
+        "writeFiles": [
+          "src/repo/source-identity.mjs",
+          "src/contract/index.mjs",
+          "src/engine/run-identity.mjs",
+          "src/engine/resume.mjs",
+          "test/repo/base-ref.test.mjs",
+          "test/contract/contract.test.mjs",
+          "test/engine/resume-base-ref.test.mjs",
+          "docs/COMMANDS.md"
+        ],
+        "symbols": [
+          "recordedBaseRef"
+        ],
+        "scopeAcknowledged": [
+          "src/contract/snapshot.mjs",
+          "src/engine/state.mjs",
+          "src/engine/scheduler.mjs",
+          "src/cli.mjs",
+          "test/engine/resume.test.mjs",
+          "test/repo/integration.test.mjs",
+          "test/cli/cli.test.mjs"
+        ],
+        "decisions": [
+          "No new CLI flag: the recorded ref is the source of truth, and docs/COMMANDS.md's command-surface test stays untouched.",
+          "Runs recorded before this change have no baseRef and keep comparing HEAD.",
+          "The field is optional on every identity kind; only the run identity ever sets it."
+        ],
+        "nonGoals": [
+          "No change to isDescendantHead or to the dirty-tree fingerprint warning.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, docs/campaigns/**, evals/golden/**.",
+          "CONTRACT_VERSION stays 0.3.0. No new CLI flag unless the packet names one.",
+          "No file over 800 lines: when a module or test file you must extend is near the ceiling, add a new module or test file instead of growing it.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/repo/base-ref.test.mjs",
+              "test/engine/resume-base-ref.test.mjs",
+              "test/engine/resume.test.mjs",
+              "test/contract/contract.test.mjs",
+              "test/docs/command-surface.test.mjs"
+            ],
+            "timeoutSec": 400
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    }
+  ]
+}

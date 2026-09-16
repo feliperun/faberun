@@ -1,0 +1,323 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "harden-chain-and-verification",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "claude-sonnet-worker",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic-opus",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "claude-sonnet-worker": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic-sonnet",
+      "permissionMode": "bypassPermissions",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/repo/source-shape.test.mjs",
+        "test/campaign/field-ownership.test.mjs",
+        "test/repo/brand.test.mjs",
+        "test/docs/docs-diet.test.mjs"
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "harden-chain-and-verification-3-product-and-fixtures",
+  "maxParallel": 2,
+  "goal": "Phase 3 (product-and-fixtures) of campaign harden-chain-and-verification: setup keeps an existing user config unless told otherwise, and the notifier delivery flake is measured with timestamps before it is fixed at the source. Spec: docs/campaigns/harden-chain-and-verification/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "setup-preserves-config",
+      "type": "backend",
+      "phase": "product-and-fixtures",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "setup-tests",
+          "text": "setup, command-surface and link-check tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "kept-config",
+          "text": "an existing config's available choices survive setup --yes and explicit flags still override them",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "With a user config present and no explicit --harnesses/--worker/--judge, setup (interactive or --yes) keeps the recorded harnesses, worker and judge that are still available and fills only what is missing; a fresh machine behaves as today.",
+        "instructions": [
+          "Evidence (measured 2026-09-16): `faberun setup --json --yes` on a machine whose ~/.faberun/config.json read {harnesses:[dsh,agy,zcode,claude], worker: dsh-deepseek, judge: claude-sonnet} rewrote it to {harnesses:[dsh,zcode,agy,codex,claude], worker: dsh-deepseek, judge: codex-gpt}: src/cli/setup.mjs imports writeUserConfig only and derives every selection from discovery defaults (cheapest candidate, all available harnesses).",
+          "Change: src/cli/setup.mjs reads readUserConfig(env) (src/host/config.mjs) and, when it exists, seeds selectedHarnesses/selectedWorker/selectedJudge from it, keeping only harnesses that discovery reports available and a worker/judge whose runtime is still a candidate; anything missing falls back to today's defaults. Explicit options (--harnesses, --worker, --judge) still win. In interactive mode the prompts show the kept values as defaults. Introduce `mergeExistingConfig(existing, availability)` as the pure function that does the keeping, unit-testable without a TTY. The written config's updatedAt still refreshes.",
+          "Tests: test/cli/setup.test.mjs (245 lines) gains cases: --yes with an existing config keeps worker and judge; an existing harness no longer available is dropped; explicit --judge overrides the recorded one; a fresh home behaves as before. Use the file's existing FABERUN_HOME/env fixtures.",
+          "Docs: docs/COMMANDS.md `## faberun setup` gains one sentence on what happens when a config already exists; docs/GETTING-STARTED.md gains the same where setup is introduced. Do not touch skills/faberun/references/operations.md."
+        ],
+        "readFiles": [
+          "src/cli/setup.mjs",
+          "src/host/config.mjs",
+          "src/host/home.mjs",
+          "test/cli/setup.test.mjs",
+          "docs/COMMANDS.md",
+          "docs/GETTING-STARTED.md"
+        ],
+        "writeFiles": [
+          "src/cli/setup.mjs",
+          "test/cli/setup.test.mjs",
+          "docs/COMMANDS.md",
+          "docs/GETTING-STARTED.md"
+        ],
+        "symbols": [
+          "mergeExistingConfig"
+        ],
+        "scopeAcknowledged": [
+          "src/host/config.mjs",
+          "src/host/home.mjs",
+          "test/cli/cli.test.mjs"
+        ],
+        "decisions": [
+          "No --reset flag: an operator who wants defaults deletes the config or passes explicit options.",
+          "Availability is the filter: a recorded choice that discovery cannot find is dropped, not kept blindly."
+        ],
+        "nonGoals": [
+          "No change to install.sh or to skills registration.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, docs/campaigns/**, evals/golden/**.",
+          "CONTRACT_VERSION stays 0.3.0. No new CLI flag unless the packet names one.",
+          "No file over 800 lines: when a module or test file you must extend is near the ceiling, add a new module or test file instead of growing it.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/cli/setup.test.mjs",
+              "test/docs/command-surface.test.mjs",
+              "test/docs/link-check.test.mjs"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "notifier-delivery-measured",
+      "type": "backend",
+      "phase": "product-and-fixtures",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "notify-x3",
+          "text": "notify and cli tests pass three times in a row",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "measured",
+          "text": "the header comment of the changed module states the measured spawn-to-exit numbers and the failure class they showed",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "The notifier delivery flake in test/cli/cli.test.mjs is measured with timestamps inside the fixture under the parallel suite, the measured cause is fixed at its source, and the module header of the changed file records the numbers.",
+        "instructions": [
+          "Evidence (measured 2026-09-16): with the fixtures already pointing at process.execPath, the test 'ordinary runs deliver bounded node and run terminal notifications' still failed once in three isolated runs with a 9.9 s duration, and the receipt of an earlier failure read 'notification timed out after 5000ms' on the first delivery while the second delivered. src/notify/index.mjs spawnDeliver spawns the bin with stdio [pipe, ignore, pipe], ends stdin with the event JSON, resolves on 'close' (code 0) and gives up at 5000 ms.",
+          "Measure first: make the two notifier fixtures in test/cli/cli.test.mjs append `{at, phase}` lines (spawned, stdin-end, exit) to a file in their temp dir, run `node --test test/cli/cli.test.mjs` at least 10 times in a loop while `node --test test/engine/` runs in the background to create load (kill the background run afterwards; you are on a harness that can signal processes), and collect every receipt with status failed plus the fixture timelines. Decide from the numbers which of these is true: (a) node startup exceeded 5 s under load, (b) the child exited but 'close' was late because a pipe stayed open, (c) stdin never ended. Write the measured numbers in the header comment of the file you change.",
+          "Fix at the source you measured: (a) means the transport timeout is too small for a loaded machine -- make it a measured constant `notificationDeliveryTimeoutMs` in src/notify/index.mjs with the number and date in its comment (do not exceed 15000), and keep the fixture cheap; (b) means resolve delivery on 'exit' with code 0 and stop waiting for stderr; (c) means end stdin before attaching listeners or write then end explicitly. If the measurement shows no failure in 10 loaded runs, record that and change nothing but the fixture timestamps removal.",
+          "Tests: test/notify/notify.test.mjs covers spawnDeliver through deliverNotification; add the case that matches the fix (for example a bin that exits 0 while a grandchild holds stderr open, if (b)). Leave the timestamps out of the final fixtures."
+        ],
+        "readFiles": [
+          "src/notify/index.mjs",
+          "test/cli/cli.test.mjs",
+          "test/notify/notify.test.mjs",
+          "test/runner-helpers.mjs"
+        ],
+        "writeFiles": [
+          "src/notify/index.mjs",
+          "test/cli/cli.test.mjs",
+          "test/notify/notify.test.mjs"
+        ],
+        "symbols": [
+          "notificationDeliveryTimeoutMs"
+        ],
+        "scopeAcknowledged": [
+          "test/runner-helpers.mjs"
+        ],
+        "decisions": [
+          "Measurement precedes the fix; the header comment carries the numbers.",
+          "The timeout, if raised, is a named measured constant, never an env knob."
+        ],
+        "nonGoals": [
+          "No change to the macOS transport (src/notify/os-macos.mjs).",
+          "No retry queue: a failed delivery is still recorded and dropped.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, docs/campaigns/**, evals/golden/**.",
+          "CONTRACT_VERSION stays 0.3.0. No new CLI flag unless the packet names one.",
+          "No file over 800 lines: when a module or test file you must extend is near the ceiling, add a new module or test file instead of growing it.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/notify/",
+              "test/cli/cli.test.mjs"
+            ],
+            "timeoutSec": 400,
+            "repeat": 3
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    }
+  ]
+}

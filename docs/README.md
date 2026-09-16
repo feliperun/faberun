@@ -22,5 +22,7 @@ with `docs/campaigns/` preserve dated records that are never rewritten.
 | `docs/campaigns/` | Where do campaign manifests, journals and specs live? | orchestrating agent |
 | [campaigns/become-faberun/spec/SPEC.md](campaigns/become-faberun/spec/SPEC.md) | What did the `become-faberun` campaign set out to do, phase by phase? | orchestrating agent |
 | [campaigns/register-skill-and-harden/spec/SPEC.md](campaigns/register-skill-and-harden/spec/SPEC.md) | What did the `register-skill-and-harden` campaign set out to do, and what did the first chain-driven campaign teach? | orchestrating agent |
+| [campaigns/env-independence-and-generated-docs/spec/PROPOSAL.md](campaigns/env-independence-and-generated-docs/spec/PROPOSAL.md) | The owner's proposal for the next campaign: host-layout independence and a generated command manual. | orchestrating agent |
+| [campaigns/harden-chain-and-verification/spec/SPEC.md](campaigns/harden-chain-and-verification/spec/SPEC.md) | What did the first retrospective-driven improvement campaign harden in the chain, resume and verification? | orchestrating agent |
 | [../DESIGN.md](../DESIGN.md) | What are the visual and verbal identity, the palette and the documentation grammar? | contributor |
 | `skills/faberun/references/` | How does the orchestrator skill document contracts, operations, rules, workflow, handoffs and engineering? | orchestrating agent |

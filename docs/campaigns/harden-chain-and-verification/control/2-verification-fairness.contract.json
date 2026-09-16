@@ -1,0 +1,424 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "harden-chain-and-verification",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "claude-sonnet-worker",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic-opus",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "claude-sonnet-worker": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic-sonnet",
+      "permissionMode": "bypassPermissions",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/repo/source-shape.test.mjs",
+        "test/campaign/field-ownership.test.mjs",
+        "test/repo/brand.test.mjs",
+        "test/docs/docs-diet.test.mjs"
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "harden-chain-and-verification-2-verification-fairness",
+  "maxParallel": 2,
+  "goal": "Phase 2 (verification-fairness) of campaign harden-chain-and-verification: a verification attempt killed by a signal nobody configured is re-run once, an integrated candidate re-runs only the commands that diverged from the attempt before a node is rejected, and a gate never outlives its run directory. Spec: docs/campaigns/harden-chain-and-verification/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "signal-death-retries-once",
+      "type": "backend",
+      "phase": "verification-fairness",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "run-command-tests",
+          "text": "run-command, contract verification and shared-verification tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "one-retry",
+          "text": "exactly one retry per signal death, both attempts recorded, non-zero exits never retried",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "In runVerification, an attempt that ends by a signal the controller did not send is re-run once; both attempts stay in the record, the first flagged signalDeath, and the command passes when the retry passes.",
+        "instructions": [
+          "Evidence (measured 2026-09-16, run register-skill-and-harden-2-engine-determinism, unpriced-usage-visible attempt 1, verification-5.json): argv `node --test test/engine/` ended with exitCode null, signal 'SIGKILL', timedOut false, durationMs 93074, and the node was revised for it; the same command passed on every other run that day. The sender was not the controller: run-command.mjs's own terminateGroup only fires on timeout or abort. Change in src/engine/run-command.mjs runRepeatedCommand: after an attempt whose result has `signal` set, `timedOut` false and no abort (signal?.aborted false), run the same attempt number once more; record the first attempt with `signalDeath: true` (add the field to the VerificationAttemptResult typedef) and append the retry; `passed` for the command is computed over the attempts excluding signal-death ones. Introduce `signalDeathRetry(result, signal)` as the predicate so the rule has one home. A second signal death fails the command as today. Keep repeat semantics: each repeat iteration may retry once.",
+          "compactVerification lives in src/contract/verification.mjs: make sure it keeps `signalDeath` on the attempt so the judge prompt and the logs show it (read it; extend the compacted attempt shape only if it drops unknown fields).",
+          "Tests: new test/engine/run-command.test.mjs with a fixture command (process.execPath -e) that on its first run writes a marker file and sends itself SIGKILL (process.kill(process.pid, 'SIGKILL')), and exits 0 when the marker exists: assert two attempts, attempts[0].signalDeath === true, attempts[0].signal === 'SIGKILL', passed true; and a second case that dies twice and fails. Use a temp dir per test; do not assert durations from above.",
+          "Docs: one sentence in docs/CONCEPTS.md where verification is described, saying a signal death is retried once and recorded. Do not touch skills/faberun/references/contract.md (at its byte ceiling)."
+        ],
+        "readFiles": [
+          "src/engine/run-command.mjs",
+          "src/contract/verification.mjs",
+          "src/engine/verify.mjs",
+          "docs/CONCEPTS.md"
+        ],
+        "writeFiles": [
+          "src/engine/run-command.mjs",
+          "src/contract/verification.mjs",
+          "test/engine/run-command.test.mjs",
+          "docs/CONCEPTS.md"
+        ],
+        "symbols": [
+          "signalDeathRetry"
+        ],
+        "scopeAcknowledged": [
+          "src/engine/verify.mjs"
+        ],
+        "decisions": [
+          "Only signal deaths retry; a non-zero exit is a verdict.",
+          "The retry is bounded to one per attempt; the record keeps both."
+        ],
+        "nonGoals": [
+          "No change to timeout or abort handling.",
+          "No change to the judge prompt renderer.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, docs/campaigns/**, evals/golden/**.",
+          "CONTRACT_VERSION stays 0.3.0. No new CLI flag unless the packet names one.",
+          "No file over 800 lines: when a module or test file you must extend is near the ceiling, add a new module or test file instead of growing it.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/engine/run-command.test.mjs",
+              "test/contract/verification.test.mjs",
+              "test/engine/shared-verification.test.mjs"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "candidate-divergence-retry",
+      "type": "backend",
+      "phase": "verification-fairness",
+      "dependsOn": [
+        "signal-death-retries-once"
+      ],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "retry-tests",
+          "text": "candidate-retry, integration and run-command tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "divergent-only",
+          "text": "only commands that passed in the attempt and failed in the candidate are re-run, exactly once, and the evidence says so",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "When the integrated candidate fails commands the attempt passed, verifyCandidateWorkspace re-runs exactly those commands once in the candidate worktree; if they pass the candidate is accepted and the evidence records the retry, otherwise the rejection stands with the divergence named.",
+        "instructions": [
+          "Evidence (measured 2026-09-16, unpriced-usage-visible attempt 2): the attempt passed all ten commands; the integrated candidate failed verification-7 (`node --test test/campaign/ test/cli/ test/contract/ test/docs/`) on test/cli/cli.test.mjs 'runner notifies node.terminal...' with a notification timeout of 5000 ms, a fixture outside the node's write set; the node was rejected, exhausted its revision budget, and the run parked. settle.mjs onVerificationFailure already computes `divergent = candidateOnlyFailures(state.verification, transaction.candidateEvidence)` (src/engine/judge-gate.mjs:411) but only to phrase the finding. Change in src/engine/verify.mjs verifyCandidateWorkspace: after a failed run, compute the indexes of commands that failed in the candidate but passed in state.verification (same order, same argv -- add an argv equality check); when that set is non-empty and covers every failed command, re-run only those commands once through runVerification in the same workspace (logDir suffix `.candidate-retry`), splice the retried results into the original result array, and set `retried: [indexes]` on the returned evidence; `passed` is recomputed. Introduce `retryDivergentCandidateCommands(result, attemptEvidence, run)` as the pure part (which indexes, how to merge) so it is unit-testable without git.",
+          "settle.mjs: when the candidate passes after a retry, the accepted transition's patch gains `note: 'candidate verification retried: <argv list>'` (bounded 256 bytes) so the operator sees it in status; when it still fails, keep today's finding text. Read src/repo/integrate.mjs to confirm CandidateEvidence is passed through untouched and the `retried` field survives to the integration record.",
+          "Tests: unit tests for retryDivergentCandidateCommands in a new test/engine/candidate-retry.test.mjs (divergent set, non-divergent failure untouched, merge keeps order); an integration-shaped test in test/repo/integration.test.mjs (346 lines) that uses a verifyCandidate stub returning a failure whose counterpart passed and asserts the stub's retry hook is invoked once. Do not assert durations from above.",
+          "Docs: one sentence in docs/CONCEPTS.md next to the integration candidate description."
+        ],
+        "readFiles": [
+          "src/engine/verify.mjs",
+          "src/engine/settle.mjs",
+          "src/engine/judge-gate.mjs",
+          "src/repo/integrate.mjs",
+          "src/engine/run-command.mjs",
+          "src/contract/verification.mjs",
+          "test/repo/integration.test.mjs",
+          "docs/CONCEPTS.md"
+        ],
+        "writeFiles": [
+          "src/engine/verify.mjs",
+          "src/engine/settle.mjs",
+          "test/engine/candidate-retry.test.mjs",
+          "test/repo/integration.test.mjs",
+          "docs/CONCEPTS.md"
+        ],
+        "symbols": [
+          "retryDivergentCandidateCommands"
+        ],
+        "scopeAcknowledged": [
+          "src/engine/judge-gate.mjs",
+          "src/repo/integrate.mjs",
+          "src/engine/run-command.mjs",
+          "src/contract/verification.mjs"
+        ],
+        "decisions": [
+          "Only divergent commands are re-run, once; a command that failed in both worktrees is a verdict.",
+          "The retry happens inside verifyCandidateWorkspace so integrate.mjs's transaction flow is unchanged."
+        ],
+        "nonGoals": [
+          "No change to the revision budget rules.",
+          "No change to judge-gate.mjs beyond reading it.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, docs/campaigns/**, evals/golden/**.",
+          "CONTRACT_VERSION stays 0.3.0. No new CLI flag unless the packet names one.",
+          "No file over 800 lines: when a module or test file you must extend is near the ceiling, add a new module or test file instead of growing it.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/engine/candidate-retry.test.mjs",
+              "test/repo/integration.test.mjs",
+              "test/engine/run-command.test.mjs"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "gate-exits-with-its-run-dir",
+      "type": "backend",
+      "phase": "verification-fairness",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "process-tests",
+          "text": "process tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "no-survivor",
+          "text": "a gate whose release directory disappears exits on its own, and every test that spawns a gate terminates it",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "The gate program exits when the directory of its release file no longer exists, and the two tests that spawn a real gate terminate it in a finally, so no gate survives its test or its run.",
+        "instructions": [
+          "Evidence (measured 2026-09-16): four `src/engine/gate.mjs` processes from 2026-09-15 test runs (cwd /var/folders/.../T/lock-zcode-env-* and lock-persistence-barrier-*) were alive the next day with their fake providers, and the test processes that spawned them (test/run/process.test.mjs) were alive too: the gate waits for its parent to die or the release file to appear, the failed test waited for the gate, and nobody ever removed the directory. gate.mjs's 10 ms timer checks only parentAlive() and existsSync(releasePath).",
+          "Change 1, src/engine/gate.mjs: in the same timer, when `dirname(releasePath)` no longer exists, clear the timer and stopProvider() (which SIGKILLs the group after 100 ms); introduce `releaseDirectoryGone()` as the local predicate. In production the release file's directory is the run's logs directory, which exists for the life of the run.",
+          "Change 2, test/run/process.test.mjs (602 lines): the tests at 'a zcode worker runs with the harness's endpoint env overlay applied' and 'a persistence failure leaves the gated provider unstarted and terminates its wrapper' terminate the gate they spawned in a finally (the invocation record carries the pid; kill its process group with SIGKILL and ignore ESRCH). Add a test that spawns the gate through the same path, removes the release directory, and awaits the gate's exit (poll pidAlive with a generous deadline; never assert elapsed from above).",
+          "Docs: none required; the gate's header comment gains one line stating the new exit condition and its measurement."
+        ],
+        "readFiles": [
+          "src/engine/gate.mjs",
+          "src/engine/process.mjs",
+          "test/run/process.test.mjs",
+          "test/runner-helpers.mjs"
+        ],
+        "writeFiles": [
+          "src/engine/gate.mjs",
+          "test/run/process.test.mjs"
+        ],
+        "symbols": [
+          "releaseDirectoryGone"
+        ],
+        "scopeAcknowledged": [
+          "src/engine/process.mjs",
+          "test/runner-helpers.mjs"
+        ],
+        "decisions": [
+          "The gate's exit path is the existing stopProvider, so the provider dies with it.",
+          "The test cleanup kills by process group, matching how the engine spawns the gate (detached)."
+        ],
+        "nonGoals": [
+          "No change to the release protocol or to FABERUN_GATE_* environment names.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, docs/campaigns/**, evals/golden/**.",
+          "CONTRACT_VERSION stays 0.3.0. No new CLI flag unless the packet names one.",
+          "No file over 800 lines: when a module or test file you must extend is near the ceiling, add a new module or test file instead of growing it.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/run/process.test.mjs"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    }
+  ]
+}
