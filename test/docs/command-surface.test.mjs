@@ -3,11 +3,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import { renderUsage } from "../../src/cli/brand.mjs";
-
 /**
- * The command surface the documentation promises and the one the CLI carries
- * must be the same set.
+ * The command surface the manual promises and the one the CLI carries must be
+ * the same set, in both directions.
  *
  * Measured 2026-09-13: they were not. `supervise` was in the README's feature
  * paragraph, its quickstart, its command table and in the managed signal block
@@ -16,90 +14,109 @@ import { renderUsage } from "../../src/cli/brand.mjs";
  * a partly finished run, and `cli/contract.mjs` carried only `validate`. Both
  * were found by an operator typing them, which is the expensive way.
  *
- * The check is deliberately dumb: names in backticks in the README's command
- * table, against the dispatch branches and option keys of `cli.mjs`. It cannot
- * prove a flag works; it proves nobody can advertise a verb that is not there.
+ * The check is deliberately dumb: option keys and dispatch branches in
+ * `src/cli.mjs` and each verb module's `OPERATION_OPTIONS`, against the
+ * `## faberun <verb>` and `### faberun <verb> <operation>` headings of
+ * `docs/COMMANDS.md`. It cannot prove a flag works; it proves nobody can
+ * document a verb or operation that is not there, or carry one that nobody can
+ * read about.
  */
 
-const readme = readFileSync(fileURLToPath(new URL("../../README.md", import.meta.url)), "utf8");
-const cliSource = readFileSync(fileURLToPath(new URL("../../src/cli.mjs", import.meta.url)), "utf8");
-const contractCliSource = readFileSync(fileURLToPath(new URL("../../src/cli/contract.mjs", import.meta.url)), "utf8");
+/** @param {string} path @returns {string} */
+const read = (path) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), "utf8");
 
-/** The verbs that take a subcommand, and the module whose operation table declares them. */
-const SUBCOMMAND_SOURCES = {
-  contract: contractCliSource,
-  campaign: readFileSync(fileURLToPath(new URL("../../src/cli/campaign.mjs", import.meta.url)), "utf8"),
-  seat: readFileSync(fileURLToPath(new URL("../../src/cli/seat.mjs", import.meta.url)), "utf8"),
+const cliSource = read("../../src/cli.mjs");
+const manual = read("../../docs/COMMANDS.md");
+
+/**
+ * Verbs whose operations live in their own module, and the source that declares
+ * them. `supervise campaign` has no module of its own: `cli.mjs` routes it into
+ * the campaign table, so it is added to the surface by name.
+ */
+const OPERATION_SOURCES = {
+  campaign: read("../../src/cli/campaign.mjs"),
+  seat: read("../../src/cli/seat.mjs"),
+  contract: read("../../src/cli/contract.mjs"),
+  skills: read("../../src/cli/skills.mjs"),
 };
 
-/** @param {string} source @returns {string[]} */
-function declaredOperations(source) {
-  const declared = /const OPERATION_OPTIONS = \{([\s\S]*?)\n\};/u.exec(source);
-  assert.ok(declared, "operations must still be declared in one table");
-  return [...declared[1].matchAll(/^ {2}"?([a-z-]+)"?:/gmu)].map(([, name]) => name);
+/**
+ * The double-quoted keys of one option table, in declaration order. Anchored on
+ * exactly two leading spaces so a nested per-flag entry is never mistaken for
+ * an operation or a verb.
+ *
+ * @param {string} source
+ * @returns {string[]}
+ */
+function optionKeys(source) {
+  const table = /const (?:COMMAND|OPERATION)_OPTIONS = \{([\s\S]*?)\n\};/u.exec(source);
+  assert.ok(table, "option tables must stay declared in one literal");
+  return [...table[1].matchAll(/^ {2}"?([a-z-]+)"?:/gmu)].map(([, name]) => name);
 }
 
-/** Verbs the README's faberun command table names, first word of each code span. */
-function documentedCommands() {
-  const table = /\| Goal \| Command \|([\s\S]*?)\n\n/u.exec(readme);
-  assert.ok(table, "the README must still carry the faberun command table");
-  /** @type {Set<string>} */
-  const commands = new Set();
-  for (const [, span] of table[1].matchAll(/`([^`]+)`/gu)) {
-    const words = span.trim().split(/\s+/u);
-    const first = words[0];
-    if (!/^[a-z][a-z-]*$/u.test(first)) continue;
-    // A verb that takes a subcommand is only as real as the subcommand: the
-    // README advertised `contract prune` while `contract` itself existed and
-    // carried only `validate`, so matching the first word alone saw nothing
-    // wrong.
-    const second = words[1];
-    commands.add(Object.hasOwn(SUBCOMMAND_SOURCES, first) && /^[a-z][a-z-]*$/u.test(second ?? "")
-      ? `${first} ${second}`
-      : first);
+/**
+ * The verbs and operations the CLI dispatches: `COMMAND_OPTIONS` keys, the four
+ * verbs dispatched before that table, every `OPERATION_OPTIONS` key of each of
+ * those verb modules, and `supervise campaign`.
+ *
+ * @returns {{verbs: Set<string>, operations: Set<string>}}
+ */
+function cliSurface() {
+  const verbs = new Set(optionKeys(cliSource));
+  for (const verb of ["campaign", "seat", "contract", "skills"]) verbs.add(verb);
+  const operations = new Set();
+  for (const [verb, source] of Object.entries(OPERATION_SOURCES)) {
+    for (const operation of optionKeys(source)) operations.add(`${verb} ${operation}`);
   }
-  return commands;
+  operations.add("supervise campaign");
+  return { verbs, operations };
 }
 
-/** Verbs `cli.mjs` actually dispatches, plus the subcommands of `contract`. */
-function implementedCommands() {
-  /** @type {Set<string>} */
-  const commands = new Set();
-  for (const [, name] of cliSource.matchAll(/command === "([a-z-]+)"/gu)) commands.add(name);
-  const options = /const COMMAND_OPTIONS = \{([\s\S]*?)\n\};/u.exec(cliSource);
-  assert.ok(options, "COMMAND_OPTIONS must still be the CLI's option table");
-  for (const [, name] of options[1].matchAll(/^ {2}"?([a-z-]+)"?:/gmu)) commands.add(name);
-  for (const [, name] of cliSource.matchAll(/argv\[0\] === "([a-z-]+)"/gu)) commands.add(name);
-  for (const [verb, source] of Object.entries(SUBCOMMAND_SOURCES)) {
-    for (const operation of declaredOperations(source)) commands.add(`${verb} ${operation}`);
+/**
+ * The verbs and operations `docs/COMMANDS.md` names. A `##` heading is a verb;
+ * a `###` heading is a verb followed by one operation.
+ *
+ * @returns {{verbs: Set<string>, operations: Set<string>}}
+ */
+function documentedSurface() {
+  const verbs = new Set();
+  const operations = new Set();
+  for (const [, verb] of manual.matchAll(/^## faberun ([a-z][a-z-]*)$/gmu)) verbs.add(verb);
+  for (const [, verb, operation] of manual.matchAll(/^### faberun ([a-z][a-z-]*) ([a-z][a-z-]*)$/gmu)) {
+    operations.add(`${verb} ${operation}`);
   }
-  return commands;
+  return { verbs, operations };
 }
 
-test("every command the README advertises exists in the CLI", () => {
-  const implemented = implementedCommands();
-  const missing = [...documentedCommands()].filter((command) => !implemented.has(command));
-  assert.deepEqual(missing, [], `the README names ${missing.join(", ")}, which the CLI does not dispatch`);
+/** @param {Set<string>} left @param {Set<string>} right @returns {string[]} */
+const difference = (left, right) => [...left].filter((name) => !right.has(name)).sort();
+
+test("every CLI verb and operation has a manual heading", () => {
+  const cli = cliSurface();
+  const documented = documentedSurface();
+  assert.deepEqual(
+    difference(cli.verbs, documented.verbs),
+    [],
+    `the CLI dispatches ${difference(cli.verbs, documented.verbs).join(", ")}, which docs/COMMANDS.md does not name`,
+  );
+  assert.deepEqual(
+    difference(cli.operations, documented.operations),
+    [],
+    `the CLI dispatches ${difference(cli.operations, documented.operations).join(", ")}, which docs/COMMANDS.md does not name`,
+  );
 });
 
-test("every command the CLI dispatches appears in its own usage string", () => {
-  // The usage text lives in `cli/brand.mjs` as `renderUsage()`, which is what
-  // `src/cli.mjs` prints for help and for a usage error. Reading the renderer
-  // rather than a copy in the dispatcher is the point of this guard: a copy
-  // can advertise a verb the CLI never prints.
-  const usage = renderUsage();
-  const missing = [...implementedCommands()]
-    .filter((command) => !command.includes(" "))
-    .filter((command) => !usage.includes(command));
-  assert.deepEqual(missing, [], `${missing.join(", ")} is dispatched but absent from the usage string`);
-});
-
-test("the contract subcommand table and its usage line agree", () => {
-  const operations = declaredOperations(contractCliSource);
-  assert.ok(operations.length > 0, "contract must carry at least one operation");
-  const usage = /usage: faberun contract ([^\\]*)/u.exec(contractCliSource);
-  assert.ok(usage, "contract must print its own usage line");
-  for (const operation of operations) {
-    assert.ok(usage[1].includes(operation), `contract ${operation} is dispatched but absent from its usage line`);
-  }
+test("every manual heading names a real CLI verb or operation", () => {
+  const cli = cliSurface();
+  const documented = documentedSurface();
+  assert.deepEqual(
+    difference(documented.verbs, cli.verbs),
+    [],
+    `docs/COMMANDS.md names ${difference(documented.verbs, cli.verbs).join(", ")}, which the CLI does not dispatch`,
+  );
+  assert.deepEqual(
+    difference(documented.operations, cli.operations),
+    [],
+    `docs/COMMANDS.md names ${difference(documented.operations, cli.operations).join(", ")}, which the CLI does not dispatch`,
+  );
 });

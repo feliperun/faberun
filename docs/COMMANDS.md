@@ -1,0 +1,898 @@
+# faberun command manual
+The command surface of `faberun`: how to invoke it, the flags every verb and
+operation accepts, what each reads and writes, and one example per section.
+Every flag here is declared in a `src/` option table; `faberun` is the command.
+
+## Invocation
+Three equivalent entry points:
+- `faberun <verb>` — after `install.sh` puts a shim on `PATH`
+  (`$FABERUN_BIN_DIR`, default `~/.local/bin`).
+- `node src/cli.mjs <verb>` — from a checkout, with no install.
+- `npx github:feliperun/faberun <verb>` — straight from the repository.
+`faberun` with no arguments and `faberun --help` print the banner on an
+interactive terminal, then the usage text. `faberun --version` prints one line.
+
+## Global flags
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `-h`, `--help` | none | Print the banner and the usage text; exit 0. | off |
+| `-v`, `--version` | none | Print `faberun <package-version>`; exit 0. | off |
+Global flags are handled before verb dispatch. Every other flag is scoped to the
+verb or operation whose parser declares it; the same spelling is rejected elsewhere.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Success. |
+| `1` | A check or command failed; the message is on stderr. |
+| `2` | Usage error: unknown verb or flag, a missing or extra positional, or two mutually exclusive flags. The usage text goes to stderr, with no banner. |
+
+## Environment
+These are the variables `src/` reads that a user, not a test, would set.
+
+| Variable | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `FABERUN_HOME` | directory | Install root: `versions/`, `current`, `config.json`, `update-check.json`, `tmp/`. | `~/.faberun` |
+| `FABERUN_BIN_DIR` | directory | Where `install.sh` writes the `faberun` shim. Read by the installer, referenced by `src/host/home.mjs`. | `~/.local/bin` |
+| `FABERUN_RELEASES_URL` | URL | Releases API `update` fetches. | `https://api.github.com/repos/feliperun/faberun/releases/latest` |
+| `FABERUN_NOTIFY_BIN` | executable or `os-macos` | Executable the controller calls with one event as JSON on stdin; `os-macos` selects the bundled adapter. Unset is no transport. | unset |
+| `FABERUN_<HARNESS>_BIN` | executable | Override a harness binary: `FABERUN_CLAUDE_BIN`, `FABERUN_CODEX_BIN`, `FABERUN_AGY_BIN`, `FABERUN_DSH_BIN`, `FABERUN_ZCODE_BIN`, `FABERUN_EXEC_JSONL_BIN`, `FABERUN_REPLAY_BIN`. | the harness default |
+| `FABERUN_REQUIRE_CLEAN_WORKTREE` | `1` | Make any dirt in the launch base a fatal `git` check instead of an advisory. | unset (dirt is advisory) |
+| `FABERUN_MIN_FREE_DISK_BYTES` | non-negative integer | Free-disk threshold the `disk` check enforces. | `536870912` (512 MiB) |
+| `FABERUN_GIT_TIMEOUT_MS` | positive integer | Wall-clock ceiling for every synchronous git call. | `30000` |
+| `FABERUN_PREFLIGHT_TIMEOUT_SEC` | positive number | Per-runtime timeout of the live `preflight` generation. | `15` |
+
+## faberun run
+```text
+faberun run <contract.json> [--base-ref <ref>] [--detach]
+```
+Validate a contract, refuse a launch when the base it would cut from is dirty,
+then drive the run's DAG. Use it to start a run; `--detach` is the normal shape
+for a host scheduler.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--base-ref` | git ref | Cut every attempt worktree from this ref instead of the checkout's `HEAD`. | current `HEAD` |
+| `--detach` | none | Spawn the controller detached and return once its bootstrap record exists. | off |
+Reads `<contract.json>`. Writes `.runs/<contract.id>/` (frozen contract, run
+metadata, node snapshots, logs, `status.json`, `STATUS.md`), the attempt
+worktrees under `.runs/worktrees/<run-id>/`, and `refs/faberun/<run-id>/…`.
+```bash
+node src/cli.mjs run --detach contracts/feature-42.json
+```
+Related: `faberun validate`, `faberun preflight`, `faberun supervise`, `faberun resume`.
+
+## faberun validate
+```text
+faberun validate <contract.json>
+```
+Validate an authored contract and print the report the authoring turn reads:
+`valid`, optionally with a warning count followed by one `[warn]` line per
+warning. A `contract.json` beside a `run.json` takes the persisted path and must
+match the digest recorded at launch.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| — | — | No flags. | — |
+Reads `<contract.json>` and, for a persisted contract, its sibling `run.json`.
+```bash
+node src/cli.mjs validate contracts/feature-42.json
+valid
+```
+Related: `faberun run`, `faberun preflight`, `faberun contract validate`.
+
+## faberun preflight
+```text
+faberun preflight <contract.json> [--static] [--time-verification] [--json]
+```
+Check the host and the contract before spending a run: disk, git, the worktree,
+each routed runtime binary, the notify transport, and (by default) one real
+read-only generation per runtime. `--static` stops at the binary probes;
+`--time-verification` runs the contract's verification commands to prove they
+fit their timeouts.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--static` | none | Probe binaries only; skip the live generation per runtime. | off |
+| `--time-verification` | none | Run each declared verification command once and report whether it fits its timeout. | off |
+| `--json` | none | Emit one machine-readable object instead of check lines. | off |
+Reads `<contract.json>` and the routed runtimes; writes nothing. Exits `1` when
+a non-advisory check fails.
+```bash
+node src/cli.mjs preflight contracts/feature-42.json --static
+```
+Related: `faberun doctor`, `faberun run`, `faberun validate`.
+
+## faberun resume
+```text
+faberun resume <run-dir> [--detach] [--node <id>] [--reconcile <node-id>] [--answer <node-id>=<path>]
+```
+Continue an interrupted run in place: the same run, node and frozen packet,
+attempt plus one. It adopts completed work first, then re-dispatches ordinary
+failures; it never re-authors.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--detach` | none | Spawn the resumed controller detached and wait for its bootstrap record. | off |
+| `--node` | node id | Limit the retry to that node and its dependents. | every eligible node |
+| `--reconcile` | node id | Re-dispatch a node blocked with `unknown_effect_reconciled`; refuses without it. | none |
+| `--answer` | `<node-id>=<path>` | Record an operator answer for a node blocked on context, then re-dispatch it and its dependents. The file is refused above 8 KiB. | none |
+Reads and writes `.runs/<run-id>/` (node snapshots, integration ledger,
+operations, logs) and the attempt worktrees. `--answer` is text only and is
+never written into a worktree.
+```bash
+node src/cli.mjs resume --detach .runs/feature-42
+node src/cli.mjs resume .runs/feature-42 --answer spec-missing=/tmp/answer.md
+```
+Related: `faberun supervise`, `faberun status`, `faberun findings`.
+
+## faberun cancel
+```text
+faberun cancel <run-dir>
+```
+Stop a run that is still going: signal its controller, take over the now-stale
+lock, terminate every recorded invocation, and mark the run terminal. It refuses
+a lock held by its own process.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| — | — | No flags. | — |
+Reads and writes `.runs/<run-id>/` (lock, node snapshots, `cancel.request.json`,
+`status.json`).
+```bash
+node src/cli.mjs cancel /repo/.runs/feature-42
+```
+Related: `faberun status`, `faberun resume`, `faberun supervise`.
+
+## faberun supervise
+```text
+faberun supervise <run-dir> [--detach] [--interval <sec>]
+```
+The watchdog above a run: it holds no lock and writes no state. Every interval
+it launches `resume --detach` while a node is unfinished and no controller is
+live, exits `0` once every node is terminal, and stops after three failed
+launches.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--detach` | none | Spawn the watchdog detached and print its pid. | off |
+| `--interval` | positive seconds | Seconds between checks. | `30` |
+Reads the run's controller lock and node snapshots and starts detached resume
+children; writes nothing itself.
+```bash
+node src/cli.mjs supervise --detach /repo/.runs/feature-42 --interval 30
+```
+Related: `faberun resume`, `faberun status`, `faberun supervise campaign`.
+### faberun supervise campaign
+```text
+faberun supervise campaign <campaign-id> [--cwd <dir>] [--allow-main]
+```
+Drive a campaign chain: take the campaign's coordinator lock, write its
+heartbeat, and launch each registered contract's run from the same controller
+snapshot. It is the top-level spelling of `faberun campaign supervise`, and a
+second invocation against a fresh heartbeat writes nothing and exits `0`.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--allow-main` | none | Authorize promoting a run whose campaign `landBranch` is `main`. | off |
+Reads `.runs/campaigns/<id>/` and each linked run directory; writes the
+coordinator lock and heartbeat, and starts detached `run` children.
+```bash
+node src/cli.mjs supervise campaign feature-42 --cwd /repo
+```
+Related: `faberun campaign supervise`, `faberun next`, `faberun campaign unpark`.
+
+## faberun status
+```text
+faberun status <run-dir> [--json]
+```
+Render a run as Needs you, Now, Nodes and Cost, and rewrite the run's
+`STATUS.md`; also refresh the campaign `HANDOFF.md` when the contract names a
+campaign. `--json` prints the stable `schemaVersion: 1` payload instead and
+writes nothing.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--json` | none | Print the machine-readable status payload. | off |
+Reads `.runs/<run-id>/` and, for the handoff, `.runs/campaigns/<id>/`; writes
+`STATUS.md` and the campaign `HANDOFF.md`.
+```bash
+node src/cli.mjs status --json /repo/.runs/feature-42
+```
+Related: `faberun report`, `faberun findings`, `faberun next`.
+
+## faberun report
+```text
+faberun report <run-dir> [--json]
+```
+Report a run's attempts, tokens and cost, from the run's recorded evidence.
+`--json` emits the stable payload.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--json` | none | Emit the report as one JSON object. | off |
+Reads `.runs/<run-id>/` (`run.json`, node snapshots, `usage.jsonl`); writes
+nothing.
+```bash
+node src/cli.mjs report /repo/.runs/feature-42
+```
+Related: `faberun status`, `faberun metrics`, `faberun findings`.
+
+## faberun findings
+```text
+faberun findings <run-dir>
+```
+Print what a stopped node needs: gate findings for an exhausted node and the
+blocking questions of nodes that returned `blocked_context`. Prints `no findings
+or blocking questions to act on` when there is nothing.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| — | — | No flags. | — |
+Reads `.runs/<run-id>/` node snapshots; writes nothing.
+```bash
+node src/cli.mjs findings /repo/.runs/feature-42
+```
+Related: `faberun status`, `faberun resume`, `faberun next`.
+
+## faberun doctor
+```text
+faberun doctor [<contract.json>] [--cwd <dir>] [--discover] [--json]
+```
+Check the machine for running a contract: git work tree, `.runs/` ignored,
+`node`/`npm` on `PATH`, the runner schema, and — with a contract — every routed
+harness and the host checks. `--discover` adds mutation-free runtime discovery.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--cwd` | directory | Repository to check. | current directory |
+| `--discover` | none | Probe each runtime and report availability and exhaustion. | off |
+| `--json` | none | Emit one machine-readable report. | off |
+Reads the repository and, with a contract, `<contract.json>` and the routed
+runtimes; writes nothing. Exits `1` when a check fails.
+```bash
+node src/cli.mjs doctor --cwd /repo --discover
+```
+Related: `faberun preflight`, `faberun setup`, `faberun models`.
+
+## faberun setup
+```text
+faberun setup [--yes] [--harnesses <a,b>] [--worker <id>] [--judge <id>] [--json]
+```
+Onboard a fresh machine: check the two host prerequisites, discover the
+catalogue runtimes, choose which harnesses to enable and which runtime is the
+default worker and judge (the judge must resolve to a different vendor), and
+write the user config. `--json` never prompts and takes the flags or defaults.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--yes` | none | Skip the questions and take the flags or defaults. | off |
+| `--harnesses` | comma-separated ids | Enable these harnesses. | every available harness |
+| `--worker` | runtime id | Default worker runtime. | cheapest available candidate |
+| `--judge` | runtime id | Default judge runtime; must differ in vendor from the worker. | strongest cross-vendor candidate |
+| `--json` | none | Emit the report as one object; never prompts. | off |
+Reads the host and writes `$FABERUN_HOME/config.json`.
+```bash
+node src/cli.mjs setup --yes --harnesses claude,codex --worker codex-gpt --judge claude-sonnet
+```
+Related: `faberun init`, `faberun doctor`, `faberun models`.
+
+## faberun init
+```text
+faberun init [--cwd <dir>] [--yes] [--no-skill] [--agentkit] [--greenfield|--stable] [--json]
+```
+Prepare a target repository for campaigns: confirm it is a git work tree, ensure
+`.runs/` is ignored, install the `faberun` skill into `.claude/skills/`, and
+optionally run the shipped agent-kit installer. The compatibility rule is asked
+or given, never defaulted silently.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--cwd` | directory | Repository to prepare. | current directory |
+| `--yes` | none | Skip the questions. | off |
+| `--no-skill` | none | Do not install the `faberun` skill. | skill installed |
+| `--agentkit` | none | Install the agent kit without asking. | off |
+| `--greenfield` | none | Agent-kit compatibility rule: break freely. | asked |
+| `--stable` | none | Agent-kit compatibility rule: preserve published contracts. | asked |
+| `--json` | none | Emit one machine-readable report; never prompts. | off |
+`--greenfield` and `--stable` are alternatives; asking for both is a usage
+error. Reads the repository and writes `.gitignore`, `.claude/skills/faberun/`
+and, with the agent kit, the files its installer creates.
+```bash
+node src/cli.mjs init --cwd /repo --yes --agentkit --stable
+```
+Related: `faberun setup`, `faberun doctor`, `faberun skills install`.
+
+## faberun update
+```text
+faberun update [--check] [--json]
+```
+Fetch the latest GitHub release and install it into the versioned home layout,
+verifying the new version's `--version` before moving `current`. `--check` only
+reports and refreshes the cache; both cache the result for the banner.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--check` | none | Report the latest release; do not install. | off |
+| `--json` | none | Emit one machine-readable object. | off |
+The only command that reaches the network. Reads and writes `$FABERUN_HOME`
+(`versions/`, `current`, `update-check.json`, `tmp/`). Exits `1` when not
+installed under the home, when the lookup fails, or when the new version fails
+to run.
+```bash
+node src/cli.mjs update --check
+faberun 0.3.0 · latest 0.3.1
+update available · run faberun update
+```
+Related: `faberun --version`, `faberun doctor`.
+
+## faberun models
+```text
+faberun models [--probe] [--json]
+```
+Report which models each registered harness can run, the effort levels each
+accepts, and the worker/judge allocation the discovery law implies. `--probe`
+adds per-runtime executable reachability; the report itself spends no tokens.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--probe` | none | Probe each runtime and include its reachability. | off |
+| `--json` | none | Emit the stable JSON report. | off |
+Reads the harness registry and the `agy` CLI catalogue when present; writes
+nothing.
+```bash
+node src/cli.mjs models --probe
+```
+Related: `faberun doctor`, `faberun setup`, `faberun preflight`.
+
+## faberun next
+```text
+faberun next [--cwd <dir>] [--json]
+```
+Print one line per active campaign naming the single most urgent action and,
+when derivable from state, the exact command to run. It is read-only: no lock,
+no writes, and the resume/findings/close actions are rendered as commands for
+the operator. Prints `nothing needs anyone` when no campaign needs action.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--json` | none | Emit the items as one JSON object. | off |
+Reads `.runs/campaigns/` and each linked run's controller lock and node
+snapshots; writes nothing.
+```bash
+node src/cli.mjs next --cwd /repo
+```
+Related: `faberun status`, `faberun campaign list`, `faberun campaign show`.
+
+## faberun bulk-read
+```text
+faberun bulk-read --question <text> --paths <a,b,c> [--json]
+```
+Ask one question about many files without the corpus entering the asking
+context: the exact bytes are packed into one temp file, a delegated runtime
+reads it, and only the bullets come back. It refuses a corpus below the
+delegation floor or one no declared context window holds.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--question` | text | The question the delegated runtime answers. Required. | — |
+| `--paths` | comma-separated paths, repeatable | Files to pack. Required; at least one readable file. | — |
+| `--json` | none | Emit the result as one JSON object. | off |
+Reads the named files and the runtime catalogue; writes a temp pack under the
+system temp directory (removed on exit) and, inside a controller invocation,
+appends to the owning run's `.runs/<run-id>/usage.jsonl`. Exits `1` on refusal
+or failure.
+```bash
+node src/cli.mjs bulk-read --question "Which symbols call runContract?" --paths src/engine/scheduler.mjs
+```
+Related: `faberun models`, `faberun run`.
+
+## faberun contract
+```text
+faberun contract <operation> <contract.json>
+```
+Contract operations the CLI carries. Today the only one is `validate`, the same
+check as the top-level `faberun validate`.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| — | — | This verb has no flags of its own; each operation declares its own. | — |
+Reads the named contract; writes nothing.
+```bash
+node src/cli.mjs contract validate contracts/feature-42.json
+```
+Related: `faberun validate`, `faberun preflight`.
+### faberun contract validate
+```text
+faberun contract validate <contract.json>
+```
+Validate an authored contract and print the report; a contract beside a
+`run.json` is treated as a persisted run copy and must match the digest recorded
+at launch.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| — | — | No flags. | — |
+Reads `<contract.json>` and, for a persisted contract, its sibling `run.json`;
+writes nothing.
+```bash
+node src/cli.mjs contract validate contracts/feature-42.json
+valid
+```
+Related: `faberun validate`, `faberun contract`.
+
+## faberun metrics
+```text
+faberun metrics <campaign-id> [--cwd <dir>] [--json]
+```
+Report a campaign's effectiveness and efficiency together, from what its runs
+recorded: node outcomes, events, usage and notifications.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--json` | none | Emit the indicators as one JSON object. | off |
+Reads `.runs/campaigns/<id>/` and each linked run's events, usage and notify
+logs; writes nothing.
+```bash
+node src/cli.mjs metrics feature-42 --cwd /repo
+```
+Related: `faberun report`, `faberun campaign show`, `faberun next`.
+
+## faberun campaign
+```text
+faberun campaign <operation> [<campaign-id>] [--cwd <dir>] ...
+```
+The durable layer above runs: one campaign links one or more contract runs,
+records the narrative in an append-only journal, and projects a bounded
+`HANDOFF.md`. Every operation takes `--cwd` unless noted, and flags are scoped
+per operation.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Reads and writes `.runs/campaigns/<id>/` (`campaign.json`, `journal.jsonl`,
+`HANDOFF.md`) and mirrors active state into the target `AGENTS.md`.
+```bash
+node src/cli.mjs campaign init feature-42 --cwd /repo --goal "Deliver feature 42"
+```
+Related: `faberun next`, `faberun supervise campaign`, `faberun metrics`.
+### faberun campaign list
+```text
+faberun campaign list [--cwd <dir>]
+```
+List every campaign under `.runs/campaigns/`, one line each, with status, linked
+run count, updated time and path; a corrupt campaign is listed as `corrupt`.
+Takes no campaign id. Prints `[campaign] none` when there are none.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Reads `.runs/campaigns/`; writes nothing.
+```bash
+node src/cli.mjs campaign list --cwd /repo
+```
+Related: `faberun campaign show`, `faberun next`.
+### faberun campaign init
+```text
+faberun campaign init <campaign-id> --goal <text> [--contract <path>...] [--land-branch <ref>] [--cwd <dir>]
+```
+Create a campaign with its goal and an optional ordered contract manifest. Each
+`--contract` path is digested as authored; the contract is not validated here,
+only at launch.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--goal` | text | The campaign goal. Required. | — |
+| `--contract` | path, repeatable | Register a contract and record its digest, in order. | none |
+| `--land-branch` | git ref | Branch each successful run is promoted onto. | `campaign/<campaign-id>` |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Writes `.runs/campaigns/<id>/campaign.json`, `journal.jsonl` and `HANDOFF.md`;
+updates the managed signal block in `AGENTS.md`.
+```bash
+node src/cli.mjs campaign init feature-42 --cwd /repo --goal "Deliver feature 42" \
+  --contract /repo/.runs/contracts/phase-1.json
+```
+Related: `faberun campaign attach`, `faberun supervise campaign`.
+### faberun campaign watch
+```text
+faberun campaign watch <campaign-id> --wake [--detach] [--interval <sec>] [--once] [--cwd <dir>]
+```
+Poll every linked run's `status.json` and print one line per actionable change:
+a terminal run, an attention node, a non-terminal run with no live controller,
+or twenty idle minutes. Replaces the harness-side poller; exits once the
+campaign is closed.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--wake` | none | Required; the watcher only runs with it. | off |
+| `--detach` | none | Spawn the loop detached and print its pid. | off |
+| `--interval` | positive seconds | Seconds between polls. | `30` |
+| `--once` | none | Run one poll and return. | off |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Reads each linked run's `.runs/<run-id>/status.json` and lock. Writes each
+announced line to `.runs/inbox.jsonl` and the campaign's `notify.jsonl`, and
+holds `.runs/campaigns/<id>/watch.lock` while running.
+```bash
+node src/cli.mjs campaign watch feature-42 --wake --detach --cwd /repo
+```
+Related: `faberun campaign sync`, `faberun campaign ack`, `faberun next`.
+### faberun campaign attach
+```text
+faberun campaign attach <campaign-id> --tool <name> --session-id <id> (--transcript <path> | --no-transcript)
+  [--format <fmt>] [--cursor <cursor>] [--event-id <id>] [--cwd <dir>]
+```
+Record that an operator session is attached to a campaign. A transcript path or
+`--no-transcript` is required so the record always says whether the transcript
+is available.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--tool` | name | The harness or tool the session uses. Required. | — |
+| `--session-id` | id | Letters, digits, dots, underscores or dashes. Required. | — |
+| `--transcript` | absolute path | Transcript location; required unless `--no-transcript`. | — |
+| `--no-transcript` | none | Record the session with no transcript. | off |
+| `--format` | format | Transcript format, recorded with the attach. | none |
+| `--cursor` | cursor | Starting cursor for the session. | none |
+| `--event-id` | id | Event id for the journal entry. | a random UUID |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Appends a `session.attached` event and rewrites `.runs/campaigns/<id>/journal.jsonl`
+and `HANDOFF.md`.
+```bash
+node src/cli.mjs campaign attach feature-42 --cwd /repo --tool codex \
+  --session-id 1f3c --no-transcript
+```
+Related: `faberun campaign sync`, `faberun campaign ack`, `faberun seat start`.
+### faberun campaign note
+```text
+faberun campaign note <campaign-id> --session-id <id> --kind <kind> --text <text> [<kind flags>] [--event-id <id>] [--cwd <dir>]
+```
+Append a narrative note to the campaign journal and refresh the handoff. The
+kinds are `intent`, `decision`, `supersede`, `constraint`, `outcome`, `next`,
+`open-question` and `retrospective`. A retrospective note is required before
+`campaign close` will work.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--session-id` | id | Authoring session. Required. | — |
+| `--kind` | kind | One of the eight note kinds. Required. | — |
+| `--text` | text or `-` | Note body; `-` reads it from stdin. Required. | — |
+| `--decision-id` | id | Required for `--kind decision`. | — |
+| `--supersedes` | id | Required for `--kind supersede`. | — |
+| `--question-id` | id | Required for `--kind open-question`. | — |
+| `--run-id` | run id | Optional for `--kind outcome`. | none |
+| `--event-id` | id | Event id for the entry. | a random UUID |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+A kind flag used with any other kind is rejected. Writes `.runs/campaigns/<id>/journal.jsonl`
+and `HANDOFF.md`.
+```bash
+node src/cli.mjs campaign note feature-42 --cwd /repo --session-id 1f3c \
+  --kind decision --decision-id use-worktrees --text "One attempt per worktree."
+```
+Related: `faberun campaign resolve`, `faberun campaign close`, `faberun campaign show`.
+### faberun campaign resolve
+```text
+faberun campaign resolve <campaign-id> --session-id <id> --question-id <id> --text <text> [--event-id <id>] [--cwd <dir>]
+```
+Record the answer to a campaign question as a `question.resolved` journal event
+and refresh the handoff.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--session-id` | id | Authoring session. Required. | — |
+| `--question-id` | id | The question being answered. Required. | — |
+| `--text` | text or `-` | Answer body; `-` reads it from stdin. Required. | — |
+| `--event-id` | id | Event id for the entry. | a random UUID |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Writes `.runs/campaigns/<id>/journal.jsonl` and `HANDOFF.md`.
+```bash
+node src/cli.mjs campaign resolve feature-42 --cwd /repo --session-id 1f3c \
+  --question-id schema-freeze --text "Freeze at 0.3.0."
+```
+Related: `faberun campaign note`, `faberun campaign show`.
+### faberun campaign close
+```text
+faberun campaign close <campaign-id> [--event-id <id>] [--cwd <dir>]
+```
+Close a campaign. It refuses until a `retrospective` note exists; a closed
+campaign stays inspectable but rejects further writes.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--event-id` | id | Event id for the close entry. | a random UUID |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Writes `.runs/campaigns/<id>/campaign.json`, `journal.jsonl` and `HANDOFF.md`;
+updates the managed signal block in `AGENTS.md`.
+```bash
+node src/cli.mjs campaign close feature-42 --cwd /repo
+```
+Related: `faberun campaign note`, `faberun campaign list`.
+### faberun campaign supervise
+```text
+faberun campaign supervise <campaign-id> [--allow-main] [--cwd <dir>]
+```
+Drive the campaign chain: take the coordinator lock, write the heartbeat, and
+launch each contract's run from the same controller snapshot. A second
+invocation against a fresh heartbeat writes nothing and exits `0`. This is the
+same operation as `faberun supervise campaign`.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--allow-main` | none | Authorize promoting a run whose campaign `landBranch` is `main`. | off |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Reads `.runs/campaigns/<id>/` and each linked run; writes the coordinator lock
+and heartbeat and starts detached `run` children.
+```bash
+node src/cli.mjs campaign supervise feature-42 --cwd /repo
+```
+Related: `faberun supervise campaign`, `faberun campaign unpark`.
+### faberun campaign unpark
+```text
+faberun campaign unpark <campaign-id> [--force] [--event-id <id>] [--cwd <dir>]
+```
+Clear a parked campaign's `attention` once the run it points at is no longer
+parked, appending a `campaign.unparked` journal event so the chain can be driven
+again.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--force` | none | Clear the attention even if the referenced run is still parked. | off |
+| `--event-id` | id | Event id for the unpark entry. | a random UUID |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Writes `.runs/campaigns/<id>/campaign.json` and `journal.jsonl`.
+```bash
+node src/cli.mjs campaign unpark feature-42 --cwd /repo
+```
+Related: `faberun campaign supervise`, `faberun next`.
+### faberun campaign show
+```text
+faberun campaign show <campaign-id> [--cwd <dir>]
+```
+Print the campaign's `HANDOFF.md` projection: recent intents, decisions,
+constraints, outcomes, next action and open questions.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Reads and refreshes `.runs/campaigns/<id>/HANDOFF.md`; writes nothing.
+```bash
+node src/cli.mjs campaign show feature-42 --cwd /repo
+```
+Related: `faberun campaign list`, `faberun next`.
+### faberun campaign sync
+```text
+faberun campaign sync <campaign-id> --session-id <id> [--cwd <dir>]
+```
+User-pull read: print the campaign status header, the newest linked run's
+summary, and the unseen journal events after the session cursor. The output is
+capped near 8000 bytes; `sync` never moves the cursor. A session with no attach
+for today is attached once daily.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--session-id` | id | Session whose cursor filters the events. Required. | — |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Reads `.runs/campaigns/<id>/journal.jsonl` and the linked runs' `status.json`;
+the once-daily attach writes a `session.attached` event and `HANDOFF.md`.
+```bash
+node src/cli.mjs campaign sync feature-42 --cwd /repo --session-id 1f3c
+```
+Related: `faberun campaign ack`, `faberun campaign watch`.
+### faberun campaign ack
+```text
+faberun campaign ack <campaign-id> --session-id <id> --event-id <id> [--cwd <dir>]
+```
+Advance a session cursor to a given journal event. This is the only cursor
+writer.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--session-id` | id | Session whose cursor moves. Required. | — |
+| `--event-id` | id | Journal event to acknowledge up to. Required. | — |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Writes the session cursor under `.runs/campaigns/<id>/`.
+```bash
+node src/cli.mjs campaign ack feature-42 --cwd /repo --session-id 1f3c --event-id 7c21
+```
+Related: `faberun campaign sync`, `faberun campaign watch`.
+
+## faberun seat
+```text
+faberun seat <operation> [<campaign-id>] [--cwd <dir>] ...
+```
+The operator's interactive seat: one tmux session, `faberun-seat`, with one
+window per open campaign. The seat hosts a human harness and never drives a run,
+so swapping a pane cannot touch the controller. tmux is optional; each function
+returns an explicit unavailable result when it is absent.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Reads `.runs/campaigns/<id>/`; `switch` writes the operator brief under the
+campaign directory. No run lock, status or node snapshot is opened for writing.
+```bash
+node src/cli.mjs seat start feature-42 --cwd /repo --harness claude
+```
+Related: `faberun campaign attach`, `faberun status`.
+### faberun seat start
+```text
+faberun seat start <campaign-id> [--harness <name>] [--cwd <dir>]
+```
+Create a tmux window for a campaign and launch the operator harness in it. With
+no `--harness`, the harness is detected from the environment.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--harness` | harness id | `claude`, `codex`, `zcode`, `dsh` or `agy`. | detected |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Creates the tmux window; writes nothing under `.runs/`.
+```bash
+node src/cli.mjs seat start feature-42 --cwd /repo --harness claude
+```
+Related: `faberun seat attach`, `faberun seat status`.
+### faberun seat attach
+```text
+faberun seat attach [<campaign-id>] [--ssh <host>] [--cwd <dir>]
+```
+Print the command that attaches to the seat, rather than running `tmux attach`
+(which would nest sessions). `--ssh` prints the remote `ssh -t` form.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--ssh` | host | Print the remote ssh-tmux attach line. | local attach line |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Reads nothing durable; prints a command. Exits `1` when tmux is unavailable.
+```bash
+node src/cli.mjs seat attach --ssh devbox
+```
+Related: `faberun seat start`, `faberun seat status`.
+### faberun seat status
+```text
+faberun seat status [--json] [--cwd <dir>]
+```
+List each seat window's campaign, harness and ambient capability. Takes no
+campaign id; `--json` emits the stable payload.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--json` | none | Emit the seat list as one JSON object. | off |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Reads the tmux session; writes nothing. Prints that tmux is unavailable when it
+is.
+```bash
+node src/cli.mjs seat status --json
+```
+Related: `faberun seat start`, `faberun seat stop`.
+### faberun seat stop
+```text
+faberun seat stop [<campaign-id>] [--cwd <dir>]
+```
+Stop one campaign's seat window, or the whole seat session when no campaign id
+is given.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Stops the tmux window or session; writes nothing under `.runs/`.
+```bash
+node src/cli.mjs seat stop feature-42
+```
+Related: `faberun seat status`, `faberun seat start`.
+### faberun seat switch
+```text
+faberun seat switch <campaign-id> --harness <name> [--cwd <dir>]
+```
+Swap the harness in a campaign's seat window. It materializes the operator brief
+from the campaign's durable facts, respawns the window on the new harness with
+that brief as its opening instruction, and touches no run state.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--harness` | harness id | The new operator harness. Required. | — |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Reads and writes `.runs/campaigns/<id>/` (the operator brief); never opens a
+run lock, status or node snapshot for writing.
+```bash
+node src/cli.mjs seat switch feature-42 --harness codex --cwd /repo
+```
+Related: `faberun seat status`, `faberun seat start`.
+
+## faberun skills
+```text
+faberun skills <operation> [<name>...] [--target <dir>] [--global] [--force]
+```
+Manage the skills catalogue shipped with `faberun`. `list` prints the catalogue;
+`install` copies one or more into a `.claude/skills/` directory.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--target` | directory | Repository whose `.claude/skills/` receives the install. | current directory |
+| `--global` | none | Install into `~/.claude/skills/` instead of the target. | off |
+| `--force` | none | Replace a skill that already exists. | off |
+Reads the shipped `skills/` catalogue; writes into the chosen `.claude/skills/`.
+```bash
+node src/cli.mjs skills install faberun --target /repo
+```
+Related: `faberun init`, `faberun setup`.
+### faberun skills list
+```text
+faberun skills list
+```
+Print the name of every catalogue skill, one per line.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| — | — | No flags; `list` rejects `--force` and the install flags. | — |
+Reads `skills/`; writes nothing.
+```bash
+node src/cli.mjs skills list
+```
+Related: `faberun skills install`, `faberun init`.
+### faberun skills install
+```text
+faberun skills install [<name>...] [--target <dir>] [--global] [--force]
+```
+Copy the named skills, or the whole catalogue when no name is given, into
+`.claude/skills/`. An existing skill is skipped unless `--force`.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--target` | directory | Repository whose `.claude/skills/` receives the install. | current directory |
+| `--global` | none | Install into `~/.claude/skills/` instead of the target. | off |
+| `--force` | none | Replace a skill that already exists. | off |
+Reads `skills/`; writes the selected skill folders and prints
+`installed <name> · <dir>`, `skipped <name> · exists, use --force`, then
+`<n> installed · <n> skipped`.
+```bash
+node src/cli.mjs skills install faberun --target /repo
+installed faberun · /repo/.claude/skills
+1 installed · 0 skipped
+```
+Related: `faberun skills list`, `faberun init`.
+
+## Dashboard
+```text
+node src/web/server.mjs [--port <n>] [--cwd <repo>] [--host <addr>] [--token-file <path>]
+```
+Serve the read-only dashboard over `.runs/`: the campaign picker, Now, Needs
+you, Runs, the run drawer with per-node log, verification, diff, findings and
+prompt tabs, and the handoff. The page polls `/api/snapshot` and refreshes on
+the SSE `/api/stream`; every request needs the bearer token in the
+`Authorization` header, and a public or wildcard bind is refused before a socket
+opens.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--port` | port number | Port to listen on. | `4173` |
+| `--cwd` | directory | Repository whose `.runs/` is read. | current directory |
+| `--host` | address | Private address to bind. | `127.0.0.1` |
+| `--token-file` | path | File holding the single space-free bearer token line. | `<runs-dir>/dashboard.token` |
+Reads `.runs/` (`status.json`, node JSON, `events.jsonl`, `usage.jsonl`,
+`notify.jsonl`, `HANDOFF.md`); writes nothing. The token file must exist and
+hold one non-empty, space-free line.
+```bash
+node src/web/server.mjs --cwd /repo --port 4173
+faberun dashboard on http://127.0.0.1:4173 (runs: /repo/.runs)
+```
+
+## Claude Code statusline
+`integrations/claude-code/statusline.sh` renders one ambient line for the Claude
+Code prompt from the repo's `.runs/status.json` pointer — a file the controller
+rewrites every tick and caps at 1 KiB. It reads the session JSON on stdin for
+the working directory (and the five-hour allowance), uses `jq` when present and
+`sed`/`grep` otherwise, and prints an empty line, exit `0`, when there is no
+pointer or the file is unreadable or oversize.
+```
+<run-id> · <state> · <node> <elapsed> · $<usd> · needs you: <n>
+```
+At 85% of the five-hour allowance or above it appends
+```
+[warn] claude 5h <pct>% >=85% · faberun seat switch --harness <id>
+```
+Wire it as the `statusLine` command in Claude Code's settings; it never starts a
+node process and never touches a clock beyond formatting the values the
+controller precomputed.
