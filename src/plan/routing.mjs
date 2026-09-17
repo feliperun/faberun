@@ -8,6 +8,8 @@
  * a taskKind/riskTier classification into one of those three.
  */
 
+import { cheapest, strongest } from "../engine/runtime-discovery.mjs";
+
 /** @typedef {{available: boolean, exhaustedUntil: string|null, [key: string]: unknown}} RoutingAvailability */
 /** @typedef {{vendor: string, tier?: number|string, costRank?: number, fallback?: string, [key: string]: unknown}} RoutingRuntime */
 /** @typedef {{id: string, taskKind?: string, riskTier?: string}} RoutingNode */
@@ -154,16 +156,6 @@ function ruleLabel(row) {
   return `table:${row.role}:${row.when.taskKind ?? "*"}:${row.when.riskTier ?? "*"}`;
 }
 
-/** @param {RoutingRuntime} runtime @returns {number} */
-function tierOrder(runtime) {
-  return typeof runtime.tier === "number" ? runtime.tier : runtime.costRank ?? Number.MAX_SAFE_INTEGER;
-}
-
-/** @param {RoutingRuntime} runtime @returns {number} */
-function costOrder(runtime) {
-  return runtime.costRank ?? Number.MAX_SAFE_INTEGER;
-}
-
 /**
  * @param {Record<string, RoutingRuntime>} runtimes
  * @param {Record<string, RoutingAvailability>} availability
@@ -177,9 +169,10 @@ function candidateEntries(runtimes, availability, forbiddenVendors) {
 }
 
 /**
- * The plain discovery default for a worker: lowest tier, then lowest cost
- * rank, then declaration order — mirroring the same law
- * runtime-discovery.mjs's `cheapest` applies to a contract's candidates.
+ * The plain discovery default for a worker: `runtime-discovery.mjs`'s own
+ * cheapest-first ranking, over candidates already filtered to what's
+ * available and vendor-permitted here. The ranking lives there, not here, so
+ * a contract's default and a plan's routed default never drift apart.
  *
  * @param {Record<string, RoutingRuntime>} runtimes
  * @param {Record<string, RoutingAvailability>} availability
@@ -187,17 +180,15 @@ function candidateEntries(runtimes, availability, forbiddenVendors) {
  * @returns {string|null}
  */
 function cheapestAvailable(runtimes, availability, forbiddenVendors) {
-  return candidateEntries(runtimes, availability, forbiddenVendors)
-    .sort((left, right) => tierOrder(left.runtime) - tierOrder(right.runtime)
-      || costOrder(left.runtime) - costOrder(right.runtime)
-      || left.order - right.order)
-    .at(0)?.id ?? null;
+  return cheapest(candidateEntries(runtimes, availability, forbiddenVendors))?.id ?? null;
 }
 
 /**
- * The plain discovery default for a judge: highest tier, then highest cost
- * rank, then declaration order, among runtimes already filtered to exclude
- * the worker's vendor and fallback-chain vendors.
+ * The plain discovery default for a judge: `runtime-discovery.mjs`'s own
+ * strongest-first ranking, over candidates already filtered to exclude the
+ * worker's vendor and fallback-chain vendors — `strongest`'s own single-vendor
+ * exclusion is passed the empty string, no runtime's actual vendor label, so
+ * it is a no-op on top of the filtering already done here.
  *
  * @param {Record<string, RoutingRuntime>} runtimes
  * @param {Record<string, RoutingAvailability>} availability
@@ -205,9 +196,5 @@ function cheapestAvailable(runtimes, availability, forbiddenVendors) {
  * @returns {string|null}
  */
 function strongestAvailable(runtimes, availability, forbiddenVendors) {
-  return candidateEntries(runtimes, availability, forbiddenVendors)
-    .sort((left, right) => tierOrder(right.runtime) - tierOrder(left.runtime)
-      || costOrder(right.runtime) - costOrder(left.runtime)
-      || left.order - right.order)
-    .at(0)?.id ?? null;
+  return strongest(candidateEntries(runtimes, availability, forbiddenVendors), "")?.id ?? null;
 }
