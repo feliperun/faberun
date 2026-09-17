@@ -210,6 +210,8 @@ Before starting new work here, check `.runs/`: if a campaign is active or a run 
 
 - faberun campaign `state-location-and-routing-economics`: active — read `.runs/campaigns/state-location-and-routing-economics/HANDOFF.md`
   - run `state-location-and-routing-economics-plan-r1-run-path-resolver-draft-1`: parked — `draft:blocked protocol_failure` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/state-location-and-routing-economics-plan-r1-run-path-resolver-draft-1`
+  - run `state-location-and-routing-economics-0-protocol-and-transport-isolation`: succeeded (3/3 nodes)
+  - run `state-location-and-routing-economics-0b-judge-cannot-write`: parked — `a-judge-that-writes-is-a-protocol-defect:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/state-location-and-routing-economics-0b-judge-cannot-write`
   - attention: run harden-chain-and-verification-2-verification-fairness needs you · verification_failed
 - faberun run `adversarial-planner-1-planning-pipeline`: parked — `discovery-result-output:blocked context_missing`, `planning-contract-template:blocked dependency_failed`, `plan-verb:blocked dependency_failed`, `plan-eval-cases:blocked dependency_failed` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/adversarial-planner-1-planning-pipeline`
 - faberun run `adversarial-planner-1b-discovery-result-output`: parked — `plan-eval-cases:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/adversarial-planner-1b-discovery-result-output`
@@ -217,6 +219,5 @@ Before starting new work here, check `.runs/`: if a campaign is active or a run 
 - faberun run `adversarial-planner-2b-allowance-window`: parked — `allowance-window-pinned:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/adversarial-planner-2b-allowance-window`
 - faberun run `become-faberun-2b-install-and-shape-fix`: parked — `install-script:exhausted revision_cap` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/become-faberun-2b-install-and-shape-fix`
 - faberun run `chain-ergonomics-and-fairness-1-launch-and-refusals`: parked — `base-ref-validation:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/chain-ergonomics-and-fairness-1-launch-and-refusals`
-- faberun run `chain-ergonomics-and-fairness-2-throughput-and-truth`: parked — `dispatch-during-verification:exhausted revision_cap`, `final-verification-once-per-phase:exhausted verification_failed`, `status-tells-the-truth:exhausted revision_cap` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/chain-ergonomics-and-fairness-2-throughput-and-truth`
 - … signal truncated; read the campaign HANDOFF.md for the rest
 <!-- faberun-active:end -->
