@@ -10,6 +10,7 @@ Read [rules](references/rules.md) first.
 
 | Action | Read |
 | --- | --- |
+| Write or validate a spec | [spec-format](references/spec-format.md) |
 | Author a contract (fallback) | [contract](references/contract.md), [engineering](references/engineering.md) |
 | Launch and resume | [workflow](references/workflow.md), [operations](references/operations.md) |
 | Dispatch a node | [handoffs](references/handoffs.md) |

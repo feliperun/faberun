@@ -4,7 +4,11 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SKILL_BYTE_CEILING = 1024;
+// Raised from 1024 on 2026-09-17: SKILL.md gained one router row linking a
+// seventh reference, references/spec-format.md, documenting the spec format
+// the planner campaign needs. The row is the entire increase; nothing else in
+// the router changed. Raising it again needs the same argument.
+const SKILL_BYTE_CEILING = 1100;
 // Raised from 20480 on 2026-09-13 for real capability growth: a readFiles
 // entry may now name a file a transitive dependency declares in writeFiles or
 // under a directory writeRoots, which contract loading defers to graph
@@ -55,6 +59,11 @@ const RULES_BYTE_CEILING = 2048;
 const ENGINEERING_BYTE_CEILING = 2048;
 const WORKFLOW_BYTE_CEILING = 2048;
 const HANDOFFS_BYTE_CEILING = 2048;
+// Set on 2026-09-17 when references/spec-format.md was added: a generous
+// ratchet for a new reference documenting the spec format, sized like the
+// other reserved articles' ceilings rather than the file's exact size, since
+// this one is expected to grow with the format itself across the campaign.
+const SPEC_FORMAT_BYTE_CEILING = 6144;
 
 const skillPath = fileURLToPath(new URL('../../skills/faberun/SKILL.md', import.meta.url));
 const referencesDir = fileURLToPath(new URL('../../skills/faberun/references', import.meta.url));
@@ -102,12 +111,21 @@ test('the four reserved articles stay within their byte ceilings', () => {
   }
 });
 
-test('references/ holds the two foundation documents and the four reserved articles', () => {
+test('references/spec-format.md stays within its byte ceiling', () => {
+  const bytes = statSync(fileURLToPath(new URL('../../skills/faberun/references/spec-format.md', import.meta.url))).size;
+  assert.ok(bytes > 0, 'references/spec-format.md must not be empty');
+  assert.ok(
+    bytes <= SPEC_FORMAT_BYTE_CEILING,
+    `references/spec-format.md is ${bytes} bytes; the ceiling is ${SPEC_FORMAT_BYTE_CEILING} bytes.`,
+  );
+});
+
+test('references/ holds the two foundation documents, the four reserved articles, and spec-format.md', () => {
   const entries = readdirSync(referencesDir).sort();
   assert.deepEqual(
     entries,
-    ['contract.md', 'engineering.md', 'handoffs.md', 'operations.md', 'rules.md', 'workflow.md'],
-    'references/ is contract.md, operations.md, and the four reserved constitution articles',
+    ['contract.md', 'engineering.md', 'handoffs.md', 'operations.md', 'rules.md', 'spec-format.md', 'workflow.md'],
+    'references/ is contract.md, operations.md, spec-format.md, and the four reserved constitution articles',
   );
 });
 
