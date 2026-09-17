@@ -36,7 +36,7 @@ const CHECKOUT_SKILL = join(SKILLS_DIR, "faberun");
 
 /** Flags are scoped to the operation that declares them; all others are rejected. */
 /** @type {Record<string, import("node:util").ParseArgsOptionsConfig>} */
-export const OPERATION_OPTIONS = {
+const OPERATION_OPTIONS = {
   list: {},
   install: {
     target: { type: "string" },
@@ -403,3 +403,5 @@ function usage() {
   process.stderr.write("usage: faberun skills <list|install|register> [<name>...] [--target <dir>] [--global] [--force] [--copy] [--harness <a,b>] [--json]\n");
   process.exitCode = 2;
 }
+
+export default OPERATION_OPTIONS;

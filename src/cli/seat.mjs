@@ -12,7 +12,7 @@ import { attachSeat, seatStatus, startSeat, stopSeat, switchSeat } from "../seat
 
 /** Flags are scoped to the operations that declare them; all other flags are rejected. */
 /** @type {Record<string, import("node:util").ParseArgsOptionsConfig>} */
-export const OPERATION_OPTIONS = {
+const OPERATION_OPTIONS = {
   start: { cwd: { type: "string" }, harness: { type: "string" } },
   attach: { cwd: { type: "string" }, ssh: { type: "string" } },
   status: { cwd: { type: "string" }, json: { type: "boolean" } },
@@ -137,3 +137,5 @@ function usage() {
   process.stderr.write("usage: faberun seat <start|attach|status|stop|switch> [<campaign-id>] [--cwd <dir>] ...\n");
   process.exitCode = 2;
 }
+
+export default OPERATION_OPTIONS;

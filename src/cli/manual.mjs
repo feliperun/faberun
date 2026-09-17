@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Regenerates the derivable parts of docs/COMMANDS.md — verb and operation
  * headings, synopsis lines and flag-table rows — from the option tables the
@@ -11,10 +10,10 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { COMMAND_OPTIONS } from "../cli.mjs";
-import { OPERATION_OPTIONS as CAMPAIGN_OPERATIONS } from "./campaign.mjs";
-import { OPERATION_OPTIONS as SEAT_OPERATIONS } from "./seat.mjs";
-import { OPERATION_OPTIONS as CONTRACT_OPERATIONS } from "./contract.mjs";
-import { OPERATION_OPTIONS as SKILLS_OPERATIONS } from "./skills.mjs";
+import CAMPAIGN_OPERATIONS from "./campaign.mjs";
+import SEAT_OPERATIONS from "./seat.mjs";
+import CONTRACT_OPERATIONS from "./contract.mjs";
+import SKILLS_OPERATIONS from "./skills.mjs";
 
 /** @typedef {{type: "string"|"boolean", multiple?: boolean}} FlagSpec */
 /** @typedef {{flags?: Record<string, FlagSpec>, operations?: Record<string, Record<string, FlagSpec>>}} VerbSurface */

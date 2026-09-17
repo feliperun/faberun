@@ -12,7 +12,7 @@ import { loadPersistedContract, validateContract } from "../contract/index.mjs";
 
 /** Flags are scoped to the operation that declares them; all others are rejected. */
 /** @type {Record<string, import("node:util").ParseArgsOptionsConfig>} */
-export const OPERATION_OPTIONS = {
+const OPERATION_OPTIONS = {
   validate: {},
 };
 
@@ -65,3 +65,5 @@ function usage() {
   process.stderr.write("usage: faberun contract validate <contract.json>\n");
   process.exitCode = 2;
 }
+
+export default OPERATION_OPTIONS;
