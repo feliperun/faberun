@@ -129,7 +129,7 @@ export function validateNodeSnapshot(value, expectedNode = null) {
     "schemaVersion", "contractVersion", "id", "type", "sourceIdentity", "packetHash", "status", "phase",
     "attempt", "revisions", "judgeFailures", "runtime", "blockedBy", "startedAt", "updatedAt", "result", "gate", "error", "usage",
     "costUsd", "routing", "progress", "worktree", "invocations", "executionOverrides", "verification", "scope",
-    "scopeFindings", "review", "previousAttempt", "sessionPolicy", "integratedHead",
+    "scopeFindings", "review", "previousAttempt", "sessionPolicy", "integratedHead", "declaredReadBytes",
   ]), "node snapshot");
   validateMetadata(value, "node snapshot");
   requireId(value.id, "node snapshot.id");
@@ -166,6 +166,12 @@ export function validateNodeSnapshot(value, expectedNode = null) {
   validateSnapshotError(value.error, "node snapshot.error");
   if (value.usage !== undefined) validateUsage(value.usage, "node snapshot.usage");
   if (value.costUsd !== undefined) nonNegativeNumber(value.costUsd, "node snapshot.costUsd");
+  // The summed byte size of the node's declared readFiles in the attempt
+  // worktree at dispatch time -- the one quantity the controller can measure
+  // about a packet's reference load, since the worker reads the files itself.
+  if (value.declaredReadBytes !== undefined && value.declaredReadBytes !== null) {
+    nonNegativeInteger(value.declaredReadBytes, "node snapshot.declaredReadBytes");
+  }
   if (value.routing !== undefined && value.routing !== null) validateRoutingState(value.routing, "node snapshot.routing");
   if (value.progress !== undefined && value.progress !== null) validateProgressState(value.progress, "node snapshot.progress");
   if (value.worktree !== undefined && value.worktree !== null) validateWorktreeState(value.worktree, "node snapshot.worktree");

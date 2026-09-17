@@ -32,7 +32,7 @@ import { emptyScope, persistedScopeBoundary, workerScope } from "./scope.mjs";
 import { hasOperationIntent, hasOperationSettlement, operationNeedsRecovery, operationNextState, persistInvocationIntent, providerReceipts, settleInvocation } from "../run/operations.mjs";
 import { invocationCost, invocationUsage } from "../run/usage.mjs";
 import { logPaths, readBoundedTail, startProcess } from "./process.mjs";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, statSync } from "node:fs";
 import { READ_LINE_LIMIT, normalizeProviderResult, providerCommand } from "../harnesses/index.mjs";
 import { readJson, writeJsonAtomic } from "../run/store.mjs";
 import { judgeReaskInstruction, reviewMode } from "../contract/review-modes.mjs";
@@ -268,6 +268,30 @@ function phaseHandoffPrompt(contract, node, state, runDir, role) {
   return boundedUtf8(handoff, 60 * 1024);
 }
 /**
+ * The declared weight of a node's readFiles at dispatch time: the sum of the
+ * byte sizes of the files that exist in the attempt workspace. This is the
+ * one quantity the controller can measure about a packet's reference load --
+ * the worker prompt lists readFiles and the worker reads them itself, so what
+ * it actually reads is the harness's business. A missing file counts 0 rather
+ * than throwing: a declared path can be produced by a dependency that has not
+ * run yet or removed by the tree since the packet was authored.
+ *
+ * @param {string[]} readFiles
+ * @param {string} workspace
+ * @returns {number}
+ */
+export function declaredReadBytes(readFiles, workspace) {
+  let total = 0;
+  for (const path of readFiles) {
+    try {
+      total += statSync(join(workspace, path)).size;
+    } catch {
+      // Missing or unreadable file: contributes no weight.
+    }
+  }
+  return total;
+}
+/**
  * The mechanical worker tool policy for the provider boundary: hook settings
  * on Claude-compatible commands. Only an adapter whose surface can prove
  * enforcement (`capabilities.toolPolicy`) receives it; prompt text is not
@@ -431,6 +455,7 @@ export function startWorker(contract, node, state, runDir, running, prompt, lock
   writeJsonAtomic(snapshotPath, baseline);
   state.phase = "worker";
   state.runtime = runtime;
+  state.declaredReadBytes = declaredReadBytes(node.taskPacket.readFiles ?? [], workspace);
   // A new worker attempt has no accepted result yet. The canonical result
   // file is cleared when the previous attempt was explicitly rejected (failed
   // gate verdict), when no valid canonical file exists, or when the stale file

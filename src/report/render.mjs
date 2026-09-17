@@ -26,7 +26,7 @@ const POINTER_ATTENTION_CHARS = 80;
 /** @typedef {{costUsd: number|null, costProvenance: CostProvenance, inputTokens: number, outputTokens: number, cacheReadInputTokens: number, pricedInvocations: number, unpricedInvocations: number}} RoleUsage */
 /** @typedef {{inputTokens: number|null, outputTokens: number|null, cacheReadInputTokens: number|null}} StatusPayloadUsage */
 /** @typedef {{index: number, total: number, argv: string}} VerificationProgress */
-/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, verdict: string|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, errorCode: string|null, blockedBy: string[], verificationProgress: VerificationProgress|null}} StatusPayloadNode */
+/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, verdict: string|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, errorCode: string|null, blockedBy: string[], verificationProgress: VerificationProgress|null, declaredReadBytes: number|null}} StatusPayloadNode */
 /** @typedef {{schemaVersion: 1, run: string, contractId: string, campaignId: string, goal: string, usage: {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUsd: number|null}, roles: {worker: RoleUsage, judge: RoleUsage}, controller: JsonObject, identityWarnings: string[], summary: string, nodes: StatusPayloadNode[]}} StatusPayload */
 
 /** The glyph each terminal state prints in a status table. */
@@ -92,7 +92,8 @@ export function renderStatus(runDir) {
       node.note ?? "-",
     ]));
   }
-  lines.push("```", "", "## Cost", "", `in ${compactTokens(usage.inputTokens)} · out ${compactTokens(usage.outputTokens)} · cache ${compactTokens(usage.cacheReadInputTokens)} · worker ${formatRole(payload.roles.worker)} · judge ${formatRole(payload.roles.judge)} · cost ${compactCost(usage.costUsd)}`);
+  const readBytes = payload.nodes.reduce((total, node) => total + (node.declaredReadBytes ?? 0), 0);
+  lines.push("```", "", "## Cost", "", `in ${compactTokens(usage.inputTokens)} · out ${compactTokens(usage.outputTokens)} · cache ${compactTokens(usage.cacheReadInputTokens)} · worker ${formatRole(payload.roles.worker)} · judge ${formatRole(payload.roles.judge)} · cost ${compactCost(usage.costUsd)} · read ${compactTokens(readBytes)}`);
   return `${lines.join("\n")}\n`;
 }
 
@@ -232,6 +233,7 @@ function buildStatusPayload(runDir, contract, nodes, identityWarnings, usage) {
         errorCode: node.error?.code ?? null,
         blockedBy: node.blockedBy ?? [],
         verificationProgress: progress,
+        declaredReadBytes: typeof node.declaredReadBytes === "number" ? node.declaredReadBytes : null,
       };
     }),
   };
@@ -407,13 +409,14 @@ export function renderReportJson(runDir) {
   const { contract, nodes } = loadRun(runDir);
   const counts = new Map();
   for (const node of nodes) counts.set(node.status, (counts.get(node.status) ?? 0) + 1);
-  /** @type {{inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUsd: number|null, costStatus: string, workerCostUsd: number|null, judgeCostUsd: number|null}} */
-  const totals = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, costUsd: null, costStatus: "ambiguous", workerCostUsd: null, judgeCostUsd: null };
+  /** @type {{inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUsd: number|null, costStatus: string, workerCostUsd: number|null, judgeCostUsd: number|null, declaredReadBytes: number}} */
+  const totals = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, costUsd: null, costStatus: "ambiguous", workerCostUsd: null, judgeCostUsd: null, declaredReadBytes: 0 };
   const costs = nodes.map(costProjection);
   const listed = nodes.map((node, index) => {
     const usage = node.usage ?? { inputTokens: null, outputTokens: null, cacheReadInputTokens: null };
     for (const key of /** @type {("inputTokens"|"outputTokens"|"cacheReadInputTokens")[]} */ (["inputTokens", "outputTokens", "cacheReadInputTokens"])) totals[key] = (totals[key] ?? 0) + (usage[key] ?? 0);
     const cost = costs[index];
+    totals.declaredReadBytes += typeof node.declaredReadBytes === "number" ? node.declaredReadBytes : 0;
     return {
       id: node.id,
       status: node.status,
@@ -427,6 +430,7 @@ export function renderReportJson(runDir) {
       costStatus: cost.status,
       continuation: continuationMode(node),
       note: nodeNote(node),
+      declaredReadBytes: typeof node.declaredReadBytes === "number" ? node.declaredReadBytes : null,
     };
   });
   const aggregateCost = aggregateCostProjection(costs);
