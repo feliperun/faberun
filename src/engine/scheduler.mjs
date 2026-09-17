@@ -577,14 +577,37 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
       if (slots > 0) {
         const ready = contract.nodes.filter((node) => {
           const state = states.get(node.id);
-          return state?.status === "pending" && node.dependsOn.every((id) => states.get(id)?.status === "done");
+          return state?.status === "pending" && !pendingSettlements.has(node.id)
+            && node.dependsOn.every((id) => states.get(id)?.status === "done");
         });
         for (const node of ready.slice(0, slots)) {
           const state = states.get(node.id);
           if (!state || routingBackoffActive(state, state.phase)) continue;
+          // A node recovered pending a re-ask judge (its own worker attempt
+          // already accepted, `state.result` durable) reaches `settleDone` /
+          // `integrateAttempt` exactly like a closed job's own settlement
+          // does, on the same per-run candidate ref and worktree
+          // `settlementQueue` exists to serialize -- so it is dispatched the
+          // same way: chained onto the queue rather than awaited here, using
+          // its own one-entry `slot` merged back into `running` in a
+          // `finally`. The node's own order is untouched (still one entry at
+          // a time, gated by `pendingSettlements`); only the tick stops
+          // waiting behind it.
           if (state.phase === "judge" && state.result) {
-            await applyJudgeRound(await startJudge(contract, node, state, runDir, running, state.result, lock, states, campaign.path),
-              contract, node, state, runDir, running, lock, states, campaign.path, state.result);
+            const workerResult = state.result;
+            const slot = new Map();
+            const settlement = settlementQueue
+              .then(() => startJudge(contract, node, state, runDir, slot, workerResult, lock, states, campaign.path))
+              .then((round) => applyJudgeRound(round, contract, node, state, runDir, slot, lock, states, campaign.path, workerResult))
+              .finally(() => {
+                for (const [settledId, settledJob] of slot) running.set(settledId, settledJob);
+                pendingSettlements.delete(node.id);
+              });
+            settlementQueue = settlement.catch(() => {});
+            settlement.catch((error) => {
+              if (!(error instanceof LockLostError) && backgroundSettlementFailure === null) backgroundSettlementFailure = error;
+            });
+            pendingSettlements.set(node.id, settlement);
             continue;
           }
           state.attempt += 1;
@@ -635,6 +658,16 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
     // artifact, the run-terminal notification, releasing the lock) may run
     // ahead of that trailing work.
     await Promise.all([...pendingSettlements.values()]);
+    // A settlement's own `finally` deletes it from `pendingSettlements` the
+    // instant it settles, win or lose -- so a rejection recorded here can
+    // already be gone from the map above by the time this line runs, with
+    // nothing left to await it. The loop's own top-of-tick check
+    // (`if (backgroundSettlementFailure !== null) throw ...`) cannot save
+    // that case either: the loop has already exited. Checked again here,
+    // once, so a background settlement failure can never read as a clean
+    // finish just because it settled on the same tick the run's last node
+    // did.
+    if (backgroundSettlementFailure !== null) throw backgroundSettlementFailure;
   } catch (error) {
     if (!(error instanceof LockLostError)) throw error;
     // A settlement still merges whatever it started into `running` in its own
