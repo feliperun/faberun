@@ -1,0 +1,339 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "env-independence-and-generated-docs",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "claude-sonnet-worker",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic-opus",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "claude-sonnet-worker": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic-sonnet",
+      "permissionMode": "bypassPermissions",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/repo/source-shape.test.mjs",
+        "test/campaign/field-ownership.test.mjs",
+        "test/repo/brand.test.mjs",
+        "test/docs/docs-diet.test.mjs"
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "docs:check"
+      ],
+      "timeoutSec": 120
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "env-independence-and-generated-docs-3-reference-load",
+  "maxParallel": 1,
+  "goal": "Phase 3 (reference-load) of campaign env-independence-and-generated-docs: the set of documents a worker packet may load is declared and guarded, and status and report expose the bytes each node's declared readFiles weigh at dispatch. Spec: docs/campaigns/env-independence-and-generated-docs/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "reference-load-guard",
+      "type": "backend",
+      "phase": "reference-load",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "guard-test",
+          "text": "the reference-load guard passes on the current fixtures and its unit cases",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "one-home",
+          "text": "the worker-loadable set is declared in one exported function and the docs/ refusal has the write-scope exception",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "test/docs/reference-load.test.mjs declares the worker-loadable reference set (skills/faberun/SKILL.md and skills/faberun/references/*.md) and refuses any fixture contract whose packet readFiles points under docs/ unless the same path is in that packet's writeFiles.",
+        "instructions": [
+          "Evidence: skills/faberun/SKILL.md is 1,002 bytes and routes to six references; nothing stops a packet from putting docs/COMMANDS.md (42 KB) in readFiles and undoing the diet in one line. docs/ is operator documentation; a worker reads it only when it edits it.",
+          "Write test/docs/reference-load.test.mjs: (1) `workerReferenceSet()` returns SKILL.md plus every file under skills/faberun/references/, and the test asserts each reference is linked from SKILL.md (the router) and that the directory holds nothing else; (2) walk every contract JSON under evals/fixtures and evals/deterministic (skip evals/golden and docs/campaigns, which are records) and, for each node's taskPacket, assert no readFiles entry starts with docs/ unless writeFiles contains the same path; report file, node and path on failure; (3) a unit test with an inline contract object proving the refusal and the write-scope exception. Introduce `workerReferenceSet` as the declared list's one home."
+        ],
+        "readFiles": [
+          "skills/faberun/SKILL.md",
+          "test/docs/docs-diet.test.mjs",
+          "test/docs/link-check.test.mjs",
+          "evals/case.mjs",
+          "evals/README.md"
+        ],
+        "writeFiles": [
+          "test/docs/reference-load.test.mjs"
+        ],
+        "symbols": [
+          "workerReferenceSet"
+        ],
+        "scopeAcknowledged": [
+          "skills/faberun/SKILL.md",
+          "test/docs/docs-diet.test.mjs",
+          "test/docs/link-check.test.mjs",
+          "evals/case.mjs",
+          "evals/README.md"
+        ],
+        "decisions": [
+          "A node may read a docs/ file it writes; anything else under docs/ is refused.",
+          "Records (evals/golden, docs/campaigns) are never scanned or edited."
+        ],
+        "nonGoals": [
+          "No change to src/ or to any fixture contract unless the guard finds one that violates the rule, in which case report it in the summary and leave it for the orchestrator.",
+          "No edit to skills/faberun/references/*.md, docs/history/**, docs/campaigns/**, evals/golden/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: when a module or test file you must extend is near the ceiling, add a new module or test file instead of growing it.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test bounds a measured duration from above, depends on the wall clock, on a binary in PATH, or on the machine layout: that is the theme of this campaign."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/docs/reference-load.test.mjs",
+              "test/docs/docs-diet.test.mjs"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "declared-read-bytes",
+      "type": "backend",
+      "phase": "reference-load",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "bytes-tests",
+          "text": "declared-read-bytes, report and web server tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "measured-load",
+          "text": "the snapshot value equals the sizes of the declared files at dispatch and both JSON payloads expose it",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "At dispatch the controller sums the byte sizes of a node's declared readFiles in the attempt worktree and records declaredReadBytes on the node snapshot; status --json and report --json expose it per node so reference load is measured by declared weight.",
+        "instructions": [
+          "Evidence: the diet is measured today by file sizes in test/docs/docs-diet.test.mjs; nothing reports what a packet actually declared to load. The worker prompt lists readFiles (src/contract/task-packet.mjs renderWorkerPrompt) and the worker reads them itself, so the declared weight is the one quantity the controller can measure.",
+          "Change 1, src/engine/dispatch.mjs (where the worker prompt is assembled for an attempt; read it first and, if the workspace path is not available there, use the lifecycle call site that has it): introduce `declaredReadBytes(readFiles, workspace)` returning the sum of statSync sizes of the files that exist (missing files count 0, never throw), and store the number on the node snapshot as `declaredReadBytes` through the existing snapshot write at attempt start.",
+          "Change 2, src/report/render.mjs: the status payload's node entries carry declaredReadBytes (number|null); the human table does not gain a column (keep the row width) but the per-node `## Nodes` note or the run's `## Cost` line shows `read <compact bytes>`; src/report/final.mjs's report --json includes it per node and as a run total.",
+          "Tests: a new test/engine/declared-read-bytes.test.mjs that dispatches a node with two known readFiles in a temp workspace and asserts the snapshot value equals their sizes (use the fixtures test/engine/sandbox-notice.test.mjs uses); test/report/cost.test.mjs or a new test/report/read-bytes.test.mjs asserting the JSON payload carries the field. Node snapshot fields are not governed by docs/FIELD-OWNERSHIP.md (events.jsonl and journal.jsonl only); do not add an events.jsonl writer.",
+          "Docs: one sentence in docs/CONCEPTS.md where reference load or the diet is described."
+        ],
+        "readFiles": [
+          "src/engine/dispatch.mjs",
+          "src/engine/lifecycle.mjs",
+          "src/contract/task-packet.mjs",
+          "src/report/render.mjs",
+          "src/report/final.mjs",
+          "test/engine/sandbox-notice.test.mjs",
+          "test/report/cost.test.mjs",
+          "docs/CONCEPTS.md"
+        ],
+        "writeFiles": [
+          "src/engine/dispatch.mjs",
+          "src/report/render.mjs",
+          "src/report/final.mjs",
+          "test/engine/declared-read-bytes.test.mjs",
+          "test/report/read-bytes.test.mjs",
+          "docs/CONCEPTS.md"
+        ],
+        "symbols": [
+          "declaredReadBytes"
+        ],
+        "scopeAcknowledged": [
+          "src/engine/lifecycle.mjs",
+          "src/contract/task-packet.mjs",
+          "test/engine/sandbox-notice.test.mjs",
+          "test/report/cost.test.mjs",
+          "test/web/server.test.mjs",
+          "test/cli/cli.test.mjs"
+        ],
+        "decisions": [
+          "Declared weight at dispatch is the measurement; what the worker actually reads is the harness's business.",
+          "The field lives on the node snapshot and in the JSON payloads, not in events.jsonl."
+        ],
+        "nonGoals": [
+          "No change to lifecycle.mjs (772 lines) unless the workspace path is only available there; if so, the smallest possible edit.",
+          "No dashboard change beyond the shared payload.",
+          "No edit to skills/faberun/references/*.md, docs/history/**, docs/campaigns/**, evals/golden/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: when a module or test file you must extend is near the ceiling, add a new module or test file instead of growing it.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test bounds a measured duration from above, depends on the wall clock, on a binary in PATH, or on the machine layout: that is the theme of this campaign."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/engine/declared-read-bytes.test.mjs",
+              "test/report/",
+              "test/web/server.test.mjs"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    }
+  ]
+}

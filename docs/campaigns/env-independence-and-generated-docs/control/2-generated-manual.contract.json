@@ -1,0 +1,265 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "env-independence-and-generated-docs",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "claude-sonnet-worker",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic-opus",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "claude-sonnet-worker": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic-sonnet",
+      "permissionMode": "bypassPermissions",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/repo/source-shape.test.mjs",
+        "test/campaign/field-ownership.test.mjs",
+        "test/repo/brand.test.mjs",
+        "test/docs/docs-diet.test.mjs"
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "env-independence-and-generated-docs-2-generated-manual",
+  "maxParallel": 1,
+  "goal": "Phase 2 (generated-manual) of campaign env-independence-and-generated-docs: docs/COMMANDS.md is regenerated from the option tables the CLI dispatches on, preserving the authored prose by position and flag name, with npm run docs, npm run docs:check and a CI step. Spec: docs/campaigns/env-independence-and-generated-docs/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "generated-command-manual",
+      "type": "backend",
+      "phase": "generated-manual",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "manual-tests",
+          "text": "manual, command-surface, link-check and docs-map tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "docs-check",
+          "text": "npm run docs:check finds the committed manual current",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "2"
+          }
+        },
+        {
+          "id": "generated-not-verified",
+          "text": "the derivable parts of every section come from the exported option tables, the authored parts survive regeneration byte for byte, and CI runs the check",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "src/cli/manual.mjs regenerates the derivable parts of docs/COMMANDS.md (heading set, synopsis lines, flag table rows) from COMMAND_OPTIONS and each verb module's OPERATION_OPTIONS while preserving the authored parts (description paragraphs, flag Effect and Default cells by flag name, reads/writes paragraphs, examples, related lines); running it on today's manual produces no diff, a new undocumented flag fails a test, a removed verb or flag disappears, and CI checks the file is current.",
+        "instructions": [
+          "Evidence: docs/COMMANDS.md is 42,156 bytes written by hand for 20 verbs and 22 operations; test/docs/command-surface.test.mjs keeps only the heading set aligned with the code (it regex-reads `const COMMAND_OPTIONS = {` in src/cli.mjs and `const OPERATION_OPTIONS = {` in src/cli/{campaign,seat,contract,skills}.mjs). A flag added to a table today is invisible to every test.",
+          "Change 1, the tables become importable without moving them: export COMMAND_OPTIONS from src/cli.mjs and OPERATION_OPTIONS from src/cli/campaign.mjs, seat.mjs, contract.mjs and skills.mjs (keep the literal shape `const ..._OPTIONS = {` on its own line so the existing command-surface regex still matches). src/cli.mjs is 526 lines; adding `export` is all it needs.",
+          "Change 2, src/cli/manual.mjs (a program with a small exported core): `renderManual(current, surface)` takes the current manual text and the surface (verbs -> flags with types; operations per verb -> flags) and returns the regenerated text. Section order and the fixed sections (Invocation, Global flags, Exit codes, Environment) are preserved verbatim. For each verb `## faberun <verb>` and operation `### faberun <verb> <operation>`: the heading and the ```text synopsis line are regenerated from the table (positional placeholder kept from the current synopsis when present; flags rendered as `[--flag <value>]` for strings, `[--flag]` for booleans, `multiple` flags as `[--flag <a>...]`); the flag table keeps the header `| Flag | Value | Effect | Default |` and one row per declared flag in declaration order, carrying the current row's Value, Effect and Default cells when a row for that flag exists and `<value>`, empty, `—` otherwise; rows for flags no longer declared are dropped; every other line of the section (description, reads/writes, example, related) is kept as authored. A verb or operation absent from the manual gets a skeleton section; one absent from the code is removed. Running with `--write` rewrites docs/COMMANDS.md; `--check` exits 1 and prints a unified diff summary when the file would change.",
+          "Change 3, package.json scripts: `docs`: `node src/cli/manual.mjs --write`, `docs:check`: `node src/cli/manual.mjs --check`. .github/workflows/ci.yml gains `- run: npm run docs:check` after typecheck.",
+          "Change 4, first generation: run `npm run docs` and make the result byte-identical to the committed manual except for genuine drift you find (a flag missing from a table, a stale synopsis); fix the drift in the manual's authored cells, never in the code, and list what drifted in the result summary. If today's manual has a flag row the code no longer declares, that row is drift and goes.",
+          "Tests, test/cli/manual.test.mjs: 'manual regenerates today's file without a diff' (renderManual(current, surface) === current after `npm run docs` has been applied); 'manual covers every flag' (a surface with an extra flag yields a row with an empty Effect cell and the test that scans the real manual for empty Effect cells fails on it); 'manual drops removed verbs' (a surface without a verb removes its section); 'manual preserves authored blocks' (a description paragraph and an example survive regeneration). Keep test/docs/command-surface.test.mjs passing; it stays as the independent two-way check.",
+          "Docs: docs/COMMANDS.md's Invocation section (authored, preserved) gains one sentence saying the file is generated by `npm run docs` and where authored text lives. docs/ARCHITECTURE.md or docs/CONCEPTS.md: one sentence where documentation is described, if such a place exists; otherwise none."
+        ],
+        "readFiles": [
+          "src/cli.mjs",
+          "src/cli/campaign.mjs",
+          "src/cli/seat.mjs",
+          "src/cli/contract.mjs",
+          "src/cli/skills.mjs",
+          "src/cli/brand.mjs",
+          "docs/COMMANDS.md",
+          "test/docs/command-surface.test.mjs",
+          "package.json",
+          ".github/workflows/ci.yml",
+          "AGENTS.md"
+        ],
+        "writeFiles": [
+          "src/cli.mjs",
+          "src/cli/campaign.mjs",
+          "src/cli/seat.mjs",
+          "src/cli/contract.mjs",
+          "src/cli/skills.mjs",
+          "src/cli/manual.mjs",
+          "docs/COMMANDS.md",
+          "test/cli/manual.test.mjs",
+          "package.json",
+          ".github/workflows/ci.yml"
+        ],
+        "symbols": [
+          "renderManual"
+        ],
+        "scopeAcknowledged": [
+          "src/cli/brand.mjs",
+          "test/docs/command-surface.test.mjs",
+          "test/cli/cli.test.mjs",
+          "test/cli/skills-register.test.mjs",
+          "test/cli/setup.test.mjs",
+          "test/campaign/campaign.test.mjs",
+          "AGENTS.md"
+        ],
+        "decisions": [
+          "Generate, do not verify: the manual's derivable parts come from the tables the CLI dispatches on; a parallel table would be the wrong design.",
+          "Authored prose is preserved by position and flag name, not by markers; the first regeneration must be a no-op on today's content.",
+          "No CLI verb for the generator: it is a program under src/cli run by npm scripts, so the command surface does not change."
+        ],
+        "nonGoals": [
+          "No change to any verb, flag or exit code.",
+          "No change to renderUsage in src/cli/brand.mjs.",
+          "No change to skills/faberun/references/operations.md.",
+          "No edit to skills/faberun/references/*.md, docs/history/**, docs/campaigns/**, evals/golden/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: when a module or test file you must extend is near the ceiling, add a new module or test file instead of growing it.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test bounds a measured duration from above, depends on the wall clock, on a binary in PATH, or on the machine layout: that is the theme of this campaign."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/cli/manual.test.mjs",
+              "test/docs/command-surface.test.mjs",
+              "test/docs/link-check.test.mjs",
+              "test/docs/docs-map.test.mjs"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+              "run",
+              "docs:check"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    }
+  ]
+}

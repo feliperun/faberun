@@ -1,0 +1,437 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "env-independence-and-generated-docs",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "claude-sonnet-worker",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic-opus",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "claude-sonnet-worker": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic-sonnet",
+      "permissionMode": "bypassPermissions",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/repo/source-shape.test.mjs",
+        "test/campaign/field-ownership.test.mjs",
+        "test/repo/brand.test.mjs",
+        "test/docs/docs-diet.test.mjs"
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "env-independence-and-generated-docs-1-host-independence",
+  "maxParallel": 2,
+  "goal": "Phase 1 (host-independence) of campaign env-independence-and-generated-docs: the installer test builds the PATH it needs instead of assuming where node lives, a host-layout guard makes that class of test inexpressible (including fixture shebangs that resolve node through the PATH shim), and the four root pointers are proven to stay symlinks. Spec: docs/campaigns/env-independence-and-generated-docs/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "installer-test-builds-its-path",
+      "type": "backend",
+      "phase": "host-independence",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "install-tests",
+          "text": "the host tests pass with the PATH built from resolved binaries",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "no-layout-claim",
+          "text": "no comment or code in the touched files states where a binary resides or re-adds a system directory to PATH",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "test/host/install-sh.test.mjs no longer asserts where node lives: withEmptyPath builds a PATH directory holding symlinks to exactly the binaries the installer needs, resolved from the current PATH before it is emptied, so 'install.sh fails when node is missing from PATH' passes on a machine with /usr/bin/node and on one without.",
+        "instructions": [
+          "Evidence (owner's measurement 2026-09-16, clean Linux container with node from the package manager): test/host/install-sh.test.mjs:157 'install.sh fails when node is missing from PATH' expected exit 1 and got 0, because lines 161-162 re-add /bin and /usr/bin to the emptied PATH with the comment 'node lives outside both'. On macOS with asdf and in CI with setup-node the assumption holds; with apt's /usr/bin/node it does not. install.sh is correct (it probes `command -v node`, `command -v tar`, and curl only when downloading); the test lies.",
+          "Change 1, test/helpers.mjs withEmptyPath (line ~637): accept an options object `{binaries?: string[]}`. Before emptying PATH, resolve each named binary with `command -v`-equivalent logic over the current PATH (split process.env.PATH, find the first executable match; fail the test with a clear message when one is missing), create the temp directory, and symlink each binary into it under its plain name. PATH becomes that directory alone. Callers that pass no binaries keep today's empty directory. Introduce `binariesInPath(names)` as the resolver so it is testable on its own.",
+          "Change 2, test/host/install-sh.test.mjs: the 'node is missing' test calls withEmptyPath with the binaries install.sh needs except node -- read install.sh and list them from its `command -v` probes and the utilities it runs (at least sh and tar; add what the script invokes), then remove the `process.env.PATH = ...:/bin:/usr/bin` line and the comment that names where node lives. spawnSync must find sh through PATH or by the symlink you created, never by the literal /bin/sh. Every other test in the file that appends system directories to PATH follows the same pattern.",
+          "Tests: a case in test/host/install-sh.test.mjs (or a small new test/helpers-path.test.mjs) proving withEmptyPath({binaries: ['sh']}) exposes only that binary: `command -v tar` fails inside the body and `sh -c 'command -v sh'` succeeds. No assertion names /bin, /usr/bin, /usr/local/bin, /opt, asdf, nvm or .tool-versions."
+        ],
+        "readFiles": [
+          "test/host/install-sh.test.mjs",
+          "test/helpers.mjs",
+          "install.sh"
+        ],
+        "writeFiles": [
+          "test/host/install-sh.test.mjs",
+          "test/helpers.mjs"
+        ],
+        "symbols": [
+          "binariesInPath"
+        ],
+        "scopeAcknowledged": [
+          "install.sh",
+          "test/harnesses/harnesses.test.mjs",
+          "test/cli/cli.test.mjs",
+          "test/cli/update.test.mjs",
+          "test/run/process.test.mjs",
+          "test/engine/routing.test.mjs",
+          "test/engine/judge.test.mjs",
+          "test/engine/worker-result.test.mjs",
+          "test/seat/seat.test.mjs",
+          "test/runner-helpers.mjs"
+        ],
+        "decisions": [
+          "install.sh is not edited: the installer is right, the test encoded the machine.",
+          "Binaries are resolved from the caller's PATH at call time, never from a hard-coded directory."
+        ],
+        "nonGoals": [
+          "No change to install.sh.",
+          "No new dependency.",
+          "No edit to skills/faberun/references/*.md, docs/history/**, docs/campaigns/**, evals/golden/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: when a module or test file you must extend is near the ceiling, add a new module or test file instead of growing it.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test bounds a measured duration from above, depends on the wall clock, on a binary in PATH, or on the machine layout: that is the theme of this campaign."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/host/install-sh.test.mjs",
+              "test/host/"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "host-layout-guard",
+      "type": "backend",
+      "phase": "host-independence",
+      "dependsOn": [
+        "installer-test-builds-its-path"
+      ],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "guard-tests",
+          "text": "the host-layout guard and the converted fixture files' tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "class-closed",
+          "text": "every rule has a unit test that fails a minimal offending source, the exemption needs a reason, and no fixture under test/ resolves node through env",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "A guard in the shape of test/fixture-runtime-guard.mjs scans every test file and refuses machine-layout assumptions: PATH built from absolute system directories, version-manager references in assertions, process.platform inside an assertion, and fixture shebangs that resolve node through the PATH shim; the 21 existing env-node fixtures are converted so the suite passes with the guard on.",
+        "instructions": [
+          "Evidence: three occurrences of the class in six weeks (heartbeat speed, codex in PATH, node outside /usr/bin), each fixed once and each back elsewhere. Measured 2026-09-16 on this machine under the parallel suite: fixtures written as `#!/usr/bin/env node` start through the asdf shim, which exceeded a 1.36 s assertion (test/run/process.test.mjs:311) and the 5 s notifier delivery timeout, costing two nodes their revision budget. Sites: test/harnesses/harnesses.test.mjs (4), test/cli/cli.test.mjs (1), test/cli/update.test.mjs (1), test/run/process.test.mjs (3), test/engine/routing.test.mjs (2), test/engine/judge.test.mjs (8), test/engine/worker-result.test.mjs (1), test/seat/seat.test.mjs (1); grep `usr/bin/env node` under test/ to confirm the current list.",
+          "Change 1, test/host-layout-guard.mjs: export `hostLayoutFindings(source, fileName)` returning findings `{fileName, line, rule, text}` for: (a) an assignment to process.env.PATH whose right-hand side contains /bin, /usr/bin, /usr/local/bin or /opt as a path segment; (b) asdf, nvm or .tool-versions appearing outside comments and string literals that are themselves inside a `guard-exempt` line; (c) process.platform appearing on the same line as an assert call; (d) the text `#!/usr/bin/env node` anywhere in the file. Reuse or mirror fixture-runtime-guard.mjs's structuralMask so comments and strings are handled the same way (a shebang lives inside a string, so rule (d) is checked on raw text). A line carrying `guard-exempt: host-layout <reason>` with a non-empty reason is skipped; a marker without a reason is itself a finding.",
+          "Change 2, test/host/host-layout.test.mjs: one test that walks test/ recursively and asserts no findings (the guard's own file and this test file exempt by name, like fixture-runtimes.test.mjs does), plus unit tests for each rule on inline sources and for the exemption marker with and without a reason. Adding the file to test/host/ puts it in `npm test`, which CI already runs.",
+          "Change 3, convert every fixture shebang under test/ from `#!/usr/bin/env node` to the template form `#!${process.execPath}` (a double-quoted string becomes a template literal; keep escapes intact; run node --check on each file after editing). test/helpers.mjs and test/runner-helpers.mjs are outside this node's write set (installer-test-builds-its-path owns helpers.mjs); if the guard finds a violation there, report it in the result summary instead of editing.",
+          "Keep every existing test file under 800 lines; test/engine/judge.test.mjs and test/cli/cli.test.mjs are the largest -- the conversion changes bytes, not lines."
+        ],
+        "readFiles": [
+          "test/fixture-runtime-guard.mjs",
+          "test/fixture-runtimes.test.mjs",
+          "test/helpers.mjs",
+          "test/runner-helpers.mjs",
+          "test/harnesses/harnesses.test.mjs",
+          "test/cli/cli.test.mjs",
+          "test/cli/update.test.mjs",
+          "test/run/process.test.mjs",
+          "test/engine/routing.test.mjs",
+          "test/engine/judge.test.mjs",
+          "test/engine/worker-result.test.mjs",
+          "test/seat/seat.test.mjs"
+        ],
+        "writeFiles": [
+          "test/host-layout-guard.mjs",
+          "test/host/host-layout.test.mjs",
+          "test/harnesses/harnesses.test.mjs",
+          "test/cli/cli.test.mjs",
+          "test/cli/update.test.mjs",
+          "test/run/process.test.mjs",
+          "test/engine/routing.test.mjs",
+          "test/engine/judge.test.mjs",
+          "test/engine/worker-result.test.mjs",
+          "test/seat/seat.test.mjs"
+        ],
+        "symbols": [
+          "hostLayoutFindings"
+        ],
+        "scopeAcknowledged": [
+          "test/fixture-runtime-guard.mjs",
+          "test/fixture-runtimes.test.mjs",
+          "test/helpers.mjs",
+          "test/runner-helpers.mjs",
+          "test/host/install-sh.test.mjs"
+        ],
+        "decisions": [
+          "The guard is a test, so CI runs it through npm test with no workflow change.",
+          "Exemption requires a reason on the same line; a bare marker is a finding."
+        ],
+        "nonGoals": [
+          "No change to src/.",
+          "No change to install.sh or to the installer test beyond what the guard finds after installer-test-builds-its-path landed.",
+          "No edit to skills/faberun/references/*.md, docs/history/**, docs/campaigns/**, evals/golden/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: when a module or test file you must extend is near the ceiling, add a new module or test file instead of growing it.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test bounds a measured duration from above, depends on the wall clock, on a binary in PATH, or on the machine layout: that is the theme of this campaign."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/host/host-layout.test.mjs",
+              "test/host/install-sh.test.mjs",
+              "test/run/process.test.mjs",
+              "test/cli/cli.test.mjs",
+              "test/seat/seat.test.mjs",
+              "test/engine/worker-result.test.mjs"
+            ],
+            "timeoutSec": 500
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "root-pointers-stay-symlinks",
+      "type": "backend",
+      "phase": "host-independence",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "pointer-test",
+          "text": "the root-pointers test passes against the current tree",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "drift-fails",
+          "text": "a pointer replaced by a regular file would fail the test on both the git mode and the on-disk check",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "test/repo/root-pointers.test.mjs proves AGENT.md, CLAUDE.md, CURSOR.md and GEMINI.md are symlinks to AGENTS.md in git (mode 120000) and on disk, so a pointer that drifts into a real file fails the suite.",
+        "instructions": [
+          "Evidence: AGENTS.md declares the four files as symlinks and forbids letting one drift into a real file; `git ls-files -s` shows mode 120000 for all four today; nothing enforces it. The owner's proposal measured identical md5 for five files in a container -- the resolved target -- and proposed one-line pointer files; the repository rule says symlinks, so the test enforces the rule rather than changing the files.",
+          "Write test/repo/root-pointers.test.mjs: for each of the four names assert lstatSync(...).isSymbolicLink(), readlinkSync(...) === 'AGENTS.md', and that `git ls-files -s <name>` (execFileSync git, cwd repo root) starts with '120000'. Assert AGENTS.md itself is a regular file. No pointer file is written."
+        ],
+        "readFiles": [
+          "AGENTS.md",
+          "test/repo/source-shape.test.mjs"
+        ],
+        "writeFiles": [
+          "test/repo/root-pointers.test.mjs"
+        ],
+        "symbols": [
+          "rootPointerNames"
+        ],
+        "scopeAcknowledged": [
+          "AGENTS.md"
+        ],
+        "decisions": [
+          "Symlinks stay; the test is the deliverable."
+        ],
+        "nonGoals": [
+          "No edit to any root pointer or to AGENTS.md.",
+          "No edit to skills/faberun/references/*.md, docs/history/**, docs/campaigns/**, evals/golden/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: when a module or test file you must extend is near the ceiling, add a new module or test file instead of growing it.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test bounds a measured duration from above, depends on the wall clock, on a binary in PATH, or on the machine layout: that is the theme of this campaign."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/repo/root-pointers.test.mjs",
+              "test/repo/source-shape.test.mjs"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    }
+  ]
+}

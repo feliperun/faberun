@@ -1,0 +1,62 @@
+{
+  "id": "env-independence-and-generated-docs",
+  "goal": "Two defect classes made inexpressible instead of patched: tests that encode the author's machine (the installer test builds the PATH it needs, a host-layout guard refuses absolute system directories in PATH, version-manager references and process.platform in assertions, and fixture shebangs that resolve node through the PATH shim; the four root pointers are proven to stay symlinks) and hand-written documentation of code surface (docs/COMMANDS.md regenerated from the CLI's own option tables with authored prose preserved, npm run docs and docs:check in CI; worker-loadable references declared and guarded; declared readFiles bytes exposed per node). Owner's proposal plus orchestrator addendum; Anthropic models only. Spec: docs/campaigns/env-independence-and-generated-docs/spec/SPEC.md.",
+  "status": "active",
+  "linkedRunIds": [
+    "env-independence-and-generated-docs-1-host-independence",
+    "env-independence-and-generated-docs-2-generated-manual",
+    "env-independence-and-generated-docs-3-reference-load",
+    "env-independence-and-generated-docs-3b-declared-read-bytes"
+  ],
+  "contracts": [
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/env-independence-and-generated-docs/contracts/1-host-independence.contract.json",
+      "digest": "e586c51cc5de62025869424a4445e6c8ef3d2c9e578b48effd4362b010adf836"
+    },
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/env-independence-and-generated-docs/contracts/2-generated-manual.contract.json",
+      "digest": "b349a5d35edfda088223220e4fc46ee3b6ab0785474fc700cb11124fdbf3c5b0"
+    },
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/env-independence-and-generated-docs/contracts/3b-declared-read-bytes.contract.json",
+      "digest": "4b55f8d5b4c54c6a0fbdf36c25d331a2238c6f58c824a5a38fd42a1bae443544"
+    }
+  ],
+  "landBranch": "campaign/env-independence-and-generated-docs",
+  "promotions": [
+    {
+      "runId": "env-independence-and-generated-docs-1-host-independence",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/env-independence-and-generated-docs/contracts/1-host-independence.contract.json",
+      "branch": "campaign/env-independence-and-generated-docs",
+      "sha": "6da3b88016b99183220d14ce5374bcd965d6fd95",
+      "previousSha": "ee54a8304cfcab8d9c3bbf6245b30d3f6718164f",
+      "at": "2026-09-17T01:03:36.473Z"
+    },
+    {
+      "runId": "env-independence-and-generated-docs-2-generated-manual",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/env-independence-and-generated-docs/contracts/2-generated-manual.contract.json",
+      "branch": "campaign/env-independence-and-generated-docs",
+      "sha": "5be6c61fecdf9044f8b8e5177d6a4d93ca566ede",
+      "previousSha": "6da3b88016b99183220d14ce5374bcd965d6fd95",
+      "at": "2026-09-17T01:55:49.554Z"
+    },
+    {
+      "runId": "env-independence-and-generated-docs-3-reference-load",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/env-independence-and-generated-docs/contracts/3-reference-load.contract.json",
+      "branch": "campaign/env-independence-and-generated-docs",
+      "sha": "b1cbaee0e92e1fccdf7942bcb920e8224ade6981",
+      "previousSha": "5be6c61fecdf9044f8b8e5177d6a4d93ca566ede",
+      "at": "2026-09-17T02:21:03.109Z"
+    },
+    {
+      "runId": "env-independence-and-generated-docs-3b-declared-read-bytes",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/env-independence-and-generated-docs/contracts/3b-declared-read-bytes.contract.json",
+      "branch": "campaign/env-independence-and-generated-docs",
+      "sha": "32bac29a6350b671284973be2d9993362e9b5235",
+      "previousSha": "b1cbaee0e92e1fccdf7942bcb920e8224ade6981",
+      "at": "2026-09-17T02:52:17.595Z"
+    }
+  ],
+  "createdAt": "2026-09-17T00:09:44.318Z",
+  "updatedAt": "2026-09-17T02:52:17.595Z"
+}
