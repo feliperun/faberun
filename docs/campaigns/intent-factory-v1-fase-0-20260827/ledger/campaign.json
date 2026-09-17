@@ -1,0 +1,13 @@
+{
+  "id": "intent-factory-v1-fase-0-20260827",
+  "goal": "Executar a Fase 0 — estabilização do PRD Intent Factory v1: CI e política de PR, determinismo dos testes de heartbeat e limpeza das arestas 0.3, com todos os critérios de aceite verificados",
+  "status": "closed",
+  "linkedRunIds": [
+    "intent-factory-v1-phase-0",
+    "intent-factory-v1-phase-0-recovery",
+    "intent-factory-v1-phase-0-remaining"
+  ],
+  "createdAt": "2026-08-27T19:35:36.992Z",
+  "updatedAt": "2026-08-28T20:06:18.446Z",
+  "closedAt": "2026-08-28T20:06:18.446Z"
+}

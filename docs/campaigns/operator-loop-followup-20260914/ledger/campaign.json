@@ -1,0 +1,13 @@
+{
+  "id": "operator-loop-followup-20260914",
+  "goal": "Follow-up from operator-loop-20260913's retrospective: when every same-tier worker candidate is exhausted, deterministically wait for the earliest recorded exhaustedUntil and continue on its own instead of blocking for an operator; fix next.mjs's rank 5 vacuous-terminal case for a linked run with no node snapshots; pair the two costUsd record shapes phase 4 left unpaired (routing.history, bulkRead's own return value).",
+  "status": "closed",
+  "linkedRunIds": [
+    "followup-phase1-20260914",
+    "followup-phase2-20260914",
+    "followup-phase3-20260914"
+  ],
+  "createdAt": "2026-09-14T05:13:59.912Z",
+  "updatedAt": "2026-09-14T19:44:38.654Z",
+  "closedAt": "2026-09-14T19:44:38.654Z"
+}

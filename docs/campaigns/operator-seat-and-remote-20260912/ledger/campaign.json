@@ -1,0 +1,19 @@
+{
+  "id": "operator-seat-and-remote-20260912",
+  "goal": "Assento de operador que sobrevive a credito esgotado (S1/S2), superficie remota por Tailscale (S3/S4) e as quatro licoes estruturais do SwarmForge (S5), conforme docs/TECH-SPEC-2026-09-12-operator-seat.md",
+  "status": "closed",
+  "linkedRunIds": [
+    "if-sp1-brief-lossy-20260912",
+    "if-sp2-operator-seat-20260912",
+    "if-sp2b-seat-switch-20260912",
+    "if-sp25-scope-closure-20260912",
+    "if-sp3-derived-and-state-20260912",
+    "if-sp3c-state-by-directory-20260912",
+    "if-sp4-remote-surface-20260912",
+    "if-sp5-untrusted-and-ownership-20260912",
+    "if-sp6-layered-constitution-20260912"
+  ],
+  "createdAt": "2026-09-12T20:29:28.720Z",
+  "updatedAt": "2026-09-13T05:16:12.370Z",
+  "closedAt": "2026-09-13T05:16:12.370Z"
+}

@@ -1,0 +1,13 @@
+{
+  "id": "intent-factory-models-command-20260911",
+  "goal": "Comando que lista todos os modelos disponiveis por driver com niveis de effort e sugere alocacao deterministica",
+  "status": "closed",
+  "linkedRunIds": [
+    "if-models-command-20260911",
+    "if-models-command-20260911-r2",
+    "if-models-command-20260911-r3"
+  ],
+  "createdAt": "2026-09-11T04:04:41.178Z",
+  "updatedAt": "2026-09-11T11:20:45.635Z",
+  "closedAt": "2026-09-11T11:20:45.635Z"
+}

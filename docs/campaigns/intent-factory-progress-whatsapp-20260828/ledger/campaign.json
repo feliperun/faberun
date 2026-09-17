@@ -1,0 +1,12 @@
+{
+  "id": "intent-factory-progress-whatsapp-20260828",
+  "goal": "Entregar feedback durável de progresso do intent-factory com consumo incremental e notificações pessoais via Ford/OpenClaw no WhatsApp",
+  "status": "closed",
+  "linkedRunIds": [
+    "intent-factory-progress-events",
+    "intent-factory-progress-deepseek-fallback"
+  ],
+  "createdAt": "2026-08-28T20:07:04.437Z",
+  "updatedAt": "2026-08-29T00:52:08.676Z",
+  "closedAt": "2026-08-29T00:52:08.676Z"
+}

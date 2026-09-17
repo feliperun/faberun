@@ -1,0 +1,71 @@
+{
+  "id": "become-faberun",
+  "goal": "The repository becomes Faberun: the tool moves to the root under its new name, gains an installer, a self-updater, release-please releases, first-run onboarding (setup) and repository bootstrap (init), a visual identity from DESIGN.md, and user-facing documentation (vision, concepts, command manual, getting started, architecture, ADRs, README) -- executed as four chained contracts by the tool on itself. Spec: docs/campaigns/become-faberun/spec/SPEC.md.",
+  "status": "closed",
+  "linkedRunIds": [
+    "become-faberun-1-move-and-rename",
+    "become-faberun-2-cli-product",
+    "become-faberun-2b-install-and-shape-fix",
+    "become-faberun-2c-guard-and-install",
+    "become-faberun-2d-guard-review-and-install",
+    "become-faberun-2e-install-review-and-field-ownership",
+    "become-faberun-3-docs-and-releases",
+    "become-faberun-4-front-door"
+  ],
+  "contracts": [
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/become-faberun/contracts/1-move-and-rename.contract.json",
+      "digest": "f4e1925fa54294fed35abcbf94a21c13436ee267aae966b753fb6299d5e48967"
+    },
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/become-faberun/contracts/2-cli-product.contract.json",
+      "digest": "e71df6fbeb14aa6bf2e1b2930b3b8e9b1457a82131d7521f52e90c867bece477"
+    },
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/become-faberun/contracts/3-docs-and-releases.contract.json",
+      "digest": "fefd06eaf30666993594477a294c9932e267f1597aa9d81b9abd84916c7425a7"
+    },
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/become-faberun/contracts/4-front-door.contract.json",
+      "digest": "79a8dda4280f43965d2d57606a7fba498caa9ad4bcf20eae4158c688df32ee17"
+    }
+  ],
+  "landBranch": "campaign/become-faberun",
+  "promotions": [
+    {
+      "runId": "become-faberun-1-move-and-rename",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/become-faberun/contracts/1-move-and-rename.contract.json",
+      "branch": "campaign/become-faberun",
+      "sha": "ca2977a61d4e6b15187ed6d37c3f285734ee8450",
+      "previousSha": "4133bb80e9130c6b2d57556a57808945b84cf267",
+      "at": "2026-09-15T22:23:19.424Z"
+    },
+    {
+      "runId": "become-faberun-2e-install-review-and-field-ownership",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/become-faberun/contracts/2e-install-review-and-field-ownership.contract.json",
+      "branch": "campaign/become-faberun",
+      "sha": "0d834b2e53a074e869010479c54d32b1bca580a4",
+      "previousSha": "ca2977a61d4e6b15187ed6d37c3f285734ee8450",
+      "at": "2026-09-16T02:01:48.333Z"
+    },
+    {
+      "runId": "become-faberun-3-docs-and-releases",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/become-faberun/contracts/3-docs-and-releases.contract.json",
+      "branch": "campaign/become-faberun",
+      "sha": "aa1fc391b7a1904f3fe9008146310c44aeff9de4",
+      "previousSha": "0d834b2e53a074e869010479c54d32b1bca580a4",
+      "at": "2026-09-16T03:10:42.761Z"
+    },
+    {
+      "runId": "become-faberun-4-front-door",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/become-faberun/contracts/4-front-door.contract.json",
+      "branch": "campaign/become-faberun",
+      "sha": "cc05ff773d1eaa2e433977d012c4a9decb8df7c0",
+      "previousSha": "aa1fc391b7a1904f3fe9008146310c44aeff9de4",
+      "at": "2026-09-16T04:18:50.339Z"
+    }
+  ],
+  "createdAt": "2026-09-15T21:10:20.549Z",
+  "updatedAt": "2026-09-16T04:28:41.187Z",
+  "closedAt": "2026-09-16T04:28:41.187Z"
+}

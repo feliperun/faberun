@@ -1,0 +1,17 @@
+{
+  "id": "intent-factory-measurement-20260910",
+  "goal": "Executar C0+C1 da TECH-SPEC-2026-09-09: corrigir o teste que exige binario real no PATH, adicionar guarda estrutural, e construir a camada de evals (16 casos deterministicos, golden set, comparador, baseline)",
+  "status": "closed",
+  "linkedRunIds": [
+    "if-measure-c0-20260910",
+    "if-measure-c0-20260910-take2",
+    "if-measure-c0-guard-20260910",
+    "if-measure-c1a-20260910",
+    "if-measure-c1a-fix-d01-20260910",
+    "if-measure-c1b-20260910",
+    "if-measure-c1c-20260910"
+  ],
+  "createdAt": "2026-09-10T13:39:55.063Z",
+  "updatedAt": "2026-09-10T19:43:32.373Z",
+  "closedAt": "2026-09-10T19:43:32.373Z"
+}

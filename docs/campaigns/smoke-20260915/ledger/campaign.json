@@ -1,0 +1,14 @@
+{
+  "id": "smoke-20260915",
+  "goal": "Smoke test of the factory after the autonomy campaign.",
+  "status": "closed",
+  "linkedRunIds": [
+    "smoke-20260915"
+  ],
+  "contracts": [],
+  "landBranch": "campaign/smoke-20260915",
+  "promotions": [],
+  "createdAt": "2026-09-15T18:58:54.092Z",
+  "updatedAt": "2026-09-15T19:21:31.468Z",
+  "closedAt": "2026-09-15T19:21:31.468Z"
+}

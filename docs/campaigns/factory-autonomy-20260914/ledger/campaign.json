@@ -1,0 +1,23 @@
+{
+  "id": "factory-autonomy-20260914",
+  "goal": "Close the three gaps operator-loop-followup-20260914's retrospective left, each verified against the running code before being scoped: nothing chains one contract to the next, so a terminal phase is where autonomy ends; a persisted run's contract stops validating after its own run, because cross-node scope closure is computed against a working tree the run itself changes; and a composed runtime pool that resolves smaller than declared shrinks in silence, with no warning naming what dropped out or why.",
+  "status": "closed",
+  "linkedRunIds": [
+    "factory-autonomy-p1-20260914",
+    "factory-autonomy-p2-20260914",
+    "factory-autonomy-p2b-20260914",
+    "factory-autonomy-p3a-20260914",
+    "factory-autonomy-p3b-20260914",
+    "factory-autonomy-p3c-20260914",
+    "factory-autonomy-p4-20260914",
+    "factory-autonomy-p5a-20260914",
+    "factory-autonomy-p5b-20260914",
+    "factory-autonomy-p6-20260914"
+  ],
+  "createdAt": "2026-09-14T20:33:11.073Z",
+  "updatedAt": "2026-09-15T13:28:01.591Z",
+  "contracts": [],
+  "landBranch": "campaign/factory-autonomy-20260914",
+  "promotions": [],
+  "closedAt": "2026-09-15T13:28:01.591Z"
+}

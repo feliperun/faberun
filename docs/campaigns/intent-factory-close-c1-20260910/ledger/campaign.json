@@ -1,0 +1,16 @@
+{
+  "id": "intent-factory-close-c1-20260910",
+  "goal": "Fechar c1.1 e c1.2 implementando os tres comportamentos que faltam (validacao estatica de vendor de fallback do worker, classificacao de insufficient_balance no probe ao vivo, e tratamento de ENOSPC com GC de .runs/) e entao os evals D06, D08 e D09",
+  "status": "closed",
+  "linkedRunIds": [
+    "if-close-c1-20260910",
+    "if-live-drivers-20260910",
+    "if-audit-drivers-20260910",
+    "if-audit-drivers-r2-20260911",
+    "if-audit-zcode-20260911",
+    "if-audit-zcode-20260911-r2"
+  ],
+  "createdAt": "2026-09-10T19:45:18.663Z",
+  "updatedAt": "2026-09-11T11:53:38.451Z",
+  "closedAt": "2026-09-11T11:53:38.451Z"
+}

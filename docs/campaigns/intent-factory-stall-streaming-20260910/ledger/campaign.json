@@ -1,0 +1,11 @@
+{
+  "id": "intent-factory-stall-streaming-20260910",
+  "goal": "Corrigir F4 da retrospectiva 02 do unitctl: o detector de stall mata uma invocacao viva de um driver que nao emite saida incremental",
+  "status": "closed",
+  "linkedRunIds": [
+    "if-stall-streaming-20260910"
+  ],
+  "createdAt": "2026-09-11T00:04:24.005Z",
+  "updatedAt": "2026-09-11T10:13:48.334Z",
+  "closedAt": "2026-09-11T10:13:48.334Z"
+}

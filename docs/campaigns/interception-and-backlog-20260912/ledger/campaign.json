@@ -1,0 +1,13 @@
+{
+  "id": "interception-and-backlog-20260912",
+  "goal": "Fechar C6 (politica de intercepcao pre-ferramenta), C7 (delegacao de leitura em massa) e o backlog aberto de C8, conforme docs/TECH-SPEC-2026-09-12-interception.md",
+  "status": "closed",
+  "linkedRunIds": [
+    "if-p1-silent-catch-20260912",
+    "if-p2-tool-policy-20260912",
+    "if-p3-delegation-mutation-20260912"
+  ],
+  "createdAt": "2026-09-12T17:10:11.553Z",
+  "updatedAt": "2026-09-12T18:51:08.299Z",
+  "closedAt": "2026-09-12T18:51:08.299Z"
+}

@@ -1,12 +1,14 @@
 ---
 id: adversarial-planner
 title: "Planejamento adversarial fora da sessão"
-version: 1.0.0
+version: 1.1.0
 status: draft
-date: 2026-09-16
+date: 2026-09-17
 owner: Felipe Broering
 target: feliperun/faberun
-baseline: f3fdeb7
+baseline: ead7d1e
+depends_on: spec-format-and-planning-stages v1.1.0 (formato de spec, repo-facts, roteamento, dimensionamento, congelamento, ledger preservado)
+supersedes: adversarial-planner v1.0.0 (dividido em dois documentos em 2026-09-17, com as cinco correções acordadas)
 ---
 
 # Planejamento adversarial fora da sessão
@@ -27,19 +29,14 @@ disso, o revisor enxerga o raciocínio de quem escreveu o plano, o que produz
 convergência social em vez de revisão independente, e "até chegarem num
 consenso" não tem orçamento nem estado terminal de desacordo.
 
-A mesma análise vale um nível acima. A spec que alimenta o planejamento também é
-escrita em conversa, fora de qualquer contabilidade, e chega à fábrica como
-markdown livre. Um formato estruturado torna a autoria de spec um nó como outro
-qualquer, torna o trabalho do planejador quase mecânico, e dá à camada de
-evidência a âncora de requisito que hoje não existe.
-
-A deliberação continua invisível, e deve continuar: explorar, comparar e mudar
-de ideia é pesquisa, não se industrializa. O que sai da sombra é tudo depois
-dela.
+Esta é a segunda metade: os nós que invocam modelo, apoiados nos estágios
+determinísticos e no formato de spec que a primeira metade pousou. A
+deliberação continua invisível, e deve continuar: explorar, comparar e mudar de
+ideia é pesquisa, não se industrializa. O que sai da sombra é tudo depois dela.
 
 ## Estado medido
 
-`f3fdeb7`, container Linux limpo, dependências instaladas.
+`ead7d1e`, esta máquina, após `spec-format-and-planning-stages`.
 
 | Indicador | Hoje | Alvo |
 | --- | --- | --- |
@@ -47,45 +44,15 @@ dela.
 | Revisor recebe raciocínio do autor | sim | não |
 | Rodadas de revisão com orçamento | não | sim |
 | Estado terminal de desacordo | não existe | existe |
-| `timeoutSec` derivado de duração medida | por palpite | medido |
-| Plano reproduzível e comparável | não | digest e proveniência |
-| Formato de spec | markdown livre | validável |
 | Planejamento sobrevive à morte do assento | não | sim |
+| Baseline do braço da sessão | ledgers preservados desde a primeira metade | comparável por indicador |
 
-Peças já existentes que o trabalho reusa, em vez de reimplementar:
-`preflight --time-verification` (duração medida), `mode: "discovery"` com
-`writeFiles` vazio, gate com `failOn` e `maxRevisions`,
-`forbidSameVendorAsWorker`, `runtime-discovery`, `env-preflight`,
-`finalVerification`, e a forma de tabela de roteamento de
-`src/engine/bulk-read.mjs`.
+Peças reusadas: `mode: "discovery"` com `writeFiles` vazio, gate com `failOn`
+e `maxRevisions`, o invariante de vendor por rótulo do validador de contrato,
+`runtime-discovery`, `env-preflight`, e os estágios da primeira metade
+(repo-facts, roteamento, dimensionamento, congelamento, validador de spec).
 
 ## Requisitos
-
-### R1. O formato de spec é versionado e documentado
-
-- **statement:** existe um formato de spec com versão própria, documentado como
-  referência carregável, cujas seções obrigatórias são Intenção, Requisitos e
-  Não-objetivos.
-- **proof:** `path: skills/faberun/references/spec-format.md`
-
-### R2. A validação de spec é determinística
-
-- **statement:** validar uma spec não invoca modelo nenhum.
-- **proof:** `command: node --test --test-name-pattern="spec validate invokes no model"`
-
-### R3. A validação reprova spec que oneraria o planejamento
-
-- **statement:** requisito sem id estável, requisito sem `proof`, ausência de
-  não-objetivos, critério de sucesso sem baseline, e `target` ou `baseline` que
-  não resolve para um commit são reprovados; advisory por default, bloqueante
-  sob `--strict-traceability`.
-- **proof:** `command: node --test --test-name-pattern="spec validate rejects"`
-
-### R4. As specs existentes passam no formato
-
-- **statement:** todo documento em `docs/campaigns/` é convertido e valida sem
-  aviso.
-- **proof:** `command: node --test --test-name-pattern="existing specs validate"`
 
 ### R5. Autoria e revisão de spec são nós, com custo registrado
 
@@ -101,47 +68,11 @@ Peças já existentes que o trabalho reusa, em vez de reimplementar:
   nunca o packet nem a saída de raciocínio do autor.
 - **proof:** `command: node --test --test-name-pattern="review packet is isolated"`
 
-### R7. Os fatos do repositório são determinísticos e trazem duração medida
-
-- **statement:** o inventário do repositório alvo é gerado sem invocar modelo, é
-  idêntico entre duas execuções no mesmo HEAD, e cada comando de verificação
-  candidato traz duração medida por `preflight --time-verification`, com
-  comandos acima de 600 s marcados como inelegíveis.
-- **proof:** `command: node --test --test-name-pattern="repo facts"`
-
-### R8. O modelo classifica, a tabela roteia
-
-- **statement:** o rascunho do plano devolve classificação por nó e nunca nomeia
-  runtime; a resolução de runtime sai de uma tabela declarativa cruzada com o
-  que a descoberta reporta como disponível e não exaurido.
-- **proof:** `command: node --test --test-name-pattern="routing is table driven"`
-
 ### R9. A instrução de runtime do operador ganha da tabela
 
 - **statement:** runtime declarado pelo operador na invocação persiste no
   contrato congelado e prevalece sobre a tabela.
 - **proof:** `command: node --test --test-name-pattern="operator override wins"`
-
-### R10. O juiz mantém vendor distinto do worker e do fallback
-
-- **statement:** nenhum plano gerado resolve juiz para o mesmo vendor de um
-  worker ou de sua aresta de fallback.
-- **proof:** `command: node --test --test-name-pattern="judge vendor distinct"`
-
-### R11. O dimensionamento do grafo é determinístico e auditável
-
-- **statement:** fundir, dividir e marcar paralelizáveis são decisões de
-  pós-processamento sem modelo, idempotentes, e cada transformação registra a
-  regra que a causou.
-- **proof:** `command: node --test --test-name-pattern="sizing"`
-
-### R12. O plano congelado é reproduzível
-
-- **statement:** o plano carrega digest, versão do pacote, `schemaVersion`, git
-  HEAD do alvo, o par de runtimes que planejou e revisou, as regras de
-  dimensionamento aplicadas e os achados do revisor com severidade; alterar um
-  byte invalida o digest.
-- **proof:** `command: node --test --test-name-pattern="freeze"`
 
 ### R13. Congelar um plano não inicia execução
 
@@ -167,15 +98,17 @@ Peças já existentes que o trabalho reusa, em vez de reimplementar:
 
 - **statement:** em harness que expõe o sinal de allowance, o assento grava o
   delta entre o início da campanha e o congelamento do plano; harness sem o
-  sinal grava ausência e não falha.
+  sinal grava ausência e não falha. O adapter do harness que expõe o sinal
+  passa a entregá-lo; hoje nenhum o faz.
 - **proof:** `command: node --test --test-name-pattern="allowance delta"`
 
 ### R17. A decisão de adotar o planejador é tomada por medição
 
 - **statement:** existe um braço comparativo que roda as mesmas specs pela
   autoria em sessão e pelo planejador, sobre no mínimo oito specs derivadas de
-  campanhas reais, e reporta delta por indicador com contagem de amostras;
-  indicador sem registro de suporte é nulo, nunca zero.
+  campanhas reais — os `SPEC.md` estruturados que acompanham os registros e os
+  ledgers preservados são o lado da sessão — e reporta delta por indicador com
+  contagem de amostras; indicador sem registro de suporte é nulo, nunca zero.
 - **proof:** `command: node evals/run.mjs --validate-planner-arm --min 8`
 
 ## Não-objetivos
@@ -200,8 +133,8 @@ Peças já existentes que o trabalho reusa, em vez de reimplementar:
   controlador, com o arquivo de teste específico do nó.
 - Toda `verification` tem duração medida antes de ter `timeoutSec` declarado.
 - Um contrato por fase, com todos os nós e arestas autorados num turno só.
-- Nenhum teste depende de relógio de parede, de binário no PATH, ou de layout de
-  máquina.
+- Nenhum teste depende de relógio de parede, de binário no PATH, ou de layout
+  de máquina.
 - Todo teto novo de documento segue o ratchet datado já usado em
   `test/docs/docs-diet.test.mjs`.
 - Nenhum trabalho tem redução de linhas como objetivo.
@@ -217,7 +150,6 @@ Peças já existentes que o trabalho reusa, em vez de reimplementar:
 | Delta de allowance do assento durante o plano | não medido | menor que o braço da sessão | journal |
 | Achados críticos do revisor por plano | não medido | acima de zero | evals |
 | `blockedContextRate` | `evals/baseline.json` | não sobe | evals |
-| Contratos com `timeoutSec` abaixo da duração real | ocorreu em campo | zero | `preflight` |
 | Planos contestados | n/a | reportados, nunca executados | journal |
 
 Se nenhum indicador favorecer o braço do planejador, o desfecho correto é manter
@@ -231,7 +163,6 @@ não é experimento.
 | Partida a frio: o planejador não tem a história que a sessão acumulou | alto | fatos do repositório cobrem a parte mecânica; `mode: "discovery"` é a válvula quando o packet fechado não é possível; autoria em sessão continua disponível |
 | O revisor degenera em implicância e queima rodadas sem melhorar o plano | médio | achados críticos por plano é critério explícito de desligamento no critério de sucesso |
 | O planejamento dobra o custo sem retorno | médio | R16 mede o lado hoje invisível; R17 decide com número |
-| A tabela de roteamento vira configuração paralela ao contrato | médio | precedência declarada, com override do operador sempre vencendo |
 | O congelamento inicia execução por acidente | alto | R13 é bloqueante |
 | Planejar vira replanejar em runtime | alto | plano congelado com digest; a execução consome a tabela, nunca recalcula |
-| O formato de spec vira chore e o operador volta ao markdown livre | médio | três seções obrigatórias, validação advisory por default, scaffold por comando |
+| O baseline da sessão é fino demais para decidir | médio | R18 da primeira metade preserva todo ledger daqui em diante; a cópia manual de 2026-09-17 recuperou os ledgers ainda presentes em `.runs/` |

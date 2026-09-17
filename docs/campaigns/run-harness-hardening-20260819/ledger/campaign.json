@@ -1,0 +1,15 @@
+{
+  "id": "run-harness-hardening-20260819",
+  "goal": "Implement every accepted run-harness hardening, context-efficiency, maintainability, testability, and orchestrator-portability recommendation; verify, commit, and push main",
+  "linkedRunIds": [
+    "run-harness-hardening-20260819",
+    "run-harness-protocol-fix-20260819",
+    "run-harness-hardening-remaining-20260819",
+    "run-harness-hardening-remaining-v2-20260819",
+    "run-harness-hardening-final-20260819"
+  ],
+  "createdAt": "2026-08-19T03:26:07.060Z",
+  "updatedAt": "2026-08-27T19:35:30.922Z",
+  "status": "closed",
+  "closedAt": "2026-08-27T19:35:30.922Z"
+}

@@ -1,0 +1,83 @@
+{
+  "id": "register-skill-and-harden",
+  "goal": "Installing Faberun registers the orchestrator skill in every harness that keeps skills (faberun skills register, offered by setup), and the factory absorbs its own retrospective: sandbox-aware worker prompts and a signalsProcesses capability, a clean dsh git environment, contract-level sharedVerification for the fast ratchets, deterministic seal and re-ask tests, scopeAcknowledged deferral, and visible unpriced usage -- three chained contracts driven by supervise campaign to prove the coordinator fixed in become-faberun. Spec: docs/campaigns/register-skill-and-harden/spec/SPEC.md.",
+  "status": "closed",
+  "linkedRunIds": [
+    "register-skill-and-harden-1-worker-side",
+    "register-skill-and-harden-4-never-signal-self",
+    "register-skill-and-harden-2-engine-determinism",
+    "register-skill-and-harden-3-skill-registration"
+  ],
+  "contracts": [
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/register-skill-and-harden/contracts/1-worker-side.contract.json",
+      "digest": "bc87055df85272a82552365e8b464f573369c841aac1a92079a009cc475593b5"
+    },
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/register-skill-and-harden/contracts/4-never-signal-self.contract.json",
+      "digest": "1799b47991b370032b73e184acbe7a858bed2bfb6818c1ff94373c82c1e82752"
+    },
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/register-skill-and-harden/contracts/2-engine-determinism.contract.json",
+      "digest": "6f1edba4ac8cc5c352370510ab61144d85d75d6b928dae6eef5f331e0937215f"
+    },
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/register-skill-and-harden/contracts/3-skill-registration.contract.json",
+      "digest": "7a80533eb74c0096a47ddec28fc20f3bb5b8b7b30c490f5f946f2fd0c4a8ee31"
+    }
+  ],
+  "landBranch": "campaign/register-skill-and-harden",
+  "promotions": [
+    {
+      "runId": "register-skill-and-harden-1-worker-side",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/register-skill-and-harden/contracts/1-worker-side.contract.json",
+      "branch": "campaign/register-skill-and-harden",
+      "sha": "94cc1da0ca47aac8de92401410745d605eea7016",
+      "previousSha": "94cc1da0ca47aac8de92401410745d605eea7016",
+      "at": "2026-09-16T14:01:44.116Z"
+    },
+    {
+      "runId": "register-skill-and-harden-1-worker-side",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/register-skill-and-harden/contracts/1-worker-side.contract.json",
+      "branch": "campaign/register-skill-and-harden",
+      "sha": "c8fa436a0f369638428ae518d6769c2bdbaaad6f",
+      "previousSha": "c8fa436a0f369638428ae518d6769c2bdbaaad6f",
+      "at": "2026-09-16T14:53:29.997Z"
+    },
+    {
+      "runId": "register-skill-and-harden-4-never-signal-self",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/register-skill-and-harden/contracts/4-never-signal-self.contract.json",
+      "branch": "campaign/register-skill-and-harden",
+      "sha": "9d42573dd112b443f6d786fc076da17de15263b8",
+      "previousSha": "c8fa436a0f369638428ae518d6769c2bdbaaad6f",
+      "at": "2026-09-16T15:26:02.752Z"
+    },
+    {
+      "runId": "register-skill-and-harden-1-worker-side",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/register-skill-and-harden/contracts/1-worker-side.contract.json",
+      "branch": "campaign/register-skill-and-harden",
+      "sha": "9d42573dd112b443f6d786fc076da17de15263b8",
+      "previousSha": "9d42573dd112b443f6d786fc076da17de15263b8",
+      "at": "2026-09-16T16:30:25.373Z"
+    },
+    {
+      "runId": "register-skill-and-harden-2-engine-determinism",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/register-skill-and-harden/contracts/2-engine-determinism.contract.json",
+      "branch": "campaign/register-skill-and-harden",
+      "sha": "b8c2c19102b2a260a88f50435dddaf2311826d7a",
+      "previousSha": "9d42573dd112b443f6d786fc076da17de15263b8",
+      "at": "2026-09-16T17:12:48.550Z"
+    },
+    {
+      "runId": "register-skill-and-harden-3-skill-registration",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/register-skill-and-harden/contracts/3-skill-registration.contract.json",
+      "branch": "campaign/register-skill-and-harden",
+      "sha": "f9c6f09126abf845746d2b408ccde385ba006d87",
+      "previousSha": "b8c2c19102b2a260a88f50435dddaf2311826d7a",
+      "at": "2026-09-16T17:47:16.152Z"
+    }
+  ],
+  "createdAt": "2026-09-16T12:14:47.796Z",
+  "updatedAt": "2026-09-16T18:08:03.180Z",
+  "closedAt": "2026-09-16T18:08:03.180Z"
+}

@@ -1,0 +1,28 @@
+{
+  "id": "intent-factory-retrospective-20260829",
+  "goal": "Implementar RETROSPECTIVE-2026-08-28 e tornar retrospectiva obrigatória ao final de toda campanha",
+  "status": "closed",
+  "linkedRunIds": [
+    "intent-factory-retrospective-implementation-20260829",
+    "intent-factory-retrospective-20260829-repair-d32a9d816015575502cc",
+    "intent-factory-retrospective-protocol-recovery-20260829-take2",
+    "intent-factory-retrospective-protocol-recovery-20260829-take3",
+    "intent-factory-retrospective-durable-result-20260829-take4",
+    "intent-factory-retrospective-glm-durable-result-20260829-take5",
+    "intent-factory-retrospective-glm-protocol-recovery-20260829-take6",
+    "intent-factory-retrospective-glm-protocol-recovery-20260830-take7",
+    "intent-factory-retrospective-glm-protocol-recovery-20260830-take8",
+    "intent-factory-retrospective-glm-canonical-invalid-20260830-take9",
+    "intent-factory-retrospective-glm-rotation-supervisor-20260830-take10",
+    "intent-factory-retrospective-glm-rotation-supervisor-20260830-take11",
+    "intent-factory-retrospective-glm-rotation-supervisor-20260831-take12",
+    "intent-factory-retrospective-glm-rotation-policy-fix-20260831-take13",
+    "intent-factory-retrospective-glm-rotation-policy-runtime-fix-20260831-take14",
+    "intent-factory-retrospective-glm-rotation-policy-runtime-fix-20260831-take15",
+    "intent-factory-retrospective-glm-rotation-policy-runtime-gate-20260901-take16",
+    "intent-factory-retrospective-glm-campaign-supervisor-regressions-20260901-take17"
+  ],
+  "createdAt": "2026-08-29T04:11:52.206Z",
+  "updatedAt": "2026-09-01T17:34:18.245Z",
+  "closedAt": "2026-09-01T17:34:18.245Z"
+}

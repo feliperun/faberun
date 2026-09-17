@@ -1,0 +1,67 @@
+{
+  "id": "harden-chain-and-verification",
+  "goal": "The retrospective of register-skill-and-harden absorbed by the factory: promotions that move nothing record nothing, resume honours the base ref a chain-launched run was cut from, status keeps moving during verification, a signal death of a verification child is re-run once, an integrated candidate re-runs only the commands that diverged before rejecting a node, a gate never outlives its run directory, setup keeps an existing config, and the notifier delivery flake is measured then fixed. Anthropic models only (claude-sonnet-5 workers, claude-opus-5 judge). Spec: docs/campaigns/harden-chain-and-verification/spec/SPEC.md.",
+  "status": "closed",
+  "linkedRunIds": [
+    "harden-chain-and-verification-1-coordinator-and-resume",
+    "harden-chain-and-verification-1b-resume-base-ref",
+    "harden-chain-and-verification-2-verification-fairness",
+    "harden-chain-and-verification-3-product-and-fixtures"
+  ],
+  "contracts": [
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/harden-chain-and-verification/contracts/1b-resume-base-ref.contract.json",
+      "digest": "215a8e4d6a205da564bd72c41542285b635db29b2c42b8e44bbcf4d764d76d66"
+    },
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/harden-chain-and-verification/contracts/3-product-and-fixtures.contract.json",
+      "digest": "86c2a5971d64fbf207de4e1f3bce2871f6d81db61f56649f451a99d0466136be"
+    }
+  ],
+  "landBranch": "campaign/harden-chain-and-verification",
+  "promotions": [
+    {
+      "runId": "harden-chain-and-verification-1-coordinator-and-resume",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/harden-chain-and-verification/contracts/1-coordinator-and-resume.contract.json",
+      "branch": "campaign/harden-chain-and-verification",
+      "sha": "4c635a5c088f74f269fdf755aca2b1c44564ce9e",
+      "previousSha": "529df993d1f7890ac15041c6355c15e80ef85f56",
+      "at": "2026-09-16T20:21:47.343Z"
+    },
+    {
+      "runId": "harden-chain-and-verification-1b-resume-base-ref",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/harden-chain-and-verification/contracts/1b-resume-base-ref.contract.json",
+      "branch": "campaign/harden-chain-and-verification",
+      "sha": "ade96bd28bb70593a086f0a1cdfd99438aede5a2",
+      "previousSha": "4c635a5c088f74f269fdf755aca2b1c44564ce9e",
+      "at": "2026-09-16T20:54:42.330Z"
+    },
+    {
+      "runId": "harden-chain-and-verification-2-verification-fairness",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/harden-chain-and-verification/contracts/2-verification-fairness.contract.json",
+      "branch": "campaign/harden-chain-and-verification",
+      "sha": "e3946b8f1fe29df040f1a19d089c13136bf00e00",
+      "previousSha": "ade96bd28bb70593a086f0a1cdfd99438aede5a2",
+      "at": "2026-09-16T21:59:28.242Z"
+    },
+    {
+      "runId": "harden-chain-and-verification-1b-resume-base-ref",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/harden-chain-and-verification/contracts/1b-resume-base-ref.contract.json",
+      "branch": "campaign/harden-chain-and-verification",
+      "sha": "0dfca2ffa0272a5ea6e42c0b4b29731f7a8a411a",
+      "previousSha": "0dfca2ffa0272a5ea6e42c0b4b29731f7a8a411a",
+      "at": "2026-09-16T21:59:56.819Z"
+    },
+    {
+      "runId": "harden-chain-and-verification-3-product-and-fixtures",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/harden-chain-and-verification/contracts/3-product-and-fixtures.contract.json",
+      "branch": "campaign/harden-chain-and-verification",
+      "sha": "17bce60b2ab978354ece3c9b4699f438e6729aca",
+      "previousSha": "0dfca2ffa0272a5ea6e42c0b4b29731f7a8a411a",
+      "at": "2026-09-16T23:42:26.262Z"
+    }
+  ],
+  "createdAt": "2026-09-16T19:28:19.823Z",
+  "updatedAt": "2026-09-17T00:08:23.390Z",
+  "closedAt": "2026-09-17T00:08:23.390Z"
+}

@@ -1,0 +1,17 @@
+{
+  "id": "operator-loop-20260913",
+  "goal": "Implement the four decidable improvements from the 2026-09-13 deep review: a dependency's output is legal to declare as a read, answer a blocked question and continue, one command that says what to do, and cost the operator declared.",
+  "status": "closed",
+  "linkedRunIds": [
+    "operator-loop-phase1-20260913",
+    "operator-loop-phase2-20260913",
+    "operator-loop-phase3-20260913",
+    "operator-loop-phase4-20260913",
+    "operator-loop-phase4-20260913b",
+    "operator-loop-phase4-20260913c",
+    "operator-loop-phase4-20260913d"
+  ],
+  "createdAt": "2026-09-13T14:21:24.689Z",
+  "updatedAt": "2026-09-14T05:13:34.436Z",
+  "closedAt": "2026-09-14T05:13:34.436Z"
+}
