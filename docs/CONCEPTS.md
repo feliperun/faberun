@@ -20,6 +20,23 @@ decision or a `supersede` note, never an edit to the record. See
 [COMMANDS.md](COMMANDS.md#campaign) and
 [operations.md](../skills/faberun/references/operations.md).
 
+## Spec
+
+The versioned, validated document a spec author hands the planner, before any
+contract exists: front matter (`id`, `title`, `version`, `status`, `date`,
+`owner`, `target`, `baseline`) and Intent, Requirements and Non-goals
+sections, each requirement carrying a stable `R<n>` id and a `proof` of
+`command`, `path` or `judgment`. It is checked by `spec validate`
+(`src/plan/spec.mjs`), which never invokes a model and classifies a document
+with no front matter as `legacy`, accepted rather than rejected. The
+invariant: the traceability rules — a requirement's id and proof, a
+Non-goals section, a Success criteria row's Baseline value, and a
+`target`/`baseline` that resolves against the repository — are advisory by
+default and blocking only under `--strict-traceability`, so an existing
+campaign record keeps validating while a new spec is held to the stricter
+bar. See [spec-format.md](../skills/faberun/references/spec-format.md) and
+[COMMANDS.md](COMMANDS.md#spec).
+
 ## Campaign
 
 The durable layer above runs: a goal, an ordered manifest of contracts, a
@@ -28,7 +45,10 @@ landing branch, and the journal of what happened. Campaign state lives at
 `HANDOFF.md`, managed by `campaign init`, `attach`, `note`, `sync`, `ack`,
 `watch`, `resolve`, `close`, `list` and `show`. The invariant: every contract
 requires a `campaignId`; a campaign can link many runs, and `close` refuses
-until a `retrospective` note exists. See [COMMANDS.md](COMMANDS.md#campaign) and
+until a `retrospective` note exists. `close` also copies the journal, the
+record and every linked run's usage into `docs/campaigns/<id>/ledger/`, so
+that history survives once `.runs/` (gitignored) is pruned. See
+[COMMANDS.md](COMMANDS.md#campaign) and
 [operations.md](../skills/faberun/references/operations.md).
 
 ## Contract

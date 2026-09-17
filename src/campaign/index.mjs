@@ -1,4 +1,5 @@
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -9,7 +10,7 @@ import { join, resolve } from "node:path";
 import { writeJsonAtomic } from "../run/store.mjs";
 import { requireId, requirePacketHash, requireString, requireTimestamp } from "../contract/assert.mjs";
 import { promoteRun } from "../repo/integrate.mjs";
-import { CAMPAIGN_FILE, GOAL_TEXT_BYTES, PROJECTION_FILE, campaignDir, campaignsDir } from "./layout.mjs";
+import { CAMPAIGN_FILE, GOAL_TEXT_BYTES, JOURNAL_FILE, PROJECTION_FILE, campaignDir, campaignsDir } from "./layout.mjs";
 import { readCampaign } from "./record.mjs";
 import { appendJournal, normalizeText, readJournalForDedupe } from "./journal.mjs";
 import { readProjectionState } from "./projection.mjs";
@@ -122,7 +123,7 @@ export function resolveCampaign(runsDir, campaignId) {
 /**
  * @param {string} campaignPath
  * @param {{at?: string, eventId?: string}} options
- * @returns {{path: string, campaign: Campaign}}
+ * @returns {{path: string, campaign: Campaign, ledgerFiles: string[]}}
  */
 export function closeCampaign(campaignPath, { at = new Date().toISOString(), eventId = randomUUID() } = {}) {
   requireTimestamp(at, "at");
@@ -131,10 +132,52 @@ export function closeCampaign(campaignPath, { at = new Date().toISOString(), eve
   if (!readJournalForDedupe(campaignPath).some((entry) => entry.type === "retrospective")) {
     throw new Error(`campaign ${campaign.id} has no recorded retrospective; record one with note --kind retrospective before close`);
   }
+  const repoRoot = resolve(campaignPath, "..", "..", "..");
+  const ledgerFiles = preserveCampaignLedger(campaignPath, repoRoot);
   const closed = /** @type {Campaign} */ ({ ...campaign, status: "closed", closedAt: at, updatedAt: at });
   writeJsonAtomic(join(campaignPath, CAMPAIGN_FILE), closed);
   appendJournal(campaignPath, { type: "campaign.closed", at, eventId });
-  return { path: campaignPath, campaign: closed };
+  return { path: campaignPath, campaign: closed, ledgerFiles };
+}
+
+/**
+ * Copy a campaign's journal, record and each linked run's usage into
+ * `<repoRoot>/docs/campaigns/<id>/ledger/` so the comparative arm of the
+ * planner has a session-side baseline even after `.runs/` (gitignored) is
+ * pruned. Nothing in this tree redacts token counts, costs or operator notes
+ * before this point, so the copy is verbatim; the pre-commit secret scan is
+ * the guard against anything that should not land in git.
+ *
+ * Idempotent: re-running it (a second `close` on an already-closed campaign
+ * cannot reach this, but a direct call can) overwrites the same destination
+ * files rather than duplicating them. A linked run without a `usage.jsonl`
+ * (never launched, or pruned) is skipped rather than thrown.
+ *
+ * @param {string} campaignPath
+ * @param {string} repoRoot
+ * @returns {string[]}
+ */
+export function preserveCampaignLedger(campaignPath, repoRoot) {
+  const campaign = readCampaign(campaignPath);
+  const runsDir = resolve(campaignPath, "..", "..");
+  const ledgerDir = join(repoRoot, "docs", "campaigns", campaign.id, "ledger");
+  mkdirSync(ledgerDir, { recursive: true });
+  const written = [];
+  for (const name of [JOURNAL_FILE, CAMPAIGN_FILE]) {
+    const source = join(campaignPath, name);
+    if (!existsSync(source)) continue;
+    const destination = join(ledgerDir, name);
+    copyFileSync(source, destination);
+    written.push(destination);
+  }
+  for (const runId of campaign.linkedRunIds) {
+    const source = join(runsDir, runId, "usage.jsonl");
+    if (!existsSync(source)) continue;
+    const destination = join(ledgerDir, `${runId}.usage.jsonl`);
+    copyFileSync(source, destination);
+    written.push(destination);
+  }
+  return written;
 }
 
 /**

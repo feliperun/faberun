@@ -447,6 +447,7 @@ function close(campaignId, values) {
   const closed = closeCampaign(path, { eventId: values.eventId ?? randomUUID() });
   renderHandoff(path, runsDir);
   process.stdout.write(`[campaign] ${closed.campaign.id} closed\n`);
+  process.stdout.write(`[campaign] ledger · docs/campaigns/${closed.campaign.id}/ledger · ${closed.ledgerFiles.length} files\n`);
   if (syncAgentSignal(runsDir)) process.stdout.write(`[campaign] AGENTS.md signal updated\n`);
 }
 
