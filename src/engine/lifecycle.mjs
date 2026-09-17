@@ -17,17 +17,8 @@ import {
   SETTLED,
 } from "./prompts.mjs";
 import {
-  judgeReaskOutstanding,
-} from "./judge-gate.mjs";
-import {
-  judgeVerdictEvidence,
-} from "../contract/review-modes.mjs";
-import {
-  JUDGE_MAX_FAILURES,
-  applyJudgeProtocolFailure,
   applyJudgeResult,
   applyJudgeRound,
-  settleUnavailableJudge,
 } from "./review.mjs";
 import { routeRuntimeForState, routingBackoffActive, runtimeSnapshot } from "./failover.mjs";
 import {
@@ -61,11 +52,11 @@ import {
   workerResultPath,
 } from "./result-file.mjs";
 import { canReuseResultEvidence, checkResultMaterializationScope, checkWorkerScope, recordScopeFinding, sourceWorkerRuntime } from "./scope.mjs";
-import { compareWorkspaceSnapshot } from "../repo/workspace.mjs";
 import { startJudge, startResultMaterialization } from "./dispatch.mjs";
 import { raiseNodeAttention, settleDone } from "./settle.mjs";
 import { applyRejection, applyVerificationFailure } from "./settle.mjs";
 import { emitNodeAdvisories } from "./notify-queue.mjs";
+import { judgeWorkspaceWriteViolation, settleJudgeRound } from "./settle-judge.mjs";
 
 /** @typedef {import("../repo/integrate.mjs").IntegrationResult} IntegrationResult */
 /** @typedef {import("./backoff.mjs").Transition} Transition */
@@ -81,7 +72,6 @@ import { emitNodeAdvisories } from "./notify-queue.mjs";
 /** @typedef {import("../contract/index.mjs").GateResult} GateResult */
 /** @typedef {import("../contract/index.mjs").SnapshotError} SnapshotError */
 /** @typedef {import("../contract/index.mjs").BoundedScope} BoundedScope */
-/** @typedef {import("../repo/workspace.mjs").WorkspaceSnapshot} WorkspaceSnapshot */
 /** @typedef {import("../run/lock.mjs").LockRecord} LockRecord */
 /** @typedef {ReturnType<typeof acquireLock>} LockHandle */
 /** @typedef {import("../harnesses/index.mjs").HarnessRuntime} HarnessRuntime */
@@ -91,7 +81,6 @@ import { emitNodeAdvisories } from "./notify-queue.mjs";
 /** @typedef {import("../contract/verification.mjs").VerificationAttempt} VerificationAttempt */
 /** @typedef {import("../contract/verification.mjs").VerificationAttemptResult} VerificationAttemptResult */
 /** @typedef {import("../contract/verification.mjs").VerificationResult} VerificationResult */
-/** @typedef {import("../repo/workspace.mjs").ScopeComparison} ScopeComparison */
 /** @typedef {import("../contract/worker-result.mjs").WorkerResult} WorkerResult */
 /** @typedef {import("../campaign/index.mjs").Campaign} Campaign */
 /** @typedef {{path: string, campaign: Campaign}} CampaignRef */
@@ -278,18 +267,11 @@ export function autoRetryParkedNodes(contract, runDir, states, lock, previouslyP
  *
  * @param {NodeSnapshot} state
  */
-function clearTierExhaustion(state) {
+export function clearTierExhaustion(state) {
   if (!state.routing || state.routing.tierExhaustion === undefined) return;
   const routing = { ...state.routing };
   delete routing.tierExhaustion;
   state.routing = /** @type {NodeSnapshot["routing"]} */ (routing);
-}
-
-/** Paths a judge wrote into its own workspace, or null with no baseline to compare; `startJudge` stamps the baseline onto the worker phase's own `scopeBaseline` job field, since a job is never both. @param {Job} job @returns {string[]|null} */
-export function judgeWorkspaceWrites(job) {
-  const baseline = /** @type {WorkspaceSnapshot|undefined} */ (job.scopeBaseline);
-  if (!baseline) return null;
-  try { return compareWorkspaceSnapshot(baseline, job.cwd).unexpectedPaths; } catch { return null; }
 }
 
 /**
@@ -401,6 +383,25 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
     appendUsageRecord(runDir, state.invocations.find((invocation) => invocation.id === job.invocation.id));
     state.usage = invocationUsage(state);
     state.costUsd = invocationCost(state);
+    // Checked before any other branch can act on how this invocation closed --
+    // a done verdict, a provider failure, a bounded re-dispatch, or exhaustion
+    // -- so a judge that wrote into its own workspace is caught here rather
+    // than laundered through a re-dispatch whose fresh baseline would already
+    // contain the write (the whole point of TECH-SPEC's write check: blocked
+    // outright, never re-asked). A comparison that cannot even be completed --
+    // an edited ignore source, a symlink escaping the tree, too many entries --
+    // is the same violation as an ordinary write, never silence: the worker
+    // path (`engine/scope.mjs`'s `checkWorkerScope`) already fails closed on
+    // exactly the same throw.
+    if (job.phase === "judge") {
+      const violation = judgeWorkspaceWriteViolation(job);
+      if (violation) {
+        clearTierExhaustion(state);
+        transition(runDir, state, "blocked", { phase: "judge", result: state.result, usage: state.usage, error: { code: "judge_protocol", message: violation.message } }, lock);
+        await raiseNodeAttention(campaignPath, runDir, state, "judge_protocol");
+        continue;
+      }
+    }
     // A closed worker whose canonical result file is valid and whose scope
     // passed is completed work, no matter what the provider envelope or the
     // exit code said. The durable file was read above, before the scope gate,
@@ -433,61 +434,17 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
       continue;
     }
     // A judge provider that failed outright (its turn died, its tool host was
-    // gone) is a provider failure, never a verdict: the gate cannot adopt a
-    // result the judge could not ground in inspection. Re-dispatch the judge
-    // once on the same routing, then settle by review mode so a judge failure
-    // is surfaced, never silently settled. A stream that never reached its
-    // terminal envelope is a protocol defect instead and takes the bounded
-    // re-ask below.
-    if (job.phase === "judge" && envelope.status === "failed" && envelope.error?.code !== "incomplete_stream") {
-      // A judge that lost its socket is not an unavailable judge. It buys the
-      // same bounded network waits a worker does, on the runtime it already
-      // warmed, and spends none of the one re-dispatch counted below.
-      const network = networkTransition(contract, job.node, state, "judge", envelope, job.exitCode);
-      if (network && handleProviderExhaustion(contract, runDir, job.node, state, "judge", envelope, job.runtime.id, lock, states, campaignPath, network)) continue;
-      clearTierExhaustion(state);
-      // The provider died on the bounded re-ask itself, so the one permitted
-      // re-ask is spent: settle by review mode here rather than dispatch a
-      // third judge invocation behind a fresh failure count.
-      if (judgeReaskOutstanding(state)) {
-        await applyJudgeProtocolFailure(contract, job.node, state, runDir, running, lock, states, campaignPath, envelope.error?.message ?? "judge provider failed");
-        continue;
-      }
-      state.judgeFailures = (state.judgeFailures ?? 0) + 1;
-      if (state.judgeFailures < JUDGE_MAX_FAILURES) {
-        writeNode(runDir, state, lock);
-        await applyJudgeRound(await startJudge(contract, job.node, state, runDir, running, state.result, lock, states, campaignPath),
-          contract, job.node, state, runDir, running, lock, states, campaignPath, state.result);
-        continue;
-      }
-      await settleUnavailableJudge(contract, job.node, state, runDir, lock, states, campaignPath, envelope.error?.message ?? "judge provider failed");
-      continue;
-    }    // Whatever else this invocation produced, it is not exactly one usable
-    // verdict: no verdict at all, several of them in separate agent messages,
-    // an unparseable one, a stream cut off before its terminal envelope, or a
-    // phase killed on its wall clock. One bounded re-ask, then the review mode
-    // decides — advisory completes, blocking enters attention with the work
-    // preserved so a retry in place can re-judge it.
+    // gone) is a provider failure, never a verdict, and a verdict that arrived
+    // but is not exactly one usable one (none at all, several of them, an
+    // unparseable one, a stream cut off before its terminal envelope, or a
+    // phase killed on its wall clock) is a protocol defect rather than a
+    // pass. Both are settled by `settleJudgeRound`, moved out of this file
+    // for the same reason `engine/settle.mjs` was: this file and
+    // `test/engine/judge.test.mjs` both sit on the 800-line ceiling
+    // `test/repo/source-shape.test.mjs` enforces. The write check above has
+    // already run, so nothing here can adopt or launder a judge's own write.
     if (job.phase === "judge") {
-      // Checked before any verdict is adopted, whatever the harness's declared sandbox; blocked outright, never re-asked (a re-ask's own snapshot would already carry this write).
-      const judgeWrites = judgeWorkspaceWrites(job);
-      if (judgeWrites && judgeWrites.length) {
-        clearTierExhaustion(state);
-        const message = excerpt(`judge wrote into its own workspace (${judgeWrites.length}): ${judgeWrites.slice(0, 8).join(", ")}`);
-        transition(runDir, state, "blocked", { phase: "judge", result: state.result, usage: state.usage, error: { code: "judge_protocol", message } }, lock);
-        await raiseNodeAttention(campaignPath, runDir, state, "judge_protocol");
-        continue;
-      }
-      const evidence = judgeVerdictEvidence(envelope);
-      if (!evidence.ok) {
-        const network = networkTransition(contract, job.node, state, "judge", envelope, job.exitCode);
-        if (network && handleProviderExhaustion(contract, runDir, job.node, state, "judge", envelope, job.runtime.id, lock, states, campaignPath, network)) continue;
-        clearTierExhaustion(state);
-        await applyJudgeProtocolFailure(contract, job.node, state, runDir, running, lock, states, campaignPath, evidence.reason);
-        continue;
-      }
-      clearTierExhaustion(state);
-      await applyJudgeResult(contract, job.node, state, evidence.result, runDir, lock, running, states, campaignPath);
+      await settleJudgeRound(contract, job, state, runDir, running, lock, states, campaignPath, envelope, { clearTierExhaustion, handleProviderExhaustion });
       continue;
     }
     // An empty final message is a missing worker result, not a no-op worker:
