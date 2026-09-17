@@ -318,6 +318,55 @@ process.stdin.on("end", () => {
   assert.ok(notifications(result.runDir).some((event) => event.type === "attention" && event.errorCode === "judge_protocol"));
 });
 
+/** A judge that poisons its own workspace when `FABERUN_JUDGE_POISON` is set, and answers cleanly otherwise -- one provider for both halves of the write-detection test. @param {string} directory @returns {string} */
+function judgeWorkspaceWriteProvider(directory) {
+  const fake = join(directory, "judge-write-provider.mjs");
+  writeFileSync(fake, `#!${process.execPath}
+import { writeFileSync } from "node:fs";
+if (process.argv.includes("--version")) { console.log("1.0.0"); process.exit(0); }
+let input = ""; process.stdin.setEncoding("utf8"); process.stdin.on("data", (c) => { input += c; });
+process.stdin.on("end", () => {
+  const judge = JSON.parse(input).prompt.startsWith("Review node");
+  if (judge && process.env.FABERUN_JUDGE_POISON) writeFileSync("poison.txt", "x\\n");
+  const result = judge ? JSON.stringify({ verdict: "pass", maxSeverity: "none", summary: "looks fine", findings: [] })
+    : JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
+  console.log(JSON.stringify({ schemaVersion: 1, type: "run.completed", result, continuationId: "c", usage: { inputTokens: 2, outputTokens: 1, cacheReadInputTokens: 0 } }));
+});
+`);
+  chmodSync(fake, 0o755);
+  return fake;
+}
+/** @param {string} directory @param {string} id @param {string} fake @returns {string} */
+function judgeWorkspaceWriteContract(directory, id, fake) {
+  return writeContract(directory, fixture({
+    id, pollIntervalMs: 10, runtimeDefaults: { worker: "jsonl", judge: "jsonl-judge" },
+    runtimes: {
+      jsonl: { harness: "exec-jsonl", model: "fake", vendor: "exec-jsonl-worker", executable: fake },
+      "jsonl-judge": { harness: "exec-jsonl", model: "fake", vendor: "exec-jsonl-judge", executable: fake },
+    },
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: { review: "blocking", failOn: ["major", "critical"] }, definitionOfDone: [{ id: "quality", text: "the result is high quality", judgment: true }] }],
+  }));
+}
+
+test("a judge that writes into its own workspace is blocked as a judge_protocol defect, and one that writes nothing still settles as before", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-judge-writes-"));
+  const fake = judgeWorkspaceWriteProvider(directory);
+  const previousPoison = process.env.FABERUN_JUDGE_POISON;
+  process.env.FABERUN_JUDGE_POISON = "1";
+  const poisoned = await runContract(judgeWorkspaceWriteContract(directory, "judge-writes-run", fake));
+  previousPoison === undefined ? delete process.env.FABERUN_JUDGE_POISON : (process.env.FABERUN_JUDGE_POISON = previousPoison);
+  const poisonedState = nodeState(poisoned);
+  assert.equal(poisonedState.status, "blocked", poisonedState.error?.message);
+  assert.equal(poisonedState.phase, "judge"); assert.equal(poisonedState.error?.code, "judge_protocol");
+  assert.match(poisonedState.error?.message ?? "", /poison\.txt/u);
+  assert.equal(poisonedState.gate, null, "the judge's own verdict is never adopted once its write is caught");
+  assert.ok(notifications(poisoned.runDir).some((event) => event.type === "attention" && event.errorCode === "judge_protocol"));
+  const clean = await runContract(judgeWorkspaceWriteContract(directory, "judge-clean-run", fake));
+  const cleanState = nodeState(clean);
+  assert.equal(clean.ok, true, cleanState.error?.message);
+  assert.equal(cleanState.status, "done"); assert.equal(cleanState.gate?.verdict, "pass");
+});
+
 test("skips the judge for an empty Definition of Done checklist", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-empty-dod-gate-"));
   const judgeCalls = join(directory, ".runs", "empty-dod-judge-calls.txt");

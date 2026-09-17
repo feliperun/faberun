@@ -668,6 +668,19 @@ export async function startJudge(contract, node, state, runDir, running, workerR
       error.code = "judge_prompt_too_large";
       throw error;
     }
+    // Captured at the last possible instant before the judge can touch
+    // anything, so the settlement pass's comparison proves what the judge
+    // itself wrote rather than racing whatever ran just before dispatch. A
+    // capture failure must not block dispatch -- the write check is a
+    // controller invariant on top of whatever the judge does, not a
+    // precondition for running it -- so it degrades to unchecked instead of
+    // to a refusal.
+    let judgeBaseline;
+    try {
+      judgeBaseline = captureWorkspaceSnapshot(workspace);
+    } catch {
+      judgeBaseline = null;
+    }
     const job = startProcess({
       contract, node, state, runtime, workspace,
       prompt: phasePlan.prompt,
@@ -678,6 +691,10 @@ export async function startJudge(contract, node, state, runDir, running, workerR
       }),
       onInvocation: (invocation, currentJob) => {
         stampInvocation(invocation, contract, node, runtime, state, runDir, "judge", phasePlan.mode, phasePlan.continuationId);
+        // Reusing the worker phase's own scratch field: a job is never both a
+        // worker and a judge, and this field carries no persisted shape of
+        // its own that a judge borrowing it would have to match.
+        currentJob.scopeBaseline = judgeBaseline;
         persistInvocation(runDir, state, invocation, currentJob, lock);
         persistInvocationIntent(runDir, invocation, {
           nodeId: node.id,

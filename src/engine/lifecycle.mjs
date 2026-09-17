@@ -61,6 +61,7 @@ import {
   workerResultPath,
 } from "./result-file.mjs";
 import { canReuseResultEvidence, checkResultMaterializationScope, checkWorkerScope, recordScopeFinding, sourceWorkerRuntime } from "./scope.mjs";
+import { compareWorkspaceSnapshot } from "../repo/workspace.mjs";
 import { startJudge, startResultMaterialization } from "./dispatch.mjs";
 import { raiseNodeAttention, settleDone } from "./settle.mjs";
 import { applyRejection, applyVerificationFailure } from "./settle.mjs";
@@ -284,6 +285,13 @@ function clearTierExhaustion(state) {
   state.routing = /** @type {NodeSnapshot["routing"]} */ (routing);
 }
 
+/** Paths a judge wrote into its own workspace, or null with no baseline to compare; `startJudge` stamps the baseline onto the worker phase's own `scopeBaseline` job field, since a job is never both. @param {Job} job @returns {string[]|null} */
+export function judgeWorkspaceWrites(job) {
+  const baseline = /** @type {WorkspaceSnapshot|undefined} */ (job.scopeBaseline);
+  if (!baseline) return null;
+  try { return compareWorkspaceSnapshot(baseline, job.cwd).unexpectedPaths; } catch { return null; }
+}
+
 /**
  * @param {ValidatedContract} contract
  * @param {string} runDir
@@ -441,9 +449,6 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
       // The provider died on the bounded re-ask itself, so the one permitted
       // re-ask is spent: settle by review mode here rather than dispatch a
       // third judge invocation behind a fresh failure count.
-      // The provider died on the bounded re-ask itself, so the one permitted
-      // re-ask is spent: settle by review mode here rather than dispatch a
-      // third judge invocation behind a fresh failure count.
       if (judgeReaskOutstanding(state)) {
         await applyJudgeProtocolFailure(contract, job.node, state, runDir, running, lock, states, campaignPath, envelope.error?.message ?? "judge provider failed");
         continue;
@@ -464,6 +469,15 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
     // decides — advisory completes, blocking enters attention with the work
     // preserved so a retry in place can re-judge it.
     if (job.phase === "judge") {
+      // Checked before any verdict is adopted, whatever the harness's declared sandbox; blocked outright, never re-asked (a re-ask's own snapshot would already carry this write).
+      const judgeWrites = judgeWorkspaceWrites(job);
+      if (judgeWrites && judgeWrites.length) {
+        clearTierExhaustion(state);
+        const message = excerpt(`judge wrote into its own workspace (${judgeWrites.length}): ${judgeWrites.slice(0, 8).join(", ")}`);
+        transition(runDir, state, "blocked", { phase: "judge", result: state.result, usage: state.usage, error: { code: "judge_protocol", message } }, lock);
+        await raiseNodeAttention(campaignPath, runDir, state, "judge_protocol");
+        continue;
+      }
       const evidence = judgeVerdictEvidence(envelope);
       if (!evidence.ok) {
         const network = networkTransition(contract, job.node, state, "judge", envelope, job.exitCode);

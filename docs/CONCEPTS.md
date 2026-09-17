@@ -145,7 +145,12 @@ then `runtimeDefaults.judge`; an output is `pass` only with empty `findings` and
 `maxSeverity: none`. The invariant: a judge reviews recorded results and never
 re-runs them, it must resolve to a different vendor from the worker that
 actually ran the attempt, and a dead or malformed judge is a review-protocol
-defect, not a verdict. See
+defect, not a verdict. The controller enforces the no-writes half of that
+invariant itself, by comparing the judge's workspace before and after its
+invocation, rather than by trusting a harness-declared sandbox capability: a
+judge that modifies the workspace it is reviewing blocks the node with error
+code `judge_protocol`, naming the paths it touched, whatever harness it ran
+on. See
 [contract.md](../skills/faberun/references/contract.md).
 
 ## Gate (advisory, blocking, failOn, revisions)
