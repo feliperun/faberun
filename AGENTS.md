@@ -208,6 +208,8 @@ When this file governs anything in production:
 <!-- faberun-active:start (managed by faberun — read, never edit) -->
 Before starting new work here, check `.runs/`: if a campaign is active or a run is not terminal, continue it instead of starting over — read its `HANDOFF.md`/`STATUS.md`, attach to the campaign, and `resume` or `supervise` the run. Active runs are supervised by a deterministic detached process: do not poll `status` in a loop — on resume, check status once and act only on terminal states.
 
+- faberun campaign `adversarial-planner`: active — read `.runs/campaigns/adversarial-planner/HANDOFF.md`
+  - attention: run harden-chain-and-verification-2-verification-fairness needs you · verification_failed
 - faberun run `become-faberun-2b-install-and-shape-fix`: parked — `install-script:exhausted revision_cap` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/become-faberun-2b-install-and-shape-fix`
 - faberun run `env-independence-and-generated-docs-3-reference-load`: parked — `declared-read-bytes:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/env-independence-and-generated-docs-3-reference-load`
 - faberun run `factory-autonomy-p2-20260914`: parked — `parked-not-finished:failed unexpected_write` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/factory-autonomy-p2-20260914`
@@ -218,6 +220,5 @@ Before starting new work here, check `.runs/`: if a campaign is active or a run 
 - faberun run `if-audit-drivers-20260910`: parked — `audit-dsh-driver:blocked judge_unavailable`, `audit-zcode-driver:blocked dependency_failed` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-audit-drivers-20260910`
 - faberun run `if-exec-permission-20260911`: parked — `exec-permission-gate:failed provider_error` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-exec-permission-20260911`
 - faberun run `if-measure-c0-20260910`: parked — `path-independence:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-measure-c0-20260910`
-- faberun run `if-measure-c0-20260910-take2`: parked — `path-independence:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/if-measure-c0-20260910-take2`
 - … signal truncated; read the campaign HANDOFF.md for the rest
 <!-- faberun-active:end -->
