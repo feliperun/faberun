@@ -11,7 +11,6 @@
  * `runContract` in-process, deterministically.
  */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { randomUUID } from "node:crypto";
 import { dirname, join, relative, resolve } from "node:path";
 import { validateContract } from "../contract/index.mjs";
 import { discoveryOutput } from "../contract/worker-result.mjs";
@@ -19,7 +18,7 @@ import { readWorkerResultFile } from "../engine/result-file.mjs";
 import { classifyRunProgress } from "../campaign/chain.mjs";
 import { campaignDir } from "../campaign/layout.mjs";
 import { readCampaign } from "../campaign/record.mjs";
-import { appendJournal } from "../campaign/journal.mjs";
+import { campaignCli } from "../cli/campaign.mjs";
 import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
 import { validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
@@ -159,14 +158,11 @@ export async function runPlanningPipeline(options) {
       const planPath = join(plansDir, "plan.json");
       writeJsonAtomic(planPath, { formatVersion: 1, status: "contested", rounds: round, findings });
       logStage("contested", { round, criticalCount: criticalFindings.length });
-      appendJournal(campaignPath, {
-        type: "open-question",
-        eventId: randomUUID(),
-        at: new Date().toISOString(),
-        sessionId: PLANNER_SESSION_ID,
-        questionId: `plan-${phase}-contested`,
-        text: `Plan for phase ${phase} is contested after ${round} review round(s): ${criticalFindings.map((finding) => finding.text).join("; ")}`,
-      });
+      await campaignCli([
+        "note", campaignId, "--cwd", cwd, "--session-id", PLANNER_SESSION_ID,
+        "--kind", "open-question", "--question-id", `plan-${phase}-contested`,
+        "--text", `Plan for phase ${phase} is contested after ${round} review round(s): ${criticalFindings.map((finding) => finding.text).join("; ")}`,
+      ]);
       return { status: "contested", plansDir, planPath, findings, round };
     }
     const findingsPath = join(plansDir, `findings-round-${round}.json`);
@@ -223,14 +219,11 @@ export async function runPlanningPipeline(options) {
   const planPath = join(plansDir, "plan.json");
   writeJsonAtomic(planPath, { ...frozen, status: "frozen", approved });
   if (!approved) {
-    appendJournal(campaignPath, {
-      type: "open-question",
-      eventId: randomUUID(),
-      at: new Date().toISOString(),
-      sessionId: PLANNER_SESSION_ID,
-      questionId: `plan-${phase}-approval`,
-      text: `Plan for phase ${phase} carries a ${highestRiskTier}-risk node; approval is required under --approve-below ${approveBelow}.`,
-    });
+    await campaignCli([
+      "note", campaignId, "--cwd", cwd, "--session-id", PLANNER_SESSION_ID,
+      "--kind", "open-question", "--question-id", `plan-${phase}-approval`,
+      "--text", `Plan for phase ${phase} carries a ${highestRiskTier}-risk node; approval is required under --approve-below ${approveBelow}.`,
+    ]);
   }
   logStage("approval", { approved, approveBelow, highestRiskTier });
 
