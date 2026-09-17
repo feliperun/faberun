@@ -154,13 +154,17 @@ test("install.sh repoints current when FABERUN_VERSION changes", () => {
   assert.notEqual(realpathSync(join(space.home, "current")), realpathSync(join(space.home, "versions", PACKAGE_VERSION)));
 });
 
+// Every utility install.sh invokes for this scenario (a tarball source with
+// FABERUN_VERSION set, so the curl/sed/head version-lookup branch never
+// runs), minus node itself: sh to run the script, tar to extract the
+// tarball, and mkdir/rm/mv/ln/chmod/cp to lay out the version and its links.
+const INSTALL_SH_BINARIES_WITHOUT_NODE = ["sh", "tar", "mkdir", "rm", "mv", "ln", "chmod", "cp"];
+
 test("install.sh fails when node is missing from PATH", async () => {
   const space = workspace();
   const tarball = tarballOf(stageTree().parent);
   await withEmptyPath(() => {
-    // Keep /bin and /usr/bin for sh and tar; node lives outside both.
-    process.env.PATH = `${process.env.PATH}:/bin:/usr/bin`;
-    const result = spawnSync("/bin/sh", [INSTALL_SH], {
+    const result = spawnSync("sh", [INSTALL_SH], {
       encoding: "utf8",
       env: {
         ...process.env,
@@ -173,5 +177,15 @@ test("install.sh fails when node is missing from PATH", async () => {
     });
     assert.equal(result.status, 1);
     assert.match(`${result.stdout}${result.stderr}`, /\[fail\] node/);
-  });
+  }, { binaries: INSTALL_SH_BINARIES_WITHOUT_NODE });
+});
+
+test("withEmptyPath exposes only the binaries it is asked for", async () => {
+  await withEmptyPath(() => {
+    const missing = spawnSync("sh", ["-c", "command -v tar"], { encoding: "utf8" });
+    assert.notEqual(missing.status, 0, "tar must not resolve when it was not requested");
+
+    const present = spawnSync("sh", ["-c", "command -v sh"], { encoding: "utf8" });
+    assert.equal(present.status, 0, present.stderr);
+  }, { binaries: ["sh"] });
 });
