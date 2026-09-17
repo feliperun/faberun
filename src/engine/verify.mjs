@@ -252,15 +252,36 @@ function argvEqual(a, b) {
   return a.every((item, index) => item === b[index]);
 }
 /**
+ * Marks whether the integration candidate's own verification pass is running
+ * right now, nested inside the attempt's own already-completed verification
+ * record rather than as a new node-snapshot field: that record's validator
+ * (`validateVerificationSnapshot`) accepts extra keys, where the node
+ * snapshot's own strict field list would reject one. Status surfaces read it
+ * to tell "still verifying the sealed candidate" apart from "waiting on the
+ * judge", which otherwise both read as whatever phase the attempt last
+ * dispatched under.
+ *
+ * @param {string} runDir
+ * @param {NodeSnapshot} state
+ * @param {LockHandle|null} lock
+ * @param {boolean} active
+ */
+function markCandidateVerification(runDir, state, lock, active) {
+  state.verification = /** @type {VerificationState} */ ({ ...(state.verification ?? { passed: false, commands: [], completed: false }), candidate: active });
+  writeNode(runDir, state, lock);
+}
+/**
  * @param {ValidatedContract} contract
  * @param {ValidatedNode} node
  * @param {NodeSnapshot} state
  * @param {string} runDir
  * @param {string} workspace
+ * @param {LockHandle|null} [lock]
  * @returns {Promise<import("../repo/integrate.mjs").CandidateEvidence>}
  */
-export async function verifyCandidateWorkspace(contract, node, state, runDir, workspace) {
+export async function verifyCandidateWorkspace(contract, node, state, runDir, workspace, lock = null) {
   const commands = [...node.taskPacket.verification, ...sharedVerificationCommands(contract), ...finalVerificationCommands(contract, node, settledSiblingIds(runDir, contract, node))];
+  markCandidateVerification(runDir, state, lock, true);
   try {
     const result = await runVerification(commands, workspace, {
       logDir: join(runDir, "logs", `${node.id}.${state.attempt}.candidate-verification`),
@@ -282,5 +303,7 @@ export async function verifyCandidateWorkspace(contract, node, state, runDir, wo
     return settled.retried ? { ...compacted, retried: settled.retried } : compacted;
   } catch (error) {
     return { passed: false, error: boundedUtf8(errorMessage(error), 4 * 1024) };
+  } finally {
+    markCandidateVerification(runDir, state, lock, false);
   }
 }

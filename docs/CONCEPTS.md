@@ -336,7 +336,12 @@ The durable evidence of a run lives under `<cwd>/.runs/<id>/`: `contract.json`,
 carries the live summary. The invariant: stored files are state and logs are
 diagnostics, raw worker output stays under `.runs/` while only status and
 actionable verdicts enter the control session, and the run directory is
-self-contained enough to resume. See
+self-contained enough to resume. The status payload's `executionPhase` names
+`candidate` while a node's sealed integration candidate is being re-verified
+(distinct from `worker` or `judge`), and its `gateOutcome` (`passed` or
+`rejected`) names what the gate actually decided rather than echoing the
+judge's own `verdict`, so a gate that accepted a fail verdict below its
+threshold never renders as a failure. See
 [contract.md](../skills/faberun/references/contract.md) and
 [COMMANDS.md](COMMANDS.md#status).
 

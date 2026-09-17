@@ -26,7 +26,7 @@ const POINTER_ATTENTION_CHARS = 80;
 /** @typedef {{costUsd: number|null, costProvenance: CostProvenance, inputTokens: number, outputTokens: number, cacheReadInputTokens: number, pricedInvocations: number, unpricedInvocations: number}} RoleUsage */
 /** @typedef {{inputTokens: number|null, outputTokens: number|null, cacheReadInputTokens: number|null}} StatusPayloadUsage */
 /** @typedef {{index: number, total: number, argv: string}} VerificationProgress */
-/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, verdict: string|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, errorCode: string|null, blockedBy: string[], verificationProgress: VerificationProgress|null, declaredReadBytes: number|null}} StatusPayloadNode */
+/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, verdict: string|null, gateOutcome: "passed"|"rejected"|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, errorCode: string|null, blockedBy: string[], verificationProgress: VerificationProgress|null, declaredReadBytes: number|null}} StatusPayloadNode */
 /** @typedef {{schemaVersion: 1, run: string, contractId: string, campaignId: string, goal: string, usage: {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUsd: number|null}, roles: {worker: RoleUsage, judge: RoleUsage}, controller: JsonObject, identityWarnings: string[], summary: string, nodes: StatusPayloadNode[]}} StatusPayload */
 
 /** The glyph each terminal state prints in a status table. */
@@ -43,13 +43,11 @@ export const MARK = {
 };
 
 /**
- * `status <run-dir>`: everything the operator needs, in the same order as
- * the dashboard page (TECH-SPEC lean, section 4's last paragraph) —
- * needs-you, now, nodes, cost. Every cell comes from the same payload
- * `status --json` and the per-run `status.json` file emit
- * (`buildStatusPayload`); `nodes` and `identityWarnings` from `loadRun` are
- * used only for the two facts the payload does not carry: throwing on an
- * invalid persisted snapshot, and `controllerStatus`'s lock read.
+ * `status <run-dir>`: needs-you, now, nodes, cost, in the dashboard's order
+ * (TECH-SPEC lean, section 4's last paragraph). Every cell comes from the same
+ * payload `status --json` emits (`buildStatusPayload`); `nodes` and
+ * `identityWarnings` from `loadRun` cover only what the payload does not:
+ * throwing on an invalid snapshot, and `controllerStatus`'s lock read.
  *
  * @param {string} runDir
  * @returns {string}
@@ -75,7 +73,7 @@ export function renderStatus(runDir) {
   const widths = [3, 24, 9, 3, 28, 8, 6, 6, 6, 10, 9, MAX_NOTE_LENGTH];
   /** @type {(cells: unknown[]) => string} */
   const row = (cells) => cells.map((cell, i) => fit(String(cell ?? ""), widths[i])).join(" ");
-  lines.push("```", row(["", "NODE", "STATE", "TRY", "RUNTIME", "ELAPSED", "IN", "CACHE", "OUT", "USD", "VERDICT", "NOTE"]), row(widths.map((width) => "-".repeat(width))));
+  lines.push("```", row(["", "NODE", "STATE", "TRY", "RUNTIME", "ELAPSED", "IN", "CACHE", "OUT", "USD", "GATE", "NOTE"]), row(widths.map((width) => "-".repeat(width))));
   for (const node of payload.nodes) {
     lines.push(row([
       MARK[node.status] ?? "[?]",
@@ -88,7 +86,7 @@ export function renderStatus(runDir) {
       compactTokens(node.usage?.cacheReadInputTokens),
       compactTokens(node.usage?.outputTokens),
       compactCost(node.costUsd),
-      node.verdict ?? "-",
+      node.gateOutcome ?? "-",
       node.note ?? "-",
     ]));
   }
@@ -98,12 +96,10 @@ export function renderStatus(runDir) {
 }
 
 /**
- * The node the operator should look at right now, formatted the same way
- * the dashboard's now strip is (TECH-SPEC lean, section 4, item 1): the
- * active node's elapsed time and cost so far, or an idle line once every
- * node has settled. A node awaiting a controller verification command
- * appends which one, `k/n`, and its argv, so a minutes-long suite is not
- * silent between ticks.
+ * The node the operator should look at right now, formatted like the
+ * dashboard's now strip (TECH-SPEC lean, section 4, item 1): elapsed time and
+ * cost so far, or idle once every node has settled. A node awaiting a
+ * controller verification command appends which one, `k/n`, and its argv.
  *
  * @param {StatusPayload} payload
  * @param {number} now epoch ms
@@ -114,7 +110,8 @@ function nowLine(payload, now) {
   if (active) {
     const progress = active.verificationProgress;
     const verification = progress ? ` · verification ${progress.index}/${progress.total} · ${progress.argv}` : "";
-    return `now: ${active.id} ${active.status} (${formatElapsed(active, now)}) · ${active.runtime ?? "-"} · ${compactCost(active.costUsd)}${verification}`;
+    const candidate = !progress && active.executionPhase === "candidate" ? " · candidate verification" : "";
+    return `now: ${active.id} ${active.status} (${formatElapsed(active, now)}) · ${active.runtime ?? "-"} · ${compactCost(active.costUsd)}${verification}${candidate}`;
   }
   const allTerminal = payload.nodes.every((node) => SUCCESS.has(node.status));
   return allTerminal ? `now: idle · run done · ${compactCost(payload.usage.costUsd)}` : "now: idle";
@@ -132,6 +129,27 @@ function nowLine(payload, now) {
 function verificationProgress(node) {
   const verification = /** @type {{progress?: VerificationProgress}|null|undefined} */ (node.verification);
   return verification?.progress ?? null;
+}
+
+/** Set by `verifyCandidateWorkspace` (engine/verify.mjs) for the run of the sealed candidate's own re-verification pass. @param {NodeSnapshot} node @returns {boolean} */
+function candidateVerificationActive(node) {
+  const verification = /** @type {{candidate?: boolean}|null|undefined} */ (node.verification);
+  return verification?.candidate === true;
+}
+
+/** `candidate` while re-verifying the sealed candidate, `verification` mid-attempt-verification, else the persisted phase; the two never overlap. @param {NodeSnapshot} node @returns {string|null} */
+function executionPhaseOf(node) {
+  if (candidateVerificationActive(node)) return "candidate";
+  if (verificationProgress(node)) return "verification";
+  return node.phase;
+}
+
+/** What the gate decided (independent of `verdict`: an advisory review or a below-threshold fail verdict still accepts the node, engine/review.mjs `applyJudgeResult`). @param {NodeSnapshot} node @returns {"passed"|"rejected"|null} */
+export function gateOutcome(node) {
+  if (!node.gate) return null;
+  if (SUCCESS.has(node.status)) return "passed";
+  if (node.status === "failed" || node.status === "exhausted") return "rejected";
+  return null;
 }
 
 /**
@@ -216,7 +234,7 @@ function buildStatusPayload(runDir, contract, nodes, identityWarnings, usage) {
         // A running controller verification command does not move
         // `node.phase` (it stays `worker`, the phase that dispatched it), so
         // the surface that shows it is computed here rather than persisted.
-        executionPhase: progress ? "verification" : node.phase,
+        executionPhase: executionPhaseOf(node),
         runtime: node.runtime ? `${node.runtime.harness}/${node.runtime.model}` : null,
         workerRuntime: workerRuntimeLabel(node),
         continuation: continuationMode(node),
@@ -227,6 +245,7 @@ function buildStatusPayload(runDir, contract, nodes, identityWarnings, usage) {
         usage: node.usage ? { inputTokens: node.usage.inputTokens ?? null, outputTokens: node.usage.outputTokens ?? null, cacheReadInputTokens: node.usage.cacheReadInputTokens ?? null } : null,
         costUsd: typeof node.costUsd === "number" ? node.costUsd : null,
         verdict: node.gate?.verdict ?? null,
+        gateOutcome: gateOutcome(node),
         pendingHandoff: pendingHandoff(node),
         note: statusNote(node),
         scopeFindings: node.scopeFindings?.unexpectedPaths ?? null,
@@ -256,16 +275,11 @@ function activeStatusNode(nodes) {
 }
 
 /**
- * The bounded pointer record written to `.runs/status.json`: enough for a
- * quick ambient read (statusline, a stale watcher) without opening the
- * per-run status.json. Bounded the same way heartbeat.json used to be, so a
- * cheap bounded read stays valid for any reader still built that way.
- * `generatedAt` is unix seconds, not ISO: the statusline's no-jq fallback has
- * no clock and only jq's builtin `now` can compute an age from a live clock,
- * and neither path needs a `date` process to read an integer. `elapsedSec`
- * is likewise precomputed here (as of `generatedAt`, not live) so the
- * statusline never has to subtract two timestamps to show it — it just
- * prints the integer, whichever reader it is.
+ * The bounded pointer record written to `.runs/status.json`, for a quick
+ * ambient read without opening the per-run status.json (bounded like the old
+ * heartbeat.json). `generatedAt` is unix seconds, not ISO, and `elapsedSec` is
+ * precomputed from it, since the no-jq statusline fallback has no clock to
+ * subtract two timestamps with.
  *
  * @param {JsonObject} payload the per-run status.json payload
  * @param {NodeSnapshot[]} nodes
@@ -340,10 +354,7 @@ export function writeStatusArtifacts(runDir, runsDir, contract, states) {
  */
 export function controllerStatus(runDir, nodes) {
   const lock = readLock(runDir);
-  // The heartbeat's `at` is the live tick, so a working controller and a dead
-  // one are distinguishable on disk. Before this it was hard-coded null here
-  // and computed from node updates only once the lock was already stale, which
-  // is why all 47 recorded status.json files reported a null lastTick.
+  // The heartbeat's `at` distinguishes a working controller from a dead one on disk.
   const heartbeat = readHeartbeat(runDir);
   const lastTick = typeof heartbeat?.at === "string" ? heartbeat.at : null;
   if (!lock || /** @type {{invalid?: true}} */ (lock).invalid) {
@@ -473,14 +484,11 @@ export function renderFindings(runDir) {
 }
 
 /**
- * A node the worker itself stopped on, rendered as the repair it asks for.
- *
- * `findings` used to answer only gate exhaustion, and a run whose nodes all
- * stopped on `blocked_context` reported nothing to act on while the workers
- * had each named exactly what they needed — measured on a four-node campaign
- * where three nodes were blocked and the command printed one line saying so.
- * The question is already structured, so the repair is mechanical: put the
- * named paths in the packet's `readFiles` and take a new run id.
+ * A node the worker itself stopped on, rendered as the repair it asks for:
+ * `findings` used to answer only gate exhaustion, so a run whose nodes all
+ * stopped on `blocked_context` reported nothing to act on (measured on a
+ * four-node campaign with three nodes blocked). The repair is mechanical: put
+ * the named paths in the packet's `readFiles` and take a new run id.
  *
  * @param {NodeSnapshot} node
  * @returns {string|null}
@@ -553,16 +561,11 @@ function continuationMode(node) {
 }
 
 /**
- * Who produced this node's work, for the RUNTIME column of both tables.
- *
- * `state.runtime` is the last runtime *dispatched*, and the judge dispatch
- * overwrites the worker's: every gated node that reached its gate therefore
- * reported its judge as the runtime, and a six-node campaign whose workers
- * were five different harnesses rendered as though three of them had never
- * run (measured 2026-09-13). The invocation ledger keeps both roles, so the
- * label is derived from it: the worker that ran, falling back to the live
- * runtime for a node that has not dispatched one yet. The judge is not lost —
- * it owns the VERDICT column, and `nowLine` still names whatever is running.
+ * Who produced this node's work, for the RUNTIME column: `state.runtime` is
+ * the last runtime *dispatched*, and the judge dispatch overwrites the
+ * worker's (measured 2026-09-13: a six-harness campaign rendered as though
+ * three workers never ran), so this reads the invocation ledger for the
+ * worker that ran, falling back to the live runtime if none dispatched yet.
  *
  * @param {NodeSnapshot} node
  * @returns {string|null}
@@ -633,7 +636,7 @@ function boundedNote(segments, maxLength = MAX_NOTE_LENGTH) {
 export function statusNote(node) {
   const scope = scopeFindingsNote(node.scopeFindings);
   const review = reviewNote(node);
-  const detail = node.gate?.summary ?? node.error?.message ?? node.blockedBy?.join(", ") ?? node.phase;
+  const detail = node.gate?.summary ?? node.error?.message ?? node.blockedBy?.join(", ") ?? (candidateVerificationActive(node) ? "candidate" : node.phase);
   const note = boundedNote([review, detail]);
   if (!scope) return note;
   return boundedNote([scope, note]);
@@ -657,13 +660,10 @@ function nodeNote(node) {
 /** @typedef {{costUsd: number|null, status: "known"|"estimated"|"ambiguous"}} CostProjection */
 
 /**
- * Per-role usage from the invocation ledger alone, with the provenance that
- * says whether the role's cost total is honest. A role whose invocations all
- * carry a provider cost is `priced` and its `costUsd` is the sum; a role with
- * any unpriced invocation is `partial` (some priced) or `unpriced` (none), and
- * its `costUsd` stays null rather than summing the known half and understating
- * it. A role with no invocation is `none`. Token totals are always carried, so
- * a role the provider would not price still reads as work.
+ * Per-role usage from the invocation ledger, with provenance for whether the
+ * cost total is honest: `priced` (all invocations costed), `partial`/`unpriced`
+ * (some/none costed, so `costUsd` stays null rather than understating), or
+ * `none` (no invocation). Token totals are always carried.
  *
  * @param {NodeSnapshot[]} nodes
  * @returns {{worker: RoleUsage, judge: RoleUsage}}
