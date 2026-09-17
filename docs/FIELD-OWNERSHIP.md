@@ -106,7 +106,7 @@ document and the schema cannot drift apart.
 | `open-question` | `note` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when a note of that kind is recorded |
 | `question.resolved` | `resolveQuestion` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when `campaign note --resolve` runs |
 | `retrospective` | `note` | `at`, `type`, `eventId`, `sessionId`, `text` | when a note of that kind is recorded |
-| `seat.allowance` | `appendSeatAllowanceEvent` | `at`, `type`, `eventId`, `sample`, `harness`, `remaining`, `limit`, `resetsAt`, `delta` | when `campaign init` samples the operator's own seat allowance at campaign start (`sample: "start"`, `harness` from env-marker detection, `delta: null`), and when `plan freeze` re-samples that exact same harness (not the plan's worker runtime) at plan freeze (`sample: "freeze"`, `delta` against the start sample, or `null` with no start entry to compare against) |
+| `seat.allowance` | `appendSeatAllowanceEvent` | `at`, `type`, `eventId`, `sample`, `harness`, `remaining`, `limit`, `resetsAt`, `delta`, `window` | when `campaign init` samples the operator's own seat allowance at campaign start (`sample: "start"`, `harness` from env-marker detection, `delta: null`), and when `plan freeze` re-samples that exact same harness (not the plan's worker runtime) at plan freeze (`sample: "freeze"`, `delta` against the start sample, or `null` with no start entry to compare against); `window` names the rate-limit window the sample measured (claude's `rateLimitType`, e.g. `"seven_day"`), so a delta across two differently-governed windows can be told apart from a real one |
 
 ## The ratchet, measured
 
@@ -155,7 +155,7 @@ behavior, and a node that declares must not also move the thing it declares.
     "open-question": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "questionId", "text"] },
     "question.resolved": { "writers": ["resolveQuestion"], "fields": ["at", "type", "eventId", "sessionId", "questionId", "text"] },
     "retrospective": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "text"] },
-    "seat.allowance": { "writers": ["appendSeatAllowanceEvent"], "fields": ["at", "type", "eventId", "sample", "harness", "remaining", "limit", "resetsAt", "delta"] }
+    "seat.allowance": { "writers": ["appendSeatAllowanceEvent"], "fields": ["at", "type", "eventId", "sample", "harness", "remaining", "limit", "resetsAt", "delta", "window"] }
   },
   "events": {
     "schemaVersion": { "writers": ["appendTransitionEvent", "assertEnvironmentReady"] },

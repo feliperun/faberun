@@ -65,7 +65,7 @@ const ENTRY_SHAPES = {
   "question.resolved": ["at", "type", "eventId", "sessionId", "questionId", "text"],
   retrospective: ["at", "type", "eventId", "sessionId", "text"],
   liveness: ["at", "type", "eventId", "campaignId", "runId", "nodeId", "phase", "checkpointsDone", "checkpointsTotal", "runtime", "state", "lastProgressAt", "attention"],
-  "seat.allowance": ["at", "type", "eventId", "sample", "harness", "remaining", "limit", "resetsAt", "delta"],
+  "seat.allowance": ["at", "type", "eventId", "sample", "harness", "remaining", "limit", "resetsAt", "delta", "window"],
 };
 const SEAT_ALLOWANCE_SAMPLES = new Set(["start", "freeze"]);
 /**
@@ -316,6 +316,11 @@ function validateSeatAllowanceEntry(entry) {
   if (entry.resetsAt !== null && typeof entry.resetsAt !== "string") {
     throw new TypeError("seat.allowance resetsAt must be null or a string");
   }
+  // Optional: a historical entry, and every call site not yet updated to
+  // sample it, carries no window at all.
+  if (entry.window !== undefined && entry.window !== null && typeof entry.window !== "string") {
+    throw new TypeError("seat.allowance window must be null or a string");
+  }
 }
 /**
  * The one writer of `seat.allowance`: `campaign init` calls it for the
@@ -325,7 +330,7 @@ function validateSeatAllowanceEntry(entry) {
  * carries.
  *
  * @param {string} campaignPath
- * @param {{sample: "start"|"freeze", harness: string|null, remaining: number|null, limit: number|null, resetsAt: string|null, delta: number|null}} allowance
+ * @param {{sample: "start"|"freeze", harness: string|null, remaining: number|null, limit: number|null, resetsAt: string|null, delta: number|null, window?: string|null}} allowance
  * @returns {{entry: JournalEntry, deduplicated: boolean}}
  */
 export function appendSeatAllowanceEvent(campaignPath, allowance) {

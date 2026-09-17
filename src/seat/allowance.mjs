@@ -19,32 +19,59 @@
  * (once) and `plan freeze` (once per phase) each spend one probe when the
  * sampled harness is claude.
  */
-import { spawn } from "node:child_process";
+import { spawn as nodeSpawn } from "node:child_process";
 import { getHarness } from "../harnesses/index.mjs";
 
-/** @typedef {{remaining: number|null, limit: number|null, resetsAt: string|null}} Allowance */
+// `window` is optional on the type (not every construction site names one --
+// `plan/pipeline.mjs` rebuilds a start sample from journal fields that predate
+// this field) even though every live sample from `sampleAllowance` always
+// carries it, `null` included.
+/** @typedef {{remaining: number|null, limit: number|null, resetsAt: string|null, window?: string|null}} Allowance */
 /** @typedef {{stdout: string, exitCode: number|null, signal: string|null}} InvokeResult */
 
 const ALLOWANCE_PROBE_PROMPT = "Reply with exactly OK and use no tools.";
 const ALLOWANCE_PROBE_TIMEOUT_MS = 30_000;
+// The signal is account-wide (see protocol.mjs's extractClaudeAllowance
+// header), not per-model, so the probe's own model choice does not affect
+// what it measures; claude-sonnet-5 is the cheapest claude model this
+// registry already names (src/engine/runtime-discovery.mjs), which keeps a
+// spent probe call cheap without inventing an unlisted model string.
+const ALLOWANCE_PROBE_MODEL = "claude-sonnet-5";
 
 /**
- * One minimal `claude -p` call, its stdout handed back raw for the adapter's
- * own `normalize` to parse. Every other harness resolves to null without
+ * The argv/executable for one minimal claude probe, built through the claude
+ * adapter's own `command` so the probe pays the same preamble discipline
+ * (`claudePreambleArgs`: no skills, no MCP, no settings, a bare tool list)
+ * every worker invocation already pays instead of a hand-written argv that
+ * skips it -- measured 2026-09-01 on that discipline alone, ~4,300
+ * uncached input tokens per turn against 65,170 with the ambient
+ * configuration (see `harnesses/claude/index.mjs`).
+ *
+ * @returns {import("../harnesses/index.mjs").HarnessCommand}
+ */
+function claudeProbeCommand() {
+  return getHarness("claude").command({ harness: "claude", model: ALLOWANCE_PROBE_MODEL }, ALLOWANCE_PROBE_PROMPT, {});
+}
+
+/**
+ * One minimal claude call, its stdout handed back raw for the adapter's own
+ * `normalize` to parse. Every other harness resolves to null without
  * spawning anything: the signal has only ever been measured on claude's
  * stream, and probing a harness that is known to expose nothing would spend a
  * call for no reading.
  *
  * @param {string} harness
+ * @param {{spawn?: typeof nodeSpawn}} [options]
  * @returns {Promise<InvokeResult|null>}
  */
-function defaultInvoke(harness) {
+export function defaultInvoke(harness, { spawn = nodeSpawn } = {}) {
   if (harness !== "claude") return Promise.resolve(null);
+  const command = claudeProbeCommand();
   return new Promise((settle) => {
     let child;
     try {
-      child = spawn(process.env.FABERUN_CLAUDE_BIN ?? "claude", ["-p", ALLOWANCE_PROBE_PROMPT, "--output-format", "stream-json", "--verbose"], {
-        stdio: ["ignore", "pipe", "pipe"],
+      child = spawn(command.executable, command.args, {
+        stdio: ["pipe", "pipe", "pipe"],
       });
     } catch {
       settle(null);
@@ -59,6 +86,12 @@ function defaultInvoke(harness) {
         // ESRCH: the child is already gone.
       }
     }, ALLOWANCE_PROBE_TIMEOUT_MS);
+    // A missing or early-dying binary can make the write below fail with
+    // EPIPE on the stdin stream itself, which is a different EventEmitter
+    // from the child process object below and needs its own listener (see
+    // `engine/process.mjs`'s stdin-transport branch for the same guard).
+    child.stdin.on("error", () => {});
+    child.stdin.end(command.input ?? "");
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", () => {});
     child.once("error", () => {
@@ -108,7 +141,10 @@ export async function sampleAllowance({ harness, invoke = defaultInvoke }) {
 
 /**
  * The change in remaining allowance between two samples, or null when either
- * sample is absent or itself carries no remaining figure.
+ * sample is absent, itself carries no remaining figure, or the two samples
+ * name different rate-limit windows: a `five_hour` utilization minus a
+ * `seven_day` one is not a delta, even though both are 0..1 fractions that
+ * subtract without error.
  *
  * @param {Allowance|null} start
  * @param {Allowance|null} freeze
@@ -116,5 +152,6 @@ export async function sampleAllowance({ harness, invoke = defaultInvoke }) {
  */
 export function allowanceDelta(start, freeze) {
   if (!start || !freeze || start.remaining === null || freeze.remaining === null) return null;
+  if (!start.window || !freeze.window || start.window !== freeze.window) return null;
   return freeze.remaining - start.remaining;
 }

@@ -5,7 +5,7 @@ import { finite } from "../util.mjs";
  * `zcode.mjs`, `replay.mjs` and `exec-jsonl.mjs` itself all depend on it.
  */
 
-/** @typedef {{remaining: number|null, limit: number|null, resetsAt: string|null}} ClaudeAllowance */
+/** @typedef {{remaining: number|null, limit: number|null, resetsAt: string|null, window: string|null}} ClaudeAllowance */
 
 /**
  * Parse newline-delimited JSON without accepting provider prose.
@@ -106,6 +106,15 @@ function withStartupReason(message, options = {}) {
  * clamped, so a future scale change on the stream fails visibly instead of
  * pinning every sample to 0.
  *
+ * `unifiedWindows` carries every window's own utilization side by side
+ * (`five_hour: 0.1` next to `seven_day: 0.77` in the measured line above): the
+ * top-level `utilization` is only ever the figure for the window `rateLimitType`
+ * names, so a sample must read the named window out of `unifiedWindows` (falling
+ * back to the top-level field only when `unifiedWindows` carries no entry for
+ * it) and record which window that was. Two samples of different windows are
+ * not comparable -- a `five_hour` utilization minus a `seven_day` one is not a
+ * delta -- so the window travels with the sample for `allowanceDelta` to pin.
+ *
  * @param {Record<string, unknown>[]} events
  * @returns {ClaudeAllowance}
  */
@@ -113,18 +122,26 @@ function extractClaudeAllowance(events) {
   const event = events.findLast((candidate) => candidate.type === "rate_limit_event");
   const info = event?.rate_limit_info;
   const record = info && typeof info === "object" && !Array.isArray(info) ? /** @type {Record<string, unknown>} */ (info) : null;
-  const rawUtilization = record ? finite(record.utilization) : null;
+  const window = record && typeof record.rateLimitType === "string" ? record.rateLimitType : null;
+  const unifiedWindows = record?.unifiedWindows && typeof record.unifiedWindows === "object" && !Array.isArray(record.unifiedWindows)
+    ? /** @type {Record<string, unknown>} */ (record.unifiedWindows)
+    : null;
+  const namedWindowEntry = window && unifiedWindows?.[window] && typeof unifiedWindows[window] === "object" && !Array.isArray(unifiedWindows[window])
+    ? /** @type {Record<string, unknown>} */ (unifiedWindows[window])
+    : null;
+  const rawUtilization = finite(namedWindowEntry ? namedWindowEntry.utilization : record?.utilization);
   const utilization = rawUtilization !== null && rawUtilization >= 0 && rawUtilization <= 1 ? rawUtilization : null;
-  const resetsAtSeconds = record ? finite(record.resetsAt) : null;
+  const resetsAtSeconds = finite(namedWindowEntry ? namedWindowEntry.resetsAt : record?.resetsAt);
   return {
     remaining: utilization === null ? null : 1 - utilization,
     limit: utilization === null ? null : 1,
     resetsAt: resetsAtSeconds === null ? null : new Date(resetsAtSeconds * 1000).toISOString(),
+    window,
   };
 }
 
 /** The claude allowance shape with every member null: no signal was read. */
-const NULL_CLAUDE_ALLOWANCE = { remaining: null, limit: null, resetsAt: null };
+const NULL_CLAUDE_ALLOWANCE = { remaining: null, limit: null, resetsAt: null, window: null };
 
 /**
  * @param {string} stdout
