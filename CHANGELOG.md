@@ -2,6 +2,22 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.9.0](https://github.com/feliperun/faberun/compare/v0.8.0...v0.9.0) (2026-09-17)
+
+
+### Features
+
+* **evals:** comparative arm for the planner over real campaign records ([55677e9](https://github.com/feliperun/faberun/commit/55677e98f4f8fb5f0c1ca9c3223878ca637a6fc6))
+* planning outside the session, with budget, isolation and a verdict by measurement ([8e8a1fc](https://github.com/feliperun/faberun/commit/8e8a1fcb7f2453bc22c6a8538df6652903f60e07))
+* **seat:** pin the rate-limit window an allowance sample measured ([d5840a1](https://github.com/feliperun/faberun/commit/d5840a1d38d002042c29c3b7c6db81315badea20))
+* **seat:** sample the harness allowance and journal its delta ([3db8cdc](https://github.com/feliperun/faberun/commit/3db8cdcfcec8c40fa980de0e3f460cf16782782e))
+
+
+### Bug Fixes
+
+* **plan:** route pipeline open-question notes through campaign note ([d6734b3](https://github.com/feliperun/faberun/commit/d6734b303c286d168601d03150b71402e53459c4))
+* **plan:** write the frozen plan atomically and wait on its status in D25 ([a2f9082](https://github.com/feliperun/faberun/commit/a2f9082d598dba1e677dc3a63793b8b0d5a7e0d0))
+
 ## [0.8.0](https://github.com/feliperun/faberun/compare/v0.7.0...v0.8.0) (2026-09-17)
 
 
