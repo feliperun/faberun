@@ -405,7 +405,7 @@ export function renderEvalComparisonReport(comparison) {
     lines.push(name);
     lines.push(`  before: ${JSON.stringify(entry.before.value)} (n=${entry.before.count})`);
     lines.push(`  after:  ${JSON.stringify(entry.after.value)} (n=${entry.after.count})`);
-    lines.push(`  delta:  ${entry.comparable ? entry.delta : "sem base de comparacao"}`);
+    lines.push(`  delta:  ${entry.comparable ? entry.delta : "no data"}`);
     lines.push(`  melhora conta como: ${entry.direction}`);
   }
   return `${lines.join("\n")}\n`;

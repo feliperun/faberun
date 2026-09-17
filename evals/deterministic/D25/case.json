@@ -1,0 +1,85 @@
+{
+  "id": "D25",
+  "title": "a detached planning pipeline survives its launcher",
+  "proves": "faberun plan --detach spawns a detached pipeline process and returns; once that pipeline's first stage (draft) has itself launched a run and that run's bootstrap.json proves it is under way, killing the launching process (the one that ran plan --detach) does not stop the pipeline: it keeps running draft, review and freeze on its own and plan.json eventually reaches status frozen with a contract.json alongside it, and the frozen contract's own id is never launched.",
+  "command": {
+    "argv": [
+      "plan",
+      "docs/spec.md",
+      "--campaign",
+      "d25-campaign",
+      "--phase",
+      "build",
+      "--runtime-defaults",
+      "worker=planner-worker",
+      "--runtimes",
+      "runtimes.json",
+      "--detach"
+    ]
+  },
+  "files": {
+    "src/plan/template.mjs": "export const TASK_KINDS = [];\n",
+    "src/index.mjs": "export default 1;\n",
+    "docs/spec.md": "# Feature 42\n\nA legacy spec with no front matter, accepted outright.\n"
+  },
+  "runtimes": {
+    "planner-worker": {
+      "harness": "replay",
+      "model": "replay-worker-model",
+      "vendor": "replay-worker-vendor",
+      "config": {}
+    },
+    "planner-judge": {
+      "harness": "replay",
+      "model": "replay-judge-model",
+      "vendor": "replay-judge-vendor",
+      "config": {}
+    }
+  },
+  "recordings": {
+    "planner-worker": "worker.jsonl"
+  },
+  "campaign": {
+    "id": "d25-campaign",
+    "goal": "Ship feature 42"
+  },
+  "setup": [
+    {
+      "type": "spawnDetached",
+      "as": "launcher",
+      "argv": [
+        "plan",
+        "docs/spec.md",
+        "--campaign",
+        "d25-campaign",
+        "--phase",
+        "build",
+        "--runtime-defaults",
+        "worker=planner-worker",
+        "--runtimes",
+        "runtimes.json",
+        "--detach"
+      ]
+    },
+    {
+      "type": "waitForPath",
+      "path": ".runs/d25-campaign-plan-build-draft-1/bootstrap.json",
+      "timeoutMs": 20000
+    },
+    {
+      "type": "killProcess",
+      "as": "launcher"
+    },
+    {
+      "type": "waitForPath",
+      "path": ".runs/campaigns/d25-campaign/plans/build/plan.json",
+      "timeoutMs": 30000
+    }
+  ],
+  "discriminator": {
+    "type": "patchRecordingErrorCode",
+    "runtime": "planner-worker",
+    "index": 0,
+    "code": "simulated_failure"
+  }
+}

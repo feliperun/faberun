@@ -197,6 +197,7 @@ export function renderUsage() {
     "contract validate <contract.json>",
     "spec validate <file> [--strict-traceability] [--json]",
     "spec scaffold <path> [--id <id>]",
+    "plan <spec.md> --campaign <id> [--phase <phase>] [--review-rounds <n>] [--approve-below standard|high|none] [--runtime-defaults worker=<id>,judge=<id>] [--detach] [--json]",
     "metrics <campaign-id> [--cwd <dir>] [--json]",
     "campaign <init|watch|attach|note|resolve|close|supervise|show|list|sync|ack> ...",
     "seat <start|attach|status|stop> [<campaign-id>] [--cwd <dir>] ...",

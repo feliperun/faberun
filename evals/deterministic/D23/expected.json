@@ -1,0 +1,16 @@
+{
+  "expectPaths": {
+    "present": [
+      ".runs/campaigns/d23-campaign/plans/build/contract.json"
+    ],
+    "absent": [
+      ".runs/d23-campaign-build"
+    ]
+  },
+  "plan": {
+    "path": ".runs/campaigns/d23-campaign/plans/build/plan.json",
+    "fields": {
+      "status": "frozen"
+    }
+  }
+}

@@ -11,6 +11,7 @@ import { JOURNAL_FILE, JOURNAL_TEXT_BYTES, JOURNAL_WATCH_CURSOR_DIR, JOURNAL_WAT
 import { boundedText, collapseLines } from "../util.mjs";
 import { campaignIdOf } from "./record.mjs";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { dirname, isAbsolute, join } from "node:path";
 import { requireText, requireTimestamp } from "../contract/assert.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
@@ -34,6 +35,7 @@ const JOURNAL_TYPES = new Set([
   "question.resolved",
   "retrospective",
   "liveness",
+  "seat.allowance",
 ]);
 const SESSION_REQUIRED_TYPES = new Set([
   "session.attached",
@@ -63,7 +65,9 @@ const ENTRY_SHAPES = {
   "question.resolved": ["at", "type", "eventId", "sessionId", "questionId", "text"],
   retrospective: ["at", "type", "eventId", "sessionId", "text"],
   liveness: ["at", "type", "eventId", "campaignId", "runId", "nodeId", "phase", "checkpointsDone", "checkpointsTotal", "runtime", "state", "lastProgressAt", "attention"],
+  "seat.allowance": ["at", "type", "eventId", "sample", "harness", "remaining", "limit", "resetsAt", "delta", "window"],
 };
+const SEAT_ALLOWANCE_SAMPLES = new Set(["start", "freeze"]);
 /**
  * Fields a liveness fact carried before the budget ceiling was removed. A
  * historical journal (like the live campaign's own) still has lines shaped
@@ -272,6 +276,7 @@ export function validateJournalEntry(entry) {
   // rejects an unexpected key; no deeper shape validation is needed for a type
   // nothing produces.
   if (type === "liveness") return;
+  if (type === "seat.allowance") return validateSeatAllowanceEntry(record);
   if (type === "session.attached") return validateSessionEntry(record);
   if (type === "run.registered") {
     requireText(record.runId, "entry.runId");
@@ -292,6 +297,49 @@ export function validateJournalEntry(entry) {
     requireText(record.questionId, "entry.questionId");
   }
   if (type === "outcome" && record.runId !== undefined) requireText(record.runId, "entry.runId");
+}
+/**
+ * @param {JsonObject} entry
+ */
+function validateSeatAllowanceEntry(entry) {
+  if (!SEAT_ALLOWANCE_SAMPLES.has(/** @type {string} */ (entry.sample))) {
+    throw new TypeError("seat.allowance sample must be start or freeze");
+  }
+  if (entry.harness !== null && typeof entry.harness !== "string") {
+    throw new TypeError("seat.allowance harness must be null or a string");
+  }
+  for (const field of ["remaining", "limit", "delta"]) {
+    if (entry[field] !== null && typeof entry[field] !== "number") {
+      throw new TypeError(`seat.allowance ${field} must be null or a number`);
+    }
+  }
+  if (entry.resetsAt !== null && typeof entry.resetsAt !== "string") {
+    throw new TypeError("seat.allowance resetsAt must be null or a string");
+  }
+  // Optional: a historical entry, and every call site not yet updated to
+  // sample it, carries no window at all.
+  if (entry.window !== undefined && entry.window !== null && typeof entry.window !== "string") {
+    throw new TypeError("seat.allowance window must be null or a string");
+  }
+}
+/**
+ * The one writer of `seat.allowance`: `campaign init` calls it for the
+ * `start` sample, `plan freeze` for the `freeze` sample. Kept as a single
+ * function, rather than two call sites building the literal themselves, so
+ * the field-ownership ratchet does not grow by one for every field this event
+ * carries.
+ *
+ * @param {string} campaignPath
+ * @param {{sample: "start"|"freeze", harness: string|null, remaining: number|null, limit: number|null, resetsAt: string|null, delta: number|null, window?: string|null}} allowance
+ * @returns {{entry: JournalEntry, deduplicated: boolean}}
+ */
+export function appendSeatAllowanceEvent(campaignPath, allowance) {
+  return appendJournal(campaignPath, {
+    type: "seat.allowance",
+    eventId: randomUUID(),
+    at: new Date().toISOString(),
+    ...allowance,
+  });
 }
 /**
  * @param {JsonObject} entry

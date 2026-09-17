@@ -24,12 +24,14 @@ writer per field` — re-derives every writer from `src/` and fails when the
 derivation disagrees with this document. The document is the declaration; the
 test is what keeps it from becoming fiction on the third change.
 
-**Measured 2026-09-16 against this tree:** 31 `events.jsonl` fields and 14
+**Measured 2026-09-17 against this tree:** 31 `events.jsonl` fields and 15
 `journal.jsonl` event types. Fifteen entries have more than one writer today.
 Those fifteen are the ratchet at the end of this file; they are declared, not
 fixed, because changing who writes a field is a behavior change and belongs to
 another node. The stale-group signal guard added the one new ratchet field,
-`invocationId`, on 2026-09-16.
+`invocationId`, on 2026-09-16. The seat-allowance-delta node added the one new
+event type, `seat.allowance`, on 2026-09-17, behind a single writer function
+so it does not grow the ratchet.
 
 A type or field nothing writes is not declared here. This document is a
 declaration of owners, and a field with no writer has no owner to declare.
@@ -80,10 +82,13 @@ marked **(ratchet)**.
 
 The writer of each event is the emitter that builds it: `initializeCampaign`,
 `closeCampaign` and `registerRun` in `src/campaign/index.mjs`; `attach`, `note`,
-`resolveQuestion` and `attachSessionOnceDaily` in `src/cli/campaign.mjs`. The
-field set of each type is the one `ENTRY_SHAPES` accepts in
-`src/campaign/journal.mjs`; it is listed here so the document and the schema
-cannot drift apart.
+`resolveQuestion` and `attachSessionOnceDaily` in `src/cli/campaign.mjs`;
+`appendSeatAllowanceEvent` in `src/campaign/journal.mjs` itself, called by both
+`init` (`src/cli/campaign.mjs`) and `runPlanningPipeline`'s freeze stage
+(`src/plan/pipeline.mjs`) so the two call sites share one writer instead of
+each building the literal itself. The field set of each type is the one
+`ENTRY_SHAPES` accepts in `src/campaign/journal.mjs`; it is listed here so the
+document and the schema cannot drift apart.
 
 | event type | writer(s) | fields | written when |
 | --- | --- | --- | --- |
@@ -101,6 +106,7 @@ cannot drift apart.
 | `open-question` | `note` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when a note of that kind is recorded |
 | `question.resolved` | `resolveQuestion` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when `campaign note --resolve` runs |
 | `retrospective` | `note` | `at`, `type`, `eventId`, `sessionId`, `text` | when a note of that kind is recorded |
+| `seat.allowance` | `appendSeatAllowanceEvent` | `at`, `type`, `eventId`, `sample`, `harness`, `remaining`, `limit`, `resetsAt`, `delta`, `window` | when `campaign init` samples the operator's own seat allowance at campaign start (`sample: "start"`, `harness` from env-marker detection, `delta: null`), and when `plan freeze` re-samples that exact same harness (not the plan's worker runtime) at plan freeze (`sample: "freeze"`, `delta` against the start sample, or `null` with no start entry to compare against); `window` names the rate-limit window the sample measured (claude's `rateLimitType`, e.g. `"seven_day"`), so a delta across two differently-governed windows can be told apart from a real one |
 
 ## The ratchet, measured
 
@@ -148,7 +154,8 @@ behavior, and a node that declares must not also move the thing it declares.
     "next": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "text"] },
     "open-question": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "questionId", "text"] },
     "question.resolved": { "writers": ["resolveQuestion"], "fields": ["at", "type", "eventId", "sessionId", "questionId", "text"] },
-    "retrospective": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "text"] }
+    "retrospective": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "text"] },
+    "seat.allowance": { "writers": ["appendSeatAllowanceEvent"], "fields": ["at", "type", "eventId", "sample", "harness", "remaining", "limit", "resetsAt", "delta", "window"] }
   },
   "events": {
     "schemaVersion": { "writers": ["appendTransitionEvent", "assertEnvironmentReady"] },

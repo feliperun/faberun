@@ -12,12 +12,14 @@ import {
 } from "../campaign/index.mjs";
 import { lockStale, pidAlive, processStartToken, readLock } from "../run/lock.mjs";
 import { syncAgentSignal } from "../repo/signal.mjs";
-import { acknowledgeJournalEvent, appendJournal, readJournal, watchJournal } from "../campaign/journal.mjs";
+import { acknowledgeJournalEvent, appendJournal, appendSeatAllowanceEvent, readJournal, watchJournal } from "../campaign/journal.mjs";
 import { driveCampaignChain } from "../campaign/chain.mjs";
 import { unparkCampaign } from "../campaign/unpark.mjs";
 import { readCampaign } from "../campaign/record.mjs";
 import { notifyQueueFor } from "../engine/notify-queue.mjs";
 import { appendInbox, readInbox, wakeCapabilityNotice } from "../notify/index.mjs";
+import { allowanceEventFields, sampleAllowance } from "../seat/allowance.mjs";
+import { detectOperatorHarness } from "../seat/harnesses.mjs";
 import { detachArgv, detachSelf, waitForBootstrap } from "./launch.mjs";
 import { errorCode, readJsonTolerant } from "../util.mjs";
 
@@ -326,12 +328,23 @@ function watchLockStale(occupant) {
  * @param {string} campaignId
  * @param {CliValues} values
  */
-function init(campaignId, values) {
+async function init(campaignId, values) {
   const cwd = resolve(values.cwd ?? ".");
   const runsDir = join(cwd, ".runs");
   const goal = textValue(values.goal, "--goal");
   const contracts = contractManifest(values.contract);
   const created = initializeCampaign(runsDir, { campaignId, goal, contracts, landBranch: values.landBranch });
+  // The operator's own seat: whichever harness this CLI is running inside
+  // (env-marker detection, see seat/harnesses.mjs), the only harness whose
+  // allowance is meaningful at a point before any node runtime exists.
+  const harness = detectOperatorHarness();
+  const allowance = await sampleAllowance({ harness });
+  appendSeatAllowanceEvent(created.path, {
+    sample: "start",
+    harness,
+    delta: null,
+    ...allowanceEventFields(allowance),
+  });
   renderHandoff(created.path, runsDir);
   process.stdout.write(`[campaign] ${campaignId} initialized · ${created.path} · landBranch ${created.campaign.landBranch} · ${created.campaign.contracts.length} contract(s)\n`);
   if (syncAgentSignal(runsDir)) process.stdout.write(`[campaign] AGENTS.md signal updated\n`);

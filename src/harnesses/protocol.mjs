@@ -5,6 +5,8 @@ import { finite } from "../util.mjs";
  * `zcode.mjs`, `replay.mjs` and `exec-jsonl.mjs` itself all depend on it.
  */
 
+/** @typedef {{remaining: number|null, limit: number|null, resetsAt: string|null, window: string|null}} ClaudeAllowance */
+
 /**
  * Parse newline-delimited JSON without accepting provider prose.
  *
@@ -76,32 +78,109 @@ function withStartupReason(message, options = {}) {
 }
 
 /**
+ * Claude's account-wide rate-limit signal, reported on its own `rate_limit_event`
+ * stream line, never on the terminal `result` event. Measured 2026-09-17
+ * against `claude -p 'Reply with exactly OK and use no tools.' --output-format
+ * stream-json --verbose`, cost `total_cost_usd: 0.27848` for that one probe
+ * (opus-tier default model, most of it `cache_creation_input_tokens` for this
+ * project's session context -- a probe against a smaller/cheaper model would
+ * cost far less, but the seat sampled is whichever model the operator's own
+ * session already has configured, so this is the honest per-probe figure for
+ * that seat). No `rate_limits` or `rate_limit_status` field appears anywhere
+ * in the stream. The measured line, verbatim:
+ * `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning",
+ * "resetsAt":1789837200,"rateLimitType":"seven_day","utilization":0.77,
+ * "isUsingOverage":false,"surpassedThreshold":0.75,"unifiedWindows":
+ * {"five_hour":{"utilization":0.1,"resetsAt":1789663200},"seven_day":
+ * {"utilization":0.77,"resetsAt":1789837200}}}}`. `utilization` is a 0..1
+ * fraction of the window named by `rateLimitType`, confirmed (not merely
+ * assumed) by `surpassedThreshold: 0.75` sitting just below the measured
+ * `0.77` at `status: "allowed_warning"` -- a 0-100 percentage scale would put
+ * 0.77 nowhere near a 75-scaled threshold. This is a different field, on a
+ * different scale, from the `used_percentage` (0-100) the statusline
+ * integration already reads off `rate_limits.five_hour` (see
+ * `integrations/claude-code/statusline.sh`); the two must not be confused.
+ * `remaining` here is the fraction left (`1 - utilization`) and `limit` is
+ * the fixed ceiling `1` -- a coarse proxy, declared as such. A `utilization`
+ * outside `[0, 1]` is treated as no signal (null) rather than silently
+ * clamped, so a future scale change on the stream fails visibly instead of
+ * pinning every sample to 0.
+ *
+ * `unifiedWindows` carries every window's own utilization side by side
+ * (`five_hour: 0.1` next to `seven_day: 0.77` in the measured line above): the
+ * top-level `utilization` is only ever the figure for the window `rateLimitType`
+ * names, so a sample must read the named window out of `unifiedWindows` (falling
+ * back to the top-level field only when `unifiedWindows` carries no entry for
+ * it) and record which window that was. Two samples of different windows are
+ * not comparable -- a `five_hour` utilization minus a `seven_day` one is not a
+ * delta -- so the window travels with the sample for `allowanceDelta` to pin.
+ *
+ * @param {Record<string, unknown>[]} events
+ * @returns {ClaudeAllowance}
+ */
+function extractClaudeAllowance(events) {
+  const event = events.findLast((candidate) => candidate.type === "rate_limit_event");
+  const info = event?.rate_limit_info;
+  const record = info && typeof info === "object" && !Array.isArray(info) ? /** @type {Record<string, unknown>} */ (info) : null;
+  const window = record && typeof record.rateLimitType === "string" ? record.rateLimitType : null;
+  const unifiedWindows = record?.unifiedWindows && typeof record.unifiedWindows === "object" && !Array.isArray(record.unifiedWindows)
+    ? /** @type {Record<string, unknown>} */ (record.unifiedWindows)
+    : null;
+  const namedWindowEntry = window && unifiedWindows?.[window] && typeof unifiedWindows[window] === "object" && !Array.isArray(unifiedWindows[window])
+    ? /** @type {Record<string, unknown>} */ (unifiedWindows[window])
+    : null;
+  const rawUtilization = finite(namedWindowEntry ? namedWindowEntry.utilization : record?.utilization);
+  const utilization = rawUtilization !== null && rawUtilization >= 0 && rawUtilization <= 1 ? rawUtilization : null;
+  const resetsAtSeconds = finite(namedWindowEntry ? namedWindowEntry.resetsAt : record?.resetsAt);
+  return {
+    remaining: utilization === null ? null : 1 - utilization,
+    limit: utilization === null ? null : 1,
+    resetsAt: resetsAtSeconds === null ? null : new Date(resetsAtSeconds * 1000).toISOString(),
+    window,
+  };
+}
+
+/** The claude allowance shape with every member null: no signal was read. */
+const NULL_CLAUDE_ALLOWANCE = { remaining: null, limit: null, resetsAt: null, window: null };
+
+/**
  * @param {string} stdout
  * @param {number|null} exitCode
  * @param {string|null} signal
  * @param {import("./index.mjs").NormalizeOptions} [options]
- * @returns {import("./index.mjs").ProviderEnvelope}
+ * @returns {import("./index.mjs").ProviderEnvelope & {allowance: ClaudeAllowance}}
  */
 export function normalizeClaudeResult(stdout, exitCode, signal, options = {}) {
-  if (signal) return failed("canceled", `provider ended after ${signal}`, "canceled");
+  // The signal check must stay the first statement, byte-identical to before
+  // the allowance signal existed: `parseJsonLines` throws on any unparseable
+  // line past the first, and a killed process routinely leaves a truncated
+  // *later* line (the bounded-tail tolerance only covers the first). Parsing
+  // stdout before checking `signal` would turn a clean cancellation into a
+  // thrown error, which callers (`src/run/usage.mjs`, `src/engine/process.mjs`)
+  // catch into `invalid_output` or `null`, losing the envelope entirely.
+  if (signal) return { ...failed("canceled", `provider ended after ${signal}`, "canceled"), allowance: NULL_CLAUDE_ALLOWANCE };
   const events = parseJsonLines(stdout, "claude");
+  const allowance = extractClaudeAllowance(events);
   const resultEvent = events.findLast((event) => event.type === "result");
-  if (!resultEvent) return failed("incomplete_stream", withStartupReason("Claude emitted no result event", options));
+  if (!resultEvent) return { ...failed("incomplete_stream", withStartupReason("Claude emitted no result event", options)), allowance };
   const result = typeof resultEvent.result === "string" ? resultEvent.result : null;
   // A provider-reported quota stop is exhaustion: the declared failover edge
   // must fire instead of settling the node as an ordinary provider failure.
   const quotaText = claudeQuotaText(resultEvent, events);
   if (quotaText) {
-    return failed(
-      "quota_exhausted",
-      boundedMessage(quotaText, 512),
-      "exhausted",
-      typeof resultEvent.session_id === "string" ? resultEvent.session_id : null,
-      canonicalUsage(resultEvent.usage),
-    );
+    return {
+      ...failed(
+        "quota_exhausted",
+        boundedMessage(quotaText, 512),
+        "exhausted",
+        typeof resultEvent.session_id === "string" ? resultEvent.session_id : null,
+        canonicalUsage(resultEvent.usage),
+      ),
+      allowance,
+    };
   }
   if (resultEvent.is_error || exitCode !== 0) {
-    return failed("provider_error", result ?? `Claude exited with code ${exitCode}`);
+    return { ...failed("provider_error", result ?? `Claude exited with code ${exitCode}`), allowance };
   }
   return {
     status: result?.trim() ? "done" : "no-op",
@@ -110,6 +189,7 @@ export function normalizeClaudeResult(stdout, exitCode, signal, options = {}) {
     usage: canonicalUsage(resultEvent.usage),
     costUsd: finite(resultEvent.total_cost_usd),
     error: null,
+    allowance,
   };
 }
 

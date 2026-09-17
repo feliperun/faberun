@@ -1,0 +1,28 @@
+{
+  "expectPaths": {
+    "absent": [
+      ".runs/campaigns/d24-campaign/plans/build/contract.json"
+    ]
+  },
+  "plan": {
+    "path": ".runs/campaigns/d24-campaign/plans/build/plan.json",
+    "fields": {
+      "status": "contested",
+      "rounds": 1,
+      "findings": [
+        {
+          "id": "F1",
+          "severity": "critical",
+          "nodeId": "build",
+          "text": "the plan is missing a rollback path"
+        }
+      ]
+    }
+  },
+  "journal": [
+    {
+      "type": "open-question",
+      "questionId": "plan-build-contested"
+    }
+  ]
+}

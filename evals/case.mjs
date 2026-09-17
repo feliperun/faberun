@@ -14,7 +14,7 @@ import { EVALS_ROOT } from "./paths.mjs";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { initializeCampaign } from "../src/campaign/index.mjs";
-import { join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
 
 const DETERMINISTIC_ROOT = join(EVALS_ROOT, "deterministic");
@@ -111,7 +111,14 @@ export async function withModelBinsUnavailable(fn) {
  * @returns {void}
  */
 export function initializeGitRepo(workDir) {
-  writeFileSync(join(workDir, ".gitignore"), "node_modules/\n.runs/\n");
+  // `.eval-recordings/` is ignored, not merely uncommitted: the replay
+  // harness writes a `.cursor` and an `.invocations.jsonl` sidecar next to
+  // each recording on every invocation, and a command-kind case's own
+  // `faberun plan` drives more than one `run` invocation against this same
+  // tree — a second one refuses to launch against a HEAD its own tree has
+  // drifted from (`assertLaunchBaseClean`) unless those sidecars are exempt
+  // from "dirty" the same way `.runs/` already is.
+  writeFileSync(join(workDir, ".gitignore"), "node_modules/\n.runs/\n.eval-recordings/\n");
   writeFileSync(join(workDir, "README.md"), "faberun eval case workspace\n");
   execFileSync("git", ["init", "-q", workDir], { stdio: "ignore" });
   execFileSync("git", ["-C", workDir, "add", "-A"], { stdio: "ignore" });
@@ -241,6 +248,35 @@ function resolveRelativeTimestamp(value) {
   return new Date(Date.now() + Number(match[1])).toISOString();
 }
 /**
+ * Copy one declared recording into a fresh case-local recordings directory,
+ * resolving relative timestamps and applying a discriminator's recording
+ * patch when it targets this runtime. Shared by `materializeCase` (a
+ * contract-kind case) and `materializePlanCase` (a command-kind case), which
+ * otherwise build two different things around the copied file.
+ *
+ * @param {string} caseId
+ * @param {string} caseDir
+ * @param {string} recordingsDir
+ * @param {string} runtimeId
+ * @param {string} filename
+ * @param {({runtime: string, index: number, code: string}|{runtime: string, index: number, path: (string|number)[], value?: unknown, remove?: boolean})|null|undefined} recordingPatch
+ * @returns {string}
+ */
+function copyRecording(caseId, caseDir, recordingsDir, runtimeId, filename, recordingPatch) {
+  const source = join(caseDir, filename);
+  if (!existsSync(source)) throw new Error(`case ${caseId} declares recording ${filename} for runtime ${runtimeId}, but the file does not exist`);
+  const dest = join(recordingsDir, filename);
+  let content = resolveRelativeTimestamps(readFileSync(source, "utf8"));
+  if (recordingPatch && recordingPatch.runtime === runtimeId) {
+    content = "code" in recordingPatch
+      ? patchRecordingErrorCode(content, recordingPatch)
+      : patchRecordingEnvelopeField(content, recordingPatch);
+  }
+  writeFileSync(dest, content);
+  return dest;
+}
+
+/**
  * Materialize one case's contract into a fresh temporary git repository, with
  * every recording copied in and every declared runtime's
  * `config["replay.recording"]` pointed at that copy.
@@ -262,16 +298,7 @@ export function materializeCase(caseDir, spec, patch = {}) {
   delete contract.cwd;
   if (patch.contractPatch) applyContractPatch(contract, patch.contractPatch);
   for (const [runtimeId, filename] of Object.entries(recordings)) {
-    const source = join(caseDir, filename);
-    if (!existsSync(source)) throw new Error(`case ${spec.id} declares recording ${filename} for runtime ${runtimeId}, but the file does not exist`);
-    const dest = join(recordingsDir, filename);
-    let content = resolveRelativeTimestamps(readFileSync(source, "utf8"));
-    if (patch.recordingPatch && patch.recordingPatch.runtime === runtimeId) {
-      content = "code" in patch.recordingPatch
-        ? patchRecordingErrorCode(content, patch.recordingPatch)
-        : patchRecordingEnvelopeField(content, patch.recordingPatch);
-    }
-    writeFileSync(dest, content);
+    const dest = copyRecording(/** @type {string} */ (spec.id), caseDir, recordingsDir, runtimeId, filename, patch.recordingPatch);
     const runtime = contract.runtimes?.[runtimeId];
     if (!runtime) throw new Error(`case ${spec.id} declares a recording for unknown runtime ${runtimeId}`);
     contract.runtimes[runtimeId] = { ...runtime, config: { ...(runtime.config ?? {}), "replay.recording": dest } };
@@ -283,4 +310,53 @@ export function materializeCase(caseDir, spec, patch = {}) {
 
   const runDir = join(workDir, ".runs", contract.id);
   return { workDir, contractPath, runDir, contract };
+}
+
+/**
+ * Materialize a command-kind case: a `case.json` carrying `command` instead
+ * of `contract`. Same temp git repository and recording-copy machinery as
+ * `materializeCase`, but the thing under test is `faberun plan` itself, so
+ * there is no single contract to write — instead, every fixture file the
+ * planning pipeline reads (the spec, the taskKind catalogue, and anything
+ * `--runtimes` names) is written from the case's own `files` map, and a
+ * runtime catalogue built from `spec.runtimes` (with recordings substituted
+ * in exactly the same way a contract's `runtimes` field gets them) is written
+ * to `runtimes.json` at the workspace root — the path `command.argv` names
+ * after `--runtimes`.
+ *
+ * @param {string} caseDir
+ * @param {Record<string, unknown>} spec
+ * @param {{recordingPatch?: ({runtime: string, index: number, code: string}|{runtime: string, index: number, path: (string|number)[], value?: unknown, remove?: boolean})|null}} [patch]
+ * @returns {{workDir: string, runtimesPath: string, campaignId: string}}
+ */
+export function materializePlanCase(caseDir, spec, patch = {}) {
+  const workDir = mkdtempSync(join(tmpdir(), `faberun-eval-${spec.id}-`));
+
+  const files = /** @type {Record<string, string>} */ (spec.files ?? {});
+  for (const [relativePath, content] of Object.entries(files)) {
+    const target = safeJoin(workDir, relativePath);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content);
+  }
+
+  const recordings = /** @type {Record<string, string>} */ (spec.recordings ?? {});
+  const recordingsDir = join(workDir, ".eval-recordings");
+  mkdirSync(recordingsDir, { recursive: true });
+  const runtimes = JSON.parse(JSON.stringify(spec.runtimes ?? {}));
+  for (const [runtimeId, filename] of Object.entries(recordings)) {
+    const dest = copyRecording(/** @type {string} */ (spec.id), caseDir, recordingsDir, runtimeId, filename, patch.recordingPatch);
+    const runtime = runtimes[runtimeId];
+    if (!runtime) throw new Error(`case ${spec.id} declares a recording for unknown runtime ${runtimeId}`);
+    runtimes[runtimeId] = { ...runtime, config: { ...(runtime.config ?? {}), "replay.recording": dest } };
+  }
+  const runtimesPath = join(workDir, "runtimes.json");
+  writeFileSync(runtimesPath, `${JSON.stringify(runtimes, null, 2)}\n`);
+
+  initializeGitRepo(workDir);
+
+  const campaign = /** @type {{id?: string, goal?: string}} */ (spec.campaign ?? {});
+  if (!campaign.id) throw new Error(`case ${spec.id} needs a "campaign" object with an "id"`);
+  initializeCampaign(join(workDir, ".runs"), { campaignId: campaign.id, goal: campaign.goal ?? "" });
+
+  return { workDir, runtimesPath, campaignId: campaign.id };
 }

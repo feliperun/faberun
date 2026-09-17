@@ -491,6 +491,41 @@ scaffolded docs/campaigns/feature-42/spec/SPEC.md
 ```
 Related: `faberun spec validate`.
 
+## faberun plan
+```text
+faberun plan <spec.md> [--campaign <value>] [--phase <value>] [--review-rounds <value>] [--approve-below <value>] [--runtime-defaults <value>] [--runtimes <value>] [--detach] [--json]
+```
+Run the planning pipeline outside the control session: draft, then review, then
+revise up to `--review-rounds` (default 2) whenever the reviewer's findings
+carry a `critical`, each stage an ordinary run whose invocations land in
+`usage.jsonl`. A round budget exhausted with a `critical` still open ends the
+plan `contested`; no contract is written and the campaign gets an
+`open-question`. Otherwise the plan is sized, routed and frozen; freezing never
+launches. The frozen plan's highest `riskTier` is compared against
+`--approve-below` (`standard` approves everything but a `high` node, `high`
+approves everything, `none` approves nothing); an unapproved plan gets its own
+`open-question`, resolved with `faberun campaign resolve`.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--campaign` | campaign id | The campaign the plan's runs and open-questions belong to. Required. | — |
+| `--phase` | text | The phase name every planning run and the frozen contract carry. | `default` |
+| `--review-rounds` | positive integer | The review/revise round budget before an unconverged plan is contested. | `2` |
+| `--approve-below` | `standard`, `high`, or `none` | The `riskTier` threshold below which a frozen plan is auto-approved. | `standard` |
+| `--runtime-defaults` | `worker=<id>,judge=<id>` | The operator's runtime instruction; wins over the routing table. | discovery |
+| `--runtimes` | path to a JSON file | A runtime catalogue in the contract's `runtimes` shape, validated the same way; replaces built-in discovery for every stage and the frozen contract. `--runtime-defaults` ids then resolve against it. | built-in discovery |
+| `--detach` | none | Spawn the whole pipeline detached and return once it starts. | off |
+| `--json` | none | Emit the pipeline's result object as one JSON line. | off |
+Reads `<spec.md>` and the target campaign's record; writes
+`.runs/campaigns/<campaign-id>/plans/<phase>/` (`repo-facts.json`,
+`pipeline.jsonl`, the working plan and findings, and `plan.json` with either
+`contract.json` alongside it or `status: "contested"`), plus the campaign's
+`open-question` journal entries when a plan is contested or awaits approval.
+```bash
+node src/cli.mjs plan docs/campaigns/feature-42/spec/SPEC.md --campaign feature-42 --phase build
+```
+Related: `faberun spec validate`, `faberun campaign resolve`, `faberun run`.
+
 ## faberun metrics
 ```text
 faberun metrics <campaign-id> [--cwd <value>] [--json]

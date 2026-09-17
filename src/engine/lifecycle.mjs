@@ -54,6 +54,7 @@ import { appendUsageRecord, invocationCost, invocationUsage, recordInvocationUsa
 import { attemptWorkspace } from "../repo/worktree.mjs";
 import { executeControllerVerification } from "./verify.mjs";
 import {
+  ExecutionOutputNotAllowedError,
   materializeAttemptResult,
   readWorkerResultFile,
   resolveWorkerResult,
@@ -528,6 +529,16 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
       try {
         workerResult = resolveWorkerResult(runDir, job.node, envelope.result);
       } catch (error) {
+        // A definitive protocol violation, not a malformed result: an
+        // execution node has no legitimate way to earn the repair path here.
+        if (error instanceof ExecutionOutputNotAllowedError) {
+          clearTierExhaustion(state);
+          transition(runDir, state, "failed", {
+            phase: "worker",
+            error: { code: "execution_output_not_allowed", message: errorMessage(error) },
+          }, lock);
+          continue;
+        }
         if (job.resultMaterialization) {
           clearTierExhaustion(state);
           transition(runDir, state, "failed", {

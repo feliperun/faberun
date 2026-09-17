@@ -432,7 +432,7 @@ function renderDiscoveryPrompt(packet, nodeId) {
     ...bulletOrNone(packet.nonGoals),
     "",
     "## Required output",
-    'Return exactly one worker-result JSON object, with no markdown or prose. Set status to "done", missingContext to [], and artifacts to an array containing exactly one JSON-stringified execution task packet with every required taskPacket field. The packet readFiles and writeFiles must be non-empty and scoped to this repository.',
+    'Return exactly one worker-result JSON object, with no markdown or prose. Set status to "done", missingContext to [], and artifacts to an array containing exactly one JSON-stringified execution task packet with every required taskPacket field. The packet readFiles and writeFiles must be non-empty and scoped to this repository. Put structured findings meant to inform that packet in `output` (a JSON object, at most 65536 bytes); prose belongs in `summary`.',
     "",
     "## Verification",
     VERIFICATION_PARAGRAPH,

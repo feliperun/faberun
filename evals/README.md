@@ -71,11 +71,77 @@ output, not written by hand.
 `--project`-shaped `{provenance, indicators}` wrapper) and prints, per
 indicator, each side's value and sample count, the delta, and the direction
 that counts as improvement. Comparing a `null` indicator against a measured
-number never produces a numeric delta — it reports "sem base de
-comparacao" (`comparable: false`) instead of a delta that would silently
-read as zero.
+number never produces a numeric delta — it reports "no data"
+(`comparable: false`) instead of a delta that would silently read as zero.
 
 Exit code is 1 if any case fails, 0 otherwise.
+
+## Comparative arm
+
+```
+node evals/run.mjs --arm session|planner [--json]
+node evals/run.mjs --validate-planner-arm --min <n> [--json]
+```
+
+The comparative arm asks the same question `--project`/`--compare` ask of one
+run, across two disjoint, already-closed sources instead: the **session**
+side reads the preserved records under `docs/campaigns/*/ledger` (a real,
+human-directed session's own campaign journal, usage ledger and landed
+contracts) for every campaign that also carries a structured
+`spec/REQUIREMENTS.md` sibling (see `test/plan/existing-specs.test.mjs`); the
+**planner** side reads operator-saved reports under
+`evals/planner/reports/<campaignId>.json`, each one a record of running
+`faberun plan` against that same campaign's `REQUIREMENTS.md`. Neither side
+runs anything live and neither ever edits a preserved record —
+`evals/planner/arm.mjs` only reads.
+
+Both sides project the same six indicators (`costPerClosedCheckpoint`,
+`planningCost`, `firstPassGateRate`, `blockedContextRate`,
+`nodesPerClosedCheckpoint`, `criticalFindingsPerPlan`), each the usual
+`{value, direction, count}` shape averaged across every qualifying campaign
+or report; an indicator with no supporting record on a given side is `null`
+for that side, never `0`. Because the ledger keeps no per-node
+`events.jsonl`, several session-side indicators are coarser than
+`--project`'s: `costPerClosedCheckpoint` divides ledger usage cost by the
+count of `REQUIREMENTS.md` requirements whose proof names a file that exists
+on disk (the ledger's own stand-in for "a closed checkpoint"),
+`nodesPerClosedCheckpoint` divides the node count summed across the
+campaign's `control/*.contract.json` files by the count of distinct `runId`s
+its `campaign.json` promoted, and `firstPassGateRate`/`blockedContextRate`
+are mined from the journal's own free-text `outcome`/`decision` notes
+(`"...on the first attempt"`, `"...blocked..."`) — a coarse text proxy that
+reports `null` for a campaign whose notes never mention an attempt count,
+rather than a rate over zero notes. `planningCost` and
+`criticalFindingsPerPlan` are always `null` on the session side: no session
+ever recorded a planning phase or a plan review separately from its worker
+spend.
+
+`--arm session` writes `evals/planner/session-arm.json`.
+`--arm planner` writes `evals/planner/planner-arm.json`, or exits 1
+explaining there is nothing to write when no report exists yet under
+`evals/planner/reports/`. Producing a planner report is an operator action
+outside any one campaign: run `faberun plan --spec docs/campaigns/<id>/spec/REQUIREMENTS.md ...`
+against a campaign's own requirements, then save
+`{schemaVersion: 1, campaignId, usage: [...the planning pipeline's own usage
+records, same shape as a ledger's *.usage.jsonl...], plan: {nodeCount,
+roundsUsed, criticalFindings, blockedAttempts}}` to
+`evals/planner/reports/<campaignId>.json` by hand. `plan.nodeCount` is the
+frozen plan's node count, `plan.roundsUsed` is how many draft/review/revise
+rounds it took before freezing (`1` means first-pass), `plan.criticalFindings`
+is the count of `critical`-severity findings the plan's own review raised,
+and `plan.blockedAttempts` is how many of its worker invocations returned
+`blocked_context`; any of the four left out reports `null` for the indicator
+that needed it, exactly like the session side.
+
+Once at least one planner report exists,
+`node evals/run.mjs --compare evals/planner/session-arm.json evals/planner/planner-arm.json`
+reports the delta per indicator between what a session actually spent and
+found against the same spec and what `faberun plan` would have.
+
+`--validate-planner-arm --min <n>` fails (exit 1) unless at least `n`
+campaigns qualify for the session side — proof there is enough closed session
+material for the comparison to mean something, independent of whether any
+planner report has been saved yet.
 
 ## Case format
 
@@ -298,6 +364,48 @@ entry to check this against:
   GC deleted from one that was simply never created (see D09, whose
   discriminator removes the setup steps that seed the reclaimable run and
   therefore leaves `gc.jsonl` never written at all).
+
+## Command-kind cases
+
+A case whose scenario is `faberun plan` itself — a command driven by argv, not
+by a contract — carries `command: {argv, env?}` in `case.json` instead of
+`contract`, and is materialized and run differently:
+
+- `files` (a map from repo-relative path to text content) writes every
+  fixture the planning pipeline reads — the spec, the taskKind catalogue at
+  `src/plan/template.mjs`, anything a plan node's own `readFiles` names —
+  into the same fresh temporary git repository a contract-kind case gets.
+- `runtimes` is a runtime catalogue in the contract's own `runtimes` shape;
+  `recordings` substitutes a `replay.recording` into it exactly the way a
+  contract-kind case's `recordings` does. It is written to `runtimes.json` at
+  the workspace root, which `command.argv` names after `--runtimes`.
+- `campaign` (`{id, goal}`) is materialized with `initializeCampaign` before
+  the command runs, since `faberun plan` requires an already-active campaign.
+- `setup`, when present, is an ordered list of steps run instead of the
+  default single `{"type": "invoke", argv: command.argv}` step. Every step
+  spawns or waits on a real child process — `node src/cli.mjs <argv>` — rather
+  than calling anything in-process, since proving a detached pipeline
+  survives its launcher (D25) needs a launcher that is a genuinely separate,
+  killable OS process. Step types: `invoke` (`argv`, `env?`; runs to
+  completion), `spawnDetached` (`argv`, `env?`, `as`; spawns without waiting,
+  keyed by name), `waitForPath` (`path`, `timeoutMs?`; polls for a workspace
+  path to appear), `killProcess` (`as`, `signal?`; signals a process a prior
+  `spawnDetached` step named, ESRCH ignored).
+- `expected.json` checks `expectPaths` (`{present, absent}`, workspace-
+  relative), `plan` (`{path, fields}`: JSON fields of a `plan.json` at a
+  declared relative path), and `journal` (an array of `{type, questionId?}`
+  entries that must appear in the campaign's journal) — the facts a `plan`
+  invocation leaves behind, since there is no node snapshot to read most of a
+  planning scenario off of.
+- `discriminator` is restricted to `patchRecordingErrorCode` and
+  `patchRecordingEnvelopeField` (the same two recording mutations a
+  contract-kind case can use): there is no contract to patch, and no
+  `removeSetupStep` that could shrink a command case's setup without also
+  erasing the invocation itself.
+
+`--assert-no-model`, `--verify-discriminating`, `--verify-fixtures` and
+`--validate-golden` all treat a command-kind case the same as a contract-kind
+one; see D23, D24 and D25 for worked examples.
 
 ## Adding a case
 

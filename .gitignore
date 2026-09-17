@@ -8,3 +8,6 @@ node_modules/
 .runs/
 
 .claude/session-handoff.md
+
+# Generated comparative-arm reports: derived from the campaign records, never versioned.
+evals/planner/*-arm.json
