@@ -272,9 +272,23 @@ async function executePlanStep(step, context) {
   if (type === "waitForPath") {
     const target = safeJoin(context.workDir, /** @type {string} */ (step.path));
     const timeoutMs = typeof step.timeoutMs === "number" ? step.timeoutMs : 60_000;
+    // A field makes the wait a state condition rather than a file-existence one: a
+    // pipeline that writes a file and then rewrites it with its outcome would
+    // otherwise be read between the two (measured 2026-09-17 on a CI runner).
+    const field = typeof step.field === "string" ? step.field : null;
+    const ready = () => {
+      if (!existsSync(target)) return false;
+      if (!field) return true;
+      try {
+        return JSON.parse(readFileSync(target, "utf8"))[field] !== undefined;
+      } catch {
+        // A torn or unparsable file is simply not ready yet.
+        return false;
+      }
+    };
     const deadline = Date.now() + timeoutMs;
-    while (!existsSync(target)) {
-      if (Date.now() > deadline) throw new Error(`timed out waiting for ${step.path} to appear under ${context.workDir}`);
+    while (!ready()) {
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ${step.path}${field ? ` to carry ${field}` : ""} under ${context.workDir}`);
       await delay(50);
     }
     return;

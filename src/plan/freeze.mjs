@@ -9,10 +9,11 @@
  * Nothing here invokes a model or the engine; it only writes and hashes
  * bytes, so freezing a plan can never be mistaken for starting a run.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, contractDigest, validateContract } from "../contract/index.mjs";
+import { writeJsonAtomic } from "../run/store.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
 
@@ -55,7 +56,7 @@ export function freezePlan(plan, { outDir, provenance }) {
     contractVersion: CONTRACT_VERSION,
     ...plan,
   });
-  writeFileSync(contractPath, `${JSON.stringify(raw, null, 2)}\n`);
+  writeJsonAtomic(contractPath, raw);
   try {
     validateContract(raw, contractPath);
   } catch (error) {
@@ -76,7 +77,10 @@ export function freezePlan(plan, { outDir, provenance }) {
       findings: provenance.findings,
     },
   });
-  writeFileSync(join(outDir, "plan.json"), `${JSON.stringify(frozen, null, 2)}\n`);
+  // Atomic: the pipeline rewrites this file with its status straight after, and a
+  // reader polling for the frozen plan must never see a torn or half-written one
+  // (measured 2026-09-17: eval case D25 read a statusless plan.json on a slow runner).
+  writeJsonAtomic(join(outDir, "plan.json"), frozen);
   return frozen;
 }
 
