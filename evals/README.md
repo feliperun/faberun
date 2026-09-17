@@ -299,6 +299,48 @@ entry to check this against:
   discriminator removes the setup steps that seed the reclaimable run and
   therefore leaves `gc.jsonl` never written at all).
 
+## Command-kind cases
+
+A case whose scenario is `faberun plan` itself — a command driven by argv, not
+by a contract — carries `command: {argv, env?}` in `case.json` instead of
+`contract`, and is materialized and run differently:
+
+- `files` (a map from repo-relative path to text content) writes every
+  fixture the planning pipeline reads — the spec, the taskKind catalogue at
+  `src/plan/template.mjs`, anything a plan node's own `readFiles` names —
+  into the same fresh temporary git repository a contract-kind case gets.
+- `runtimes` is a runtime catalogue in the contract's own `runtimes` shape;
+  `recordings` substitutes a `replay.recording` into it exactly the way a
+  contract-kind case's `recordings` does. It is written to `runtimes.json` at
+  the workspace root, which `command.argv` names after `--runtimes`.
+- `campaign` (`{id, goal}`) is materialized with `initializeCampaign` before
+  the command runs, since `faberun plan` requires an already-active campaign.
+- `setup`, when present, is an ordered list of steps run instead of the
+  default single `{"type": "invoke", argv: command.argv}` step. Every step
+  spawns or waits on a real child process — `node src/cli.mjs <argv>` — rather
+  than calling anything in-process, since proving a detached pipeline
+  survives its launcher (D25) needs a launcher that is a genuinely separate,
+  killable OS process. Step types: `invoke` (`argv`, `env?`; runs to
+  completion), `spawnDetached` (`argv`, `env?`, `as`; spawns without waiting,
+  keyed by name), `waitForPath` (`path`, `timeoutMs?`; polls for a workspace
+  path to appear), `killProcess` (`as`, `signal?`; signals a process a prior
+  `spawnDetached` step named, ESRCH ignored).
+- `expected.json` checks `expectPaths` (`{present, absent}`, workspace-
+  relative), `plan` (`{path, fields}`: JSON fields of a `plan.json` at a
+  declared relative path), and `journal` (an array of `{type, questionId?}`
+  entries that must appear in the campaign's journal) — the facts a `plan`
+  invocation leaves behind, since there is no node snapshot to read most of a
+  planning scenario off of.
+- `discriminator` is restricted to `patchRecordingErrorCode` and
+  `patchRecordingEnvelopeField` (the same two recording mutations a
+  contract-kind case can use): there is no contract to patch, and no
+  `removeSetupStep` that could shrink a command case's setup without also
+  erasing the invocation itself.
+
+`--assert-no-model`, `--verify-discriminating`, `--verify-fixtures` and
+`--validate-golden` all treat a command-kind case the same as a contract-kind
+one; see D23, D24 and D25 for worked examples.
+
 ## Adding a case
 
 1. Pick the next case id and create `evals/deterministic/<id>/`.

@@ -4,11 +4,13 @@
  * contested. This file only owns the wire — `src/plan/pipeline.mjs` owns the
  * sequencing and every decision the pipeline makes.
  */
+import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { detachArgv, detachSelf, waitForBootstrap } from "./launch.mjs";
 import { classifyRunProgress } from "../campaign/chain.mjs";
 import { runProgress } from "../engine/supervise.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS } from "../engine/runtime-discovery.mjs";
+import { validateRuntime } from "../contract/runtime.mjs";
 import { delay } from "../util.mjs";
 import { runPlanningPipeline } from "../plan/pipeline.mjs";
 
@@ -51,8 +53,34 @@ function reviewRoundsOf(value) {
 }
 
 /**
+ * A `--runtimes <path>` catalogue: a JSON object in the same shape a
+ * contract's own `runtimes` field takes, validated entry-by-entry with the
+ * same validator `validateContract` uses, so a malformed catalogue is
+ * rejected before any planning stage launches rather than surfacing as an
+ * opaque failure deep inside the pipeline.
+ *
+ * @param {string} path
+ * @returns {Record<string, import("../contract/index.mjs").ValidatedRuntime>}
+ */
+export function loadRuntimesCatalogue(path) {
+  const resolved = resolve(path);
+  /** @type {unknown} */
+  let raw;
+  try {
+    raw = JSON.parse(readFileSync(resolved, "utf8"));
+  } catch (error) {
+    throw new Error(`--runtimes ${path} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error(`--runtimes ${path} must be a JSON object`);
+  /** @type {Record<string, import("../contract/index.mjs").ValidatedRuntime>} */
+  const runtimes = {};
+  for (const [id, runtime] of Object.entries(raw)) runtimes[id] = validateRuntime(id, runtime);
+  return runtimes;
+}
+
+/**
  * @param {string} target
- * @param {{campaign?: string, phase?: string, "review-rounds"?: string, "approve-below"?: string, "runtime-defaults"?: string, detach?: boolean, json?: boolean}} values
+ * @param {{campaign?: string, phase?: string, "review-rounds"?: string, "approve-below"?: string, "runtime-defaults"?: string, runtimes?: string, detach?: boolean, json?: boolean}} values
  * @returns {Promise<void>}
  */
 export async function planCli(target, values) {
@@ -63,11 +91,15 @@ export async function planCli(target, values) {
   const reviewRounds = reviewRoundsOf(values["review-rounds"]);
   const approveBelow = /** @type {"standard"|"high"|"none"|undefined} */ (values["approve-below"]);
   const runtimeDefaults = parseRuntimeDefaults(values["runtime-defaults"]);
+  const runtimes = typeof values.runtimes === "string" && values.runtimes
+    ? loadRuntimesCatalogue(values.runtimes)
+    : DISCOVERY_RUNTIME_DEFINITIONS;
 
   if (values.detach === true) {
     const argv = ["plan", specPath, "--campaign", campaignId, "--phase", phase, "--review-rounds", String(reviewRounds)];
     if (approveBelow !== undefined) argv.push("--approve-below", approveBelow);
     if (values["runtime-defaults"] !== undefined) argv.push("--runtime-defaults", values["runtime-defaults"]);
+    if (typeof values.runtimes === "string" && values.runtimes) argv.push("--runtimes", resolve(values.runtimes));
     const child = detachArgv(argv);
     if (child.pid === undefined) throw new Error("detached plan has no pid");
     process.stdout.write(`[plan] detached · pid ${child.pid} · ${specPath}\n`);
@@ -81,7 +113,7 @@ export async function planCli(target, values) {
     reviewRounds,
     approveBelow,
     runtimeDefaults,
-    runtimes: DISCOVERY_RUNTIME_DEFINITIONS,
+    runtimes,
     launch: async (contractPath, contract) => {
       const child = detachSelf("run", contractPath);
       if (child.pid === undefined) throw new Error("detached planning run has no pid");

@@ -1,0 +1,51 @@
+{
+  "id": "D23",
+  "title": "a frozen plan never launches its contract",
+  "proves": "faberun plan, driven end to end through src/cli.mjs with a --runtimes catalogue on the replay harness, freezes a plan (writes plan.json with status frozen and a contract.json alongside it) without ever launching that contract: no .runs/<contract id>/ run directory is created for the frozen contract's own id. The draft and the (clean) review are each an ordinary run the pipeline itself launches and waits on; freezing is a pure write that follows.",
+  "command": {
+    "argv": [
+      "plan",
+      "docs/spec.md",
+      "--campaign",
+      "d23-campaign",
+      "--phase",
+      "build",
+      "--runtime-defaults",
+      "worker=planner-worker",
+      "--runtimes",
+      "runtimes.json"
+    ]
+  },
+  "files": {
+    "src/plan/template.mjs": "export const TASK_KINDS = [];\n",
+    "src/index.mjs": "export default 1;\n",
+    "docs/spec.md": "# Feature 42\n\nA legacy spec with no front matter, accepted outright.\n"
+  },
+  "runtimes": {
+    "planner-worker": {
+      "harness": "replay",
+      "model": "replay-worker-model",
+      "vendor": "replay-worker-vendor",
+      "config": {}
+    },
+    "planner-judge": {
+      "harness": "replay",
+      "model": "replay-judge-model",
+      "vendor": "replay-judge-vendor",
+      "config": {}
+    }
+  },
+  "recordings": {
+    "planner-worker": "worker.jsonl"
+  },
+  "campaign": {
+    "id": "d23-campaign",
+    "goal": "Ship feature 42"
+  },
+  "discriminator": {
+    "type": "patchRecordingErrorCode",
+    "runtime": "planner-worker",
+    "index": 0,
+    "code": "simulated_failure"
+  }
+}

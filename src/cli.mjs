@@ -113,6 +113,7 @@ export const COMMAND_OPTIONS = {
     "review-rounds": { type: "string" },
     "approve-below": { type: "string" },
     "runtime-defaults": { type: "string" },
+    runtimes: { type: "string" },
     detach: { type: "boolean" },
     json: { type: "boolean" },
   },

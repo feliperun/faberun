@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import { initializeCampaign } from "../../src/campaign/index.mjs";
 import { campaignDir } from "../../src/campaign/layout.mjs";
 import { readJournal } from "../../src/campaign/journal.mjs";
+import { loadRuntimesCatalogue } from "../../src/cli/plan.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { runProgress } from "../../src/engine/supervise.mjs";
 import { runPlanningPipeline } from "../../src/plan/pipeline.mjs";
@@ -220,6 +221,44 @@ test("approval policy", async () => {
   assert.equal(underHigh.approved, true);
   const planUnderHigh = JSON.parse(readFileSync(underHigh.planPath, "utf8"));
   assert.equal(planUnderHigh.approved, true);
+});
+
+test("--runtimes loads a catalogue file, which drives the pipeline end to end", async () => {
+  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("catalogue-demo");
+  const runtimesPath = join(cwd, "runtimes.json");
+  writeFileSync(runtimesPath, JSON.stringify(runtimes, null, 2));
+
+  const loaded = loadRuntimesCatalogue(runtimesPath);
+  assert.deepEqual(Object.keys(loaded).sort(), Object.keys(runtimes).sort());
+
+  const result = await runPlanningPipeline({
+    specPath: join(cwd, "docs/spec.md"),
+    campaignId,
+    phase: "build",
+    cwd,
+    runtimes: loaded,
+    runtimeDefaults,
+    launch,
+    wait,
+  });
+  assert.equal(result.status, "frozen");
+  const contract = JSON.parse(readFileSync(result.contractPath, "utf8"));
+  assert.deepEqual(Object.keys(contract.runtimes).sort(), Object.keys(runtimes).sort());
+  assert.deepEqual(contract.runtimeDefaults, runtimeDefaults);
+});
+
+test("--runtimes rejects a catalogue file that is not valid JSON", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "plan-pipeline-bad-runtimes-"));
+  const runtimesPath = join(cwd, "runtimes.json");
+  writeFileSync(runtimesPath, "not json");
+  assert.throws(() => loadRuntimesCatalogue(runtimesPath), /not valid JSON/);
+});
+
+test("--runtimes rejects a catalogue entry that fails runtime validation", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "plan-pipeline-bad-runtime-entry-"));
+  const runtimesPath = join(cwd, "runtimes.json");
+  writeFileSync(runtimesPath, JSON.stringify({ "planner-worker": { harness: "not-a-real-harness" } }));
+  assert.throws(() => loadRuntimesCatalogue(runtimesPath));
 });
 
 test("contested plan writes no contract", async () => {

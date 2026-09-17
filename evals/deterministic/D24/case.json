@@ -1,0 +1,56 @@
+{
+  "id": "D24",
+  "title": "a contested plan emits no contract and names its findings",
+  "proves": "faberun plan, driven end to end through src/cli.mjs with --review-rounds 1, contests a plan whose only review round returns a critical finding: plan.json carries status contested with the finding named verbatim, no contract.json is ever written, and the campaign journal carries the open-question the pipeline records.",
+  "command": {
+    "argv": [
+      "plan",
+      "docs/spec.md",
+      "--campaign",
+      "d24-campaign",
+      "--phase",
+      "build",
+      "--review-rounds",
+      "1",
+      "--runtime-defaults",
+      "worker=planner-worker",
+      "--runtimes",
+      "runtimes.json"
+    ]
+  },
+  "files": {
+    "src/plan/template.mjs": "export const TASK_KINDS = [];\n",
+    "src/index.mjs": "export default 1;\n",
+    "docs/spec.md": "# Feature 42\n\nA legacy spec with no front matter, accepted outright.\n"
+  },
+  "runtimes": {
+    "planner-worker": {
+      "harness": "replay",
+      "model": "replay-worker-model",
+      "vendor": "replay-worker-vendor",
+      "config": {}
+    },
+    "planner-judge": {
+      "harness": "replay",
+      "model": "replay-judge-model",
+      "vendor": "replay-judge-vendor",
+      "config": {}
+    }
+  },
+  "recordings": {
+    "planner-worker": "worker.jsonl"
+  },
+  "campaign": {
+    "id": "d24-campaign",
+    "goal": "Ship feature 42"
+  },
+  "discriminator": {
+    "type": "patchRecordingEnvelopeField",
+    "runtime": "planner-worker",
+    "index": 1,
+    "path": [
+      "result"
+    ],
+    "value": "{\"status\":\"done\",\"summary\":\"reviewed\",\"verification\":[],\"artifacts\":[\"{\\\"mode\\\":\\\"execution\\\",\\\"objective\\\":\\\"placeholder, unread by the planning pipeline\\\",\\\"instructions\\\":[\\\"placeholder, unread by the planning pipeline\\\"],\\\"readFiles\\\":[\\\"src/index.mjs\\\"],\\\"writeFiles\\\":[\\\"src/index.mjs\\\"],\\\"symbols\\\":[],\\\"decisions\\\":[],\\\"nonGoals\\\":[],\\\"verification\\\":[]}\"],\"missingContext\":[],\"output\":{\"findings\":[]}}"
+  }
+}
