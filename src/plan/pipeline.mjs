@@ -17,9 +17,11 @@ import { discoveryOutput } from "../contract/worker-result.mjs";
 import { readWorkerResultFile } from "../engine/result-file.mjs";
 import { classifyRunProgress } from "../campaign/chain.mjs";
 import { campaignDir } from "../campaign/layout.mjs";
+import { appendSeatAllowanceEvent, readJournal } from "../campaign/journal.mjs";
 import { readCampaign } from "../campaign/record.mjs";
 import { campaignCli } from "../cli/campaign.mjs";
 import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
+import { allowanceDelta, sampleAllowance } from "../seat/allowance.mjs";
 import { validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
 import { RISK_TIERS, buildPlanningContract, validateFindings, validatePlanOutput } from "./template.mjs";
@@ -214,6 +216,31 @@ export async function runPlanningPipeline(options) {
     },
   });
   logStage("freeze", { contractId: `${campaignId}-${phase}`, highestRiskTier });
+
+  // A delta only means something between two samples of the same seat: freeze
+  // re-samples the exact harness `campaign init` recorded at `sample: "start"`
+  // (the operator's own seat), not the plan's worker runtime, which is very
+  // often a different harness entirely (codex, dsh, agy, zcode workers under
+  // a claude operator) and would make the delta null in the common case
+  // instead of the rare one. With no start entry at all (a pipeline run with
+  // no preceding `campaign init`, as in every replay-driven pipeline test)
+  // there is no seat to re-sample, so freeze samples nothing and spends no
+  // call.
+  const journalEntries = /** @type {any[]} */ (readJournal(campaignPath));
+  const startEntry = journalEntries.findLast((entry) => entry.type === "seat.allowance" && entry.sample === "start");
+  const freezeHarness = startEntry?.harness ?? null;
+  const freezeAllowance = await sampleAllowance({ harness: freezeHarness });
+  const startAllowance = startEntry
+    ? { remaining: startEntry.remaining ?? null, limit: startEntry.limit ?? null, resetsAt: startEntry.resetsAt ?? null }
+    : null;
+  appendSeatAllowanceEvent(campaignPath, {
+    sample: "freeze",
+    harness: freezeHarness,
+    remaining: freezeAllowance?.remaining ?? null,
+    limit: freezeAllowance?.limit ?? null,
+    resetsAt: freezeAllowance?.resetsAt ?? null,
+    delta: allowanceDelta(startAllowance, freezeAllowance),
+  });
 
   const approved = approveBelow === "high" ? true : approveBelow === "none" ? false : highestRiskTier !== "high";
   const planPath = join(plansDir, "plan.json");
