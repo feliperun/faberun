@@ -207,9 +207,8 @@ When this file governs anything in production:
 <!-- faberun-active:start (managed by faberun — read, never edit) -->
 Before starting new work here, check `.runs/`: if a campaign is active or a run is not terminal, continue it instead of starting over — read its `HANDOFF.md`/`STATUS.md`, attach to the campaign, and `resume` or `supervise` the run. Active runs are supervised by a deterministic detached process: do not poll `status` in a loop — on resume, check status once and act only on terminal states.
 
-- faberun campaign `env-independence-and-generated-docs`: active — read `.runs/campaigns/env-independence-and-generated-docs/HANDOFF.md`
-  - attention: run harden-chain-and-verification-2-verification-fairness needs you · verification_failed
 - faberun run `become-faberun-2b-install-and-shape-fix`: parked — `install-script:exhausted revision_cap` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/become-faberun-2b-install-and-shape-fix`
+- faberun run `env-independence-and-generated-docs-3-reference-load`: parked — `declared-read-bytes:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/env-independence-and-generated-docs-3-reference-load`
 - faberun run `factory-autonomy-p2-20260914`: parked — `parked-not-finished:failed unexpected_write` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/factory-autonomy-p2-20260914`
 - faberun run `factory-autonomy-p3a-20260914`: parked — `chain-plumbing:failed judge_prompt_too_large` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/factory-autonomy-p3a-20260914`
 - faberun run `factory-autonomy-p6-20260914`: parked — `spend-less-per-node:exhausted verification_failed` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/factory-autonomy-p6-20260914`
