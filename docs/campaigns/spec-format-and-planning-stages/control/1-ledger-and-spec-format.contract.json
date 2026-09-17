@@ -1,0 +1,644 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "spec-format-and-planning-stages",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "claude-sonnet-worker",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic-opus",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "claude-sonnet-worker": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic-sonnet",
+      "permissionMode": "bypassPermissions",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/repo/source-shape.test.mjs",
+        "test/campaign/field-ownership.test.mjs",
+        "test/repo/brand.test.mjs",
+        "test/docs/docs-diet.test.mjs",
+        "test/host/host-layout.test.mjs",
+        "test/docs/reference-load.test.mjs"
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "docs:check"
+      ],
+      "timeoutSec": 120
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/",
+        "test/plan/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "spec-format-and-planning-stages-1-ledger-and-spec-format",
+  "maxParallel": 2,
+  "goal": "Phase 1 (ledger-and-spec-format) of campaign spec-format-and-planning-stages: campaign close preserves its ledgers in the record, the spec format is documented as a worker-loadable reference, faberun spec validate classifies and checks a spec without a model, and every campaign record gains a structured REQUIREMENTS.md sibling. Spec: docs/campaigns/spec-format-and-planning-stages/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "campaign-close-preserves-ledger",
+      "type": "backend",
+      "phase": "ledger-and-spec-format",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "ledger-tests",
+          "text": "campaign, ledger and command-surface tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "manual-current",
+          "text": "npm run docs:check finds the manual current",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "2"
+          }
+        },
+        {
+          "id": "preserved",
+          "text": "closing a campaign writes journal, campaign.json and every linked run's usage ledger into docs/campaigns/<id>/ledger/, idempotently, and says so",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "closeCampaign copies the campaign's journal.jsonl and campaign.json and every linked run's usage.jsonl into <repo>/docs/campaigns/<id>/ledger/ before sealing the campaign, idempotently, and the close command prints where the ledger went.",
+        "instructions": [
+          "Evidence: .runs/ is gitignored, no usage.jsonl was ever versioned, and the six campaign records in docs/campaigns/ kept only spec/ until the orchestrator copied 21 campaigns' ledgers by hand on 2026-09-17 (see docs/campaigns/*/ledger/). The comparative arm of the planner (adversarial-planner R17) needs these ledgers as the session-side baseline, so every campaign closed without them is a lost data point.",
+          "Change 1, src/campaign/index.mjs (316 lines): introduce `preserveCampaignLedger(campaignPath, repoRoot)` that creates <repoRoot>/docs/campaigns/<campaign.id>/ledger/, copies journal.jsonl and campaign.json from campaignPath, and for every id in campaign.linkedRunIds copies <repoRoot>/.runs/<runId>/usage.jsonl as <runId>.usage.jsonl when it exists (missing files skipped, never thrown; existing copies overwritten so the call is idempotent). closeCampaign calls it before writing the closed state; repoRoot is the parent of the .runs directory that holds campaignPath (derive it from the path, do not read cwd). Return the list of files written so the caller can print it. No redactor exists in this tree: copy verbatim and say so in the header comment; the pre-commit secret scan stays the guard.",
+          "Change 2, src/cli/campaign.mjs close(): print one line per copied file group, e.g. `[campaign] ledger · docs/campaigns/<id>/ledger · <n> files`.",
+          "Tests, test/campaign/campaign.test.mjs (608 lines; if the new test would pass 800, put it in a new test/campaign/ledger.test.mjs): 'campaign close preserves ledger' builds a temp repo with .runs/campaigns/<id> (journal + campaign.json with two linkedRunIds), .runs/<run>/usage.jsonl for one of them, closes, and asserts the ledger directory holds journal.jsonl, campaign.json and exactly one <run>.usage.jsonl; a second call on an already-closed campaign still throws as today; closing twice is not reachable, so idempotence is proven by calling preserveCampaignLedger twice and comparing the directory listing.",
+          "Docs: the authored paragraph of `### faberun campaign close` in docs/COMMANDS.md gains one sentence on the ledger copy, then run `npm run docs` so the generated parts stay current (docs:check is in your verification). docs/CONCEPTS.md: one sentence where campaign records are described."
+        ],
+        "readFiles": [
+          "src/campaign/index.mjs",
+          "src/campaign/layout.mjs",
+          "src/cli/campaign.mjs",
+          "test/campaign/campaign.test.mjs",
+          "docs/COMMANDS.md",
+          "docs/CONCEPTS.md"
+        ],
+        "writeFiles": [
+          "src/campaign/index.mjs",
+          "src/cli/campaign.mjs",
+          "test/campaign/campaign.test.mjs",
+          "test/campaign/ledger.test.mjs",
+          "docs/COMMANDS.md",
+          "docs/CONCEPTS.md"
+        ],
+        "symbols": [
+          "preserveCampaignLedger"
+        ],
+        "scopeAcknowledged": [
+          "src/campaign/layout.mjs",
+          "test/cli/cli.test.mjs",
+          "test/campaign/chain.test.mjs",
+          "test/campaign/chain-restart.test.mjs",
+          "test/campaign/unpark.test.mjs",
+          "test/campaign/projection.test.mjs",
+          "test/campaign/metrics.test.mjs",
+          "test/campaign/brief.test.mjs"
+        ],
+        "decisions": [
+          "Verbatim copy, no redaction: nothing in this tree redacts, and the ledgers hold token counts, costs and operator notes.",
+          "The ledger lives in the record directory the campaign already owns, beside spec/ and control/."
+        ],
+        "nonGoals": [
+          "No change to what closeCampaign requires (the retrospective note) or to the journal schema.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/** (new files beside them are allowed only where the packet names them). CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node (the host-layout guard refuses it).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git is spawned only through the bounded helpers (src/repo/worktree.mjs gitHead, or the source-identity.mjs pattern), never raw."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/campaign/campaign.test.mjs",
+              "test/campaign/ledger.test.mjs",
+              "test/docs/command-surface.test.mjs"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+              "run",
+              "docs:check"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "spec-format-reference",
+      "type": "backend",
+      "phase": "ledger-and-spec-format",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "docs-tests",
+          "text": "docs-diet, reference-load, link-check and docs-map tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "format-documented",
+          "text": "the reference describes front matter, mandatory and optional sections, the requirement and proof shapes and the legacy class within 6144 bytes, and SKILL.md routes to it",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "skills/faberun/references/spec-format.md documents the versioned spec format (front matter, mandatory Intent/Requirements/Non-goals, requirement shape with statement and proof, optional Constraints/Success criteria/Risks, the legacy class), SKILL.md routes to it, and the three documentation ratchets are raised with dated justifications.",
+        "instructions": [
+          "Evidence: specs reach the factory as free markdown written in conversation; the owner's PROPOSAL.md v1.1.0 in docs/campaigns/spec-format-and-planning-stages/spec/ is the first document in the format and is the model to describe (front matter id, title, version, status, date, owner, target, baseline; `### R<n>. <title>` requirements with `- **statement:**` and `- **proof:**` lines whose proof is `command: ...`, `path: ...` or `judgment: true`; Non-goals; optional Constraints, Success criteria table with a Baseline column, Risks table). A document without the front matter is class `legacy`.",
+          "Change 1: write skills/faberun/references/spec-format.md (at most 6144 bytes): the format version (1), the front matter fields and which are required, the mandatory and optional sections with one short example each, the requirement shape and the three proof kinds, what `faberun spec validate` checks and the difference between advisory and --strict-traceability, and the legacy class. Written for a worker or an operator who will author a spec; no history, no rationale essays.",
+          "Change 2: skills/faberun/SKILL.md gains one table row `| Write or validate a spec | [spec-format](references/spec-format.md) |`. The router is 1,002 bytes against a 1,024 ceiling: raise SKILL_BYTE_CEILING in test/docs/docs-diet.test.mjs to the smallest round value above the new size (measure it) with a dated comment saying why (a seventh reference).",
+          "Change 3: test/docs/docs-diet.test.mjs: add `SPEC_FORMAT_BYTE_CEILING = 6144` with a dated comment and a test that references/spec-format.md stays under it; update the test 'references/ holds the two foundation documents and the four reserved articles' to name spec-format.md as well (and rename it to say what it now asserts). Keep every other ceiling untouched.",
+          "test/docs/reference-load.test.mjs derives the worker-loadable set from the references directory and SKILL.md links, so it passes once the row exists; test/docs/link-check.test.mjs resolves the new link. Run both in your verification."
+        ],
+        "readFiles": [
+          "docs/campaigns/spec-format-and-planning-stages/spec/PROPOSAL.md",
+          "skills/faberun/SKILL.md",
+          "test/docs/docs-diet.test.mjs",
+          "test/docs/reference-load.test.mjs",
+          "test/docs/link-check.test.mjs",
+          "skills/faberun/references/contract.md"
+        ],
+        "writeFiles": [
+          "skills/faberun/references/spec-format.md",
+          "skills/faberun/SKILL.md",
+          "test/docs/docs-diet.test.mjs"
+        ],
+        "symbols": [
+          "SPEC_FORMAT_BYTE_CEILING"
+        ],
+        "scopeAcknowledged": [
+          "docs/campaigns/spec-format-and-planning-stages/spec/PROPOSAL.md",
+          "skills/faberun/references/contract.md",
+          "test/docs/reference-load.test.mjs",
+          "test/docs/link-check.test.mjs"
+        ],
+        "decisions": [
+          "The reference describes the format the owner's proposal already uses; the format is not redesigned here.",
+          "Three ratchets, each raised once with a dated justification, in the file that owns them."
+        ],
+        "nonGoals": [
+          "No change to the reserved articles or to contract.md/operations.md.",
+          "No validator code: that is spec-validate.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/** (new files beside them are allowed only where the packet names them). CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node (the host-layout guard refuses it).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git is spawned only through the bounded helpers (src/repo/worktree.mjs gitHead, or the source-identity.mjs pattern), never raw."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/docs/docs-diet.test.mjs",
+              "test/docs/reference-load.test.mjs",
+              "test/docs/link-check.test.mjs",
+              "test/docs/docs-map.test.mjs"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "spec-validate",
+      "type": "backend",
+      "phase": "ledger-and-spec-format",
+      "dependsOn": [
+        "spec-format-reference"
+      ],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "spec-tests",
+          "text": "plan/spec, command-surface, manual and brand tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "manual-current",
+          "text": "npm run docs:check finds the manual current with the two new sections",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "2"
+          }
+        },
+        {
+          "id": "deterministic-validator",
+          "text": "validation reaches no provider, classifies structured and legacy, and every traceability rule has a failing case in the tests",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "src/plan/spec.mjs parses and validates a spec document without a model, classifying it structured or legacy and applying the traceability rules; faberun spec validate <file> [--strict-traceability] [--json] and faberun spec scaffold <path> expose it; src/plan/ becomes a layer in the AGENTS.md table.",
+        "instructions": [
+          "Evidence: every spec under docs/campaigns/*/spec/ starts with a heading, none with front matter; the owner's PROPOSAL.md v1.1.0 (docs/campaigns/spec-format-and-planning-stages/spec/) and adversarial-planner's are the first structured ones. The format is described in skills/faberun/references/spec-format.md, written by the sibling node spec-format-reference in this phase; read it if it exists, else the PROPOSAL.md is the reference.",
+          "Change 1, src/plan/spec.mjs (new layer): `parseSpec(text)` returns {frontMatter|null, sections: Map<heading, body>, requirements: [{id, title, statement, proof}], ...}; `validateSpec(text, {cwd, strict})` returns {class: 'structured'|'legacy', ok, findings: [{rule, severity: 'advisory'|'blocking', message, line}]}. Rules on structured documents: mandatory sections Intent, Requirements, Non-goals (accept the pt-BR headings Intenção, Requisitos, Não-objetivos as aliases); requirement without a stable id (`### R<n>.`) or without a proof line; success-criteria table without a Baseline column; front matter target or baseline that does not resolve to a commit in cwd (bounded git through src/repo/worktree.mjs helpers, never a raw spawn; a target of the form owner/repo is checked against the origin remote name only). Findings are advisory (ok stays true) unless strict, when any finding makes ok false. A document without front matter is class legacy, ok true, one informative finding saying so. Nothing in the module imports harnesses or engine.",
+          "Change 2, src/cli/spec.mjs mirroring src/cli/contract.mjs: OPERATION_OPTIONS { validate: {'strict-traceability': boolean, json: boolean}, scaffold: {id: string} } (default-export the table like the other verb modules do, so src/cli/manual.mjs can read it); `spec validate <file>` prints `structured · ok` / `legacy · accepted` plus one line per finding, exit 1 when strict and not ok; `spec scaffold <path> [--id <id>]` writes an empty document in the format and refuses to overwrite. Dispatch `spec` in src/cli.mjs beside campaign/seat/skills/contract; add the usage lines in src/cli/brand.mjs renderUsage; add the verb to test/docs/command-surface.test.mjs (OPERATION_SOURCES and the by-name verb list) and to src/cli/manual.mjs's surface; run `npm run docs` and fill the authored prose of the two new manual sections.",
+          "Change 3: AGENTS.md layout table gains the row `| `plan/` | the out-of-session planner: spec format, repository facts, routing, sizing, freeze. Reads the target repository, never a provider. |` (edit only that table; the managed signal block at the bottom is the CLI's).",
+          "Tests, test/plan/spec.test.mjs: 'spec validate invokes no model' (the module's import graph reaches nothing under src/harnesses or src/engine, asserted by reading the source's import lines, and validateSpec runs with FABERUN_*_BIN unset); 'spec validate rejects' one case per rule, advisory vs strict; 'legacy documents are accepted and named'; a CLI test through src/cli.mjs for validate and scaffold. Do not write the docs/campaigns walk here: that is structured-spec-siblings' test.",
+          "Docs: docs/CONCEPTS.md gains a short paragraph on specs as validated artefacts; the manual is regenerated by `npm run docs` (docs:check is in your verification)."
+        ],
+        "readFiles": [
+          "docs/campaigns/spec-format-and-planning-stages/spec/PROPOSAL.md",
+          "skills/faberun/references/spec-format.md",
+          "src/cli/contract.mjs",
+          "src/cli/skills.mjs",
+          "src/cli.mjs",
+          "src/cli/brand.mjs",
+          "src/cli/manual.mjs",
+          "src/repo/worktree.mjs",
+          "test/docs/command-surface.test.mjs",
+          "test/cli/manual.test.mjs",
+          "AGENTS.md",
+          "docs/COMMANDS.md",
+          "docs/CONCEPTS.md"
+        ],
+        "writeFiles": [
+          "src/plan/spec.mjs",
+          "src/cli/spec.mjs",
+          "src/cli.mjs",
+          "src/cli/brand.mjs",
+          "src/cli/manual.mjs",
+          "test/docs/command-surface.test.mjs",
+          "test/plan/spec.test.mjs",
+          "AGENTS.md",
+          "docs/COMMANDS.md",
+          "docs/CONCEPTS.md"
+        ],
+        "symbols": [
+          "validateSpec"
+        ],
+        "scopeAcknowledged": [
+          "docs/campaigns/spec-format-and-planning-stages/spec/PROPOSAL.md",
+          "skills/faberun/references/spec-format.md",
+          "src/cli/contract.mjs",
+          "src/cli/skills.mjs",
+          "src/repo/worktree.mjs",
+          "test/cli/manual.test.mjs",
+          "test/cli/cli.test.mjs",
+          "test/cli/brand.test.mjs",
+          "test/repo/root-pointers.test.mjs"
+        ],
+        "decisions": [
+          "Advisory by default, blocking under --strict-traceability; legacy is a class, not an error.",
+          "pt-BR section headings are aliases so the owner's documents validate as written.",
+          "Git only through bounded helpers, never a raw spawn."
+        ],
+        "nonGoals": [
+          "No model. No spec authoring or review nodes. No walk over docs/campaigns here.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/** (new files beside them are allowed only where the packet names them). CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node (the host-layout guard refuses it).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git is spawned only through the bounded helpers (src/repo/worktree.mjs gitHead, or the source-identity.mjs pattern), never raw."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/plan/spec.test.mjs",
+              "test/docs/command-surface.test.mjs",
+              "test/cli/manual.test.mjs",
+              "test/cli/brand.test.mjs"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+              "run",
+              "docs:check"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "structured-spec-siblings",
+      "type": "backend",
+      "phase": "ledger-and-spec-format",
+      "dependsOn": [
+        "spec-validate"
+      ],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "siblings-validate",
+          "text": "existing-specs, spec and brand tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "records-untouched",
+          "text": "every campaign has a strict-valid REQUIREMENTS.md, no pre-existing file under docs/campaigns changed, and each proof names something that exists",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Every campaign under docs/campaigns/ gets a structured spec/REQUIREMENTS.md derived from its existing documents that validates under --strict-traceability, the originals untouched, and a test walks docs/campaigns/ asserting every REQUIREMENTS.md is strict-valid and every other spec document is accepted as legacy.",
+        "instructions": [
+          "Evidence: ten campaign directories exist under docs/campaigns/ (list them); their spec/ documents are free markdown or the owner's proposals; the planner's comparative arm needs each campaign's requirements in the validated format, and the repository rule forbids editing the originals.",
+          "For each campaign, write docs/campaigns/<id>/spec/REQUIREMENTS.md in the format documented in skills/faberun/references/spec-format.md: front matter (id = campaign id, title, version 1.0.0, status accepted for closed campaigns and draft otherwise, date from the original, owner Felipe Broering, target feliperun/faberun, baseline the commit the original names or the campaign's landing commit from docs/campaigns/<id>/HANDOFF-at-landing.md when present, else HEAD), Intent (two or three sentences from the original), Requirements derived from the original's decisions, phases or definitions of done, each with a stable id and a proof that names an existing test file, command or path in this tree, Non-goals from the original, Success criteria with a Baseline column where the original has metrics. Where the original already is structured (spec-format-and-planning-stages, adversarial-planner) the sibling restates it in English with the same ids.",
+          "Test, test/plan/existing-specs.test.mjs: walk docs/campaigns/*/spec/; every REQUIREMENTS.md validates with strict true and ok true; every other .md validates as class legacy with ok true; export `structuredSpecPaths()` so the comparative arm can reuse the list later.",
+          "Use `node src/cli.mjs spec validate --strict-traceability <file>` on each sibling while writing; do not edit any other file under docs/campaigns/."
+        ],
+        "readFiles": [
+          "skills/faberun/references/spec-format.md",
+          "src/plan/spec.mjs",
+          "docs/campaigns/adversarial-planner/spec/ADDENDUM.md",
+          "docs/campaigns/adversarial-planner/spec/PROPOSAL.md",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "docs/campaigns/env-independence-and-generated-docs/spec/ADDENDUM.md",
+          "docs/campaigns/env-independence-and-generated-docs/spec/PROPOSAL.md",
+          "docs/campaigns/env-independence-and-generated-docs/spec/SPEC.md",
+          "docs/campaigns/factory-autonomy-20260914/spec/SPEC-accepted.md",
+          "docs/campaigns/harden-chain-and-verification/spec/SPEC.md",
+          "docs/campaigns/operator-loop-20260913/spec/SPEC-accepted.md",
+          "docs/campaigns/operator-loop-followup-20260914/spec/SPEC-accepted.md",
+          "docs/campaigns/register-skill-and-harden/spec/SPEC.md",
+          "docs/campaigns/spec-format-and-planning-stages/spec/ADDENDUM.md",
+          "docs/campaigns/spec-format-and-planning-stages/spec/PROPOSAL.md",
+          "docs/campaigns/spec-format-and-planning-stages/spec/SPEC.md"
+        ],
+        "writeFiles": [
+          "docs/campaigns/adversarial-planner/spec/REQUIREMENTS.md",
+          "docs/campaigns/become-faberun/spec/REQUIREMENTS.md",
+          "docs/campaigns/env-independence-and-generated-docs/spec/REQUIREMENTS.md",
+          "docs/campaigns/factory-autonomy-20260914/spec/REQUIREMENTS.md",
+          "docs/campaigns/harden-chain-and-verification/spec/REQUIREMENTS.md",
+          "docs/campaigns/intent-factory-lean-20260905/spec/REQUIREMENTS.md",
+          "docs/campaigns/operator-loop-20260913/spec/REQUIREMENTS.md",
+          "docs/campaigns/operator-loop-followup-20260914/spec/REQUIREMENTS.md",
+          "docs/campaigns/register-skill-and-harden/spec/REQUIREMENTS.md",
+          "docs/campaigns/spec-format-and-planning-stages/spec/REQUIREMENTS.md",
+          "test/plan/existing-specs.test.mjs"
+        ],
+        "symbols": [
+          "structuredSpecPaths"
+        ],
+        "scopeAcknowledged": [
+          "skills/faberun/references/spec-format.md",
+          "src/plan/spec.mjs",
+          "test/plan/spec.test.mjs",
+          "docs/campaigns/adversarial-planner/spec/ADDENDUM.md",
+          "docs/campaigns/adversarial-planner/spec/PROPOSAL.md",
+          "docs/campaigns/become-faberun/spec/SPEC.md",
+          "docs/campaigns/env-independence-and-generated-docs/spec/ADDENDUM.md",
+          "docs/campaigns/env-independence-and-generated-docs/spec/PROPOSAL.md",
+          "docs/campaigns/env-independence-and-generated-docs/spec/SPEC.md",
+          "docs/campaigns/factory-autonomy-20260914/spec/SPEC-accepted.md",
+          "docs/campaigns/harden-chain-and-verification/spec/SPEC.md",
+          "docs/campaigns/operator-loop-20260913/spec/SPEC-accepted.md",
+          "docs/campaigns/operator-loop-followup-20260914/spec/SPEC-accepted.md",
+          "docs/campaigns/register-skill-and-harden/spec/SPEC.md",
+          "docs/campaigns/spec-format-and-planning-stages/spec/ADDENDUM.md",
+          "docs/campaigns/spec-format-and-planning-stages/spec/PROPOSAL.md",
+          "docs/campaigns/spec-format-and-planning-stages/spec/SPEC.md"
+        ],
+        "decisions": [
+          "New sibling files only; originals and docs/history/ are records.",
+          "Proofs name things that exist in this tree; a requirement with no possible proof is left out rather than given a fake one."
+        ],
+        "nonGoals": [
+          "No change to src/.",
+          "No edit to any existing document.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/** (new files beside them are allowed only where the packet names them). CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node (the host-layout guard refuses it).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git is spawned only through the bounded helpers (src/repo/worktree.mjs gitHead, or the source-identity.mjs pattern), never raw."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/plan/existing-specs.test.mjs",
+              "test/plan/spec.test.mjs",
+              "test/repo/brand.test.mjs"
+            ],
+            "timeoutSec": 200
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    }
+  ]
+}

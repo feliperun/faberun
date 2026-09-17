@@ -1,0 +1,515 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "spec-format-and-planning-stages",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "claude-sonnet-worker",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic-opus",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "claude-sonnet-worker": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic-sonnet",
+      "permissionMode": "bypassPermissions",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/repo/source-shape.test.mjs",
+        "test/campaign/field-ownership.test.mjs",
+        "test/repo/brand.test.mjs",
+        "test/docs/docs-diet.test.mjs",
+        "test/host/host-layout.test.mjs",
+        "test/docs/reference-load.test.mjs"
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "docs:check"
+      ],
+      "timeoutSec": 120
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/",
+        "test/plan/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "spec-format-and-planning-stages-2-planning-stages",
+  "maxParallel": 2,
+  "goal": "Phase 2 (planning-stages) of campaign spec-format-and-planning-stages: the four deterministic stages of the planner -- repository facts with measured durations, a declarative routing table, sizing rules with provenance, and a freeze with digest and provenance -- each a pure module under src/plan/ proven against fixtures without a model. Spec: docs/campaigns/spec-format-and-planning-stages/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "repo-facts",
+      "type": "backend",
+      "phase": "planning-stages",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "facts-tests",
+          "text": "repo-facts tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "deterministic-inventory",
+          "text": "two runs at the same HEAD are identical, every candidate carries a measured duration, and slow commands are ineligible",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "collectRepoFacts(cwd, options) returns a deterministic, bounded inventory of the target repository (tracked paths, declared scripts, candidate verification commands with measured duration and eligibility, test files with the module they cover by name, git HEAD) without invoking a model.",
+        "instructions": [
+          "Evidence: today the session reads the repository by hand before authoring; the planner's draft must receive these facts as JSON. src/host/preflight.mjs exports timeVerificationCommands(contract, probes) which measures real durations; reuse it for the candidate commands rather than re-implementing timing.",
+          "Change, src/plan/repo-facts.mjs: `collectRepoFacts(cwd, {measure?, maxPaths?})` -> {gitHead, paths (git ls-files through a bounded spawn in the source-identity.mjs pattern, sorted, capped at maxPaths default 2000 with `truncated: true` when capped), scripts (package.json scripts when present), verificationCandidates: [{argv, measuredMs, eligible}] built from the test/ layout (one candidate per test directory plus check/typecheck scripts) and measured through the injected `measure` (defaults to timeVerificationCommands' probe; tests inject a fake measurer), eligible = measuredMs <= 600000; testFiles: [{path, covers}] where covers is the src module a test/<dir>/<name>.test.mjs maps to when it exists; formatVersion 1}. Sorting and no timestamps make two runs at the same HEAD byte-identical.",
+          "Tests, test/plan/repo-facts.test.mjs against a temp git repository fixture: emits valid JSON (structure asserted); invokes no model (import graph reaches nothing under src/harnesses or src/engine; no FABERUN_*_BIN needed); every candidate carries measuredMs from the injected measurer, never an estimate; a candidate the measurer reports above 600000 ms is eligible false; two calls at the same HEAD are deep-equal; the paths cap sets truncated.",
+          "Docs: none beyond the module header; the spec verb's manual section already says where facts come from once faberun plan exists (not this campaign)."
+        ],
+        "readFiles": [
+          "src/host/preflight.mjs",
+          "src/repo/worktree.mjs",
+          "test/host/preflight.test.mjs"
+        ],
+        "writeFiles": [
+          "src/plan/repo-facts.mjs",
+          "test/plan/repo-facts.test.mjs"
+        ],
+        "symbols": [
+          "collectRepoFacts"
+        ],
+        "scopeAcknowledged": [
+          "src/host/preflight.mjs",
+          "src/repo/worktree.mjs",
+          "test/host/preflight.test.mjs"
+        ],
+        "decisions": [
+          "Timing is injected so the unit tests never wait on real commands; the default measurer is the existing preflight one.",
+          "Determinism is by construction: sorted, capped, no clocks in the output."
+        ],
+        "nonGoals": [
+          "No model. No reading of file contents beyond package.json.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/** (new files beside them are allowed only where the packet names them). CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node (the host-layout guard refuses it).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git is spawned only through the bounded helpers (src/repo/worktree.mjs gitHead, or the source-identity.mjs pattern), never raw."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/plan/repo-facts.test.mjs"
+            ],
+            "timeoutSec": 200
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "routing-table",
+      "type": "backend",
+      "phase": "planning-stages",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "routing-tests",
+          "text": "routing tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "table-driven",
+          "text": "precedence, exhaustion, vendor independence and unmet-rule naming each have a test",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "resolveRuntimes(plan, table, availability, options) assigns worker and judge runtimes per node from a declarative table crossed with discovery, with node override > operator runtimeDefaults > table > discovery precedence, exhausted runtimes skipped, a judge whose vendor label differs from the worker's and its fallback chain, and an unmet rule failing by name.",
+        "instructions": [
+          "Evidence: the constitution's rule is that model choice lives only in runtimes, runtimeDefaults or an explicit node override (reserved article, not in your read set); the planner's draft classifies nodes (taskKind, riskTier) and must never name a runtime. The contract validator (src/contract/index.mjs) refuses a gated node whose worker, fallback chain and judge share a vendor label; routing must produce assignments that satisfy it.",
+          "Change, src/plan/routing.mjs: `resolveRuntimes(nodes, {table, runtimes, availability, runtimeDefaults, overrides})` where nodes carry {id, taskKind, riskTier}, table rows are {when: {taskKind?, riskTier?}, prefer: [runtimeId...], role: 'worker'|'judge'}, runtimes is the contract's runtimes map (with vendor labels and fallback), availability is {runtimeId: {available, exhaustedUntil}} in the shape runtime-discovery reports (read src/engine/runtime-discovery.mjs for the field names). Returns {assignments: {nodeId: {worker, judge, rule}}, unmet: [{nodeId, role, rule}]} and throws when unmet is non-empty unless options.partial. A judge candidate is rejected when its vendor equals the worker's or any runtime's in the worker's fallback chain.",
+          "Tests, test/plan/routing.test.mjs: table resolves from taskKind and riskTier; operator runtimeDefaults win over the table; an explicit node override wins over both; an exhausted runtime is skipped without error; the judge never shares a vendor with the worker or its fallback; an unmet rule throws naming the rule and the node."
+        ],
+        "readFiles": [
+          "src/engine/runtime-discovery.mjs",
+          "src/contract/index.mjs",
+          "src/engine/bulk-read.mjs"
+        ],
+        "writeFiles": [
+          "src/plan/routing.mjs",
+          "test/plan/routing.test.mjs"
+        ],
+        "symbols": [
+          "resolveRuntimes"
+        ],
+        "scopeAcknowledged": [
+          "src/engine/runtime-discovery.mjs",
+          "src/contract/index.mjs",
+          "src/engine/bulk-read.mjs"
+        ],
+        "decisions": [
+          "The table is data passed in, not a file the module reads; where it lives is faberun plan's decision later.",
+          "Vendor independence is by label, the same rule the validator enforces."
+        ],
+        "nonGoals": [
+          "No discovery probes here; availability is an input.",
+          "No change to the contract validator.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/** (new files beside them are allowed only where the packet names them). CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node (the host-layout guard refuses it).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git is spawned only through the bounded helpers (src/repo/worktree.mjs gitHead, or the source-identity.mjs pattern), never raw."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/plan/routing.test.mjs"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "sizing-rules",
+      "type": "backend",
+      "phase": "planning-stages",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "sizing-tests",
+          "text": "sizing tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "auditable",
+          "text": "every rule has a test, every transformation names its rule, and a second application changes nothing",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "applySizingRules(plan, options) post-processes a drafted graph deterministically: merges nodes without mechanical proof into their parent, merges a node whose writeFiles sit inside another's and has no verification, splits or narrows verifications above the node budget, marks dependency-free disjoint-writeFiles nodes parallelisable, refuses a one-node contract unless targetedFix, requires a justification for chains deeper than eight; idempotent, every transformation carries the rule that caused it.",
+        "instructions": [
+          "Evidence: 'neither too many nodes nor too few' cannot be asked of a model; the previous campaigns' phase-terminal nodes paid for graphs sized by hand. The plan shape is the contract's node shape (src/contract/index.mjs ValidatedNode / task packet) plus taskKind, riskTier and measured verification durations from repo facts.",
+          "Change, src/plan/sizing.mjs: `applySizingRules(plan, {nodeBudgetMs, targetedFix})` returns {plan, transformations: [{rule, nodes, detail}]}. Rules in order: no-mechanical-proof merge (a node whose definitionOfDone has no command/path/verification proof merges into its parent by dependsOn, or into the node whose writeFiles contain its own); contained-write-set merge (A.writeFiles subset of B.writeFiles and A has no verification of its own); over-budget verification split (a verification command whose measured duration exceeds nodeBudgetMs is replaced by the per-test-file candidates that cover the node's writeFiles when the facts carry them, else the node is flagged); parallelisable marking (no dependsOn relation and disjoint writeFiles -> `parallel: true` annotation); single-node refusal unless targetedFix; depth > 8 requires plan.justification. Applying the function to its own output returns an identical plan with zero transformations.",
+          "Tests, test/plan/sizing.test.mjs, one per rule plus 'sizing records rule provenance' and 'sizing idempotent', on inline plan fixtures."
+        ],
+        "readFiles": [
+          "src/contract/index.mjs",
+          "src/contract/task-packet.mjs",
+          "src/contract/definition-of-done.mjs"
+        ],
+        "writeFiles": [
+          "src/plan/sizing.mjs",
+          "test/plan/sizing.test.mjs"
+        ],
+        "symbols": [
+          "applySizingRules"
+        ],
+        "scopeAcknowledged": [
+          "src/contract/index.mjs",
+          "src/contract/task-packet.mjs",
+          "src/contract/definition-of-done.mjs"
+        ],
+        "decisions": [
+          "Rules run in a fixed order; provenance is a list, not a log.",
+          "Idempotence is asserted, not assumed."
+        ],
+        "nonGoals": [
+          "No model. No contract emission (that is plan-freeze).",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/** (new files beside them are allowed only where the packet names them). CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node (the host-layout guard refuses it).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git is spawned only through the bounded helpers (src/repo/worktree.mjs gitHead, or the source-identity.mjs pattern), never raw."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/plan/sizing.test.mjs"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "plan-freeze",
+      "type": "backend",
+      "phase": "planning-stages",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "freeze-tests",
+          "text": "freeze and contract tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "reproducible",
+          "text": "digest plus complete provenance, tamper detection, and an emitted contract the validator accepts",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "freezePlan(plan, provenance) writes plan.json and contract.json carrying the contract digest and a complete provenance block (package version, schemaVersion, target git HEAD, planner and reviewer runtime ids, sizing transformations, reviewer findings with severity); the emitted contract passes validateContract; changing a byte of the plan invalidates the digest; nothing here invokes a model.",
+        "instructions": [
+          "Evidence: today a plan is a conversation; nothing makes two plans comparable. src/contract/index.mjs exports contractDigest(contract) and validateContract(raw, path); src/campaign/index.mjs's authoredContractDigest shows how a file's digest is taken.",
+          "Change, src/plan/freeze.mjs: `freezePlan(plan, {outDir, provenance})` writes <outDir>/contract.json (the plan's nodes in contract shape, validated with validateContract before writing; a validation error is thrown, nothing written) and <outDir>/plan.json {formatVersion 1, contractDigest, provenance: {packageVersion (from package.json), schemaVersion, contractVersion, targetGitHead, planner: {runtimeId, model}, reviewer: {runtimeId, model}, sizing: transformations, findings: [{id, severity, nodeId, text}]}}; `verifyFrozenPlan(outDir)` recomputes the digest of contract.json and compares it with plan.json's. Introduce `freezePlan` and export both.",
+          "Tests, test/plan/freeze.test.mjs on a fixture plan built from test/helpers.mjs's contract fixture: the frozen plan carries digest and every provenance field; the emitted contract validates (call validateContract on the written file); flipping one byte of contract.json makes verifyFrozenPlan report a mismatch; the module's import graph reaches nothing under src/harnesses or src/engine."
+        ],
+        "readFiles": [
+          "src/contract/index.mjs",
+          "src/campaign/index.mjs",
+          "test/helpers.mjs",
+          "package.json"
+        ],
+        "writeFiles": [
+          "src/plan/freeze.mjs",
+          "test/plan/freeze.test.mjs"
+        ],
+        "symbols": [
+          "freezePlan"
+        ],
+        "scopeAcknowledged": [
+          "src/contract/index.mjs",
+          "src/campaign/index.mjs",
+          "test/helpers.mjs",
+          "package.json"
+        ],
+        "decisions": [
+          "The digest is the contract validator's own contractDigest, so a frozen plan and a launched run agree on what changed.",
+          "Provenance is a fixed block, not free text."
+        ],
+        "nonGoals": [
+          "No model. No launch: freezing never starts a run (that guarantee is proven by adversarial-planner's D-plan-no-autostart, on top of this API never calling the engine).",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/** (new files beside them are allowed only where the packet names them). CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node (the host-layout guard refuses it).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git is spawned only through the bounded helpers (src/repo/worktree.mjs gitHead, or the source-identity.mjs pattern), never raw."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/plan/freeze.test.mjs",
+              "test/contract/contract.test.mjs"
+            ],
+            "timeoutSec": 200
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    }
+  ]
+}
