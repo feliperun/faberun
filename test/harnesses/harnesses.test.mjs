@@ -414,7 +414,7 @@ test("all adapter normalizers return the common envelope", () => {
 test("preflight reports executable, model, version, and no credential values", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-harness-version-"));
   const executable = join(directory, "versioned-wrapper.mjs");
-  writeFileSync(executable, "#!/usr/bin/env node\nif (process.argv.includes('--version')) console.log('wrapper 2.4.1');\n");
+  writeFileSync(executable, `#!${process.execPath}\nif (process.argv.includes('--version')) console.log('wrapper 2.4.1');\n`);
   chmodSync(executable, 0o755);
   const check = await probeRuntime({
     id: "wrapper-runtime",
@@ -432,7 +432,7 @@ test("preflight reports executable, model, version, and no credential values", a
 test("preflight still probes and reports version when an environment variable is missing", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-harness-missing-env-"));
   const executable = join(directory, "versioned-wrapper.mjs");
-  writeFileSync(executable, "#!/usr/bin/env node\nif (process.argv.includes('--version')) console.log('wrapper 3.1.4');\n");
+  writeFileSync(executable, `#!${process.execPath}\nif (process.argv.includes('--version')) console.log('wrapper 3.1.4');\n`);
   chmodSync(executable, 0o755);
   const envName = "FABERUN_TEST_REQUIRED_ENV_4F8D";
   const previous = process.env[envName];
@@ -462,14 +462,14 @@ test("preflight classifies a non-zero exit by its stderr text: balance, quota wi
   const directory = mkdtempSync(join(tmpdir(), "runner-harness-availability-"));
 
   const balanceExecutable = join(directory, "balance-wrapper.mjs");
-  writeFileSync(balanceExecutable, "#!/usr/bin/env node\nprocess.stderr.write('Error: Insufficient Balance\\n');\nprocess.exit(1);\n");
+  writeFileSync(balanceExecutable, `#!${process.execPath}\nprocess.stderr.write('Error: Insufficient Balance\\n');\nprocess.exit(1);\n`);
   chmodSync(balanceExecutable, 0o755);
   const balance = await probeRuntime({ id: "balance-runtime", harness: "exec-jsonl", model: "m", executable: balanceExecutable }, { cwd: directory });
   assert.equal(balance.ok, false);
   assert.deepEqual(balance.availability, { available: false, exhaustedUntil: null, reason: "insufficient_balance" });
 
   const quotaExecutable = join(directory, "quota-wrapper.mjs");
-  writeFileSync(quotaExecutable, "#!/usr/bin/env node\nprocess.stderr.write('Error: rate limit exceeded. Your limit will reset at 2026-01-01 00:00:00\\n');\nprocess.exit(1);\n");
+  writeFileSync(quotaExecutable, `#!${process.execPath}\nprocess.stderr.write('Error: rate limit exceeded. Your limit will reset at 2026-01-01 00:00:00\\n');\nprocess.exit(1);\n`);
   chmodSync(quotaExecutable, 0o755);
   const quota = await probeRuntime({ id: "quota-runtime", harness: "exec-jsonl", model: "m", executable: quotaExecutable }, { cwd: directory });
   assert.equal(quota.ok, false);

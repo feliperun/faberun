@@ -1,6 +1,6 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { accessSync, chmodSync, constants, existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { initializeCampaign } from "../src/campaign/index.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../src/contract/index.mjs";
@@ -621,6 +621,36 @@ export async function withFakeDsh(directory, mode, body) {
 }
 
 /**
+ * Resolve each name to an absolute, executable path found on the current
+ * PATH, the same lookup `command -v` performs. Throws with the offending name
+ * when one cannot be found, so a caller building a restricted PATH fails with
+ * a clear message rather than a confusing downstream ENOENT.
+ *
+ * @param {string[]} names
+ * @returns {Record<string, string>}
+ */
+export function binariesInPath(names) {
+  const dirs = (process.env.PATH ?? "").split(delimiter).filter(Boolean);
+  /** @type {Record<string, string>} */
+  const resolved = {};
+  for (const name of names) {
+    const hit = dirs
+      .map((dir) => join(dir, name))
+      .find((candidate) => {
+        try {
+          accessSync(candidate, constants.X_OK);
+          return true;
+        } catch {
+          return false;
+        }
+      });
+    if (!hit) throw new Error(`binariesInPath: "${name}" is not on PATH (${process.env.PATH ?? ""})`);
+    resolved[name] = hit;
+  }
+  return resolved;
+}
+
+/**
  * Run `body` with PATH and HOME pointed at a throwaway directory.
  *
  * The zcode adapter repairs a host whose CLI resolves to nothing: it looks for
@@ -630,13 +660,25 @@ export async function withFakeDsh(directory, mode, body) {
  * shim, installs one into their real `~/.local/bin` as a side effect of running
  * the suite.
  *
+ * `options.binaries` names executables a test still needs despite the empty
+ * PATH (e.g. `sh`, `tar`): each is resolved from the real PATH before it is
+ * emptied, via {@link binariesInPath}, then exposed inside the throwaway
+ * directory as a symlink under its plain name. Any binary not named stays as
+ * unresolvable as it would be on a genuinely empty PATH.
+ *
  * @template T
  * @param {() => T | Promise<T>} body
+ * @param {{binaries?: string[]}} [options]
  * @returns {Promise<T>}
  */
-export async function withEmptyPath(body) {
+export async function withEmptyPath(body, options = {}) {
+  const { binaries = [] } = options;
+  const resolved = binariesInPath(binaries);
   const previous = { PATH: process.env.PATH, HOME: process.env.HOME };
   const directory = mkdtempSync(join(tmpdir(), "runner-empty-path-"));
+  for (const [name, target] of Object.entries(resolved)) {
+    symlinkSync(target, join(directory, name));
+  }
   process.env.PATH = directory;
   process.env.HOME = directory;
   try {

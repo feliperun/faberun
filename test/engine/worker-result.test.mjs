@@ -33,7 +33,7 @@ test("runs a worker and treats minor judge findings as advisory", async () => {
 test("runs a full contract through the generic exec-jsonl harness end to end", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-jsonl-run-"));
   const fake = join(directory, "fake-jsonl.mjs");
-  writeFileSync(fake, `#!/usr/bin/env node
+  writeFileSync(fake, `#!${process.execPath}
 if (process.argv.includes("--version")) {
   console.log("fake-jsonl 1.0.0");
   process.exit(0);

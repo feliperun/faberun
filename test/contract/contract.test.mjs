@@ -313,6 +313,19 @@ test("node snapshots accept an advisory scope finding bounded to 64 paths", () =
   );
 });
 
+test("node snapshots accept declaredReadBytes and still reject an unknown field", () => {
+  assert.equal(validateNodeSnapshot(snapshot({ declaredReadBytes: 4096 })).declaredReadBytes, 4096);
+  assert.equal(validateNodeSnapshot(snapshot({ declaredReadBytes: null })).declaredReadBytes, null);
+  assert.throws(
+    () => validateNodeSnapshot(snapshot({ declaredReadBytes: -1 })),
+    /node snapshot\.declaredReadBytes must be a non-negative integer/u,
+  );
+  assert.throws(
+    () => validateNodeSnapshot(snapshot({ notAField: true })),
+    /node snapshot has unexpected field notAField/u,
+  );
+});
+
 test("persisted scope boundaries name the roots that authorized a regular file", () => {
   const boundary = {
     schemaVersion: 1,

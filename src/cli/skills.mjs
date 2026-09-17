@@ -403,3 +403,5 @@ function usage() {
   process.stderr.write("usage: faberun skills <list|install|register> [<name>...] [--target <dir>] [--global] [--force] [--copy] [--harness <a,b>] [--json]\n");
   process.exitCode = 2;
 }
+
+export default OPERATION_OPTIONS;

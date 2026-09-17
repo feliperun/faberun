@@ -65,3 +65,5 @@ function usage() {
   process.stderr.write("usage: faberun contract validate <contract.json>\n");
   process.exitCode = 2;
 }
+
+export default OPERATION_OPTIONS;

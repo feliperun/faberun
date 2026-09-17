@@ -366,7 +366,7 @@ test("a transient network failure retries on the warm runtime before it spends a
   const outside = mkdtempSync(join(tmpdir(), "runner-network-calls-"));
   const calls = join(outside, "network-calls.txt");
   const flaky = join(outside, "flaky-provider.mjs");
-  writeFileSync(flaky, `#!/usr/bin/env node
+  writeFileSync(flaky, `#!${process.execPath}
 import { appendFileSync, readFileSync } from "node:fs";
 if (process.argv.includes("--version")) { console.log("flaky 1.0.0"); process.exit(0); }
 let input = "";
@@ -417,7 +417,7 @@ test("a judge that lost its socket takes the network backoff, not its one judge_
   const outside = mkdtempSync(join(tmpdir(), "runner-judge-network-calls-"));
   const calls = join(outside, "judge-calls.txt");
   const flaky = join(outside, "flaky-judge.mjs");
-  writeFileSync(flaky, `#!/usr/bin/env node
+  writeFileSync(flaky, `#!${process.execPath}
 import { appendFileSync, readFileSync } from "node:fs";
 if (process.argv.includes("--version")) { console.log("flaky 1.0.0"); process.exit(0); }
 let input = "";

@@ -258,7 +258,7 @@ test("the pre-termination hook runs before terminateProcess, and a no-op is the 
   const logs = join(runDir, "logs");
   mkdirSync(logs);
   const provider = join(runDir, "provider.mjs");
-  writeFileSync(provider, `#!/usr/bin/env node\nprocess.stdin.resume();\nsetTimeout(() => {}, 1000);\n`);
+  writeFileSync(provider, `#!${process.execPath}\nprocess.stdin.resume();\nsetTimeout(() => {}, 1000);\n`);
   chmodSync(provider, 0o755);
   const previous = process.env.FABERUN_CODEX_BIN;
   process.env.FABERUN_CODEX_BIN = provider;
@@ -316,7 +316,7 @@ test("stall supervision kills a runtime whose harness declares streamed output o
   // Writes once, immediately, then never again: codex declares streamsOutput
   // (confirmed by reading its adapter's `--json` transport), so this alone
   // must be enough for the stall clock to start and then expire.
-  writeFileSync(provider, "#!/usr/bin/env node\nprocess.stdout.write(\"{}\\n\"); process.stdin.resume(); setInterval(() => {}, 1000);\n");
+  writeFileSync(provider, `#!${process.execPath}\nprocess.stdout.write("{}\\n"); process.stdin.resume(); setInterval(() => {}, 1000);\n`);
   chmodSync(provider, 0o755);
   const previous = process.env.FABERUN_CODEX_BIN;
   process.env.FABERUN_CODEX_BIN = provider;
@@ -434,7 +434,7 @@ test("a zcode worker runs with the harness's endpoint env overlay applied", asyn
   mkdirSync(logs);
   const marker = join(runDir, "zcode-worker-marker.json");
   const provider = join(runDir, "provider.mjs");
-  writeFileSync(provider, `#!/usr/bin/env node
+  writeFileSync(provider, `#!${process.execPath}
 import { writeFileSync } from "node:fs";
 writeFileSync(${JSON.stringify(marker)}, JSON.stringify({
   notify: process.env.FABERUN_NOTIFY_BIN ?? null,
@@ -553,7 +553,7 @@ test("a gate exits once the directory holding its release file is gone", async (
   const logs = join(runDir, "logs");
   mkdirSync(logs);
   const provider = join(runDir, "provider.mjs");
-  writeFileSync(provider, "#!/usr/bin/env node\nprocess.stdin.resume();\nsetInterval(() => {}, 1000);\n");
+  writeFileSync(provider, `#!${process.execPath}\nprocess.stdin.resume();\nsetInterval(() => {}, 1000);\n`);
   chmodSync(provider, 0o755);
   const previous = process.env.FABERUN_CODEX_BIN;
   process.env.FABERUN_CODEX_BIN = provider;

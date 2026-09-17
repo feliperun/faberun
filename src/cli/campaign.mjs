@@ -728,3 +728,5 @@ function usage() {
   );
   process.exitCode = 2;
 }
+
+export default OPERATION_OPTIONS;

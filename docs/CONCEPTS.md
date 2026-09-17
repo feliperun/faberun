@@ -78,7 +78,12 @@ packet declares `writeRoots` for bounded whole-repo work. Packets are authored
 as `taskPacketFile` and inlined into the stored `contract.json`. The invariant:
 an execution or autonomous packet is closed to the files and roots it lists,
 read paths are relative to `cwd`, cannot escape it and must exist at validation,
-and scope is advisory after an attempt that passes rather than a sandbox. See
+and scope is advisory after an attempt that passes rather than a sandbox. The
+node's declared reference load -- the summed byte size of its `readFiles` in
+the attempt worktree at dispatch -- is recorded on the node snapshot as
+`declaredReadBytes` and surfaced in `status --json` and `report --json`, since
+the worker reads the files itself and this is the one quantity the controller
+can measure about it. See
 [contract.md](../skills/faberun/references/contract.md) and
 [handoffs.md](../skills/faberun/references/handoffs.md).
 

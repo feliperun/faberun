@@ -90,7 +90,7 @@ export function renderFinalReport(runDir, contract, states) {
   const widths = [3, 24, 9, 7, 7, 28, 10, 10, 10, 12, 64];
   /** @param {unknown[]} cells */
   const row = (cells) => cells.map((cell, index) => fit(String(cell ?? ""), widths[index])).join(" ");
-  const totals = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 };
+  const totals = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, declaredReadBytes: 0 };
   let totalCostUsd = null;
   const lines = [
     `# run ${basename(runDir)}`,
@@ -106,6 +106,7 @@ export function renderFinalReport(runDir, contract, states) {
     totals.inputTokens += usage.inputTokens ?? 0;
     totals.outputTokens += usage.outputTokens ?? 0;
     totals.cacheReadInputTokens += usage.cacheReadInputTokens ?? 0;
+    if (typeof node.declaredReadBytes === "number") totals.declaredReadBytes += node.declaredReadBytes;
     if (typeof node.costUsd === "number" && Number.isFinite(node.costUsd)) totalCostUsd = (totalCostUsd ?? 0) + node.costUsd;
     const runtime = node.runtime ? `${node.runtime.harness}/${node.runtime.model}` : "-";
     const planNode = contract.nodes.find((candidate) => candidate.id === node.id);
@@ -129,7 +130,7 @@ export function renderFinalReport(runDir, contract, states) {
     ]));
   }
   const roles = roleCosts(nodes);
-  lines.push("```", "", `totals · in ${compactTokens(totals.inputTokens)} · out ${compactTokens(totals.outputTokens)} · cache ${compactTokens(totals.cacheReadInputTokens)} · worker ${compactCost(roles.worker)} · judge ${compactCost(roles.judge)} · cost ${compactCost(totalCostUsd)}`);
+  lines.push("```", "", `totals · in ${compactTokens(totals.inputTokens)} · out ${compactTokens(totals.outputTokens)} · cache ${compactTokens(totals.cacheReadInputTokens)} · worker ${compactCost(roles.worker)} · judge ${compactCost(roles.judge)} · cost ${compactCost(totalCostUsd)} · read ${compactTokens(totals.declaredReadBytes)}`);
   return `${lines.join("\n")}\n`;
 }
 /**

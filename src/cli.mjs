@@ -87,7 +87,7 @@ export function hasDetachedBootstrapNonce() {
 }
 
 /** @type {Record<string, import("node:util").ParseArgsOptionsConfig>} */
-const COMMAND_OPTIONS = {
+export const COMMAND_OPTIONS = {
   run: { detach: { type: "boolean" }, "base-ref": { type: "string" } },
   resume: { detach: { type: "boolean" }, node: { type: "string" }, reconcile: { type: "string" }, answer: { type: "string" } },
   supervise: { detach: { type: "boolean" }, interval: { type: "string" } },

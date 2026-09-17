@@ -137,3 +137,5 @@ function usage() {
   process.stderr.write("usage: faberun seat <start|attach|status|stop|switch> [<campaign-id>] [--cwd <dir>] ...\n");
   process.exitCode = 2;
 }
+
+export default OPERATION_OPTIONS;

@@ -27,6 +27,8 @@
     "check": "for f in bin/*.mjs .claude/hooks/*.mjs src/*.mjs src/*/*.mjs src/*/*/*.mjs evals/*.mjs test/*.mjs test/*/*.mjs; do node --check \"$f\" || exit 1; done",
     "typecheck": "tsc",
     "test": "node --test test/*.test.mjs test/*/*.test.mjs",
+    "docs": "node src/cli/manual.mjs --write",
+    "docs:check": "node src/cli/manual.mjs --check",
     "prepare": "husky"
   },
   "devDependencies": {

@@ -33,7 +33,7 @@ function fakeTmux(directory, options = {}) {
   const log = options.log ?? join(directory, "tmux.log");
   const windows = (options.windows ?? []).map((row) => row.join("\t")).join("\n");
   const script = [
-    "#!/usr/bin/env node",
+    `#!${process.execPath}`,
     'import { appendFileSync } from "node:fs";',
     "const args = process.argv.slice(2);",
     `appendFileSync(${JSON.stringify(log)}, args.join(" ") + "\\n");`,
