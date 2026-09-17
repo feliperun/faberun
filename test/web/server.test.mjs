@@ -143,6 +143,35 @@ test("the DOM test renders the snapshot's five sections in order, with the needs
   assert.equal(withoutAttention.includes('id="needsyou"'), false, "the banner is absent without attention");
 });
 
+test("the rendered drawer row shows the gate outcome, not the raw verdict, and names an in-progress verification phase", () => {
+  const { window } = runDashboardScript();
+  const render = window.__dashboardTestHooks.renderSectionsHtml;
+  const html = render(fixtureSnapshot({
+    drawer: {
+      runId: RUN_ID,
+      goal: "Ship the dashboard rewrite",
+      campaignId: CAMPAIGN_ID,
+      selectedNodeId: null,
+      detail: null,
+      nodes: [
+        // Advisory review settles `done` no matter the judge's raw `fail`
+        // verdict (engine/review.mjs `settleAdvisoryReview`); the row must
+        // render what the gate decided (`passed`), not the raw verdict.
+        { id: "delta", status: "done", attempt: 1, revisions: 0, model: "claude-sonnet-5", elapsedMs: 60_000, costUsd: 0.2, gateOutcome: "passed", executionPhase: "complete", note: "complete", errorCode: null, blockedBy: [] },
+        // Mid-candidate-verification: the state cell says so.
+        { id: "epsilon", status: "running", attempt: 1, revisions: 0, model: "claude-sonnet-5", elapsedMs: 5_000, costUsd: null, gateOutcome: null, executionPhase: "candidate", note: null, errorCode: null, blockedBy: [] },
+      ],
+    },
+  }));
+  assert.match(html, /<th>gate<\/th>/u);
+  assert.doesNotMatch(html, /<th>verdict<\/th>/u);
+  const deltaRow = /<tr[^>]*data-node="delta"[\s\S]*?<\/tr>/u.exec(html)?.[0] ?? "";
+  assert.match(deltaRow, /class="pill passed">passed</u, "delta's row shows the gate outcome");
+  assert.doesNotMatch(deltaRow, />fail</u, "delta's row must not show the raw fail verdict");
+  const epsilonRow = /<tr[^>]*data-node="epsilon"[\s\S]*?<\/tr>/u.exec(html)?.[0] ?? "";
+  assert.match(epsilonRow, /candidate verification/u, "epsilon's state cell names the in-progress candidate re-verification");
+});
+
 test("server serves the page, a snapshot and a 404 for an unknown route", async () => {
   const world = makeWorld();
   const server = await startServer({ runsDir: world.runsDir, tokenFile: world.tokenFile, port: 0 });

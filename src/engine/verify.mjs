@@ -11,8 +11,10 @@
 import { attemptWorkspace } from "../repo/worktree.mjs";
 import { boundedUtf8, errorMessage } from "../util.mjs";
 import { compactVerification } from "../contract/verification.mjs";
-import { finalVerificationCommands, sharedVerificationCommands } from "../contract/final-verification.mjs";
+import { finalVerificationCommands, phaseTerminalNode, sharedVerificationCommands } from "../contract/final-verification.mjs";
 import { join } from "node:path";
+import { listNodeSnapshots, readNodeSnapshot } from "../run/node-store.mjs";
+import { SETTLED } from "./prompts.mjs";
 import { terminateInvocation } from "./process.mjs";
 import { writeNode } from "./state.mjs";
 import { runVerification } from "./run-command.mjs";
@@ -27,6 +29,34 @@ import { runVerification } from "./run-command.mjs";
 /** @typedef {import("../contract/verification.mjs").VerificationCommand} VerificationCommand */
 /** @typedef {import("../contract/index.mjs").VerificationState} VerificationState */
 /** @typedef {{index: number, total: number, argv: string}} VerificationProgress */
+
+/**
+ * The sibling phase-terminal node ids already settled, read straight off
+ * disk: every node snapshot is persisted from the run's first tick (see
+ * `runContract`), so a node still `pending` reads back honestly, not as
+ * missing. `finalVerificationCommands` uses this to decide, at the moment a
+ * phase-terminal node's own verification runs, whether it is the one that
+ * closes the phase -- recomputed fresh on every call, so a retried node sees
+ * its siblings' current status each time, not a decision frozen from an
+ * earlier attempt.
+ *
+ * @param {string} runDir
+ * @param {ValidatedContract} contract
+ * @param {ValidatedNode} node
+ * @returns {Set<string>}
+ */
+function settledSiblingIds(runDir, contract, node) {
+  const ids = new Set();
+  for (const name of listNodeSnapshots(runDir)) {
+    const id = name.slice(0, -".json".length);
+    if (id === node.id) continue;
+    const sibling = contract.nodes.find((candidate) => candidate.id === id);
+    if (!sibling || !phaseTerminalNode(contract, sibling)) continue;
+    const snapshot = /** @type {{status?: string}} */ (readNodeSnapshot(runDir, id));
+    if (SETTLED.has(/** @type {string} */ (snapshot.status))) ids.add(id);
+  }
+  return ids;
+}
 
 /**
  * The bounded `k/n · argv` shape a running node's status surfaces while a
@@ -108,7 +138,7 @@ export async function executeControllerVerification(contract, runDir, node, stat
   };
   writeNode(runDir, state, lock);
   const workspace = attemptWorkspace(state) ?? contract.cwd;
-  const commands = [...node.taskPacket.verification, ...sharedVerificationCommands(contract), ...finalVerificationCommands(contract, node)];
+  const commands = [...node.taskPacket.verification, ...sharedVerificationCommands(contract), ...finalVerificationCommands(contract, node, settledSiblingIds(runDir, contract, node))];
   /** @param {VerificationAttempt} attempt @returns {VerificationProgress} */
   const progressFor = (attempt) => verificationProgress(attempt.commandIndex + 1, commands.length, /** @type {VerificationCommand|undefined} */ (commands[attempt.commandIndex])?.argv);
   try {
@@ -222,15 +252,36 @@ function argvEqual(a, b) {
   return a.every((item, index) => item === b[index]);
 }
 /**
+ * Marks whether the integration candidate's own verification pass is running
+ * right now, nested inside the attempt's own already-completed verification
+ * record rather than as a new node-snapshot field: that record's validator
+ * (`validateVerificationSnapshot`) accepts extra keys, where the node
+ * snapshot's own strict field list would reject one. Status surfaces read it
+ * to tell "still verifying the sealed candidate" apart from "waiting on the
+ * judge", which otherwise both read as whatever phase the attempt last
+ * dispatched under.
+ *
+ * @param {string} runDir
+ * @param {NodeSnapshot} state
+ * @param {LockHandle|null} lock
+ * @param {boolean} active
+ */
+function markCandidateVerification(runDir, state, lock, active) {
+  state.verification = /** @type {VerificationState} */ ({ ...(state.verification ?? { passed: false, commands: [], completed: false }), candidate: active });
+  writeNode(runDir, state, lock);
+}
+/**
  * @param {ValidatedContract} contract
  * @param {ValidatedNode} node
  * @param {NodeSnapshot} state
  * @param {string} runDir
  * @param {string} workspace
+ * @param {LockHandle|null} [lock]
  * @returns {Promise<import("../repo/integrate.mjs").CandidateEvidence>}
  */
-export async function verifyCandidateWorkspace(contract, node, state, runDir, workspace) {
-  const commands = [...node.taskPacket.verification, ...sharedVerificationCommands(contract), ...finalVerificationCommands(contract, node)];
+export async function verifyCandidateWorkspace(contract, node, state, runDir, workspace, lock = null) {
+  const commands = [...node.taskPacket.verification, ...sharedVerificationCommands(contract), ...finalVerificationCommands(contract, node, settledSiblingIds(runDir, contract, node))];
+  markCandidateVerification(runDir, state, lock, true);
   try {
     const result = await runVerification(commands, workspace, {
       logDir: join(runDir, "logs", `${node.id}.${state.attempt}.candidate-verification`),
@@ -252,5 +303,7 @@ export async function verifyCandidateWorkspace(contract, node, state, runDir, wo
     return settled.retried ? { ...compacted, retried: settled.retried } : compacted;
   } catch (error) {
     return { passed: false, error: boundedUtf8(errorMessage(error), 4 * 1024) };
+  } finally {
+    markCandidateVerification(runDir, state, lock, false);
   }
 }

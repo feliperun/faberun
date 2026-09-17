@@ -503,7 +503,7 @@ export function promoteRun({ repo, runId, landBranch, runHead, baseSha, finalVer
   if (!head) throw refusal(`refusing to promote ${runId}: the run ref is unavailable`, "run_ref_missing");
   const checkedOutAt = worktreeCheckedOutAt(repo, landBranch);
   if (checkedOutAt) {
-    throw refusal(`refusing to promote ${landBranch}: it is checked out in ${checkedOutAt}`, "land_branch_checked_out");
+    throw refusal(`refusing to promote ${landBranch}: it is checked out in ${checkedOutAt}; ${landBranchCheckedOutRemedy(checkedOutAt)}`, "land_branch_checked_out");
   }
   const branchRef = `refs/heads/${landBranch}`;
   const current = gitHead(repo, branchRef);
@@ -538,6 +538,11 @@ export function promoteRun({ repo, runId, landBranch, runHead, baseSha, finalVer
 /** @param {string} message @param {string} code @returns {Error} */
 function refusal(message, code) {
   return Object.assign(new Error(message), { code });
+}
+
+/** @param {string} checkedOutAt @returns {string} */
+function landBranchCheckedOutRemedy(checkedOutAt) {
+  return `detach the checkout at ${checkedOutAt} or run the coordinator from a worktree`;
 }
 
 /** @param {string} path @returns {string} */

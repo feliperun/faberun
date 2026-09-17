@@ -117,3 +117,48 @@ test("a failing verification command still leaves no stray progress on the termi
     "the pass's final rewrite of state.verification never carries the last running command's progress forward",
   );
 });
+
+test("a node in the integration candidate's own verification pass carries the candidate phase on its snapshot, and it clears once settled", async () => {
+  const id = "verification-progress-candidate";
+  const directory = mkdtempSync(join(tmpdir(), `${id}-`));
+  const recordingDir = mkdtempSync(join(tmpdir(), `${id}-rec-`));
+  const captureDir = mkdtempSync(join(tmpdir(), `${id}-cap-`));
+  const nodeJsonPath = join(directory, ".runs", id, "nodes", "build.json");
+  const logPath = join(captureDir, "log.jsonl");
+  writeFileSync(logPath, "");
+  const script = "const fs=require('node:fs');"
+    + "const state=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));"
+    + "fs.appendFileSync(process.argv[2], JSON.stringify({candidate: Boolean(state.verification && state.verification.candidate)}) + String.fromCharCode(10));";
+  const argv = [process.execPath, "-e", script, "--", nodeJsonPath, logPath];
+
+  const workerRecording = writeRecording(recordingDir, [
+    { envelope: envelope({ result: JSON.stringify(workerResult("built")) }) },
+  ], "worker.jsonl");
+  const contractPath = writeContract(directory, fixture({
+    id,
+    pollIntervalMs: 10,
+    runtimeDefaults: { worker: "replay-worker", judge: "replay-judge" },
+    runtimes: {
+      "replay-worker": { harness: "replay", model: "replay-worker-model", vendor: "replay-worker-vendor", config: { "replay.recording": workerRecording } },
+      "replay-judge": { harness: "replay", model: "replay-judge-model", vendor: "replay-judge-vendor" },
+    },
+    nodes: [{ id: "build", type: "backend", taskPacket: packet({ verification: [{ argv }] }), gate: false }],
+  }));
+
+  const outcome = await runContract(contractPath);
+  assert.equal(outcome.ok, true, "the run completes once both the attempt and the candidate verification pass");
+
+  /** @type {{candidate: boolean}[]} */
+  const records = readFileSync(logPath, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  assert.equal(records.length, 2, "the packet's one verification command runs once for the attempt and once for the integration candidate");
+  assert.equal(records[0].candidate, false, "the attempt-stage pass is not the candidate pass");
+  assert.equal(records[1].candidate, true, "the candidate-stage pass marks the node snapshot while it runs");
+
+  const final = outcome.states.get("build");
+  assert.equal(final?.status, "done");
+  assert.equal(
+    /** @type {{candidate?: unknown}|null|undefined} */ (final?.verification)?.candidate,
+    false,
+    "the candidate marker is cleared once the candidate pass settles",
+  );
+});

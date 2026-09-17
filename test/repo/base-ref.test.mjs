@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { controllerSnapshotIdentity, verifyControllerIdentity } from "../../src/engine/run-identity.mjs";
 import { assertLaunchBaseClean } from "../../src/repo/source-identity.mjs";
 import { runRefName } from "../../src/repo/worktree.mjs";
-import { fakeCodex, fixture, writeContract } from "../helpers.mjs";
+import { fakeCodex, fixture, packet, writeContract } from "../helpers.mjs";
 
 /**
  * `run --base-ref <ref>`: the run is cut from that ref's sha, so every attempt
@@ -69,6 +69,37 @@ test("run --base-ref cuts the run ref and attempt worktrees from the base and le
   // The integrated ref's tree is the base tree, not HEAD's: direct proof the
   // run was cut from the base rather than the checkout.
   assert.equal(gitOut(directory, ["show", `${runRefName("base-ref-run")}:version.txt`]), "base");
+});
+
+test("run --base-ref validates against the ref, not the checkout", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-base-ref-validate-"));
+  const contractPath = writeContract(directory, fixture({
+    id: "base-ref-validate-run",
+    nodes: [{ id: "build", type: "backend", taskPacket: packet({ readFiles: ["produced.txt"] }), gate: false }],
+  }));
+  // A predecessor phase's promotion lands `produced.txt` on the branch a
+  // launch is cut from; `promoteRun` never touches the working tree, so the
+  // checkout itself never gets the file.
+  writeFileSync(join(directory, "produced.txt"), "from the predecessor phase\n");
+  commitAll(directory, "predecessor phase produces a file");
+  const baseSha = gitOut(directory, ["rev-parse", "HEAD"]);
+  rmSync(join(directory, "produced.txt"));
+  commitAll(directory, "checkout moves on without the predecessor's file");
+
+  const withoutBaseRef = spawnSync(process.execPath, [CLI, "run", contractPath], {
+    cwd: directory,
+    env: { ...process.env, FABERUN_CODEX_BIN: fakeCodex(directory, "pass") },
+    encoding: "utf8",
+  });
+  assert.notEqual(withoutBaseRef.status, 0, "the checkout lacks the file the contract reads");
+  assert.match(withoutBaseRef.stderr, /produced\.txt/u);
+
+  const withBaseRef = spawnSync(process.execPath, [CLI, "run", contractPath, "--base-ref", baseSha], {
+    cwd: directory,
+    env: { ...process.env, FABERUN_CODEX_BIN: fakeCodex(directory, "pass") },
+    encoding: "utf8",
+  });
+  assert.equal(withBaseRef.status, 0, withBaseRef.stderr);
 });
 
 test("a plain launch records no base ref", () => {

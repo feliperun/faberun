@@ -291,6 +291,25 @@ export function validateContractAgainstRef(raw, contractPath, context = {}) {
 }
 
 /**
+ * Validate a contract for a launch, the one path the CLI's `run` command and
+ * the scheduler's own re-validation both go through: against `baseRef` when
+ * one is given, the checkout otherwise. `repo` defaults to the contract's own
+ * `cwd` when the caller does not know a better one (the campaign chain always
+ * passes its own), since a contract's `cwd` is always inside the repo it
+ * names.
+ *
+ * @param {Record<string, unknown>} raw
+ * @param {string} contractPath
+ * @param {{repo?: string, baseRef?: string}} [context]
+ * @returns {ValidatedContract}
+ */
+export function validateContractForLaunch(raw, contractPath, context = {}) {
+  if (!context.baseRef) return validateContract(raw, contractPath);
+  const repo = context.repo ?? resolve(dirname(contractPath), typeof raw.cwd === "string" ? raw.cwd : ".");
+  return validateContractAgainstRef(raw, contractPath, { repo, baseRef: context.baseRef });
+}
+
+/**
  * Reduce a run's progress to the one decision the chain makes. An in-flight run
  * is `unfinished` even though `reduceRunOutcome` already names its running nodes
  * `parked`: only a settled, unsuccessful run parks the campaign.

@@ -31,15 +31,15 @@ import {
   terminalErrorCode,
 } from "./lifecycle.mjs";
 import { delay, errorCode } from "../util.mjs";
-import { alreadyNotified, notifyQueueFor, notifyQueuesByRun, renderCampaignHandoffSafely } from "./notify-queue.mjs";
-import { detectStalls, terminateProcess } from "./process.mjs";
+import { alreadyNotified, emitNodeAdvisories, notifyQueueFor, notifyQueuesByRun, renderCampaignHandoffSafely } from "./notify-queue.mjs";
+import { detectStalls, invocationAlive, terminateProcess } from "./process.mjs";
 import { transition, writeNode } from "./state.mjs";
 import { listNodeSnapshots, readNodeSnapshot } from "../run/node-store.mjs";
 import { render, renderFinalReport, writeFindingsArtifact } from "../report/final.mjs";
 import { operationNextState, providerReceipts, settleInvocation } from "../run/operations.mjs";
 import { appendUsageRecord, invocationCost, invocationUsage, recordInvocationUsage } from "../run/usage.mjs";
 import { captureNodeScopeBoundaries, checkWorkerScope, emptyScope } from "./scope.mjs";
-import { validateContract } from "../contract/index.mjs";
+import { validateContractForLaunch } from "../campaign/chain.mjs";
 import { validateNodeSnapshot } from "../contract/snapshot.mjs";
 import { finalVerificationCommands, sharedVerificationCommands } from "../contract/final-verification.mjs";
 import { startJudge, startWorker } from "./dispatch.mjs";
@@ -131,16 +131,22 @@ export function nodeBudgetBasisMs(contract, node) {
  * never touches phase 2's parked `blocked`/`failed`/`exhausted`/`stalled`
  * states, and never overwrites the `runtime_tier_exhausted` waiting shape.
  *
+ * A node whose closed job is being settled in the background (its id is a key
+ * of `pendingSettlements`) is not this dead end either: its invocation has
+ * already exited and left `running`, but the settlement promise still owns
+ * deciding what happens to it, so it is left alone until that promise resolves.
+ *
  * @param {string} runDir
  * @param {Map<string, NodeSnapshot>} states
  * @param {Map<string, Job>} running
  * @param {LockHandle|null} lock
+ * @param {Map<string, Promise<void>>} [pendingSettlements]
  * @returns {string[]} the node ids this pass parked
  */
-export function enforceRunningInvariant(runDir, states, running, lock) {
+export function enforceRunningInvariant(runDir, states, running, lock, pendingSettlements = new Map()) {
   const parked = [];
   for (const [nodeId, state] of states) {
-    if (state.status !== "running" || running.has(nodeId)) continue;
+    if (state.status !== "running" || running.has(nodeId) || pendingSettlements.has(nodeId)) continue;
     transition(runDir, state, "blocked", {
       phase: state.phase,
       error: {
@@ -175,14 +181,17 @@ function renderFingerprint(states) {
 
 /**
  * @param {string} contractPath
- * @param {{detachedBootstrap?: boolean}} [options] `detachedBootstrap` is set
- *   only by the CLI entry when this process is its own detached child, and
- *   makes the controller wait for the launcher's acknowledgement
+ * @param {{detachedBootstrap?: boolean, baseRef?: string}} [options]
+ *   `detachedBootstrap` is set only by the CLI entry when this process is its
+ *   own detached child, and makes the controller wait for the launcher's
+ *   acknowledgement; `baseRef` is the CLI's own `--base-ref`, re-validated
+ *   here so a launch and the run it starts agree about what the contract was
+ *   checked against
  * @returns {Promise<RunOutcome>}
  */
 export async function runContract(contractPath, options = {}) {
   const absoluteContractPath = resolve(contractPath);
-  const contract = validateContract(JSON.parse(readFileSync(absoluteContractPath, "utf8")), absoluteContractPath);
+  const contract = validateContractForLaunch(JSON.parse(readFileSync(absoluteContractPath, "utf8")), absoluteContractPath, { baseRef: options.baseRef });
   const runDir = join(contract.cwd, ".runs", contract.id);
   if (existsSync(runDir)) throw new Error(`run already exists: ${runDir}`);
   mkdirSync(join(contract.cwd, ".runs"), { recursive: true });
@@ -319,12 +328,13 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
     statusFingerprint = fingerprint;
     render(runDir, runsDir, contract, states, renderLock);
   };
-  // The tick that owns a running node's verification can be minutes long
-  // (`executeControllerVerification` is awaited on the critical path below),
-  // and that whole time status.json would otherwise report whatever the last
-  // tick left it at. A timer renders between ticks too; it is cheap even when
-  // idle because `renderFingerprint` still change-detects, so a quiet run
-  // writes nothing extra.
+  // A node's own settlement (its controller verification, its judge round) can
+  // be minutes long, and it now runs off the tick's critical path in
+  // `pendingSettlements` so dispatch never waits behind it -- but that whole
+  // time status.json would otherwise report whatever the last tick left it at.
+  // A timer renders between ticks too; it is cheap even when idle because
+  // `renderFingerprint` still change-detects, so a quiet run writes nothing
+  // extra.
   const statusTimer = setInterval(() => renderStatusIfChanged(), contract.pollIntervalMs);
   statusTimer.unref();
   let handoffFingerprint = statesFingerprint(states);
@@ -364,14 +374,31 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
 
   /** @type {Map<string, Job>} */
   const running = new Map();
+  // One promise per node currently settling a closed job -- its controller
+  // verification, its candidate verification, its judge round -- kept off the
+  // tick's critical path so an eligible sibling still dispatches into a free
+  // slot while this node's own invocation has already exited. A node's own
+  // steps stay ordered because only one settlement per node is ever in flight
+  // (see the dispatch loop below); a *different* node's settlement is queued
+  // behind whichever one is already running (`settlementQueue`), not run
+  // alongside it -- `finalizeClosedJobs` shares state a concurrent second call
+  // would corrupt: the phase-continuation selection that picks at most one
+  // live node to carry a session forward, and `repo/integrate.mjs`'s one
+  // candidate ref and worktree per run. Only *dispatching a sibling* skips
+  // ahead of a node's settlement; two nodes' settlements never interleave.
+  /** @type {Map<string, Promise<void>>} */
+  const pendingSettlements = new Map();
+  /** @type {Promise<void>} */
+  let settlementQueue = Promise.resolve();
   let canceled = false;
   const cancel = () => { canceled = true; };
   process.once("SIGINT", cancel);
   process.once("SIGTERM", cancel);
   process.once("SIGHUP", cancel);
   // The heartbeat's `at` is owned by an unref'd timer inside this writer, never
-  // by the loop body below: the loop awaits controller verification on its own
-  // critical path and must keep answering "the process is alive" while it does.
+  // by the loop body below: a node's settlement can still run for minutes off
+  // the tick's critical path (`pendingSettlements`), and the heartbeat must
+  // keep answering "the process is alive" while it does.
   const heartbeat = createHeartbeat({ runDir, intervalMs: HEARTBEAT_INTERVAL_MS });
   const heartbeatNodes = new Map(contract.nodes.map((node) => [node.id, node]));
   let heartbeatFingerprint = statesFingerprint(states);
@@ -380,11 +407,89 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
   const activeHeartbeatNodes = () => [...states.values()]
     .filter((state) => state.status === "running" && heartbeatNodes.has(state.id))
     .map((state) => ({ nodeId: state.id, budgetBasis: nodeBudgetBasisMs(contract, /** @type {ValidatedNode} */ (heartbeatNodes.get(state.id))) }));
+  // A programmer error surfacing inside a background settlement must still
+  // crash the whole run, exactly as an unguarded `await finalizeClosedJobs`
+  // used to: it is recorded here and thrown from the top of the loop on the
+  // very next tick, rather than immediately, so it cannot itself become the
+  // block a sibling's dispatch is waiting behind. A lost lock is not this --
+  // the loop's own `lock.assert()` calls surface that same condition on their
+  // own schedule, so it is left for them.
+  /** @type {unknown} */
+  let backgroundSettlementFailure = null;
+  // Mark every job that closed this tick as settling, and free its slot,
+  // without waiting for any of them: that alone is what lets an eligible
+  // sibling dispatch into the freed slot while this node's minutes-long
+  // controller verification or judge round is still running. The actual
+  // settlement work is chained onto `settlementQueue`, one node at a time in
+  // the order its job closed, so it still runs exactly as serialized against
+  // every *other* node's settlement as it did when this loop awaited
+  // `finalizeClosedJobs` directly -- `finalizeClosedJobs` runs against a
+  // one-entry map per node, so this is one call per node rather than the one
+  // batched call it used to be, but the chain still runs them one at a time.
+  // A settlement may itself dispatch the node's next phase (a judge, a
+  // revision) through the same `startJudge`/`startWorker` calls dispatch below
+  // uses; those land in `slot`, not the real `running`, so they are copied
+  // back into `running` in a `finally` -- unconditionally, win or lose, so a
+  // job a settlement started before failing (a lost lock, a programmer error)
+  // is still visible to the cleanup sweeps below rather than leaked. The
+  // node's own steps stay ordered by never starting a second settlement for a
+  // node whose first has not yet cleared `pendingSettlements`.
+  const settleClosedJobsInBackground = () => {
+    for (const [nodeId, job] of [...running]) {
+      if (pendingSettlements.has(nodeId) || !job.closed || invocationAlive(job.invocation)) continue;
+      running.delete(nodeId);
+      const slot = new Map([[nodeId, job]]);
+      const settlement = settlementQueue
+        .then(() => finalizeClosedJobs(contract, runDir, states, slot, lock, campaign.path))
+        .finally(() => {
+          for (const [settledId, settledJob] of slot) running.set(settledId, settledJob);
+          pendingSettlements.delete(nodeId);
+        });
+      // The queue itself must never reject -- a rejected settlement (a lost
+      // lock, a programmer error) would otherwise wedge every node queued
+      // behind it. The rejection still reaches whoever awaits the real
+      // `settlement` promise (`pendingSettlements`, below).
+      settlementQueue = settlement.catch(() => {});
+      // Handled here so an in-flight settlement never becomes an unhandled
+      // rejection when nobody happens to await `pendingSettlements` before the
+      // process exits; the original promise, still held below, carries the
+      // rejection to whichever checkpoint (cancel, shutdown) awaits it.
+      settlement.catch((error) => {
+        if (!(error instanceof LockLostError) && backgroundSettlementFailure === null) backgroundSettlementFailure = error;
+      });
+      pendingSettlements.set(nodeId, settlement);
+    }
+  };
+  // Captured once, before the loop, rather than re-derived every tick: it is
+  // "parked when this controller invocation started" (autoRetryParkedNodes's
+  // own contract), and a node a background settlement parks between two ticks
+  // -- rather than synchronously within one, as it always did before
+  // settlement moved off the tick's critical path -- must still read as newly
+  // parked whichever later tick first observes it, not as already-parked
+  // because a per-tick snapshot happened to be taken after it landed.
+  const parkedBefore = new Set([...states.values()].filter((state) => PARKED.has(state.status)).map((state) => state.id));
+  const anyUnsettled = () => [...states.values()].some((state) => !SETTLED.has(state.status));
   try {
-    while ([...states.values()].some((state) => !SETTLED.has(state.status))) {
+    // A `while` that re-checked this at the very top of every tick would exit
+    // the instant a background settlement flips the run's last unsettled node
+    // straight to a terminal status between two ticks -- before the tick body
+    // that would have run `autoRetryParkedNodes` against that new status ever
+    // gets to. The entry guard skips the loop entirely when there is nothing
+    // to do at all (a resume of an already-settled run still does zero
+    // iterations); once inside, the exit check moves to the bottom, after the
+    // body, so that body always sees a freshly-parked node at least once
+    // before the loop is allowed to end.
+    if (anyUnsettled()) for (;;) {
       lock.assert();
+      if (backgroundSettlementFailure !== null) throw backgroundSettlementFailure;
       if (existsSync(join(runDir, "cancel.request.json"))) canceled = true;
       if (canceled) {
+        // A settlement already in flight owns the one decision a cancellation
+        // must not race: what this node's own invocation resolved to. Let it
+        // land on its real terminal status (and, when it re-dispatched a judge
+        // or a revision, on the new job that landed in `running`) before this
+        // branch decides which nodes are merely canceled.
+        await Promise.all([...pendingSettlements.values()]);
         const jobs = [...running.values()];
         await Promise.all(jobs.map((job) => terminateProcess(job)));
         const envelopes = new Map();
@@ -408,8 +513,14 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
         break;
       }
 
-      const parkedBefore = new Set([...states.values()].filter((state) => PARKED.has(state.status)).map((state) => state.id));
-      await finalizeClosedJobs(contract, runDir, states, running, lock, campaign.path);
+      // Advisory spend lines are checked every tick, closed job or not: a
+      // crossing must be visible while the spend is happening on a node still
+      // running, not only once it closes. `finalizeClosedJobs` used to open
+      // with this same check; calling it once here, rather than once per
+      // node settled this tick, is what keeps it at one pass per tick now
+      // that settlement runs per node in `settleClosedJobsInBackground`.
+      await emitNodeAdvisories(contract, runDir, states);
+      settleClosedJobsInBackground();
       await detectStalls(contract, running, async (job, status, error) => {
         const envelope = recordInvocationUsage(job);
         job.state.usage = invocationUsage(job.state);
@@ -450,8 +561,11 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
         writeNode(runDir, job.state, lock);
       });
       // A node left `running` with no job is a dead end; park it before the
-      // dispatch pass so it cannot hide behind a healthy sibling.
-      enforceRunningInvariant(runDir, states, running, lock);
+      // dispatch pass so it cannot hide behind a healthy sibling. A node
+      // whose closed job is settling in the background is not that dead end
+      // -- `pendingSettlements` is what tells this apart from one truly
+      // abandoned.
+      enforceRunningInvariant(runDir, states, running, lock, pendingSettlements);
       // Before dependants are blocked, a node that parked on this tick gets
       // its one automatic retry: it becomes pending, so `blockDependents` sees
       // nothing to block and the dependants stay `pending`/`phase: "waiting"`
@@ -463,14 +577,37 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
       if (slots > 0) {
         const ready = contract.nodes.filter((node) => {
           const state = states.get(node.id);
-          return state?.status === "pending" && node.dependsOn.every((id) => states.get(id)?.status === "done");
+          return state?.status === "pending" && !pendingSettlements.has(node.id)
+            && node.dependsOn.every((id) => states.get(id)?.status === "done");
         });
         for (const node of ready.slice(0, slots)) {
           const state = states.get(node.id);
           if (!state || routingBackoffActive(state, state.phase)) continue;
+          // A node recovered pending a re-ask judge (its own worker attempt
+          // already accepted, `state.result` durable) reaches `settleDone` /
+          // `integrateAttempt` exactly like a closed job's own settlement
+          // does, on the same per-run candidate ref and worktree
+          // `settlementQueue` exists to serialize -- so it is dispatched the
+          // same way: chained onto the queue rather than awaited here, using
+          // its own one-entry `slot` merged back into `running` in a
+          // `finally`. The node's own order is untouched (still one entry at
+          // a time, gated by `pendingSettlements`); only the tick stops
+          // waiting behind it.
           if (state.phase === "judge" && state.result) {
-            await applyJudgeRound(await startJudge(contract, node, state, runDir, running, state.result, lock, states, campaign.path),
-              contract, node, state, runDir, running, lock, states, campaign.path, state.result);
+            const workerResult = state.result;
+            const slot = new Map();
+            const settlement = settlementQueue
+              .then(() => startJudge(contract, node, state, runDir, slot, workerResult, lock, states, campaign.path))
+              .then((round) => applyJudgeRound(round, contract, node, state, runDir, slot, lock, states, campaign.path, workerResult))
+              .finally(() => {
+                for (const [settledId, settledJob] of slot) running.set(settledId, settledJob);
+                pendingSettlements.delete(node.id);
+              });
+            settlementQueue = settlement.catch(() => {});
+            settlement.catch((error) => {
+              if (!(error instanceof LockLostError) && backgroundSettlementFailure === null) backgroundSettlementFailure = error;
+            });
+            pendingSettlements.set(node.id, settlement);
             continue;
           }
           state.attempt += 1;
@@ -499,10 +636,46 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
         }
       }
       heartbeat.setActive(activeHeartbeatNodes());
-      if ([...states.values()].some((state) => !SETTLED.has(state.status))) await delay(contract.pollIntervalMs);
+      // A background settlement can flip a node straight to a parked
+      // terminal status during this same tick's own later awaits
+      // (`detectStalls`, `notifyStateChanges`), after the auto-retry pass
+      // above already ran and saw it as not-yet-parked. Running it once more
+      // here, immediately before the exit check, is what stops the loop from
+      // mistaking that freshly-parked node for settled and exiting before it
+      // ever got its automatic retry; a node it reopens dispatches on the
+      // next tick rather than this one, which `anyUnsettled()` below still
+      // correctly keeps the loop alive for.
+      autoRetryParkedNodes(contract, runDir, states, lock, parkedBefore);
+      if (!anyUnsettled()) break;
+      await delay(contract.pollIntervalMs);
     }
+    // The loop above exits (by the bottom check above or the cancel branch's
+    // `break`) the instant every node's state looks settled, but a
+    // settlement's own trailing work -- sealing a candidate's acceptance,
+    // removing its worktree, enqueueing its terminal notification -- can
+    // still be running after the transition that made the state look
+    // terminal. Nothing past this point (the final render, the findings
+    // artifact, the run-terminal notification, releasing the lock) may run
+    // ahead of that trailing work.
+    await Promise.all([...pendingSettlements.values()]);
+    // A settlement's own `finally` deletes it from `pendingSettlements` the
+    // instant it settles, win or lose -- so a rejection recorded here can
+    // already be gone from the map above by the time this line runs, with
+    // nothing left to await it. The loop's own top-of-tick check
+    // (`if (backgroundSettlementFailure !== null) throw ...`) cannot save
+    // that case either: the loop has already exited. Checked again here,
+    // once, so a background settlement failure can never read as a clean
+    // finish just because it settled on the same tick the run's last node
+    // did.
+    if (backgroundSettlementFailure !== null) throw backgroundSettlementFailure;
   } catch (error) {
     if (!(error instanceof LockLostError)) throw error;
+    // A settlement still merges whatever it started into `running` in its own
+    // `finally`, win or lose, regardless of whether anything awaits it; wait
+    // for that to land (never rejecting itself, so a second lock-loss here
+    // cannot mask the one already being handled) before the termination sweep
+    // reads `running`.
+    await Promise.allSettled([...pendingSettlements.values()]);
     await Promise.all([...running.values()].map((job) => terminateProcess(job)));
     notifyQueuesByRun.delete(runDir);
     return { runDir, states, ok: false, error };

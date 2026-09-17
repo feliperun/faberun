@@ -69,6 +69,77 @@ test("verification progress clears once the pass completes", () => {
   }
 });
 
+test("a node whose integration candidate is being re-verified names the candidate phase, on both renderings", () => {
+  const { runDir } = makeRun({
+    status: "running",
+    phase: "worker",
+    verification: { passed: true, commands: [], completed: true, attempts: [], candidate: true },
+  });
+  try {
+    assert.match(renderStatus(runDir), /now: build running \([^)]*\) · - · - · candidate verification/u);
+    const payload = JSON.parse(renderStatusJson(runDir));
+    assert.equal(payload.nodes[0].executionPhase, "candidate");
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("candidate verification and attempt verification progress do not both surface at once", () => {
+  const { runDir } = makeRun({
+    status: "running",
+    phase: "worker",
+    verification: { passed: true, commands: [], completed: true, attempts: [], candidate: false },
+  });
+  try {
+    const payload = JSON.parse(renderStatusJson(runDir));
+    assert.equal(payload.nodes[0].executionPhase, "worker");
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("a node whose gate accepted a fail verdict below its threshold reports the gate outcome as passed, not the verdict, on both renderings", () => {
+  const { runDir } = makeRun({
+    status: "done",
+    phase: "complete",
+    gate: { verdict: "fail", maxSeverity: "minor", summary: "advisory finding", findings: [{ severity: "minor", description: "d", evidence: "e" }] },
+  });
+  try {
+    const text = renderStatus(runDir);
+    assert.match(text, /passed/u);
+    const payload = JSON.parse(renderStatusJson(runDir));
+    assert.equal(payload.nodes[0].verdict, "fail", "the raw judge verdict stays available in the payload");
+    assert.equal(payload.nodes[0].gateOutcome, "passed");
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("an exhausted node's gate outcome reads rejected", () => {
+  const { runDir } = makeRun({
+    status: "exhausted",
+    phase: "complete",
+    gate: { verdict: "fail", maxSeverity: "critical", summary: "needs work", findings: [{ severity: "critical", description: "d", evidence: "e" }] },
+  });
+  try {
+    const payload = JSON.parse(renderStatusJson(runDir));
+    assert.equal(payload.nodes[0].verdict, "fail");
+    assert.equal(payload.nodes[0].gateOutcome, "rejected");
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("a node with no gate yet reports a null gate outcome", () => {
+  const { runDir } = makeRun({ status: "running", phase: "worker" });
+  try {
+    const payload = JSON.parse(renderStatusJson(runDir));
+    assert.equal(payload.nodes[0].gateOutcome, null);
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
 /**
  * @param {Record<string, unknown>} nodeOverrides
  */

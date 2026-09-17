@@ -165,7 +165,7 @@ export async function settleDone(contract, node, state, runDir, lock, states, ca
     attemptSha: sealed.sha,
     branch: state.worktree.branch,
     verificationEvidence: state.verification,
-    verifyCandidate: (candidateWorkspace) => verifyCandidateWorkspace(contract, node, state, runDir, candidateWorkspace),
+    verifyCandidate: (candidateWorkspace) => verifyCandidateWorkspace(contract, node, state, runDir, candidateWorkspace, lock),
     onAccepted: async (transaction) => {
       const acceptedPath = state.worktree?.path ?? attemptWorktreePath(runDir, contract.id, node.id, transaction.attempt);
       if (state.attempt === transaction.attempt && state.status !== "done") {

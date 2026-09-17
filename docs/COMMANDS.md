@@ -53,7 +53,10 @@ faberun run <contract.json> [--detach] [--base-ref <value>]
 ```
 Validate a contract, refuse a launch when the base it would cut from is dirty,
 then drive the run's DAG. Use it to start a run; `--detach` is the normal shape
-for a host scheduler.
+for a host scheduler. With `--base-ref`, the contract is validated against
+that ref instead of the checkout, so a contract whose `readFiles` name a file
+a predecessor phase produced there launches without the checkout ever holding
+it.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |

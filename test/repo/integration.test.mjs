@@ -393,6 +393,8 @@ test("a landBranch checked out in another worktree refuses rather than moving th
         assert.equal(error.code, "land_branch_checked_out");
         assert.match(error.message, /is checked out in/u);
         assert.match(error.message, /checkout/u);
+        assert.match(error.message, /detach the checkout/u, "the refusal names the remedy");
+        assert.match(error.message, /run the coordinator from a worktree/u, "the refusal names the remedy");
         return true;
       },
     );
