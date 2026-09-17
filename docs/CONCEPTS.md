@@ -37,6 +37,23 @@ campaign record keeps validating while a new spec is held to the stricter
 bar. See [spec-format.md](../skills/faberun/references/spec-format.md) and
 [COMMANDS.md](COMMANDS.md#spec).
 
+## Plan
+
+The adversarial debate over a spec, moved out of the control session and into
+budgeted, isolated runs: `faberun plan` drives draft, review and — while a
+`critical` finding remains and rounds are left — revise, each an ordinary
+`mode: "discovery"` run built by `src/plan/template.mjs`, sequenced by
+`src/plan/pipeline.mjs`. The reviewer's packet carries only the spec, the
+repository facts and the plan under review, never the author's own packet or
+reasoning. A converged draft is sized (`src/plan/sizing.mjs`), routed
+(`src/plan/routing.mjs`, where the operator's `--runtime-defaults` always wins
+over the table) and frozen (`src/plan/freeze.mjs`) into
+`.runs/campaigns/<id>/plans/<phase>/plan.json` and `contract.json`. The
+invariant: freezing never launches, and a plan exhausted without convergence
+ends `contested` — no contract, and a campaign `open-question` naming the open
+findings — the same terminal shape an unapproved `riskTier` gets, resolved
+through `faberun campaign resolve`. See [COMMANDS.md](COMMANDS.md#plan).
+
 ## Campaign
 
 The durable layer above runs: a goal, an ordered manifest of contracts, a

@@ -32,6 +32,7 @@ import { skillsCli } from "./cli/skills.mjs";
 import { updateCommand } from "./cli/update.mjs";
 import { contractCli, validateContractFile } from "./cli/contract.mjs";
 import { specCli } from "./cli/spec.mjs";
+import { planCli } from "./cli/plan.mjs";
 import { METRICS_OPTIONS, renderCampaignMetrics } from "./campaign/metrics.mjs";
 import { runContract } from "./engine/scheduler.mjs";
 import { resumeRun } from "./engine/resume.mjs";
@@ -106,6 +107,15 @@ export const COMMAND_OPTIONS = {
   setup: { yes: { type: "boolean" }, harnesses: { type: "string" }, worker: { type: "string" }, judge: { type: "string" }, "no-skill": { type: "boolean" }, json: { type: "boolean" } },
   init: { cwd: { type: "string" }, yes: { type: "boolean" }, "no-skill": { type: "boolean" }, agentkit: { type: "boolean" }, greenfield: { type: "boolean" }, stable: { type: "boolean" }, json: { type: "boolean" } },
   metrics: METRICS_OPTIONS,
+  plan: {
+    campaign: { type: "string" },
+    phase: { type: "string" },
+    "review-rounds": { type: "string" },
+    "approve-below": { type: "string" },
+    "runtime-defaults": { type: "string" },
+    detach: { type: "boolean" },
+    json: { type: "boolean" },
+  },
 };
 
 /**
@@ -421,6 +431,10 @@ async function main(argv) {
   }
   if (command === "metrics") { process.stdout.write(renderCampaignMetrics(target, values)); return; }
   if (command === "findings") { process.stdout.write(renderFindings(resolve(target))); return; }
+  if (command === "plan") {
+    await planCli(target, /** @type {Parameters<typeof planCli>[1]} */ (values));
+    return;
+  }
   if (command === "validate") { validateContractFile(resolve(target)); return; }
   usage();
 }
