@@ -1,0 +1,52 @@
+{
+  "id": "adversarial-planner",
+  "goal": "Second half of the owner's planner proposal: planning outside the session. A discovery result may carry a bounded structured output; one template builds the one-node discovery contracts for draft, review, revise, spec authoring and spec review with the reviewer isolated to spec, facts and artefact; faberun plan orchestrates them into a frozen plan that never launches and can end contested, with the operator's runtime defaults winning and approval by risk policy through the campaign's open-question; three deterministic eval cases prove no-autostart, contested and detached; the seat's allowance is measured and journaled where the harness exposes it; a comparative eval arm decides by measurement whether the planner beats session authoring. Anthropic models only. Spec: docs/campaigns/adversarial-planner/spec/SPEC.md.",
+  "status": "active",
+  "linkedRunIds": [
+    "adversarial-planner-1-planning-pipeline",
+    "adversarial-planner-1b-discovery-result-output",
+    "adversarial-planner-1d-plan-eval-cases",
+    "adversarial-planner-2-evidence",
+    "adversarial-planner-2b-allowance-window",
+    "adversarial-planner-2c-allowance-window-writers"
+  ],
+  "contracts": [
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/adversarial-planner/contracts/1d-plan-eval-cases.contract.json",
+      "digest": "300b7e31e8644c28b810729d8ddb662de04cb86ed03ffb71ac93800fe9bc0ea9"
+    },
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/adversarial-planner/contracts/2c-allowance-window-writers.contract.json",
+      "digest": "527d389cf7c83c0e8a3789fd890a0664161dcedf0ec57b5ee64e899cce39a649"
+    }
+  ],
+  "landBranch": "campaign/adversarial-planner",
+  "promotions": [
+    {
+      "runId": "adversarial-planner-1b-discovery-result-output",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/adversarial-planner/contracts/1b-planning-pipeline.contract.json",
+      "branch": "campaign/adversarial-planner",
+      "sha": "d6734b303c286d168601d03150b71402e53459c4",
+      "previousSha": "771e3f98bc4e11893c9b8879f85d6784d94cb829",
+      "at": "2026-09-17T08:09:04.299Z"
+    },
+    {
+      "runId": "adversarial-planner-1d-plan-eval-cases",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/adversarial-planner/contracts/1d-plan-eval-cases.contract.json",
+      "branch": "campaign/adversarial-planner",
+      "sha": "ec8c0865737db2bf4871f922e317b64ae5107488",
+      "previousSha": "d6734b303c286d168601d03150b71402e53459c4",
+      "at": "2026-09-17T12:04:18.841Z"
+    },
+    {
+      "runId": "adversarial-planner-2c-allowance-window-writers",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/adversarial-planner/contracts/2c-allowance-window-writers.contract.json",
+      "branch": "campaign/adversarial-planner",
+      "sha": "b11b6595d7d853c9ebd209f0648e853c4433e2b5",
+      "previousSha": "d5840a1d38d002042c29c3b7c6db81315badea20",
+      "at": "2026-09-17T14:33:38.174Z"
+    }
+  ],
+  "createdAt": "2026-09-17T06:49:08.080Z",
+  "updatedAt": "2026-09-17T14:33:38.174Z"
+}
