@@ -81,7 +81,7 @@ function buildTarball({ version, printedVersion = version }) {
   const top = join(root, "faberun-x");
   mkdirSync(join(top, "bin"), { recursive: true });
   writeFileSync(join(top, "package.json"), `${JSON.stringify({ name: "faberun", version }, null, 2)}\n`);
-  writeFileSync(join(top, "bin", "faberun.mjs"), `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(`faberun ${printedVersion}\n`)});\n`);
+  writeFileSync(join(top, "bin", "faberun.mjs"), `#!${process.execPath}\nprocess.stdout.write(${JSON.stringify(`faberun ${printedVersion}\n`)});\n`);
   const tarball = join(root, "release.tgz");
   execFileSync("tar", ["-czf", tarball, "-C", root, "faberun-x"]);
   return tarball;

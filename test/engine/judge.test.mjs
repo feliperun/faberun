@@ -100,7 +100,7 @@ test("skips the judge when every Definition of Done item is mechanical", async (
   const marker = join(outDir, "proved.txt");
   writeFileSync(script, `import { writeFileSync } from "node:fs";\nwriteFileSync(${JSON.stringify(marker)}, "proved");\n`);
   const fake = join(directory, "mechanical-provider.mjs");
-  writeFileSync(fake, `#!/usr/bin/env node
+  writeFileSync(fake, `#!${process.execPath}
 if (process.argv.includes("--version")) {
   console.log("mechanical-provider 1.0.0");
   process.exit(0);
@@ -149,7 +149,7 @@ test("invokes the judge with the deterministic checklist when a judgment item ex
   writeFileSync(join(directory, "proved.txt"), "proved");
   const promptPath = join(outDir, "judge-prompt.txt");
   const fake = join(directory, "judgment-provider.mjs");
-  writeFileSync(fake, `#!/usr/bin/env node
+  writeFileSync(fake, `#!${process.execPath}
 import { writeFileSync } from "node:fs";
 if (process.argv.includes("--version")) {
   console.log("judgment-provider 1.0.0");
@@ -211,7 +211,7 @@ process.stdin.on("end", () => {
 test("a failing mechanical proof rejects the worker generation without any judge", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-mechanical-fail-"));
   const fake = join(directory, "mechanical-fail-provider.mjs");
-  writeFileSync(fake, `#!/usr/bin/env node
+  writeFileSync(fake, `#!${process.execPath}
 if (process.argv.includes("--version")) {
   console.log("mechanical-fail-provider 1.0.0");
   process.exit(0);
@@ -261,7 +261,7 @@ test("an uncited judge rejection re-asks once then blocks attention without cons
   const promptTwo = join(outDir, "judge-prompt-2.txt");
   const uncited = JSON.stringify({ verdict: "fail", maxSeverity: "critical", summary: "not acceptable", findings: [{ severity: "critical", description: "the work is not acceptable", evidence: "inspected the delivered diff" }] });
   const fake = join(directory, "uncited-provider.mjs");
-  writeFileSync(fake, `#!/usr/bin/env node
+  writeFileSync(fake, `#!${process.execPath}
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 if (process.argv.includes("--version")) {
   console.log("uncited-provider 1.0.0");
@@ -322,7 +322,7 @@ test("skips the judge for an empty Definition of Done checklist", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-empty-dod-gate-"));
   const judgeCalls = join(directory, ".runs", "empty-dod-judge-calls.txt");
   const fake = join(directory, "empty-dod-provider.mjs");
-  writeFileSync(fake, `#!/usr/bin/env node
+  writeFileSync(fake, `#!${process.execPath}
 import { appendFileSync } from "node:fs";
 if (process.argv.includes("--version")) {
   console.log("empty-dod-provider 1.0.0");
@@ -382,7 +382,7 @@ test("an uncited fail below the gate failOn threshold is a judge protocol failur
   // so an uncited minor rejection isolates the protocol rule from the threshold.
   const uncited = JSON.stringify({ verdict: "fail", maxSeverity: "minor", summary: "minor but uncited", findings: [{ severity: "minor", description: "the work needs rework", evidence: "inspected the delivered diff" }] });
   const fake = join(directory, "uncited-below-provider.mjs");
-  writeFileSync(fake, `#!/usr/bin/env node
+  writeFileSync(fake, `#!${process.execPath}
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 if (process.argv.includes("--version")) {
   console.log("uncited-below-provider 1.0.0");
@@ -452,7 +452,7 @@ test("a judge protocol re-ask over a mixed checklist neither reruns mechanical p
   writeFileSync(proofScript, `import { appendFileSync, readFileSync } from "node:fs";\nappendFileSync(${JSON.stringify(proofRuns)}, "x\\n");\nprocess.exit(readFileSync(${JSON.stringify(proofRuns)}, "utf8").trim().split("\\n").filter(Boolean).length > 1 ? 1 : 0);\n`);
   const uncited = JSON.stringify({ verdict: "fail", maxSeverity: "critical", summary: "not acceptable", findings: [{ severity: "critical", description: "the work is not acceptable", evidence: "inspected the delivered diff" }] });
   const fake = join(directory, "uncited-mixed-provider.mjs");
-  writeFileSync(fake, `#!/usr/bin/env node
+  writeFileSync(fake, `#!${process.execPath}
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 if (process.argv.includes("--version")) {
   console.log("uncited-mixed-provider 1.0.0");
@@ -529,7 +529,7 @@ test("the judge re-ask bound survives a controller crash in either gap because i
   const inherited = (source) => !source.endsWith(".tmp") && !source.endsWith(".lock") && !source.endsWith("controller.lock");
   const uncited = JSON.stringify({ verdict: "fail", maxSeverity: "critical", summary: "not acceptable", findings: [{ severity: "critical", description: "the work is not acceptable", evidence: "inspected the delivered diff" }] });
   const fake = join(directory, "durable-provider.mjs");
-  writeFileSync(fake, `#!/usr/bin/env node
+  writeFileSync(fake, `#!${process.execPath}
 import { appendFileSync, cpSync, readFileSync, writeFileSync } from "node:fs";
 if (process.argv.includes("--version")) {
   console.log("durable-provider 1.0.0");

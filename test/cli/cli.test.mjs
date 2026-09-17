@@ -76,7 +76,7 @@ test("doctor does not fail a harness resolved through an explicit executable", (
   execFileSync("git", ["-C", directory, "-c", "user.email=doctor@example.test", "-c", "user.name=doctor", "-c", "commit.gpgSign=false", "commit", "-qm", "fixture"]);
   const cli = fileURLToPath(new URL("../../src/cli.mjs", import.meta.url));
   const worker = join(directory, "my-worker.mjs");
-  writeFileSync(worker, "#!/usr/bin/env node\nif (process.argv.includes('--version')) console.log('my-worker 1.0.0');\n");
+  writeFileSync(worker, `#!${process.execPath}\nif (process.argv.includes('--version')) console.log('my-worker 1.0.0');\n`);
   chmodSync(worker, 0o755);
   const contract = join(directory, "contract.json");
   writeFileSync(contract, `${JSON.stringify({
