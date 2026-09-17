@@ -1,35 +1,45 @@
-# Orchestrator addendum to the owner's proposal (2026-09-17)
+# Orchestrator addendum to the owner's proposal v1.0.0 (2026-09-17)
 
-Queued as the third campaign of the improvement loop, after
-`env-independence-and-generated-docs` (its N5 supplies `declaredReadBytes`).
-Facts checked against `main` at ee54a83 before authoring:
+The proposal now states requirements (R1–R17) with ids and proofs and no
+nodes or phases; deriving nodes is the orchestrator's job until the planner
+exists. Facts checked against `main` before authoring:
 
-- **`forbidSameVendorAsWorker` does not exist.** No gate field carries that
-  name; the invariant lives in the contract validator, which refuses a gated
-  node whose worker and judge share `vendor` (and the worker's fallback chain).
-  N2 and N6 reuse that rule through vendor labels; the routing table must
-  resolve a judge whose label differs from the worker's, not set a flag.
-- **`rate_limits` is not parsed by any adapter.** The Claude Code stream may
-  carry it, but `src/harnesses/claude/index.mjs` does not surface it. N9 has to
-  add the parsing to the adapter (or the seat's harness probe) before it can
-  sample a delta; the packet must include the adapter in `writeFiles`.
-- **Only the `deterministic` eval class exists.** `--class stochastic`,
-  `--arm` and `--compare` are new surface for `evals/run.mjs` (an
-  `evals/compare.mjs` module exists and should be reused or extended).
-  `--case D-plan-*` ids need new case directories under `evals/deterministic/`
-  and the golden set; `evals/golden` itself is a record and is not edited.
-- **ADR numbering.** `docs/adr/` holds 0001–0006; the proposal's ADR-0038…0042
-  become 0007–0011 in the repository's sequence.
-- **`src/plan/` is a new layer.** The layout table in `AGENTS.md` names every
-  layer; the node that creates the directory adds the row (`plan/` — the
-  out-of-session planner: repo facts, routing, sizing, freeze).
-- **Reserved articles and `contract.md`/`operations.md` ceilings.** N2, N5 and
-  N7 write `references/contract.md` and `operations.md`, both at their byte
-  ceilings; those nodes must raise the ceiling in `test/docs/docs-diet.test.mjs`
-  with the dated justification the ratchet requires, and the reserved articles
-  (`rules.md`, `engineering.md`, `workflow.md`, `handoffs.md`) stay the
+- **`forbidSameVendorAsWorker` does not exist** as a gate field. The invariant
+  is the contract validator's rule that a gated node's worker, its fallback
+  chain and its judge carry different `vendor` labels. R10 is met through
+  labels (`anthropic-sonnet` / `anthropic-opus` in this Anthropic-only loop).
+- **`src/engine/bulk-read.mjs` exists**; its table shape is the model for the
+  routing table (R8).
+- **R4 conflicts with the record rule.** `docs/campaigns/` holds nine campaign
+  directories, four of them from the intent-factory era; the repository rule
+  says records under `docs/campaigns/` and `docs/history/` are never edited.
+  Proposed reading: the validator has a `legacy` acceptance for pre-format
+  documents (recognised by the absence of the structured front matter) and R4
+  is proven on the specs written from this campaign on, plus a structured
+  `SPEC.md` sibling generated next to each `PROPOSAL.md` without touching the
+  originals.
+- **R1 adds a file under `skills/faberun/references/`.** `test/docs/docs-diet.test.mjs`
+  asserts that directory holds exactly the two foundation documents and the
+  four reserved articles, and `SKILL.md` (the router, 1,024-byte ceiling) must
+  link every reference. The node that adds `spec-format.md` raises both with
+  the dated justification the ratchet requires; the reserved articles stay the
   orchestrator's.
-- **Anthropic-only judging** uses the independence labels `anthropic-sonnet` /
-  `anthropic-opus`; the routing table's `prefer` lists in the proposal name
-  runtimes of other vendors (zcode, flash, luna) and will be authored against
-  the runtimes the loop actually has.
+- **`rate_limits` is not parsed by any adapter** (R16): the Claude Code stream
+  may carry it, but `src/harnesses/claude/index.mjs` does not surface it; the
+  adapter is in scope for that node.
+- **Only the `deterministic` eval class exists.** The `--case D-plan-*` proofs
+  (R13–R15) need new case directories under `evals/deterministic/`; the
+  comparative arm and `--validate-planner-arm` (R17) are new `evals/run.mjs`
+  surface (`evals/compare.mjs` exists to reuse). `evals/golden` is a record.
+  The "session arm" for old campaigns has their contracts under
+  `docs/campaigns/*/control/` but their run ledgers live in gitignored
+  `.runs/`; the arm must work from what the records carry.
+- **`src/plan/` is a new layer** and needs a row in the `AGENTS.md` layout
+  table; `faberun spec validate` / scaffold and `faberun plan` extend the
+  command surface, which the generated manual now follows automatically.
+- **Sizing for the loop.** Seventeen requirements are two campaigns' worth of
+  work under the one-contract-per-phase rule: first the spec format and the
+  deterministic stages (R1–R4, R7, R8, R10, R11, R12), then the planning
+  contract, `faberun plan`, the seat allowance and the comparative arm (R5,
+  R6, R9, R13–R17). Landing the first half early also gives the second half a
+  validated spec to consume.
