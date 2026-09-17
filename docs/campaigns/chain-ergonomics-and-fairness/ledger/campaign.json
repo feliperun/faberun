@@ -1,0 +1,50 @@
+{
+  "id": "chain-ergonomics-and-fairness",
+  "goal": "The six defects the loop's four chained campaigns left in the factory itself, all of them ergonomics or fairness rather than correctness: a run launched with --base-ref validates against that ref so a chained contract reading the previous phase's files launches from any checkout; the refusals on the campaign path name the way forward; a free slot dispatches while another node verifies; the contract's final verification runs once per phase instead of once per terminal node; and the status names the candidate stage and distinguishes a gate that passed from a fail verdict. Anthropic models only. Spec: docs/campaigns/chain-ergonomics-and-fairness/spec/SPEC.md.",
+  "status": "active",
+  "linkedRunIds": [
+    "chain-ergonomics-and-fairness-1-launch-and-refusals",
+    "chain-ergonomics-and-fairness-1b-base-ref-validation",
+    "chain-ergonomics-and-fairness-2-throughput-and-truth",
+    "chain-ergonomics-and-fairness-2b-fairness-fixes"
+  ],
+  "contracts": [
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/chain-ergonomics-and-fairness/contracts/1b-base-ref-validation.contract.json",
+      "digest": "d6912f1ac0a2d7fb124f64f4d62ffee8cee6484b5202f5c232c1a4a2079b052e"
+    },
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/chain-ergonomics-and-fairness/contracts/2b-fairness-fixes.contract.json",
+      "digest": "77859d6a8f9a9ba1ecd3a10eb497e3be61447f2ad792fa95698ac7e2f3c8d06b"
+    }
+  ],
+  "landBranch": "campaign/chain-ergonomics-and-fairness",
+  "promotions": [
+    {
+      "runId": "chain-ergonomics-and-fairness-1-launch-and-refusals",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/chain-ergonomics-and-fairness/contracts/1-launch-and-refusals.contract.json",
+      "branch": "campaign/chain-ergonomics-and-fairness",
+      "sha": "97a0a66867f98f6d5fde40fac3e22ae6b2a0b734",
+      "previousSha": "82f4763263e40a4c6d4e1ebbb7997a20e88c29b4",
+      "at": "2026-09-17T15:31:59.342Z"
+    },
+    {
+      "runId": "chain-ergonomics-and-fairness-1b-base-ref-validation",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/chain-ergonomics-and-fairness/contracts/1b-base-ref-validation.contract.json",
+      "branch": "campaign/chain-ergonomics-and-fairness",
+      "sha": "c9db048a56eebddca2b456b55a28513fddfe1228",
+      "previousSha": "97a0a66867f98f6d5fde40fac3e22ae6b2a0b734",
+      "at": "2026-09-17T16:07:15.454Z"
+    },
+    {
+      "runId": "chain-ergonomics-and-fairness-2b-fairness-fixes",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/chain-ergonomics-and-fairness/contracts/2b-fairness-fixes.contract.json",
+      "branch": "campaign/chain-ergonomics-and-fairness",
+      "sha": "5ce3f308b901b80644251ec87384700062ab4334",
+      "previousSha": "699942db4c078926b003be7060491a9cb27112fe",
+      "at": "2026-09-17T19:23:31.700Z"
+    }
+  ],
+  "createdAt": "2026-09-17T15:07:58.640Z",
+  "updatedAt": "2026-09-17T19:23:31.700Z"
+}
