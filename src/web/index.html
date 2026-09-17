@@ -185,18 +185,18 @@ function tabBodyHtml(tab, detail) {
 function drawerHtml(drawer, tab) {
   if (!drawer) return `<section id="drawer"><h2>Run drawer</h2><div class="card" style="padding:16px 18px"><p class="empty">select a run above</p></div></section>`;
   const rows = drawer.nodes.map((node) => `<tr class="clickable ${node.id === drawer.selectedNodeId ? "selected" : ""}" data-node="${esc(node.id)}">
-    <td>${pill(node.status)}</td>
+    <td>${pill(node.status)}${node.executionPhase === "candidate" ? ` <span class="dim">· candidate verification</span>` : node.executionPhase === "verification" ? ` <span class="dim">· verification</span>` : ""}</td>
     <td class="mono">${esc(node.id)}</td>
     <td class="num">${node.attempt}</td>
     <td class="mono">${esc(node.model ?? "–")}</td>
     <td class="num">${fmtDur(node.elapsedMs)}</td>
     <td class="num">${fmtUsd(node.costUsd)}</td>
-    <td>${node.verdict ? pill(node.verdict) : ""}</td>
+    <td>${node.gateOutcome ? pill(node.gateOutcome) : ""}</td>
     <td class="goal" title="${esc(node.note ?? "")}">${esc(node.note ?? "")}</td>
   </tr>`).join("");
   const tabs = TABS.map(([key, label]) => `<button data-tab="${key}" class="${tab === key ? "active" : ""}">${esc(label)}</button>`).join("");
   return `<section id="drawer"><h2>Run drawer · ${esc(drawer.runId)}</h2><div class="card" style="padding:16px 18px">
-    <table><thead><tr><th>state</th><th>node</th><th>try</th><th>model</th><th>elapsed</th><th>USD</th><th>verdict</th><th>note</th></tr></thead>
+    <table><thead><tr><th>state</th><th>node</th><th>try</th><th>model</th><th>elapsed</th><th>USD</th><th>gate</th><th>note</th></tr></thead>
     <tbody>${rows}</tbody></table>
     <div class="tabs">${tabs}</div>
     <div id="tabbody">${tabBodyHtml(tab, drawer.detail)}</div>
