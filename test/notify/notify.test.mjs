@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { NotifyQueue, renderNotification } from "../../src/notify/index.mjs";
+import { fixture, packet, writeContract } from "../helpers.mjs";
+import { nodeState, withResultFileCodex } from "../runner-helpers.mjs";
 
 const SUMMARY_CHARS = 200;
 
@@ -191,5 +193,46 @@ test("spawnDeliver (through NotifyQueue's default transport) resolves on the bin
   }
   const receipts = readFileSync(join(runDir, "notify.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
   assert.equal(receipts[0].status, "delivered", "the bin's own exit code 0 is what determines delivery, independent of the grandchild");
+});
+
+test("a run driven through withResultFileCodex never reaches a FABERUN_NOTIFY_BIN left bound in the environment", async () => {
+  // Simulates the owner's shell, where FABERUN_NOTIFY_BIN already names the
+  // real transport before any test runs: the poison program marks that it
+  // ran, which the assertion below refuses.
+  const directory = mkdtempSync(join(tmpdir(), "notify-isolation-"));
+  const poisonMarker = join(directory, "poison-ran.txt");
+  const poison = join(mkdtempSync(join(tmpdir(), "notify-poison-bin-")), "poison.mjs");
+  writeFileSync(poison, `#!${process.execPath}
+import { writeFileSync } from "node:fs";
+process.stdin.resume();
+process.stdin.on("end", () => {
+  writeFileSync(${JSON.stringify(poisonMarker)}, "ran");
+  process.exit(0);
+});
+`);
+  chmodSync(poison, 0o755);
+
+  const path = writeContract(directory, fixture({
+    id: "notify-isolation-run",
+    pollIntervalMs: 10,
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
+  }));
+
+  const previous = process.env.FABERUN_NOTIFY_BIN;
+  process.env.FABERUN_NOTIFY_BIN = poison;
+  try {
+    const result = await withResultFileCodex(directory, "file-first", path);
+    assert.equal(nodeState(result).status, "done");
+  } finally {
+    if (previous === undefined) delete process.env.FABERUN_NOTIFY_BIN;
+    else process.env.FABERUN_NOTIFY_BIN = previous;
+  }
+
+  assert.equal(existsSync(poisonMarker), false, "the transport left bound in the environment must never run during a test");
+  const events = readFileSync(join(directory, ".runs", "notify-record.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  assert.ok(
+    events.some((event) => event.type === "node.terminal" && event.nodeId === "build"),
+    "the recording fixture bound in place of the poisoned transport captured the terminal event",
+  );
 });
 

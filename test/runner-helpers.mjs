@@ -154,15 +154,47 @@ if (process.argv.includes("--version")) {
   return executable;
 }
 
+/**
+ * A `FABERUN_NOTIFY_BIN` fixture that never reaches any real channel: it
+ * appends the JSON event it receives on stdin, verbatim, to a log file under
+ * the run's own directory. A helper that drives a run binds this for the
+ * run's duration so the operator's own transport, if left bound in the
+ * environment, is never the one actually spawned.
+ *
+ * @param {string} directory
+ * @returns {{executable: string, log: string}}
+ */
+export function recordingNotifyTransport(directory) {
+  const log = join(directory, ".runs", "notify-record.jsonl");
+  const executable = join(mkdtempSync(join(tmpdir(), "runner-notify-record-")), "notify-record.mjs");
+  writeFileSync(executable, `#!${process.execPath}
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => { input += chunk; });
+process.stdin.on("end", () => {
+  mkdirSync(dirname(${JSON.stringify(log)}), { recursive: true });
+  appendFileSync(${JSON.stringify(log)}, input.endsWith("\\n") ? input : \`\${input}\\n\`);
+});
+`);
+  chmodSync(executable, 0o755);
+  return { executable, log };
+}
+
 /** @param {string} directory @param {"file-first"|"missing-then-mutates"|"missing-then-file-vs-message"|"missing-then-noop"|"revision-regrinds"} mode @param {string} path @returns {Promise<import("../src/cli.mjs").RunOutcome>} */
 export async function withResultFileCodex(directory, mode, path) {
-  const previous = process.env.FABERUN_CODEX_BIN;
+  const previousCodex = process.env.FABERUN_CODEX_BIN;
+  const previousNotify = process.env.FABERUN_NOTIFY_BIN;
   process.env.FABERUN_CODEX_BIN = resultFileCodex(directory, mode);
+  process.env.FABERUN_NOTIFY_BIN = recordingNotifyTransport(directory).executable;
   try {
     return await runContract(path);
   } finally {
-    if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
-    else process.env.FABERUN_CODEX_BIN = previous;
+    if (previousCodex === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previousCodex;
+    if (previousNotify === undefined) delete process.env.FABERUN_NOTIFY_BIN;
+    else process.env.FABERUN_NOTIFY_BIN = previousNotify;
   }
 }
 

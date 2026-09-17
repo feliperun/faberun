@@ -499,6 +499,50 @@ export function isVerdictCandidate(text) {
 }
 
 /**
+ * A judge's final message can carry its whole verdict on one line with no
+ * newline before the JSON: `Confirmed. Now write the verdict JSON.{"verdict":
+ * "fail", ...}`, measured 2026-09-17 at 5662 characters. A line-boundary-only
+ * suffix scan never finds it, extractJson returns null, isVerdictCandidate
+ * returns false, and a correct, evidenced verdict is discarded as
+ * `judge_unavailable`. The candidate starts tried here are every `{` and `[`
+ * offset, not just line starts, so a JSON object glued directly to prose is
+ * still reachable.
+ */
+const SUFFIX_CANDIDATE_LIMIT = 200;
+
+/**
+ * The last parseable suffix of `trimmed`, trying every `{`/`[` offset from the
+ * end backwards. Bounded to the last `SUFFIX_CANDIDATE_LIMIT` offsets: without
+ * a cap this is one `JSON.parse` per bracket character, quadratic on a
+ * pathological message built mostly of brackets. 200 is comfortably above the
+ * bracket count of any real verdict object (the measured 5662-character
+ * message resolves on one of its first few tries, since its outermost `{` is
+ * also its first) and keeps every call to at most 200 parses regardless of
+ * message length.
+ *
+ * @param {string} trimmed
+ * @returns {string|null}
+ */
+function suffixJsonCandidate(trimmed) {
+  const offsets = [];
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const char = trimmed[index];
+    if (char === "{" || char === "[") offsets.push(index);
+  }
+  const floor = Math.max(0, offsets.length - SUFFIX_CANDIDATE_LIMIT);
+  for (let index = offsets.length - 1; index >= floor; index -= 1) {
+    const candidate = trimmed.slice(offsets[index]);
+    try {
+      JSON.parse(candidate);
+      return candidate;
+    } catch {
+      // This suffix is not JSON; keep trying earlier bracket offsets.
+    }
+  }
+  return null;
+}
+
+/**
  * Extract a JSON value from a provider response that may carry prose, taking
  * the last parseable suffix or fenced JSON block.
  *
@@ -514,16 +558,8 @@ export function extractJson(value) {
   } catch {
     // Not JSON as a whole: fall through to the suffix and fenced-block scans below.
   }
-  const lines = trimmed.split(/\r?\n/u);
-  for (let index = lines.length - 1; index > 0; index -= 1) {
-    const candidate = lines.slice(index).join("\n").trim();
-    try {
-      JSON.parse(candidate);
-      return candidate;
-    } catch {
-      // This suffix is not JSON; keep trying earlier line boundaries.
-    }
-  }
+  const suffix = suffixJsonCandidate(trimmed);
+  if (suffix !== null) return suffix;
   const blocks = [...value.matchAll(/```json\s*([\s\S]*?)```/giu)];
   for (const block of blocks.reverse()) {
     const candidate = block[1].trim();

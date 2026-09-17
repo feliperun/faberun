@@ -7,6 +7,7 @@ import {
   validateContract,
 } from "../../src/contract/index.mjs";
 import { renderWorkerPrompt } from "../../src/contract/task-packet.mjs";
+import { validateWorkerResult } from "../../src/contract/worker-result.mjs";
 import { judgePrompt } from "../../src/engine/prompts.mjs";
 import { JUDGE_LIMITS } from "../../src/contract/judge-envelope.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
@@ -31,6 +32,30 @@ test("every worker prompt states the controller's verification is the proof", ()
     assert.match(prompt, /never run tests that start and terminate other processes\./u);
     assert.match(prompt, /## Required output/u, "the Required output section is untouched");
   }
+});
+
+test("every mode's Required output names the whole shape validateWorkerResult requires", () => {
+  // Derived from the validator itself, not restated as a literal the two
+  // sides could drift apart from: the envelope's own keys are the keys a
+  // worker result must carry.
+  const requiredFields = Object.keys(validateWorkerResult({
+    status: "done", summary: "ok", verification: [], artifacts: [], missingContext: [],
+  }));
+  const prompts = {
+    execution: renderWorkerPrompt(/** @type {import("../../src/contract/index.mjs").TaskPacket} */ (helpers.packet()), "build"),
+    discovery: renderWorkerPrompt(/** @type {import("../../src/contract/index.mjs").TaskPacket} */ (helpers.packet({ mode: "discovery", readFiles: [], writeFiles: [] })), "discover"),
+    autonomous: renderWorkerPrompt(/** @type {import("../../src/contract/index.mjs").TaskPacket} */ (helpers.packet({ mode: "autonomous", writeRoots: ["src"] })), "build"),
+  };
+  for (const [mode, prompt] of Object.entries(prompts)) {
+    const requiredOutput = prompt.slice(prompt.indexOf("## Required output"));
+    for (const field of requiredFields) {
+      assert.match(requiredOutput, new RegExp(`"${field}"`, "u"), `${mode}'s Required output must name ${field}`);
+    }
+  }
+  // The artifacts content contract belongs to the packet's own instructions,
+  // not to this schema statement, so discovery's copy states the shape only.
+  const discoveryRequiredOutput = prompts.discovery.slice(prompts.discovery.indexOf("## Required output"));
+  assert.doesNotMatch(discoveryRequiredOutput, /execution task packet/u);
 });
 
 test("validate loads taskPacketFile and renders a closed execution prompt", () => {
