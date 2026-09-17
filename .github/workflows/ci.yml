@@ -15,6 +15,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history: test/plan/existing-specs.test.mjs resolves each spec's
+          # baseline commit under --strict-traceability (measured 2026-09-17: a
+          # depth-1 checkout fails it on every runner).
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
