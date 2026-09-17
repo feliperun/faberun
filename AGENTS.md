@@ -81,6 +81,7 @@ layer, and the layer names are the vocabulary:
 | --- | --- |
 | `cli.mjs`, `cli/` | argv, dispatch, usage. No domain logic. |
 | `contract/` | the authored artefact: schema and validation. Reads only files the contract itself names (`taskPacketFile`); spawns nothing. |
+| `plan/` | the out-of-session planner: spec format, repository facts, routing, sizing, freeze. Reads the target repository, never a provider. |
 | `engine/` | the control loop: scheduler, node lifecycle, routing, gates. |
 | `harnesses/` | one adapter per provider harness, plus what each one can run. |
 | `campaign/` | the durable layer above runs. |
