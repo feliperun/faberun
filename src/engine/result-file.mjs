@@ -19,9 +19,17 @@ import { extractJson } from "../harnesses/protocol.mjs";
 import { invocationResult } from "./process.mjs";
 import { join } from "node:path";
 import { parseJudge } from "./prompts.mjs";
-import { parseWorkerResult } from "../contract/worker-result.mjs";
+import { discoveryOutput, parseWorkerResult } from "../contract/worker-result.mjs";
 import { readJson, writeJsonAtomic, writeTextAtomic } from "../run/store.mjs";
 import { routeRuntimeForState, runtimeSnapshot } from "./failover.mjs";
+
+/**
+ * Thrown by `resolveWorkerResult` when an execution result declares `output`.
+ * A distinct type, not a plain TypeError: this is a definitive protocol
+ * violation the engine can fail terminally on sight, not a malformed result
+ * worth the generic invalid-result repair attempt.
+ */
+export class ExecutionOutputNotAllowedError extends TypeError {}
 
 /** @typedef {import("./lifecycle.mjs").Invocation} Invocation */
 /** @typedef {import("../contract/index.mjs").NodeSnapshot} NodeSnapshot */
@@ -115,6 +123,10 @@ export function isResultMaterializationInvocation(invocation) {
   }
 }
 /**
+ * The single ingestion point that knows the node's mode, so it is the one
+ * place `output` is refused for an execution result: the schema itself
+ * accepts the field on any result, mode-blind.
+ *
  * @param {string} runDir
  * @param {ValidatedNode} node
  * @param {unknown} providerResult
@@ -122,9 +134,11 @@ export function isResultMaterializationInvocation(invocation) {
  */
 export function resolveWorkerResult(runDir, node, providerResult) {
   const fromFile = readWorkerResultFile(runDir, node.id);
-  if (fromFile) return fromFile;
-  const result = parseWorkerResult(String(extractJson(providerResult) ?? providerResult ?? ""));
-  persistWorkerResultFile(runDir, node.id, result);
+  const result = fromFile ?? parseWorkerResult(String(extractJson(providerResult) ?? providerResult ?? ""));
+  if (node.taskPacket.mode === "execution" && discoveryOutput(result) !== null) {
+    throw new ExecutionOutputNotAllowedError("worker result.output is only allowed for a discovery node, not execution");
+  }
+  if (!fromFile) persistWorkerResultFile(runDir, node.id, result);
   return result;
 }
 /**

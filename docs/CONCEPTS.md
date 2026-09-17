@@ -93,8 +93,10 @@ exact `readFiles` and `writeFiles`, `symbols`, decisions, non-goals and
 verification commands. `mode` is `execution`, `discovery` or `autonomous`. An
 execution packet requires non-empty `readFiles` and `writeFiles`; a discovery
 packet has empty `writeFiles` and may read the repository read-only only when
-its `readFiles` is also empty, the one exception to closed scope; an autonomous
-packet declares `writeRoots` for bounded whole-repo work. Packets are authored
+its `readFiles` is also empty, the one exception to closed scope, and its
+worker result may carry a bounded structured `output` object that an
+execution result must not declare; an autonomous packet declares `writeRoots`
+for bounded whole-repo work. Packets are authored
 as `taskPacketFile` and inlined into the stored `contract.json`. The invariant:
 an execution or autonomous packet is closed to the files and roots it lists,
 read paths are relative to `cwd`, cannot escape it and must exist at validation,

@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { validateTaskPacket } from "./task-packet.mjs";
-import { requireText } from "./assert.mjs";
+import { assertObject, requireText } from "./assert.mjs";
 
 const RESULT_LIMITS = Object.freeze({
   bytes: 32 * 1024,
@@ -9,6 +9,10 @@ const RESULT_LIMITS = Object.freeze({
   itemBytes: 2 * 1024,
   artifactBytes: 16 * 1024,
   missingContextItems: 16,
+  // A discovery worker's structured findings are the deliverable, not
+  // incidental prose, so `output` gets its own ceiling outside the 32 KiB
+  // envelope instead of competing with summary/verification for it.
+  outputBytes: 64 * 1024,
 });
 
 /**
@@ -26,9 +30,11 @@ export const DERIVED_WORKER_RESULT_FIELDS = Object.freeze(["changedFiles"]);
 /**
  * The worker-result protocol: exactly one JSON object returned as the only
  * content of the final worker message. `blocked_context` requires at least one
- * missingContext entry; `done` requires none.
+ * missingContext entry; `done` requires none. `output` is optional and carries
+ * a discovery node's structured findings; an execution result must not
+ * declare it (enforced where the node's mode is known, not here).
  *
- * @typedef {{status: WorkerResultStatus, summary: string, verification: string[], artifacts: string[], missingContext: string[]}} WorkerResult
+ * @typedef {{status: WorkerResultStatus, summary: string, verification: string[], artifacts: string[], missingContext: string[], output?: Record<string, unknown>}} WorkerResult
  */
 
 /**
@@ -37,8 +43,9 @@ export const DERIVED_WORKER_RESULT_FIELDS = Object.freeze(["changedFiles"]);
  */
 export function parseWorkerResult(value) {
   if (typeof value !== "string") throw new TypeError("worker result must be JSON text");
-  if (Buffer.byteLength(value, "utf8") > RESULT_LIMITS.bytes) {
-    throw new TypeError(`worker result exceeds ${RESULT_LIMITS.bytes} bytes`);
+  const maxRawBytes = RESULT_LIMITS.bytes + RESULT_LIMITS.outputBytes;
+  if (Buffer.byteLength(value, "utf8") > maxRawBytes) {
+    throw new TypeError(`worker result exceeds ${maxRawBytes} bytes`);
   }
   let parsed;
   try {
@@ -86,17 +93,42 @@ export function validateWorkerResult(value) {
   if (record.status === "done" && missingContext.length > 0) {
     throw new TypeError("worker result.missingContext must be empty for done");
   }
-  const normalized = {
+  // `output` is accepted on any result here: the schema does not know which
+  // node mode produced it. Refusing it for execution results happens exactly
+  // once, at the ingestion point that does know the mode (resolveWorkerResult).
+  let output;
+  if (Object.hasOwn(record, "output") && record.output !== undefined) {
+    assertObject(record.output, "worker result.output");
+    if (Buffer.byteLength(JSON.stringify(record.output), "utf8") > RESULT_LIMITS.outputBytes) {
+      throw new TypeError(`worker result.output exceeds ${RESULT_LIMITS.outputBytes} bytes`);
+    }
+    output = /** @type {Record<string, unknown>} */ (record.output);
+  }
+  const envelope = {
     status: /** @type {WorkerResultStatus} */ (record.status),
     summary: /** @type {string} */ (record.summary),
     verification: [.../** @type {string[]} */ (record.verification)],
     artifacts: [.../** @type {string[]} */ (record.artifacts)],
     missingContext: [...missingContext],
   };
-  if (Buffer.byteLength(JSON.stringify(normalized), "utf8") > RESULT_LIMITS.bytes) {
+  // `output` is bounded on its own above and kept outside this envelope cap:
+  // it is a discovery node's deliverable, not incidental prose competing with
+  // summary/verification for the same 32 KiB budget.
+  if (Buffer.byteLength(JSON.stringify(envelope), "utf8") > RESULT_LIMITS.bytes) {
     throw new TypeError(`worker result exceeds ${RESULT_LIMITS.bytes} bytes`);
   }
-  return normalized;
+  return output === undefined ? envelope : { ...envelope, output };
+}
+
+/**
+ * A discovery node's structured findings, or null when the result carries
+ * none. The one accessor for `output` so callers never read the raw field.
+ *
+ * @param {WorkerResult} result
+ * @returns {Record<string, unknown>|null}
+ */
+export function discoveryOutput(result) {
+  return result.output ?? null;
 }
 
 /**
