@@ -255,6 +255,22 @@ export function declaredVerificationCommands(contract) {
 }
 
 /**
+ * Environment names removed before spawning a timing candidate. The probe
+ * only measures how long a command takes; a subtraction of a named few, not
+ * an allowlist, so PATH, HOME and every ordinary variable the command needs
+ * to run at all still pass through unchanged.
+ */
+const SIDE_EFFECT_ENV_KEYS = [
+  NOTIFY_BIN_ENV, // a measurement must not notify a human
+  "FABERUN_CODEX_BIN", // could redirect the timed command at a live, paid codex binary instead of this repository's own fixtures
+  "FABERUN_CLAUDE_BIN", // same, for the claude harness
+  "FABERUN_AGY_BIN", // same, for the agy harness
+  "FABERUN_DSH_BIN", // same, for the dsh harness
+  "FABERUN_ZCODE_BIN", // same, for the zcode harness
+  "FABERUN_EXEC_JSONL_BIN", // same, for the exec-jsonl harness
+];
+
+/**
  * Run every declared verification command once and report what it actually
  * costs against the timeout the contract gives it.
  *
@@ -275,6 +291,8 @@ export function declaredVerificationCommands(contract) {
 export function timeVerificationCommands(contract, probes = {}) {
   const now = probes.now ?? (() => Date.now());
   const run = probes.run ?? spawnSync;
+  const env = { ...process.env };
+  for (const key of SIDE_EFFECT_ENV_KEYS) delete env[key];
   return declaredVerificationCommands(contract).map((command) => {
     const label = command.argv.join(" ");
     const name = `verification timing · ${label}`;
@@ -288,6 +306,7 @@ export function timeVerificationCommands(contract, probes = {}) {
       timeout: ceilingSec * 1_000,
       stdio: "ignore",
       encoding: "utf8",
+      env,
     });
     const seconds = (now() - startedAt) / 1_000;
     const measured = `${seconds.toFixed(1)}s measured against ${command.timeoutSec}s declared`;

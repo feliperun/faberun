@@ -299,6 +299,37 @@ test("verification timing warns before a command reaches its cap", () => {
   assert.match(check.detail, /exit 1/u, "a red command is reported, never failed on: a node may be what turns it green");
 });
 
+test("verification timing strips the side-effecting environment from the spawned candidate", () => {
+  const contract = /** @type {any} */ ({
+    cwd: process.cwd(),
+    nodes: [{ id: "only", taskPacket: { verification: [{ argv: ["cmd"], timeoutSec: 100 }] } }],
+  });
+  const previousNotify = process.env.FABERUN_NOTIFY_BIN;
+  const previousCodex = process.env.FABERUN_CODEX_BIN;
+  process.env.FABERUN_NOTIFY_BIN = "/bin/should-not-run";
+  process.env.FABERUN_CODEX_BIN = "/bin/should-not-run-either";
+  /** @type {NodeJS.ProcessEnv|undefined} */
+  let observedEnv;
+  try {
+    timeVerificationCommands(contract, {
+      now: () => 0,
+      run: /** @type {any} */ ((/** @type {string} */ _file, /** @type {string[]} */ _args, /** @type {{env?: NodeJS.ProcessEnv}} */ options) => {
+        observedEnv = options.env;
+        return { status: 0, signal: null };
+      }),
+    });
+  } finally {
+    if (previousNotify === undefined) delete process.env.FABERUN_NOTIFY_BIN;
+    else process.env.FABERUN_NOTIFY_BIN = previousNotify;
+    if (previousCodex === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previousCodex;
+  }
+  assert.ok(observedEnv, "the run probe must receive an env option");
+  assert.equal(observedEnv?.FABERUN_NOTIFY_BIN, undefined, "a measurement must not notify a human");
+  assert.equal(observedEnv?.FABERUN_CODEX_BIN, undefined, "a measurement must not redirect a harness at a live provider");
+  assert.equal(observedEnv?.PATH, process.env.PATH, "an ordinary variable the command needs to run at all still passes through");
+});
+
 /**
  * @param {string} runsDir
  * @param {string} id
