@@ -3,11 +3,13 @@
  * rule 12).
  *
  * `contract.finalVerification` is the contract-wide proof that the phase as a
- * whole closes: the controller runs it before the judge on the phase-terminal
- * node (the node no other node depends on), so no final checkpoint is ever
- * approved on partial verification. `contract.sharedVerification` carries the
- * same command schema but is appended to every node's attempt and integration
- * candidate, for the fast repository ratchets a node's write set can break.
+ * whole closes: the controller runs it before the judge, once, on whichever
+ * phase-terminal node (a node no other node depends on) is the last of them
+ * to settle, so no final checkpoint is ever approved on partial verification
+ * and a flake on one phase-terminal node cannot also cost its siblings a
+ * revision. `contract.sharedVerification` carries the same command schema but
+ * is appended to every node's attempt and integration candidate, for the fast
+ * repository ratchets a node's write set can break.
  * The persisted node-snapshot shape for verification evidence lives here too,
  * next to the schema it records.
  */
@@ -59,19 +61,48 @@ export function sharedVerificationCommands(contract) {
 }
 
 /**
+ * Whether no other node in the contract depends on this one. `finalVerification`
+ * is a candidate to run on a phase-terminal node only; a node with a dependant
+ * never carries it, no matter which of its siblings settles last.
+ *
+ * @param {{nodes: {id: string, dependsOn: string[]}[]}} contract
+ * @param {{id: string}} node
+ * @returns {boolean}
+ */
+export function phaseTerminalNode(contract, node) {
+  return !contract.nodes.some((candidate) => candidate.dependsOn.includes(node.id));
+}
+
+/**
  * The contract's `finalVerification` commands when this node is the one that
- * closes the phase, otherwise none. A node is phase-terminal when no other
- * node in the contract depends on it.
+ * closes the phase, otherwise none. A phase can have several phase-terminal
+ * nodes (several nodes no other node depends on); the suite runs once for the
+ * phase, on whichever of them is the last to settle, not on every one of them.
+ *
+ * `settledIds` is the set of sibling node ids (any status a node does not
+ * leave on its own -- see `SETTLED` in `engine/prompts.mjs`) already reached
+ * at the moment this call is made. A phase-terminal node carries the suite
+ * exactly when every *other* phase-terminal node is already in that set --
+ * whichever node that is true for, in whatever order nodes actually settle,
+ * including a node retried after every sibling has already closed. Omitting
+ * `settledIds` (the scheduler's budget estimate, which has no run to inspect)
+ * falls back to the old per-node-shape answer: any phase-terminal node may
+ * still turn out to be the one that carries it, so the estimate stays an
+ * upper bound.
  *
  * @param {{finalVerification?: VerificationCommand[], nodes: {id: string, dependsOn: string[]}[]}} contract
  * @param {{id: string}} node
+ * @param {Set<string>} [settledIds]
  * @returns {VerificationCommand[]}
  */
-export function finalVerificationCommands(contract, node) {
+export function finalVerificationCommands(contract, node, settledIds) {
   const commands = contract.finalVerification ?? [];
   if (commands.length === 0) return [];
-  const hasDependant = contract.nodes.some((candidate) => candidate.dependsOn.includes(node.id));
-  return hasDependant ? [] : commands;
+  if (!phaseTerminalNode(contract, node)) return [];
+  if (!settledIds) return commands;
+  const siblings = contract.nodes.filter((candidate) => candidate.id !== node.id && phaseTerminalNode(contract, candidate));
+  const isLastToClose = siblings.every((sibling) => settledIds.has(sibling.id));
+  return isLastToClose ? commands : [];
 }
 
 /**

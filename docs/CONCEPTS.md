@@ -265,11 +265,14 @@ reported as `already_promoted` and adds no promotion record. See
 ## Final verification and the phase-terminal node
 
 `contract.finalVerification` is the contract-wide proof that a phase as a whole
-closes. The controller runs it on the phase-terminal node, the one node no other
-node depends on, before the judge. The invariant: a phase is never approved on
-partial proof, because the final verification commands are appended only for the
-phase-terminal node, and their green result is the precondition for promotion.
-See [rules.md](../skills/faberun/references/rules.md) and
+closes. A phase can have several phase-terminal nodes (nodes no other node
+depends on); the controller runs the suite once per phase, before the judge, on
+whichever of them turns out to be the last to settle, not on every one of
+them, so a flake on one phase-terminal node cannot also cost its siblings a
+revision. The invariant: a phase is never approved on partial proof, because
+the final verification commands are appended only for that one node, and their
+green result is the precondition for promotion. See
+[rules.md](../skills/faberun/references/rules.md) and
 [contract.md](../skills/faberun/references/contract.md).
 
 ## Seat
