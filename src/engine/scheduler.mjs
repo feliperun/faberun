@@ -39,7 +39,7 @@ import { render, renderFinalReport, writeFindingsArtifact } from "../report/fina
 import { operationNextState, providerReceipts, settleInvocation } from "../run/operations.mjs";
 import { appendUsageRecord, invocationCost, invocationUsage, recordInvocationUsage } from "../run/usage.mjs";
 import { captureNodeScopeBoundaries, checkWorkerScope, emptyScope } from "./scope.mjs";
-import { validateContract } from "../contract/index.mjs";
+import { validateContractForLaunch } from "../campaign/chain.mjs";
 import { validateNodeSnapshot } from "../contract/snapshot.mjs";
 import { finalVerificationCommands, sharedVerificationCommands } from "../contract/final-verification.mjs";
 import { startJudge, startWorker } from "./dispatch.mjs";
@@ -175,14 +175,17 @@ function renderFingerprint(states) {
 
 /**
  * @param {string} contractPath
- * @param {{detachedBootstrap?: boolean}} [options] `detachedBootstrap` is set
- *   only by the CLI entry when this process is its own detached child, and
- *   makes the controller wait for the launcher's acknowledgement
+ * @param {{detachedBootstrap?: boolean, baseRef?: string}} [options]
+ *   `detachedBootstrap` is set only by the CLI entry when this process is its
+ *   own detached child, and makes the controller wait for the launcher's
+ *   acknowledgement; `baseRef` is the CLI's own `--base-ref`, re-validated
+ *   here so a launch and the run it starts agree about what the contract was
+ *   checked against
  * @returns {Promise<RunOutcome>}
  */
 export async function runContract(contractPath, options = {}) {
   const absoluteContractPath = resolve(contractPath);
-  const contract = validateContract(JSON.parse(readFileSync(absoluteContractPath, "utf8")), absoluteContractPath);
+  const contract = validateContractForLaunch(JSON.parse(readFileSync(absoluteContractPath, "utf8")), absoluteContractPath, { baseRef: options.baseRef });
   const runDir = join(contract.cwd, ".runs", contract.id);
   if (existsSync(runDir)) throw new Error(`run already exists: ${runDir}`);
   mkdirSync(join(contract.cwd, ".runs"), { recursive: true });

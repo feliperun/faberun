@@ -24,6 +24,7 @@ import {
   validBootstrapNonce,
 } from "./run/lock.mjs";
 import { renderRunHandoff } from "./campaign/index.mjs";
+import { validateContractForLaunch } from "./campaign/chain.mjs";
 import { campaignCli } from "./cli/campaign.mjs";
 import { seatCli } from "./cli/seat.mjs";
 import { initCommand } from "./cli/init.mjs";
@@ -291,9 +292,9 @@ async function main(argv) {
   if (command === "run") {
     warnIfNoTransport();
     const absolute = resolve(target);
-    const contract = validateContract(JSON.parse(readFileSync(absolute, "utf8")), absolute);
-    const runDir = join(contract.cwd, ".runs", contract.id);
     const baseRef = typeof values["base-ref"] === "string" && values["base-ref"] ? values["base-ref"] : undefined;
+    const contract = validateContractForLaunch(JSON.parse(readFileSync(absolute, "utf8")), absolute, { baseRef });
+    const runDir = join(contract.cwd, ".runs", contract.id);
     setLaunchBaseRef(baseRef);
     // The base is what every worktree is cut from; a dirty tree only blocks
     // when the cwd HEAD *is* that base. A `--base-ref` elsewhere leaves the
@@ -314,7 +315,7 @@ async function main(argv) {
       return;
     }
     for (const warning of [...contract.warnings, ...reusedDoneWarnings(contract)]) process.stdout.write(`${advisoryToken()} ${warning}\n`);
-    const result = await runContract(target, { detachedBootstrap: hasDetachedBootstrapNonce() });
+    const result = await runContract(target, { detachedBootstrap: hasDetachedBootstrapNonce(), baseRef });
     if (!result.ok) process.exitCode = 1;
     return;
   }
