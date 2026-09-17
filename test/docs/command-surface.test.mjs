@@ -38,6 +38,7 @@ const OPERATION_SOURCES = {
   seat: read("../../src/cli/seat.mjs"),
   contract: read("../../src/cli/contract.mjs"),
   skills: read("../../src/cli/skills.mjs"),
+  spec: read("../../src/cli/spec.mjs"),
 };
 
 /**
@@ -63,7 +64,7 @@ function optionKeys(source) {
  */
 function cliSurface() {
   const verbs = new Set(optionKeys(cliSource));
-  for (const verb of ["campaign", "seat", "contract", "skills"]) verbs.add(verb);
+  for (const verb of ["campaign", "seat", "contract", "skills", "spec"]) verbs.add(verb);
   const operations = new Set();
   for (const [verb, source] of Object.entries(OPERATION_SOURCES)) {
     for (const operation of optionKeys(source)) operations.add(`${verb} ${operation}`);

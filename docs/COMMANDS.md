@@ -435,6 +435,62 @@ valid
 ```
 Related: `faberun validate`, `faberun contract`.
 
+## faberun spec
+```text
+faberun spec <operation> <path> [--strict-traceability] [--json] [--id <value>]
+```
+Spec operations the CLI carries: validating a spec document against the
+format's deterministic rules, and scaffolding an empty one. Neither invokes a
+model.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| — | — | This verb has no flags of its own; each operation declares its own. | — |
+Reads or writes the named spec file.
+```bash
+node src/cli.mjs spec validate docs/campaigns/feature-42/spec/PROPOSAL.md
+```
+Related: `faberun contract validate`.
+### faberun spec validate
+```text
+faberun spec validate <file> [--strict-traceability] [--json]
+```
+Parse a spec and check it against the format's advisory rules: a requirement
+without a stable id or a `proof`, a missing Non-goals section, a Success
+criteria row without a Baseline value, and a `target` or `baseline` that does
+not resolve against this repository. A document with no front matter is
+classified `legacy` and accepted. `--strict-traceability` turns every one of
+those findings into a failure instead of a warning.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--strict-traceability` | none | Fail validation on any advisory finding instead of only reporting it. | off |
+| `--json` | none | Emit `{class, ok, findings}` as one JSON object. | off |
+Reads `<file>` and, for `target`/`baseline` resolution, this repository's git
+history; writes nothing. Exits `1` when validation is not `ok`.
+```bash
+node src/cli.mjs spec validate docs/campaigns/feature-42/spec/PROPOSAL.md
+structured · ok
+```
+Related: `faberun spec scaffold`, `faberun contract validate`.
+### faberun spec scaffold
+```text
+faberun spec scaffold <path> [--id <value>]
+```
+Write an empty document in the spec format at `<path>`: front matter, one
+example requirement, and an empty Non-goals list. Refuses to overwrite an
+existing file.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--id` | text | Fill the front matter `id` field. | `<id>` placeholder |
+Writes `<path>`; refuses when it already exists.
+```bash
+node src/cli.mjs spec scaffold docs/campaigns/feature-42/spec/SPEC.md --id feature-42
+scaffolded docs/campaigns/feature-42/spec/SPEC.md
+```
+Related: `faberun spec validate`.
+
 ## faberun metrics
 ```text
 faberun metrics <campaign-id> [--cwd <value>] [--json]

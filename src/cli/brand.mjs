@@ -195,6 +195,8 @@ export function renderUsage() {
     "next [--cwd <dir>] [--json]",
     "bulk-read --question <text> --paths <a,b,c> [--json]",
     "contract validate <contract.json>",
+    "spec validate <file> [--strict-traceability] [--json]",
+    "spec scaffold <path> [--id <id>]",
     "metrics <campaign-id> [--cwd <dir>] [--json]",
     "campaign <init|watch|attach|note|resolve|close|supervise|show|list|sync|ack> ...",
     "seat <start|attach|status|stop> [<campaign-id>] [--cwd <dir>] ...",

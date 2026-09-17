@@ -14,6 +14,7 @@ import CAMPAIGN_OPERATIONS from "./campaign.mjs";
 import SEAT_OPERATIONS from "./seat.mjs";
 import CONTRACT_OPERATIONS from "./contract.mjs";
 import SKILLS_OPERATIONS from "./skills.mjs";
+import SPEC_OPERATIONS from "./spec.mjs";
 
 /** @typedef {{type: "string"|"boolean", multiple?: boolean}} FlagSpec */
 /** @typedef {{flags?: Record<string, FlagSpec>, operations?: Record<string, Record<string, FlagSpec>>}} VerbSurface */
@@ -22,7 +23,7 @@ import SKILLS_OPERATIONS from "./skills.mjs";
 const MANUAL_PATH = fileURLToPath(new URL("../../docs/COMMANDS.md", import.meta.url));
 
 /**
- * `campaign`, `seat`, `contract` and `skills` are dispatched before
+ * `campaign`, `seat`, `contract`, `skills` and `spec` are dispatched before
  * `COMMAND_OPTIONS` is ever consulted (`cli.mjs` routes them by `argv[0]`), so
  * they carry no flags of their own — only the operations their own module
  * declares. Their top-level `## faberun <verb>` section is therefore never
@@ -35,6 +36,7 @@ const CONTAINER_OPERATIONS = {
   seat: SEAT_OPERATIONS,
   contract: CONTRACT_OPERATIONS,
   skills: SKILLS_OPERATIONS,
+  spec: SPEC_OPERATIONS,
 };
 
 /**
