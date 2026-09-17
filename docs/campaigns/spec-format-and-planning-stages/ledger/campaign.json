@@ -1,0 +1,40 @@
+{
+  "id": "spec-format-and-planning-stages",
+  "goal": "First half of the owner's planner proposal: campaign close preserves its ledgers in the record; a versioned, validated spec format documented as a worker-loadable reference with faberun spec validate and scaffold (deterministic, legacy class for pre-format documents) and a structured REQUIREMENTS.md beside every campaign record; and the planner's four deterministic stages under src/plan/ -- repository facts with measured durations, a declarative routing table with vendor independence, sizing rules with provenance, and a freeze with digest and provenance -- each proven against fixtures without a model. Anthropic models only. Spec: docs/campaigns/spec-format-and-planning-stages/spec/SPEC.md.",
+  "status": "active",
+  "linkedRunIds": [
+    "spec-format-and-planning-stages-1-ledger-and-spec-format",
+    "spec-format-and-planning-stages-2-planning-stages"
+  ],
+  "contracts": [
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/spec-format-and-planning-stages/contracts/1-ledger-and-spec-format.contract.json",
+      "digest": "6f22f83a063df4e44e230e03fe90da272b7dc25b3de012875b76e7e9fd31f4fb"
+    },
+    {
+      "path": "/Users/frb/dev/frb/skills/.runs/control/spec-format-and-planning-stages/contracts/2-planning-stages.contract.json",
+      "digest": "ee0fcaac12bcaf8bba7721e8ef591372ec6f88668629a65d6cb45aadc1324a43"
+    }
+  ],
+  "landBranch": "campaign/spec-format-and-planning-stages",
+  "promotions": [
+    {
+      "runId": "spec-format-and-planning-stages-1-ledger-and-spec-format",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/spec-format-and-planning-stages/contracts/1-ledger-and-spec-format.contract.json",
+      "branch": "campaign/spec-format-and-planning-stages",
+      "sha": "f779ef751e2bd07bf7620049449d06771a0364ec",
+      "previousSha": "00961c4b6250e6ca74f6bc379034d4d8a8b4593f",
+      "at": "2026-09-17T04:25:29.740Z"
+    },
+    {
+      "runId": "spec-format-and-planning-stages-2-planning-stages",
+      "contractPath": "/Users/frb/dev/frb/skills/.runs/control/spec-format-and-planning-stages/contracts/2-planning-stages.contract.json",
+      "branch": "campaign/spec-format-and-planning-stages",
+      "sha": "32a0bc1306cb0f1d5a9ee03889c22d4f07afcab3",
+      "previousSha": "f779ef751e2bd07bf7620049449d06771a0364ec",
+      "at": "2026-09-17T06:21:36.292Z"
+    }
+  ],
+  "createdAt": "2026-09-17T03:11:52.064Z",
+  "updatedAt": "2026-09-17T06:21:36.292Z"
+}
