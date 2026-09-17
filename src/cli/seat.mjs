@@ -12,7 +12,7 @@ import { attachSeat, seatStatus, startSeat, stopSeat, switchSeat } from "../seat
 
 /** Flags are scoped to the operations that declare them; all other flags are rejected. */
 /** @type {Record<string, import("node:util").ParseArgsOptionsConfig>} */
-const OPERATION_OPTIONS = {
+export const OPERATION_OPTIONS = {
   start: { cwd: { type: "string" }, harness: { type: "string" } },
   attach: { cwd: { type: "string" }, ssh: { type: "string" } },
   status: { cwd: { type: "string" }, json: { type: "boolean" } },

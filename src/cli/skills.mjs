@@ -36,7 +36,7 @@ const CHECKOUT_SKILL = join(SKILLS_DIR, "faberun");
 
 /** Flags are scoped to the operation that declares them; all others are rejected. */
 /** @type {Record<string, import("node:util").ParseArgsOptionsConfig>} */
-const OPERATION_OPTIONS = {
+export const OPERATION_OPTIONS = {
   list: {},
   install: {
     target: { type: "string" },

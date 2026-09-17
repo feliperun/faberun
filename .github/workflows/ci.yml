@@ -21,6 +21,7 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run typecheck
+      - run: npm run docs:check
       - run: npm test
       - run: node evals/run.mjs --class deterministic --assert-no-model
       - run: node evals/run.mjs --verify-discriminating

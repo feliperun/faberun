@@ -12,7 +12,7 @@ import { loadPersistedContract, validateContract } from "../contract/index.mjs";
 
 /** Flags are scoped to the operation that declares them; all others are rejected. */
 /** @type {Record<string, import("node:util").ParseArgsOptionsConfig>} */
-const OPERATION_OPTIONS = {
+export const OPERATION_OPTIONS = {
   validate: {},
 };
 

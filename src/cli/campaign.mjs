@@ -48,7 +48,7 @@ const NOTE_KIND_FLAGS = {
 
 /** Flags are scoped to the operations that declare them; all other flags are rejected. */
 /** @type {Record<string, import("node:util").ParseArgsOptionsConfig>} */
-const OPERATION_OPTIONS = {
+export const OPERATION_OPTIONS = {
   list: { cwd: { type: "string" } },
   init: { cwd: { type: "string" }, goal: { type: "string" }, contract: { type: "string", multiple: true }, "land-branch": { type: "string" } },
   watch: { cwd: { type: "string" }, wake: { type: "boolean" }, detach: { type: "boolean" }, interval: { type: "string" }, once: { type: "boolean" } },
