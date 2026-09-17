@@ -1,0 +1,462 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "chain-ergonomics-and-fairness",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "claude-sonnet-worker",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic-opus",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "claude-sonnet-worker": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic-sonnet",
+      "permissionMode": "bypassPermissions",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/repo/source-shape.test.mjs",
+        "test/campaign/field-ownership.test.mjs",
+        "test/repo/brand.test.mjs",
+        "test/docs/docs-diet.test.mjs",
+        "test/host/host-layout.test.mjs",
+        "test/docs/reference-load.test.mjs"
+      ],
+      "timeoutSec": 150
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "docs:check"
+      ],
+      "timeoutSec": 120
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/",
+        "test/plan/",
+        "test/evals/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "chain-ergonomics-and-fairness-2b-fairness-fixes",
+  "maxParallel": 1,
+  "goal": "Phase 2b (fairness-fixes) of campaign chain-ergonomics-and-fairness: three targeted gaps the phase-2 judges named verbatim -- the D14 eval case must discriminate under the once-per-phase finalVerification rule that landed, the dispatch pass's judge branch must join the settlement queue instead of awaiting inside the tick, and the dashboard must show what the gate decided instead of the raw judge verdict. Spec: docs/campaigns/chain-ergonomics-and-fairness/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "d14-case-proves-once-per-phase",
+      "type": "backend",
+      "phase": "throughput-and-truth",
+      "dependsOn": [],
+      "timeoutSec": 2400,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "d14-passes",
+          "text": "the D14 eval case passes unmutated",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "all-discriminate",
+          "text": "every deterministic case, D14 included, fails under its own discriminator",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "proves-the-rule",
+          "text": "the case's proves prose states the rule the code now holds, and its new mutation is observable through that rule rather than through a change of contract shape",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "The D14 eval case proves the once-per-phase rule that now governs contract.finalVerification: its declared discriminator makes the case fail again, and its `proves` prose describes the rule as the code states it.",
+        "instructions": [
+          "What already landed, and what you must not redo: on this branch, commit 1388c92 made `finalVerificationCommands(contract, node, settledSiblingIds)` in src/contract/final-verification.mjs return the contract's finalVerification only for a phase-terminal node, and only once every other phase-terminal node has settled; src/engine/verify.mjs passes that settled set; test/engine/final-verification-once.test.mjs (3 tests, all passing) and the docs/CONCEPTS.md sentence landed with it. The engine work is done. This node is only the eval case.",
+          "What is red, measured on this branch today: `node evals/run.mjs --verify-discriminating` reports `[fail] D14 · case still passes with its discriminator mutation ({\"type\":\"patchContractField\",\"path\":[\"nodes\",1,\"dependsOn\"],\"remove\":true}) applied`, and `node evals/run.mjs --case D14` passes. Under the old per-node rule that mutation turned `ship` into a second node with no dependant and changed the outcome pair. Under the new rule it changes nothing: both nodes settle in declaration order, `build` settles first and carries no final command, `ship` settles last and carries the always-false one, so the outcomes stay done/failed with or without the mutation.",
+          "The task: keep the case's title and its claim, replace the discriminator with a mutation the new rule makes observable, and rewrite `proves` to state the rule the code now holds. One candidate the orchestrator derived by reading the code and did not run: {\"type\": \"patchContractField\", \"path\": [\"finalVerification\"], \"remove\": true} removes the always-false contract command itself, so `ship` settles `done` instead of `failed` and the case fails under the mutation. If you find a mutation that pins the placement more tightly -- which node carries the suite, not merely whether any node does -- prefer it, and say in your summary why it discriminates. `applyContractPatch` in evals/case.mjs takes one `path` with either `value` or `remove: true`, so it is a single patch, and a mutation whose only effect is an invalid contract is not a proof of this rule.",
+          "`proves` must stay a claim about the code, in the register the other cases use: name `finalVerificationCommands` and its settled-sibling condition, say why `build` closing `done` pins the negative half (the suite never runs before the phase's last close), and say why the mutated contract leaves a different outcome pair.",
+          "Do not touch evals/golden/**. If the golden set records D14's expectation, report that in your summary instead of regenerating it. expected.json is in your write scope only if the new mutation changes the unmutated outcome, which the candidate above does not."
+        ],
+        "readFiles": [
+          "src/contract/final-verification.mjs",
+          "src/engine/verify.mjs",
+          "evals/deterministic/D14/case.json",
+          "evals/deterministic/D14/expected.json",
+          "evals/case.mjs",
+          "evals/run.mjs",
+          "evals/README.md",
+          "docs/CONCEPTS.md"
+        ],
+        "writeFiles": [
+          "evals/deterministic/D14/case.json",
+          "evals/deterministic/D14/expected.json"
+        ],
+        "symbols": [],
+        "scopeAcknowledged": [
+          "evals/case.mjs",
+          "evals/run.mjs",
+          "evals/golden.mjs",
+          "evals/README.md"
+        ],
+        "decisions": [
+          "The claim and the title stand; only the mutation that proves them changes.",
+          "No engine change: the once-per-phase rule is already landed and tested."
+        ],
+        "nonGoals": [
+          "No change to src/contract/final-verification.mjs or src/engine/verify.mjs.",
+          "No new eval case: D14 is the one that must discriminate again.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done.",
+          "No new test depends on the wall clock from above, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node; no live model (replay or the fixture runtimes only).",
+          "Any new persisted field goes with its validator allowlist and its typedef; any new events.jsonl or journal field goes with its declaration in docs/FIELD-OWNERSHIP.md."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--case",
+              "D14"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--verify-discriminating"
+            ],
+            "timeoutSec": 600
+          }
+        ]
+      }
+    },
+    {
+      "id": "judge-branch-on-the-settlement-queue",
+      "type": "backend",
+      "phase": "throughput-and-truth",
+      "dependsOn": [
+        "d14-case-proves-once-per-phase"
+      ],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "dispatch-tests",
+          "text": "dispatch-during-verification, parked, seal-before-kill and judge tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "queued-judge",
+          "text": "the judge branch runs off the tick and serialised with every path that integrates, a rejected background settlement is never swallowed, and the comment claims only what holds",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "The dispatch pass's judge branch no longer awaits inside the tick and is chained onto the settlement queue, so it cannot run concurrently with a background settlement integrating on the same candidate ref and it no longer blocks dispatch; a background settlement failure is never swallowed; and the advisory comment states only what the code holds.",
+        "instructions": [
+          "The judge's verbatim finding on the previous attempt (node dispatch-during-verification, exhausted at the revision cap; its core was confirmed): \"One gap blocks the judgment item. The dispatch pass's own judge branch (scheduler.mjs:585-589) still `await`s `startJudge` + `applyJudgeRound` inside the tick and is not chained onto `settlementQueue`. That path reaches `settleDone` -> `integrateAttempt` (review.mjs:229, settle.mjs), i.e. the same per-run candidate ref/worktree the queue exists to serialize -- so it can run concurrently with a background settlement doing its own integration, and while it runs no other node is dispatched. Two smaller issues: a background settlement failure can be swallowed on a clean exit, and the new advisory comment states an invariant the code does not hold.\"",
+          "What the judge confirmed and must not change: settleClosedJobsInBackground freeing the slot and enqueuing synchronously; settlementQueue serialising different nodes' settlements; enforceRunningInvariant excluding pendingSettlements; the cancel branch and the post-loop shutdown awaiting every in-flight settlement; allSettled on the lock-loss path so the finally merge-back lands before the termination sweep; parkedBefore captured once with the bottom-of-tick autoRetryParkedNodes; and the test that blocks a real verification command on a gate file and polls without an upper bound on elapsed time.",
+          "Fix 1: route the judge branch through the same queue the settlements use, so startJudge and applyJudgeRound run off the tick and serialised with every other path that reaches integrateAttempt. The node's own order is preserved; only the loop stops waiting.",
+          "Fix 2: a background settlement that rejects surfaces -- record it and fail the run rather than letting a clean exit swallow it (the post-loop await already exists; make its result observable).",
+          "Fix 3: the advisory comment says what the code holds, no more.",
+          "Tests: extend test/engine/dispatch-during-verification.test.mjs with a case where a node is in the judge while another is eligible, asserting the second is dispatched; and a case where a background settlement rejects, asserting the run does not report success. Keep test/engine/parked.test.mjs, seal-before-kill and judge.test.mjs passing."
+        ],
+        "readFiles": [
+          "src/engine/scheduler.mjs",
+          "src/engine/lifecycle.mjs",
+          "src/engine/settle.mjs",
+          "src/engine/verify.mjs",
+          "test/engine/parked.test.mjs",
+          "test/engine/seal-before-kill.test.mjs",
+          "test/runner-helpers.mjs",
+          "src/engine/review.mjs"
+        ],
+        "writeFiles": [
+          "src/engine/scheduler.mjs",
+          "test/engine/dispatch-during-verification.test.mjs"
+        ],
+        "symbols": [
+          "pendingSettlements"
+        ],
+        "scopeAcknowledged": [
+          "src/engine/lifecycle.mjs",
+          "src/engine/settle.mjs",
+          "src/engine/verify.mjs",
+          "test/engine/parked.test.mjs",
+          "test/engine/seal-before-kill.test.mjs",
+          "test/runner-helpers.mjs",
+          "test/engine/resume.test.mjs",
+          "test/engine/judge.test.mjs",
+          "test/engine/routing.test.mjs",
+          "test/engine/unfreezable.test.mjs",
+          "test/cli/cli.test.mjs",
+          "test/engine/verification-progress.test.mjs",
+          "test/report/now-line.test.mjs",
+          "test/engine/shared-verification.test.mjs",
+          "test/report/cost.test.mjs",
+          "test/report/read-bytes.test.mjs",
+          "src/engine/review.mjs"
+        ],
+        "decisions": [
+          "Per-node promises in the loop, not a worker pool: the node's own order is untouched.",
+          "The loop still awaits before any decision that needs a settled state."
+        ],
+        "nonGoals": [
+          "No change to maxParallel's meaning or to the node lifecycle.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done.",
+          "No new test depends on the wall clock from above, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node; no live model (replay or the fixture runtimes only).",
+          "Any new persisted field goes with its validator allowlist and its typedef; any new events.jsonl or journal field goes with its declaration in docs/FIELD-OWNERSHIP.md."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/engine/dispatch-during-verification.test.mjs",
+              "test/engine/parked.test.mjs",
+              "test/engine/seal-before-kill.test.mjs",
+              "test/engine/judge.test.mjs"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "dashboard-shows-the-gate-outcome",
+      "type": "backend",
+      "phase": "throughput-and-truth",
+      "dependsOn": [
+        "judge-branch-on-the-settlement-queue"
+      ],
+      "timeoutSec": 2400,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "web-tests",
+          "text": "the web tests pass, including a new case for an advisory-pass node's row",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "one-truth",
+          "text": "the dashboard row states what the gate decided and what the node is doing now, the raw verdict stays where the findings are, and an advisory-pass node no longer reads as a failure on either surface",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "The dashboard's node row shows what the gate decided and what the node is doing now, instead of re-deriving the judge's raw verdict, so an advisory-pass node stops reading as `fail` on the monitor while the human table already reads `passed`.",
+        "instructions": [
+          "The judge's verbatim finding on the node that landed the status work (status-tells-the-truth, exhausted at the revision cap; the work itself was confirmed and is already on this branch): \"It does not reach the monitor, the other surface this node's own evidence names. `nodeRow` in src/web/server.mjs re-derives `verdict: node.gate?.verdict` from the node snapshot and drops both `gateOutcome` and `executionPhase` from the status entry it merges, and src/web/index.html still renders a `verdict` pill column, so an advisory-pass node keeps showing `fail` on the dashboard. Neither file is in writeFiles, so this is a packet scope gap rather than a worker defect.\"",
+          "What landed already: src/report/render.mjs now derives `gateOutcome` (`passed`/`rejected`/`null`, independent of the verdict: an advisory review or a below-threshold fail verdict still accepts the node) and `executionPhase` (`candidate` while the sealed candidate re-verifies, `verification` mid-attempt, else the persisted phase) into the status payload, and `report`/`status` print the gate outcome in the human table. status.json is that payload, so the fields are already in the entry `nodeRow` receives.",
+          "The fix is a pass-through, not a new derivation: `nodeRow` (src/web/server.mjs:286) takes `gateOutcome` and `executionPhase` from `statusNode` and stops reading `node.gate?.verdict`. Do not import the deriving helper from the report layer; the payload already carries the answer.",
+          "src/web/index.html: the drawer table's `verdict` column becomes the gate outcome (header and cell, around lines 187-200), and the state cell says what the node is doing now when `executionPhase` is `candidate` or `verification`. The judge's raw verdict keeps its home in the findings tab (`pill(findings.verdict)`, around line 180), which is where a reader is looking at the findings that produced it.",
+          "Test, in test/web/server.test.mjs next to the existing drawer cases: a node whose snapshot carries `gate: { verdict: \"fail\", ... }` but whose status entry carries `gateOutcome: \"passed\"` renders `passed` in its row, and a node mid-candidate-verification says so. Assert the rendered row, not an internal helper."
+        ],
+        "readFiles": [
+          "src/web/server.mjs",
+          "src/web/index.html",
+          "src/report/render.mjs",
+          "test/web/server.test.mjs",
+          "test/web/api.test.mjs",
+          "src/web/api.mjs"
+        ],
+        "writeFiles": [
+          "src/web/server.mjs",
+          "src/web/index.html",
+          "test/web/server.test.mjs"
+        ],
+        "symbols": [],
+        "scopeAcknowledged": [
+          "src/report/render.mjs",
+          "src/web/api.mjs",
+          "test/web/api.test.mjs",
+          "test/web/boundary.test.mjs"
+        ],
+        "decisions": [
+          "The dashboard reads the status payload; it never re-derives a verdict of its own.",
+          "The raw verdict stays in the findings tab, next to the findings that justify it."
+        ],
+        "nonGoals": [
+          "No change to src/report/render.mjs: the fields it publishes are already right.",
+          "No restyle of the dashboard beyond the two columns this finding names.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done.",
+          "No new test depends on the wall clock from above, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node; no live model (replay or the fixture runtimes only).",
+          "Any new persisted field goes with its validator allowlist and its typedef; any new events.jsonl or journal field goes with its declaration in docs/FIELD-OWNERSHIP.md."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/web/"
+            ],
+            "timeoutSec": 400
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    }
+  ]
+}

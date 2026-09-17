@@ -1,0 +1,442 @@
+diff --git a/docs/CONCEPTS.md b/docs/CONCEPTS.md
+index 302ee18..099f236 100644
+--- a/docs/CONCEPTS.md
++++ b/docs/CONCEPTS.md
+@@ -333,7 +333,12 @@ The durable evidence of a run lives under `<cwd>/.runs/<id>/`: `contract.json`,
+ carries the live summary. The invariant: stored files are state and logs are
+ diagnostics, raw worker output stays under `.runs/` while only status and
+ actionable verdicts enter the control session, and the run directory is
+-self-contained enough to resume. See
++self-contained enough to resume. The status payload's `executionPhase` names
++`candidate` while a node's sealed integration candidate is being re-verified
++(distinct from `worker` or `judge`), and its `gateOutcome` (`passed` or
++`rejected`) names what the gate actually decided rather than echoing the
++judge's own `verdict`, so a gate that accepted a fail verdict below its
++threshold never renders as a failure. See
+ [contract.md](../skills/faberun/references/contract.md) and
+ [COMMANDS.md](COMMANDS.md#status).
+ 
+diff --git a/src/engine/settle.mjs b/src/engine/settle.mjs
+index 406c478..ace5972 100644
+--- a/src/engine/settle.mjs
++++ b/src/engine/settle.mjs
+@@ -165,7 +165,7 @@ export async function settleDone(contract, node, state, runDir, lock, states, ca
+     attemptSha: sealed.sha,
+     branch: state.worktree.branch,
+     verificationEvidence: state.verification,
+-    verifyCandidate: (candidateWorkspace) => verifyCandidateWorkspace(contract, node, state, runDir, candidateWorkspace),
++    verifyCandidate: (candidateWorkspace) => verifyCandidateWorkspace(contract, node, state, runDir, candidateWorkspace, lock),
+     onAccepted: async (transaction) => {
+       const acceptedPath = state.worktree?.path ?? attemptWorktreePath(runDir, contract.id, node.id, transaction.attempt);
+       if (state.attempt === transaction.attempt && state.status !== "done") {
+diff --git a/src/engine/verify.mjs b/src/engine/verify.mjs
+index c359dc7..4f678a9 100644
+--- a/src/engine/verify.mjs
++++ b/src/engine/verify.mjs
+@@ -221,16 +221,37 @@ function argvEqual(a, b) {
+   if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+   return a.every((item, index) => item === b[index]);
+ }
++/**
++ * Marks whether the integration candidate's own verification pass is running
++ * right now, nested inside the attempt's own already-completed verification
++ * record rather than as a new node-snapshot field: that record's validator
++ * (`validateVerificationSnapshot`) accepts extra keys, where the node
++ * snapshot's own strict field list would reject one. Status surfaces read it
++ * to tell "still verifying the sealed candidate" apart from "waiting on the
++ * judge", which otherwise both read as whatever phase the attempt last
++ * dispatched under.
++ *
++ * @param {string} runDir
++ * @param {NodeSnapshot} state
++ * @param {LockHandle|null} lock
++ * @param {boolean} active
++ */
++function markCandidateVerification(runDir, state, lock, active) {
++  state.verification = /** @type {VerificationState} */ ({ ...(state.verification ?? { passed: false, commands: [], completed: false }), candidate: active });
++  writeNode(runDir, state, lock);
++}
+ /**
+  * @param {ValidatedContract} contract
+  * @param {ValidatedNode} node
+  * @param {NodeSnapshot} state
+  * @param {string} runDir
+  * @param {string} workspace
++ * @param {LockHandle|null} [lock]
+  * @returns {Promise<import("../repo/integrate.mjs").CandidateEvidence>}
+  */
+-export async function verifyCandidateWorkspace(contract, node, state, runDir, workspace) {
++export async function verifyCandidateWorkspace(contract, node, state, runDir, workspace, lock = null) {
+   const commands = [...node.taskPacket.verification, ...sharedVerificationCommands(contract), ...finalVerificationCommands(contract, node)];
++  markCandidateVerification(runDir, state, lock, true);
+   try {
+     const result = await runVerification(commands, workspace, {
+       logDir: join(runDir, "logs", `${node.id}.${state.attempt}.candidate-verification`),
+@@ -252,5 +273,7 @@ export async function verifyCandidateWorkspace(contract, node, state, runDir, wo
+     return settled.retried ? { ...compacted, retried: settled.retried } : compacted;
+   } catch (error) {
+     return { passed: false, error: boundedUtf8(errorMessage(error), 4 * 1024) };
++  } finally {
++    markCandidateVerification(runDir, state, lock, false);
+   }
+ }
+diff --git a/src/report/render.mjs b/src/report/render.mjs
+index 250f2f9..da0195c 100644
+--- a/src/report/render.mjs
++++ b/src/report/render.mjs
+@@ -26,7 +26,7 @@ const POINTER_ATTENTION_CHARS = 80;
+ /** @typedef {{costUsd: number|null, costProvenance: CostProvenance, inputTokens: number, outputTokens: number, cacheReadInputTokens: number, pricedInvocations: number, unpricedInvocations: number}} RoleUsage */
+ /** @typedef {{inputTokens: number|null, outputTokens: number|null, cacheReadInputTokens: number|null}} StatusPayloadUsage */
+ /** @typedef {{index: number, total: number, argv: string}} VerificationProgress */
+-/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, verdict: string|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, errorCode: string|null, blockedBy: string[], verificationProgress: VerificationProgress|null, declaredReadBytes: number|null}} StatusPayloadNode */
++/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, verdict: string|null, gateOutcome: "passed"|"rejected"|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, errorCode: string|null, blockedBy: string[], verificationProgress: VerificationProgress|null, declaredReadBytes: number|null}} StatusPayloadNode */
+ /** @typedef {{schemaVersion: 1, run: string, contractId: string, campaignId: string, goal: string, usage: {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUsd: number|null}, roles: {worker: RoleUsage, judge: RoleUsage}, controller: JsonObject, identityWarnings: string[], summary: string, nodes: StatusPayloadNode[]}} StatusPayload */
+ 
+ /** The glyph each terminal state prints in a status table. */
+@@ -43,13 +43,11 @@ export const MARK = {
+ };
+ 
+ /**
+- * `status <run-dir>`: everything the operator needs, in the same order as
+- * the dashboard page (TECH-SPEC lean, section 4's last paragraph) —
+- * needs-you, now, nodes, cost. Every cell comes from the same payload
+- * `status --json` and the per-run `status.json` file emit
+- * (`buildStatusPayload`); `nodes` and `identityWarnings` from `loadRun` are
+- * used only for the two facts the payload does not carry: throwing on an
+- * invalid persisted snapshot, and `controllerStatus`'s lock read.
++ * `status <run-dir>`: needs-you, now, nodes, cost, in the dashboard's order
++ * (TECH-SPEC lean, section 4's last paragraph). Every cell comes from the same
++ * payload `status --json` emits (`buildStatusPayload`); `nodes` and
++ * `identityWarnings` from `loadRun` cover only what the payload does not:
++ * throwing on an invalid snapshot, and `controllerStatus`'s lock read.
+  *
+  * @param {string} runDir
+  * @returns {string}
+@@ -75,7 +73,7 @@ export function renderStatus(runDir) {
+   const widths = [3, 24, 9, 3, 28, 8, 6, 6, 6, 10, 9, MAX_NOTE_LENGTH];
+   /** @type {(cells: unknown[]) => string} */
+   const row = (cells) => cells.map((cell, i) => fit(String(cell ?? ""), widths[i])).join(" ");
+-  lines.push("```", row(["", "NODE", "STATE", "TRY", "RUNTIME", "ELAPSED", "IN", "CACHE", "OUT", "USD", "VERDICT", "NOTE"]), row(widths.map((width) => "-".repeat(width))));
++  lines.push("```", row(["", "NODE", "STATE", "TRY", "RUNTIME", "ELAPSED", "IN", "CACHE", "OUT", "USD", "GATE", "NOTE"]), row(widths.map((width) => "-".repeat(width))));
+   for (const node of payload.nodes) {
+     lines.push(row([
+       MARK[node.status] ?? "[?]",
+@@ -88,7 +86,7 @@ export function renderStatus(runDir) {
+       compactTokens(node.usage?.cacheReadInputTokens),
+       compactTokens(node.usage?.outputTokens),
+       compactCost(node.costUsd),
+-      node.verdict ?? "-",
++      node.gateOutcome ?? "-",
+       node.note ?? "-",
+     ]));
+   }
+@@ -98,12 +96,10 @@ export function renderStatus(runDir) {
+ }
+ 
+ /**
+- * The node the operator should look at right now, formatted the same way
+- * the dashboard's now strip is (TECH-SPEC lean, section 4, item 1): the
+- * active node's elapsed time and cost so far, or an idle line once every
+- * node has settled. A node awaiting a controller verification command
+- * appends which one, `k/n`, and its argv, so a minutes-long suite is not
+- * silent between ticks.
++ * The node the operator should look at right now, formatted like the
++ * dashboard's now strip (TECH-SPEC lean, section 4, item 1): elapsed time and
++ * cost so far, or idle once every node has settled. A node awaiting a
++ * controller verification command appends which one, `k/n`, and its argv.
+  *
+  * @param {StatusPayload} payload
+  * @param {number} now epoch ms
+@@ -114,7 +110,8 @@ function nowLine(payload, now) {
+   if (active) {
+     const progress = active.verificationProgress;
+     const verification = progress ? ` · verification ${progress.index}/${progress.total} · ${progress.argv}` : "";
+-    return `now: ${active.id} ${active.status} (${formatElapsed(active, now)}) · ${active.runtime ?? "-"} · ${compactCost(active.costUsd)}${verification}`;
++    const candidate = !progress && active.executionPhase === "candidate" ? " · candidate verification" : "";
++    return `now: ${active.id} ${active.status} (${formatElapsed(active, now)}) · ${active.runtime ?? "-"} · ${compactCost(active.costUsd)}${verification}${candidate}`;
+   }
+   const allTerminal = payload.nodes.every((node) => SUCCESS.has(node.status));
+   return allTerminal ? `now: idle · run done · ${compactCost(payload.usage.costUsd)}` : "now: idle";
+@@ -134,6 +131,27 @@ function verificationProgress(node) {
+   return verification?.progress ?? null;
+ }
+ 
++/** Set by `verifyCandidateWorkspace` (engine/verify.mjs) for the run of the sealed candidate's own re-verification pass. @param {NodeSnapshot} node @returns {boolean} */
++function candidateVerificationActive(node) {
++  const verification = /** @type {{candidate?: boolean}|null|undefined} */ (node.verification);
++  return verification?.candidate === true;
++}
++
++/** `candidate` while re-verifying the sealed candidate, `verification` mid-attempt-verification, else the persisted phase; the two never overlap. @param {NodeSnapshot} node @returns {string|null} */
++function executionPhaseOf(node) {
++  if (candidateVerificationActive(node)) return "candidate";
++  if (verificationProgress(node)) return "verification";
++  return node.phase;
++}
++
++/** What the gate decided (independent of `verdict`: an advisory review or a below-threshold fail verdict still accepts the node, engine/review.mjs `applyJudgeResult`). @param {NodeSnapshot} node @returns {"passed"|"rejected"|null} */
++export function gateOutcome(node) {
++  if (!node.gate) return null;
++  if (SUCCESS.has(node.status)) return "passed";
++  if (node.status === "failed" || node.status === "exhausted") return "rejected";
++  return null;
++}
++
+ /**
+  * A node's wall-clock elapsed time: `startedAt` to `updatedAt` once it has
+  * settled into a terminal state, `startedAt` to `now` while it is still
+@@ -216,7 +234,7 @@ function buildStatusPayload(runDir, contract, nodes, identityWarnings, usage) {
+         // A running controller verification command does not move
+         // `node.phase` (it stays `worker`, the phase that dispatched it), so
+         // the surface that shows it is computed here rather than persisted.
+-        executionPhase: progress ? "verification" : node.phase,
++        executionPhase: executionPhaseOf(node),
+         runtime: node.runtime ? `${node.runtime.harness}/${node.runtime.model}` : null,
+         workerRuntime: workerRuntimeLabel(node),
+         continuation: continuationMode(node),
+@@ -227,6 +245,7 @@ function buildStatusPayload(runDir, contract, nodes, identityWarnings, usage) {
+         usage: node.usage ? { inputTokens: node.usage.inputTokens ?? null, outputTokens: node.usage.outputTokens ?? null, cacheReadInputTokens: node.usage.cacheReadInputTokens ?? null } : null,
+         costUsd: typeof node.costUsd === "number" ? node.costUsd : null,
+         verdict: node.gate?.verdict ?? null,
++        gateOutcome: gateOutcome(node),
+         pendingHandoff: pendingHandoff(node),
+         note: statusNote(node),
+         scopeFindings: node.scopeFindings?.unexpectedPaths ?? null,
+@@ -256,16 +275,11 @@ function activeStatusNode(nodes) {
+ }
+ 
+ /**
+- * The bounded pointer record written to `.runs/status.json`: enough for a
+- * quick ambient read (statusline, a stale watcher) without opening the
+- * per-run status.json. Bounded the same way heartbeat.json used to be, so a
+- * cheap bounded read stays valid for any reader still built that way.
+- * `generatedAt` is unix seconds, not ISO: the statusline's no-jq fallback has
+- * no clock and only jq's builtin `now` can compute an age from a live clock,
+- * and neither path needs a `date` process to read an integer. `elapsedSec`
+- * is likewise precomputed here (as of `generatedAt`, not live) so the
+- * statusline never has to subtract two timestamps to show it — it just
+- * prints the integer, whichever reader it is.
++ * The bounded pointer record written to `.runs/status.json`, for a quick
++ * ambient read without opening the per-run status.json (bounded like the old
++ * heartbeat.json). `generatedAt` is unix seconds, not ISO, and `elapsedSec` is
++ * precomputed from it, since the no-jq statusline fallback has no clock to
++ * subtract two timestamps with.
+  *
+  * @param {JsonObject} payload the per-run status.json payload
+  * @param {NodeSnapshot[]} nodes
+@@ -340,10 +354,7 @@ export function writeStatusArtifacts(runDir, runsDir, contract, states) {
+  */
+ export function controllerStatus(runDir, nodes) {
+   const lock = readLock(runDir);
+-  // The heartbeat's `at` is the live tick, so a working controller and a dead
+-  // one are distinguishable on disk. Before this it was hard-coded null here
+-  // and computed from node updates only once the lock was already stale, which
+-  // is why all 47 recorded status.json files reported a null lastTick.
++  // The heartbeat's `at` distinguishes a working controller from a dead one on disk.
+   const heartbeat = readHeartbeat(runDir);
+   const lastTick = typeof heartbeat?.at === "string" ? heartbeat.at : null;
+   if (!lock || /** @type {{invalid?: true}} */ (lock).invalid) {
+@@ -473,14 +484,11 @@ export function renderFindings(runDir) {
+ }
+ 
+ /**
+- * A node the worker itself stopped on, rendered as the repair it asks for.
+- *
+- * `findings` used to answer only gate exhaustion, and a run whose nodes all
+- * stopped on `blocked_context` reported nothing to act on while the workers
+- * had each named exactly what they needed — measured on a four-node campaign
+- * where three nodes were blocked and the command printed one line saying so.
+- * The question is already structured, so the repair is mechanical: put the
+- * named paths in the packet's `readFiles` and take a new run id.
++ * A node the worker itself stopped on, rendered as the repair it asks for:
++ * `findings` used to answer only gate exhaustion, so a run whose nodes all
++ * stopped on `blocked_context` reported nothing to act on (measured on a
++ * four-node campaign with three nodes blocked). The repair is mechanical: put
++ * the named paths in the packet's `readFiles` and take a new run id.
+  *
+  * @param {NodeSnapshot} node
+  * @returns {string|null}
+@@ -553,16 +561,11 @@ function continuationMode(node) {
+ }
+ 
+ /**
+- * Who produced this node's work, for the RUNTIME column of both tables.
+- *
+- * `state.runtime` is the last runtime *dispatched*, and the judge dispatch
+- * overwrites the worker's: every gated node that reached its gate therefore
+- * reported its judge as the runtime, and a six-node campaign whose workers
+- * were five different harnesses rendered as though three of them had never
+- * run (measured 2026-09-13). The invocation ledger keeps both roles, so the
+- * label is derived from it: the worker that ran, falling back to the live
+- * runtime for a node that has not dispatched one yet. The judge is not lost —
+- * it owns the VERDICT column, and `nowLine` still names whatever is running.
++ * Who produced this node's work, for the RUNTIME column: `state.runtime` is
++ * the last runtime *dispatched*, and the judge dispatch overwrites the
++ * worker's (measured 2026-09-13: a six-harness campaign rendered as though
++ * three workers never ran), so this reads the invocation ledger for the
++ * worker that ran, falling back to the live runtime if none dispatched yet.
+  *
+  * @param {NodeSnapshot} node
+  * @returns {string|null}
+@@ -633,7 +636,7 @@ function boundedNote(segments, maxLength = MAX_NOTE_LENGTH) {
+ export function statusNote(node) {
+   const scope = scopeFindingsNote(node.scopeFindings);
+   const review = reviewNote(node);
+-  const detail = node.gate?.summary ?? node.error?.message ?? node.blockedBy?.join(", ") ?? node.phase;
++  const detail = node.gate?.summary ?? node.error?.message ?? node.blockedBy?.join(", ") ?? (candidateVerificationActive(node) ? "candidate" : node.phase);
+   const note = boundedNote([review, detail]);
+   if (!scope) return note;
+   return boundedNote([scope, note]);
+@@ -657,13 +660,10 @@ function nodeNote(node) {
+ /** @typedef {{costUsd: number|null, status: "known"|"estimated"|"ambiguous"}} CostProjection */
+ 
+ /**
+- * Per-role usage from the invocation ledger alone, with the provenance that
+- * says whether the role's cost total is honest. A role whose invocations all
+- * carry a provider cost is `priced` and its `costUsd` is the sum; a role with
+- * any unpriced invocation is `partial` (some priced) or `unpriced` (none), and
+- * its `costUsd` stays null rather than summing the known half and understating
+- * it. A role with no invocation is `none`. Token totals are always carried, so
+- * a role the provider would not price still reads as work.
++ * Per-role usage from the invocation ledger, with provenance for whether the
++ * cost total is honest: `priced` (all invocations costed), `partial`/`unpriced`
++ * (some/none costed, so `costUsd` stays null rather than understating), or
++ * `none` (no invocation). Token totals are always carried.
+  *
+  * @param {NodeSnapshot[]} nodes
+  * @returns {{worker: RoleUsage, judge: RoleUsage}}
+diff --git a/test/engine/verification-progress.test.mjs b/test/engine/verification-progress.test.mjs
+index 924d3ec..9733e88 100644
+--- a/test/engine/verification-progress.test.mjs
++++ b/test/engine/verification-progress.test.mjs
+@@ -117,3 +117,48 @@ test("a failing verification command still leaves no stray progress on the termi
+     "the pass's final rewrite of state.verification never carries the last running command's progress forward",
+   );
+ });
++
++test("a node in the integration candidate's own verification pass carries the candidate phase on its snapshot, and it clears once settled", async () => {
++  const id = "verification-progress-candidate";
++  const directory = mkdtempSync(join(tmpdir(), `${id}-`));
++  const recordingDir = mkdtempSync(join(tmpdir(), `${id}-rec-`));
++  const captureDir = mkdtempSync(join(tmpdir(), `${id}-cap-`));
++  const nodeJsonPath = join(directory, ".runs", id, "nodes", "build.json");
++  const logPath = join(captureDir, "log.jsonl");
++  writeFileSync(logPath, "");
++  const script = "const fs=require('node:fs');"
++    + "const state=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));"
++    + "fs.appendFileSync(process.argv[2], JSON.stringify({candidate: Boolean(state.verification && state.verification.candidate)}) + String.fromCharCode(10));";
++  const argv = [process.execPath, "-e", script, "--", nodeJsonPath, logPath];
++
++  const workerRecording = writeRecording(recordingDir, [
++    { envelope: envelope({ result: JSON.stringify(workerResult("built")) }) },
++  ], "worker.jsonl");
++  const contractPath = writeContract(directory, fixture({
++    id,
++    pollIntervalMs: 10,
++    runtimeDefaults: { worker: "replay-worker", judge: "replay-judge" },
++    runtimes: {
++      "replay-worker": { harness: "replay", model: "replay-worker-model", vendor: "replay-worker-vendor", config: { "replay.recording": workerRecording } },
++      "replay-judge": { harness: "replay", model: "replay-judge-model", vendor: "replay-judge-vendor" },
++    },
++    nodes: [{ id: "build", type: "backend", taskPacket: packet({ verification: [{ argv }] }), gate: false }],
++  }));
++
++  const outcome = await runContract(contractPath);
++  assert.equal(outcome.ok, true, "the run completes once both the attempt and the candidate verification pass");
++
++  /** @type {{candidate: boolean}[]} */
++  const records = readFileSync(logPath, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
++  assert.equal(records.length, 2, "the packet's one verification command runs once for the attempt and once for the integration candidate");
++  assert.equal(records[0].candidate, false, "the attempt-stage pass is not the candidate pass");
++  assert.equal(records[1].candidate, true, "the candidate-stage pass marks the node snapshot while it runs");
++
++  const final = outcome.states.get("build");
++  assert.equal(final?.status, "done");
++  assert.equal(
++    /** @type {{candidate?: unknown}|null|undefined} */ (final?.verification)?.candidate,
++    false,
++    "the candidate marker is cleared once the candidate pass settles",
++  );
++});
+diff --git a/test/report/now-line.test.mjs b/test/report/now-line.test.mjs
+index a5632a6..341abef 100644
+--- a/test/report/now-line.test.mjs
++++ b/test/report/now-line.test.mjs
+@@ -69,6 +69,77 @@ test("verification progress clears once the pass completes", () => {
+   }
+ });
+ 
++test("a node whose integration candidate is being re-verified names the candidate phase, on both renderings", () => {
++  const { runDir } = makeRun({
++    status: "running",
++    phase: "worker",
++    verification: { passed: true, commands: [], completed: true, attempts: [], candidate: true },
++  });
++  try {
++    assert.match(renderStatus(runDir), /now: build running \([^)]*\) · - · - · candidate verification/u);
++    const payload = JSON.parse(renderStatusJson(runDir));
++    assert.equal(payload.nodes[0].executionPhase, "candidate");
++  } finally {
++    rmSync(runDir, { recursive: true, force: true });
++  }
++});
++
++test("candidate verification and attempt verification progress do not both surface at once", () => {
++  const { runDir } = makeRun({
++    status: "running",
++    phase: "worker",
++    verification: { passed: true, commands: [], completed: true, attempts: [], candidate: false },
++  });
++  try {
++    const payload = JSON.parse(renderStatusJson(runDir));
++    assert.equal(payload.nodes[0].executionPhase, "worker");
++  } finally {
++    rmSync(runDir, { recursive: true, force: true });
++  }
++});
++
++test("a node whose gate accepted a fail verdict below its threshold reports the gate outcome as passed, not the verdict, on both renderings", () => {
++  const { runDir } = makeRun({
++    status: "done",
++    phase: "complete",
++    gate: { verdict: "fail", maxSeverity: "minor", summary: "advisory finding", findings: [{ severity: "minor", description: "d", evidence: "e" }] },
++  });
++  try {
++    const text = renderStatus(runDir);
++    assert.match(text, /passed/u);
++    const payload = JSON.parse(renderStatusJson(runDir));
++    assert.equal(payload.nodes[0].verdict, "fail", "the raw judge verdict stays available in the payload");
++    assert.equal(payload.nodes[0].gateOutcome, "passed");
++  } finally {
++    rmSync(runDir, { recursive: true, force: true });
++  }
++});
++
++test("an exhausted node's gate outcome reads rejected", () => {
++  const { runDir } = makeRun({
++    status: "exhausted",
++    phase: "complete",
++    gate: { verdict: "fail", maxSeverity: "critical", summary: "needs work", findings: [{ severity: "critical", description: "d", evidence: "e" }] },
++  });
++  try {
++    const payload = JSON.parse(renderStatusJson(runDir));
++    assert.equal(payload.nodes[0].verdict, "fail");
++    assert.equal(payload.nodes[0].gateOutcome, "rejected");
++  } finally {
++    rmSync(runDir, { recursive: true, force: true });
++  }
++});
++
++test("a node with no gate yet reports a null gate outcome", () => {
++  const { runDir } = makeRun({ status: "running", phase: "worker" });
++  try {
++    const payload = JSON.parse(renderStatusJson(runDir));
++    assert.equal(payload.nodes[0].gateOutcome, null);
++  } finally {
++    rmSync(runDir, { recursive: true, force: true });
++  }
++});
++
+ /**
+  * @param {Record<string, unknown>} nodeOverrides
+  */
