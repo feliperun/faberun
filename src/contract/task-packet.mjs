@@ -28,6 +28,15 @@ const PROMPT_MAX_BYTES = 64 * 1024;
 const VERIFICATION_PARAGRAPH = "The controller runs every command below after you report; its recorded results are the proof of this node. Running a command yourself is optional and only for one that finishes in seconds and spawns no long-lived process. Keep output bounded (pipe through `| tail -n 200`). Never wait on a background job, never run the whole test suite, and never run tests that start and terminate other processes.";
 
 /**
+ * The `## Required output` schema every mode states: literally every key
+ * `validateWorkerResult` requires, so a worker never loses a valid result to
+ * a field this paragraph failed to name. What belongs in `artifacts` (if
+ * anything) is this packet's own content contract, stated in its own
+ * `instructions`, not repeated or guessed here.
+ */
+const REQUIRED_OUTPUT_SCHEMA = 'Return exactly one JSON object, with no markdown or prose, matching this shape: {"status":"done"|"blocked_context","summary":"string","verification":["string"],"artifacts":["string"],"missingContext":["string"]}. status is "done" when the node is complete or "blocked_context" when required context is missing; summary is prose for a human reader; verification and artifacts are string arrays, sent as [] when this node ran no command or has nothing to put there; missingContext lists exactly what is absent, non-empty only for blocked_context. Use blocked_context only when missingContext is non-empty; use done only when missingContext is empty.';
+
+/**
  * `validateRelativePath`'s answer when a path is absent and the caller asked to
  * defer the missing-path verdict rather than throw it. Only contract loading
  * opts in; every other caller throws the missing-path error in place.
@@ -128,7 +137,7 @@ export function renderWorkerPrompt(packet, nodeId) {
     ...packet.verification.map((command) => `- ${command.argv.join(" ")}`),
     "",
     "## Required output",
-    'Return exactly one JSON object, with no markdown or prose: {"status":"done"|"blocked_context","summary":"string","verification":["string"],"artifacts":["string"],"missingContext":["string"]}. Use blocked_context only when missingContext is non-empty; use done only when missingContext is empty.',
+    REQUIRED_OUTPUT_SCHEMA,
   ];
   const prompt = `${lines.join("\n")}\n`;
   if (Buffer.byteLength(prompt, "utf8") > PROMPT_MAX_BYTES) {
@@ -432,7 +441,7 @@ function renderDiscoveryPrompt(packet, nodeId) {
     ...bulletOrNone(packet.nonGoals),
     "",
     "## Required output",
-    'Return exactly one worker-result JSON object, with no markdown or prose. Set status to "done", missingContext to [], and artifacts to an array containing exactly one JSON-stringified execution task packet with every required taskPacket field. The packet readFiles and writeFiles must be non-empty and scoped to this repository. Put structured findings meant to inform that packet in `output` (a JSON object, at most 65536 bytes); prose belongs in `summary`.',
+    `${REQUIRED_OUTPUT_SCHEMA} Put structured findings meant to inform this packet's own instructions in \`output\` instead (a JSON object, at most 65536 bytes).`,
     "",
     "## Verification",
     VERIFICATION_PARAGRAPH,
@@ -481,7 +490,7 @@ function renderAutonomousPrompt(packet, nodeId) {
     ...packet.verification.map((command) => `- ${command.argv.join(" ")}`),
     "",
     "## Required output",
-    'Return exactly one JSON object, with no markdown or prose: {"status":"done"|"blocked_context","summary":"string","verification":["string"],"artifacts":["string"],"missingContext":["string"]}. Use blocked_context only when missingContext is non-empty; use done only when missingContext is empty.',
+    REQUIRED_OUTPUT_SCHEMA,
   ];
   const prompt = `${lines.join("\n")}\n`;
   if (Buffer.byteLength(prompt, "utf8") > PROMPT_MAX_BYTES) throw new TypeError(`worker prompt exceeds ${PROMPT_MAX_BYTES} bytes`);
