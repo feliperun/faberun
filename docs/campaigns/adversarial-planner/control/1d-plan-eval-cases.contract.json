@@ -1,0 +1,356 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "adversarial-planner",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "claude-sonnet-worker",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic-opus",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "claude-sonnet-worker": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic-sonnet",
+      "permissionMode": "bypassPermissions",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/repo/source-shape.test.mjs",
+        "test/campaign/field-ownership.test.mjs",
+        "test/repo/brand.test.mjs",
+        "test/docs/docs-diet.test.mjs",
+        "test/host/host-layout.test.mjs",
+        "test/docs/reference-load.test.mjs"
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "docs:check"
+      ],
+      "timeoutSec": 120
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/",
+        "test/plan/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "adversarial-planner-1d-plan-eval-cases",
+  "maxParallel": 1,
+  "goal": "Phase 1d (plan-eval-cases) of campaign adversarial-planner: faberun plan accepts --runtimes <catalogue.json> so a caller declares the runtime catalogue the planning pipeline uses (the frozen contract carries it), and three deterministic eval cases on the replay harness prove no-autostart, contested and detached. Supersedes node plan-eval-cases of contract 1b, whose write scope missed src/cli/plan.mjs. Spec: docs/campaigns/adversarial-planner/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "plan-eval-cases-on-replay",
+      "type": "backend",
+      "phase": "planning-pipeline",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "d23",
+          "text": "D23 passes: frozen plan, contract present, no run directory",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "d24",
+          "text": "D24 passes: contested, no contract, findings named",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "d25",
+          "text": "D25 passes: detached pipeline completes after its launcher dies",
+          "proof": {
+            "kind": "verification",
+            "ref": "2"
+          }
+        },
+        {
+          "id": "discriminating",
+          "text": "every case, the new three included, fails under its discriminator mutation",
+          "proof": {
+            "kind": "verification",
+            "ref": "3"
+          }
+        },
+        {
+          "id": "plan-tests",
+          "text": "plan, command-surface and manual tests pass with the --runtimes flag",
+          "proof": {
+            "kind": "verification",
+            "ref": "4"
+          }
+        },
+        {
+          "id": "manual-current",
+          "text": "npm run docs:check finds the manual current",
+          "proof": {
+            "kind": "verification",
+            "ref": "5"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "6"
+          }
+        },
+        {
+          "id": "proof-by-eval",
+          "text": "the three guarantees are proven by cases that would fail if the guarantee broke, driven through the real CLI with a declared runtime catalogue",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "faberun plan gains --runtimes <path> (a JSON catalogue in the contract's runtimes shape, replacing the built-in discovery definitions, validated the same way and carried into every stage contract and the frozen contract), and three deterministic eval cases on the replay harness prove the planner's guarantees -- D23 a frozen plan never autostarts, D24 a contested plan emits no contract and names its findings, D25 a detached planning pipeline survives the death of the process that launched it -- each with a discriminator mutation, run by node evals/run.mjs --case D23|D24|D25.",
+        "instructions": [
+          "Evidence: evals/deterministic/D01..D22 are contract-driven cases (case.json with contract, recordings, setup, discriminator; evals/case.mjs materializeCase; evals/run.mjs runs the contract and compares with expected.json). The planner is driven by a command, not a contract, so evals/run.mjs needs a case kind that runs `faberun plan` with replay runtimes; read evals/README.md and evals/case.mjs first.",
+          "A first attempt of this node (contract 1b) found that src/cli/plan.mjs:84 hardcodes `runtimes: DISCOVERY_RUNTIME_DEFINITIONS`, so no command-kind case can reach the replay harness, and that --runtime-defaults ids must be keys of that same catalogue (composeAssignments in src/engine/runtime-discovery.mjs). Change 0, src/cli/plan.mjs and src/cli.mjs COMMAND_OPTIONS: add `--runtimes <path>`; when given, read the JSON, validate it with the contract's runtime validator (src/contract/runtime.mjs), and pass it as the pipeline's runtimes catalogue in place of the built-in definitions; --runtime-defaults ids are then resolved against it. Update the manual's authored prose for the flag and run npm run docs; add a test to test/cli/plan.test.mjs that a catalogue file with replay runtimes drives the pipeline end to end. The eval cases then pass a case-local catalogue file whose entries use harness replay backed by the case's recordings.",
+          "Change 1, evals/case.mjs and evals/run.mjs: a case whose case.json carries `command: {argv: [...], env?: {...}}` instead of `contract` is materialised the same way (temp git repo, recordings on the replay harness) and run through src/cli.mjs with that argv; expected.json may assert files that exist or do not exist under the temp repo (`expectPaths: {present: [...], absent: [...]}`) and JSON fields of plan.json. Keep --assert-no-model and --verify-discriminating working for the new kind (the discriminator mutates a recording or a flag). Introduce `runPlanCase` as the runner for the command kind.",
+          "Change 2, the three cases: D23 (title 'a frozen plan never launches its contract'): recordings for draft and review, expected plan.json status frozen, contract.json present, and no .runs/<contract id>/ directory; discriminator: a recording that also creates the run directory would fail. D24 ('a contested plan emits no contract and names its findings'): every review recording returns a critical finding, --review-rounds 1, expected status contested, contract.json absent, findings listed, open-question in the journal. D25 ('a detached planning pipeline survives its launcher'): run `plan --detach`, kill the launching process once the bootstrap record exists (through the case's setup hook, never a raw kill of the test runner's own group), wait for plan.json, expected status frozen. No wall-clock bounds from above.",
+          "Change 3: evals/README.md gains a paragraph on command cases; `node evals/run.mjs --verify-fixtures` and `--validate-golden` must keep passing (evals/golden is never edited; if the golden set needs the new cases, follow the README's build-golden procedure and report what it changed)."
+        ],
+        "readFiles": [
+          "evals/README.md",
+          "evals/run.mjs",
+          "evals/case.mjs",
+          "evals/golden.mjs",
+          "evals/build-golden.mjs",
+          "evals/deterministic/D22/case.json",
+          "evals/deterministic/D22/expected.json",
+          "src/cli/plan.mjs",
+          "src/plan/pipeline.mjs",
+          "src/harnesses/replay/index.mjs",
+          "src/cli.mjs",
+          "src/contract/runtime.mjs",
+          "src/engine/runtime-discovery.mjs",
+          "test/cli/plan.test.mjs",
+          "docs/COMMANDS.md"
+        ],
+        "writeFiles": [
+          "evals/case.mjs",
+          "evals/run.mjs",
+          "evals/README.md",
+          "evals/deterministic/D23/case.json",
+          "evals/deterministic/D23/expected.json",
+          "evals/deterministic/D23/worker.jsonl",
+          "evals/deterministic/D24/case.json",
+          "evals/deterministic/D24/expected.json",
+          "evals/deterministic/D24/worker.jsonl",
+          "evals/deterministic/D25/case.json",
+          "evals/deterministic/D25/expected.json",
+          "evals/deterministic/D25/worker.jsonl",
+          "src/cli/plan.mjs",
+          "src/cli.mjs",
+          "test/cli/plan.test.mjs",
+          "docs/COMMANDS.md"
+        ],
+        "symbols": [
+          "runPlanCase"
+        ],
+        "scopeAcknowledged": [
+          "evals/golden.mjs",
+          "evals/build-golden.mjs",
+          "evals/deterministic/D22/case.json",
+          "evals/deterministic/D22/expected.json",
+          "src/cli/plan.mjs",
+          "src/plan/pipeline.mjs",
+          "src/harnesses/replay/index.mjs",
+          "test/fixture-runtimes.test.mjs",
+          "src/contract/runtime.mjs",
+          "src/engine/runtime-discovery.mjs",
+          "test/cli/cli.test.mjs",
+          "test/cli/brand.test.mjs",
+          "test/cli/manual.test.mjs",
+          "test/docs/command-surface.test.mjs",
+          "test/plan/template.test.mjs"
+        ],
+        "decisions": [
+          "Command cases reuse the deterministic class and its discriminator discipline.",
+          "Numeric ids keep the repository's convention; the proposal's D-plan names are the titles."
+        ],
+        "nonGoals": [
+          "No live model. No edit to evals/golden by hand.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node; no live model in any test or eval (replay harness only).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git only through the bounded helpers already in the tree; any new persisted field goes with its validator allowlist and typedef."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--case",
+              "D23"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--case",
+              "D24"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--case",
+              "D25"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--verify-discriminating"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/cli/plan.test.mjs",
+              "test/docs/command-surface.test.mjs",
+              "test/cli/manual.test.mjs"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+              "run",
+              "docs:check"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    }
+  ]
+}

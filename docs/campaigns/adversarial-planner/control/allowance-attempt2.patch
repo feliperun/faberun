@@ -1,0 +1,660 @@
+diff --git a/docs/FIELD-OWNERSHIP.md b/docs/FIELD-OWNERSHIP.md
+index 896bf5f..e9f57f0 100644
+--- a/docs/FIELD-OWNERSHIP.md
++++ b/docs/FIELD-OWNERSHIP.md
+@@ -24,12 +24,14 @@ writer per field` — re-derives every writer from `src/` and fails when the
+ derivation disagrees with this document. The document is the declaration; the
+ test is what keeps it from becoming fiction on the third change.
+ 
+-**Measured 2026-09-16 against this tree:** 31 `events.jsonl` fields and 14
++**Measured 2026-09-17 against this tree:** 31 `events.jsonl` fields and 15
+ `journal.jsonl` event types. Fifteen entries have more than one writer today.
+ Those fifteen are the ratchet at the end of this file; they are declared, not
+ fixed, because changing who writes a field is a behavior change and belongs to
+ another node. The stale-group signal guard added the one new ratchet field,
+-`invocationId`, on 2026-09-16.
++`invocationId`, on 2026-09-16. The seat-allowance-delta node added the one new
++event type, `seat.allowance`, on 2026-09-17, behind a single writer function
++so it does not grow the ratchet.
+ 
+ A type or field nothing writes is not declared here. This document is a
+ declaration of owners, and a field with no writer has no owner to declare.
+@@ -80,10 +82,13 @@ marked **(ratchet)**.
+ 
+ The writer of each event is the emitter that builds it: `initializeCampaign`,
+ `closeCampaign` and `registerRun` in `src/campaign/index.mjs`; `attach`, `note`,
+-`resolveQuestion` and `attachSessionOnceDaily` in `src/cli/campaign.mjs`. The
+-field set of each type is the one `ENTRY_SHAPES` accepts in
+-`src/campaign/journal.mjs`; it is listed here so the document and the schema
+-cannot drift apart.
++`resolveQuestion` and `attachSessionOnceDaily` in `src/cli/campaign.mjs`;
++`appendSeatAllowanceEvent` in `src/campaign/journal.mjs` itself, called by both
++`init` (`src/cli/campaign.mjs`) and `runPlanningPipeline`'s freeze stage
++(`src/plan/pipeline.mjs`) so the two call sites share one writer instead of
++each building the literal itself. The field set of each type is the one
++`ENTRY_SHAPES` accepts in `src/campaign/journal.mjs`; it is listed here so the
++document and the schema cannot drift apart.
+ 
+ | event type | writer(s) | fields | written when |
+ | --- | --- | --- | --- |
+@@ -101,6 +106,7 @@ cannot drift apart.
+ | `open-question` | `note` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when a note of that kind is recorded |
+ | `question.resolved` | `resolveQuestion` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when `campaign note --resolve` runs |
+ | `retrospective` | `note` | `at`, `type`, `eventId`, `sessionId`, `text` | when a note of that kind is recorded |
++| `seat.allowance` | `appendSeatAllowanceEvent` | `at`, `type`, `eventId`, `sample`, `harness`, `remaining`, `limit`, `resetsAt`, `delta` | when `campaign init` samples the operator's own seat allowance at campaign start (`sample: "start"`, `harness` from env-marker detection, `delta: null`), and when `plan freeze` re-samples that exact same harness (not the plan's worker runtime) at plan freeze (`sample: "freeze"`, `delta` against the start sample, or `null` with no start entry to compare against) |
+ 
+ ## The ratchet, measured
+ 
+@@ -148,7 +154,8 @@ behavior, and a node that declares must not also move the thing it declares.
+     "next": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "text"] },
+     "open-question": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "questionId", "text"] },
+     "question.resolved": { "writers": ["resolveQuestion"], "fields": ["at", "type", "eventId", "sessionId", "questionId", "text"] },
+-    "retrospective": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "text"] }
++    "retrospective": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "text"] },
++    "seat.allowance": { "writers": ["appendSeatAllowanceEvent"], "fields": ["at", "type", "eventId", "sample", "harness", "remaining", "limit", "resetsAt", "delta"] }
+   },
+   "events": {
+     "schemaVersion": { "writers": ["appendTransitionEvent", "assertEnvironmentReady"] },
+diff --git a/src/campaign/journal.mjs b/src/campaign/journal.mjs
+index 17cecb8..c8620d1 100644
+--- a/src/campaign/journal.mjs
++++ b/src/campaign/journal.mjs
+@@ -11,6 +11,7 @@ import { JOURNAL_FILE, JOURNAL_TEXT_BYTES, JOURNAL_WATCH_CURSOR_DIR, JOURNAL_WAT
+ import { boundedText, collapseLines } from "../util.mjs";
+ import { campaignIdOf } from "./record.mjs";
+ import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
++import { randomUUID } from "node:crypto";
+ import { dirname, isAbsolute, join } from "node:path";
+ import { requireText, requireTimestamp } from "../contract/assert.mjs";
+ import { writeJsonAtomic } from "../run/store.mjs";
+@@ -34,6 +35,7 @@ const JOURNAL_TYPES = new Set([
+   "question.resolved",
+   "retrospective",
+   "liveness",
++  "seat.allowance",
+ ]);
+ const SESSION_REQUIRED_TYPES = new Set([
+   "session.attached",
+@@ -63,7 +65,9 @@ const ENTRY_SHAPES = {
+   "question.resolved": ["at", "type", "eventId", "sessionId", "questionId", "text"],
+   retrospective: ["at", "type", "eventId", "sessionId", "text"],
+   liveness: ["at", "type", "eventId", "campaignId", "runId", "nodeId", "phase", "checkpointsDone", "checkpointsTotal", "runtime", "state", "lastProgressAt", "attention"],
++  "seat.allowance": ["at", "type", "eventId", "sample", "harness", "remaining", "limit", "resetsAt", "delta"],
+ };
++const SEAT_ALLOWANCE_SAMPLES = new Set(["start", "freeze"]);
+ /**
+  * Fields a liveness fact carried before the budget ceiling was removed. A
+  * historical journal (like the live campaign's own) still has lines shaped
+@@ -272,6 +276,7 @@ export function validateJournalEntry(entry) {
+   // rejects an unexpected key; no deeper shape validation is needed for a type
+   // nothing produces.
+   if (type === "liveness") return;
++  if (type === "seat.allowance") return validateSeatAllowanceEntry(record);
+   if (type === "session.attached") return validateSessionEntry(record);
+   if (type === "run.registered") {
+     requireText(record.runId, "entry.runId");
+@@ -293,6 +298,44 @@ export function validateJournalEntry(entry) {
+   }
+   if (type === "outcome" && record.runId !== undefined) requireText(record.runId, "entry.runId");
+ }
++/**
++ * @param {JsonObject} entry
++ */
++function validateSeatAllowanceEntry(entry) {
++  if (!SEAT_ALLOWANCE_SAMPLES.has(/** @type {string} */ (entry.sample))) {
++    throw new TypeError("seat.allowance sample must be start or freeze");
++  }
++  if (entry.harness !== null && typeof entry.harness !== "string") {
++    throw new TypeError("seat.allowance harness must be null or a string");
++  }
++  for (const field of ["remaining", "limit", "delta"]) {
++    if (entry[field] !== null && typeof entry[field] !== "number") {
++      throw new TypeError(`seat.allowance ${field} must be null or a number`);
++    }
++  }
++  if (entry.resetsAt !== null && typeof entry.resetsAt !== "string") {
++    throw new TypeError("seat.allowance resetsAt must be null or a string");
++  }
++}
++/**
++ * The one writer of `seat.allowance`: `campaign init` calls it for the
++ * `start` sample, `plan freeze` for the `freeze` sample. Kept as a single
++ * function, rather than two call sites building the literal themselves, so
++ * the field-ownership ratchet does not grow by one for every field this event
++ * carries.
++ *
++ * @param {string} campaignPath
++ * @param {{sample: "start"|"freeze", harness: string|null, remaining: number|null, limit: number|null, resetsAt: string|null, delta: number|null}} allowance
++ * @returns {{entry: JournalEntry, deduplicated: boolean}}
++ */
++export function appendSeatAllowanceEvent(campaignPath, allowance) {
++  return appendJournal(campaignPath, {
++    type: "seat.allowance",
++    eventId: randomUUID(),
++    at: new Date().toISOString(),
++    ...allowance,
++  });
++}
+ /**
+  * @param {JsonObject} entry
+  */
+diff --git a/src/cli/campaign.mjs b/src/cli/campaign.mjs
+index 7b4a447..d8ad6e7 100644
+--- a/src/cli/campaign.mjs
++++ b/src/cli/campaign.mjs
+@@ -12,12 +12,14 @@ import {
+ } from "../campaign/index.mjs";
+ import { lockStale, pidAlive, processStartToken, readLock } from "../run/lock.mjs";
+ import { syncAgentSignal } from "../repo/signal.mjs";
+-import { acknowledgeJournalEvent, appendJournal, readJournal, watchJournal } from "../campaign/journal.mjs";
++import { acknowledgeJournalEvent, appendJournal, appendSeatAllowanceEvent, readJournal, watchJournal } from "../campaign/journal.mjs";
+ import { driveCampaignChain } from "../campaign/chain.mjs";
+ import { unparkCampaign } from "../campaign/unpark.mjs";
+ import { readCampaign } from "../campaign/record.mjs";
+ import { notifyQueueFor } from "../engine/notify-queue.mjs";
+ import { appendInbox, readInbox, wakeCapabilityNotice } from "../notify/index.mjs";
++import { sampleAllowance } from "../seat/allowance.mjs";
++import { detectOperatorHarness } from "../seat/harnesses.mjs";
+ import { detachArgv, detachSelf, waitForBootstrap } from "./launch.mjs";
+ import { errorCode, readJsonTolerant } from "../util.mjs";
+ 
+@@ -326,12 +328,25 @@ function watchLockStale(occupant) {
+  * @param {string} campaignId
+  * @param {CliValues} values
+  */
+-function init(campaignId, values) {
++async function init(campaignId, values) {
+   const cwd = resolve(values.cwd ?? ".");
+   const runsDir = join(cwd, ".runs");
+   const goal = textValue(values.goal, "--goal");
+   const contracts = contractManifest(values.contract);
+   const created = initializeCampaign(runsDir, { campaignId, goal, contracts, landBranch: values.landBranch });
++  // The operator's own seat: whichever harness this CLI is running inside
++  // (env-marker detection, see seat/harnesses.mjs), the only harness whose
++  // allowance is meaningful at a point before any node runtime exists.
++  const harness = detectOperatorHarness();
++  const allowance = await sampleAllowance({ harness });
++  appendSeatAllowanceEvent(created.path, {
++    sample: "start",
++    harness,
++    remaining: allowance?.remaining ?? null,
++    limit: allowance?.limit ?? null,
++    resetsAt: allowance?.resetsAt ?? null,
++    delta: null,
++  });
+   renderHandoff(created.path, runsDir);
+   process.stdout.write(`[campaign] ${campaignId} initialized · ${created.path} · landBranch ${created.campaign.landBranch} · ${created.campaign.contracts.length} contract(s)\n`);
+   if (syncAgentSignal(runsDir)) process.stdout.write(`[campaign] AGENTS.md signal updated\n`);
+diff --git a/src/harnesses/protocol.mjs b/src/harnesses/protocol.mjs
+index 1c86f86..aed935d 100644
+--- a/src/harnesses/protocol.mjs
++++ b/src/harnesses/protocol.mjs
+@@ -5,6 +5,8 @@ import { finite } from "../util.mjs";
+  * `zcode.mjs`, `replay.mjs` and `exec-jsonl.mjs` itself all depend on it.
+  */
+ 
++/** @typedef {{remaining: number|null, limit: number|null, resetsAt: string|null}} ClaudeAllowance */
++
+ /**
+  * Parse newline-delimited JSON without accepting provider prose.
+  *
+@@ -75,33 +77,93 @@ function withStartupReason(message, options = {}) {
+   return reason ? `${message}: ${boundedMessage(reason, 512)}` : message;
+ }
+ 
++/**
++ * Claude's account-wide rate-limit signal, reported on its own `rate_limit_event`
++ * stream line, never on the terminal `result` event. Measured 2026-09-17
++ * against `claude -p 'Reply with exactly OK and use no tools.' --output-format
++ * stream-json --verbose`, cost `total_cost_usd: 0.27848` for that one probe
++ * (opus-tier default model, most of it `cache_creation_input_tokens` for this
++ * project's session context -- a probe against a smaller/cheaper model would
++ * cost far less, but the seat sampled is whichever model the operator's own
++ * session already has configured, so this is the honest per-probe figure for
++ * that seat). No `rate_limits` or `rate_limit_status` field appears anywhere
++ * in the stream. The measured line, verbatim:
++ * `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning",
++ * "resetsAt":1789837200,"rateLimitType":"seven_day","utilization":0.77,
++ * "isUsingOverage":false,"surpassedThreshold":0.75,"unifiedWindows":
++ * {"five_hour":{"utilization":0.1,"resetsAt":1789663200},"seven_day":
++ * {"utilization":0.77,"resetsAt":1789837200}}}}`. `utilization` is a 0..1
++ * fraction of the window named by `rateLimitType`, confirmed (not merely
++ * assumed) by `surpassedThreshold: 0.75` sitting just below the measured
++ * `0.77` at `status: "allowed_warning"` -- a 0-100 percentage scale would put
++ * 0.77 nowhere near a 75-scaled threshold. This is a different field, on a
++ * different scale, from the `used_percentage` (0-100) the statusline
++ * integration already reads off `rate_limits.five_hour` (see
++ * `integrations/claude-code/statusline.sh`); the two must not be confused.
++ * `remaining` here is the fraction left (`1 - utilization`) and `limit` is
++ * the fixed ceiling `1` -- a coarse proxy, declared as such. A `utilization`
++ * outside `[0, 1]` is treated as no signal (null) rather than silently
++ * clamped, so a future scale change on the stream fails visibly instead of
++ * pinning every sample to 0.
++ *
++ * @param {Record<string, unknown>[]} events
++ * @returns {ClaudeAllowance}
++ */
++function extractClaudeAllowance(events) {
++  const event = events.findLast((candidate) => candidate.type === "rate_limit_event");
++  const info = event?.rate_limit_info;
++  const record = info && typeof info === "object" && !Array.isArray(info) ? /** @type {Record<string, unknown>} */ (info) : null;
++  const rawUtilization = record ? finite(record.utilization) : null;
++  const utilization = rawUtilization !== null && rawUtilization >= 0 && rawUtilization <= 1 ? rawUtilization : null;
++  const resetsAtSeconds = record ? finite(record.resetsAt) : null;
++  return {
++    remaining: utilization === null ? null : 1 - utilization,
++    limit: utilization === null ? null : 1,
++    resetsAt: resetsAtSeconds === null ? null : new Date(resetsAtSeconds * 1000).toISOString(),
++  };
++}
++
++/** The claude allowance shape with every member null: no signal was read. */
++const NULL_CLAUDE_ALLOWANCE = { remaining: null, limit: null, resetsAt: null };
++
+ /**
+  * @param {string} stdout
+  * @param {number|null} exitCode
+  * @param {string|null} signal
+  * @param {import("./index.mjs").NormalizeOptions} [options]
+- * @returns {import("./index.mjs").ProviderEnvelope}
++ * @returns {import("./index.mjs").ProviderEnvelope & {allowance: ClaudeAllowance}}
+  */
+ export function normalizeClaudeResult(stdout, exitCode, signal, options = {}) {
+-  if (signal) return failed("canceled", `provider ended after ${signal}`, "canceled");
++  // The signal check must stay the first statement, byte-identical to before
++  // the allowance signal existed: `parseJsonLines` throws on any unparseable
++  // line past the first, and a killed process routinely leaves a truncated
++  // *later* line (the bounded-tail tolerance only covers the first). Parsing
++  // stdout before checking `signal` would turn a clean cancellation into a
++  // thrown error, which callers (`src/run/usage.mjs`, `src/engine/process.mjs`)
++  // catch into `invalid_output` or `null`, losing the envelope entirely.
++  if (signal) return { ...failed("canceled", `provider ended after ${signal}`, "canceled"), allowance: NULL_CLAUDE_ALLOWANCE };
+   const events = parseJsonLines(stdout, "claude");
++  const allowance = extractClaudeAllowance(events);
+   const resultEvent = events.findLast((event) => event.type === "result");
+-  if (!resultEvent) return failed("incomplete_stream", withStartupReason("Claude emitted no result event", options));
++  if (!resultEvent) return { ...failed("incomplete_stream", withStartupReason("Claude emitted no result event", options)), allowance };
+   const result = typeof resultEvent.result === "string" ? resultEvent.result : null;
+   // A provider-reported quota stop is exhaustion: the declared failover edge
+   // must fire instead of settling the node as an ordinary provider failure.
+   const quotaText = claudeQuotaText(resultEvent, events);
+   if (quotaText) {
+-    return failed(
+-      "quota_exhausted",
+-      boundedMessage(quotaText, 512),
+-      "exhausted",
+-      typeof resultEvent.session_id === "string" ? resultEvent.session_id : null,
+-      canonicalUsage(resultEvent.usage),
+-    );
++    return {
++      ...failed(
++        "quota_exhausted",
++        boundedMessage(quotaText, 512),
++        "exhausted",
++        typeof resultEvent.session_id === "string" ? resultEvent.session_id : null,
++        canonicalUsage(resultEvent.usage),
++      ),
++      allowance,
++    };
+   }
+   if (resultEvent.is_error || exitCode !== 0) {
+-    return failed("provider_error", result ?? `Claude exited with code ${exitCode}`);
++    return { ...failed("provider_error", result ?? `Claude exited with code ${exitCode}`), allowance };
+   }
+   return {
+     status: result?.trim() ? "done" : "no-op",
+@@ -110,6 +172,7 @@ export function normalizeClaudeResult(stdout, exitCode, signal, options = {}) {
+     usage: canonicalUsage(resultEvent.usage),
+     costUsd: finite(resultEvent.total_cost_usd),
+     error: null,
++    allowance,
+   };
+ }
+ 
+diff --git a/src/plan/pipeline.mjs b/src/plan/pipeline.mjs
+index c5825c1..4129cb3 100644
+--- a/src/plan/pipeline.mjs
++++ b/src/plan/pipeline.mjs
+@@ -17,9 +17,11 @@ import { discoveryOutput } from "../contract/worker-result.mjs";
+ import { readWorkerResultFile } from "../engine/result-file.mjs";
+ import { classifyRunProgress } from "../campaign/chain.mjs";
+ import { campaignDir } from "../campaign/layout.mjs";
++import { appendSeatAllowanceEvent, readJournal } from "../campaign/journal.mjs";
+ import { readCampaign } from "../campaign/record.mjs";
+ import { campaignCli } from "../cli/campaign.mjs";
+ import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
++import { allowanceDelta, sampleAllowance } from "../seat/allowance.mjs";
+ import { validateSpec } from "./spec.mjs";
+ import { collectRepoFacts } from "./repo-facts.mjs";
+ import { RISK_TIERS, buildPlanningContract, validateFindings, validatePlanOutput } from "./template.mjs";
+@@ -215,6 +217,31 @@ export async function runPlanningPipeline(options) {
+   });
+   logStage("freeze", { contractId: `${campaignId}-${phase}`, highestRiskTier });
+ 
++  // A delta only means something between two samples of the same seat: freeze
++  // re-samples the exact harness `campaign init` recorded at `sample: "start"`
++  // (the operator's own seat), not the plan's worker runtime, which is very
++  // often a different harness entirely (codex, dsh, agy, zcode workers under
++  // a claude operator) and would make the delta null in the common case
++  // instead of the rare one. With no start entry at all (a pipeline run with
++  // no preceding `campaign init`, as in every replay-driven pipeline test)
++  // there is no seat to re-sample, so freeze samples nothing and spends no
++  // call.
++  const journalEntries = /** @type {any[]} */ (readJournal(campaignPath));
++  const startEntry = journalEntries.findLast((entry) => entry.type === "seat.allowance" && entry.sample === "start");
++  const freezeHarness = startEntry?.harness ?? null;
++  const freezeAllowance = await sampleAllowance({ harness: freezeHarness });
++  const startAllowance = startEntry
++    ? { remaining: startEntry.remaining ?? null, limit: startEntry.limit ?? null, resetsAt: startEntry.resetsAt ?? null }
++    : null;
++  appendSeatAllowanceEvent(campaignPath, {
++    sample: "freeze",
++    harness: freezeHarness,
++    remaining: freezeAllowance?.remaining ?? null,
++    limit: freezeAllowance?.limit ?? null,
++    resetsAt: freezeAllowance?.resetsAt ?? null,
++    delta: allowanceDelta(startAllowance, freezeAllowance),
++  });
++
+   const approved = approveBelow === "high" ? true : approveBelow === "none" ? false : highestRiskTier !== "high";
+   const planPath = join(plansDir, "plan.json");
+   writeJsonAtomic(planPath, { ...frozen, status: "frozen", approved });
+diff --git a/src/seat/allowance.mjs b/src/seat/allowance.mjs
+new file mode 100644
+index 0000000..454738a
+--- /dev/null
++++ b/src/seat/allowance.mjs
+@@ -0,0 +1,120 @@
++/**
++ * Owns sampling the seat's allowance -- a coarse, harness-reported rate-limit
++ * signal -- from one minimal live invocation, and the delta between two
++ * samples. Separate from every other file in `seat/` because this is the one
++ * that spends a real call, however small; `seat/harnesses.mjs` only launches
++ * and detects, `seat/index.mjs` only composes tmux with that registry.
++ *
++ * Measured 2026-09-17 against `claude -p 'Reply with exactly OK and use no
++ * tools.' --output-format stream-json --verbose`, at a cost of
++ * `total_cost_usd: 0.27848` for that one probe (see `protocol.mjs`'s
++ * `extractClaudeAllowance` header for the raw measured line and the scale
++ * evidence): the stream carries one `rate_limit_event` line, not a field on
++ * the terminal `result` event, and no other operator harness (codex, zcode,
++ * dsh, agy) has been measured. `defaultInvoke` below only ever spawns a
++ * process for `claude`; every other harness name returns null without
++ * spending a call, which is also what happens once a claude call runs but the
++ * adapter finds no signal on it (`normalize(...).allowance` with every member
++ * null). Every sampling call site pays this cost again: `campaign init`
++ * (once) and `plan freeze` (once per phase) each spend one probe when the
++ * sampled harness is claude.
++ */
++import { spawn } from "node:child_process";
++import { getHarness } from "../harnesses/index.mjs";
++
++/** @typedef {{remaining: number|null, limit: number|null, resetsAt: string|null}} Allowance */
++/** @typedef {{stdout: string, exitCode: number|null, signal: string|null}} InvokeResult */
++
++const ALLOWANCE_PROBE_PROMPT = "Reply with exactly OK and use no tools.";
++const ALLOWANCE_PROBE_TIMEOUT_MS = 30_000;
++
++/**
++ * One minimal `claude -p` call, its stdout handed back raw for the adapter's
++ * own `normalize` to parse. Every other harness resolves to null without
++ * spawning anything: the signal has only ever been measured on claude's
++ * stream, and probing a harness that is known to expose nothing would spend a
++ * call for no reading.
++ *
++ * @param {string} harness
++ * @returns {Promise<InvokeResult|null>}
++ */
++function defaultInvoke(harness) {
++  if (harness !== "claude") return Promise.resolve(null);
++  return new Promise((settle) => {
++    let child;
++    try {
++      child = spawn(process.env.FABERUN_CLAUDE_BIN ?? "claude", ["-p", ALLOWANCE_PROBE_PROMPT, "--output-format", "stream-json", "--verbose"], {
++        stdio: ["ignore", "pipe", "pipe"],
++      });
++    } catch {
++      settle(null);
++      return;
++    }
++    let stdout = "";
++    let settled = false;
++    const timer = setTimeout(() => {
++      try {
++        child.kill("SIGTERM");
++      } catch {
++        // ESRCH: the child is already gone.
++      }
++    }, ALLOWANCE_PROBE_TIMEOUT_MS);
++    child.stdout.on("data", (chunk) => { stdout += chunk; });
++    child.stderr.on("data", () => {});
++    child.once("error", () => {
++      if (settled) return;
++      settled = true;
++      clearTimeout(timer);
++      settle(null);
++    });
++    child.once("close", (exitCode, signalName) => {
++      if (settled) return;
++      settled = true;
++      clearTimeout(timer);
++      settle({ stdout, exitCode, signal: signalName });
++    });
++  });
++}
++
++/**
++ * The current seat allowance, from one minimal invocation, or null when the
++ * harness is unset, the invocation fails, or the harness's adapter reports no
++ * signal. Never throws: an allowance sample is advisory, and a probe failure
++ * must not fail the campaign operation sampling it.
++ *
++ * @param {{harness: string|null, invoke?: (harness: string) => Promise<InvokeResult|null>|InvokeResult|null}} options
++ * @returns {Promise<Allowance|null>}
++ */
++export async function sampleAllowance({ harness, invoke = defaultInvoke }) {
++  if (!harness) return null;
++  /** @type {InvokeResult|null} */
++  let raw;
++  try {
++    raw = await invoke(harness);
++  } catch {
++    return null;
++  }
++  if (!raw || typeof raw.stdout !== "string") return null;
++  try {
++    const envelope = /** @type {{allowance?: Allowance|null}} */ (getHarness(harness).normalize(raw.stdout, raw.exitCode ?? null, raw.signal ?? null));
++    // The adapter always returns the shape (never omits it), with every
++    // member null when its stream carried no signal: that all-null shape and
++    // "no signal" are the same fact, so both collapse to null here.
++    return envelope.allowance && envelope.allowance.remaining !== null ? envelope.allowance : null;
++  } catch {
++    return null;
++  }
++}
++
++/**
++ * The change in remaining allowance between two samples, or null when either
++ * sample is absent or itself carries no remaining figure.
++ *
++ * @param {Allowance|null} start
++ * @param {Allowance|null} freeze
++ * @returns {number|null}
++ */
++export function allowanceDelta(start, freeze) {
++  if (!start || !freeze || start.remaining === null || freeze.remaining === null) return null;
++  return freeze.remaining - start.remaining;
++}
+diff --git a/test/seat/allowance.test.mjs b/test/seat/allowance.test.mjs
+new file mode 100644
+index 0000000..974f91c
+--- /dev/null
++++ b/test/seat/allowance.test.mjs
+@@ -0,0 +1,167 @@
++import test from "node:test";
++import assert from "node:assert/strict";
++import { mkdtempSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { initializeCampaign } from "../../src/campaign/index.mjs";
++import { appendSeatAllowanceEvent, readJournal } from "../../src/campaign/journal.mjs";
++import { allowanceDelta, sampleAllowance } from "../../src/seat/allowance.mjs";
++import { normalizeClaudeResult } from "../../src/harnesses/protocol.mjs";
++
++/** The `rate_limit_event` line as measured 2026-09-17 against a live `claude -p` probe, verbatim. */
++const MEASURED_RATE_LIMIT_LINE = JSON.stringify({
++  type: "rate_limit_event",
++  rate_limit_info: {
++    status: "allowed_warning",
++    resetsAt: 1789837200,
++    rateLimitType: "seven_day",
++    utilization: 0.77,
++    isUsingOverage: false,
++    surpassedThreshold: 0.75,
++    unifiedWindows: { five_hour: { utilization: 0.1, resetsAt: 1789663200 }, seven_day: { utilization: 0.77, resetsAt: 1789837200 } },
++  },
++});
++
++/**
++ * A claude stream-json recording carrying one `rate_limit_event` at the given
++ * utilization, followed by an ordinary result.
++ *
++ * @param {number} utilization
++ * @returns {string}
++ */
++function claudeStreamWithUtilization(utilization) {
++  const info = {
++    status: "allowed_warning",
++    resetsAt: 1789837200,
++    rateLimitType: "seven_day",
++    utilization,
++    isUsingOverage: false,
++    surpassedThreshold: 0.75,
++    unifiedWindows: { five_hour: { utilization: 0.02, resetsAt: 1789663200 }, seven_day: { utilization, resetsAt: 1789837200 } },
++  };
++  const lines = [
++    JSON.stringify({ type: "rate_limit_event", rate_limit_info: info }),
++    JSON.stringify({ type: "result", is_error: false, result: "ok", session_id: "s1", usage: {}, total_cost_usd: 0 }),
++  ];
++  return `${lines.join("\n")}\n`;
++}
++
++const RESULT_ONLY_STREAM = `${JSON.stringify({ type: "result", is_error: false, result: "ok", session_id: "s1", usage: {}, total_cost_usd: 0 })}\n`;
++
++test("allowance delta replays the measured rate_limit_event line", async () => {
++  const start = await sampleAllowance({
++    harness: "claude",
++    invoke: async () => ({ stdout: `${MEASURED_RATE_LIMIT_LINE}\n${JSON.stringify({ type: "result", is_error: false, result: "ok", session_id: "s1", usage: {}, total_cost_usd: 0 })}\n`, exitCode: 0, signal: null }),
++  });
++  assert.deepEqual(start, { remaining: 0.22999999999999998, limit: 1, resetsAt: new Date(1789837200 * 1000).toISOString() });
++});
++
++test("allowance delta", async () => {
++  const start = await sampleAllowance({
++    harness: "claude",
++    invoke: async () => ({ stdout: claudeStreamWithUtilization(0.77), exitCode: 0, signal: null }),
++  });
++  assert.deepEqual(start, { remaining: 0.22999999999999998, limit: 1, resetsAt: new Date(1789837200 * 1000).toISOString() });
++
++  const freeze = await sampleAllowance({
++    harness: "claude",
++    invoke: async () => ({ stdout: claudeStreamWithUtilization(0.5), exitCode: 0, signal: null }),
++  });
++  assert.ok(freeze);
++  assert.equal(freeze.remaining, 0.5);
++
++  const delta = allowanceDelta(start, freeze);
++  assert.ok(delta !== null);
++  assert.ok(Math.abs(delta - (0.5 - 0.22999999999999998)) < 1e-9);
++
++  assert.equal(allowanceDelta(null, freeze), null);
++  assert.equal(allowanceDelta(start, null), null);
++  assert.equal(allowanceDelta({ remaining: null, limit: 1, resetsAt: null }, freeze), null);
++});
++
++test("allowance absent", async () => {
++  // The harness reports no rate_limit_event on this call: null, not a throw.
++  const noSignal = await sampleAllowance({
++    harness: "claude",
++    invoke: async () => ({ stdout: RESULT_ONLY_STREAM, exitCode: 0, signal: null }),
++  });
++  assert.equal(noSignal, null);
++
++  // No harness at all: never invoked, never throws.
++  const noHarness = await sampleAllowance({
++    harness: null,
++    invoke: async () => { throw new Error("must not be invoked without a harness"); },
++  });
++  assert.equal(noHarness, null);
++
++  // The invocation itself fails to produce anything: still null, no throw.
++  const noInvocation = await sampleAllowance({ harness: "claude", invoke: async () => null });
++  assert.equal(noInvocation, null);
++
++  // The invoke seam itself throws: still null, no throw escapes.
++  const invokeThrows = await sampleAllowance({
++    harness: "claude",
++    invoke: async () => { throw new Error("spawn failed"); },
++  });
++  assert.equal(invokeThrows, null);
++});
++
++test("an out-of-range utilization is no signal, not a clamped remaining of 0", async () => {
++  const outOfRange = await sampleAllowance({
++    harness: "claude",
++    invoke: async () => ({ stdout: claudeStreamWithUtilization(77), exitCode: 0, signal: null }),
++  });
++  assert.equal(outOfRange, null, "a percentage-scaled utilization (77) must not silently clamp to remaining: 0");
++});
++
++test("normalizeClaudeResult cancellation is byte-identical whether or not stdout's tail is parseable", () => {
++  // Field defect: the allowance signal used to be extracted before the signal
++  // check, so parseJsonLines ran on stdout even for a killed process.
++  // parseJsonLines only tolerates a partial *first* non-empty line, and a
++  // signal-killed process routinely leaves a truncated *later* line, which
++  // turned a clean `canceled` envelope into a thrown error.
++  const truncatedTail = '{"type":"system","subtype":"init"}\n{"type":"assistant","messa';
++  const canceled = normalizeClaudeResult(truncatedTail, null, "SIGKILL");
++  assert.equal(canceled.status, "canceled");
++  assert.equal(canceled.error?.code, "canceled");
++  assert.deepEqual(/** @type {any} */ (canceled).allowance, { remaining: null, limit: null, resetsAt: null });
++
++  const cleanTail = normalizeClaudeResult('{"type":"system","subtype":"init"}\n', null, "SIGKILL");
++  assert.equal(cleanTail.status, "canceled");
++  assert.deepEqual(/** @type {any} */ (cleanTail).allowance, { remaining: null, limit: null, resetsAt: null });
++});
++
++test("journal event shape", () => {
++  const cwd = mkdtempSync(join(tmpdir(), "seat-allowance-journal-"));
++  const runsDir = join(cwd, ".runs");
++  const created = initializeCampaign(runsDir, { campaignId: "seat-allowance-shape", goal: "measure the seat's allowance" });
++
++  const startResult = appendSeatAllowanceEvent(created.path, {
++    sample: "start", harness: "claude", remaining: 0.77, limit: 1, resetsAt: "2026-09-17T00:00:00.000Z", delta: null,
++  });
++  const startEntry = /** @type {any} */ (startResult.entry);
++  assert.equal(startEntry.type, "seat.allowance");
++  assert.equal(startEntry.sample, "start");
++  assert.equal(startEntry.delta, null);
++
++  const freezeResult = appendSeatAllowanceEvent(created.path, {
++    sample: "freeze", harness: "claude", remaining: 0.5, limit: 1, resetsAt: "2026-09-17T01:00:00.000Z", delta: -0.27,
++  });
++  const freezeEntry = /** @type {any} */ (freezeResult.entry);
++  assert.equal(freezeEntry.sample, "freeze");
++  assert.equal(freezeEntry.delta, -0.27);
++
++  const journal = /** @type {any[]} */ (readJournal(created.path));
++  const allowanceEvents = journal.filter((event) => event.type === "seat.allowance");
++  assert.equal(allowanceEvents.length, 2);
++  assert.deepEqual(allowanceEvents.map((event) => event.sample), ["start", "freeze"]);
++});
++
++test("journal event shape rejects an unknown sample", () => {
++  const cwd = mkdtempSync(join(tmpdir(), "seat-allowance-invalid-"));
++  const runsDir = join(cwd, ".runs");
++  const created = initializeCampaign(runsDir, { campaignId: "seat-allowance-invalid", goal: "measure the seat's allowance" });
++  assert.throws(() => appendSeatAllowanceEvent(created.path, {
++    sample: /** @type {"start"} */ ("mid"), harness: null, remaining: null, limit: null, resetsAt: null, delta: null,
++  }));
++});

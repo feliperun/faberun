@@ -1,0 +1,245 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "adversarial-planner",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "claude-sonnet-worker",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic-opus",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "claude-sonnet-worker": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic-sonnet",
+      "permissionMode": "bypassPermissions",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/repo/source-shape.test.mjs",
+        "test/campaign/field-ownership.test.mjs",
+        "test/repo/brand.test.mjs",
+        "test/docs/docs-diet.test.mjs",
+        "test/host/host-layout.test.mjs",
+        "test/docs/reference-load.test.mjs"
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "docs:check"
+      ],
+      "timeoutSec": 120
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/",
+        "test/plan/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "adversarial-planner-2b-allowance-window",
+  "maxParallel": 1,
+  "goal": "Phase 2b (allowance-window) of campaign adversarial-planner: one targeted fix from the judge's verbatim finding on seat-allowance-delta -- an allowance sample names the window it measured, the delta is null when two samples measure different windows, and the probe goes through the adapter's own argv instead of a raw spawn. Spec: docs/campaigns/adversarial-planner/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "allowance-window-pinned",
+      "type": "backend",
+      "phase": "allowance-window",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "window-tests",
+          "text": "allowance, field-ownership, harness and seat tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "window-pinned",
+          "text": "a sample names its window and reads that window's value, a cross-window delta is null, the journal event carries the window, and the probe's argv comes from the adapter",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "An allowance sample records which rate-limit window it measured, allowanceDelta returns null when the two samples name different windows, the journal event carries the window, and the probe is spawned through the claude adapter's own argv rather than a raw claude -p command line.",
+        "instructions": [
+          "The judge's verbatim finding on the previous attempt (adversarial-planner-2-evidence, node seat-allowance-delta, exhausted at the revision cap): \"What blocks the judgment item is one thing the pasted evidence itself exposes: `extractClaudeAllowance` reads the top-level `utilization`, which the same line labels `rateLimitType: \\\"seven_day\\\"` while `unifiedWindows` simultaneously carries `five_hour: 0.1` and `seven_day: 0.77`. Nothing pins the two samples to the same window, nothing reads `unifiedWindows`, and the journal event has no field naming the window measured, so a start/freeze pair reporting different governing windows journals a `delta` of roughly -0.67 that means nothing and that no reader of the event can detect. The fix is small and local (read the named window from `unifiedWindows`, or record `rateLimitType` and null the delta on mismatch); the field the guard needs is present in the data the node already measured. Also minor: the probe spawns raw `claude -p ... --output-format stream-json --verbose` and ignores the argv discipline the adapter next to it already owns, which is why one probe costs $0.28.\" Everything else the node delivered was confirmed by the judge and must not be touched: the signal short-circuit in normalizeClaudeResult and its regression test, the harness recorded by init's start entry, the measured headers, the out-of-range guard, the FIELD-OWNERSHIP declaration and ENTRY_SHAPES.",
+          "Fix 1, the window: extractClaudeAllowance (src/harnesses/protocol.mjs or wherever the previous attempt put it -- read src/seat/allowance.mjs first to find it) returns `window` from the event's `rateLimitType` and reads that window's value out of `unifiedWindows` when present, falling back to the top-level `utilization` only when `unifiedWindows` has no entry for it; the returned shape gains `window` (string|null). sampleAllowance carries it through; allowanceDelta returns null when either sample lacks a window or the two windows differ (a comment says why: a five_hour utilisation minus a seven_day one is not a delta).",
+          "Fix 2, the journal event: `seat.allowance` gains a `window` field, declared in docs/FIELD-OWNERSHIP.md next to the others and accepted by ENTRY_SHAPES in src/campaign/journal.mjs (the ratchet test asserts the declaration matches src/, so update both and the field count if the document states one).",
+          "Fix 3, the probe: build the probe's argv through the claude adapter's own command builder (src/harnesses/claude/index.mjs exports the harness object whose argv/launch function the engine uses -- read it and reuse that path with a minimal prompt) instead of a hand-written `claude -p ...` array. Keep the probe optional and failure-tolerant: any error still yields null.",
+          "Tests, test/seat/allowance.test.mjs (extend, do not rewrite): a sample whose unifiedWindows carries both windows returns the value of the window named by rateLimitType and that window on the record; a delta across two different windows is null; the journal event carries the window; the probe's argv comes from the adapter (assert on the argv the injected spawn receives). Keep every existing case passing.",
+          "Do not re-run the live probe: the measurement is already in the module header. Do not change the measured numbers or the header's claims."
+        ],
+        "readFiles": [
+          "src/seat/allowance.mjs",
+          "src/harnesses/protocol.mjs",
+          "src/harnesses/claude/index.mjs",
+          "src/campaign/journal.mjs",
+          "docs/FIELD-OWNERSHIP.md",
+          "test/seat/allowance.test.mjs",
+          "test/campaign/field-ownership.test.mjs"
+        ],
+        "writeFiles": [
+          "src/seat/allowance.mjs",
+          "src/harnesses/protocol.mjs",
+          "src/campaign/journal.mjs",
+          "docs/FIELD-OWNERSHIP.md",
+          "test/seat/allowance.test.mjs"
+        ],
+        "symbols": [
+          "allowanceWindow"
+        ],
+        "scopeAcknowledged": [
+          "src/harnesses/claude/index.mjs",
+          "test/campaign/field-ownership.test.mjs",
+          "test/harnesses/harnesses.test.mjs",
+          "test/seat/seat.test.mjs",
+          "test/cli/plan.test.mjs",
+          "test/cli/cli.test.mjs",
+          "src/cli/campaign.mjs",
+          "src/plan/pipeline.mjs"
+        ],
+        "decisions": [
+          "A delta across two windows is not a delta: null, with the window on the record so a reader can see why.",
+          "The probe reuses the adapter's argv; no second command line for the same harness."
+        ],
+        "nonGoals": [
+          "No new live probe. No change to anything the judge already confirmed.",
+          "No change to src/cli/campaign.mjs or src/plan/pipeline.mjs (the sampling call sites already landed)."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/seat/allowance.test.mjs",
+              "test/campaign/field-ownership.test.mjs",
+              "test/harnesses/harnesses.test.mjs",
+              "test/seat/seat.test.mjs"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    }
+  ]
+}

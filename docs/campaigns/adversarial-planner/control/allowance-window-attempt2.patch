@@ -1,0 +1,402 @@
+diff --git a/docs/FIELD-OWNERSHIP.md b/docs/FIELD-OWNERSHIP.md
+index e9f57f0..8646d65 100644
+--- a/docs/FIELD-OWNERSHIP.md
++++ b/docs/FIELD-OWNERSHIP.md
+@@ -106,7 +106,7 @@ document and the schema cannot drift apart.
+ | `open-question` | `note` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when a note of that kind is recorded |
+ | `question.resolved` | `resolveQuestion` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when `campaign note --resolve` runs |
+ | `retrospective` | `note` | `at`, `type`, `eventId`, `sessionId`, `text` | when a note of that kind is recorded |
+-| `seat.allowance` | `appendSeatAllowanceEvent` | `at`, `type`, `eventId`, `sample`, `harness`, `remaining`, `limit`, `resetsAt`, `delta` | when `campaign init` samples the operator's own seat allowance at campaign start (`sample: "start"`, `harness` from env-marker detection, `delta: null`), and when `plan freeze` re-samples that exact same harness (not the plan's worker runtime) at plan freeze (`sample: "freeze"`, `delta` against the start sample, or `null` with no start entry to compare against) |
++| `seat.allowance` | `appendSeatAllowanceEvent` | `at`, `type`, `eventId`, `sample`, `harness`, `remaining`, `limit`, `resetsAt`, `delta`, `window` | when `campaign init` samples the operator's own seat allowance at campaign start (`sample: "start"`, `harness` from env-marker detection, `delta: null`), and when `plan freeze` re-samples that exact same harness (not the plan's worker runtime) at plan freeze (`sample: "freeze"`, `delta` against the start sample, or `null` with no start entry to compare against); `window` names the rate-limit window the sample measured (claude's `rateLimitType`, e.g. `"seven_day"`), so a delta across two differently-governed windows can be told apart from a real one |
+ 
+ ## The ratchet, measured
+ 
+@@ -155,7 +155,7 @@ behavior, and a node that declares must not also move the thing it declares.
+     "open-question": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "questionId", "text"] },
+     "question.resolved": { "writers": ["resolveQuestion"], "fields": ["at", "type", "eventId", "sessionId", "questionId", "text"] },
+     "retrospective": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "text"] },
+-    "seat.allowance": { "writers": ["appendSeatAllowanceEvent"], "fields": ["at", "type", "eventId", "sample", "harness", "remaining", "limit", "resetsAt", "delta"] }
++    "seat.allowance": { "writers": ["appendSeatAllowanceEvent"], "fields": ["at", "type", "eventId", "sample", "harness", "remaining", "limit", "resetsAt", "delta", "window"] }
+   },
+   "events": {
+     "schemaVersion": { "writers": ["appendTransitionEvent", "assertEnvironmentReady"] },
+diff --git a/src/campaign/journal.mjs b/src/campaign/journal.mjs
+index c8620d1..3aa8449 100644
+--- a/src/campaign/journal.mjs
++++ b/src/campaign/journal.mjs
+@@ -65,7 +65,7 @@ const ENTRY_SHAPES = {
+   "question.resolved": ["at", "type", "eventId", "sessionId", "questionId", "text"],
+   retrospective: ["at", "type", "eventId", "sessionId", "text"],
+   liveness: ["at", "type", "eventId", "campaignId", "runId", "nodeId", "phase", "checkpointsDone", "checkpointsTotal", "runtime", "state", "lastProgressAt", "attention"],
+-  "seat.allowance": ["at", "type", "eventId", "sample", "harness", "remaining", "limit", "resetsAt", "delta"],
++  "seat.allowance": ["at", "type", "eventId", "sample", "harness", "remaining", "limit", "resetsAt", "delta", "window"],
+ };
+ const SEAT_ALLOWANCE_SAMPLES = new Set(["start", "freeze"]);
+ /**
+@@ -316,6 +316,11 @@ function validateSeatAllowanceEntry(entry) {
+   if (entry.resetsAt !== null && typeof entry.resetsAt !== "string") {
+     throw new TypeError("seat.allowance resetsAt must be null or a string");
+   }
++  // Optional: a historical entry, and every call site not yet updated to
++  // sample it, carries no window at all.
++  if (entry.window !== undefined && entry.window !== null && typeof entry.window !== "string") {
++    throw new TypeError("seat.allowance window must be null or a string");
++  }
+ }
+ /**
+  * The one writer of `seat.allowance`: `campaign init` calls it for the
+@@ -325,7 +330,7 @@ function validateSeatAllowanceEntry(entry) {
+  * carries.
+  *
+  * @param {string} campaignPath
+- * @param {{sample: "start"|"freeze", harness: string|null, remaining: number|null, limit: number|null, resetsAt: string|null, delta: number|null}} allowance
++ * @param {{sample: "start"|"freeze", harness: string|null, remaining: number|null, limit: number|null, resetsAt: string|null, delta: number|null, window?: string|null}} allowance
+  * @returns {{entry: JournalEntry, deduplicated: boolean}}
+  */
+ export function appendSeatAllowanceEvent(campaignPath, allowance) {
+diff --git a/src/harnesses/protocol.mjs b/src/harnesses/protocol.mjs
+index aed935d..ce3601e 100644
+--- a/src/harnesses/protocol.mjs
++++ b/src/harnesses/protocol.mjs
+@@ -5,7 +5,7 @@ import { finite } from "../util.mjs";
+  * `zcode.mjs`, `replay.mjs` and `exec-jsonl.mjs` itself all depend on it.
+  */
+ 
+-/** @typedef {{remaining: number|null, limit: number|null, resetsAt: string|null}} ClaudeAllowance */
++/** @typedef {{remaining: number|null, limit: number|null, resetsAt: string|null, window: string|null}} ClaudeAllowance */
+ 
+ /**
+  * Parse newline-delimited JSON without accepting provider prose.
+@@ -106,6 +106,15 @@ function withStartupReason(message, options = {}) {
+  * clamped, so a future scale change on the stream fails visibly instead of
+  * pinning every sample to 0.
+  *
++ * `unifiedWindows` carries every window's own utilization side by side
++ * (`five_hour: 0.1` next to `seven_day: 0.77` in the measured line above): the
++ * top-level `utilization` is only ever the figure for the window `rateLimitType`
++ * names, so a sample must read the named window out of `unifiedWindows` (falling
++ * back to the top-level field only when `unifiedWindows` carries no entry for
++ * it) and record which window that was. Two samples of different windows are
++ * not comparable -- a `five_hour` utilization minus a `seven_day` one is not a
++ * delta -- so the window travels with the sample for `allowanceDelta` to pin.
++ *
+  * @param {Record<string, unknown>[]} events
+  * @returns {ClaudeAllowance}
+  */
+@@ -113,18 +122,26 @@ function extractClaudeAllowance(events) {
+   const event = events.findLast((candidate) => candidate.type === "rate_limit_event");
+   const info = event?.rate_limit_info;
+   const record = info && typeof info === "object" && !Array.isArray(info) ? /** @type {Record<string, unknown>} */ (info) : null;
+-  const rawUtilization = record ? finite(record.utilization) : null;
++  const window = record && typeof record.rateLimitType === "string" ? record.rateLimitType : null;
++  const unifiedWindows = record?.unifiedWindows && typeof record.unifiedWindows === "object" && !Array.isArray(record.unifiedWindows)
++    ? /** @type {Record<string, unknown>} */ (record.unifiedWindows)
++    : null;
++  const namedWindowEntry = window && unifiedWindows?.[window] && typeof unifiedWindows[window] === "object" && !Array.isArray(unifiedWindows[window])
++    ? /** @type {Record<string, unknown>} */ (unifiedWindows[window])
++    : null;
++  const rawUtilization = finite(namedWindowEntry ? namedWindowEntry.utilization : record?.utilization);
+   const utilization = rawUtilization !== null && rawUtilization >= 0 && rawUtilization <= 1 ? rawUtilization : null;
+-  const resetsAtSeconds = record ? finite(record.resetsAt) : null;
++  const resetsAtSeconds = finite(namedWindowEntry ? namedWindowEntry.resetsAt : record?.resetsAt);
+   return {
+     remaining: utilization === null ? null : 1 - utilization,
+     limit: utilization === null ? null : 1,
+     resetsAt: resetsAtSeconds === null ? null : new Date(resetsAtSeconds * 1000).toISOString(),
++    window,
+   };
+ }
+ 
+ /** The claude allowance shape with every member null: no signal was read. */
+-const NULL_CLAUDE_ALLOWANCE = { remaining: null, limit: null, resetsAt: null };
++const NULL_CLAUDE_ALLOWANCE = { remaining: null, limit: null, resetsAt: null, window: null };
+ 
+ /**
+  * @param {string} stdout
+diff --git a/src/seat/allowance.mjs b/src/seat/allowance.mjs
+index 454738a..2f9f62c 100644
+--- a/src/seat/allowance.mjs
++++ b/src/seat/allowance.mjs
+@@ -19,32 +19,59 @@
+  * (once) and `plan freeze` (once per phase) each spend one probe when the
+  * sampled harness is claude.
+  */
+-import { spawn } from "node:child_process";
++import { spawn as nodeSpawn } from "node:child_process";
+ import { getHarness } from "../harnesses/index.mjs";
+ 
+-/** @typedef {{remaining: number|null, limit: number|null, resetsAt: string|null}} Allowance */
++// `window` is optional on the type (not every construction site names one --
++// `plan/pipeline.mjs` rebuilds a start sample from journal fields that predate
++// this field) even though every live sample from `sampleAllowance` always
++// carries it, `null` included.
++/** @typedef {{remaining: number|null, limit: number|null, resetsAt: string|null, window?: string|null}} Allowance */
+ /** @typedef {{stdout: string, exitCode: number|null, signal: string|null}} InvokeResult */
+ 
+ const ALLOWANCE_PROBE_PROMPT = "Reply with exactly OK and use no tools.";
+ const ALLOWANCE_PROBE_TIMEOUT_MS = 30_000;
++// The signal is account-wide (see protocol.mjs's extractClaudeAllowance
++// header), not per-model, so the probe's own model choice does not affect
++// what it measures; claude-sonnet-5 is the cheapest claude model this
++// registry already names (src/engine/runtime-discovery.mjs), which keeps a
++// spent probe call cheap without inventing an unlisted model string.
++const ALLOWANCE_PROBE_MODEL = "claude-sonnet-5";
+ 
+ /**
+- * One minimal `claude -p` call, its stdout handed back raw for the adapter's
+- * own `normalize` to parse. Every other harness resolves to null without
++ * The argv/executable for one minimal claude probe, built through the claude
++ * adapter's own `command` so the probe pays the same preamble discipline
++ * (`claudePreambleArgs`: no skills, no MCP, no settings, a bare tool list)
++ * every worker invocation already pays instead of a hand-written argv that
++ * skips it -- measured 2026-09-01 on that discipline alone, ~4,300
++ * uncached input tokens per turn against 65,170 with the ambient
++ * configuration (see `harnesses/claude/index.mjs`).
++ *
++ * @returns {import("../harnesses/index.mjs").HarnessCommand}
++ */
++function claudeProbeCommand() {
++  return getHarness("claude").command({ harness: "claude", model: ALLOWANCE_PROBE_MODEL }, ALLOWANCE_PROBE_PROMPT, {});
++}
++
++/**
++ * One minimal claude call, its stdout handed back raw for the adapter's own
++ * `normalize` to parse. Every other harness resolves to null without
+  * spawning anything: the signal has only ever been measured on claude's
+  * stream, and probing a harness that is known to expose nothing would spend a
+  * call for no reading.
+  *
+  * @param {string} harness
++ * @param {{spawn?: typeof nodeSpawn}} [options]
+  * @returns {Promise<InvokeResult|null>}
+  */
+-function defaultInvoke(harness) {
++export function defaultInvoke(harness, { spawn = nodeSpawn } = {}) {
+   if (harness !== "claude") return Promise.resolve(null);
++  const command = claudeProbeCommand();
+   return new Promise((settle) => {
+     let child;
+     try {
+-      child = spawn(process.env.FABERUN_CLAUDE_BIN ?? "claude", ["-p", ALLOWANCE_PROBE_PROMPT, "--output-format", "stream-json", "--verbose"], {
+-        stdio: ["ignore", "pipe", "pipe"],
++      child = spawn(command.executable, command.args, {
++        stdio: ["pipe", "pipe", "pipe"],
+       });
+     } catch {
+       settle(null);
+@@ -59,6 +86,12 @@ function defaultInvoke(harness) {
+         // ESRCH: the child is already gone.
+       }
+     }, ALLOWANCE_PROBE_TIMEOUT_MS);
++    // A missing or early-dying binary can make the write below fail with
++    // EPIPE on the stdin stream itself, which is a different EventEmitter
++    // from the child process object below and needs its own listener (see
++    // `engine/process.mjs`'s stdin-transport branch for the same guard).
++    child.stdin.on("error", () => {});
++    child.stdin.end(command.input ?? "");
+     child.stdout.on("data", (chunk) => { stdout += chunk; });
+     child.stderr.on("data", () => {});
+     child.once("error", () => {
+@@ -108,7 +141,10 @@ export async function sampleAllowance({ harness, invoke = defaultInvoke }) {
+ 
+ /**
+  * The change in remaining allowance between two samples, or null when either
+- * sample is absent or itself carries no remaining figure.
++ * sample is absent, itself carries no remaining figure, or the two samples
++ * name different rate-limit windows: a `five_hour` utilization minus a
++ * `seven_day` one is not a delta, even though both are 0..1 fractions that
++ * subtract without error.
+  *
+  * @param {Allowance|null} start
+  * @param {Allowance|null} freeze
+@@ -116,5 +152,6 @@ export async function sampleAllowance({ harness, invoke = defaultInvoke }) {
+  */
+ export function allowanceDelta(start, freeze) {
+   if (!start || !freeze || start.remaining === null || freeze.remaining === null) return null;
++  if (!start.window || !freeze.window || start.window !== freeze.window) return null;
+   return freeze.remaining - start.remaining;
+ }
+diff --git a/test/seat/allowance.test.mjs b/test/seat/allowance.test.mjs
+index 974f91c..e1ac411 100644
+--- a/test/seat/allowance.test.mjs
++++ b/test/seat/allowance.test.mjs
+@@ -1,11 +1,12 @@
+ import test from "node:test";
+ import assert from "node:assert/strict";
++import { EventEmitter } from "node:events";
+ import { mkdtempSync } from "node:fs";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ import { initializeCampaign } from "../../src/campaign/index.mjs";
+ import { appendSeatAllowanceEvent, readJournal } from "../../src/campaign/journal.mjs";
+-import { allowanceDelta, sampleAllowance } from "../../src/seat/allowance.mjs";
++import { allowanceDelta, defaultInvoke, sampleAllowance } from "../../src/seat/allowance.mjs";
+ import { normalizeClaudeResult } from "../../src/harnesses/protocol.mjs";
+ 
+ /** The `rate_limit_event` line as measured 2026-09-17 against a live `claude -p` probe, verbatim. */
+@@ -53,7 +54,7 @@ test("allowance delta replays the measured rate_limit_event line", async () => {
+     harness: "claude",
+     invoke: async () => ({ stdout: `${MEASURED_RATE_LIMIT_LINE}\n${JSON.stringify({ type: "result", is_error: false, result: "ok", session_id: "s1", usage: {}, total_cost_usd: 0 })}\n`, exitCode: 0, signal: null }),
+   });
+-  assert.deepEqual(start, { remaining: 0.22999999999999998, limit: 1, resetsAt: new Date(1789837200 * 1000).toISOString() });
++  assert.deepEqual(start, { remaining: 0.22999999999999998, limit: 1, resetsAt: new Date(1789837200 * 1000).toISOString(), window: "seven_day" });
+ });
+ 
+ test("allowance delta", async () => {
+@@ -61,7 +62,7 @@ test("allowance delta", async () => {
+     harness: "claude",
+     invoke: async () => ({ stdout: claudeStreamWithUtilization(0.77), exitCode: 0, signal: null }),
+   });
+-  assert.deepEqual(start, { remaining: 0.22999999999999998, limit: 1, resetsAt: new Date(1789837200 * 1000).toISOString() });
++  assert.deepEqual(start, { remaining: 0.22999999999999998, limit: 1, resetsAt: new Date(1789837200 * 1000).toISOString(), window: "seven_day" });
+ 
+   const freeze = await sampleAllowance({
+     harness: "claude",
+@@ -69,6 +70,7 @@ test("allowance delta", async () => {
+   });
+   assert.ok(freeze);
+   assert.equal(freeze.remaining, 0.5);
++  assert.equal(freeze.window, "seven_day");
+ 
+   const delta = allowanceDelta(start, freeze);
+   assert.ok(delta !== null);
+@@ -76,7 +78,41 @@ test("allowance delta", async () => {
+ 
+   assert.equal(allowanceDelta(null, freeze), null);
+   assert.equal(allowanceDelta(start, null), null);
+-  assert.equal(allowanceDelta({ remaining: null, limit: 1, resetsAt: null }, freeze), null);
++  assert.equal(allowanceDelta({ remaining: null, limit: 1, resetsAt: null, window: "seven_day" }, freeze), null);
++});
++
++test("allowance delta is null across two differently-governed windows", async () => {
++  // The measured line: unifiedWindows carries five_hour: 0.1 alongside
++  // seven_day: 0.77 at the same instant. A start sample pinned to five_hour
++  // and a freeze sample pinned to seven_day must not subtract: neither
++  // utilization says anything about the other window's remaining allowance.
++  const fiveHourStart = await sampleAllowance({
++    harness: "claude",
++    invoke: async () => ({
++      stdout: `${JSON.stringify({
++        type: "rate_limit_event",
++        rate_limit_info: {
++          rateLimitType: "five_hour",
++          utilization: 0.1,
++          unifiedWindows: { five_hour: { utilization: 0.1, resetsAt: 1789663200 }, seven_day: { utilization: 0.77, resetsAt: 1789837200 } },
++        },
++      })}\n${JSON.stringify({ type: "result", is_error: false, result: "ok", session_id: "s1", usage: {}, total_cost_usd: 0 })}\n`,
++      exitCode: 0,
++      signal: null,
++    }),
++  });
++  assert.equal(fiveHourStart?.window, "five_hour");
++  assert.equal(fiveHourStart?.remaining, 0.9);
++
++  const sevenDayFreeze = await sampleAllowance({
++    harness: "claude",
++    invoke: async () => ({ stdout: claudeStreamWithUtilization(0.77), exitCode: 0, signal: null }),
++  });
++  assert.equal(sevenDayFreeze?.window, "seven_day");
++
++  assert.equal(allowanceDelta(fiveHourStart, sevenDayFreeze), null);
++  // Two samples of the same window still subtract normally.
++  assert.equal(allowanceDelta(sevenDayFreeze, sevenDayFreeze), 0);
+ });
+ 
+ test("allowance absent", async () => {
+@@ -124,11 +160,11 @@ test("normalizeClaudeResult cancellation is byte-identical whether or not stdout
+   const canceled = normalizeClaudeResult(truncatedTail, null, "SIGKILL");
+   assert.equal(canceled.status, "canceled");
+   assert.equal(canceled.error?.code, "canceled");
+-  assert.deepEqual(/** @type {any} */ (canceled).allowance, { remaining: null, limit: null, resetsAt: null });
++  assert.deepEqual(/** @type {any} */ (canceled).allowance, { remaining: null, limit: null, resetsAt: null, window: null });
+ 
+   const cleanTail = normalizeClaudeResult('{"type":"system","subtype":"init"}\n', null, "SIGKILL");
+   assert.equal(cleanTail.status, "canceled");
+-  assert.deepEqual(/** @type {any} */ (cleanTail).allowance, { remaining: null, limit: null, resetsAt: null });
++  assert.deepEqual(/** @type {any} */ (cleanTail).allowance, { remaining: null, limit: null, resetsAt: null, window: null });
+ });
+ 
+ test("journal event shape", () => {
+@@ -157,6 +193,82 @@ test("journal event shape", () => {
+   assert.deepEqual(allowanceEvents.map((event) => event.sample), ["start", "freeze"]);
+ });
+ 
++test("journal event carries the window a sample measured", () => {
++  const cwd = mkdtempSync(join(tmpdir(), "seat-allowance-window-"));
++  const runsDir = join(cwd, ".runs");
++  const created = initializeCampaign(runsDir, { campaignId: "seat-allowance-window", goal: "measure the seat's allowance" });
++
++  const startResult = appendSeatAllowanceEvent(created.path, {
++    sample: "start", harness: "claude", remaining: 0.23, limit: 1, resetsAt: "2026-09-17T00:00:00.000Z", delta: null, window: "seven_day",
++  });
++  assert.equal(/** @type {any} */ (startResult.entry).window, "seven_day");
++
++  const journal = /** @type {any[]} */ (readJournal(created.path));
++  const allowanceEvent = journal.find((event) => event.type === "seat.allowance");
++  assert.equal(allowanceEvent.window, "seven_day");
++});
++
++test("the probe's argv is built by the claude adapter, not a hand-written command line", async () => {
++  let capturedExecutable = /** @type {string|null} */ (null);
++  let capturedArgs = /** @type {string[]|null} */ (null);
++  let writtenToStdin = "";
++  /** @param {string} executable @param {string[]} args */
++  const fakeSpawn = (executable, args) => {
++    capturedExecutable = executable;
++    capturedArgs = args;
++    const child = /** @type {any} */ (new EventEmitter());
++    child.stdin = /** @type {any} */ (new EventEmitter());
++    child.stdin.end = (/** @type {string} */ input) => { writtenToStdin = input ?? ""; };
++    child.stdout = new EventEmitter();
++    child.stderr = new EventEmitter();
++    child.kill = () => {};
++    queueMicrotask(() => child.emit("close", 0, null));
++    return child;
++  };
++
++  const result = await defaultInvoke("claude", { spawn: /** @type {any} */ (fakeSpawn) });
++
++  assert.equal(capturedExecutable, "claude");
++  // The adapter's own preamble discipline (harnesses/claude/index.mjs
++  // claudePreambleArgs), not a raw `claude -p ... --output-format
++  // stream-json --verbose` command line the probe used to build by hand.
++  assert.ok(capturedArgs?.includes("--disable-slash-commands"));
++  assert.ok(capturedArgs?.includes("--strict-mcp-config"));
++  assert.ok(capturedArgs?.includes("--output-format"));
++  assert.ok(capturedArgs?.includes("--model"));
++  assert.equal(writtenToStdin, "Reply with exactly OK and use no tools.");
++  assert.equal(result?.exitCode, 0);
++});
++
++test("a stdin EPIPE on the probe yields null instead of throwing", async () => {
++  const fakeSpawn = () => {
++    const child = /** @type {any} */ (new EventEmitter());
++    child.stdin = /** @type {any} */ (new EventEmitter());
++    child.stdin.end = () => {
++      // A dead child's stdin write fails asynchronously on its own stream,
++      // never on the child process object -- the same shape `engine/process.mjs`
++      // guards against for the same reason. The child having already exited is
++      // why the write failed, so its own "close" follows with no output and a
++      // signal, which is what actually settles the probe; the stdin listener
++      // only keeps the unhandled "error" from throwing.
++      queueMicrotask(() => {
++        child.stdin.emit("error", new Error("EPIPE"));
++        child.emit("close", null, "SIGPIPE");
++      });
++    };
++    child.stdout = new EventEmitter();
++    child.stderr = new EventEmitter();
++    child.kill = () => {};
++    return child;
++  };
++
++  const allowance = await sampleAllowance({
++    harness: "claude",
++    invoke: (harness) => defaultInvoke(harness, { spawn: /** @type {any} */ (fakeSpawn) }),
++  });
++  assert.equal(allowance, null);
++});
++
+ test("journal event shape rejects an unknown sample", () => {
+   const cwd = mkdtempSync(join(tmpdir(), "seat-allowance-invalid-"));
+   const runsDir = join(cwd, ".runs");

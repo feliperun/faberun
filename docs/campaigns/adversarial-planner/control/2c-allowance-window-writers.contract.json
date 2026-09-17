@@ -1,0 +1,249 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "adversarial-planner",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "claude-sonnet-worker",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic-opus",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "claude-sonnet-worker": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic-sonnet",
+      "permissionMode": "bypassPermissions",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/repo/source-shape.test.mjs",
+        "test/campaign/field-ownership.test.mjs",
+        "test/repo/brand.test.mjs",
+        "test/docs/docs-diet.test.mjs",
+        "test/host/host-layout.test.mjs",
+        "test/docs/reference-load.test.mjs"
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "docs:check"
+      ],
+      "timeoutSec": 120
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/",
+        "test/plan/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "adversarial-planner-2c-allowance-window-writers",
+  "maxParallel": 1,
+  "goal": "Phase 2c (allowance-window-writers) of campaign adversarial-planner: the rate-limit window a sample measured reaches the seat.allowance journal event at both writers, so the cross-window guard protects a real delta instead of killing it. Supersedes node allowance-window-pinned of contract 2b, whose write scope excluded the two call sites. Spec: docs/campaigns/adversarial-planner/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "allowance-window-journaled",
+      "type": "backend",
+      "phase": "allowance-window-writers",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "writer-tests",
+          "text": "allowance, campaign, field-ownership, plan and seat tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "window-journaled",
+          "text": "both writers emit the window through the single helper, a same-window pair yields a real delta and a cross-window pair yields null with both windows visible",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "The window a sample measured reaches the seat.allowance event at both writers (campaign init's start sample and plan freeze's freeze sample), the cross-window guard nulls only a genuine mismatch, and the previous attempt's confirmed work (window extraction from unifiedWindows, the adapter-built probe argv, the delta guard) stands.",
+        "instructions": [
+          "The judge's verbatim finding on the previous attempt (contract 2b, node allowance-window-pinned): \"What blocks the item is that the window never reaches a real journal event, and the new guard therefore kills the delta in production. `window` was added to ENTRY_SHAPES and to FIELD-OWNERSHIP, but neither writer of `seat.allowance` was changed: `campaign init` (src/cli/campaign.mjs:342) and `plan freeze` (src/plan/pipeline.mjs:236) still append the six old fields.\" Both call sites are in your write scope now. Everything else the judge confirmed must not change: extractClaudeAllowance reading the named window out of unifiedWindows with the top-level fallback, the adapter-built probe argv, the delta guard with its stated reason, the signal short-circuit as the first statement of normalizeClaudeResult, the out-of-range guard, the measured headers, ENTRY_SHAPES and the FIELD-OWNERSHIP declaration.",
+          "Read src/seat/allowance.mjs first: appendSeatAllowanceEvent (or whatever the single writer helper is called) is where the event object is built. Make it carry `window` from the sample, and make both call sites -- src/cli/campaign.mjs (the start sample at campaign init) and src/plan/pipeline.mjs (the freeze sample) -- pass the sample through that helper rather than assembling fields themselves. One writer, every field, both moments.",
+          "Tests, test/seat/allowance.test.mjs: a start sample and a freeze sample of the same window journal a delta and both events carry that window; a pair whose windows differ journals a null delta and both windows are visible in the events; the absent-signal path still records nulls without throwing. Add a case in test/campaign/campaign.test.mjs (or test/campaign/ledger.test.mjs, whichever already exercises campaign init's journal) asserting the init event carries the window field when a sample is available.",
+          "Keep the field-ownership ratchet truthful: appendSeatAllowanceEvent stays the single writer; if the two call sites currently appear as writers in the derivation, the refactor removes them from it."
+        ],
+        "readFiles": [
+          "src/seat/allowance.mjs",
+          "src/cli/campaign.mjs",
+          "src/plan/pipeline.mjs",
+          "src/campaign/journal.mjs",
+          "docs/FIELD-OWNERSHIP.md",
+          "test/seat/allowance.test.mjs",
+          "test/campaign/campaign.test.mjs",
+          "test/campaign/field-ownership.test.mjs"
+        ],
+        "writeFiles": [
+          "src/seat/allowance.mjs",
+          "src/cli/campaign.mjs",
+          "src/plan/pipeline.mjs",
+          "test/seat/allowance.test.mjs",
+          "test/campaign/campaign.test.mjs",
+          "docs/FIELD-OWNERSHIP.md"
+        ],
+        "symbols": [
+          "allowanceEventFields"
+        ],
+        "scopeAcknowledged": [
+          "src/campaign/journal.mjs",
+          "test/campaign/field-ownership.test.mjs",
+          "test/campaign/ledger.test.mjs",
+          "test/campaign/chain.test.mjs",
+          "test/campaign/unpark.test.mjs",
+          "test/cli/plan.test.mjs",
+          "test/cli/cli.test.mjs",
+          "test/seat/seat.test.mjs",
+          "test/harnesses/harnesses.test.mjs",
+          "src/harnesses/protocol.mjs"
+        ],
+        "decisions": [
+          "A delta across two windows is not a delta: null, with the window on the record so a reader can see why.",
+          "The probe reuses the adapter's argv; no second command line for the same harness."
+        ],
+        "nonGoals": [
+          "No new live probe.",
+          "No change to what the judge already confirmed.",
+          "No new journal event type."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/seat/allowance.test.mjs",
+              "test/campaign/campaign.test.mjs",
+              "test/campaign/field-ownership.test.mjs",
+              "test/cli/plan.test.mjs",
+              "test/seat/seat.test.mjs"
+            ],
+            "timeoutSec": 400
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    }
+  ]
+}

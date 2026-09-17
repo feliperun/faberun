@@ -1,0 +1,700 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "adversarial-planner",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "claude-sonnet-worker",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic-opus",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "claude-sonnet-worker": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic-sonnet",
+      "permissionMode": "bypassPermissions",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/repo/source-shape.test.mjs",
+        "test/campaign/field-ownership.test.mjs",
+        "test/repo/brand.test.mjs",
+        "test/docs/docs-diet.test.mjs",
+        "test/host/host-layout.test.mjs",
+        "test/docs/reference-load.test.mjs"
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "docs:check"
+      ],
+      "timeoutSec": 120
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/",
+        "test/plan/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "adversarial-planner-1b-discovery-result-output",
+  "maxParallel": 1,
+  "goal": "Phase 1b (discovery-result-output) of campaign adversarial-planner: a discovery result's bounded structured `output` survives every ingestion path of the engine -- provider result, canonical result file, resume recovery, persisted snapshot validation and the judge prompt -- and is refused on execution results at the one place that knows the node's mode. Supersedes node discovery-result-output of contract 1, whose write scope missed the ingestion paths. Spec: docs/campaigns/adversarial-planner/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "discovery-output-ingested",
+      "type": "backend",
+      "phase": "discovery-result-output",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "ingestion-tests",
+          "text": "worker-result, worker-result-output, discovery-output, answer and contract tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "channel-survives",
+          "text": "a discovery result's output reaches results/<node>.json, survives snapshot validation, reload and resume, is shown to the judge, and an execution result carrying it fails by name",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "A discovery node's worker result may carry `output` (a JSON object bounded to 64 KiB) and the field survives every path the engine uses to read, persist, reload and show a worker result; execution results are refused the field at the ingestion point that knows the node's mode; the discovery prompt tells the worker to return its structured answer there.",
+        "instructions": [
+          "Evidence: attempt 1 of this node (contract 1) added `output` to src/contract/worker-result.mjs and threaded a mode flag only into parseDiscoveryResult; the judge showed the field is rejected or dropped on the real paths -- resolveWorkerResult (src/engine/result-file.mjs:126, the call lifecycle.mjs:530 makes for every worker result), the canonical-file reload at result-file.mjs:70, resume.mjs:300, the persisted-snapshot validator snapshot.mjs:163 and the judge-prompt validation prompts.mjs:209 -- because they call parseWorkerResult/validateWorkerResult without a mode. All of those files are in scope here.",
+          "Design: accept and bound `output` at the schema level on any result (validateWorkerResult keeps status, summary, verification, artifacts, missingContext and now optional output; assertObject; JSON byte length <= 65536; outside the 32 KiB envelope cap with a comment), so persisted snapshots, the canonical file reload, resume recovery and the judge prompt validate a stored discovery result without knowing the node's mode. Enforce 'execution results carry no output' exactly once, where the mode is known: resolveWorkerResult in src/engine/result-file.mjs (or its lifecycle.mjs:530 caller) takes the node's taskPacket.mode and rejects an execution result carrying output with a message naming the field; parseDiscoveryResult keeps requiring status done. Introduce `discoveryOutput(result)` (object or null) in worker-result.mjs.",
+          "Prompt: src/contract/task-packet.mjs renderDiscoveryPrompt says structured findings go in the result's `output` object (bounded) and prose in `summary` -- keep attempt 1's sentence if it is already there.",
+          "Tests: test/engine/worker-result.test.mjs or the new test/contract/worker-result-output.test.mjs for the schema (accepted, bounded, discoveryOutput null when absent); a new test/engine/discovery-output.test.mjs that runs a one-node discovery contract on the fixture runtime test/runner-helpers.mjs provides (see how test/engine/answer.test.mjs or worker-result.test.mjs drive a run) whose worker returns output, and asserts (a) .runs/<run>/results/<node>.json keeps output, (b) the node snapshot validates on reload (validateNodeSnapshot), (c) a resume of the finished run does not throw, and (d) an execution node whose worker returns output ends failed with the field named. No live model; no wall-clock upper bounds.",
+          "Docs: docs/CONCEPTS.md one sentence where discovery nodes are described (keep attempt 1's if present)."
+        ],
+        "readFiles": [
+          "src/contract/worker-result.mjs",
+          "src/contract/task-packet.mjs",
+          "src/contract/snapshot.mjs",
+          "src/engine/result-file.mjs",
+          "src/engine/lifecycle.mjs",
+          "src/engine/resume.mjs",
+          "src/engine/prompts.mjs",
+          "test/engine/worker-result.test.mjs",
+          "test/engine/answer.test.mjs",
+          "test/runner-helpers.mjs",
+          "docs/CONCEPTS.md"
+        ],
+        "writeFiles": [
+          "src/contract/worker-result.mjs",
+          "src/contract/task-packet.mjs",
+          "src/contract/snapshot.mjs",
+          "src/engine/result-file.mjs",
+          "src/engine/lifecycle.mjs",
+          "src/engine/resume.mjs",
+          "src/engine/prompts.mjs",
+          "test/engine/worker-result.test.mjs",
+          "test/contract/worker-result-output.test.mjs",
+          "test/engine/discovery-output.test.mjs",
+          "docs/CONCEPTS.md"
+        ],
+        "symbols": [
+          "discoveryOutput"
+        ],
+        "scopeAcknowledged": [
+          "test/engine/answer.test.mjs",
+          "test/runner-helpers.mjs",
+          "test/engine/parked.test.mjs",
+          "test/engine/judge.test.mjs",
+          "test/engine/routing.test.mjs",
+          "test/engine/seal-before-kill.test.mjs",
+          "test/engine/tier-exhaustion.test.mjs",
+          "test/engine/resume.test.mjs",
+          "test/engine/resume-retry.test.mjs",
+          "test/engine/resume-base-ref.test.mjs",
+          "test/cli/cli.test.mjs",
+          "test/harnesses/replay-run.test.mjs",
+          "test/contract/contract.test.mjs",
+          "test/contract/derived-fields.test.mjs",
+          "test/contract/runtime.test.mjs",
+          "test/contract/verification.test.mjs",
+          "test/run/pricing.test.mjs",
+          "test/run/process.test.mjs",
+          "test/repo/integration.test.mjs"
+        ],
+        "decisions": [
+          "Schema accepts the field everywhere; the mode-aware refusal lives at the single ingestion point that knows the node.",
+          "Discovery stays write-free: the result record is the channel."
+        ],
+        "nonGoals": [
+          "No change to how results are stored or judged.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node; no live model in any test or eval (replay harness only).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git only through the bounded helpers already in the tree; any new persisted field goes with its validator allowlist and typedef."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/engine/worker-result.test.mjs",
+              "test/contract/worker-result-output.test.mjs",
+              "test/engine/discovery-output.test.mjs",
+              "test/engine/answer.test.mjs",
+              "test/contract/contract.test.mjs"
+            ],
+            "timeoutSec": 400
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "planning-contract-template",
+      "type": "backend",
+      "phase": "planning-pipeline",
+      "dependsOn": [
+        "discovery-output-ingested"
+      ],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "template-tests",
+          "text": "template and contract tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "isolated-review",
+          "text": "the review contract carries only spec, facts and artefact; drafts classify and never route; findings are validated",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "src/plan/template.mjs builds the one-node discovery contracts of the planner -- draft, review, revise (a draft with findings), spec authoring and spec review -- from exactly the inputs each role may see; the reviewer's packet holds only the spec, the repository facts and the artefact under review; drafts classify nodes with taskKind and riskTier and never name a runtime; findings have a validated shape.",
+        "instructions": [
+          "Evidence: the planning debate happens in the control session today; the pieces to reuse exist -- discovery packets (src/contract/task-packet.mjs), the contract shape (src/contract/index.mjs validateContract), the spec validator (src/plan/spec.mjs), repository facts (src/plan/repo-facts.mjs), and the `output` channel of a discovery result (landed by discovery-result-output in this phase).",
+          "Change, src/plan/template.mjs: `buildPlanningContract(kind, inputs)` for kind 'draft' | 'review' | 'revise' | 'spec-author' | 'spec-review'. Each returns a contract object (schemaVersion 3, contractVersion 0.3.0, campaignId, id `<campaign>-plan-<phase>-<kind>-<n>`, the caller's runtimes and runtimeDefaults, one node of mode discovery with writeFiles [] and gate false) whose readFiles are exactly: draft -> spec path, repo-facts path, the taskKind catalogue (a constant exported here: docs, implement, test, refactor, infra, judge); review -> spec path, repo-facts path, plan path; revise -> the draft's inputs plus the findings path; spec-author -> the notes path; spec-review -> the spec path. Instructions tell the draft to return output.plan = {nodes: [{id, objective, taskKind, riskTier: low|standard|high, dependsOn, readFiles, writeFiles, definitionOfDone, verification}], justification?} with no runtime names anywhere, and the reviewer to return output.findings = [{id, severity: critical|major|minor, nodeId, text}] only. Export `validatePlanOutput(plan)` (rejects a plan naming a runtime or missing taskKind/riskTier) and `validateFindings(findings)` (a finding without severity or nodeId is invalid). The review packet must not carry the draft's packet, transcript, or summary.",
+          "Tests, test/plan/template.test.mjs: 'review packet is isolated' (the review contract's serialised packet contains none of the draft packet's instruction sentences, no path under .runs/*/logs, and exactly three readFiles); 'planner vendors distinct' (given the contract runtimes with anthropic-sonnet and anthropic-opus labels, the draft and review contracts resolve worker runtimes with different vendor labels via runtimeDefaults per kind); 'review finding shape' (validateFindings rejects a finding without severity or nodeId and accepts a valid list); 'draft never names a runtime' (validatePlanOutput rejects a node with a runtime field); every built contract passes validateContract against a temp checkout that holds the named input files."
+        ],
+        "readFiles": [
+          "src/contract/index.mjs",
+          "src/contract/task-packet.mjs",
+          "src/contract/worker-result.mjs",
+          "src/plan/spec.mjs",
+          "src/plan/repo-facts.mjs",
+          "src/plan/routing.mjs",
+          "docs/campaigns/adversarial-planner/spec/PROPOSAL.md"
+        ],
+        "writeFiles": [
+          "src/plan/template.mjs",
+          "test/plan/template.test.mjs"
+        ],
+        "symbols": [
+          "buildPlanningContract"
+        ],
+        "scopeAcknowledged": [
+          "src/contract/index.mjs",
+          "src/contract/task-packet.mjs",
+          "src/contract/worker-result.mjs",
+          "src/plan/spec.mjs",
+          "src/plan/repo-facts.mjs",
+          "src/plan/routing.mjs",
+          "docs/campaigns/adversarial-planner/spec/PROPOSAL.md"
+        ],
+        "decisions": [
+          "One node per contract; the pipeline sequences runs, not nodes, so the result channel is the only handoff.",
+          "The reviewer sees the artefact, never the author's reasoning."
+        ],
+        "nonGoals": [
+          "No orchestration here (that is plan-verb). No model.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node; no live model in any test or eval (replay harness only).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git only through the bounded helpers already in the tree; any new persisted field goes with its validator allowlist and typedef."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/plan/template.test.mjs",
+              "test/contract/contract.test.mjs"
+            ],
+            "timeoutSec": 200
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "plan-verb",
+      "type": "backend",
+      "phase": "planning-pipeline",
+      "dependsOn": [
+        "planning-contract-template"
+      ],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "plan-tests",
+          "text": "plan, plan/ stage, command-surface and manual tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "manual-current",
+          "text": "npm run docs:check finds the manual current with the plan section",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "2"
+          }
+        },
+        {
+          "id": "planner-contract",
+          "text": "the pipeline runs on recordings, the operator override persists, contested ends without a contract, approval follows the policy through open-question, and nothing launches the frozen contract",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "faberun plan <spec.md> --campaign <id> [--phase <n>] [--review-rounds 2] [--approve-below standard|high|none] [--runtime-defaults worker=<id>,judge=<id>] [--detach] [--json] runs the planning pipeline as successive one-node runs (draft, review, revise up to the round budget), then sizing, routing with the operator's defaults winning, and freeze into .runs/campaigns/<id>/plans/<phase>/; a plan whose last review still carries a critical finding ends contested with no contract; freezing never launches; approval follows the risk policy through the campaign's open-question and resolve; --detach survives the seat.",
+        "instructions": [
+          "Evidence: the chain coordinator (src/campaign/chain.mjs driveCampaignChain) already launches runs with `run --detach` (src/cli/launch.mjs detachSelf) and classifies them (runProgress, classifyRunProgress); the campaign journal has open-question and question.resolved events (src/cli/campaign.mjs note/resolve); the stages live in src/plan/{spec,repo-facts,routing,sizing,freeze,template}.mjs. Read all of them before writing.",
+          "Change 1, src/plan/pipeline.mjs: `runPlanningPipeline({specPath, campaignId, phase, cwd, reviewRounds, approveBelow, runtimeDefaults, runtimes, launch, wait})` -- validate the spec (validateSpec; strict findings abort), collectRepoFacts -> plans/<phase>/repo-facts.json, build and launch the draft contract, wait for the run (poll status.json through runProgress/classifyRunProgress; timeouts come from the contract), read .runs/<run>/results/<node>.json and take discoveryOutput().plan (validatePlanOutput), then review; while the findings contain a critical and rounds remain, build a revise contract with the findings and repeat; when a critical remains after the last round write plans/<phase>/plan.json with status 'contested', the open findings and provenance, write no contract.json, and record a campaign open-question `plan-<phase>-contested`; otherwise applySizingRules, resolveRuntimes (node override > operator runtimeDefaults > table > discovery; the table is a small default exported from routing or template), freezePlan into plans/<phase>/ and record status 'frozen'. Approval: the plan's highest riskTier compared with approveBelow (standard approves plans with no high node; high approves everything; none approves nothing) -> either plan.json.approved = true or a campaign open-question `plan-<phase>-approval` whose resolve records approval; nothing here ever calls run on the frozen contract. Every launched run is an ordinary run, so its invocations land in usage.jsonl; the pipeline also appends a `plan.stage` line to plans/<phase>/pipeline.jsonl per stage for the operator.",
+          "Change 2, src/cli/plan.mjs and src/cli.mjs: the `plan` verb in COMMAND_OPTIONS (campaign, phase, review-rounds, approve-below, runtime-defaults, detach, json) dispatched to planCli; `--detach` uses detachSelf('plan', specPath, flags) with the same bootstrap-record wait `run --detach` uses; usage line in src/cli/brand.mjs renderUsage; `npm run docs` regenerates the manual and you author the section's prose; docs/CONCEPTS.md gains a paragraph on the planner.",
+          "Tests, test/cli/plan.test.mjs on the replay harness (see test/harnesses/replay-run.test.mjs and evals/fixtures for how recordings drive a run): the pipeline runs draft and review from recordings and freezes; 'operator override wins' (--runtime-defaults appears in the frozen contract's runtimeDefaults over the table); 'approval policy' (a plan with a high node under --approve-below standard writes the open-question and no approved flag; with high it approves); 'plan never autostarts' (no .runs/<frozen contract id>/ exists after the pipeline ends); 'contested plan writes no contract' (recordings with a critical finding in every round). Keep each test's recordings small."
+        ],
+        "readFiles": [
+          "src/campaign/chain.mjs",
+          "src/cli/launch.mjs",
+          "src/cli/campaign.mjs",
+          "src/campaign/index.mjs",
+          "src/campaign/journal.mjs",
+          "src/cli.mjs",
+          "src/cli/brand.mjs",
+          "src/cli/manual.mjs",
+          "src/cli/spec.mjs",
+          "src/plan/spec.mjs",
+          "src/plan/repo-facts.mjs",
+          "src/plan/routing.mjs",
+          "src/plan/sizing.mjs",
+          "src/plan/freeze.mjs",
+          "src/plan/template.mjs",
+          "src/contract/worker-result.mjs",
+          "test/harnesses/replay-run.test.mjs",
+          "test/plan/spec.test.mjs",
+          "docs/COMMANDS.md",
+          "docs/CONCEPTS.md"
+        ],
+        "writeFiles": [
+          "src/plan/pipeline.mjs",
+          "src/cli/plan.mjs",
+          "src/cli.mjs",
+          "src/cli/brand.mjs",
+          "test/cli/plan.test.mjs",
+          "docs/COMMANDS.md",
+          "docs/CONCEPTS.md"
+        ],
+        "symbols": [
+          "runPlanningPipeline"
+        ],
+        "scopeAcknowledged": [
+          "src/campaign/chain.mjs",
+          "src/cli/launch.mjs",
+          "src/cli/campaign.mjs",
+          "src/campaign/index.mjs",
+          "src/campaign/journal.mjs",
+          "src/cli/manual.mjs",
+          "src/cli/spec.mjs",
+          "src/plan/spec.mjs",
+          "src/plan/repo-facts.mjs",
+          "src/plan/routing.mjs",
+          "src/plan/sizing.mjs",
+          "src/plan/freeze.mjs",
+          "src/plan/template.mjs",
+          "src/contract/worker-result.mjs",
+          "test/harnesses/replay-run.test.mjs",
+          "test/plan/spec.test.mjs",
+          "test/cli/cli.test.mjs",
+          "test/cli/brand.test.mjs",
+          "test/cli/manual.test.mjs",
+          "test/docs/command-surface.test.mjs"
+        ],
+        "decisions": [
+          "Runs, not nodes, are the pipeline's unit, so every planner invocation is accounted like any other.",
+          "Approval reuses open-question and resolve; no new journal event type.",
+          "The frozen contract is never launched by this command."
+        ],
+        "nonGoals": [
+          "No live model anywhere in tests.",
+          "No change to the chain coordinator.",
+          "No spec-authoring verb (the template can build those contracts; a verb for them is a later decision).",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node; no live model in any test or eval (replay harness only).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git only through the bounded helpers already in the tree; any new persisted field goes with its validator allowlist and typedef."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/cli/plan.test.mjs",
+              "test/plan/",
+              "test/docs/command-surface.test.mjs",
+              "test/cli/manual.test.mjs"
+            ],
+            "timeoutSec": 400
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+              "run",
+              "docs:check"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "plan-eval-cases",
+      "type": "backend",
+      "phase": "planning-pipeline",
+      "dependsOn": [
+        "plan-verb"
+      ],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "d23",
+          "text": "D23 passes: frozen plan, contract present, no run directory",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "d24",
+          "text": "D24 passes: contested, no contract, findings named",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "d25",
+          "text": "D25 passes: detached pipeline completes after its launcher dies",
+          "proof": {
+            "kind": "verification",
+            "ref": "2"
+          }
+        },
+        {
+          "id": "discriminating",
+          "text": "every case, the new three included, fails under its discriminator mutation",
+          "proof": {
+            "kind": "verification",
+            "ref": "3"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "4"
+          }
+        },
+        {
+          "id": "proof-by-eval",
+          "text": "the three guarantees are proven by cases that would fail if the guarantee broke",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Three deterministic eval cases on the replay harness prove the planner's guarantees -- D23 a frozen plan never autostarts, D24 a contested plan emits no contract and names its findings, D25 a detached planning pipeline survives the death of the process that launched it -- each with a discriminator mutation, run by `node evals/run.mjs --case D23|D24|D25`.",
+        "instructions": [
+          "Evidence: evals/deterministic/D01..D22 are contract-driven cases (case.json with contract, recordings, setup, discriminator; evals/case.mjs materializeCase; evals/run.mjs runs the contract and compares with expected.json). The planner is driven by a command, not a contract, so evals/run.mjs needs a case kind that runs `faberun plan` with replay runtimes; read evals/README.md and evals/case.mjs first.",
+          "Change 1, evals/case.mjs and evals/run.mjs: a case whose case.json carries `command: {argv: [...], env?: {...}}` instead of `contract` is materialised the same way (temp git repo, recordings on the replay harness) and run through src/cli.mjs with that argv; expected.json may assert files that exist or do not exist under the temp repo (`expectPaths: {present: [...], absent: [...]}`) and JSON fields of plan.json. Keep --assert-no-model and --verify-discriminating working for the new kind (the discriminator mutates a recording or a flag). Introduce `runPlanCase` as the runner for the command kind.",
+          "Change 2, the three cases: D23 (title 'a frozen plan never launches its contract'): recordings for draft and review, expected plan.json status frozen, contract.json present, and no .runs/<contract id>/ directory; discriminator: a recording that also creates the run directory would fail. D24 ('a contested plan emits no contract and names its findings'): every review recording returns a critical finding, --review-rounds 1, expected status contested, contract.json absent, findings listed, open-question in the journal. D25 ('a detached planning pipeline survives its launcher'): run `plan --detach`, kill the launching process once the bootstrap record exists (through the case's setup hook, never a raw kill of the test runner's own group), wait for plan.json, expected status frozen. No wall-clock bounds from above.",
+          "Change 3: evals/README.md gains a paragraph on command cases; `node evals/run.mjs --verify-fixtures` and `--validate-golden` must keep passing (evals/golden is never edited; if the golden set needs the new cases, follow the README's build-golden procedure and report what it changed)."
+        ],
+        "readFiles": [
+          "evals/README.md",
+          "evals/run.mjs",
+          "evals/case.mjs",
+          "evals/golden.mjs",
+          "evals/build-golden.mjs",
+          "evals/deterministic/D22/case.json",
+          "evals/deterministic/D22/expected.json",
+          "src/cli/plan.mjs",
+          "src/plan/pipeline.mjs",
+          "src/harnesses/replay/index.mjs"
+        ],
+        "writeFiles": [
+          "evals/case.mjs",
+          "evals/run.mjs",
+          "evals/README.md",
+          "evals/deterministic/D23/case.json",
+          "evals/deterministic/D23/expected.json",
+          "evals/deterministic/D23/worker.jsonl",
+          "evals/deterministic/D24/case.json",
+          "evals/deterministic/D24/expected.json",
+          "evals/deterministic/D24/worker.jsonl",
+          "evals/deterministic/D25/case.json",
+          "evals/deterministic/D25/expected.json",
+          "evals/deterministic/D25/worker.jsonl"
+        ],
+        "symbols": [
+          "runPlanCase"
+        ],
+        "scopeAcknowledged": [
+          "evals/golden.mjs",
+          "evals/build-golden.mjs",
+          "evals/deterministic/D22/case.json",
+          "evals/deterministic/D22/expected.json",
+          "src/cli/plan.mjs",
+          "src/plan/pipeline.mjs",
+          "src/harnesses/replay/index.mjs",
+          "test/fixture-runtimes.test.mjs"
+        ],
+        "decisions": [
+          "Command cases reuse the deterministic class and its discriminator discipline.",
+          "Numeric ids keep the repository's convention; the proposal's D-plan names are the titles."
+        ],
+        "nonGoals": [
+          "No live model. No edit to evals/golden by hand.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node; no live model in any test or eval (replay harness only).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git only through the bounded helpers already in the tree; any new persisted field goes with its validator allowlist and typedef."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--case",
+              "D23"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--case",
+              "D24"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--case",
+              "D25"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--verify-discriminating"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    }
+  ]
+}

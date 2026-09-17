@@ -1,0 +1,477 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "adversarial-planner",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "claude-sonnet-worker",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic-opus",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "claude-sonnet-worker": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic-sonnet",
+      "permissionMode": "bypassPermissions",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/repo/source-shape.test.mjs",
+        "test/campaign/field-ownership.test.mjs",
+        "test/repo/brand.test.mjs",
+        "test/docs/docs-diet.test.mjs",
+        "test/host/host-layout.test.mjs",
+        "test/docs/reference-load.test.mjs"
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "docs:check"
+      ],
+      "timeoutSec": 120
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/",
+        "test/plan/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "adversarial-planner-1c-plan-verb",
+  "maxParallel": 1,
+  "goal": "Phase 1c (plan-verb) of campaign adversarial-planner: faberun plan orchestrates the planning pipeline into a frozen plan that never launches and can end contested, with approval through the campaign's open-question written by the one declared writer, and three deterministic eval cases prove no-autostart, contested and detached. Supersedes the remaining nodes of contract 1b after discovery-output-ingested and planning-contract-template landed. Spec: docs/campaigns/adversarial-planner/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "plan-verb-declared",
+      "type": "backend",
+      "phase": "planning-pipeline",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "plan-tests",
+          "text": "plan, plan/ stage, command-surface, manual and field-ownership tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "manual-current",
+          "text": "npm run docs:check finds the manual current with the plan section",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "2"
+          }
+        },
+        {
+          "id": "planner-contract",
+          "text": "the pipeline runs on recordings, the operator override persists, contested ends without a contract, approval follows the policy through open-question, and nothing launches the frozen contract",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "faberun plan <spec.md> --campaign <id> [--phase <n>] [--review-rounds 2] [--approve-below standard|high|none] [--runtime-defaults worker=<id>,judge=<id>] [--detach] [--json] runs the planning pipeline as successive one-node runs (draft, review, revise up to the round budget), then sizing, routing with the operator's defaults winning, and freeze into .runs/campaigns/<id>/plans/<phase>/; a plan whose last review still carries a critical finding ends contested with no contract; freezing never launches; approval follows the risk policy through the campaign's open-question and resolve; --detach survives the seat.",
+        "instructions": [
+          "Evidence: the chain coordinator (src/campaign/chain.mjs driveCampaignChain) already launches runs with `run --detach` (src/cli/launch.mjs detachSelf) and classifies them (runProgress, classifyRunProgress); the campaign journal has open-question and question.resolved events (src/cli/campaign.mjs note/resolve); the stages live in src/plan/{spec,repo-facts,routing,sizing,freeze,template}.mjs. Read all of them before writing.",
+          "A first attempt of this node (contract 1b) passed its own tests but tripped the field-ownership ratchet: runPlanningPipeline appended `open-question` journal events itself, making it a second writer of a type `note` owns. Two acceptable designs, pick one and keep docs/FIELD-OWNERSHIP.md truthful: (a) the pipeline records approval and contested questions through the existing note path -- export the note helper from src/cli/campaign.mjs (in scope now) or spawn `faberun campaign note --kind open-question` through src/cli/launch.mjs's spawn pattern -- so the writer set stays `note`; or (b) the pipeline writes the event directly and docs/FIELD-OWNERSHIP.md declares `runPlanningPipeline` as a second writer of open-question, raising the ratchet count in test/campaign/field-ownership.test.mjs with the dated justification the document requires. Prefer (a): one writer per field is the rule the ratchet defends.",
+          "Change 1, src/plan/pipeline.mjs: `runPlanningPipeline({specPath, campaignId, phase, cwd, reviewRounds, approveBelow, runtimeDefaults, runtimes, launch, wait})` -- validate the spec (validateSpec; strict findings abort), collectRepoFacts -> plans/<phase>/repo-facts.json, build and launch the draft contract, wait for the run (poll status.json through runProgress/classifyRunProgress; timeouts come from the contract), read .runs/<run>/results/<node>.json and take discoveryOutput().plan (validatePlanOutput), then review; while the findings contain a critical and rounds remain, build a revise contract with the findings and repeat; when a critical remains after the last round write plans/<phase>/plan.json with status 'contested', the open findings and provenance, write no contract.json, and record a campaign open-question `plan-<phase>-contested`; otherwise applySizingRules, resolveRuntimes (node override > operator runtimeDefaults > table > discovery; the table is a small default exported from routing or template), freezePlan into plans/<phase>/ and record status 'frozen'. Approval: the plan's highest riskTier compared with approveBelow (standard approves plans with no high node; high approves everything; none approves nothing) -> either plan.json.approved = true or a campaign open-question `plan-<phase>-approval` whose resolve records approval; nothing here ever calls run on the frozen contract. Every launched run is an ordinary run, so its invocations land in usage.jsonl; the pipeline also appends a `plan.stage` line to plans/<phase>/pipeline.jsonl per stage for the operator.",
+          "Change 2, src/cli/plan.mjs and src/cli.mjs: the `plan` verb in COMMAND_OPTIONS (campaign, phase, review-rounds, approve-below, runtime-defaults, detach, json) dispatched to planCli; `--detach` uses detachSelf('plan', specPath, flags) with the same bootstrap-record wait `run --detach` uses; usage line in src/cli/brand.mjs renderUsage; `npm run docs` regenerates the manual and you author the section's prose; docs/CONCEPTS.md gains a paragraph on the planner.",
+          "Tests, test/cli/plan.test.mjs on the replay harness (see test/harnesses/replay-run.test.mjs and evals/fixtures for how recordings drive a run): the pipeline runs draft and review from recordings and freezes; 'operator override wins' (--runtime-defaults appears in the frozen contract's runtimeDefaults over the table); 'approval policy' (a plan with a high node under --approve-below standard writes the open-question and no approved flag; with high it approves); 'plan never autostarts' (no .runs/<frozen contract id>/ exists after the pipeline ends); 'contested plan writes no contract' (recordings with a critical finding in every round). Keep each test's recordings small."
+        ],
+        "readFiles": [
+          "src/campaign/chain.mjs",
+          "src/cli/launch.mjs",
+          "src/cli/campaign.mjs",
+          "src/campaign/index.mjs",
+          "src/campaign/journal.mjs",
+          "src/cli.mjs",
+          "src/cli/brand.mjs",
+          "src/cli/manual.mjs",
+          "src/cli/spec.mjs",
+          "src/plan/spec.mjs",
+          "src/plan/repo-facts.mjs",
+          "src/plan/routing.mjs",
+          "src/plan/sizing.mjs",
+          "src/plan/freeze.mjs",
+          "src/plan/template.mjs",
+          "src/contract/worker-result.mjs",
+          "test/harnesses/replay-run.test.mjs",
+          "test/plan/spec.test.mjs",
+          "docs/COMMANDS.md",
+          "docs/CONCEPTS.md",
+          "docs/FIELD-OWNERSHIP.md",
+          "test/campaign/field-ownership.test.mjs"
+        ],
+        "writeFiles": [
+          "src/plan/pipeline.mjs",
+          "src/cli/plan.mjs",
+          "src/cli.mjs",
+          "src/cli/brand.mjs",
+          "test/cli/plan.test.mjs",
+          "docs/COMMANDS.md",
+          "docs/CONCEPTS.md",
+          "src/cli/campaign.mjs",
+          "docs/FIELD-OWNERSHIP.md",
+          "test/campaign/field-ownership.test.mjs"
+        ],
+        "symbols": [
+          "runPlanningPipeline"
+        ],
+        "scopeAcknowledged": [
+          "src/campaign/chain.mjs",
+          "src/cli/launch.mjs",
+          "src/campaign/index.mjs",
+          "src/campaign/journal.mjs",
+          "src/cli/manual.mjs",
+          "src/cli/spec.mjs",
+          "src/plan/spec.mjs",
+          "src/plan/repo-facts.mjs",
+          "src/plan/routing.mjs",
+          "src/plan/sizing.mjs",
+          "src/plan/freeze.mjs",
+          "src/plan/template.mjs",
+          "src/contract/worker-result.mjs",
+          "test/harnesses/replay-run.test.mjs",
+          "test/plan/spec.test.mjs",
+          "test/cli/cli.test.mjs",
+          "test/cli/brand.test.mjs",
+          "test/cli/manual.test.mjs",
+          "test/docs/command-surface.test.mjs",
+          "test/campaign/campaign.test.mjs",
+          "test/campaign/ledger.test.mjs",
+          "test/campaign/chain.test.mjs",
+          "test/campaign/chain-restart.test.mjs",
+          "test/campaign/unpark.test.mjs",
+          "test/campaign/projection.test.mjs",
+          "test/campaign/metrics.test.mjs",
+          "test/campaign/brief.test.mjs",
+          "test/seat/seat.test.mjs"
+        ],
+        "decisions": [
+          "Runs, not nodes, are the pipeline's unit, so every planner invocation is accounted like any other.",
+          "Approval reuses open-question and resolve; no new journal event type.",
+          "The frozen contract is never launched by this command."
+        ],
+        "nonGoals": [
+          "No live model anywhere in tests.",
+          "No change to the chain coordinator.",
+          "No spec-authoring verb (the template can build those contracts; a verb for them is a later decision).",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node; no live model in any test or eval (replay harness only).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git only through the bounded helpers already in the tree; any new persisted field goes with its validator allowlist and typedef."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/cli/plan.test.mjs",
+              "test/plan/",
+              "test/docs/command-surface.test.mjs",
+              "test/cli/manual.test.mjs",
+              "test/campaign/field-ownership.test.mjs"
+            ],
+            "timeoutSec": 400
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+              "run",
+              "docs:check"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "plan-eval-cases",
+      "type": "backend",
+      "phase": "planning-pipeline",
+      "dependsOn": [
+        "plan-verb-declared"
+      ],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "d23",
+          "text": "D23 passes: frozen plan, contract present, no run directory",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "d24",
+          "text": "D24 passes: contested, no contract, findings named",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "d25",
+          "text": "D25 passes: detached pipeline completes after its launcher dies",
+          "proof": {
+            "kind": "verification",
+            "ref": "2"
+          }
+        },
+        {
+          "id": "discriminating",
+          "text": "every case, the new three included, fails under its discriminator mutation",
+          "proof": {
+            "kind": "verification",
+            "ref": "3"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "4"
+          }
+        },
+        {
+          "id": "proof-by-eval",
+          "text": "the three guarantees are proven by cases that would fail if the guarantee broke",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Three deterministic eval cases on the replay harness prove the planner's guarantees -- D23 a frozen plan never autostarts, D24 a contested plan emits no contract and names its findings, D25 a detached planning pipeline survives the death of the process that launched it -- each with a discriminator mutation, run by `node evals/run.mjs --case D23|D24|D25`.",
+        "instructions": [
+          "Evidence: evals/deterministic/D01..D22 are contract-driven cases (case.json with contract, recordings, setup, discriminator; evals/case.mjs materializeCase; evals/run.mjs runs the contract and compares with expected.json). The planner is driven by a command, not a contract, so evals/run.mjs needs a case kind that runs `faberun plan` with replay runtimes; read evals/README.md and evals/case.mjs first.",
+          "Change 1, evals/case.mjs and evals/run.mjs: a case whose case.json carries `command: {argv: [...], env?: {...}}` instead of `contract` is materialised the same way (temp git repo, recordings on the replay harness) and run through src/cli.mjs with that argv; expected.json may assert files that exist or do not exist under the temp repo (`expectPaths: {present: [...], absent: [...]}`) and JSON fields of plan.json. Keep --assert-no-model and --verify-discriminating working for the new kind (the discriminator mutates a recording or a flag). Introduce `runPlanCase` as the runner for the command kind.",
+          "Change 2, the three cases: D23 (title 'a frozen plan never launches its contract'): recordings for draft and review, expected plan.json status frozen, contract.json present, and no .runs/<contract id>/ directory; discriminator: a recording that also creates the run directory would fail. D24 ('a contested plan emits no contract and names its findings'): every review recording returns a critical finding, --review-rounds 1, expected status contested, contract.json absent, findings listed, open-question in the journal. D25 ('a detached planning pipeline survives its launcher'): run `plan --detach`, kill the launching process once the bootstrap record exists (through the case's setup hook, never a raw kill of the test runner's own group), wait for plan.json, expected status frozen. No wall-clock bounds from above.",
+          "Change 3: evals/README.md gains a paragraph on command cases; `node evals/run.mjs --verify-fixtures` and `--validate-golden` must keep passing (evals/golden is never edited; if the golden set needs the new cases, follow the README's build-golden procedure and report what it changed)."
+        ],
+        "readFiles": [
+          "evals/README.md",
+          "evals/run.mjs",
+          "evals/case.mjs",
+          "evals/golden.mjs",
+          "evals/build-golden.mjs",
+          "evals/deterministic/D22/case.json",
+          "evals/deterministic/D22/expected.json",
+          "src/cli/plan.mjs",
+          "src/plan/pipeline.mjs",
+          "src/harnesses/replay/index.mjs"
+        ],
+        "writeFiles": [
+          "evals/case.mjs",
+          "evals/run.mjs",
+          "evals/README.md",
+          "evals/deterministic/D23/case.json",
+          "evals/deterministic/D23/expected.json",
+          "evals/deterministic/D23/worker.jsonl",
+          "evals/deterministic/D24/case.json",
+          "evals/deterministic/D24/expected.json",
+          "evals/deterministic/D24/worker.jsonl",
+          "evals/deterministic/D25/case.json",
+          "evals/deterministic/D25/expected.json",
+          "evals/deterministic/D25/worker.jsonl"
+        ],
+        "symbols": [
+          "runPlanCase"
+        ],
+        "scopeAcknowledged": [
+          "evals/golden.mjs",
+          "evals/build-golden.mjs",
+          "evals/deterministic/D22/case.json",
+          "evals/deterministic/D22/expected.json",
+          "src/cli/plan.mjs",
+          "src/plan/pipeline.mjs",
+          "src/harnesses/replay/index.mjs",
+          "test/fixture-runtimes.test.mjs"
+        ],
+        "decisions": [
+          "Command cases reuse the deterministic class and its discriminator discipline.",
+          "Numeric ids keep the repository's convention; the proposal's D-plan names are the titles."
+        ],
+        "nonGoals": [
+          "No live model. No edit to evals/golden by hand.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node; no live model in any test or eval (replay harness only).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git only through the bounded helpers already in the tree; any new persisted field goes with its validator allowlist and typedef."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--case",
+              "D23"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--case",
+              "D24"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--case",
+              "D25"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--verify-discriminating"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    }
+  ]
+}

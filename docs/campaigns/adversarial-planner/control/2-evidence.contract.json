@@ -1,0 +1,391 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "campaignId": "adversarial-planner",
+  "cwd": "/Users/frb/dev/frb/skills",
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "runtimeDefaults": {
+    "worker": "claude-sonnet-worker",
+    "judge": "claude-opus-judge"
+  },
+  "runtimes": {
+    "claude-opus-judge": {
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "reasoning": "high",
+      "vendor": "anthropic-opus",
+      "permissionMode": "plan",
+      "tier": 2,
+      "costRank": 1
+    },
+    "claude-sonnet-worker": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic-sonnet",
+      "permissionMode": "bypassPermissions",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/repo/source-shape.test.mjs",
+        "test/campaign/field-ownership.test.mjs",
+        "test/repo/brand.test.mjs",
+        "test/docs/docs-diet.test.mjs",
+        "test/host/host-layout.test.mjs",
+        "test/docs/reference-load.test.mjs"
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "node_modules/typescript/bin/tsc"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/plugins/nodejs/shims/npm",
+        "run",
+        "docs:check"
+      ],
+      "timeoutSec": 120
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/engine/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/harnesses/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/campaign/",
+        "test/cli/",
+        "test/contract/",
+        "test/docs/",
+        "test/plan/"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "--test",
+        "test/host/",
+        "test/notify/",
+        "test/repo/",
+        "test/report/",
+        "test/run/",
+        "test/seat/",
+        "test/web/",
+        "test/fixture-runtimes.test.mjs"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--class",
+        "deterministic",
+        "--assert-no-model"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "/Users/frb/.asdf/shims/node",
+        "evals/run.mjs",
+        "--verify-discriminating"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "id": "adversarial-planner-2-evidence",
+  "maxParallel": 1,
+  "goal": "Phase 2 (evidence) of campaign adversarial-planner: the seat's allowance is measured where the harness exposes it and its delta written to the journal, and a comparative eval arm decides by measurement whether the planner beats session authoring. Spec: docs/campaigns/adversarial-planner/spec/SPEC.md.",
+  "nodes": [
+    {
+      "id": "seat-allowance-delta",
+      "type": "backend",
+      "phase": "evidence",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "allowance-tests",
+          "text": "allowance, field-ownership, seat and harness tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "measured-signal",
+          "text": "the header records what the stream carries, the delta is journaled when it exists and null when it does not, and FIELD-OWNERSHIP declares the event",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Where the operator harness exposes an allowance signal, the adapter surfaces it, the seat samples it at campaign start and at plan freeze, and the delta is written as a seat.allowance journal event declared in FIELD-OWNERSHIP.md; where the signal does not exist the event records null and never fails.",
+        "instructions": [
+          "Measure first: no adapter parses a rate-limit field today (grep rate_limit src/ finds nothing). Run one trivial `claude -p 'reply with ok' --output-format stream-json --verbose` (this is the one live call this node may make; record its cost) and inspect every event for a rate-limit or allowance field (candidates: rate_limits, rate_limit_status, usage limits in the result event). Write what you found, with the exact field names or their absence, in the header comment of src/seat/allowance.mjs.",
+          "Change 1, if a field exists: src/harnesses/protocol.mjs normalizeClaudeResult (and src/harnesses/claude/index.mjs if it filters events) surfaces it as `allowance: {remaining, limit, resetsAt}` (null members when absent) on the normalized result. If no field exists, the adapter is untouched and allowance sampling returns null.",
+          "Change 2, src/seat/allowance.mjs: `sampleAllowance({harness, invoke})` returns the current allowance from one minimal invocation (injected for tests) or null; `allowanceDelta(start, freeze)` computes the delta or null when either side is null. src/cli/campaign.mjs init and src/plan/pipeline.mjs freeze call it and append a journal event `seat.allowance` {at, type, eventId, sample: start|freeze, harness, remaining, limit, resetsAt, delta} through appendJournal; add the type to ENTRY_SHAPES in src/campaign/journal.mjs and declare its writer and fields in docs/FIELD-OWNERSHIP.md (the ratchet test asserts the declaration matches src/).",
+          "Tests, test/seat/allowance.test.mjs: 'allowance delta' with an injected invoker that returns a signal, 'allowance absent' with one that returns nothing (null, no throw), and the journal event shape; run test/campaign/field-ownership.test.mjs in your verification."
+        ],
+        "readFiles": [
+          "src/harnesses/protocol.mjs",
+          "src/harnesses/claude/index.mjs",
+          "src/seat/index.mjs",
+          "src/seat/harnesses.mjs",
+          "src/campaign/journal.mjs",
+          "src/cli/campaign.mjs",
+          "src/plan/pipeline.mjs",
+          "docs/FIELD-OWNERSHIP.md",
+          "test/campaign/field-ownership.test.mjs"
+        ],
+        "writeFiles": [
+          "src/harnesses/protocol.mjs",
+          "src/harnesses/claude/index.mjs",
+          "src/seat/allowance.mjs",
+          "src/campaign/journal.mjs",
+          "src/cli/campaign.mjs",
+          "src/plan/pipeline.mjs",
+          "docs/FIELD-OWNERSHIP.md",
+          "test/seat/allowance.test.mjs"
+        ],
+        "symbols": [
+          "sampleAllowance"
+        ],
+        "scopeAcknowledged": [
+          "src/seat/index.mjs",
+          "src/seat/harnesses.mjs",
+          "test/campaign/field-ownership.test.mjs",
+          "test/campaign/campaign.test.mjs",
+          "test/campaign/ledger.test.mjs",
+          "test/cli/plan.test.mjs",
+          "test/cli/cli.test.mjs",
+          "test/harnesses/harnesses.test.mjs",
+          "test/seat/seat.test.mjs"
+        ],
+        "decisions": [
+          "A coarse proxy, declared as such; no dollar inference.",
+          "One live measurement call is allowed for the field discovery, none in tests."
+        ],
+        "nonGoals": [
+          "No measurement for harnesses that expose nothing.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node; no live model in any test or eval (replay harness only).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git only through the bounded helpers already in the tree; any new persisted field goes with its validator allowlist and typedef."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/seat/allowance.test.mjs",
+              "test/campaign/field-ownership.test.mjs",
+              "test/seat/seat.test.mjs",
+              "test/harnesses/harnesses.test.mjs"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    },
+    {
+      "id": "planner-comparative-arm",
+      "type": "backend",
+      "phase": "evidence",
+      "dependsOn": [],
+      "timeoutSec": 3600,
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "definitionOfDone": [
+        {
+          "id": "arm-tests",
+          "text": "planner-arm tests pass",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "eight-specs",
+          "text": "--validate-planner-arm --min 8 passes on this repository's records",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        },
+        {
+          "id": "session-arm",
+          "text": "--arm session writes the session-side report",
+          "proof": {
+            "kind": "verification",
+            "ref": "2"
+          }
+        },
+        {
+          "id": "typecheck",
+          "text": "tsc is clean",
+          "proof": {
+            "kind": "verification",
+            "ref": "3"
+          }
+        },
+        {
+          "id": "decides-by-number",
+          "text": "the compare reports deltas with sample counts, null is never 0, and the planner side is producible from saved reports",
+          "judgment": true
+        }
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "evals/planner/ defines the comparative arm: the same specs (the REQUIREMENTS.md siblings of at least eight real campaigns) scored on the session side from the preserved ledgers and records and on the planner side from recorded planner reports; evals/run.mjs gains --arm session|planner, --validate-planner-arm --min 8 and a --compare that reports a delta per indicator with sample counts, where an indicator with no supporting record is null, never 0.",
+        "instructions": [
+          "Evidence: docs/campaigns/*/ledger/ holds journal.jsonl, campaign.json and per-run usage.jsonl for 21 campaigns (copied 2026-09-17) plus the closes since; docs/campaigns/*/spec/REQUIREMENTS.md exists for ten campaigns; evals/metrics.mjs computes indicators from events and usage (projectEvalIndicators, compareEvalReports); evals/run.mjs already has --compare.",
+          "Change 1, evals/planner/arm.mjs: `plannerArm({repoRoot})` lists the campaigns that have both a REQUIREMENTS.md and a ledger, and for the session side derives per campaign: costPerClosedCheckpoint (usage cost / requirements with a proof that names an existing file), planning cost (null: the session side never recorded it), firstPassGateRate and blockedContextRate from the journal's outcome notes when derivable else null, nodes per closed checkpoint from campaign.json and the contracts under control/ when present else null, critical findings per plan (null on the session side). For the planner side it reads recorded reports under evals/planner/reports/<campaign>.json (the shape plan.json + the planning runs' usage) when present. `--arm session` writes evals/planner/session-arm.json; `--arm planner` writes planner-arm.json from the reports or exits explaining there are none; `--validate-planner-arm --min N` fails when fewer than N campaigns qualify; `--compare a.json b.json` (existing) gains sample counts per indicator and keeps null distinct from 0.",
+          "Tests, test/evals/planner-arm.test.mjs: the arm lists at least the qualifying campaigns from a fixture record tree, `--compare` emits a delta per indicator with n, 'null vs zero' (an indicator with no supporting record is null and the compare says 'no data', never 0), and --validate-planner-arm --min 8 passes on this repository's records (run it in verification).",
+          "Docs: evals/README.md gains a section on the planner arm and how the planner side is produced (running faberun plan on a campaign's REQUIREMENTS.md and saving the report), which is an operator action outside this campaign."
+        ],
+        "readFiles": [
+          "evals/run.mjs",
+          "evals/metrics.mjs",
+          "evals/compare.mjs",
+          "evals/README.md",
+          "test/plan/existing-specs.test.mjs",
+          "docs/campaigns/harden-chain-and-verification/ledger/campaign.json",
+          "docs/campaigns/harden-chain-and-verification/spec/REQUIREMENTS.md"
+        ],
+        "writeFiles": [
+          "evals/planner/arm.mjs",
+          "evals/run.mjs",
+          "evals/metrics.mjs",
+          "evals/README.md",
+          "test/evals/planner-arm.test.mjs"
+        ],
+        "symbols": [
+          "plannerArm"
+        ],
+        "scopeAcknowledged": [
+          "evals/compare.mjs",
+          "test/plan/existing-specs.test.mjs",
+          "docs/campaigns/harden-chain-and-verification/ledger/campaign.json",
+          "docs/campaigns/harden-chain-and-verification/spec/REQUIREMENTS.md",
+          "test/fixture-runtimes.test.mjs"
+        ],
+        "decisions": [
+          "Records are read, never written; the planner side is fed by saved reports.",
+          "null means unmeasured; 0 means measured zero."
+        ],
+        "nonGoals": [
+          "No live planner run. No edit to any record.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done. Quick targeted test files are fine.",
+          "No new test depends on the wall clock, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node; no live model in any test or eval (replay harness only).",
+          "Every new src/ module starts with a header comment saying what it owns and why it is separate; git only through the bounded helpers already in the tree; any new persisted field goes with its validator allowlist and typedef."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "--test",
+              "test/evals/planner-arm.test.mjs"
+            ],
+            "timeoutSec": 200
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--validate-planner-arm",
+              "--min",
+              "8"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "evals/run.mjs",
+              "--arm",
+              "session"
+            ],
+            "timeoutSec": 120
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/shims/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      }
+    }
+  ]
+}
