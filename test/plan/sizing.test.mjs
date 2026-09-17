@@ -64,6 +64,29 @@ test("contained-write-set merge: a node with no verification whose writeFiles si
   assert.ok(transformations.some((entry) => entry.rule === "contained-write-set-merge" && entry.nodes[0] === "q" && entry.nodes[1] === "p"));
 });
 
+test("contained-write-set merge: a dependsOn from the parent onto the merged child is dropped, not left dangling", () => {
+  /** @type {import("../../src/plan/sizing.mjs").Plan} */
+  const plan = {
+    nodes: [
+      {
+        id: "a",
+        dependsOn: ["b"],
+        taskPacket: { writeFiles: ["src/m.mjs", "test/m.test.mjs"], verification: [{ argv: ["node", "--test", "test/m.test.mjs"], measuredMs: 100 }] },
+        definitionOfDone: [{ id: "ad", text: "implements m", proof: { kind: "command", ref: "0" } }],
+      },
+      {
+        id: "b",
+        taskPacket: { writeFiles: ["src/m.mjs"], verification: [] },
+        definitionOfDone: [{ id: "bd", text: "scaffolds m", proof: { kind: "path", ref: "src/m.mjs" } }],
+      },
+    ],
+  };
+  const { plan: sized } = applySizingRules(plan, { nodeBudgetMs: BUDGET, targetedFix: true });
+  assert.equal(sized.nodes.length, 1);
+  const merged = /** @type {import("../../src/plan/sizing.mjs").PlanNode} */ (sized.nodes.find((node) => node.id === "a"));
+  assert.deepEqual(merged.dependsOn ?? [], []);
+});
+
 test("over-budget verification split: a command past the node budget is replaced by covering test files from repo facts", () => {
   /** @type {import("../../src/plan/sizing.mjs").Plan} */
   const plan = {
@@ -169,6 +192,30 @@ test("a dependency chain deeper than 8 requires plan.justification", () => {
   assert.equal(sized.nodes.length, 9);
 });
 
+test("a dependsOn cycle is refused by name instead of overflowing the stack", () => {
+  /** @type {import("../../src/plan/sizing.mjs").Plan} */
+  const plan = {
+    nodes: [
+      {
+        id: "cy1",
+        dependsOn: ["cy2"],
+        taskPacket: { writeFiles: ["src/cy1.mjs"], verification: [{ argv: ["node", "--test", "test/cy1.test.mjs"], measuredMs: 100 }] },
+        definitionOfDone: [{ id: "e1", text: "implements cy1", proof: { kind: "command", ref: "0" } }],
+      },
+      {
+        id: "cy2",
+        dependsOn: ["cy1"],
+        taskPacket: { writeFiles: ["src/cy2.mjs"], verification: [{ argv: ["node", "--test", "test/cy2.test.mjs"], measuredMs: 100 }] },
+        definitionOfDone: [{ id: "e2", text: "implements cy2", proof: { kind: "command", ref: "0" } }],
+      },
+    ],
+  };
+  assert.throws(
+    () => applySizingRules(plan, { nodeBudgetMs: BUDGET }),
+    (error) => error instanceof Error && error.message.includes("sizing_dependency_cycle"),
+  );
+});
+
 test("sizing records rule provenance: every transformation names the rule that caused it", () => {
   /** @type {import("../../src/plan/sizing.mjs").Plan} */
   const plan = {
@@ -214,6 +261,11 @@ test("sizing is idempotent: applying it to its own output yields the same plan a
         id: "c3",
         taskPacket: { writeFiles: ["src/y.mjs"], verification: [{ argv: ["node", "--test", "test/y.test.mjs"], measuredMs: 100 }] },
         definitionOfDone: [{ id: "d3", text: "implements y", proof: { kind: "path", ref: "src/y.mjs" } }],
+      },
+      {
+        id: "c4",
+        taskPacket: { writeFiles: ["src/z.mjs"], verification: [{ argv: ["node", "--test", "test/"], measuredMs: 700_000 }] },
+        definitionOfDone: [{ id: "d4", text: "implements z", proof: { kind: "command", ref: "0" } }],
       },
     ],
   };
