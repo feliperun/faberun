@@ -18,7 +18,7 @@ import { unparkCampaign } from "../campaign/unpark.mjs";
 import { readCampaign } from "../campaign/record.mjs";
 import { notifyQueueFor } from "../engine/notify-queue.mjs";
 import { appendInbox, readInbox, wakeCapabilityNotice } from "../notify/index.mjs";
-import { sampleAllowance } from "../seat/allowance.mjs";
+import { allowanceEventFields, sampleAllowance } from "../seat/allowance.mjs";
 import { detectOperatorHarness } from "../seat/harnesses.mjs";
 import { detachArgv, detachSelf, waitForBootstrap } from "./launch.mjs";
 import { errorCode, readJsonTolerant } from "../util.mjs";
@@ -342,10 +342,8 @@ async function init(campaignId, values) {
   appendSeatAllowanceEvent(created.path, {
     sample: "start",
     harness,
-    remaining: allowance?.remaining ?? null,
-    limit: allowance?.limit ?? null,
-    resetsAt: allowance?.resetsAt ?? null,
     delta: null,
+    ...allowanceEventFields(allowance),
   });
   renderHandoff(created.path, runsDir);
   process.stdout.write(`[campaign] ${campaignId} initialized · ${created.path} · landBranch ${created.campaign.landBranch} · ${created.campaign.contracts.length} contract(s)\n`);

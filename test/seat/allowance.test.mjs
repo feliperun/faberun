@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeCampaign } from "../../src/campaign/index.mjs";
 import { appendSeatAllowanceEvent, readJournal } from "../../src/campaign/journal.mjs";
-import { allowanceDelta, defaultInvoke, sampleAllowance } from "../../src/seat/allowance.mjs";
+import { allowanceDelta, allowanceEventFields, defaultInvoke, sampleAllowance } from "../../src/seat/allowance.mjs";
 import { normalizeClaudeResult } from "../../src/harnesses/protocol.mjs";
 
 /** The `rate_limit_event` line as measured 2026-09-17 against a live `claude -p` probe, verbatim. */
@@ -206,6 +206,90 @@ test("journal event carries the window a sample measured", () => {
   const journal = /** @type {any[]} */ (readJournal(created.path));
   const allowanceEvent = journal.find((event) => event.type === "seat.allowance");
   assert.equal(allowanceEvent.window, "seven_day");
+});
+
+test("a start sample and a freeze sample of the same window journal a delta and both events carry that window", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "seat-allowance-writers-same-window-"));
+  const runsDir = join(cwd, ".runs");
+  const created = initializeCampaign(runsDir, { campaignId: "seat-allowance-writers-same-window", goal: "measure the seat's allowance" });
+
+  const start = await sampleAllowance({
+    harness: "claude",
+    invoke: async () => ({ stdout: claudeStreamWithUtilization(0.77), exitCode: 0, signal: null }),
+  });
+  appendSeatAllowanceEvent(created.path, { sample: "start", harness: "claude", delta: null, ...allowanceEventFields(start) });
+
+  const freeze = await sampleAllowance({
+    harness: "claude",
+    invoke: async () => ({ stdout: claudeStreamWithUtilization(0.5), exitCode: 0, signal: null }),
+  });
+  appendSeatAllowanceEvent(created.path, {
+    sample: "freeze", harness: "claude", delta: allowanceDelta(start, freeze), ...allowanceEventFields(freeze),
+  });
+
+  const [startEvent, freezeEvent] = /** @type {any[]} */ (readJournal(created.path)).filter((event) => event.type === "seat.allowance");
+  assert.equal(startEvent.window, "seven_day");
+  assert.equal(freezeEvent.window, "seven_day");
+  assert.ok(freezeEvent.delta !== null);
+  assert.ok(Math.abs(freezeEvent.delta - (0.5 - 0.22999999999999998)) < 1e-9);
+});
+
+test("a start/freeze pair whose windows differ journals a null delta with both windows visible", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "seat-allowance-writers-diff-window-"));
+  const runsDir = join(cwd, ".runs");
+  const created = initializeCampaign(runsDir, { campaignId: "seat-allowance-writers-diff-window", goal: "measure the seat's allowance" });
+
+  const fiveHourStart = await sampleAllowance({
+    harness: "claude",
+    invoke: async () => ({
+      stdout: `${JSON.stringify({
+        type: "rate_limit_event",
+        rate_limit_info: {
+          rateLimitType: "five_hour",
+          utilization: 0.1,
+          unifiedWindows: { five_hour: { utilization: 0.1, resetsAt: 1789663200 }, seven_day: { utilization: 0.77, resetsAt: 1789837200 } },
+        },
+      })}\n${JSON.stringify({ type: "result", is_error: false, result: "ok", session_id: "s1", usage: {}, total_cost_usd: 0 })}\n`,
+      exitCode: 0,
+      signal: null,
+    }),
+  });
+  appendSeatAllowanceEvent(created.path, { sample: "start", harness: "claude", delta: null, ...allowanceEventFields(fiveHourStart) });
+
+  const sevenDayFreeze = await sampleAllowance({
+    harness: "claude",
+    invoke: async () => ({ stdout: claudeStreamWithUtilization(0.77), exitCode: 0, signal: null }),
+  });
+  appendSeatAllowanceEvent(created.path, {
+    sample: "freeze", harness: "claude", delta: allowanceDelta(fiveHourStart, sevenDayFreeze), ...allowanceEventFields(sevenDayFreeze),
+  });
+
+  const [startEvent, freezeEvent] = /** @type {any[]} */ (readJournal(created.path)).filter((event) => event.type === "seat.allowance");
+  assert.equal(startEvent.window, "five_hour");
+  assert.equal(freezeEvent.window, "seven_day");
+  assert.equal(freezeEvent.delta, null);
+});
+
+test("the absent-signal path still records nulls without throwing", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "seat-allowance-writers-absent-"));
+  const runsDir = join(cwd, ".runs");
+  const created = initializeCampaign(runsDir, { campaignId: "seat-allowance-writers-absent", goal: "measure the seat's allowance" });
+
+  const noSignal = await sampleAllowance({
+    harness: "claude",
+    invoke: async () => ({ stdout: RESULT_ONLY_STREAM, exitCode: 0, signal: null }),
+  });
+  assert.equal(noSignal, null);
+
+  assert.doesNotThrow(() => appendSeatAllowanceEvent(created.path, {
+    sample: "start", harness: "claude", delta: null, ...allowanceEventFields(noSignal),
+  }));
+
+  const startEvent = /** @type {any[]} */ (readJournal(created.path)).find((event) => event.type === "seat.allowance");
+  assert.deepEqual(
+    { remaining: startEvent.remaining, limit: startEvent.limit, resetsAt: startEvent.resetsAt, window: startEvent.window },
+    { remaining: null, limit: null, resetsAt: null, window: null },
+  );
 });
 
 test("the probe's argv is built by the claude adapter, not a hand-written command line", async () => {

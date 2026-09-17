@@ -21,7 +21,7 @@ import { appendSeatAllowanceEvent, readJournal } from "../campaign/journal.mjs";
 import { readCampaign } from "../campaign/record.mjs";
 import { campaignCli } from "../cli/campaign.mjs";
 import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
-import { allowanceDelta, sampleAllowance } from "../seat/allowance.mjs";
+import { allowanceDelta, allowanceEventFields, sampleAllowance } from "../seat/allowance.mjs";
 import { validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
 import { RISK_TIERS, buildPlanningContract, validateFindings, validatePlanOutput } from "./template.mjs";
@@ -231,15 +231,13 @@ export async function runPlanningPipeline(options) {
   const freezeHarness = startEntry?.harness ?? null;
   const freezeAllowance = await sampleAllowance({ harness: freezeHarness });
   const startAllowance = startEntry
-    ? { remaining: startEntry.remaining ?? null, limit: startEntry.limit ?? null, resetsAt: startEntry.resetsAt ?? null }
+    ? { remaining: startEntry.remaining ?? null, limit: startEntry.limit ?? null, resetsAt: startEntry.resetsAt ?? null, window: startEntry.window ?? null }
     : null;
   appendSeatAllowanceEvent(campaignPath, {
     sample: "freeze",
     harness: freezeHarness,
-    remaining: freezeAllowance?.remaining ?? null,
-    limit: freezeAllowance?.limit ?? null,
-    resetsAt: freezeAllowance?.resetsAt ?? null,
     delta: allowanceDelta(startAllowance, freezeAllowance),
+    ...allowanceEventFields(freezeAllowance),
   });
 
   const approved = approveBelow === "high" ? true : approveBelow === "none" ? false : highestRiskTier !== "high";

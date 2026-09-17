@@ -18,8 +18,9 @@ import {
   resolveCampaign,
 } from "../../src/campaign/index.mjs";
 import { readCampaign } from "../../src/campaign/record.mjs";
-import { appendJournal, readJournal, validateJournalEntry } from "../../src/campaign/journal.mjs";
+import { appendJournal, appendSeatAllowanceEvent, readJournal, validateJournalEntry } from "../../src/campaign/journal.mjs";
 import { CAMPAIGN_FILE, HANDOFF_BYTES, HANDOFF_FILE, JOURNAL_FILE, JOURNAL_TEXT_BYTES, PROJECTION_FILE } from "../../src/campaign/layout.mjs";
+import { allowanceEventFields } from "../../src/seat/allowance.mjs";
 
 // Campaign lifecycle: init, discover, resolve, journal append, close.
 // Projection and handoff rendering are in projection.test.mjs.
@@ -579,6 +580,21 @@ test("promoting the same run twice through the campaign records one promotion", 
 
   const promotions = readCampaign(campaignPath).promotions;
   assert.equal(promotions.length, 1, "a replayed promotion does not add a second record");
+});
+
+test("campaign init's seat.allowance start event carries the window field when a sample is available", () => {
+  // `campaign init` (src/cli/campaign.mjs) builds this event through
+  // `allowanceEventFields` exactly this way; this proves the window a sample
+  // measured reaches the journal rather than being dropped at the call site.
+  const directory = mkdtempSync(join(tmpdir(), "runner-campaign-allowance-window-"));
+  const runsDir = join(directory, ".runs");
+  const created = initializeCampaign(runsDir, { campaignId: "allowance-window", goal: "Prove campaign init threads the sampled window" });
+  const sample = { remaining: 0.23, limit: 1, resetsAt: "2026-09-17T00:00:00.000Z", window: "seven_day" };
+  appendSeatAllowanceEvent(created.path, { sample: "start", harness: "claude", delta: null, ...allowanceEventFields(sample) });
+
+  const startEvent = /** @type {any[]} */ (readJournal(created.path)).find((event) => event.type === "seat.allowance" && event.sample === "start");
+  assert.ok(startEvent, "seat.allowance start event recorded");
+  assert.equal(startEvent.window, "seven_day");
 });
 
 test("a parked campaign records attention and refuses a malformed one", () => {

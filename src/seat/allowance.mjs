@@ -155,3 +155,23 @@ export function allowanceDelta(start, freeze) {
   if (!start.window || !freeze.window || start.window !== freeze.window) return null;
   return freeze.remaining - start.remaining;
 }
+
+/**
+ * The four sampled fields a `seat.allowance` journal event carries, from a
+ * sample or its absence: every member null when there is no sample, so a
+ * call site building the event never repeats this null-coalescing itself. The
+ * one place both `campaign init`'s start write and `plan freeze`'s freeze
+ * write get these fields from, alongside `appendSeatAllowanceEvent`
+ * (`campaign/journal.mjs`) being the one place either write actually happens.
+ *
+ * @param {Allowance|null} sample
+ * @returns {{remaining: number|null, limit: number|null, resetsAt: string|null, window: string|null}}
+ */
+export function allowanceEventFields(sample) {
+  return {
+    remaining: sample?.remaining ?? null,
+    limit: sample?.limit ?? null,
+    resetsAt: sample?.resetsAt ?? null,
+    window: sample?.window ?? null,
+  };
+}
