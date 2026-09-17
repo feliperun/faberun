@@ -608,14 +608,18 @@ Related: `faberun campaign note`, `faberun campaign show`.
 faberun campaign close <campaign-id> [--cwd <value>] [--event-id <value>]
 ```
 Close a campaign. It refuses until a `retrospective` note exists; a closed
-campaign stays inspectable but rejects further writes.
+campaign stays inspectable but rejects further writes. Before sealing it,
+close copies the journal, the campaign record and every linked run's
+`usage.jsonl` into `docs/campaigns/<id>/ledger/`, since `.runs/` is gitignored
+and would otherwise take that history with it.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
 | `--cwd` | directory | Repository holding `.runs/`. | current directory |
 | `--event-id` | id | Event id for the close entry. | a random UUID |
 Writes `.runs/campaigns/<id>/campaign.json`, `journal.jsonl` and `HANDOFF.md`;
-updates the managed signal block in `AGENTS.md`.
+`docs/campaigns/<id>/ledger/`; updates the managed signal block in
+`AGENTS.md`.
 ```bash
 node src/cli.mjs campaign close feature-42 --cwd /repo
 ```

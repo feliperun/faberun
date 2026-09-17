@@ -28,7 +28,10 @@ landing branch, and the journal of what happened. Campaign state lives at
 `HANDOFF.md`, managed by `campaign init`, `attach`, `note`, `sync`, `ack`,
 `watch`, `resolve`, `close`, `list` and `show`. The invariant: every contract
 requires a `campaignId`; a campaign can link many runs, and `close` refuses
-until a `retrospective` note exists. See [COMMANDS.md](COMMANDS.md#campaign) and
+until a `retrospective` note exists. `close` also copies the journal, the
+record and every linked run's usage into `docs/campaigns/<id>/ledger/`, so
+that history survives once `.runs/` (gitignored) is pruned. See
+[COMMANDS.md](COMMANDS.md#campaign) and
 [operations.md](../skills/faberun/references/operations.md).
 
 ## Contract
