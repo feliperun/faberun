@@ -2,6 +2,18 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.8.0](https://github.com/feliperun/faberun/compare/v0.7.0...v0.8.0) (2026-09-17)
+
+
+### Features
+
+* validated spec format, deterministic planner stages, ledgers that outlive campaigns ([f888e1e](https://github.com/feliperun/faberun/commit/f888e1e2ecbcfbceecc3b17029cb4f5418bcd9a2))
+
+
+### Bug Fixes
+
+* **ci:** fetch full history so spec baselines resolve under strict traceability ([08d1110](https://github.com/feliperun/faberun/commit/08d11102655ae5e0fa110c395c34a8c1ccd45530))
+
 ## [0.7.0](https://github.com/feliperun/faberun/compare/v0.6.0...v0.7.0) (2026-09-17)
 
 
