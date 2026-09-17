@@ -2,6 +2,16 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.10.0](https://github.com/feliperun/faberun/compare/v0.9.0...v0.10.0) (2026-09-17)
+
+
+### Features
+
+* base-ref validation everywhere, dispatch while verifying, one suite per phase ([51228cb](https://github.com/feliperun/faberun/commit/51228cb82a36060bd9faaf3cf854a6baa1fce996))
+* **engine:** a free slot dispatches while another node verifies ([c022e64](https://github.com/feliperun/faberun/commit/c022e64de35116a75980106151c2f2ad33ec449e))
+* **engine:** the contract's final verification runs once per phase ([1388c92](https://github.com/feliperun/faberun/commit/1388c9269d8bd54d8983d0a4576166aec796d441))
+* **report:** the status names the candidate phase and the gate outcome ([6212d85](https://github.com/feliperun/faberun/commit/6212d85eddc67d1abd3d46a55ef6d4890c7c5c14))
+
 ## [0.9.0](https://github.com/feliperun/faberun/compare/v0.8.0...v0.9.0) (2026-09-17)
 
 
