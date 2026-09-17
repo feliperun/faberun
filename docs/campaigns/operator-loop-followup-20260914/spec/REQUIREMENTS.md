@@ -29,7 +29,7 @@ evidence from the counter so clearing one never clears the other, and prices
   tried, and their resets) and `routing.tierExhaustionCycle` (the generation
   counter) are two sibling fields; cleanup on an unrelated outcome removes
   only the evidence, never the counter.
-- **proof:** `command: node --test --test-name-pattern="a node that resolves for an unrelated reason after previously carrying tierExhaustion evidence" test/engine/tier-exhaustion.test.mjs`
+- **proof:** `command: node --test --test-name-pattern="an ordinary success after a tier hop removes the evidence and leaves the counter untouched" test/engine/tier-exhaustion.test.mjs`
 
 ### R2. The reproduced round-4 regression stays fixed
 
@@ -59,7 +59,7 @@ evidence from the counter so clearing one never clears the other, and prices
   `costProvenance: "priced"`; a provider-reported cost leaves the result's
   provenance absent while the ledger record still carries the literal
   `"provider"`, matching `run/usage.mjs`'s existing asymmetric rule.
-- **proof:** `command: node --test --test-name-pattern="done-when 1: a priced runtime's successful bulkRead\(\) result carries costProvenance priced on result and ledger" test/engine/bulk-read.test.mjs`
+- **proof:** `command: node --test --test-name-pattern="done-when 1: a priced successful bulk read carries costProvenance priced on result and ledger" test/engine/bulk-read.test.mjs`
 
 ## Non-goals
 
