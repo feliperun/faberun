@@ -213,6 +213,7 @@ Before starting new work here, check `.runs/`: if a campaign is active or a run 
   - run `state-location-and-routing-economics-0-protocol-and-transport-isolation`: succeeded (3/3 nodes)
   - run `state-location-and-routing-economics-0b-judge-cannot-write`: parked — `a-judge-that-writes-is-a-protocol-defect:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/state-location-and-routing-economics-0b-judge-cannot-write`
   - run `state-location-and-routing-economics-0b2-judge-cannot-write`: parked — `a-judge-that-writes-is-a-protocol-defect:blocked judge_unavailable` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/state-location-and-routing-economics-0b2-judge-cannot-write`
+  - run `state-location-and-routing-economics-0b3-verdict-and-write-check`: canceled
   - attention: run harden-chain-and-verification-2-verification-fairness needs you · verification_failed
 - faberun run `adversarial-planner-1-planning-pipeline`: parked — `discovery-result-output:blocked context_missing`, `planning-contract-template:blocked dependency_failed`, `plan-verb:blocked dependency_failed`, `plan-eval-cases:blocked dependency_failed` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/adversarial-planner-1-planning-pipeline`
 - faberun run `adversarial-planner-1b-discovery-result-output`: parked — `plan-eval-cases:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/adversarial-planner-1b-discovery-result-output`
