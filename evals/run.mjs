@@ -25,7 +25,11 @@ import { compareEvalReports, mergeEvalRunSources, projectEvalIndicators, readEva
 import { discoverCaseIds, loadCase, materializeCase, materializePlanCase, safeJoin, withEnvOverlay, withModelBinsUnavailable } from "./case.mjs";
 import { applyDiscriminator, compareGc, compareIntegration, compareNode, comparePreflight, normalizedSteps } from "./compare.mjs";
 import { runValidateGolden, runVerifyFixtures } from "./golden.mjs";
-import { UsageError, usageError } from "./paths.mjs";
+import { EVALS_ROOT, UsageError, usageError } from "./paths.mjs";
+import { plannerArm, qualifyingSessionCampaigns, sessionArm } from "./planner/arm.mjs";
+
+/** The repository root, one level above `evals/`, that the comparative arm reads every campaign record under. */
+const REPO_ROOT = resolve(EVALS_ROOT, "..");
 
 /** The CLI entry a command-kind case's `invoke`/`spawnDetached` steps spawn, exactly as `src/cli/launch.mjs`'s own detached children do. */
 const CLI_ENTRY = fileURLToPath(new URL("../src/cli.mjs", import.meta.url));
@@ -551,6 +555,80 @@ function runProject(rest) {
 }
 
 /**
+ * `evals/run.mjs --arm session|planner [--json]`: project the comparative
+ * arm's session side (from each campaign's `docs/campaigns/<id>/ledger`
+ * directory) or planner side (from `evals/planner/reports/<id>.json`) and
+ * write it to
+ * `evals/planner/{session,planner}-arm.json`, in the same
+ * `{schemaVersion, provenance, indicators}` shape `--project` writes, so
+ * `--compare session-arm.json planner-arm.json` works unmodified.
+ *
+ * @param {string[]} rest
+ * @returns {void}
+ */
+function runArm(rest) {
+  const asJson = rest.includes("--json");
+  const side = rest.find((arg) => arg !== "--json");
+  if (side !== "session" && side !== "planner") {
+    usageError('--arm needs "session" or "planner"');
+    return;
+  }
+  if (side === "planner") {
+    const report = plannerArm({ repoRoot: REPO_ROOT });
+    if (report.campaigns.length === 0) {
+      process.stderr.write(
+        "no planner reports found under evals/planner/reports/ -- run `faberun plan` against a campaign's REQUIREMENTS.md and save the report there first (see evals/README.md's \"Comparative arm\" section)\n",
+      );
+      process.exitCode = 1;
+      return;
+    }
+    const outPath = join(EVALS_ROOT, "planner", "planner-arm.json");
+    writeJsonAtomic(outPath, report);
+    if (asJson) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    else process.stdout.write(`planner arm written to ${outPath} (${report.campaigns.length} report(s))\n`);
+    return;
+  }
+  const report = sessionArm({ repoRoot: REPO_ROOT });
+  const outPath = join(EVALS_ROOT, "planner", "session-arm.json");
+  writeJsonAtomic(outPath, report);
+  if (asJson) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  else process.stdout.write(`session arm written to ${outPath} (${report.campaigns.length} campaign(s))\n`);
+}
+
+/**
+ * `evals/run.mjs --validate-planner-arm --min <n> [--json]`: fail unless at
+ * least `n` campaigns qualify for the comparative arm (a structured
+ * `REQUIREMENTS.md` and a preserved ledger) -- proof there is enough session
+ * material for a planner-side comparison to mean anything, independent of
+ * whether any planner report has been saved yet.
+ *
+ * @param {string[]} rest
+ * @returns {void}
+ */
+function runValidatePlannerArm(rest) {
+  const asJson = rest.includes("--json");
+  const minIndex = rest.indexOf("--min");
+  if (minIndex === -1 || rest[minIndex + 1] === undefined) {
+    usageError("--validate-planner-arm needs --min <n>");
+    return;
+  }
+  const min = Number(rest[minIndex + 1]);
+  if (!Number.isInteger(min) || min < 0) {
+    usageError(`--min must be a non-negative integer: ${rest[minIndex + 1]}`);
+    return;
+  }
+  const campaignIds = qualifyingSessionCampaigns({ repoRoot: REPO_ROOT });
+  const ok = campaignIds.length >= min;
+  if (asJson) {
+    process.stdout.write(`${JSON.stringify({ schemaVersion: 1, ok, min, count: campaignIds.length, campaigns: campaignIds }, null, 2)}\n`);
+  } else {
+    process.stdout.write(`${campaignIds.length}/${min} required campaigns qualify for the comparative arm\n`);
+    for (const id of campaignIds) process.stdout.write(`  ${id}\n`);
+  }
+  if (!ok) process.exitCode = 1;
+}
+
+/**
  * @param {string[]} argv
  * @returns {Promise<void>}
  */
@@ -569,6 +647,14 @@ async function main(argv) {
   }
   if (argv[0] === "--verify-fixtures") {
     runVerifyFixtures(argv.slice(1));
+    return;
+  }
+  if (argv[0] === "--arm") {
+    runArm(argv.slice(1));
+    return;
+  }
+  if (argv[0] === "--validate-planner-arm") {
+    runValidatePlannerArm(argv.slice(1));
     return;
   }
   /** @type {{values: Record<string, unknown>}} */

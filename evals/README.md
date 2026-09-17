@@ -71,11 +71,77 @@ output, not written by hand.
 `--project`-shaped `{provenance, indicators}` wrapper) and prints, per
 indicator, each side's value and sample count, the delta, and the direction
 that counts as improvement. Comparing a `null` indicator against a measured
-number never produces a numeric delta — it reports "sem base de
-comparacao" (`comparable: false`) instead of a delta that would silently
-read as zero.
+number never produces a numeric delta — it reports "no data"
+(`comparable: false`) instead of a delta that would silently read as zero.
 
 Exit code is 1 if any case fails, 0 otherwise.
+
+## Comparative arm
+
+```
+node evals/run.mjs --arm session|planner [--json]
+node evals/run.mjs --validate-planner-arm --min <n> [--json]
+```
+
+The comparative arm asks the same question `--project`/`--compare` ask of one
+run, across two disjoint, already-closed sources instead: the **session**
+side reads the preserved records under `docs/campaigns/*/ledger` (a real,
+human-directed session's own campaign journal, usage ledger and landed
+contracts) for every campaign that also carries a structured
+`spec/REQUIREMENTS.md` sibling (see `test/plan/existing-specs.test.mjs`); the
+**planner** side reads operator-saved reports under
+`evals/planner/reports/<campaignId>.json`, each one a record of running
+`faberun plan` against that same campaign's `REQUIREMENTS.md`. Neither side
+runs anything live and neither ever edits a preserved record —
+`evals/planner/arm.mjs` only reads.
+
+Both sides project the same six indicators (`costPerClosedCheckpoint`,
+`planningCost`, `firstPassGateRate`, `blockedContextRate`,
+`nodesPerClosedCheckpoint`, `criticalFindingsPerPlan`), each the usual
+`{value, direction, count}` shape averaged across every qualifying campaign
+or report; an indicator with no supporting record on a given side is `null`
+for that side, never `0`. Because the ledger keeps no per-node
+`events.jsonl`, several session-side indicators are coarser than
+`--project`'s: `costPerClosedCheckpoint` divides ledger usage cost by the
+count of `REQUIREMENTS.md` requirements whose proof names a file that exists
+on disk (the ledger's own stand-in for "a closed checkpoint"),
+`nodesPerClosedCheckpoint` divides the node count summed across the
+campaign's `control/*.contract.json` files by the count of distinct `runId`s
+its `campaign.json` promoted, and `firstPassGateRate`/`blockedContextRate`
+are mined from the journal's own free-text `outcome`/`decision` notes
+(`"...on the first attempt"`, `"...blocked..."`) — a coarse text proxy that
+reports `null` for a campaign whose notes never mention an attempt count,
+rather than a rate over zero notes. `planningCost` and
+`criticalFindingsPerPlan` are always `null` on the session side: no session
+ever recorded a planning phase or a plan review separately from its worker
+spend.
+
+`--arm session` writes `evals/planner/session-arm.json`.
+`--arm planner` writes `evals/planner/planner-arm.json`, or exits 1
+explaining there is nothing to write when no report exists yet under
+`evals/planner/reports/`. Producing a planner report is an operator action
+outside any one campaign: run `faberun plan --spec docs/campaigns/<id>/spec/REQUIREMENTS.md ...`
+against a campaign's own requirements, then save
+`{schemaVersion: 1, campaignId, usage: [...the planning pipeline's own usage
+records, same shape as a ledger's *.usage.jsonl...], plan: {nodeCount,
+roundsUsed, criticalFindings, blockedAttempts}}` to
+`evals/planner/reports/<campaignId>.json` by hand. `plan.nodeCount` is the
+frozen plan's node count, `plan.roundsUsed` is how many draft/review/revise
+rounds it took before freezing (`1` means first-pass), `plan.criticalFindings`
+is the count of `critical`-severity findings the plan's own review raised,
+and `plan.blockedAttempts` is how many of its worker invocations returned
+`blocked_context`; any of the four left out reports `null` for the indicator
+that needed it, exactly like the session side.
+
+Once at least one planner report exists,
+`node evals/run.mjs --compare evals/planner/session-arm.json evals/planner/planner-arm.json`
+reports the delta per indicator between what a session actually spent and
+found against the same spec and what `faberun plan` would have.
+
+`--validate-planner-arm --min <n>` fails (exit 1) unless at least `n`
+campaigns qualify for the session side — proof there is enough closed session
+material for the comparison to mean something, independent of whether any
+planner report has been saved yet.
 
 ## Case format
 
