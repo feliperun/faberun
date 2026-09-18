@@ -222,6 +222,5 @@ Before starting new work here, check `.runs/`: if a campaign is active or a run 
   - run `state-location-and-routing-economics-0c6-legibility-and-delivery`: canceled
   - run `state-location-and-routing-economics-0c7-honest-attribution`: canceled
   - run `state-location-and-routing-economics-1-run-path-resolver`: canceled
-  - attention: run harden-chain-and-verification-2-verification-fairness needs you · verification_failed
 - … signal truncated; read the campaign HANDOFF.md for the rest
 <!-- faberun-active:end -->
