@@ -9,6 +9,7 @@ import { runContract } from "../../src/engine/scheduler.mjs";
 import { fakeCodex, fixture, packet, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState, notifications, withBrokenGateCodex } from "../runner-helpers.mjs";
 import { renderFindings } from "../../src/report/render.mjs";
+import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
 test("fails deterministic verification before the judge", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-verification-fail-"));
@@ -369,7 +370,7 @@ test("a judge that writes into its own workspace is blocked as a judge_protocol 
 
 test("skips the judge for an empty Definition of Done checklist", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-empty-dod-gate-"));
-  const judgeCalls = join(directory, ".runs", "empty-dod-judge-calls.txt");
+  const judgeCalls = join(runsRoot(directory), "empty-dod-judge-calls.txt");
   const fake = join(directory, "empty-dod-provider.mjs");
   writeFileSync(fake, `#!${process.execPath}
 import { appendFileSync } from "node:fs";
@@ -566,14 +567,14 @@ test("the judge re-ask bound survives a controller crash in either gap because i
   const outDir = mkdtempSync(join(tmpdir(), "runner-judge-reask-durable-out-"));
   const counter = join(outDir, "judge-calls.txt");
   const promptTwo = join(outDir, "judge-prompt-2.txt");
-  const runDir = join(directory, ".runs", "judge-reask-durable-run");
+  const runDir = runDirectory(directory, "judge-reask-durable-run");
   // Crash images the controller itself persisted, taken at the two instants a
   // standalone marker left open: the write that dispatches the bounded re-ask,
   // and the moment its verdict is durable while the blocked transition is not.
   // Each excludes what no successor controller inherits: the dead controller's
   // lock, its in-flight atomic temporaries and its file locks.
-  const dispatchGap = join(directory, ".runs", "judge-reask-dispatch-gap");
-  const verdictGap = join(directory, ".runs", "judge-reask-verdict-gap");
+  const dispatchGap = join(runsRoot(directory), "judge-reask-dispatch-gap");
+  const verdictGap = join(runsRoot(directory), "judge-reask-verdict-gap");
   /** @param {string} source @returns {boolean} */
   const inherited = (source) => !source.endsWith(".tmp") && !source.endsWith(".lock") && !source.endsWith("controller.lock");
   const uncited = JSON.stringify({ verdict: "fail", maxSeverity: "critical", summary: "not acceptable", findings: [{ severity: "critical", description: "the work is not acceptable", evidence: "inspected the delivered diff" }] });

@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFil
 import { initializeCampaign } from "../src/campaign/index.mjs";
 import { dirname, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
+import { runDirectory, runsRoot } from "../src/run/paths.mjs";
 
 const DETERMINISTIC_ROOT = join(EVALS_ROOT, "deterministic");
 const MODEL_BIN_VARS = [
@@ -306,9 +307,9 @@ export function materializeCase(caseDir, spec, patch = {}) {
 
   const contractPath = join(workDir, "contract.json");
   writeFileSync(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
-  initializeCampaign(join(workDir, ".runs"), { campaignId: contract.campaignId, goal: contract.goal });
+  initializeCampaign(runsRoot(workDir), { campaignId: contract.campaignId, goal: contract.goal });
 
-  const runDir = join(workDir, ".runs", contract.id);
+  const runDir = runDirectory(workDir, contract.id);
   return { workDir, contractPath, runDir, contract };
 }
 
@@ -356,7 +357,7 @@ export function materializePlanCase(caseDir, spec, patch = {}) {
 
   const campaign = /** @type {{id?: string, goal?: string}} */ (spec.campaign ?? {});
   if (!campaign.id) throw new Error(`case ${spec.id} needs a "campaign" object with an "id"`);
-  initializeCampaign(join(workDir, ".runs"), { campaignId: campaign.id, goal: campaign.goal ?? "" });
+  initializeCampaign(runsRoot(workDir), { campaignId: campaign.id, goal: campaign.goal ?? "" });
 
   return { workDir, runtimesPath, campaignId: campaign.id };
 }

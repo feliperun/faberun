@@ -21,6 +21,7 @@ import { integrateAttempt, promoteRun } from "../../src/repo/integrate.mjs";
 import { initializeCampaign, recordPromotion } from "../../src/campaign/index.mjs";
 import { readCampaign } from "../../src/campaign/record.mjs";
 import { captureSourceIdentity } from "../../src/repo/source-identity.mjs";
+import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
 test("run creation source identity includes resolved cwd and task-packet hashes", () => {
   const cwd = mkdtempSync(join(tmpdir(), "runner-source-"));
@@ -54,7 +55,9 @@ test("re-sealing an attempt whose only entry is the node_modules link is a no-op
   const sealed = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 
   // The link `.gitignore`'s `node_modules/` cannot match, plus the ignored
-  // result sidecar every real worker leaves behind.
+  // result sidecar every real worker leaves behind. `repo` stands in for the
+  // attempt worktree here, so this `.runs` is the attempt-local result
+  // sidecar R3 keeps in place -- it does not migrate with the rest.
   mkdirSync(join(repo, "installed"));
   symlinkSync(join(repo, "installed"), join(repo, "node_modules"));
   mkdirSync(join(repo, ".runs"), { recursive: true });
@@ -108,7 +111,7 @@ test("the attempt and integration candidate worktrees get the same environment",
 
   // The installed dependencies a verification command shells out to.
   mkdirSync(join(repo, "node_modules", ".bin"), { recursive: true });
-  const runDir = join(repo, ".runs", "parity-run");
+  const runDir = runDirectory(repo, "parity-run");
   mkdirSync(runDir, { recursive: true });
   createRunRef(repo, "parity-run", head);
 
@@ -165,7 +168,7 @@ test("a verifyCandidate stub built on retryDivergentCandidateCommands retries a 
   writeFileSync(join(repo, "README.md"), "base\n");
   run("add", "-A");
   run("-c", "commit.gpgSign=false", "commit", "-qm", "base");
-  const runDir = join(repo, ".runs", "candidate-retry-run");
+  const runDir = runDirectory(repo, "candidate-retry-run");
   mkdirSync(runDir, { recursive: true });
   const head = gitHead(repo, "HEAD");
   createRunRef(repo, "candidate-retry-run", head);
@@ -212,7 +215,7 @@ test("a verifyCandidate stub whose retry still fails leaves the candidate reject
   writeFileSync(join(repo, "README.md"), "base\n");
   run("add", "-A");
   run("-c", "commit.gpgSign=false", "commit", "-qm", "base");
-  const runDir = join(repo, ".runs", "candidate-retry-fail-run");
+  const runDir = runDirectory(repo, "candidate-retry-fail-run");
   mkdirSync(runDir, { recursive: true });
   const head = gitHead(repo, "HEAD");
   createRunRef(repo, "candidate-retry-fail-run", head);
@@ -325,7 +328,7 @@ test("landBranch defaults to campaign/<campaignId> and is created at the first r
   const base = refSha(repo, "HEAD");
   const runHead = commitFile(repo, "run.txt", "run\n", "run");
   createRunRef(repo, "first-run", runHead);
-  const runsDir = join(mkdtempSync(join(tmpdir(), "runner-promote-campaign-")), ".runs");
+  const runsDir = runsRoot(mkdtempSync(join(tmpdir(), "runner-promote-campaign-")));
   const { path: campaignPath, campaign } = initializeCampaign(runsDir, { campaignId: "chain", goal: "Chain the phases" });
   assert.equal(campaign.landBranch, "campaign/chain", "landBranch never defaults to main");
   const result = promoteRun({
@@ -409,7 +412,7 @@ test("a crash after the branch moved but before the record leaves one promotion 
   const base = refSha(repo, "HEAD");
   const runHead = commitFile(repo, "run.txt", "run\n", "run");
   createRunRef(repo, "crash-run", runHead);
-  const runsDir = join(mkdtempSync(join(tmpdir(), "runner-promote-crashcamp-")), ".runs");
+  const runsDir = runsRoot(mkdtempSync(join(tmpdir(), "runner-promote-crashcamp-")));
   const { path: campaignPath } = initializeCampaign(runsDir, { campaignId: "crash", goal: "Crash recovery" });
   // The ref moves, then the record write dies. This is the crash the rule
   // requires re-invocation to recognise rather than repeat.

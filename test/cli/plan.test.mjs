@@ -5,7 +5,6 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { initializeCampaign } from "../../src/campaign/index.mjs";
-import { campaignDir } from "../../src/campaign/layout.mjs";
 import { readJournal } from "../../src/campaign/journal.mjs";
 import { loadRuntimesCatalogue } from "../../src/cli/plan.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
@@ -13,6 +12,7 @@ import { runProgress } from "../../src/engine/supervise.mjs";
 import { runPlanningPipeline } from "../../src/plan/pipeline.mjs";
 import { TASK_KIND_CATALOGUE_PATH } from "../../src/plan/template.mjs";
 import { envelope, writeRecording } from "../harnesses/replay-helpers.mjs";
+import { campaignTree, runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
 /**
  * Every discovery `done` result — planning or not — is checked by the
@@ -101,7 +101,7 @@ function setup(campaignId, { reviewMode = "clean", highRisk = false } = {}) {
   writeFixtureFile(cwd, "docs/spec.md", "# Feature 42\n\nA legacy spec with no front matter, accepted outright.\n");
   initializeGit(cwd);
 
-  const runsDir = join(cwd, ".runs");
+  const runsDir = runsRoot(cwd);
   initializeCampaign(runsDir, { campaignId, goal: "Ship feature 42" });
 
   // Each replay line serves exactly one invocation, consumed strictly in
@@ -164,7 +164,7 @@ test("the pipeline runs draft and review from recordings and freezes", async () 
 
   // "plan never autostarts": freezing writes contract.json and stops; nothing
   // ever creates a run directory for the frozen contract itself.
-  assert.equal(existsSync(join(cwd, ".runs", contract.id)), false);
+  assert.equal(existsSync(runDirectory(cwd, contract.id)), false);
 });
 
 test("operator override wins: --runtime-defaults appears in the frozen contract's runtimeDefaults over the table", async () => {
@@ -203,7 +203,7 @@ test("approval policy", async () => {
   assert.equal(underStandard.approved, false);
   const planUnderStandard = JSON.parse(readFileSync(underStandard.planPath, "utf8"));
   assert.equal(planUnderStandard.approved, false);
-  const journalAfterStandard = readJournal(campaignDir(join(cwd, ".runs"), campaignId));
+  const journalAfterStandard = readJournal(campaignTree(cwd, campaignId));
   assert.ok(journalAfterStandard.some((entry) => entry.type === "open-question" && entry.questionId === "plan-standard-phase-approval"));
 
   const underHigh = await runPlanningPipeline({
@@ -278,6 +278,6 @@ test("contested plan writes no contract", async () => {
   assert.equal(result.round, 2);
   assert.ok(result.findings.some((finding) => finding.severity === "critical"));
   assert.equal(existsSync(join(result.plansDir, "contract.json")), false);
-  const journal = readJournal(campaignDir(join(cwd, ".runs"), campaignId));
+  const journal = readJournal(campaignTree(cwd, campaignId));
   assert.ok(journal.some((entry) => entry.type === "open-question" && entry.questionId === "plan-build-contested"));
 });

@@ -18,7 +18,7 @@ import { preflightContract } from "../src/engine/live-preflight.mjs";
 import { acquire as acquireControllerLock, lockPath, processStartToken as computeProcessStartToken } from "../src/run/lock.mjs";
 import { writeJsonAtomic } from "../src/run/store.mjs";
 import { createAttemptWorktree } from "../src/repo/worktree.mjs";
-import { campaignDir } from "../src/campaign/layout.mjs";
+import { campaignTree } from "../src/run/paths.mjs";
 import { readJournal } from "../src/campaign/journal.mjs";
 import { delay } from "../src/util.mjs";
 import { compareEvalReports, mergeEvalRunSources, projectEvalIndicators, readEvalRunSources, renderEvalComparisonReport } from "./metrics.mjs";
@@ -348,7 +348,7 @@ function comparePlanExpectations(expected, context) {
   }
   const journalEntries = /** @type {{type: string, questionId?: string}[]|undefined} */ (expected.journal);
   if (journalEntries) {
-    const journal = readJournal(campaignDir(join(context.workDir, ".runs"), context.campaignId));
+    const journal = readJournal(campaignTree(context.workDir, context.campaignId));
     for (const entry of journalEntries) {
       const found = journal.some((record) => record.type === entry.type && (entry.questionId === undefined || record.questionId === entry.questionId));
       if (!found) failures.push(`journal: no entry matching ${JSON.stringify(entry)}`);

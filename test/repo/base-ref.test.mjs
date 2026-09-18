@@ -10,6 +10,7 @@ import { controllerSnapshotIdentity, verifyControllerIdentity } from "../../src/
 import { assertLaunchBaseClean } from "../../src/repo/source-identity.mjs";
 import { runRefName } from "../../src/repo/worktree.mjs";
 import { fakeCodex, fixture, packet, writeContract } from "../helpers.mjs";
+import { runDirectory } from "../../src/run/paths.mjs";
 
 /**
  * `run --base-ref <ref>`: the run is cut from that ref's sha, so every attempt
@@ -60,7 +61,7 @@ test("run --base-ref cuts the run ref and attempt worktrees from the base and le
   assert.equal(gitOut(directory, ["status", "--porcelain=v1"]), statusBefore, "the working tree did not gain or lose a path");
   assert.equal(readFileSync(join(directory, "README.md"), "utf8"), readmeBefore, "tracked file bytes are unchanged");
 
-  const runDir = join(directory, ".runs", "base-ref-run");
+  const runDir = runDirectory(directory, "base-ref-run");
   const run = JSON.parse(readFileSync(join(runDir, "run.json"), "utf8"));
   assert.equal(run.sourceIdentity.gitHead, baseSha, "the run records the base sha, not the cwd HEAD");
   assert.equal(run.sourceIdentity.baseRef, baseSha, "the run records the base ref it was launched with");
@@ -111,7 +112,7 @@ test("a plain launch records no base ref", () => {
     encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);
-  const run = JSON.parse(readFileSync(join(directory, ".runs", "base-ref-none-run", "run.json"), "utf8"));
+  const run = JSON.parse(readFileSync(join(runDirectory(directory, "base-ref-none-run"), "run.json"), "utf8"));
   assert.equal(run.sourceIdentity.baseRef, null, "a launch without --base-ref records no base ref");
 });
 
@@ -149,7 +150,7 @@ test("run.json records the controller snapshot, and a snapshot whose executable 
     encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);
-  const run = JSON.parse(readFileSync(join(directory, ".runs", "controller-id-run", "run.json"), "utf8"));
+  const run = JSON.parse(readFileSync(join(runDirectory(directory, "controller-id-run"), "run.json"), "utf8"));
   assert.ok(run.controllerIdentity, "run.json records the controller snapshot");
   assert.equal(typeof run.controllerIdentity.path, "string");
   assert.match(run.controllerIdentity.sha, /^[a-f0-9]{64}$/u);

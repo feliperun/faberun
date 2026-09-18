@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runDirectory } from "../src/run/paths.mjs";
 
 /**
  * Builds `evals/golden/` from this repository's own git history — one task
@@ -156,7 +157,7 @@ function identifyTask(sha, subject) {
  */
 function findTaskPacket(runId, nodeId) {
   if (!runId || !nodeId) return null;
-  const contractPath = join(REPO_ROOT, ".runs", runId, "contract.json");
+  const contractPath = join(runDirectory(REPO_ROOT, runId), "contract.json");
   if (!existsSync(contractPath)) return null;
   /** @type {{nodes?: {id?: string, taskPacket?: unknown}[]}} */
   let contract;
@@ -207,7 +208,7 @@ function readJsonl(path) {
  */
 function findNodeMeta(runId, nodeId) {
   if (!runId || !nodeId) return { runtime: null, costUsd: null, wallClockSec: null };
-  const runDir = join(REPO_ROOT, ".runs", runId);
+  const runDir = runDirectory(REPO_ROOT, runId);
   const events = readJsonl(join(runDir, "events.jsonl")).filter((event) => event.node === nodeId);
   const usage = readJsonl(join(runDir, "usage.jsonl")).filter((record) => record.nodeId === nodeId);
   const runtimes = events.filter((event) => event.phase === "worker" && typeof event.runtime === "string").map((event) => /** @type {string} */ (event.runtime));

@@ -5,12 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeCampaign, initializeCampaign, preserveCampaignLedger, registerRun } from "../../src/campaign/index.mjs";
 import { appendJournal } from "../../src/campaign/journal.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 // campaign close preserves ledger: journal, record and linked-run usage survive under docs/.
 
 test("campaign close preserves ledger", () => {
   const repo = mkdtempSync(join(tmpdir(), "runner-campaign-ledger-"));
-  const runsDir = join(repo, ".runs");
+  const runsDir = runsRoot(repo);
   const created = initializeCampaign(runsDir, { campaignId: "ledgered", goal: "Preserve the ledger" });
   registerRun(created.path, "run-with-usage");
   registerRun(created.path, "run-without-usage");
@@ -39,7 +40,7 @@ test("campaign close preserves ledger", () => {
 
 test("preserveCampaignLedger is idempotent across repeated calls", () => {
   const repo = mkdtempSync(join(tmpdir(), "runner-campaign-ledger-idempotent-"));
-  const runsDir = join(repo, ".runs");
+  const runsDir = runsRoot(repo);
   const created = initializeCampaign(runsDir, { campaignId: "idempotent", goal: "Prove idempotence" });
   registerRun(created.path, "run-1");
   mkdirSync(join(runsDir, "run-1"), { recursive: true });

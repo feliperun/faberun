@@ -93,13 +93,7 @@ that exact path); every other caller still rejects the
 missing read. A
 discovery packet has empty `writeFiles`; with an empty `readFiles` it may
 read the repository read-only to produce an execution packet — the one
-exception to closed scope — otherwise it is closed to the listed files. `symbols`
-names what the node *introduces or relocates*, never what it merely uses:
-scope closure reports every file mentioning a declared name, so a name the
-node only consumes floods, and a name it moves — neither introduced nor
-merely used — stays invisible unless declared. Measured 2026-09-18: a node
-moving two helpers into a new module declared neither and drew two findings
-instead of the seven files it had to hold. Each
+exception to closed scope — otherwise it is closed to the listed files. Each
 `verification` entry is `{argv, cwd?, timeoutSec? (default 120, max 600),
 repeat? (default 1, max 8), env?}` — at most 32 commands, 64 argv items, 32
 KiB argv bytes per command. `env` declares variable *names* only; values

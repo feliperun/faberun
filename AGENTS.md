@@ -51,20 +51,9 @@ exact read files, write files, decisions, non-goals, and verification commands.
 Only an explicit read-only discovery node may explore beyond a supplied packet.
 
 Two authoring rules, each paid for by a node that died without them. Declare in
-`symbols` every name the node *introduces or relocates*, and never one it merely
-uses. A widely imported name the node only uses fails scope closure against every
-importer, while a name the node creates has none — that is the half this rule was
-first written for, and it is the half that misleads. The costly case is the third
-one: a name the node moves out of one module and into another is neither
-introduced nor merely used, and leaving it undeclared silences the only detector
-that would have caught the move. Measured 2026-09-18 against this repository's
-own record: the node that moved `attemptWorktreePath` and `candidateWorktreePath`
-into a new resolver declared three unrelated names, drew two findings, exhausted
-both attempts on the duplicate-export ratchet and then blocked on a fifth
-importer in `evals/`. Declaring the two moved names, against that same tree,
-returns exactly the seven files that had to be in scope — `src/repo/worktree.mjs`
-and `evals/compare.mjs` among them. The check was never missing; the declaration
-was. And `writeFiles` lists what the change *forces* to change, not
+`symbols` a name the node *introduces*, never one it merely uses — a widely
+imported name fails scope closure against every importer, while a name the node
+creates has none. And `writeFiles` lists what the change *forces* to change, not
 only what it intends to: the schema validator for a field you add, the registry
 that field is recorded in, and any reader your own instructions tell the worker
 to touch. Keep a packet's `verification` to the few commands the node actually

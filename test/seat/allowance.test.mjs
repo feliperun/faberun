@@ -8,6 +8,7 @@ import { initializeCampaign } from "../../src/campaign/index.mjs";
 import { appendSeatAllowanceEvent, readJournal } from "../../src/campaign/journal.mjs";
 import { allowanceDelta, allowanceEventFields, defaultInvoke, sampleAllowance } from "../../src/seat/allowance.mjs";
 import { normalizeClaudeResult } from "../../src/harnesses/protocol.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 /** The `rate_limit_event` line as measured 2026-09-17 against a live `claude -p` probe, verbatim. */
 const MEASURED_RATE_LIMIT_LINE = JSON.stringify({
@@ -169,7 +170,7 @@ test("normalizeClaudeResult cancellation is byte-identical whether or not stdout
 
 test("journal event shape", () => {
   const cwd = mkdtempSync(join(tmpdir(), "seat-allowance-journal-"));
-  const runsDir = join(cwd, ".runs");
+  const runsDir = runsRoot(cwd);
   const created = initializeCampaign(runsDir, { campaignId: "seat-allowance-shape", goal: "measure the seat's allowance" });
 
   const startResult = appendSeatAllowanceEvent(created.path, {
@@ -195,7 +196,7 @@ test("journal event shape", () => {
 
 test("journal event carries the window a sample measured", () => {
   const cwd = mkdtempSync(join(tmpdir(), "seat-allowance-window-"));
-  const runsDir = join(cwd, ".runs");
+  const runsDir = runsRoot(cwd);
   const created = initializeCampaign(runsDir, { campaignId: "seat-allowance-window", goal: "measure the seat's allowance" });
 
   const startResult = appendSeatAllowanceEvent(created.path, {
@@ -210,7 +211,7 @@ test("journal event carries the window a sample measured", () => {
 
 test("a start sample and a freeze sample of the same window journal a delta and both events carry that window", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "seat-allowance-writers-same-window-"));
-  const runsDir = join(cwd, ".runs");
+  const runsDir = runsRoot(cwd);
   const created = initializeCampaign(runsDir, { campaignId: "seat-allowance-writers-same-window", goal: "measure the seat's allowance" });
 
   const start = await sampleAllowance({
@@ -236,7 +237,7 @@ test("a start sample and a freeze sample of the same window journal a delta and 
 
 test("a start/freeze pair whose windows differ journals a null delta with both windows visible", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "seat-allowance-writers-diff-window-"));
-  const runsDir = join(cwd, ".runs");
+  const runsDir = runsRoot(cwd);
   const created = initializeCampaign(runsDir, { campaignId: "seat-allowance-writers-diff-window", goal: "measure the seat's allowance" });
 
   const fiveHourStart = await sampleAllowance({
@@ -272,7 +273,7 @@ test("a start/freeze pair whose windows differ journals a null delta with both w
 
 test("the absent-signal path still records nulls without throwing", async () => {
   const cwd = mkdtempSync(join(tmpdir(), "seat-allowance-writers-absent-"));
-  const runsDir = join(cwd, ".runs");
+  const runsDir = runsRoot(cwd);
   const created = initializeCampaign(runsDir, { campaignId: "seat-allowance-writers-absent", goal: "measure the seat's allowance" });
 
   const noSignal = await sampleAllowance({
@@ -355,7 +356,7 @@ test("a stdin EPIPE on the probe yields null instead of throwing", async () => {
 
 test("journal event shape rejects an unknown sample", () => {
   const cwd = mkdtempSync(join(tmpdir(), "seat-allowance-invalid-"));
-  const runsDir = join(cwd, ".runs");
+  const runsDir = runsRoot(cwd);
   const created = initializeCampaign(runsDir, { campaignId: "seat-allowance-invalid", goal: "measure the seat's allowance" });
   assert.throws(() => appendSeatAllowanceEvent(created.path, {
     sample: /** @type {"start"} */ ("mid"), harness: null, remaining: null, limit: null, resetsAt: null, delta: null,

@@ -14,6 +14,7 @@ import { createAttemptWorktree, createRunRef, git, removeWorktree } from "../../
 import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
 import { fixture, packet, waitForValue, writeContract } from "../helpers.mjs";
 import { nodeState } from "../runner-helpers.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 // Phase 5b: a timeout seals the attempt before it kills, stall progress is a
 // provider event rather than an mtime, and the tier-exhaustion hold is capped.
@@ -32,7 +33,7 @@ function makeRepoRun(overrides = {}) {
   const repo = contract.cwd;
   const head = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
   createRunRef(repo, contract.id, head);
-  const runDir = join(repo, ".runs", "runs", contract.id);
+  const runDir = join(runsRoot(repo), "runs", contract.id);
   mkdirSync(join(runDir, "nodes"), { recursive: true });
   mkdirSync(join(runDir, "logs"), { recursive: true });
   return { directory, repo, runDir, contract };
@@ -99,7 +100,7 @@ function writeProvider(path, content) {
  * @returns {string} the provider executable
  */
 function writeSealE2eProvider(directory) {
-  const counter = join(directory, ".runs", "seal-e2e-count");
+  const counter = join(runsRoot(directory), "seal-e2e-count");
   const provider = join(directory, "seal-e2e-provider.mjs");
   writeProvider(provider, `#!${process.execPath}
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";

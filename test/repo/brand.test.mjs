@@ -27,7 +27,7 @@ const REPO_DIR = fileURLToPath(new URL("../..", import.meta.url));
 /** The previous brand, in every spelling it appeared in: hyphen, underscore, space or none. */
 export const LEGACY_NAME_PATTERN = /intent[-_ ]?factory/iu;
 
-/** Directory names the walk never descends into. */
+/** Directory names the walk never descends into. A name, not a path -- not a resolver call site. */
 const SKIPPED_NAMES = new Set([".git", ".runs", "node_modules", "assets"]);
 
 /** Repository-relative paths whose contents are historical record. */

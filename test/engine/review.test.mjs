@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { fakeCodex, fixture, packet, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState, notifications, withAdvisoryGateCodex, withBrokenGateCodex, withJudgeDefectCodex, withStallingJudgeCodex } from "../runner-helpers.mjs";
+import { runDirectory } from "../../src/run/paths.mjs";
 
 
 
@@ -315,7 +316,7 @@ test("a verification proof reuses the recorded result and executes nothing", asy
   const directory = mkdtempSync(join(tmpdir(), "runner-review-proof-reuse-"));
   // Writing into the run directory keeps the counter outside the workspace
   // snapshot, so the scope gate never sees the probe.
-  const executions = join(directory, ".runs", "proof-reuse-run", "verification-executions");
+  const executions = join(runDirectory(directory, "proof-reuse-run"), "verification-executions");
   const path = writeContract(directory, fixture({
     id: "proof-reuse-run",
     pollIntervalMs: 10,

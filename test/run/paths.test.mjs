@@ -1,3 +1,11 @@
+/**
+ * This is the one file in `test/` allowed to spell the runs directory literal
+ * directly (the exact token RUNS_DIR_NAME holds): it is the resolver's own
+ * test, pinning what `src/run/paths.mjs` produces. A test that pins a
+ * function's output cannot call that function to build its own expectation --
+ * that would only assert the function equals itself. Every other test
+ * composes a fixture path through this module's resolver instead.
+ */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { join } from "node:path";

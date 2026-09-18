@@ -18,6 +18,7 @@ import { controllerSnapshotIdentity, serializableContract, storedContractDigest 
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { writeHeartbeat } from "../../src/engine/supervise.mjs";
 import { processStartToken } from "../../src/run/lock.mjs";
+import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 import { packet, closeResult, waitForValue, withFakeCodex } from "../helpers.mjs";
 
 /** @typedef {import("../../src/contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -158,7 +159,7 @@ function writeChainContract(repo, campaignId, id, overrides = {}) {
  * @returns {{path: string, campaign: import("../../src/campaign/index.mjs").Campaign}}
  */
 function makeCampaign(repo, campaignId, contractPaths, landBranch = `campaign/${campaignId}`) {
-  return initializeCampaign(join(repo, ".runs"), {
+  return initializeCampaign(runsRoot(repo), {
     campaignId,
     goal: `chain ${campaignId}`,
     contracts: contractPaths.map((path) => ({ path, digest: authoredContractDigest(path) })),
@@ -259,9 +260,9 @@ test("done-when 1 and 2: three contracts launch in order, landBranch moves after
   assert.equal(git(repo, ["rev-parse", "campaign/chain1"]), git(repo, ["rev-parse", "refs/faberun/c3/run"]), "the branch moved after each contract");
 
   // done-when 2: lineage. c2 recorded the sha c1 integrated.
-  const c2 = JSON.parse(readFileSync(join(repo, ".runs", "c2", "run.json"), "utf8"));
+  const c2 = JSON.parse(readFileSync(join(runDirectory(repo, "c2"), "run.json"), "utf8"));
   assert.equal(c2.sourceIdentity.gitHead, git(repo, ["rev-parse", "refs/faberun/c1/run"]));
-  const c3 = JSON.parse(readFileSync(join(repo, ".runs", "c3", "run.json"), "utf8"));
+  const c3 = JSON.parse(readFileSync(join(runDirectory(repo, "c3"), "run.json"), "utf8"));
   assert.equal(c3.sourceIdentity.gitHead, git(repo, ["rev-parse", "refs/faberun/c2/run"]));
 });
 
@@ -313,7 +314,7 @@ test("done-when 10a: with no coordinator, supervise campaign through the CLI bec
   // An in-flight run keeps the newly-become coordinator alive long enough to
   // observe the lock it wrote, without launching anything.
   const validated = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
-  writeRunDir({ repo, runDir: join(repo, ".runs", "b1"), contract: validated, node: { id: "build", status: "running", phase: "worker" } });
+  writeRunDir({ repo, runDir: runDirectory(repo, "b1"), contract: validated, node: { id: "build", status: "running", phase: "worker" } });
   assert.equal(readCoordinatorLock(campaignPath), null, "no coordinator exists before the invocation");
 
   const child = coordinatorCliCase("cli-become", repo);
@@ -358,7 +359,7 @@ test("done-when 10c: a stale heartbeat is taken over through the CLI, terminatin
   // An in-flight run keeps the new coordinator alive long enough to observe
   // that it acquired the lock, without launching anything.
   const validated = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
-  writeRunDir({ repo, runDir: join(repo, ".runs", "t1"), contract: validated, node: { id: "build", status: "running", phase: "worker" } });
+  writeRunDir({ repo, runDir: runDirectory(repo, "t1"), contract: validated, node: { id: "build", status: "running", phase: "worker" } });
 
   // The previous coordinator is a real live process group that records the
   // SIGTERM that takes it down.
@@ -397,7 +398,7 @@ test("done-when 11: a waiting first run neither advances nor fails, then advance
   const path1 = writeChainContract(repo, "chain3", "w2");
   const { path: campaignPath } = makeCampaign(repo, "chain3", [path0, path1]);
   const validated = validateContract(JSON.parse(readFileSync(path0, "utf8")), path0);
-  const runDir = join(repo, ".runs", "w1");
+  const runDir = runDirectory(repo, "w1");
   // A run ref exists from run creation, cut from the base; the waiting run has
   // not advanced it yet.
   git(repo, ["update-ref", "refs/faberun/w1/run", git(repo, ["rev-parse", "HEAD"])]);
@@ -510,7 +511,7 @@ test("done-when 12: a changed contractDigest stops, including when every packet 
   assert.deepEqual(variants[0].nodes.map((/** @type {Record<string, any>} */ node) => node.taskPacket), raw.nodes.map((/** @type {Record<string, any>} */ node) => node.taskPacket), "the gate variant's packets are byte-identical");
 
   const { path: campaignPath } = makeCampaign(repo, "chain6", [path1]);
-  writeRunDir({ repo, runDir: join(repo, ".runs", "d1"), contract: original, node: { id: "build", status: "done" }, digest: contractDigest(variants[0]) });
+  writeRunDir({ repo, runDir: runDirectory(repo, "d1"), contract: original, node: { id: "build", status: "done" }, digest: contractDigest(variants[0]) });
   const outcome = await driveCampaignChain(campaignPath, {
     repo,
     coordination: false,
@@ -654,7 +655,7 @@ test("done-when 13: re-issue launches only the remainder and awaits a non-termin
   const path3 = writeChainContract(repo2, "chain8", "n1");
   const { path: campaignPath2 } = makeCampaign(repo2, "chain8", [path3]);
   const validated = validateContract(JSON.parse(readFileSync(path3, "utf8")), path3);
-  writeRunDir({ repo: repo2, runDir: join(repo2, ".runs", "n1"), contract: validated, node: { id: "build", status: "running", phase: "worker" } });
+  writeRunDir({ repo: repo2, runDir: runDirectory(repo2, "n1"), contract: validated, node: { id: "build", status: "running", phase: "worker" } });
   let relaunched = 0;
   const awaited = await driveCampaignChain(campaignPath2, {
     repo: repo2,
@@ -673,7 +674,7 @@ test("done-when 14: the chain takes no run lock and writes no node state", async
   const path1 = writeChainContract(repo, "chain9", "l1");
   const { path: campaignPath } = makeCampaign(repo, "chain9", [path1]);
   const validated = validateContract(JSON.parse(readFileSync(path1, "utf8")), path1);
-  const runDir = join(repo, ".runs", "l1");
+  const runDir = runDirectory(repo, "l1");
   succeedRun(repo, runDir, validated, undefined);
   const nodeBefore = readFileSync(join(runDir, "nodes", "build.json"), "utf8");
   const outcome = await driveCampaignChain(campaignPath, {
@@ -767,7 +768,7 @@ test("done-when 15: the real CLI surface drives the chain, including the main au
   const c1 = writeChainContract(repo, "cli1", "k1");
   makeCampaign(repo, "cli1", [c1]);
   const validated = validateContract(JSON.parse(readFileSync(c1, "utf8")), c1);
-  succeedRun(repo, join(repo, ".runs", "k1"), validated, undefined);
+  succeedRun(repo, runDirectory(repo, "k1"), validated, undefined);
 
   const result = spawnSync(process.execPath, [CLI, "supervise", "campaign", "cli1", "--cwd", repo], { encoding: "utf8" });
   assert.equal(result.status, 0, `${result.stdout ?? ""}${result.stderr ?? ""}`);
@@ -783,7 +784,7 @@ test("done-when 15: the real CLI surface drives the chain, including the main au
   const deniedContract = writeChainContract(mainRepo, "mainA", "m1");
   makeCampaign(mainRepo, "mainA", [deniedContract], "main");
   const deniedValidated = validateContract(JSON.parse(readFileSync(deniedContract, "utf8")), deniedContract);
-  succeedRun(mainRepo, join(mainRepo, ".runs", "m1"), deniedValidated, undefined);
+  succeedRun(mainRepo, runDirectory(mainRepo, "m1"), deniedValidated, undefined);
   const noFlag = spawnSync(process.execPath, [CLI, "supervise", "campaign", "mainA", "--cwd", mainRepo], { encoding: "utf8" });
   assert.notEqual(noFlag.status, 0);
   assert.match(`${noFlag.stdout ?? ""}${noFlag.stderr ?? ""}`, /--allow-main/u);
@@ -791,7 +792,7 @@ test("done-when 15: the real CLI surface drives the chain, including the main au
   const authorizedContract = writeChainContract(mainRepo, "mainB", "m2");
   makeCampaign(mainRepo, "mainB", [authorizedContract], "main");
   const authorizedValidated = validateContract(JSON.parse(readFileSync(authorizedContract, "utf8")), authorizedContract);
-  succeedRun(mainRepo, join(mainRepo, ".runs", "m2"), authorizedValidated, undefined);
+  succeedRun(mainRepo, runDirectory(mainRepo, "m2"), authorizedValidated, undefined);
   const withFlag = spawnSync(process.execPath, [CLI, "supervise", "campaign", "mainB", "--cwd", mainRepo, "--allow-main"], { encoding: "utf8" });
   assert.notEqual(withFlag.status, 0);
   assert.match(`${withFlag.stdout ?? ""}${withFlag.stderr ?? ""}`, /checked out/u);

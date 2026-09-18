@@ -15,6 +15,7 @@ import { fakeCodex, fakeExecJsonl, fixture, packet, withFakeAgy, withFakeCodex, 
 import { nodeState, notifications, failoverContract, RESET_NOW, NETWORK_NOW, NETWORK_DEADLINE, halfJitter } from "../runner-helpers.mjs";
 import { fixture as contractFixture, snapshot as contractSnapshot } from "../contract/helpers.mjs";
 import { preflightContract } from "../../src/engine/live-preflight.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 // Routing: which runtime a role resolves to, and the backoff around it.
 // Exhaustion and the failover edge are in failover.test.mjs.
@@ -112,7 +113,7 @@ test("live preflight proves generation, redacts failures, and static mode stays 
     assert.equal(checks[0].ok, false);
     assert.match(checks[0].detail ?? "", /402/u);
     assert.doesNotMatch(checks[0].detail ?? "", /preflight-secret-value/u);
-    assert.equal(existsSync(join(directory, ".runs")), false);
+    assert.equal(existsSync(runsRoot(directory)), false);
 
     const staticExecutable = fakeExecJsonl(directory, "pass");
     const staticPath = join(directory, "static-contract.json");
@@ -124,7 +125,7 @@ test("live preflight proves generation, redacts failures, and static mode stays 
     const staticChecks = await preflightContract(staticPath, { static: true });
     assert.equal(staticChecks[0].ok, true);
     assert.equal(staticChecks[0].live, undefined);
-    assert.equal(existsSync(join(directory, ".runs")), false);
+    assert.equal(existsSync(runsRoot(directory)), false);
   } finally {
     if (previous === undefined) delete process.env.FABERUN_TEST_LIVE_SECRET;
     else process.env.FABERUN_TEST_LIVE_SECRET = previous;

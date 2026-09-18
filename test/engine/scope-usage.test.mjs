@@ -11,6 +11,7 @@ import { runRefName } from "../../src/repo/worktree.mjs";
 import { ensureAttemptWorktree, fakeCodex, fakeExecJsonl, fixture, initializeGit, packet, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState, showRefFile, advisoryGateCodex } from "../runner-helpers.mjs";
 import { validateContract } from "../../src/contract/index.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 test("an unexpected write on green verification is an advisory finding, not a terminal failure", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-scope-"));
@@ -67,7 +68,7 @@ test("an unexpected write on green verification is an advisory finding, not a te
   assert.deepEqual(gatedState.scopeFindings?.unexpectedPaths, ["unexpected.txt"], "a gated done node keeps its advisory finding");
   assert.equal(gatedState.gate?.verdict, "fail", "the advisory gate verdict is recorded");
   assert.equal(gatedState.gate?.summary, "minor advisory");
-  const seenByJudge = readFileSync(join(gatedDirectory, ".runs", "judge-prompt.txt"), "utf8");
+  const seenByJudge = readFileSync(join(runsRoot(gatedDirectory), "judge-prompt.txt"), "utf8");
   assert.match(seenByJudge, /Scope findings/u);
   assert.match(seenByJudge, /- unexpected\.txt/u);
 
@@ -228,7 +229,7 @@ test("a scope violation on a gated red attempt reaches the retry prompt", async 
   // The next attempt is dispatched before the terminal branch, so the paths
   // have to travel inside the verdict: the node state that carried them is
   // cleared by the time the revision starts.
-  const retryPrompt = readFileSync(join(directory, ".runs", "scope-retry-prompt.txt"), "utf8");
+  const retryPrompt = readFileSync(join(runsRoot(directory), "scope-retry-prompt.txt"), "utf8");
   assert.match(retryPrompt, /quality gate rejected/u);
   assert.match(retryPrompt, /unexpected paths changed/u);
   assert.match(retryPrompt, /unexpected-1\.txt/u);

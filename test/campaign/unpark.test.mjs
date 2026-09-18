@@ -12,6 +12,7 @@ import { appendJournal, readJournal } from "../../src/campaign/journal.mjs";
 import { driveCampaignChain } from "../../src/campaign/chain.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 import { serializableContract, storedContractDigest } from "../../src/engine/run-identity.mjs";
+import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 import { packet } from "../helpers.mjs";
 
 /** @typedef {import("../../src/contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -86,7 +87,7 @@ function writeChainContract(repo, campaignId, id, overrides = {}) {
  * @returns {{path: string, campaign: import("../../src/campaign/index.mjs").Campaign}}
  */
 function makeCampaign(repo, campaignId, contractPaths, landBranch = `campaign/${campaignId}`) {
-  return initializeCampaign(join(repo, ".runs"), {
+  return initializeCampaign(runsRoot(repo), {
     campaignId,
     goal: `chain ${campaignId}`,
     contracts: contractPaths.map((path) => ({ path, digest: authoredContractDigest(path) })),
@@ -142,11 +143,11 @@ function parkedRun(campaignId) {
   const contractPath = writeChainContract(repo, campaignId, "r1");
   const { path: campaignPath } = makeCampaign(repo, campaignId, [contractPath]);
   const contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
-  const runDir = join(repo, ".runs", "r1");
+  const runDir = runDirectory(repo, "r1");
   writeRunDir({ repo, runDir, contract, node: { id: "build", status: "failed", phase: "worker", error: { code: "boom", message: "boom" } } });
   const at = "2026-09-16T00:00:00.000Z";
   parkCampaign(campaignPath, { code: "run_parked", message: "contract r1 run parked", at, runId: "r1" });
-  return { repo, runsDir: join(repo, ".runs"), campaignPath, campaignId, contractPath, contract, runDir, at };
+  return { repo, runsDir: runsRoot(repo), campaignPath, campaignId, contractPath, contract, runDir, at };
 }
 
 /**

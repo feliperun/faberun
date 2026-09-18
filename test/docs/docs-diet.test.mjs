@@ -35,14 +35,7 @@ const SKILL_BYTE_CEILING = 1100;
 // "one of that dependency's" prose already there pay part of it, so the
 // ceiling moves by the net 2 bytes to the file's exact size and nothing else.
 // Raising it again needs the same argument.
-// Raised from 22075 on 2026-09-18 by the `symbols` rule: nine scope omissions in
-// one campaign traced to a packet field the skill showed in an example and never
-// explained, and the one case that costs -- a name the node relocates -- was
-// named in neither half of the rule it did have. Stating it where the skill
-// teaches packets is what makes it hold for an agent that never reads this
-// repository's AGENTS.md. The sentence costs 429 bytes, so the ceiling moves to
-// the file's exact size and nothing else. Raising it again needs the same argument.
-const CONTRACT_BYTE_CEILING = 22504;
+const CONTRACT_BYTE_CEILING = 22075;
 // Raised from 10240 on 2026-09-13, deliberately and only once: `supervise`
 // became a real command and an operator cannot run an undocumented one. The
 // ceiling is a ratchet against prose creep, not against surface the product

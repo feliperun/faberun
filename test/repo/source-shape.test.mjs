@@ -21,7 +21,7 @@ const REPO_DIR = fileURLToPath(new URL("../..", import.meta.url));
 const SRC_DIR = join(REPO_DIR, "src");
 
 /** Directories the repository-wide walk must never descend into. */
-const SKIPPED = new Set([".git", ".runs", "node_modules"]);
+const SKIPPED = new Set([".git", RUNS_DIR_NAME, "node_modules"]);
 
 /** No file in this repository may exceed this. A longer file is doing a second job. */
 const LINE_CEILING = 800;
@@ -220,29 +220,50 @@ test("no src/ module is a barrel", () => {
 });
 
 /**
- * R1's centralization ratchet (state-location-and-routing-economics, phase
- * 1c): the runs directory name is spelled by exactly one place in `src/` --
- * its resolver, `src/run/paths.mjs` -- and every other module calls it
- * instead. "Spelled" here means the exact double-quoted token, the same
- * measurement the two run-path-resolver migration nodes themselves used to
- * find and rewrite every call site; a mention inside a longer string, a
- * regex, a template literal or a comment (a human-facing message, a doc
- * comment, a gitignore-parsing pattern) is not what those nodes migrated and
- * is not what this holds at zero.
+ * R1's centralization ratchet, completed (state-location-and-routing-economics,
+ * phase 1g): one file per tree is allowed to spell the runs directory literal,
+ * everything else calls the resolver. "Spelled" here means the exact
+ * double-quoted token, the same measurement every run-path-resolver migration
+ * node used to find and rewrite its call sites; a mention inside a longer
+ * string, a regex, a template literal or a comment (a human-facing message, a
+ * doc comment, a gitignore-parsing pattern) is not what those nodes migrated
+ * and is not what any of the three tests below hold.
  *
- * Measured 2026-09-18, immediately after both migration nodes landed in this
- * tree: `src/` is down to that one file, so this is a strict invariant held
- * at zero, not a ratchet with headroom -- a new inline `.runs` anywhere
- * else is the exact regression R1 exists to prevent, and lowering a ceiling
- * is not available as an escape hatch here.
+ * `src/` already held this shape at zero exceptions beyond its resolver,
+ * `src/run/paths.mjs`. `test/` cannot hold the same shape honestly: five
+ * files beyond its own resolver test still spell the literal, each for a
+ * reason measured 2026-09-18, and hiding that behind a single number (a
+ * ceiling) is what this phase's four migration nodes leave behind and this
+ * node replaces. Each is named below instead, with its reason, in
+ * `TEST_RUNS_LITERAL_ALLOWED` -- the same shape `SYNC_GIT_EXEMPTIONS` already
+ * uses for named call sites rather than whole files. A file appears there for
+ * one of three reasons, and no fourth kind has been found in this tree:
  *
- * `test/` and `evals/` are deliberately not migrated in this phase: a test
- * that builds its own fixture run directory is not the coupling R1 is about,
- * and rewriting every one of those call sites in one phase would swamp
- * review. They are ratcheted instead, at what this tree actually measures
- * (195 in `test/`, 7 in `evals/`) rather than migrated -- the spec's own R1
- * text reads stricter than this, and the orchestrator recorded that gap as
- * an open question for the owner rather than resolving it here.
+ * - `test/run/paths.test.mjs` (11): the resolver's own test. It pins what
+ *   `src/run/paths.mjs` produces, so it cannot call that resolver to build
+ *   its own expectation -- that would only assert the function equals itself.
+ * - `test/contract/verification.test.mjs` (1) and `test/repo/brand.test.mjs`
+ *   (1): a skip-path or directory-name list -- a name being iterated or
+ *   excluded, never a path some code joined together.
+ * - `test/cli/init.test.mjs` (1): the text of a `.gitignore` line, matched to
+ *   confirm the runs directory is ignored -- text comparison, not a path
+ *   composition.
+ * - `test/harnesses/replay-run.test.mjs` (3) and `test/repo/integration.test.mjs`
+ *   (2): the attempt-local result sidecar every real worker writes inside the
+ *   attempt worktree. R3 requires this sidecar to stay exactly where the
+ *   protocol puts it, so these call sites build that path by hand on purpose
+ *   rather than through a resolver that would otherwise be free to move it.
+ *
+ * `evals/` never had a legitimate reason to spell it and now spells it
+ * nowhere, so it asserts the empty list outright, with no allowlist at all.
+ *
+ * What none of this covers: `integrations/claude-code/statusline.sh` composes
+ * its pointer path (`"$repo/.runs/status.json"`) by hand, in shell, to read
+ * the same pointer this tree's `.mjs` resolver writes. This walker only reads
+ * `.mjs` files (see `walk` above), so that script's own literal is outside
+ * every one of these three tests' reach -- a future reader should not
+ * mistake "the tree holds this invariant" for "every file that could spell
+ * the runs directory does".
  */
 const RUNS_LITERAL = new RegExp(`"${RUNS_DIR_NAME.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}"`, "gu");
 const RESOLVER_MODULE = "src/run/paths.mjs";
@@ -261,35 +282,60 @@ test("only src/run/paths.mjs spells the runs directory literal in src/", () => {
   );
 });
 
-/** Measured 2026-09-18: 181 occurrences of the literal across test/*.mjs. Only falls. */
-const TEST_RUNS_LITERAL_CEILING = 181;
+/** `test/`'s own resolver test: excluded from the allowlist below the same way `RESOLVER_MODULE` is excluded from the `src/` check above, with no count pinned on it either. */
+const TEST_RESOLVER_TEST_MODULE = "test/run/paths.test.mjs";
 
-test(`test/ spells the runs directory literal at most ${TEST_RUNS_LITERAL_CEILING} time(s)`, () => {
-  const total = TEST_FILES.reduce((sum, file) => sum + [...file.text.matchAll(RUNS_LITERAL)].length, 0);
-  assert.ok(
-    total <= TEST_RUNS_LITERAL_CEILING,
-    `${total} occurrence(s) of the runs directory literal in test/, ceiling ${TEST_RUNS_LITERAL_CEILING}`,
+/**
+ * Every other `test/` file with a standing reason to spell the runs
+ * directory literal, named and counted so drift in either direction is
+ * caught: a new, unnamed spelling anywhere fails the offender check below,
+ * and a named count that no longer matches what the file measures -- because
+ * it fell (partial migration) or rose (a second, unnamed spelling joined the
+ * first) -- fails the drift check. Measured 2026-09-18.
+ *
+ * @type {{file: string, count: number, reason: string}[]}
+ */
+const TEST_RUNS_LITERAL_ALLOWED = [
+  { file: "test/contract/verification.test.mjs", count: 1, reason: "a fabricated runtime-debris directory-name list, not a path composition" },
+  { file: "test/harnesses/replay-run.test.mjs", count: 3, reason: "the attempt-local result sidecar R3 keeps inside the attempt worktree; it must not migrate with the rest" },
+  { file: "test/cli/init.test.mjs", count: 1, reason: "matches the text of a .gitignore line, not a filesystem path" },
+  { file: "test/repo/integration.test.mjs", count: 2, reason: "the attempt-local result sidecar again, in a fixture where `repo` stands in for the attempt worktree" },
+  { file: "test/repo/brand.test.mjs", count: 1, reason: "a skip-path/directory-name list (SKIPPED_NAMES), a name rather than a path" },
+];
+
+test("only test/run/paths.test.mjs and a named, reasoned allowlist spell the runs directory literal in test/", () => {
+  const counts = new Map(TEST_FILES.map((file) => [file.label, [...file.text.matchAll(RUNS_LITERAL)].length]));
+  const allowed = new Map(TEST_RUNS_LITERAL_ALLOWED.map((entry) => [entry.file, entry]));
+  const offenders = [...counts.entries()]
+    .filter(([label, count]) => label !== TEST_RESOLVER_TEST_MODULE && count > 0 && !allowed.has(label))
+    .map(([label, count]) => ({ label, count }))
+    .sort((left, right) => right.count - left.count);
+  assert.deepEqual(
+    offenders,
+    [],
+    `spells the runs directory literal with no named reason:\n${offenders.map((f) => `  ${f.count}  ${f.label}`).join("\n")}\n` +
+      "Call src/run/paths.mjs's resolver instead of spelling it, or add a named, reasoned entry to TEST_RUNS_LITERAL_ALLOWED.",
   );
-  assert.equal(
-    total,
-    TEST_RUNS_LITERAL_CEILING,
-    `the count fell to ${total}; lower TEST_RUNS_LITERAL_CEILING to match so it cannot drift back up.`,
+  const drifted = TEST_RUNS_LITERAL_ALLOWED
+    .map((entry) => ({ ...entry, measured: counts.get(entry.file) ?? 0 }))
+    .filter((entry) => entry.measured !== entry.count);
+  assert.deepEqual(
+    drifted.map((entry) => `${entry.file}: allowed ${entry.count}, measured ${entry.measured}`),
+    [],
+    "an allowlist entry's count no longer matches the file -- measure it again; if it fell to 0 the reason is gone, so migrate the call site and delete the entry instead of lowering it",
   );
 });
 
-/** Measured 2026-09-18: 7 occurrences of the literal across evals/*.mjs. Only falls. */
-const EVALS_RUNS_LITERAL_CEILING = 7;
-
-test(`evals/ spells the runs directory literal at most ${EVALS_RUNS_LITERAL_CEILING} time(s)`, () => {
-  const total = EVALS_FILES.reduce((sum, file) => sum + [...file.text.matchAll(RUNS_LITERAL)].length, 0);
-  assert.ok(
-    total <= EVALS_RUNS_LITERAL_CEILING,
-    `${total} occurrence(s) of the runs directory literal in evals/, ceiling ${EVALS_RUNS_LITERAL_CEILING}`,
-  );
-  assert.equal(
-    total,
-    EVALS_RUNS_LITERAL_CEILING,
-    `the count fell to ${total}; lower EVALS_RUNS_LITERAL_CEILING to match so it cannot drift back up.`,
+test("evals/ never spells the runs directory literal", () => {
+  const offenders = EVALS_FILES
+    .map((file) => ({ label: file.label, count: [...file.text.matchAll(RUNS_LITERAL)].length }))
+    .filter((file) => file.count > 0)
+    .sort((left, right) => right.count - left.count);
+  assert.deepEqual(
+    offenders,
+    [],
+    `spells the runs directory literal in evals/:\n${offenders.map((f) => `  ${f.count}  ${f.label}`).join("\n")}\n` +
+      "Call src/run/paths.mjs's resolver instead of spelling it.",
   );
 });
 

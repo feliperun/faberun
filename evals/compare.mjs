@@ -8,7 +8,7 @@
  * measures nothing, which is what `--verify-discriminating` refuses.
  */
 import { gitHead, runRefName } from "../src/repo/worktree.mjs";
-import { attemptWorktreePath, candidateWorktreePath } from "../src/run/paths.mjs";
+import { attemptWorktreePath, candidateWorktreePath, runsRoot } from "../src/run/paths.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { readIntegrationJournal } from "../src/repo/integrate.mjs";
@@ -108,17 +108,17 @@ export function comparePreflight(expectedPreflight, workDir) {
  * @returns {string[]}
  */
 export function compareGc(expectedGc, workDir) {
-  const runsRoot = join(workDir, ".runs");
+  const runsDir = runsRoot(workDir);
   /** @type {string[]} */
   const failures = [];
   for (const id of expectedGc.removed ?? []) {
-    if (existsSync(join(runsRoot, id))) failures.push(`gc: expected ${id} to have been removed by garbage collection, but it still exists`);
+    if (existsSync(join(runsDir, id))) failures.push(`gc: expected ${id} to have been removed by garbage collection, but it still exists`);
   }
   for (const id of expectedGc.kept ?? []) {
-    if (!existsSync(join(runsRoot, id))) failures.push(`gc: expected ${id} to still exist, but it is gone`);
+    if (!existsSync(join(runsDir, id))) failures.push(`gc: expected ${id} to still exist, but it is gone`);
   }
   if (expectedGc.events !== undefined) {
-    const gcLogPath = join(runsRoot, "gc.jsonl");
+    const gcLogPath = join(runsDir, "gc.jsonl");
     const events = existsSync(gcLogPath)
       ? readFileSync(gcLogPath, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line))
       : [];

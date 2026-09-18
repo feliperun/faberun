@@ -15,6 +15,7 @@ import { closeResult, ensureAttemptWorktree, fakeCodex, fixture, initializeGit, 
 import { nodeState, childPid, withCitedGateCodex, withAdvisoryGateCodex } from "../runner-helpers.mjs";
 import { invocationAlive } from "../../src/engine/process.mjs";
 import { captureWorkspaceSnapshot } from "../../src/repo/workspace.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 test("resume adopts an orphaned worker result instead of repeating the work", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-resume-"));
@@ -227,8 +228,8 @@ test("simultaneous resumes allow one controller and reject the other", async () 
   const path = writeContract(directory, fixture({ id: "concurrent-resume-run", pollIntervalMs: 10 }));
   const runDir = await withFakeCodex(directory, "worker-fail", async () => (await runContract(path)).runDir);
   const runner = fileURLToPath(new URL("../../src/cli.mjs", import.meta.url));
-  const started = join(directory, ".runs", "provider-started");
-  const release = join(directory, ".runs", "provider-release");
+  const started = join(runsRoot(directory), "provider-started");
+  const release = join(runsRoot(directory), "provider-release");
   const slow = fakeCodex(directory, "wait-for-release");
   const first = spawn(process.execPath, [runner, "resume", runDir], {
     env: { ...process.env, FABERUN_CODEX_BIN: slow },

@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { initializeCampaign, registerRun } from "../../src/campaign/index.mjs";
 import { appendJournal } from "../../src/campaign/journal.mjs";
 import { computeNextItems, renderNext, renderNextJson } from "../../src/report/next.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 const CLI = fileURLToPath(new URL("../../src/cli.mjs", import.meta.url));
 
@@ -24,7 +25,7 @@ function makeDir(prefix) {
 
 /** @param {string} dir @returns {string} */
 function runsDirOf(dir) {
-  return join(dir, ".runs");
+  return runsRoot(dir);
 }
 
 /** @param {string} runsDir @param {string} id @returns {string} */

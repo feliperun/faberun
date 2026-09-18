@@ -15,6 +15,7 @@ import {
   renderDrilldownHtml,
   renderPhaseGraphSvg,
 } from "../../src/web/app.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 const LATER = "2026-01-01T00:05:00.000Z";
@@ -66,7 +67,7 @@ function makeWorld({ longLog = false } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "faberun-dashboard-"));
   const tokenFile = join(directory, "dashboard.token");
   writeFileSync(tokenFile, `${TOKEN}\n`);
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
 
   /** @param {string} phaseId @param {{id: string, dependsOn?: string[]}[]} nodes */
   const contractFor = (phaseId, nodes) => {

@@ -41,6 +41,8 @@ function freshRepo(directory) {
  * @returns {string[]}
  */
 function runsLines(directory) {
+  // Matches the text of a .gitignore line, not a filesystem path -- not a
+  // resolver call site.
   return readFileSync(join(directory, ".gitignore"), "utf8")
     .split(/\r?\n/u)
     .map((line) => line.trim())

@@ -10,6 +10,7 @@ import { renderReportJson } from "../../src/report/render.mjs";
 import { projectMetrics, readMetricsSources } from "../../src/campaign/metrics.mjs";
 import { projectEvalIndicators } from "../../evals/metrics.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
+import { campaignTree, runDirectory, runsRoot } from "../../src/run/paths.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
 
 /** Every indicator of TECH-SPEC lean section 6 with the direction the spec table gives it. */
@@ -189,7 +190,7 @@ function pricedRun(invocationCost) {
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));
   const contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
-  const runDir = join(directory, ".runs", "priced-report");
+  const runDir = runDirectory(directory, "priced-report");
   mkdirSync(join(runDir, "nodes"), { recursive: true });
   writeFileSync(join(runDir, "contract.json"), readFileSync(contractPath));
   writeFileSync(join(runDir, "run.json"), `${JSON.stringify({
@@ -371,12 +372,12 @@ let materialized = null;
 function baselineWorkspace() {
   if (materialized !== null) return materialized;
   const cwd = mkdtempSync(join(tmpdir(), "metrics-baseline-"));
-  const campaignPath = join(cwd, ".runs", "campaigns", BASELINE_CAMPAIGN);
+  const campaignPath = campaignTree(cwd, BASELINE_CAMPAIGN);
   mkdirSync(campaignPath, { recursive: true });
   writeFileSync(join(campaignPath, "campaign.json"), JSON.stringify(CAMPAIGN_DOC.campaign));
   for (const runId of CAMPAIGN_DOC.campaign.linkedRunIds) {
     const runFixture = JSON.parse(readFileSync(join(FIXTURE_DIR, "runs", `${runId}.json`), "utf8"));
-    const runDir = join(cwd, ".runs", runId);
+    const runDir = runDirectory(cwd, runId);
     mkdirSync(join(runDir, "nodes"), { recursive: true });
     writeFileSync(join(runDir, "events.jsonl"), runFixture.events.map((/** @type {unknown} */ record) => `${JSON.stringify(record)}\n`).join(""));
     writeFileSync(join(runDir, "usage.jsonl"), runFixture.usage.map((/** @type {unknown} */ record) => `${JSON.stringify(record)}\n`).join(""));
@@ -390,7 +391,7 @@ function baselineWorkspace() {
 /** @returns {ReturnType<typeof readMetricsSources>} */
 function baselineSources() {
   const cwd = baselineWorkspace();
-  return readMetricsSources(join(cwd, ".runs", "campaigns", BASELINE_CAMPAIGN), { runsDir: join(cwd, ".runs") });
+  return readMetricsSources(campaignTree(cwd, BASELINE_CAMPAIGN), { runsDir: runsRoot(cwd) });
 }
 
 test("metrics baseline fixture declares the campaign it was distilled from", () => {

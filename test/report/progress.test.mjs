@@ -11,6 +11,7 @@ import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../
 import { harnessCapabilities } from "../../src/harnesses/index.mjs";
 import { PROGRESS_MESSAGE_MAX_BYTES, renderCampaignProgress, renderRunProgress } from "../../src/report/progress.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
+import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
 /**
  * @param {Record<string, unknown>[]} nodeSpecs each carrying at least id, phase, status
@@ -22,7 +23,7 @@ function makeRun(nodeSpecs) {
     nodes: nodeSpecs.map((spec) => ({ id: spec.id, type: "backend", taskPacket: packet(), gate: false, phase: spec.phase })),
   }));
   const contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
-  const runDir = join(directory, ".runs", "report-progress");
+  const runDir = runDirectory(directory, "report-progress");
   mkdirSync(join(runDir, "nodes"), { recursive: true });
   writeFileSync(join(runDir, "contract.json"), readFileSync(contractPath));
   writeFileSync(join(runDir, "run.json"), `${JSON.stringify({
@@ -216,7 +217,7 @@ test("a message whose worker summary is enormous stays under the ceiling with th
  */
 function makeCampaign(campaignId, phaseSpecs) {
   const directory = mkdtempSync(join(tmpdir(), "faberun-report-campaign-progress-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const contracts = phaseSpecs.map((phaseSpec) => {
     const contractPath = join(directory, `${phaseSpec.id}.contract.json`);
     writeFileSync(contractPath, `${JSON.stringify({
@@ -369,7 +370,7 @@ test("a node worked by one runtime and judged by another reports both, each unde
   // though it had done the worker's job.
   const campaignId = "rollup-campaign-runtimes";
   const directory = mkdtempSync(join(tmpdir(), "faberun-report-campaign-runtime-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const contractPath = join(directory, "phase-a.contract.json");
   writeFileSync(join(directory, "contract.json"), "{}");
   const contractValue = fixture({

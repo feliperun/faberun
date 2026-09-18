@@ -17,13 +17,14 @@ import { runContract } from "../../src/engine/scheduler.mjs";
 import { fixture, packet, withFakeCodex, writeContract } from "../helpers.mjs";
 import { appendJournal, readJournal, validateJournalEntry } from "../../src/campaign/journal.mjs";
 import { HANDOFF_BYTES, HANDOFF_LIMIT, PROJECTION_FILE, campaignDir } from "../../src/campaign/layout.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 // The other half of campaign.test.mjs: folding the journal into state and
 // rendering HANDOFF.md inside its byte budget.
 
 test("projection recovery after a partial trailing journal line beyond the tail window does not duplicate", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-projection-tail-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "projtail", goal: "Prove tail recovery" });
   const at = new Date().toISOString();
   appendJournal(created.path, { type: "constraint", eventId: "c0", at, sessionId: "codex-1", text: "constraint-0" });
@@ -50,7 +51,7 @@ test("projection recovery after a partial trailing journal line beyond the tail 
 
 test("a stale projection record with byte 0 but folded entries is reparsed, not duplicated", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-projection-stale-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "staleproj", goal: "Prove stale guard" });
   const at = new Date().toISOString();
   appendJournal(created.path, { type: "constraint", eventId: "c0", at, sessionId: "codex-1", text: "constraint-0" });
@@ -81,7 +82,7 @@ test("a stale projection record with byte 0 but folded entries is reparsed, not 
 });
 test("initializes a campaign with an empty bounded handoff", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-init-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "launch", goal: "Ship the durable handoff" });
   assert.equal(created.campaign.goal, "Ship the durable handoff");
   assert.equal(readJournal(created.path)[0].type, "campaign.initialized");
@@ -93,7 +94,7 @@ test("initializes a campaign with an empty bounded handoff", () => {
 
 test("rejects dot and dotdot campaign ids", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-dot-id-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   for (const campaignId of [".", ".."]) {
     assert.throws(() => campaignDir(runsDir, campaignId), /campaignId/u);
     assert.throws(
@@ -107,7 +108,7 @@ test("rejects dot and dotdot campaign ids", () => {
 
 test("session lineage records transcripts and explicit unavailability", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-session-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "sessions", goal: "Prove lineage" });
   appendJournal(created.path, {
     type: "session.attached",
@@ -147,7 +148,7 @@ test("session lineage records transcripts and explicit unavailability", () => {
 
 test("decision supersession removes replaced decisions from the handoff", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-supersede-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "decisions", goal: "Prove supersession" });
   const at = new Date().toISOString();
   appendJournal(created.path, { type: "decision", eventId: "decision-1", at, sessionId: "codex-1", decisionId: "d1", text: "Use JSONL" });
@@ -160,7 +161,7 @@ test("decision supersession removes replaced decisions from the handoff", () => 
 
 test("handoff projection preserves constraints beyond 20 when the budget allows", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-bounded-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "bounded", goal: "Prove bounded projection" });
   for (let index = 0; index < HANDOFF_LIMIT + 5; index += 1) {
     appendJournal(created.path, {
@@ -180,7 +181,7 @@ test("handoff projection preserves constraints beyond 20 when the budget allows"
 
 test("session lineage beyond 20 sessions survives when the budget allows", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-sessions-bounded-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "lineage", goal: "Prove lineage budgeting" });
   for (let index = 0; index < HANDOFF_LIMIT + 5; index += 1) {
     appendJournal(created.path, {
@@ -212,7 +213,7 @@ test("run registration links the run and handoff reflects fresh node status", as
   validateContract(JSON.parse(readFileSync(path, "utf8")), path);
   const result = await withFakeCodex(directory, "pass", () => runContract(path));
   assert.equal(result.ok, true);
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const campaign = resolveCampaign(runsDir, "test-campaign");
   assert.deepEqual(campaign.campaign.linkedRunIds, ["linked-run"]);
   const handoff = renderHandoff(campaign.path, runsDir);
@@ -222,7 +223,7 @@ test("run registration links the run and handoff reflects fresh node status", as
 
 test("run registration is idempotent across resume", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-idempotent-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "idempotent", goal: "Prove idempotent registration" });
   registerRun(created.path, "same-run");
   registerRun(created.path, "same-run");
@@ -232,7 +233,7 @@ test("run registration is idempotent across resume", () => {
 
 test("rejects malformed journal events before append", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-invalid-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "invalid", goal: "Prove validation" });
   assert.throws(
     () => validateJournalEntry({ type: "intent", sessionId: "codex-1", text: "missing timestamp" }),
@@ -254,7 +255,7 @@ test("rejects malformed journal events before append", () => {
 
 test("refuses ambiguous campaign discovery", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-ambiguous-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   initializeCampaign(runsDir, { campaignId: "alpha", goal: "First" });
   initializeCampaign(runsDir, { campaignId: "beta", goal: "Second" });
   assert.throws(() => resolveCampaign(runsDir), /multiple campaigns found/u);
@@ -289,7 +290,7 @@ test("campaign CLI initializes, attaches, records via stdin, and shows the hando
 
 test("campaign CLI refuses a malformed checkpoint", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-cli-invalid-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   initializeCampaign(runsDir, { campaignId: "cli-invalid", goal: "Prove CLI validation" });
   const runner = fileURLToPath(new URL("../../src/cli.mjs", import.meta.url));
   const result = spawnSync(process.execPath, [
@@ -364,7 +365,7 @@ test("campaign CLI attach retries with a stable event id are idempotent", () => 
   assert.equal(first.status, 0, first.stderr);
   const retry = spawnSync(process.execPath, args, { encoding: "utf8" });
   assert.equal(retry.status, 0, retry.stderr);
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const campaign = resolveCampaign(runsDir, "idem");
   const sessions = readJournal(campaign.path).filter((entry) => entry.type === "session.attached");
   assert.equal(sessions.length, 1);
@@ -409,7 +410,7 @@ test("campaign CLI scopes flags to operations and note kinds", () => {
 
 test("campaign CLI watch --wake parses --interval as a positive number of seconds", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-cli-interval-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   initializeCampaign(runsDir, { campaignId: "interval", goal: "Prove the public interval unit" });
   const runner = fileURLToPath(new URL("../../src/cli.mjs", import.meta.url));
   for (const interval of ["0", "abc"]) {
@@ -426,7 +427,7 @@ test("linked-run corruption cannot kill a controller", async () => {
     pollIntervalMs: 10,
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const campaign = resolveCampaign(runsDir, "test-campaign");
   registerRun(campaign.path, "broken-run");
   mkdirSync(join(runsDir, "broken-run", "nodes"), { recursive: true });
@@ -445,7 +446,7 @@ test("handoff projection failure records a diagnostic and cannot kill a controll
     pollIntervalMs: 10,
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const campaign = resolveCampaign(runsDir, "test-campaign");
   const journalPath = join(campaign.path, "journal.jsonl");
   writeFileSync(journalPath, `${readFileSync(journalPath, "utf8")}{ not json\n`);

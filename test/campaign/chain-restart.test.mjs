@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { initializeCampaign, promoteRunInCampaign } from "../../src/campaign/index.mjs";
 import { readCampaign } from "../../src/campaign/record.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 /** @param {string} repo @param {string[]} args @returns {string} */
 function git(repo, args) {
@@ -44,7 +45,7 @@ test("a coordinator restart replaying an already-promoted run does not re-record
   const runOneHead = commitFile(repo, "one.txt", "one\n", "run one");
   const runTwoHead = commitFile(repo, "two.txt", "two\n", "run two");
 
-  const runsDir = join(mkdtempSync(join(tmpdir(), "runner-chain-restart-campaign-")), ".runs");
+  const runsDir = runsRoot(mkdtempSync(join(tmpdir(), "runner-chain-restart-campaign-")));
   const { path: campaignPath } = initializeCampaign(runsDir, { campaignId: "restart", goal: "Coordinator restart replay" });
 
   const first = promoteRunInCampaign({ campaignPath, repo, runId: "run-1", runHead: runOneHead, baseSha: base, finalVerificationPassed: true });

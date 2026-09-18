@@ -21,13 +21,14 @@ import { readCampaign } from "../../src/campaign/record.mjs";
 import { appendJournal, appendSeatAllowanceEvent, readJournal, validateJournalEntry } from "../../src/campaign/journal.mjs";
 import { CAMPAIGN_FILE, HANDOFF_BYTES, HANDOFF_FILE, JOURNAL_FILE, JOURNAL_TEXT_BYTES, PROJECTION_FILE } from "../../src/campaign/layout.mjs";
 import { allowanceEventFields } from "../../src/seat/allowance.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 // Campaign lifecycle: init, discover, resolve, journal append, close.
 // Projection and handoff rendering are in projection.test.mjs.
 
 test("semantic budget keeps critical sections and evicts oldest low-priority history above 16 KiB", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-budget-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "budget", goal: "Ship the durable handoff" });
   const at = new Date().toISOString();
   const sessionId = "codex-1";
@@ -69,7 +70,7 @@ test("semantic budget keeps critical sections and evicts oldest low-priority his
 
 test("many linked runs cannot starve critical handoff sections", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-run-flood-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "runflood", goal: "Ship the durable handoff" });
   const at = new Date().toISOString();
   const sessionId = "codex-1";
@@ -109,7 +110,7 @@ test("many linked runs cannot starve critical handoff sections", () => {
 
 test("attention-needed run states survive budget pressure with an omission note", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-attention-flood-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "attention", goal: "Preserve attention states" });
   registerRun(created.path, "flood-run");
   mkdirSync(join(runsDir, "flood-run", "nodes"), { recursive: true });
@@ -130,7 +131,7 @@ test("attention-needed run states survive budget pressure with an omission note"
 
 test("active decisions and unresolved questions beyond twenty are preserved when they fit", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-beyond-cap-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "beyond", goal: "Prove no silent truncation" });
   const at = new Date().toISOString();
   const sessionId = "codex-1";
@@ -157,7 +158,7 @@ test("active decisions and unresolved questions beyond twenty are preserved when
 
 test("decisions evicted by the projection cap still produce an omission summary", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-evicted-decisions-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "evicted", goal: "Prove eviction summary" });
   const at = new Date().toISOString();
   for (let index = 0; index < 120; index += 1) {
@@ -176,7 +177,7 @@ test("decisions evicted by the projection cap still produce an omission summary"
 
 test("a critical section larger than the whole budget keeps its latest entries", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-critical-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "critical", goal: "Ship the durable handoff" });
   const at = new Date().toISOString();
   const sessionId = "codex-1";
@@ -204,7 +205,7 @@ test("a critical section larger than the whole budget keeps its latest entries",
 
 test("fitHandoff shrinks entry text until every critical entry survives", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-shrink-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "shrink", goal: "Preserve every critical entry" });
   const at = new Date().toISOString();
   const sessionId = "codex-1";
@@ -232,7 +233,7 @@ test("fitHandoff shrinks entry text until every critical entry survives", () => 
 
 test("oldest low-priority history is evicted first with a bounded omission summary", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-evict-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "evict", goal: "Prove eviction" });
   const at = new Date().toISOString();
   for (let index = 0; index < 25; index += 1) {
@@ -250,7 +251,7 @@ test("oldest low-priority history is evicted first with a bounded omission summa
 
 test("resolved questions leave the active handoff projection", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-question-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "questions", goal: "Prove resolution" });
   const at = new Date().toISOString();
   appendJournal(created.path, { type: "open-question", eventId: "q1", at, sessionId: "codex-1", questionId: "q1", text: "What is the budget?" });
@@ -264,7 +265,7 @@ test("resolved questions leave the active handoff projection", () => {
 
 test("campaigns close and implicit discovery considers only active campaigns", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-close-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   initializeCampaign(runsDir, { campaignId: "alpha", goal: "First" });
   const beta = initializeCampaign(runsDir, { campaignId: "beta", goal: "Second" });
   assert.throws(() => closeCampaign(beta.path), /no recorded retrospective/u);
@@ -292,7 +293,7 @@ test("campaigns close and implicit discovery considers only active campaigns", (
 
 test("corrupt campaign entries are surfaced instead of silently dropped", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-corrupt-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   initializeCampaign(runsDir, { campaignId: "good", goal: "Healthy" });
   mkdirSync(join(runsDir, "campaigns", "bad"), { recursive: true });
   writeFileSync(join(runsDir, "campaigns", "bad", "campaign.json"), "{ not json");
@@ -305,7 +306,7 @@ test("corrupt campaign entries are surfaced instead of silently dropped", () => 
 
 test("journal appends are idempotent by event id", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-dedupe-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "dedupe", goal: "Prove idempotency" });
   const at = new Date().toISOString();
   const first = appendJournal(created.path, { type: "intent", eventId: "intent-retry", at, sessionId: "codex-1", text: "Material intent" });
@@ -320,7 +321,7 @@ test("journal appends are idempotent by event id", () => {
 
 test("liveness journal entries validate, dedupe by event id and stay out of the projection and handoff", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-liveness-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "amb", goal: "Prove ambient facts stay out of the handoff" });
   const at = new Date().toISOString();
   const fact = {
@@ -362,7 +363,7 @@ test("liveness journal entries validate, dedupe by event id and stay out of the 
 
 test("readJournal ignores the pre-diet weightedUsed and weightedCap fields on a historical liveness fact", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-legacy-liveness-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "legacy", goal: "Keep an old journal readable" });
   const at = new Date().toISOString();
   const legacyLine = JSON.stringify({
@@ -391,7 +392,7 @@ test("readJournal ignores the pre-diet weightedUsed and weightedCap fields on a 
 
 test("handoff projection recovers from deletion and corruption", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-projection-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "proj", goal: "Prove recovery" });
   const at = new Date().toISOString();
   appendJournal(created.path, { type: "decision", eventId: "d1", at, sessionId: "codex-1", decisionId: "d1", text: "Keep the journal" });
@@ -410,7 +411,7 @@ test("handoff projection recovers from deletion and corruption", () => {
 
 test("journal text is normalized and bounded so entries cannot inject headings", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-normalize-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "normalize", goal: "Prove normalization" });
   const at = new Date().toISOString();
   appendJournal(created.path, { type: "intent", eventId: "i1", at, sessionId: "codex-1", text: "## Fake heading\nline two" });
@@ -428,7 +429,7 @@ test("journal text is normalized and bounded so entries cannot inject headings",
 
 test("attention-needed linked-run states survive when critical sections exhaust the budget", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-attention-critical-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "attentioncritical", goal: "G".repeat(4000) });
   const at = new Date().toISOString();
   const sessionId = "codex-1";
@@ -458,7 +459,7 @@ test("attention-needed linked-run states survive when critical sections exhaust 
 
 test("large valid identifiers cannot starve later critical sections", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-large-ids-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "largeids", goal: "Ship" });
   const at = new Date().toISOString();
   const big = "Y".repeat(20000);
@@ -493,7 +494,7 @@ test("large valid identifiers cannot starve later critical sections", () => {
 
 test("a campaign carries an ordered contract manifest and a landing branch", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-manifest-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const contracts = [
     { path: join(directory, "phase-1.json"), digest: "a".repeat(64) },
     { path: join(directory, "phase-2.json"), digest: "b".repeat(64) },
@@ -519,7 +520,7 @@ test("a campaign carries an ordered contract manifest and a landing branch", () 
 
 test("a malformed contract manifest is refused", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-manifest-bad-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   assert.throws(
     () => initializeCampaign(runsDir, { campaignId: "bad-digest", goal: "g", contracts: [{ path: "/tmp/x.json", digest: "not-a-sha" }] }),
     /digest must be a SHA-256 hash/u,
@@ -545,7 +546,7 @@ test("the manifest digest is the contract's authored bytes and refuses tampering
 
 test("recording a promotion is idempotent by run and sha", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-promotion-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const { path } = initializeCampaign(runsDir, { campaignId: "promote", goal: "Record a promotion" });
   const at = new Date().toISOString();
   const entry = { runId: "run-1", branch: "campaign/promote", sha: "c".repeat(40), previousSha: "d".repeat(40), at };
@@ -570,7 +571,7 @@ test("promoting the same run twice through the campaign records one promotion", 
   execFileSync("git", ["-C", repo, "-c", "commit.gpgSign=false", "commit", "-qm", "run"], { stdio: "ignore" });
   const runHead = execFileSync("git", ["-C", repo, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 
-  const runsDir = join(mkdtempSync(join(tmpdir(), "runner-campaign-promote-")), ".runs");
+  const runsDir = runsRoot(mkdtempSync(join(tmpdir(), "runner-campaign-promote-")));
   const { path: campaignPath } = initializeCampaign(runsDir, { campaignId: "promote-twice", goal: "Promote once, replay once" });
 
   const first = promoteRunInCampaign({ campaignPath, repo, runId: "run-1", runHead, baseSha: base, finalVerificationPassed: true });
@@ -587,7 +588,7 @@ test("campaign init's seat.allowance start event carries the window field when a
   // `allowanceEventFields` exactly this way; this proves the window a sample
   // measured reaches the journal rather than being dropped at the call site.
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-allowance-window-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "allowance-window", goal: "Prove campaign init threads the sampled window" });
   const sample = { remaining: 0.23, limit: 1, resetsAt: "2026-09-17T00:00:00.000Z", window: "seven_day" };
   appendSeatAllowanceEvent(created.path, { sample: "start", harness: "claude", delta: null, ...allowanceEventFields(sample) });
@@ -599,7 +600,7 @@ test("campaign init's seat.allowance start event carries the window field when a
 
 test("a parked campaign records attention and refuses a malformed one", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-attention-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const { path } = initializeCampaign(runsDir, { campaignId: "parked", goal: "Park with attention" });
   const at = new Date().toISOString();
   parkCampaign(path, {

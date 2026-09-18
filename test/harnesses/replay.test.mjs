@@ -16,6 +16,7 @@ import { runRefName } from "../../src/repo/worktree.mjs";
 
 import { fixture, packet, writeContract } from "../helpers.mjs";
 import { assertExecutable, envelope, workerResult, writeRecording } from "./replay-helpers.mjs";
+import { runDirectory } from "../../src/run/paths.mjs";
 
 const bin = fileURLToPath(new URL("../../src/harnesses/replay/bin.mjs", import.meta.url));
 const zeroUsage = Object.freeze({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 });
@@ -523,7 +524,7 @@ test("three independent replay nodes run concurrently under maxParallel and each
   for (const id of ["alpha", "beta", "gamma"]) {
     assert.equal(showRefFile(directory, runRefName("replay-parallel-run"), `${id}.txt`), `${id}\n`);
   }
-  const accepted = readIntegrationJournal(join(directory, ".runs", "replay-parallel-run")).filter((record) => record.status === "accepted");
+  const accepted = readIntegrationJournal(runDirectory(directory, "replay-parallel-run")).filter((record) => record.status === "accepted");
   assert.equal(accepted.length, 3);
   const tips = new Set(accepted.map((record) => record.previousRunRefTip));
   assert.equal(tips.size, 3, "integration serialized: each candidate was built on the previous one's accepted head, never the same base twice");

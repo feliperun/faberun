@@ -9,6 +9,7 @@ import { NON_FAILOVER_CODES, classifyTransition } from "../../src/engine/backoff
 import { getHarness } from "../../src/harnesses/index.mjs";
 import { fakeCodex, fixture, packet, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState, fakeClaudeLike, flagValue } from "../runner-helpers.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 // The other half of routing.test.mjs: what happens when a provider is spent --
 // the declared one-hop edge, the announced reset, and the refusals.
@@ -137,7 +138,7 @@ test("liveness state reports paused_quota only while a provider backoff is pendi
 
 test("reuses one worker continuation per ordered phase", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-phase-reuse-"));
-  const requestLog = join(directory, ".runs", "phase-requests.jsonl");
+  const requestLog = join(runsRoot(directory), "phase-requests.jsonl");
   const executable = join(directory, "phase-wrapper.mjs");
   writeFileSync(executable, `#!${process.execPath}
 import { appendFileSync } from "node:fs";
@@ -168,7 +169,7 @@ else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; });
 
 test("does not reuse a phase continuation after a runtime identity change", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-phase-runtime-identity-"));
-  const requestLog = join(directory, ".runs", "phase-requests.jsonl");
+  const requestLog = join(runsRoot(directory), "phase-requests.jsonl");
   const executable = join(directory, "phase-wrapper.mjs");
   writeFileSync(executable, `#!${process.execPath}
 import { appendFileSync } from "node:fs";
@@ -204,7 +205,7 @@ else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; });
 
 test("two concurrent nodes of one phase never drive the same continuation", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-phase-concurrent-"));
-  const requestLog = join(directory, ".runs", "concurrent-requests.jsonl");
+  const requestLog = join(runsRoot(directory), "concurrent-requests.jsonl");
   const executable = join(directory, "concurrent-wrapper.mjs");
   // Every turn answers with the same continuation id, so a scheduler that
   // handed one session to two live nodes would show it in the request log.
@@ -241,7 +242,7 @@ else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; });
 
 test("selects the latest phase continuation by invocation chronology", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-phase-chronology-"));
-  const requestLog = join(directory, ".runs", "phase-requests.jsonl");
+  const requestLog = join(runsRoot(directory), "phase-requests.jsonl");
   const executable = join(directory, "phase-wrapper.mjs");
   writeFileSync(executable, `#!${process.execPath}
 import { appendFileSync } from "node:fs";
@@ -361,7 +362,7 @@ test("blocks downstream nodes after a failed dependency", async () => {
 
 test("worker invocations send no tool policy to a harness that cannot enforce it", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-tool-policy-"));
-  const marker = join(directory, ".runs", "tool-policy-request.json");
+  const marker = join(runsRoot(directory), "tool-policy-request.json");
   const provider = join(directory, "policy-provider.mjs");
   writeFileSync(provider, `#!${process.execPath}
 import { writeFileSync } from "node:fs";

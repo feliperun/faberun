@@ -28,6 +28,7 @@ import { renderStatus } from "../../src/report/render.mjs";
 import { validateContract, loadPersistedContract, CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/contract/index.mjs";
 import { fixture, packet, writeContract, withFakeCodex } from "../helpers.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
+import { runDirectory } from "../../src/run/paths.mjs";
 
 /** @param {string} runDir @param {string} id @param {Record<string, unknown>} snapshot */
 function writeSnapshot(runDir, id, snapshot) {
@@ -93,7 +94,7 @@ function makeValidRunDir(options = {}) {
   const directory = mkdtempSync(join(tmpdir(), "runner-parked-valid-"));
   const value = fixture({ id: "parked-valid-run", ...(options.contract ?? {}) });
   const contractPath = writeContract(directory, value);
-  const runDir = join(directory, ".runs", String(value.id));
+  const runDir = runDirectory(directory, String(value.id));
   mkdirSync(join(runDir, "nodes"), { recursive: true });
   copyFileSync(contractPath, join(runDir, "contract.json"));
   const contract = loadPersistedContract(join(runDir, "contract.json"), undefined);
@@ -176,7 +177,7 @@ test("done-when 3: a three-node contract with one done snapshot does not report 
       ],
     });
     const contractPath = writeContract(directory, value);
-    const sparseRunDir = join(directory, ".runs", String(value.id));
+    const sparseRunDir = runDirectory(directory, String(value.id));
     mkdirSync(join(sparseRunDir, "nodes"), { recursive: true });
     copyFileSync(contractPath, join(sparseRunDir, "contract.json"));
     return { runDir: sparseRunDir };

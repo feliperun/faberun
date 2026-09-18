@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { startServer } from "../../src/web/server.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const NOW = "2026-01-01T00:00:00.000Z";
@@ -163,7 +164,7 @@ function makeWorld() {
   const directory = mkdtempSync(join(tmpdir(), "faberun-webapi-"));
   const tokenFile = join(directory, "dashboard.token");
   writeFileSync(tokenFile, `${TOKEN}\n`);
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const campaignPath = join(runsDir, "campaigns", CAMPAIGN_ID);
   mkdirSync(campaignPath, { recursive: true });
   const campaignJson = join(campaignPath, "campaign.json");

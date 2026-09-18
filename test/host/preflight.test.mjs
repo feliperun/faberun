@@ -26,6 +26,7 @@ import {
 } from "../../src/run/disk-gc.mjs";
 import { acquire as acquireLock } from "../../src/run/lock.mjs";
 import { writeJsonAtomic } from "../../src/run/store.mjs";
+import { runDirectory } from "../../src/run/paths.mjs";
 
 const runner = fileURLToPath(new URL("../../src/cli.mjs", import.meta.url));
 
@@ -200,7 +201,7 @@ test("preflight failure keeps the run materialized, evidenced, and resumable", (
   });
   assert.equal(blocked.status, 1, blocked.stdout);
   assert.match(String(blocked.stderr), /env_preflight_failed/u);
-  const runDir = join(directory, ".runs", "test-run");
+  const runDir = runDirectory(directory, "test-run");
   assert.ok(existsSync(join(runDir, "contract.json")), "the run stays materialized for a resume");
   const evidence = JSON.parse(readFileSync(join(runDir, "env-preflight.json"), "utf8"));
   assert.equal(evidence.ok, false);

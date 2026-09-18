@@ -17,6 +17,7 @@ import { captureWorkspaceSnapshot } from "../../src/repo/workspace.mjs";
 import { acknowledgeJournalEvent, readJournal } from "../../src/campaign/journal.mjs";
 import { campaignDir } from "../../src/campaign/layout.mjs";
 import { assertExecutable, envelope, workerResult, writeRecording } from "./replay-helpers.mjs";
+import { attemptWorktreePath, candidateWorktreePath, runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
 const runner = fileURLToPath(new URL("../../src/cli.mjs", import.meta.url));
 
@@ -135,7 +136,7 @@ async function driveReplayedContract({ id, nodes, worker, judge = [{ envelope: e
     nodes,
   }));
   const outcome = await runContract(contractPath);
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   return {
     directory,
     runsDir,
@@ -169,7 +170,7 @@ function integrationFixture(id) {
   const repo = mkdtempSync(join(tmpdir(), `${id}-git-`));
   writeFileSync(join(repo, "README.md"), "base\n");
   initializeGit(repo);
-  const runDir = join(repo, ".runs", id);
+  const runDir = runDirectory(repo, id);
   mkdirSync(runDir, { recursive: true });
   const head = gitHead(repo);
   createRunRef(repo, id, head);
@@ -257,7 +258,7 @@ test("a Codex-shaped worker writes its result in the attempt worktree and resume
   const id = "codex-isolated-result";
   const contractPath = writeContract(directory, fixture({ id, pollIntervalMs: 10 }));
   const previousInterrupt = process.env.FABERUN_INTEGRATION_INTERRUPT;
-  const runDir = join(directory, ".runs", id);
+  const runDir = runDirectory(directory, id);
   try {
     process.env.FABERUN_INTEGRATION_INTERRUPT = "after-state";
     await assert.rejects(
@@ -272,7 +273,10 @@ test("a Codex-shaped worker writes its result in the attempt worktree and resume
   }
   const node = JSON.parse(readFileSync(join(runDir, "nodes", "build.json"), "utf8"));
   const workspace = node.worktree.path;
-  assert.ok(workspace.includes(join(".runs", "worktrees", id, `build.${node.attempt}`)));
+  assert.ok(workspace.includes(attemptWorktreePath(runDir, id, "build", node.attempt)));
+  // Unlike the line above, this `.runs` is the attempt-local result sidecar
+  // R3 requires to stay exactly where the worker protocol writes it, inside
+  // the attempt workspace -- it does not move with the worktree location.
   assert.equal(existsSync(join(workspace, ".runs", "results", "build.json")), true, "the provider result stayed in the isolated worktree until recovery");
   assert.equal(existsSync(join(runDir, "results", "build.json")), true, "the controller materialized the result into the run directory");
 
@@ -342,7 +346,7 @@ test("an attempt worktree links the repository's node_modules as a symlink, and 
   writeFileSync(join(repo, ".gitignore"), "node_modules/\n");
   initializeGit(repo);
   const runId = "node-modules-symlink";
-  const runDir = join(repo, ".runs", runId);
+  const runDir = runDirectory(repo, runId);
   mkdirSync(runDir, { recursive: true });
   createRunRef(repo, runId, gitHead(repo));
   mkdirSync(join(repo, "node_modules", "left-pad"), { recursive: true });
@@ -369,7 +373,7 @@ test("failed candidate verification leaves the run ref unchanged and keeps the a
   assert.equal(result.status, "verification_failed");
   assert.equal(gitHead(fixture.repo, runRefName(fixture.id)), before);
   assert.equal(gitHead(fixture.repo, `refs/faberun/${fixture.id}/candidate`), null);
-  assert.equal(existsSync(join(fixture.repo, ".runs", "worktrees", fixture.id, ".candidate")), false);
+  assert.equal(existsSync(candidateWorktreePath(fixture.runDir, fixture.id)), false);
   assert.equal(existsSync(result.worktree.path), true);
   const lastRecord = readIntegrationJournal(fixture.runDir).at(-1);
   assert.ok(lastRecord);
@@ -645,6 +649,9 @@ test("sealAttempt seals a worktree that holds the ignored .runs result sidecar",
   const fixture = integrationFixture("seal-ignored-sidecar");
   const { sealed, worktree } = sealFixtureAttempt(fixture, "build", 1, (workspace) => {
     writeFileSync(join(workspace, ".gitignore"), ".runs/\n");
+    // The attempt-local result sidecar again (see the "writes its result in
+    // the attempt worktree" test above): R3 keeps it inside the attempt
+    // workspace, so it is not a resolver call site.
     mkdirSync(join(workspace, ".runs", "results"), { recursive: true });
     writeFileSync(join(workspace, ".runs", "results", "build.json"), "{}\n");
     writeFileSync(join(workspace, "README.md"), "sealed\n");

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 const scriptPath = fileURLToPath(new URL("../../integrations/claude-code/statusline.sh", import.meta.url));
 
@@ -38,7 +39,7 @@ function makePointer(overrides = {}) {
  * @returns {string}
  */
 function writePointer(directory, overrides = {}) {
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   mkdirSync(runsDir, { recursive: true });
   const path = join(runsDir, "status.json");
   writeFileSync(path, `${JSON.stringify(makePointer(overrides))}\n`);
@@ -142,8 +143,8 @@ test("statusline prints an empty line without a run, with no external tool requi
   assert.equal(render(withoutRuns), "\n");
 
   const brokenDir = mkdtempSync(join(tmpdir(), "if-statusline-broken-"));
-  mkdirSync(join(brokenDir, ".runs"), { recursive: true });
-  writeFileSync(join(brokenDir, ".runs", "status.json"), "not json at all\n");
+  mkdirSync(runsRoot(brokenDir), { recursive: true });
+  writeFileSync(join(runsRoot(brokenDir), "status.json"), "not json at all\n");
   assert.equal(render(brokenDir), "\n");
 });
 

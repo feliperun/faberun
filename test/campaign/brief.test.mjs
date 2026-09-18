@@ -10,13 +10,14 @@ import { appendJournal } from "../../src/campaign/journal.mjs";
 import { briefFromState, materializeBrief } from "../../src/campaign/brief.mjs";
 import { BRIEF_BYTES, BRIEF_FILE, HANDOFF_FILE, PROJECTION_FILE } from "../../src/campaign/layout.mjs";
 import { renderCampaignHandoffSafely } from "../../src/engine/notify-queue.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 // The operator brief: a pure, hard-bounded rendering of the campaign's durable
 // facts, refreshed at the same seam that rewrites HANDOFF.md.
 
 test("brief is deterministic", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-brief-deterministic-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "deterministic", goal: "Ship a deterministic brief" });
   const at = new Date().toISOString();
   appendJournal(created.path, { type: "decision", eventId: "d1", at, sessionId: "codex-1", decisionId: "d1", text: "Use a bounded brief" });
@@ -42,7 +43,7 @@ test("brief is deterministic", () => {
 
 test("brief bounded", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-brief-bounded-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "bounded", goal: "Prove the hard ceiling" });
   const at = new Date().toISOString();
   for (let index = 0; index < 12; index += 1) {
@@ -74,7 +75,7 @@ test("brief bounded", () => {
 
 test("brief rebuild from journal", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-brief-journal-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "journal", goal: "Prove journal rebuild" });
   const at = new Date().toISOString();
   appendJournal(created.path, { type: "decision", eventId: "d1", at, sessionId: "codex-1", decisionId: "d1", text: "Use semantic budgeting" });
@@ -97,7 +98,7 @@ test("brief rebuild from journal", () => {
 
 test("brief refresh triggers", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-brief-refresh-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "refresh", goal: "Prove the shared seam" });
   const runDir = join(runsDir, "linked-run");
   mkdirSync(join(runDir, "nodes"), { recursive: true });

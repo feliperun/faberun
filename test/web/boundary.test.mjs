@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { assertPrivateBind, loadBearerToken, resolveBindAddress } from "../../src/web/boundary.mjs";
 import { startServer } from "../../src/web/server.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 const TOKEN = "boundary-test-bearer-7f3d9c2e5a8146b0";
 const AUTH = { authorization: `Bearer ${TOKEN}` };
@@ -101,7 +102,7 @@ function makeWorld() {
   const directory = mkdtempSync(join(tmpdir(), "faberun-boundary-"));
   const tokenFile = join(directory, "dashboard.token");
   writeFileSync(tokenFile, `${TOKEN}\n`);
-  return { directory, runsDir: join(directory, ".runs"), tokenFile };
+  return { directory, runsDir: runsRoot(directory), tokenFile };
 }
 
 /**

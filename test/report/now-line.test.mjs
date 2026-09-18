@@ -7,6 +7,7 @@ import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../
 import { renderStatus, renderStatusJson } from "../../src/report/render.mjs";
 import { verificationProgress } from "../../src/engine/verify.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
+import { runDirectory } from "../../src/run/paths.mjs";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 
@@ -149,7 +150,7 @@ function makeRun(nodeOverrides) {
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));
   const contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
-  const runDir = join(directory, ".runs", "report-now-line");
+  const runDir = runDirectory(directory, "report-now-line");
   mkdirSync(join(runDir, "nodes"), { recursive: true });
   writeFileSync(join(runDir, "contract.json"), readFileSync(contractPath));
   writeFileSync(join(runDir, "run.json"), `${JSON.stringify({

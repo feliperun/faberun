@@ -269,6 +269,8 @@ test("workspace snapshots follow Git visibility and retain tracked runtime files
   writeFileSync(join(cwd, ".claude", "tracked.txt"), "tracked before");
   execFileSync("git", ["-C", cwd, "add", "-f", ".claude/tracked.txt"]);
   const before = captureWorkspaceSnapshot(cwd);
+  // Runtime-debris directory names to fabricate, not a path composition -- not
+  // a resolver call site.
   for (const directory of [".codex", ".runs", "node_modules"]) {
     mkdirSync(join(cwd, directory));
     writeFileSync(join(cwd, directory, "scratch.lock"), "runtime debris");

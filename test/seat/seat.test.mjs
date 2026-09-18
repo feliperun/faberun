@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 
 import { initializeCampaign, registerRun } from "../../src/campaign/index.mjs";
 import { BRIEF_FILE } from "../../src/campaign/layout.mjs";
+import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
 /**
  * The seat is a tmux session with one window per campaign, and none of it may
@@ -127,7 +128,7 @@ test("seat status json", () => {
 
 test("seat pane death does not touch the run", async () => {
   const directory = mkdtempSync(join(tmpdir(), "seat-pane-death-"));
-  const runDir = join(directory, ".runs", "run-1");
+  const runDir = runDirectory(directory, "run-1");
   mkdirSync(runDir, { recursive: true });
   const statusPath = join(runDir, "status.json");
   const before = JSON.stringify({ schemaVersion: 1, run: "run-1", nodes: [{ id: "build", status: "running" }] });
@@ -146,7 +147,7 @@ test("seat pane death does not touch the run", async () => {
 
 test("seat switch preserves controller lease", () => {
   const directory = mkdtempSync(join(tmpdir(), "seat-switch-"));
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const { path: campaignPath } = initializeCampaign(runsDir, { campaignId: "campaign-a", goal: "Keep the controller running" });
   const runDir = join(runsDir, "run-1");
   mkdirSync(join(runDir, "nodes"), { recursive: true });

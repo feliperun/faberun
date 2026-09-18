@@ -8,6 +8,7 @@ import { emitScheduledAttention } from "../../src/engine/notify-queue.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
 import { nodeState, recordingNotifyTransport, resultFileCodex, withResultFileCodex } from "../runner-helpers.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 const SUMMARY_CHARS = 200;
 
@@ -240,7 +241,7 @@ test("emitScheduledAttention renders the message once: the inbox summary and the
     const result = await runContract(path);
     assert.equal(nodeState(result).status, "done");
 
-    const runsDir = join(directory, ".runs");
+    const runsDir = runsRoot(directory);
     // 15 minutes ago crosses the schedule's first (10-minute) slot.
     const anchor = new Date(Date.now() - 15 * 60_000).toISOString();
     const slot = await emitScheduledAttention(result.runDir, { anchor, code: "judge_unavailable", campaignId: null });
@@ -295,7 +296,7 @@ process.stdin.on("end", () => {
   }
 
   assert.equal(existsSync(poisonMarker), false, "the transport left bound in the environment must never run during a test");
-  const events = readFileSync(join(directory, ".runs", "notify-record.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  const events = readFileSync(join(runsRoot(directory), "notify-record.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
   assert.ok(
     events.some((event) => event.type === "node.terminal" && event.nodeId === "build"),
     "the recording fixture bound in place of the poisoned transport captured the terminal event",

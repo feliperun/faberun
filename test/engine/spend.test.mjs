@@ -16,6 +16,7 @@ import {
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
 import { nodeState, withBrokenGateCodex } from "../runner-helpers.mjs";
+import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
 const NOW = "2026-01-01T00:00:00.000Z";
 
@@ -29,8 +30,8 @@ const NOW = "2026-01-01T00:00:00.000Z";
  */
 function retryPromptCodex(directory) {
   const executable = join(mkdtempSync(join(tmpdir(), "runner-spend-retry-")), "retry-prompt.mjs");
-  const promptLog = join(directory, ".runs", "spend-retry-prompts.txt");
-  const judges = join(directory, ".runs", "spend-retry-judges");
+  const promptLog = join(runsRoot(directory), "spend-retry-prompts.txt");
+  const judges = join(runsRoot(directory), "spend-retry-judges");
   writeFileSync(executable, `#!${process.execPath}
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 const promptLog = ${JSON.stringify(promptLog)};
@@ -171,7 +172,7 @@ test("applyRejection with no live dispatch persists the fresh-session policy on 
   }));
   const contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
   const node = contract.nodes[0];
-  const runDir = join(directory, ".runs", "spend-reject-run");
+  const runDir = runDirectory(directory, "spend-reject-run");
   mkdirSync(join(runDir, "nodes"), { recursive: true });
   const state = /** @type {import("../../src/contract/index.mjs").NodeSnapshot} */ ({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
@@ -257,7 +258,7 @@ test("a duration advisory is delivered through the inbox, never kills the node, 
   const state = nodeState(result);
   assert.equal(result.ok, true, state.error?.message);
   assert.equal(state.status, "done", "the advisory never stops the node");
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const inbox = readFileSync(join(runsDir, "inbox.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line)).filter((entry) => entry.type === "advisory");
   assert.equal(inbox.length, 1, "exactly one advisory for the one crossed threshold");
   assert.equal(inbox[0].nodeId, "build");
@@ -280,7 +281,7 @@ test("a duration advisory is delivered through the inbox, never kills the node, 
 
 test("cost advisories fire once when a new usage record arrives, with a null cost never crossing", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-spend-cost-"));
-  const runDir = join(directory, ".runs", "run-a");
+  const runDir = runDirectory(directory, "run-a");
   mkdirSync(runDir, { recursive: true });
   const policy = { costUsd: 1 };
   assert.deepEqual(nodeAdvisoryCrossings({ id: "build", startedAt: NOW, costUsd: null }, policy), [], "an unavailable cost never fabricates a crossing");

@@ -10,13 +10,14 @@ import {
 } from "../../src/repo/signal.mjs";
 import { closeCampaign, initializeCampaign } from "../../src/campaign/index.mjs";
 import { appendJournal } from "../../src/campaign/journal.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 /**
  * @returns {{repo: string, runsDir: string, agentsPath: string}}
  */
 function makeRepo() {
   const repo = mkdtempSync(join(tmpdir(), "signal-repo-"));
-  const runsDir = join(repo, ".runs");
+  const runsDir = runsRoot(repo);
   const agentsPath = join(repo, "AGENTS.md");
   writeFileSync(agentsPath, "# Rules\n\nline one\n");
   return { repo, runsDir, agentsPath };
@@ -84,7 +85,7 @@ test("removes the block when everything is terminal", () => {
 
 test("does nothing when AGENTS.md is missing", () => {
   const repo = mkdtempSync(join(tmpdir(), "signal-no-agents-"));
-  const runsDir = join(repo, ".runs");
+  const runsDir = runsRoot(repo);
   writeRunNodes(runsDir, "run-a", ["running"]);
   assert.equal(syncAgentSignal(runsDir), false);
   assert.ok(!existsSync(join(repo, "AGENTS.md")), "no file created");

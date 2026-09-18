@@ -16,6 +16,7 @@ import { runContract } from "../../src/engine/scheduler.mjs";
 import { resumeRun } from "../../src/engine/resume.mjs";
 import { ensureAttemptWorktree, fixture, packet, waitForValue, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState } from "../runner-helpers.mjs";
+import { runDirectory } from "../../src/run/paths.mjs";
 
 test("a sibling is dispatched into the freed slot while the first node's controller verification is still blocked", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-dispatch-during-verification-"));
@@ -39,7 +40,7 @@ test("a sibling is dispatched into the freed slot while the first node's control
       { id: "second", type: "backend", taskPacket: packet(), gate: false },
     ],
   }));
-  const runDir = join(directory, ".runs", "dispatch-during-verification-run");
+  const runDir = runDirectory(directory, "dispatch-during-verification-run");
   const secondSnapshotPath = join(runDir, "nodes", "second.json");
   const outcome = withFakeCodex(directory, "pass", () => runContract(path));
   try {
@@ -99,7 +100,7 @@ test("a sibling is dispatched while a resumed judge re-ask is still blocked on i
       },
     ],
   }));
-  const runDir = join(directory, ".runs", "dispatch-during-judge-reask-run");
+  const runDir = runDirectory(directory, "dispatch-during-judge-reask-run");
   writeFileSync(secondShouldFail, "armed\n");
   // `build`'s judge invocation itself fails twice (the bounded re-ask, then
   // the one automatic retry), settling `judge_unavailable` with the accepted
@@ -154,7 +155,7 @@ test("a background settlement that rejects fails the run instead of a clean exit
     // settlement produced the failure.
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), definitionOfDone: [], gate: { failOn: ["critical"] } }],
   }));
-  const runDir = join(directory, ".runs", "background-settlement-reject-run");
+  const runDir = runDirectory(directory, "background-settlement-reject-run");
   const finished = await withFakeCodex(directory, "pass", () => runContract(path));
   assert.equal(finished.ok, true);
   const accepted = nodeState(finished);

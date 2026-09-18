@@ -20,6 +20,7 @@ import { runContract } from "../../src/engine/scheduler.mjs";
 import { verificationProgress } from "../../src/engine/verify.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
 import { envelope, workerResult, writeRecording } from "../harnesses/replay-helpers.mjs";
+import { runDirectory } from "../../src/run/paths.mjs";
 
 const LOG_SCRIPT = "const fs=require('node:fs');"
   + "const state=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));"
@@ -33,7 +34,7 @@ test("a controller verification pass records k/n progress and the running argv, 
   const directory = mkdtempSync(join(tmpdir(), `${id}-`));
   const recordingDir = mkdtempSync(join(tmpdir(), `${id}-rec-`));
   const captureDir = mkdtempSync(join(tmpdir(), `${id}-cap-`));
-  const nodeJsonPath = join(directory, ".runs", id, "nodes", "build.json");
+  const nodeJsonPath = join(runDirectory(directory, id), "nodes", "build.json");
   const logPath = join(captureDir, "log.jsonl");
   writeFileSync(logPath, "");
   const argv1 = captureArgv(nodeJsonPath, logPath, "command-one");
@@ -79,7 +80,7 @@ test("a failing verification command still leaves no stray progress on the termi
   const directory = mkdtempSync(join(tmpdir(), `${id}-`));
   const recordingDir = mkdtempSync(join(tmpdir(), `${id}-rec-`));
   const captureDir = mkdtempSync(join(tmpdir(), `${id}-cap-`));
-  const nodeJsonPath = join(directory, ".runs", id, "nodes", "build.json");
+  const nodeJsonPath = join(runDirectory(directory, id), "nodes", "build.json");
   const logPath = join(captureDir, "log.jsonl");
   writeFileSync(logPath, "");
   const argv1 = captureArgv(nodeJsonPath, logPath, "command-one");
@@ -123,7 +124,7 @@ test("a node in the integration candidate's own verification pass carries the ca
   const directory = mkdtempSync(join(tmpdir(), `${id}-`));
   const recordingDir = mkdtempSync(join(tmpdir(), `${id}-rec-`));
   const captureDir = mkdtempSync(join(tmpdir(), `${id}-cap-`));
-  const nodeJsonPath = join(directory, ".runs", id, "nodes", "build.json");
+  const nodeJsonPath = join(runDirectory(directory, id), "nodes", "build.json");
   const logPath = join(captureDir, "log.jsonl");
   writeFileSync(logPath, "");
   const script = "const fs=require('node:fs');"

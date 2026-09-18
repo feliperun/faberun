@@ -14,6 +14,7 @@ import { acquireWatchLock, watchCampaignWake } from "../../src/cli/campaign.mjs"
 import { runProgress } from "../../src/engine/supervise.mjs";
 import { fixture, packet, writeContract, withEmptyPath, withFakeCodex, readStatus, waitForValue } from "../helpers.mjs";
 import { RUNNER_CLI } from "../runner-helpers.mjs";
+import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
 /** @param {string} prefix @returns {string} */
 function tempDir(prefix) {
@@ -41,7 +42,7 @@ function makeRunDir(runsDir, runId, nodes) {
 
 test("done-when 1: a parked run appears in the managed block with its nodes, codes and resume command", () => {
   const directory = tempDir("inbox-signal-parked-");
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const { path } = initializeCampaign(runsDir, { campaignId: "c1", goal: "prove the block names parked work" });
   registerRun(path, "r1");
   const runDir = makeRunDir(runsDir, "r1", {
@@ -60,7 +61,7 @@ test("done-when 1: a parked run appears in the managed block with its nodes, cod
 
 test("done-when 2: a succeeded run renders as one line and the most recent attention entry renders", () => {
   const directory = tempDir("inbox-signal-succeeded-");
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const { path } = initializeCampaign(runsDir, { campaignId: "c2", goal: "prove the block is quiet about success" });
   registerRun(path, "r2");
   makeRunDir(runsDir, "r2", { build: { status: "done" } });
@@ -81,7 +82,7 @@ test("done-when 2: a succeeded run renders as one line and the most recent atten
 
 test("a multi-line inbox summary (renderRunProgress's own shape) collapses to its first line in the managed signal block", () => {
   const directory = tempDir("inbox-signal-multiline-");
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   initializeCampaign(runsDir, { campaignId: "cm", goal: "prove the block stays single-line" });
   appendInbox(runsDir, {
     type: "attention",
@@ -99,7 +100,7 @@ test("a multi-line inbox summary (renderRunProgress's own shape) collapses to it
 });
 
 test("done-when 3: inbox entries match the schema, dedupe on the key, and survive concurrent appends", async () => {
-  const runsDir = join(tempDir("inbox-schema-"), ".runs");
+  const runsDir = runsRoot(tempDir("inbox-schema-"));
   const first = appendInbox(runsDir, { type: "attention", campaignId: "c", summary: "one", dedupeKey: "k1" });
   const duplicate = appendInbox(runsDir, { type: "attention", campaignId: "c", summary: "two", dedupeKey: "k1" });
   assert.equal(first.appended, true);
@@ -136,7 +137,7 @@ for (let i = 0; i < 40; i += 1) {
 
 test("done-when 4: campaign-level notifications are queued and delivered with no run active", async () => {
   const directory = tempDir("inbox-campaign-");
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const { path } = initializeCampaign(runsDir, { campaignId: "c4", goal: "queue campaign lines without a run" });
 
   const delivered = await enqueueCampaignNotification({
@@ -164,7 +165,7 @@ test("done-when 4: campaign-level notifications are queued and delivered with no
 
 test("done-when 5: a restarted watcher does not re-deliver and a live watcher refuses to double-run", async () => {
   const directory = tempDir("inbox-watch-");
-  const runsDir = join(directory, ".runs");
+  const runsDir = runsRoot(directory);
   const { path } = initializeCampaign(runsDir, { campaignId: "c5", goal: "one watcher per campaign" });
   registerRun(path, "r5");
   const runDir = makeRunDir(runsDir, "r5", { build: { status: "done" } });
@@ -252,7 +253,7 @@ test("done-when 7: the foreground launch prints the warning once and the detache
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));
   const contract = JSON.parse(readFileSync(contractPath, "utf8"));
-  const runDir = join(directory, ".runs", contract.id);
+  const runDir = runDirectory(directory, contract.id);
   const nodePath = join(runDir, "nodes", "build.json");
   const result = await withFakeCodex(directory, "pass", () => spawnSync(process.execPath, [RUNNER_CLI, "run", "--detach", contractPath], {
     encoding: "utf8",
@@ -276,7 +277,7 @@ test("done-when 7: the foreground launch prints the warning once and the detache
 });
 
 test("the parked classification the block reads is phase 2's, not a second implementation", () => {
-  const runsDir = join(tempDir("inbox-outcome-"), ".runs");
+  const runsDir = runsRoot(tempDir("inbox-outcome-"));
   makeRunDir(runsDir, "r", { build: { status: "blocked", error: { code: "runtime_tier_exhausted" } } });
   assert.equal(runProgress(join(runsDir, "r")).runOutcome, "parked");
 });

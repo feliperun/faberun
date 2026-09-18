@@ -15,6 +15,7 @@ import { bootstrapAckPath, bootstrapAttemptPath, bootstrapPath, cleanupBootstrap
 import { delay, fakeCodex, fixture, orphan, packet, readStatus, waitForValue, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState, notifications, withAdvisoryGateCodex, withBrokenGateCodex, RUNNER_CLI } from "../runner-helpers.mjs";
 import { invocationAlive } from "../../src/engine/process.mjs";
+import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
 test("runs the CLI through an installed symlink", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-symlink-"));
@@ -165,7 +166,7 @@ test("run --detach leaves a controller that outlives the invoker and completes t
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));
   const contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
-  const runDir = join(contract.cwd, ".runs", contract.id);
+  const runDir = runDirectory(contract.cwd, contract.id);
   const nodePath = join(runDir, "nodes", "build.json");
   const result = await withFakeCodex(directory, "pass", () =>
     spawnSync(process.execPath, [fileURLToPath(new URL("../../src/cli.mjs", import.meta.url)), "run", "--detach", contractPath], {
@@ -208,7 +209,7 @@ test("resume --detach restarts a failed node through a detached controller", asy
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));
   const contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
-  const runDir = join(contract.cwd, ".runs", contract.id);
+  const runDir = runDirectory(contract.cwd, contract.id);
   const nodePath = join(runDir, "nodes", "build.json");
   await withFakeCodex(directory, "worker-fail", () => runContract(contractPath));
   assert.equal(readStatus(nodePath), "failed");
@@ -366,8 +367,8 @@ test("idle polls emit no notification, and resume never re-notifies an already-t
     pollIntervalMs: 10,
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));
-  const started = join(directory, ".runs", "provider-started");
-  const release = join(directory, ".runs", "provider-release");
+  const started = join(runsRoot(directory), "provider-started");
+  const release = join(runsRoot(directory), "provider-release");
   const previous = process.env.FABERUN_CODEX_BIN;
   process.env.FABERUN_CODEX_BIN = fakeCodex(directory, "wait-for-release");
   try {
@@ -376,7 +377,7 @@ test("idle polls emit no notification, and resume never re-notifies an already-t
     // Let several controller polls pass while the node stays running: idle
     // passes must not create any notify.jsonl entry.
     await delay(200);
-    assert.equal(existsSync(join(directory, ".runs", "progress-idle-run", "notify.jsonl")), false, "a running node emits no notification");
+    assert.equal(existsSync(join(runDirectory(directory, "progress-idle-run"), "notify.jsonl")), false, "a running node emits no notification");
     writeFileSync(release, "release");
     const runDir = (await pending).runDir;
     let receipts = notifications(runDir);
@@ -447,7 +448,7 @@ test("run warns when a node id is already done in another run", async () => {
 test("run warnings ignore an unrelated historical run with an obsolete contract", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-rerun-obsolete-"));
   const currentPath = writeContract(directory, fixture({ id: "current-run", pollIntervalMs: 10 }));
-  const obsoleteRun = join(directory, ".runs", "obsolete-run");
+  const obsoleteRun = runDirectory(directory, "obsolete-run");
   mkdirSync(join(obsoleteRun, "nodes"), { recursive: true });
   writeFileSync(join(obsoleteRun, "contract.json"), "{ this is obsolete and invalid JSON\n");
   writeFileSync(join(obsoleteRun, "nodes", "old-node.json"), "{}\n");
@@ -464,7 +465,7 @@ test("run warnings ignore a historical snapshot from an older capability schema"
   const directory = mkdtempSync(join(tmpdir(), "runner-rerun-old-snapshot-"));
   const firstPath = writeContract(directory, fixture({ id: "old-run", pollIntervalMs: 10 }));
   await withFakeCodex(directory, "pass", () => runContract(firstPath));
-  const oldNodePath = join(directory, ".runs", "old-run", "nodes", "build.json");
+  const oldNodePath = join(runDirectory(directory, "old-run"), "nodes", "build.json");
   const oldNode = JSON.parse(readFileSync(oldNodePath, "utf8"));
   delete oldNode.runtime.capabilities.toolPolicy;
   writeFileSync(oldNodePath, `${JSON.stringify(oldNode)}\n`);
@@ -559,7 +560,7 @@ test("a single-node contract validates without warning and contract prune is gon
   assert.equal(rejected.status, 1, rejected.stdout);
   assert.match(rejected.stderr, /nodes\[0\] has unexpected field targetedFix/u, "the targeted-fix node field is gone");
 
-  const pruned = spawnSync(process.execPath, [RUNNER_CLI, "contract", "prune", join(directory, ".runs", "single-node-run"), "--out", join(directory, "out.json")], { encoding: "utf8" });
+  const pruned = spawnSync(process.execPath, [RUNNER_CLI, "contract", "prune", runDirectory(directory, "single-node-run"), "--out", join(directory, "out.json")], { encoding: "utf8" });
   assert.equal(pruned.status, 2, pruned.stdout);
   assert.match(pruned.stderr, /usage: faberun contract validate/u, "contract prune is not a command any more");
   assert.equal(existsSync(join(directory, "out.json")), false, "no continuation contract is written");

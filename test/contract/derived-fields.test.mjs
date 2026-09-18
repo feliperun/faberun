@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { DERIVED_WORKER_RESULT_FIELDS, parseWorkerResult } from "../../src/contract/worker-result.mjs";
 import { createAttemptWorktree, createRunRef, git, gitHead, sealAttempt } from "../../src/repo/worktree.mjs";
 import { initializeGit } from "./helpers.mjs";
+import { runDirectory } from "../../src/run/paths.mjs";
 
 test("derived field rejected in worker result", () => {
   const canonical = { status: "done", summary: "complete", verification: [], artifacts: [], missingContext: [] };
@@ -31,7 +32,7 @@ test("commit derived from worktree head", () => {
   writeFileSync(join(directory, "README.md"), "read\n");
   initializeGit(directory);
   const runId = "derived-fields-run";
-  const runDir = join(directory, ".runs", runId);
+  const runDir = runDirectory(directory, runId);
   const base = gitHead(directory);
   assert.ok(base, "the fixture repository has a head");
   createRunRef(directory, runId, base);
