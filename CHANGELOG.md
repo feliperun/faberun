@@ -2,6 +2,15 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.11.0](https://github.com/feliperun/faberun/compare/v0.10.0...v0.11.0) (2026-09-18)
+
+
+### Features
+
+* a prompt states its whole result shape, a test cannot notify, a judge cannot write ([02bfa03](https://github.com/feliperun/faberun/commit/02bfa034a81851688d1395065cd99fc46be78704))
+* **engine:** the controller compares the judge's workspace around its verdict ([fe97a2b](https://github.com/feliperun/faberun/commit/fe97a2baaf6b8c62dd6eea5ec93072b77f995220))
+* **engine:** the judge write check fails closed, with no escape ([5570c0f](https://github.com/feliperun/faberun/commit/5570c0fe87cc369f68932380a5ec2da30b5af3f4))
+
 ## [0.10.0](https://github.com/feliperun/faberun/compare/v0.9.0...v0.10.0) (2026-09-17)
 
 
