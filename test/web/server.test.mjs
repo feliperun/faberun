@@ -1,18 +1,24 @@
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { test } from "node:test";
-import vm from "node:vm";
+import { authoredContractDigest, initializeCampaign, registerRun } from "../../src/campaign/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/contract/index.mjs";
 import { buildSnapshot, snapshotSignature, startServer, tailJsonl } from "../../src/web/server.mjs";
+import {
+  campaignHeadingText,
+  campaignOptionsHtml,
+  chainStages,
+  layoutNodes,
+  renderChainSvg,
+  renderDrilldownHtml,
+  renderPhaseGraphSvg,
+} from "../../src/web/app.mjs";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
 const NOW = "2026-01-01T00:00:00.000Z";
 const LATER = "2026-01-01T00:05:00.000Z";
 const CAMPAIGN_ID = "dash-campaign";
-const RUN_ID = "dash-run";
-const ORPHAN_RUN_ID = "dash-run-orphan";
 const TOKEN = "server-test-bearer-1a2b3c4d5e6f7788";
 const AUTH = { authorization: `Bearer ${TOKEN}` };
 
@@ -42,69 +48,133 @@ test("tailJsonl truncates by bytes and resumes at the next full line", () => {
   }
 });
 
-test("the server serves the snapshot for a recorded run directory with the documented sources and none of the deleted ones", () => {
+/** @param {string} path @param {unknown} value */
+function writeJson(path, value) {
+  writeFileSync(path, JSON.stringify(value));
+}
+
+/**
+ * A campaign with three phase contracts: `alpha` (done, one settled node with
+ * a worker log/prompt/verification/scope), `beta` (running, one node whose
+ * two children of the same parent are siblings — the fixture the depth/row
+ * tests need), and `gamma`, authored but never launched (`hasRun: false`).
+ *
+ * @param {{longLog?: boolean}} [options]
+ * @returns {{directory: string, runsDir: string, tokenFile: string}}
+ */
+function makeWorld({ longLog = false } = {}) {
+  const directory = mkdtempSync(join(tmpdir(), "faberun-dashboard-"));
+  const tokenFile = join(directory, "dashboard.token");
+  writeFileSync(tokenFile, `${TOKEN}\n`);
+  const runsDir = join(directory, ".runs");
+
+  /** @param {string} phaseId @param {{id: string, dependsOn?: string[]}[]} nodes */
+  const contractFor = (phaseId, nodes) => {
+    const path = join(directory, `${phaseId}.contract.json`);
+    writeFileSync(path, `${JSON.stringify({
+      schemaVersion: PROTOCOL_SCHEMA_VERSION,
+      contractVersion: CONTRACT_VERSION,
+      id: phaseId,
+      campaignId: CAMPAIGN_ID,
+      goal: `Goal for ${phaseId}`,
+      cwd: ".",
+      nodes: nodes.map((node) => ({ id: node.id, phase: phaseId, dependsOn: node.dependsOn ?? [] })),
+    }, null, 2)}\n`);
+    return { path, digest: authoredContractDigest(path) };
+  };
+
+  const alphaNodes = [{ id: "a1" }];
+  const betaNodes = [{ id: "root" }, { id: "left", dependsOn: ["root"] }, { id: "right", dependsOn: ["root"] }];
+  const gammaNodes = [{ id: "g1" }];
+  const contracts = [contractFor("alpha", alphaNodes), contractFor("beta", betaNodes), contractFor("gamma", gammaNodes)];
+  const { path: campaignPath } = initializeCampaign(runsDir, { campaignId: CAMPAIGN_ID, goal: "Ship the dashboard rewrite", contracts });
+
+  /** @param {string} phaseId @param {{id: string, snapshot?: Record<string, unknown>}[]} nodes */
+  const writeRun = (phaseId, nodes) => {
+    const runDir = join(runsDir, phaseId);
+    mkdirSync(join(runDir, "nodes"), { recursive: true });
+    mkdirSync(join(runDir, "logs"), { recursive: true });
+    writeJson(join(runDir, "run.json"), { schemaVersion: PROTOCOL_SCHEMA_VERSION, contractVersion: CONTRACT_VERSION, pid: process.pid, processStartToken: null, startedAt: NOW, sourceIdentity: { kind: "run" } });
+    for (const node of nodes) {
+      writeJson(join(runDir, "nodes", `${node.id}.json`), {
+        schemaVersion: PROTOCOL_SCHEMA_VERSION, contractVersion: CONTRACT_VERSION, id: node.id, type: "backend",
+        status: "pending", phase: "worker", attempt: 1, revisions: 0, startedAt: null, updatedAt: NOW, result: null, gate: null, error: null,
+        ...node.snapshot,
+      });
+    }
+    registerRun(campaignPath, phaseId);
+    return runDir;
+  };
+
+  const logPath = join(runsDir, "alpha", "logs", "a1.1.worker.jsonl");
+  const promptPath = join(runsDir, "alpha", "logs", "a1.1.worker.prompt");
+  writeRun("alpha", [{
+    id: "a1",
+    snapshot: {
+      status: "done", startedAt: NOW, updatedAt: LATER, costUsd: 1.5,
+      runtime: { harness: "claude", model: "claude-sonnet-5" }, gate: null,
+      invocations: [{ role: "worker", harness: "claude", model: "claude-sonnet-5", stdoutPath: logPath, promptPath }],
+      scope: { changedPaths: ["README.md"], changedPathCount: 1, unexpectedPaths: [], unexpectedPathCount: 0 },
+      verification: { passed: true, commands: [{ argv: ["npm", "run", "check"], passed: true, attempts: [{ durationMs: 120, stdout: "ok", stderr: "", passed: true }] }] },
+    },
+  }]);
+  mkdirSync(join(runsDir, "alpha", "logs"), { recursive: true });
+  writeFileSync(logPath, longLog ? `${"x".repeat(80)}\n`.repeat(6_000) : "line one\nline two\n");
+  writeFileSync(promptPath, longLog ? "Implement the dashboard rewrite. ".repeat(4_000) : "Implement the dashboard rewrite.");
+
+  const betaRunDir = writeRun("beta", [
+    { id: "root", snapshot: { status: "done", startedAt: NOW, updatedAt: LATER, result: { status: "done", summary: "root shipped", verification: [], artifacts: [], missingContext: [] } } },
+    { id: "left", snapshot: { status: "running", startedAt: LATER, updatedAt: LATER } },
+    { id: "right", snapshot: { status: "exhausted", startedAt: LATER, updatedAt: LATER, gate: { verdict: "fail", maxSeverity: "major", summary: "needs work", findings: [{ severity: "major", description: "desc", evidence: "ev" }] } } },
+  ]);
+  writeJson(join(betaRunDir, "status.json"), {
+    schemaVersion: 1, run: "beta", contractId: "beta", campaignId: CAMPAIGN_ID, goal: "Goal for beta",
+    usage: { costUsd: 0.4 }, controller: { state: "active", pid: process.pid, since: NOW, lastTick: null },
+    identityWarnings: [], summary: "1 running · 1 exhausted",
+    nodes: [
+      { id: "root", status: "done", phase: "p", executionPhase: "complete", runtime: "claude/claude-sonnet-5", continuation: "fresh", attempt: 1, revisions: 0, pendingHandoff: null, note: "shipped", scopeFindings: null, errorCode: null, blockedBy: [] },
+      { id: "left", status: "running", phase: "p", executionPhase: "worker", runtime: "claude/claude-sonnet-5", continuation: "fresh", attempt: 1, revisions: 0, pendingHandoff: null, note: null, scopeFindings: null, errorCode: null, blockedBy: [] },
+      { id: "right", status: "exhausted", phase: "p", executionPhase: "complete", runtime: "claude/claude-sonnet-5", continuation: "fresh", attempt: 2, revisions: 1, pendingHandoff: null, note: "gate fail (major) · needs work", scopeFindings: null, errorCode: "gate_failed", blockedBy: [] },
+    ],
+  });
+  writeFileSync(join(betaRunDir, "events.jsonl"), `${JSON.stringify({ at: LATER, node: "right", from: "running", to: "exhausted" })}\n`);
+  writeFileSync(join(betaRunDir, "notify.jsonl"), "");
+  writeFileSync(join(betaRunDir, "usage.jsonl"), "");
+
+  return { directory, runsDir, tokenFile };
+}
+
+test("buildSnapshot embeds the campaign roll-up, the campaign list and the parallel contract-path list", () => {
   const world = makeWorld();
   try {
     const snapshot = /** @type {any} */ (buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID }));
     assert.equal(snapshot.selectedCampaignId, CAMPAIGN_ID);
-    assert.equal(snapshot.now.state, "active");
-    assert.equal(snapshot.now.runId, RUN_ID);
-    assert.equal(snapshot.runs.length, 2);
-    assert.equal(snapshot.runs.find((/** @type {any} */ run) => run.id === RUN_ID).goal, "Ship the dashboard rewrite");
-    assert.equal(snapshot.handoff.includes("campaign handoff body"), true);
-    assert.equal(snapshot.drawer, null, "no drawer without a selected run");
-    const reconcile = snapshot.needsYou.find((/** @type {any} */ item) => item.nodeId === "gamma");
-    assert.equal(reconcile.command, `resume ${join(world.runsDir, RUN_ID)} --reconcile gamma`);
-    const plain = snapshot.needsYou.find((/** @type {any} */ item) => item.nodeId === "beta");
-    assert.equal(plain.command, `resume ${join(world.runsDir, RUN_ID)}`);
-    const orphan = snapshot.needsYou.find((/** @type {any} */ item) => item.status === "orphaned");
-    assert.equal(orphan.command, `resume ${join(world.runsDir, ORPHAN_RUN_ID)}`);
-    const serialized = JSON.stringify(snapshot).toLowerCase();
-    for (const deleted of ["ledger", "outbox", "journaltail", "weighted", "heartbeat", "epoch", "decisions", "constraints", "sessions"]) {
-      assert.equal(serialized.includes(deleted), false, `snapshot must not carry ${deleted}`);
-    }
+    assert.deepEqual(snapshot.campaigns.map((/** @type {any} */ c) => c.id), [CAMPAIGN_ID]);
+    assert.equal(snapshot.progress.campaignId, CAMPAIGN_ID);
+    assert.equal(snapshot.progress.phases.length, 3);
+    assert.equal(snapshot.progress.phases[2].runId, null, "gamma was authored but never launched");
+    assert.equal(snapshot.contractPaths.length, 3);
+    assert.equal(snapshot.detail, null, "no node selected");
   } finally {
     rmSync(world.directory, { recursive: true, force: true });
   }
 });
 
-test("the run drawer detail reads the worker log, verification, diff and prompt from the node JSON and its logged files", () => {
+test("the drill-down detail reads the worker log, verification, diff, prompt, error code and revisions", () => {
   const world = makeWorld();
   try {
-    const snapshot = /** @type {any} */ (buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID, runId: RUN_ID, nodeId: "alpha" }));
-    const detail = snapshot.drawer.detail;
+    const snapshot = /** @type {any} */ (buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID, runId: "alpha", nodeId: "a1" }));
+    const detail = snapshot.detail;
     assert.deepEqual(detail.log.lines, ["line one", "line two"]);
     assert.equal(detail.verification.commands[0].command, "npm run check");
-    assert.equal(detail.verification.commands[0].passed, true);
-    assert.match(detail.verification.commands[0].outputTail, /ok/u);
     assert.equal(detail.diff.stat, "1 file changed");
-    assert.deepEqual(detail.diff.files, ["README.md"]);
-    assert.equal(detail.findings, null);
     assert.match(detail.prompt, /Implement the dashboard rewrite/u);
-  } finally {
-    rmSync(world.directory, { recursive: true, force: true });
-  }
-});
+    assert.equal(detail.errorCode, null);
 
-test("gate findings surface on the exhausted node's findings tab", () => {
-  const world = makeWorld();
-  try {
-    const snapshot = /** @type {any} */ (buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID, runId: RUN_ID, nodeId: "beta" }));
-    const findings = snapshot.drawer.detail.findings;
-    assert.equal(findings.verdict, "fail");
-    assert.equal(findings.findings[0].severity, "major");
-  } finally {
-    rmSync(world.directory, { recursive: true, force: true });
-  }
-});
-
-test("an idle campaign with a terminal run and no live controller reports idle in the now strip and no needs-you items", () => {
-  const world = makeIdleWorld();
-  try {
-    const snapshot = /** @type {any} */ (buildSnapshot(world.runsDir, { campaignId: "idle-campaign" }));
-    assert.equal(snapshot.now.state, "idle");
-    assert.equal(snapshot.now.runId, "idle-run");
-    assert.deepEqual(snapshot.needsYou, []);
+    const failing = /** @type {any} */ (buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID, runId: "beta", nodeId: "right" }));
+    assert.equal(failing.detail.errorCode, "gate_failed");
+    assert.equal(failing.detail.revisions, 1);
+    assert.equal(failing.detail.findings.findings[0].severity, "major");
   } finally {
     rmSync(world.directory, { recursive: true, force: true });
   }
@@ -113,7 +183,7 @@ test("an idle campaign with a terminal run and no live controller reports idle i
 test("the payload stays under 200 KB with a long worker log", () => {
   const world = makeWorld({ longLog: true });
   try {
-    const snapshot = buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID, runId: RUN_ID, nodeId: "alpha" });
+    const snapshot = buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID, runId: "alpha", nodeId: "a1" });
     assert.ok(Buffer.byteLength(JSON.stringify(snapshot), "utf8") <= 200 * 1024);
   } finally {
     rmSync(world.directory, { recursive: true, force: true });
@@ -130,49 +200,7 @@ test("an unknown campaign id falls back to the active campaign instead of throwi
   }
 });
 
-test("the DOM test renders the snapshot's five sections in order, with the needs-you banner only when attention exists", () => {
-  const { window } = runDashboardScript();
-  const render = window.__dashboardTestHooks.renderSectionsHtml;
-  const withAttention = render(fixtureSnapshot({ needsYou: [{ runId: RUN_ID, nodeId: "beta", status: "exhausted", errorCode: null, command: `resume ${RUN_ID}` }] }));
-  const markers = ['id="now"', 'id="needsyou"', 'id="runs"', 'id="drawer"', 'id="handoff"'];
-  const positions = markers.map((marker) => withAttention.indexOf(marker));
-  assert.ok(positions.every((position) => position >= 0), "every section must be present");
-  assert.deepEqual(positions, [...positions].sort((left, right) => left - right), "sections must appear in the section-4 order");
-  assert.doesNotMatch(withAttention, /weighted/iu);
-  const withoutAttention = render(fixtureSnapshot({ needsYou: [] }));
-  assert.equal(withoutAttention.includes('id="needsyou"'), false, "the banner is absent without attention");
-});
-
-test("the rendered drawer row shows the gate outcome, not the raw verdict, and names an in-progress verification phase", () => {
-  const { window } = runDashboardScript();
-  const render = window.__dashboardTestHooks.renderSectionsHtml;
-  const html = render(fixtureSnapshot({
-    drawer: {
-      runId: RUN_ID,
-      goal: "Ship the dashboard rewrite",
-      campaignId: CAMPAIGN_ID,
-      selectedNodeId: null,
-      detail: null,
-      nodes: [
-        // Advisory review settles `done` no matter the judge's raw `fail`
-        // verdict (engine/review.mjs `settleAdvisoryReview`); the row must
-        // render what the gate decided (`passed`), not the raw verdict.
-        { id: "delta", status: "done", attempt: 1, revisions: 0, model: "claude-sonnet-5", elapsedMs: 60_000, costUsd: 0.2, gateOutcome: "passed", executionPhase: "complete", note: "complete", errorCode: null, blockedBy: [] },
-        // Mid-candidate-verification: the state cell says so.
-        { id: "epsilon", status: "running", attempt: 1, revisions: 0, model: "claude-sonnet-5", elapsedMs: 5_000, costUsd: null, gateOutcome: null, executionPhase: "candidate", note: null, errorCode: null, blockedBy: [] },
-      ],
-    },
-  }));
-  assert.match(html, /<th>gate<\/th>/u);
-  assert.doesNotMatch(html, /<th>verdict<\/th>/u);
-  const deltaRow = /<tr[^>]*data-node="delta"[\s\S]*?<\/tr>/u.exec(html)?.[0] ?? "";
-  assert.match(deltaRow, /class="pill passed">passed</u, "delta's row shows the gate outcome");
-  assert.doesNotMatch(deltaRow, />fail</u, "delta's row must not show the raw fail verdict");
-  const epsilonRow = /<tr[^>]*data-node="epsilon"[\s\S]*?<\/tr>/u.exec(html)?.[0] ?? "";
-  assert.match(epsilonRow, /candidate verification/u, "epsilon's state cell names the in-progress candidate re-verification");
-});
-
-test("server serves the page, a snapshot and a 404 for an unknown route", async () => {
+test("server serves the page, the css and js assets, a snapshot, and a 404 for an unknown route", async () => {
   const world = makeWorld();
   const server = await startServer({ runsDir: world.runsDir, tokenFile: world.tokenFile, port: 0 });
   try {
@@ -182,6 +210,13 @@ test("server serves the page, a snapshot and a 404 for an unknown route", async 
     assert.equal(page.status, 200);
     assert.match(page.headers.get("content-type") ?? "", /text\/html/u);
     assert.match(await page.text(), /Faberun/u);
+    const css = await fetch(`${base}/app.css`, { headers: AUTH });
+    assert.equal(css.status, 200);
+    assert.match(css.headers.get("content-type") ?? "", /text\/css/u);
+    const js = await fetch(`${base}/app.mjs`, { headers: AUTH });
+    assert.equal(js.status, 200);
+    assert.match(js.headers.get("content-type") ?? "", /javascript/u);
+    assert.doesNotMatch(await js.text(), /^import /mu, "the browser module imports nothing");
     const snapshot = /** @type {any} */ (await (await fetch(`${base}/api/snapshot?campaign=${CAMPAIGN_ID}`, { headers: AUTH })).json());
     assert.equal(snapshot.selectedCampaignId, CAMPAIGN_ID);
     assert.equal((await fetch(`${base}/nope`, { headers: AUTH })).status, 404);
@@ -191,7 +226,7 @@ test("server serves the page, a snapshot and a 404 for an unknown route", async 
   }
 });
 
-test("the SSE endpoint emits an update when status.json changes", async () => {
+test("the SSE endpoint emits an update when a phase run's status.json changes", async () => {
   const world = makeWorld();
   const server = await startServer({ runsDir: world.runsDir, tokenFile: world.tokenFile, port: 0, pollMs: 40 });
   try {
@@ -215,13 +250,14 @@ test("the SSE endpoint emits an update when status.json changes", async () => {
       }
     };
     await readUpdates(1);
-    const statusPath = join(world.runsDir, RUN_ID, "status.json");
+    const statusPath = join(world.runsDir, "beta", "status.json");
     const status = JSON.parse(readFileSync(statusPath, "utf8"));
-    status.nodes[0].status = "done";
+    status.nodes[1].status = "done";
     writeFileSync(statusPath, JSON.stringify(status));
     await readUpdates(2);
     const datas = buffer.split("\n").filter((line) => line.startsWith("data: ")).map((line) => JSON.parse(line.slice(6)));
-    assert.equal(datas.at(-1).runs.find((/** @type {any} */ run) => run.id === RUN_ID).nodesDone, 1);
+    const betaPhase = datas.at(-1).progress.phases.find((/** @type {any} */ phase) => phase.contractId === "beta");
+    assert.equal(betaPhase.counts.settled, 2);
     await reader.cancel();
   } finally {
     server.close();
@@ -235,180 +271,97 @@ test("snapshotSignature changes when a node snapshot changes and is stable other
     const selection = { campaignId: CAMPAIGN_ID };
     const before = snapshotSignature(world.runsDir, selection);
     assert.equal(snapshotSignature(world.runsDir, selection), before);
-    const nodePath = join(world.runsDir, RUN_ID, "nodes", "alpha.json");
+    const nodePath = join(world.runsDir, "alpha", "nodes", "a1.json");
     const node = JSON.parse(readFileSync(nodePath, "utf8"));
-    writeFileSync(nodePath, JSON.stringify({ ...node, updatedAt: LATER }));
+    writeFileSync(nodePath, JSON.stringify({ ...node, updatedAt: "2026-01-01T00:09:00.000Z" }));
     assert.notEqual(snapshotSignature(world.runsDir, selection), before);
   } finally {
     rmSync(world.directory, { recursive: true, force: true });
   }
 });
 
-/** @param {string} path @param {unknown} value */
-function writeJson(path, value) {
-  writeFileSync(path, JSON.stringify(value));
-}
+// --- src/web/app.mjs: pure graph/layout functions, importable directly since
+// they never touch a DOM global at module load time. ---
 
-/**
- * A campaign with one active-controller run (three nodes covering running,
- * exhausted-with-gate-findings and blocked-needing-reconcile) and one
- * orphaned run whose controller is gone while a node still claims to run.
- *
- * @param {{longLog?: boolean}} [options]
- * @returns {{directory: string, runsDir: string, tokenFile: string}}
- */
-function makeWorld({ longLog = false } = {}) {
-  const directory = mkdtempSync(join(tmpdir(), "faberun-dashboard-"));
-  const tokenFile = join(directory, "dashboard.token");
-  writeFileSync(tokenFile, `${TOKEN}\n`);
-  const runsDir = join(directory, ".runs");
-  const campaignPath = join(runsDir, "campaigns", CAMPAIGN_ID);
-  mkdirSync(campaignPath, { recursive: true });
-  writeJson(join(campaignPath, "campaign.json"), {
-    id: CAMPAIGN_ID, goal: "Ship the dashboard rewrite", status: "active",
-    linkedRunIds: [RUN_ID, ORPHAN_RUN_ID], createdAt: NOW, updatedAt: LATER,
-  });
-  writeFileSync(join(campaignPath, "HANDOFF.md"), "# handoff\n\ncampaign handoff body\n");
+test("the campaign chain names the campaign and draws one box per phase, each by its human name with the id as a secondary mark", () => {
+  const world = makeWorld();
+  try {
+    const snapshot = /** @type {any} */ (buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID }));
+    assert.equal(campaignHeadingText(snapshot.progress), `${CAMPAIGN_ID} · ${snapshot.progress.goal}`);
+    const stages = chainStages(snapshot.progress, "active");
+    const svg = renderChainSvg(stages);
+    for (const phase of snapshot.progress.phases) {
+      assert.match(svg, new RegExp(`data-phase="${phase.contractId}"`, "u"));
+      assert.match(svg, new RegExp(`>${phase.name}<`, "u"), `${phase.contractId} is shown by its human name, not the id alone`);
+      assert.match(svg, new RegExp(`>${phase.contractId}<`, "u"), `${phase.contractId} still appears as the secondary mono mark`);
+    }
+    const phaseBoxes = (svg.match(/data-phase="/gu) ?? []).length;
+    assert.equal(phaseBoxes, stages.length, "one box per stage, including the phases");
+    assert.equal(phaseBoxes, snapshot.progress.phases.length + 4, "intent, plan, every phase, integration and release");
+  } finally {
+    rmSync(world.directory, { recursive: true, force: true });
+  }
+});
 
-  const runDir = join(runsDir, RUN_ID);
-  mkdirSync(join(runDir, "nodes"), { recursive: true });
-  mkdirSync(join(runDir, "logs"), { recursive: true });
-  const logPath = join(runDir, "logs", "alpha.1.worker.jsonl");
-  writeFileSync(logPath, longLog ? `${"x".repeat(80)}\n`.repeat(6_000) : "line one\nline two\n");
-  const promptPath = join(runDir, "logs", "alpha.1.worker.prompt");
-  writeFileSync(promptPath, longLog ? "Implement the dashboard rewrite. ".repeat(4_000) : "Implement the dashboard rewrite.");
+test("two nodes sharing a parent and nothing else are emitted at the same depth, side by side", () => {
+  const nodes = [
+    { id: "root", dependsOn: [], status: "done" },
+    { id: "left", dependsOn: ["root"], status: "running" },
+    { id: "right", dependsOn: ["root"], status: "running" },
+  ];
+  const laidOut = layoutNodes(nodes);
+  const byId = new Map(laidOut.map((node) => [node.id, node]));
+  assert.equal(byId.get("root")?.depth, 0);
+  assert.equal(byId.get("left")?.depth, 1);
+  assert.equal(byId.get("right")?.depth, 1);
+  assert.notEqual(byId.get("left")?.row, byId.get("right")?.row, "siblings at the same depth still get distinct rows");
 
-  writeJson(join(runDir, "run.json"), { schemaVersion: 1, contractVersion: "0.1.0", pid: process.pid, processStartToken: null, startedAt: NOW, sourceIdentity: { kind: "run" } });
-  writeJson(join(runDir, "status.json"), {
-    schemaVersion: 1, run: RUN_ID, contractId: RUN_ID, campaignId: CAMPAIGN_ID, goal: "Ship the dashboard rewrite",
-    usage: { inputTokens: 100, outputTokens: 20, cacheReadInputTokens: 500, costUsd: 1.5 },
-    controller: { state: "active", pid: process.pid, since: NOW, lastTick: null },
-    identityWarnings: [], summary: "1 running · 1 exhausted · 1 blocked",
-    nodes: [
-      { id: "alpha", status: "running", phase: "p0", executionPhase: "worker", runtime: "claude/claude-sonnet-5", continuation: "fresh", attempt: 1, revisions: 0, pendingHandoff: null, note: "phase p0 · fresh · worker", scopeFindings: null, errorCode: null, blockedBy: [] },
-      { id: "beta", status: "exhausted", phase: "p0", executionPhase: "complete", runtime: "claude/claude-sonnet-5", continuation: "fresh", attempt: 1, revisions: 1, pendingHandoff: null, note: "gate fail (major) · needs work", scopeFindings: null, errorCode: null, blockedBy: [] },
-      { id: "gamma", status: "blocked", phase: "p1", executionPhase: "complete", runtime: null, continuation: null, attempt: 1, revisions: 0, pendingHandoff: null, note: "unknown_effect_reconciled", scopeFindings: null, errorCode: "unknown_effect_reconciled", blockedBy: [] },
-    ],
-  });
-  writeJson(join(runDir, "nodes", "alpha.json"), {
-    id: "alpha", status: "running", startedAt: NOW, updatedAt: NOW, costUsd: 1.5,
-    runtime: { harness: "claude", model: "claude-sonnet-5" }, gate: null,
-    invocations: [{ role: "worker", stdoutPath: logPath, promptPath }],
-    scope: { changedPaths: ["README.md"], changedPathCount: 1, unexpectedPaths: [], unexpectedPathCount: 0 },
-    verification: { passed: true, commands: [{ argv: ["npm", "run", "check"], passed: true, attempts: [{ durationMs: 120, stdout: "ok", stderr: "", passed: true }] }] },
-  });
-  writeJson(join(runDir, "nodes", "beta.json"), {
-    id: "beta", status: "exhausted", startedAt: NOW, updatedAt: LATER, costUsd: 0.4,
-    runtime: { harness: "claude", model: "claude-sonnet-5" },
-    gate: { verdict: "fail", maxSeverity: "major", summary: "needs work", findings: [{ severity: "major", description: "desc", evidence: "ev" }] },
-    invocations: [], scope: null, verification: null,
-  });
-  writeJson(join(runDir, "nodes", "gamma.json"), {
-    id: "gamma", status: "blocked", startedAt: null, updatedAt: LATER, costUsd: null,
-    runtime: null, gate: null, invocations: [], scope: null, verification: null,
-  });
-  writeFileSync(join(runDir, "events.jsonl"), `${JSON.stringify({ at: LATER, node: "beta", from: "running", to: "exhausted" })}\n`);
-  writeFileSync(join(runDir, "notify.jsonl"), `${JSON.stringify({ type: "attention", runId: RUN_ID, nodeId: "beta", status: "no_transport", at: LATER })}\n`);
-  writeFileSync(join(runDir, "usage.jsonl"), `${JSON.stringify({ invocationId: "i1", runId: RUN_ID, nodeId: "alpha", role: "worker", inputTokens: 100, outputTokens: 20, cacheReadInputTokens: 500, costUsd: 1.5, startedAt: NOW, finishedAt: LATER })}\n`);
+  const svg = renderPhaseGraphSvg({ nodes });
+  assert.match(svg, /<svg/u);
+  const leftMatch = /data-node="left"[\s\S]*?<rect x="(\d+)"/u.exec(svg);
+  const rightMatch = /data-node="right"[\s\S]*?<rect x="(\d+)"/u.exec(svg);
+  assert.ok(leftMatch && rightMatch);
+  assert.equal(leftMatch?.[1], rightMatch?.[1], "same column (depth) for both siblings");
+});
 
-  const orphanDir = join(runsDir, ORPHAN_RUN_ID);
-  mkdirSync(join(orphanDir, "nodes"), { recursive: true });
-  writeJson(join(orphanDir, "run.json"), { schemaVersion: 1, contractVersion: "0.1.0", pid: 1, processStartToken: null, startedAt: NOW, sourceIdentity: { kind: "run" } });
-  writeJson(join(orphanDir, "status.json"), {
-    schemaVersion: 1, run: ORPHAN_RUN_ID, contractId: ORPHAN_RUN_ID, campaignId: CAMPAIGN_ID, goal: "orphaned run",
-    usage: { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, costUsd: null },
-    controller: { state: "none", pid: null, since: null, lastTick: null },
-    identityWarnings: [], summary: "1 running",
-    nodes: [{ id: "solo", status: "running", phase: "p0", executionPhase: "worker", runtime: "claude/claude-sonnet-5", continuation: "fresh", attempt: 1, revisions: 0, pendingHandoff: null, note: null, scopeFindings: null, errorCode: null, blockedBy: [] }],
-  });
-  writeJson(join(orphanDir, "nodes", "solo.json"), { id: "solo", status: "running", startedAt: NOW, updatedAt: NOW, costUsd: null, runtime: null, gate: null, invocations: [], scope: null, verification: null });
-  writeFileSync(join(orphanDir, "events.jsonl"), `${JSON.stringify({ at: NOW, node: "solo", from: "pending", to: "running" })}\n`);
-  writeFileSync(join(orphanDir, "notify.jsonl"), "");
-  writeFileSync(join(orphanDir, "usage.jsonl"), "");
+test("a phase with no run is drawn as not started", () => {
+  const world = makeWorld();
+  try {
+    const snapshot = /** @type {any} */ (buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID }));
+    const stages = chainStages(snapshot.progress, "active");
+    const gamma = stages.find((stage) => stage.id === "gamma");
+    assert.equal(gamma?.state, "not_started");
+    const svg = renderChainSvg(stages);
+    assert.match(svg, /data-phase="gamma"[\s\S]*?not started/u);
+  } finally {
+    rmSync(world.directory, { recursive: true, force: true });
+  }
+});
 
-  return { directory, runsDir, tokenFile };
-}
-
-/** A campaign whose only run is terminal with no live controller. @returns {{directory: string, runsDir: string}} */
-function makeIdleWorld() {
-  const directory = mkdtempSync(join(tmpdir(), "faberun-dashboard-"));
-  const runsDir = join(directory, ".runs");
-  const campaignPath = join(runsDir, "campaigns", "idle-campaign");
-  mkdirSync(campaignPath, { recursive: true });
-  writeJson(join(campaignPath, "campaign.json"), { id: "idle-campaign", goal: "already shipped", status: "active", linkedRunIds: ["idle-run"], createdAt: NOW, updatedAt: LATER });
-  writeFileSync(join(campaignPath, "HANDOFF.md"), "# handoff\n\ndone\n");
-  const runDir = join(runsDir, "idle-run");
-  mkdirSync(join(runDir, "nodes"), { recursive: true });
-  writeJson(join(runDir, "run.json"), { schemaVersion: 1, contractVersion: "0.1.0", pid: 1, processStartToken: null, startedAt: NOW, sourceIdentity: { kind: "run" } });
-  writeJson(join(runDir, "status.json"), {
-    schemaVersion: 1, run: "idle-run", contractId: "idle-run", campaignId: "idle-campaign", goal: "already shipped",
-    usage: { inputTokens: 10, outputTokens: 2, cacheReadInputTokens: 0, costUsd: 0.1 },
-    controller: { state: "none", pid: null, since: null, lastTick: null },
-    identityWarnings: [], summary: "1 done",
-    nodes: [{ id: "build", status: "done", phase: "p0", executionPhase: "complete", runtime: "claude/claude-sonnet-5", continuation: "fresh", attempt: 1, revisions: 0, pendingHandoff: null, note: "complete", scopeFindings: null, errorCode: null, blockedBy: [] }],
-  });
-  writeJson(join(runDir, "nodes", "build.json"), { id: "build", status: "done", startedAt: NOW, updatedAt: LATER, costUsd: 0.1, runtime: { harness: "claude", model: "claude-sonnet-5" }, gate: null, invocations: [], scope: null, verification: null });
-  writeFileSync(join(runDir, "events.jsonl"), `${JSON.stringify({ at: LATER, node: "build", from: "running", to: "done" })}\n`);
-  writeFileSync(join(runDir, "notify.jsonl"), "");
-  writeFileSync(join(runDir, "usage.jsonl"), "");
-  return { directory, runsDir };
-}
-
-/** @param {Record<string, unknown>} overrides @returns {Record<string, unknown>} */
-function fixtureSnapshot(overrides = {}) {
-  return {
-    schemaVersion: 1,
-    generatedAt: NOW,
-    campaigns: [{ id: CAMPAIGN_ID, goal: "Ship the dashboard rewrite", status: "active" }],
-    corrupt: [],
-    selectedCampaignId: CAMPAIGN_ID,
-    now: { state: "active", runId: RUN_ID, nodeId: "alpha", elapsedMs: 60_000, costUsd: 1.5, updatedAt: LATER },
-    needsYou: [],
-    runs: [{ id: RUN_ID, corrupt: null, campaignId: CAMPAIGN_ID, goal: "Ship the dashboard rewrite", nodesDone: 0, nodesTotal: 3, attempts: 1, elapsedMs: null, costUsd: 1.5, startedAt: NOW, updatedAt: LATER, controllerActive: true, state: "active" }],
-    drawer: null,
-    handoff: "campaign handoff body",
-    ...overrides,
+test("the drill-down carries the error code of a failed node and links to its worker transcript", () => {
+  const node = {
+    id: "right", status: "exhausted", attempt: 2, dependsOn: ["root"], runtime: "claude/claude-sonnet-5",
+    elapsedSpan: "1m00s", costUsd: 0.4, workerLogPath: "logs/right.2.worker.jsonl", judgeLogPaths: [],
+    verificationRecordPath: "nodes/right.json", attemptBranch: "attempt/right-2", sealCommit: null,
   };
-}
+  const detail = { errorCode: "gate_failed", errorMessage: "needs work", revisions: 1, workerRuntime: { harness: "claude", model: "claude-sonnet-5" }, judgeRounds: [] };
+  const html = renderDrilldownHtml(node, detail, "/repo/beta.contract.json");
+  assert.match(html, /gate_failed/u);
+  assert.match(html, /needs work/u);
+  assert.match(html, /logs\/right\.2\.worker\.jsonl/u);
+  assert.match(html, /attempt\/right-2/u);
+  assert.match(html, /beta\.contract\.json/u);
+});
 
-/** Loads src/web/index.html's inline script into a minimal DOM-shimmed vm context. @returns {{window: any}} */
-function runDashboardScript() {
-  const html = readFileSync(join(HERE, "..", "..", "src", "web", "index.html"), "utf8");
-  const code = /** @type {string} */ (html.match(/<script>([\s\S]*?)<\/script>/u)?.[1]);
-  const elements = new Map();
-  const element = () => ({
-    _html: "",
-    get innerHTML() { return this._html; },
-    set innerHTML(value) { this._html = value; },
-    addEventListener() {},
-    classList: { toggle() {} },
-    querySelector() { return { className: "" }; },
-    querySelectorAll() { return []; },
-    textContent: "",
-    dataset: {},
-  });
-  const document_ = {
-    /** @param {string} id */
-    getElementById(id) {
-      if (!elements.has(id)) elements.set(id, element());
-      return elements.get(id);
-    },
-    querySelectorAll() { return []; },
-    addEventListener() {},
-    hidden: false,
-  };
-  const context = /** @type {any} */ ({
-    document: document_,
-    console,
-    URLSearchParams,
-    setInterval: () => 0,
-    clearInterval() {},
-    EventSource: class { addEventListener() {} close() {} },
-    fetch: async () => { throw new Error("no network in test"); },
-    AbortSignal: { timeout: () => undefined },
-  });
-  context.window = context;
-  vm.createContext(context);
-  vm.runInContext(code, context);
-  return { window: context };
-}
+test("the selectors render with the campaigns this repository holds", () => {
+  const world = makeWorld();
+  try {
+    const snapshot = /** @type {any} */ (buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID }));
+    const options = campaignOptionsHtml(snapshot.campaigns, snapshot.selectedCampaignId);
+    assert.match(options, new RegExp(`value="${CAMPAIGN_ID}"`, "u"));
+    assert.match(options, /Ship the dashboard rewrite/u);
+    assert.match(options, /selected/u);
+  } finally {
+    rmSync(world.directory, { recursive: true, force: true });
+  }
+});

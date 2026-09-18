@@ -5,295 +5,43 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Faberun</title>
-<style>
-  :root {
-    --bg: #f4f6fa; --surface: #ffffff; --surface-2: #f0f2f5; --border: #e1e4ea;
-    --text: #1b1f27; --text-2: #5a6272; --text-3: #8a91a0;
-    --accent: #315cf4; --accent-soft: #e7edff;
-    --ok: #15803d; --ok-soft: #dcfce7; --warn: #b45309; --warn-soft: #fef3c7;
-    --bad: #b91c1c; --bad-soft: #fee2e2; --violet: #6d28d9; --violet-soft: #ede9fe;
-    --muted: #64748b; --muted-soft: #e7eaf0;
-    --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 12px 28px rgba(16, 24, 40, 0.055);
-    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, system-ui, sans-serif;
-    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0b0f17; --surface: #121823; --surface-2: #18202d; --border: #253044;
-      --text: #eef2f8; --text-2: #aab4c5; --text-3: #748096;
-      --accent: #7aa2ff; --accent-soft: #24448466;
-      --ok: #4ade80; --ok-soft: #14532d66; --warn: #fbbf24; --warn-soft: #78350f66;
-      --bad: #f87171; --bad-soft: #7f1d1d66; --violet: #a78bfa; --violet-soft: #4c1d9566;
-      --muted: #94a3b8; --muted-soft: #33415566;
-      --shadow: 0 14px 36px rgba(0, 0, 0, 0.2);
-    }
-  }
-  * { box-sizing: border-box; }
-  [hidden] { display: none !important; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.5 var(--sans); }
-  a { color: var(--accent); }
-  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .mono { font-family: var(--mono); font-size: 12.5px; }
-  .dim { color: var(--text-2); }
-  #top {
-    display: flex; align-items: center; gap: 14px; padding: 14px 20px;
-    background: var(--surface); border-bottom: 1px solid var(--border);
-  }
-  #top .brand { font-weight: 650; }
-  #top select { font: inherit; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; }
-  #top .spacer { flex: 1; }
-  #conn { font-size: 12px; color: var(--text-2); display: inline-flex; align-items: center; gap: 6px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
-  .dot.live { background: var(--ok); }
-  .dot.lost { background: var(--bad); }
-  #main { max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; }
-  section { margin-top: 22px; }
-  section > h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-3); margin: 0 0 10px; }
-  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
-  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; }
-  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-  .pill.done { color: var(--ok); background: var(--ok-soft); }
-  .pill.active, .pill.running { color: var(--warn); background: var(--warn-soft); }
-  .pill.attention, .pill.blocked, .pill.failed, .pill.exhausted, .pill.stalled, .pill.canceled, .pill.orphaned { color: var(--bad); background: var(--bad-soft); }
-  .pill.idle, .pill.pending { color: var(--muted); background: var(--muted-soft); }
-  .pill.pass { color: var(--ok); background: var(--ok-soft); }
-  .pill.fail, .pill.invalid_judge_output { color: var(--bad); background: var(--bad-soft); }
-  #now { padding: 16px 18px; display: flex; flex-wrap: wrap; gap: 22px; align-items: baseline; }
-  #now .k { font-size: 11px; text-transform: uppercase; color: var(--text-3); }
-  #now .v { font-size: 15px; font-weight: 650; }
-  #needsyou { border: 1px solid color-mix(in srgb, var(--bad) 45%, transparent); background: var(--bad-soft); border-radius: 12px; padding: 4px 16px; }
-  #needsyou .item { padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--bad) 25%, transparent); font-size: 13px; }
-  #needsyou .item:last-child { border-bottom: none; }
-  #needsyou code { background: color-mix(in srgb, var(--text) 8%, transparent); border-radius: 6px; padding: 1px 6px; }
-  table { width: 100%; border-collapse: collapse; }
-  th { text-align: left; font-size: 11px; font-weight: 600; color: var(--text-3); padding: 8px 12px; border-bottom: 1px solid var(--border); text-transform: uppercase; }
-  td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
-  tr:last-child td { border-bottom: none; }
-  tr.clickable { cursor: pointer; }
-  tr.clickable:hover td { background: var(--surface-2); }
-  tr.selected td { background: var(--accent-soft); }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  td.goal { max-width: 42ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #drawer { padding: 16px 18px; }
-  #drawer h3 { margin: 0 0 12px; font-size: 15px; }
-  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
-  .tabs button { padding: 7px 12px; font-size: 12.5px; border-radius: 8px 8px 0 0; color: var(--text-2); }
-  .tabs button.active { color: var(--accent); background: var(--accent-soft); font-weight: 600; }
-  pre { white-space: pre-wrap; word-break: break-word; background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-family: var(--mono); font-size: 12px; max-height: 420px; overflow: auto; }
-  .finding { padding: 8px 0; border-bottom: 1px solid var(--border); }
-  .finding:last-child { border-bottom: none; }
-  #handoff pre { max-height: 500px; }
-  .empty { color: var(--text-3); padding: 10px 0; }
-</style>
+<link rel="stylesheet" href="/app.css">
 </head>
 <body>
 <header id="top">
   <span class="brand">Faberun</span>
-  <select id="campaignSelect" aria-label="Campaign"></select>
+  <label class="field">project
+    <select id="projectSelect" aria-label="Project" disabled title="Every project this repository's .runs holds today is this one; a project selector across repositories lands once state moves under the user home (R2, R4).">
+      <option value="local" selected>this repository</option>
+    </select>
+  </label>
+  <label class="field">campaign
+    <select id="campaignSelect" aria-label="Campaign"></select>
+  </label>
   <span class="spacer"></span>
   <span id="conn"><span class="dot"></span><span id="conntext">connecting…</span></span>
 </header>
-<main id="main"><p class="empty">loading .runs …</p></main>
-<script>
-"use strict";
-const POLL_FALLBACK_MS = 3000;
-const state = { snapshot: null, campaignId: null, runId: null, nodeId: null, tab: "log", source: null, pollTimer: null, transport: "none" };
-const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]);
-const fmtUsd = (value) => typeof value === "number" ? `$${value.toFixed(2)}` : "–";
-const fmtAgo = (iso) => {
-  const t = Date.parse(iso ?? "");
-  if (!Number.isFinite(t)) return "–";
-  const s = Math.max(0, Math.round((Date.now() - t) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.round(s / 60)}m ago`;
-  if (s < 86400) return `${(s / 3600).toFixed(1)}h ago`;
-  return `${Math.round(s / 86400)}d ago`;
-};
-const fmtDur = (ms) => {
-  if (typeof ms !== "number" || !Number.isFinite(ms)) return "–";
-  const m = Math.round(ms / 60000);
-  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`;
-};
-const pill = (label) => `<span class="pill ${esc(String(label ?? "").toLowerCase())}">${esc(label ?? "-")}</span>`;
-
-function nowHtml(now) {
-  if (!now || now.state === "idle") {
-    return `<section id="now"><h2>Now</h2><div class="card" id="now-strip">Idle${now?.runId ? ` · last run ${esc(now.runId)} finished ${fmtAgo(now.updatedAt)}` : ""}</div></section>`;
-  }
-  return `<section id="now"><h2>Now</h2><div class="card" id="now-strip">
-    <div><div class="k">Active run</div><div class="v mono">${esc(now.runId)}</div></div>
-    <div><div class="k">State</div><div class="v">${pill(now.state)}</div></div>
-    <div><div class="k">Running node</div><div class="v mono">${esc(now.nodeId ?? "–")} <span class="dim">${fmtDur(now.elapsedMs)}</span></div></div>
-    <div><div class="k">USD so far</div><div class="v">${fmtUsd(now.costUsd)}</div></div>
-    <div><div class="k">Updated</div><div class="v">${fmtAgo(now.updatedAt)}</div></div>
-  </div></section>`;
-}
-
-function needsYouHtml(items) {
-  if (!items?.length) return "";
-  const rows = items.map((item) => `<div class="item"><b>${esc(item.nodeId ?? item.runId)}</b> (${esc(item.status)}${item.errorCode ? ` · ${esc(item.errorCode)}` : ""}): <code>${esc(item.command)}</code></div>`).join("");
-  return `<section id="needsyou"><h2>Needs you</h2>${rows}</section>`;
-}
-
-function runsHtml(runs, selectedRunId) {
-  const rows = (runs ?? []).map((run) => {
-    if (run.corrupt) return `<tr><td colspan="7">${esc(run.id)}: <span class="pill failed">unreadable</span> ${esc(run.corrupt)}</td></tr>`;
-    return `<tr class="clickable ${run.id === selectedRunId ? "selected" : ""}" data-run="${esc(run.id)}">
-      <td>${pill(run.state)}</td>
-      <td class="mono">${esc(run.id)}</td>
-      <td class="goal" title="${esc(run.goal)}">${esc(run.goal)}</td>
-      <td class="num">${run.nodesDone}/${run.nodesTotal}</td>
-      <td class="num">${run.attempts}</td>
-      <td class="num">${fmtDur(run.elapsedMs)}</td>
-      <td class="num">${fmtUsd(run.costUsd)}</td>
-      <td class="num">${fmtAgo(run.updatedAt)}</td>
-    </tr>`;
-  }).join("");
-  return `<section id="runs"><h2>Runs</h2><div class="card"><table>
-    <thead><tr><th>state</th><th>run</th><th>goal</th><th>nodes</th><th>attempts</th><th>elapsed</th><th>USD</th><th>updated</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="8" class="empty">no runs linked yet</td></tr>'}</tbody>
-  </table></div></section>`;
-}
-
-const TABS = [["log", "Worker log"], ["verification", "Verification"], ["diff", "Diff"], ["findings", "Findings"], ["prompt", "Prompt"]];
-
-function tabBodyHtml(tab, detail) {
-  if (!detail) return `<p class="empty">select a node above</p>`;
-  if (tab === "log") return detail.log?.lines?.length ? `<pre>${esc(detail.log.lines.join("\n"))}</pre>` : `<p class="empty">no log yet</p>`;
-  if (tab === "verification") {
-    const commands = detail.verification?.commands ?? [];
-    if (!commands.length) return `<p class="empty">no verification recorded</p>`;
-    return commands.map((command) => `<div class="finding"><b>${command.passed ? pill("pass") : pill("fail")}</b> <span class="mono">${esc(command.command)}</span>${command.durationMs ? ` <span class="dim">${fmtDur(command.durationMs)}</span>` : ""}<pre>${esc(command.outputTail || "(no output)")}</pre></div>`).join("");
-  }
-  if (tab === "diff") {
-    const diff = detail.diff;
-    if (!diff) return `<p class="empty">no scope recorded</p>`;
-    const files = diff.files.map((path) => `<div class="mono">${esc(path)}</div>`).join("") || `<p class="empty">no files changed</p>`;
-    const unexpected = diff.unexpected.length ? `<p class="dim">unexpected: ${diff.unexpected.map(esc).join(", ")}</p>` : "";
-    return `<p>${esc(diff.stat)}</p>${unexpected}${files}`;
-  }
-  if (tab === "findings") {
-    const findings = detail.findings;
-    if (!findings) return `<p class="empty">no gate ran</p>`;
-    const list = findings.findings.map((finding) => `<div class="finding">${pill(finding.severity)} ${esc(finding.description)}<div class="dim">${esc(finding.evidence)}</div></div>`).join("") || `<p class="empty">no findings</p>`;
-    return `<p>${pill(findings.verdict)} ${esc(findings.summary ?? "")}</p>${list}`;
-  }
-  return detail.prompt ? `<pre>${esc(detail.prompt)}</pre>` : `<p class="empty">no prompt recorded</p>`;
-}
-
-function drawerHtml(drawer, tab) {
-  if (!drawer) return `<section id="drawer"><h2>Run drawer</h2><div class="card" style="padding:16px 18px"><p class="empty">select a run above</p></div></section>`;
-  const rows = drawer.nodes.map((node) => `<tr class="clickable ${node.id === drawer.selectedNodeId ? "selected" : ""}" data-node="${esc(node.id)}">
-    <td>${pill(node.status)}${node.executionPhase === "candidate" ? ` <span class="dim">· candidate verification</span>` : node.executionPhase === "verification" ? ` <span class="dim">· verification</span>` : ""}</td>
-    <td class="mono">${esc(node.id)}</td>
-    <td class="num">${node.attempt}</td>
-    <td class="mono">${esc(node.model ?? "–")}</td>
-    <td class="num">${fmtDur(node.elapsedMs)}</td>
-    <td class="num">${fmtUsd(node.costUsd)}</td>
-    <td>${node.gateOutcome ? pill(node.gateOutcome) : ""}</td>
-    <td class="goal" title="${esc(node.note ?? "")}">${esc(node.note ?? "")}</td>
-  </tr>`).join("");
-  const tabs = TABS.map(([key, label]) => `<button data-tab="${key}" class="${tab === key ? "active" : ""}">${esc(label)}</button>`).join("");
-  return `<section id="drawer"><h2>Run drawer · ${esc(drawer.runId)}</h2><div class="card" style="padding:16px 18px">
-    <table><thead><tr><th>state</th><th>node</th><th>try</th><th>model</th><th>elapsed</th><th>USD</th><th>gate</th><th>note</th></tr></thead>
-    <tbody>${rows}</tbody></table>
-    <div class="tabs">${tabs}</div>
-    <div id="tabbody">${tabBodyHtml(tab, drawer.detail)}</div>
-  </div></section>`;
-}
-
-function handoffHtml(handoff) {
-  return `<section id="handoff"><h2>Handoff</h2><div class="card" style="padding:16px 18px">${handoff ? `<pre>${esc(handoff)}</pre>` : '<p class="empty">no HANDOFF.md yet</p>'}</div></section>`;
-}
-
-function renderSectionsHtml(snapshot) {
-  if (!snapshot?.selectedCampaignId) return `<p class="empty">no campaign found under .runs; initialize one with: faberun campaign init</p>`;
-  return nowHtml(snapshot.now) + needsYouHtml(snapshot.needsYou) + runsHtml(snapshot.runs, state.runId) + drawerHtml(snapshot.drawer, state.tab) + handoffHtml(snapshot.handoff);
-}
-
-function renderCampaignSelect(snapshot) {
-  const select = document.getElementById("campaignSelect");
-  select.innerHTML = (snapshot.campaigns ?? []).map((campaign) => `<option value="${esc(campaign.id)}" ${campaign.id === snapshot.selectedCampaignId ? "selected" : ""}>${esc(campaign.id)} (${esc(campaign.status)})</option>`).join("");
-}
-
-function applySnapshot(snapshot) {
-  state.snapshot = snapshot;
-  document.getElementById("main").innerHTML = renderSectionsHtml(snapshot);
-  renderCampaignSelect(snapshot);
-  setConnection(state.transport, snapshot.generatedAt);
-}
-
-function setConnection(transport, at) {
-  const dot = document.getElementById("conn").querySelector(".dot");
-  dot.className = `dot ${transport === "stream" || transport === "poll" ? "live" : "lost"}`;
-  document.getElementById("conntext").textContent = transport === "none" ? "connection lost — reconnecting" : `updated ${new Date(Date.parse(at ?? "")).toLocaleTimeString([], { hour12: false })}`;
-}
-
-function streamUrl() {
-  const params = new URLSearchParams();
-  if (state.campaignId) params.set("campaign", state.campaignId);
-  if (state.runId) params.set("run", state.runId);
-  if (state.nodeId) params.set("node", state.nodeId);
-  const query = params.toString();
-  return `/api/stream${query ? `?${query}` : ""}`;
-}
-
-function connect() {
-  if (state.source) { state.source.close(); state.source = null; }
-  if (typeof EventSource !== "function") { startPolling(); return; }
-  const source = new EventSource(streamUrl());
-  state.source = source;
-  source.addEventListener("update", (event) => {
-    state.transport = "stream";
-    stopPolling();
-    try { applySnapshot(JSON.parse(event.data)); } catch (error) { console.error(error); }
-  });
-  source.addEventListener("error", () => { state.transport = "none"; setConnection("none"); startPolling(); });
-}
-async function pollOnce() {
-  try {
-    const response = await fetch(`/api/snapshot${streamUrl().slice("/api/stream".length)}`, { signal: AbortSignal.timeout(6000) });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    if (state.transport !== "stream") state.transport = "poll";
-    applySnapshot(await response.json());
-  } catch { state.transport = "none"; setConnection("none"); }
-}
-function startPolling() { if (state.pollTimer) return; pollOnce(); state.pollTimer = setInterval(() => { if (!document.hidden) pollOnce(); }, POLL_FALLBACK_MS); }
-function stopPolling() { if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; } }
-
-function selectCampaign(id) {
-  if (id === state.campaignId) return;
-  state.campaignId = id; state.runId = null; state.nodeId = null; state.tab = "log";
-  connect();
-}
-function selectRun(id) {
-  state.runId = id === state.runId ? null : id;
-  state.nodeId = null;
-  connect();
-}
-function selectNode(id) {
-  state.nodeId = id === state.nodeId ? null : id;
-  connect();
-}
-function selectTab(tab) {
-  state.tab = tab;
-  if (state.snapshot) document.getElementById("tabbody").innerHTML = tabBodyHtml(tab, state.snapshot.drawer?.detail);
-  document.querySelectorAll(".tabs button").forEach((button) => button.classList.toggle("active", button.dataset.tab === tab));
-}
-
-document.getElementById("main").addEventListener("click", (event) => {
-  const run = event.target.closest("[data-run]");
-  if (run) return selectRun(run.dataset.run);
-  const node = event.target.closest("[data-node]");
-  if (node) return selectNode(node.dataset.node);
-  const tab = event.target.closest("[data-tab]");
-  if (tab) return selectTab(tab.dataset.tab);
-});
-document.getElementById("campaignSelect").addEventListener("change", (event) => selectCampaign(event.target.value));
-setInterval(() => { if (state.snapshot && !document.hidden) applySnapshot(state.snapshot); }, 30_000);
-connect();
-window.__dashboardTestHooks = { renderSectionsHtml, applySnapshot };
-</script>
+<main id="main">
+  <p class="empty" id="emptyState">loading .runs …</p>
+  <section id="specMap" class="band" hidden>
+    <h2>Spec map</h2>
+    <div id="specMapBody" class="card"></div>
+  </section>
+  <section id="chain" class="band" hidden>
+    <h2>Campaign</h2>
+    <div id="chainGoal" class="dim mono"></div>
+    <div id="chainBody" class="card graphcard"></div>
+  </section>
+  <section id="phaseGraph" class="band" hidden>
+    <h2>Open phase</h2>
+    <div id="phaseGraphHead" class="phasehead"></div>
+    <div id="phaseGraphBody" class="card graphcard"></div>
+  </section>
+  <section id="drilldown" class="band" hidden>
+    <h2>Node detail</h2>
+    <div id="drilldownBody" class="card"><p class="empty">select a node above</p></div>
+  </section>
+</main>
+<script type="module" src="/app.mjs"></script>
 </body>
 </html>

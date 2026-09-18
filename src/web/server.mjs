@@ -5,7 +5,8 @@ import { timingSafeEqual } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 import { discoverCampaigns } from "../campaign/index.mjs";
-import { campaignDir, campaignsDir } from "../campaign/layout.mjs";
+import { campaignsDir } from "../campaign/layout.mjs";
+import { renderCampaignProgress } from "../report/progress.mjs";
 import { errorMessage, readJsonTolerant } from "../util.mjs";
 import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
 import { assertPrivateBind, loadBearerToken, resolveBindAddress } from "./boundary.mjs";
@@ -19,11 +20,16 @@ const LOG_TAIL_MAX_LINES = 200;
 const LOG_TAIL_MAX_BYTES = 24 * 1024;
 const OUTPUT_TAIL_MAX_BYTES = 4 * 1024;
 const PROMPT_MAX_CHARS = 8 * 1024;
-const HANDOFF_MAX_CHARS = 16 * 1024;
 const DIFF_PATH_CAP = 400;
 const GOAL_MAX_CHARS = 200;
-const TERMINAL_STATUSES = new Set(["done", "no-op", "failed", "blocked", "exhausted", "stalled", "canceled", "cancelled"]);
-const RESUME_STATES = new Set(["blocked", "failed", "exhausted", "stalled", "canceled", "cancelled"]);
+
+/** The three static files behind the same bearer check as every other route. */
+const ASSETS = {
+  "/": { file: "index.html", type: "text/html; charset=utf-8" },
+  "/index.html": { file: "index.html", type: "text/html; charset=utf-8" },
+  "/app.css": { file: "app.css", type: "text/css; charset=utf-8" },
+  "/app.mjs": { file: "app.mjs", type: "text/javascript; charset=utf-8" },
+};
 
 /** @typedef {{campaignId?: string|null, runId?: string|null, nodeId?: string|null}} Selection */
 /** @typedef {{path: string, campaign: import("../campaign/index.mjs").Campaign}} CampaignEntry */
@@ -80,14 +86,6 @@ function oneLine(value) {
   return truncateChars(String(value ?? "").replace(/\s+/gu, " ").trim(), GOAL_MAX_CHARS);
 }
 
-/** @param {string|null|undefined} startIso @param {string|null|undefined} endIso @returns {number|null} */
-function elapsedMsBetween(startIso, endIso) {
-  const start = Date.parse(startIso ?? "");
-  if (!Number.isFinite(start)) return null;
-  const end = endIso ? Date.parse(endIso) : Date.now();
-  return Number.isFinite(end) ? Math.max(0, end - start) : null;
-}
-
 /** @param {string[]} paths @returns {string} */
 function fileSignature(paths) {
   return paths.map((path) => {
@@ -106,96 +104,9 @@ function readRunStatus(runDir) {
   return status && typeof status === "object" && Array.isArray(/** @type {any} */ (status).nodes) ? /** @type {any} */ (status) : null;
 }
 
-/** @param {string} runDir @returns {string|null} */
-function lastEventAt(runDir) {
-  const tail = tailJsonl(join(runDir, "events.jsonl"), 1);
-  return typeof tail[0]?.at === "string" ? /** @type {string} */ (tail[0].at) : null;
-}
-
-/** The runs-table row for one run, read from `status.json` and `run.json`; unreadable is listed flagged `corrupt`, never thrown. @param {string} runsDir @param {string} runId @returns {Record<string, unknown>} */
-function runSummary(runsDir, runId) {
-  const runDir = join(runsDir, runId);
-  const status = readRunStatus(runDir);
-  if (!status) return { id: runId, corrupt: "status.json missing or unparsable" };
-  const meta = /** @type {{startedAt?: unknown}|null} */ (readJsonTolerant(join(runDir, "run.json")));
-  const nodes = /** @type {Record<string, any>[]} */ (status.nodes);
-  const nodesDone = nodes.filter((node) => node.status === "done" || node.status === "no-op").length;
-  const attempts = nodes.reduce((max, node) => Math.max(max, node.attempt ?? 0), 0);
-  const terminal = nodes.length > 0 && nodes.every((node) => TERMINAL_STATUSES.has(node.status));
-  const attentionNode = nodes.find((node) => RESUME_STATES.has(node.status));
-  const startedAt = typeof meta?.startedAt === "string" ? meta.startedAt : null;
-  const updatedAt = lastEventAt(runDir) ?? startedAt;
-  return {
-    id: runId,
-    corrupt: null,
-    campaignId: typeof status.campaignId === "string" ? status.campaignId : null,
-    goal: oneLine(typeof status.goal === "string" ? status.goal : ""),
-    nodesDone,
-    nodesTotal: nodes.length,
-    attempts,
-    elapsedMs: elapsedMsBetween(startedAt, terminal ? updatedAt : null),
-    costUsd: typeof status.usage?.costUsd === "number" ? status.usage.costUsd : null,
-    startedAt,
-    updatedAt,
-    controllerActive: status.controller?.state === "active",
-    state: attentionNode ? "attention" : terminal ? "done" : "active",
-  };
-}
-
-/** "Needs you" items across a campaign's linked runs: one per attention-state node plus one per orphaned running node, each carrying the exact command that resolves it. @param {string} runsDir @param {string[]} runIds @returns {Record<string, unknown>[]} */
-function needsYouItems(runsDir, runIds) {
-  const items = [];
-  for (const runId of runIds) {
-    const runDir = join(runsDir, runId);
-    const status = readRunStatus(runDir);
-    if (!status) continue;
-    const controllerActive = status.controller?.state === "active";
-    for (const node of /** @type {Record<string, any>[]} */ (status.nodes)) {
-      if (RESUME_STATES.has(node.status)) {
-        const reconcile = node.errorCode === "unknown_effect_reconciled";
-        items.push({
-          runId,
-          nodeId: node.id,
-          status: node.status,
-          errorCode: node.errorCode ?? null,
-          note: node.note ?? null,
-          command: reconcile ? `resume ${runDir} --reconcile ${node.id}` : `resume ${runDir}`,
-        });
-      } else if (node.status === "running" && !controllerActive) {
-        items.push({
-          runId,
-          nodeId: node.id,
-          status: "orphaned",
-          errorCode: null,
-          note: "the controller process is gone while this node still claims to be running",
-          command: `resume ${runDir}`,
-        });
-      }
-    }
-  }
-  return items;
-}
-
-/** The "now" strip: the run with a live controller, or the most recently updated run when the campaign is idle. @param {string} runsDir @param {Record<string, any>[]} runs @returns {Record<string, unknown>} */
-function nowStrip(runsDir, runs) {
-  const readable = runs.filter((run) => !/** @type {any} */ (run).corrupt);
-  const active = /** @type {any} */ (readable.find((run) => /** @type {any} */ (run).controllerActive));
-  if (active) {
-    const runDir = join(runsDir, active.id);
-    const status = readRunStatus(runDir);
-    const runningNode = status?.nodes.find((/** @type {any} */ node) => node.status === "running") ?? null;
-    const startedAt = runningNode ? /** @type {any} */ (readJsonTolerant(nodeSnapshotPath(runDir, runningNode.id)))?.startedAt ?? null : null;
-    return {
-      state: "active",
-      runId: active.id,
-      nodeId: runningNode?.id ?? null,
-      elapsedMs: startedAt ? elapsedMsBetween(startedAt, null) : null,
-      costUsd: active.costUsd,
-      updatedAt: active.updatedAt,
-    };
-  }
-  const idle = readable.slice().sort((left, right) => String(/** @type {any} */ (right).updatedAt ?? "").localeCompare(String(/** @type {any} */ (left).updatedAt ?? "")))[0];
-  return { state: "idle", runId: idle ? /** @type {any} */ (idle).id : null, updatedAt: idle ? /** @type {any} */ (idle).updatedAt : null };
+/** @param {Record<string, any>[]} invocations @returns {Record<string, any>|undefined} */
+function lastWorkerInvocation(invocations) {
+  return [...(Array.isArray(invocations) ? invocations : [])].reverse().find((invocation) => invocation.role === "worker");
 }
 
 /** @param {Record<string, any>|null|undefined} verification */
@@ -244,11 +155,6 @@ function findingsTab(gate) {
   };
 }
 
-/** @param {Record<string, any>[]} invocations @returns {Record<string, any>|undefined} */
-function lastWorkerInvocation(invocations) {
-  return [...(Array.isArray(invocations) ? invocations : [])].reverse().find((invocation) => invocation.role === "worker");
-}
-
 /** @param {string} runDir @param {Record<string, any>} node @returns {{lines: string[], path: string|null}} */
 function workerLogTab(runDir, node) {
   const worker = lastWorkerInvocation(node.invocations);
@@ -267,13 +173,39 @@ function promptTab(node) {
   }
 }
 
-/** The five drawer tabs for one node. @param {string} runDir @param {string} nodeId @returns {Record<string, unknown>|null} */
-function nodeDetail(runDir, nodeId) {
-  const node = readJsonTolerant(nodeSnapshotPath(runDir, nodeId));
-  if (!node || typeof node !== "object") return null;
-  const record = /** @type {Record<string, any>} */ (node);
+/**
+ * The drill-down's dynamic half: what the old drawer's tabs showed for one
+ * node, plus the status.json fields the roll-up itself does not carry
+ * (`errorCode`, its note, and the revision count) and a per-role breakdown of
+ * the invocations the roll-up only summarizes as a single `runtime` string.
+ *
+ * @param {string} runsDir @param {string} runId @param {string} nodeId
+ * @returns {Record<string, unknown>|null}
+ */
+function buildNodeDetail(runsDir, runId, nodeId) {
+  const runDir = join(runsDir, runId);
+  const status = readRunStatus(runDir);
+  const statusNode = status?.nodes.find((/** @type {any} */ node) => node.id === nodeId) ?? null;
+  const raw = readJsonTolerant(nodeSnapshotPath(runDir, nodeId));
+  if (!raw || typeof raw !== "object") return null;
+  const record = /** @type {Record<string, any>} */ (raw);
+  const invocations = Array.isArray(record.invocations) ? record.invocations : [];
+  const worker = lastWorkerInvocation(invocations);
+  const judges = invocations.filter((invocation) => invocation?.role === "judge");
   return {
     id: nodeId,
+    runId,
+    errorCode: statusNode?.errorCode ?? null,
+    errorMessage: statusNode?.note ?? null,
+    revisions: typeof statusNode?.revisions === "number" ? statusNode.revisions : null,
+    workerRuntime: worker ? { harness: worker.harness ?? null, model: worker.model ?? null, costUsd: typeof worker.costUsd === "number" ? worker.costUsd : null } : null,
+    judgeRounds: judges.map((invocation) => ({
+      harness: invocation.harness ?? null,
+      model: invocation.model ?? null,
+      stdoutPath: typeof invocation.stdoutPath === "string" ? invocation.stdoutPath : null,
+      status: invocation.status ?? null,
+      costUsd: typeof invocation.costUsd === "number" ? invocation.costUsd : null,
+    })),
     log: workerLogTab(runDir, record),
     verification: verificationTab(record.verification),
     diff: diffTab(record.scope),
@@ -282,68 +214,16 @@ function nodeDetail(runDir, nodeId) {
   };
 }
 
-/** The drawer's node-row summary: `status.json`'s node entry merged with the node JSON's own fields. @param {string} runDir @param {Record<string, any>} statusNode @returns {Record<string, unknown>} */
-function nodeRow(runDir, statusNode) {
-  const node = /** @type {Record<string, any>} */ (readJsonTolerant(nodeSnapshotPath(runDir, statusNode.id)) ?? {});
-  const closed = TERMINAL_STATUSES.has(statusNode.status);
-  return {
-    id: statusNode.id,
-    status: statusNode.status,
-    attempt: statusNode.attempt,
-    revisions: statusNode.revisions,
-    model: node.runtime?.model ?? null,
-    elapsedMs: elapsedMsBetween(node.startedAt, closed ? node.updatedAt : null),
-    costUsd: typeof node.costUsd === "number" ? node.costUsd : null,
-    gateOutcome: statusNode.gateOutcome ?? null,
-    executionPhase: statusNode.executionPhase ?? null,
-    note: statusNode.note ?? null,
-    errorCode: statusNode.errorCode ?? null,
-    blockedBy: statusNode.blockedBy ?? [],
-  };
-}
-
-/** @param {string} runsDir @param {string} runId @param {string|null} nodeId @returns {Record<string, unknown>|null} */
-function runDrawer(runsDir, runId, nodeId) {
-  const runDir = join(runsDir, runId);
-  const status = readRunStatus(runDir);
-  if (!status) return null;
-  const nodes = /** @type {Record<string, any>[]} */ (status.nodes).map((node) => nodeRow(runDir, node));
-  const selectedNodeId = nodeId && nodes.some((node) => node.id === nodeId) ? nodeId : null;
-  return {
-    runId,
-    goal: typeof status.goal === "string" ? status.goal : "",
-    campaignId: status.campaignId ?? null,
-    nodes,
-    selectedNodeId,
-    detail: selectedNodeId ? nodeDetail(runDir, selectedNodeId) : null,
-  };
-}
-
-/** @param {string} campaignPath @returns {string|null} */
-function readHandoff(campaignPath) {
-  const path = join(campaignPath, "HANDOFF.md");
-  if (!existsSync(path)) return null;
-  try {
-    return truncateChars(readFileSync(path, "utf8"), HANDOFF_MAX_CHARS);
-  } catch {
-    return null;
-  }
-}
-
-/** Shrink the payload, in order, until it fits the 200 KB ceiling: the open drawer's log tail, its verification output tails, its prompt, then the handoff text. @param {Record<string, any>} payload @returns {Record<string, unknown>} */
+/** Shrink the payload, in order, until it fits the 200 KB ceiling: the open node's log tail, its verification output tails, then its prompt. @param {Record<string, any>} payload @returns {Record<string, unknown>} */
 function boundSnapshot(payload) {
   const fits = () => Buffer.byteLength(JSON.stringify(payload), "utf8") <= SNAPSHOT_MAX_BYTES;
   if (fits()) return payload;
-  const detail = payload.drawer?.detail;
+  const detail = payload.detail;
   if (detail?.log?.lines) detail.log.lines = detail.log.lines.slice(-20);
   if (fits()) return payload;
   if (detail?.verification?.commands) detail.verification.commands = detail.verification.commands.map((/** @type {any} */ command) => ({ ...command, outputTail: truncateChars(command.outputTail, 200) }));
   if (fits()) return payload;
   if (detail?.prompt) detail.prompt = truncateChars(detail.prompt, 500);
-  if (fits()) return payload;
-  if (payload.handoff) payload.handoff = truncateChars(payload.handoff, 500);
-  if (fits()) return payload;
-  payload.runs = payload.runs.slice(0, 20);
   return payload;
 }
 
@@ -356,26 +236,31 @@ function resolveCampaign(campaigns, campaignId) {
   return campaigns.find(({ campaign }) => campaign.status === "active") ?? campaigns[0] ?? null;
 }
 
-/** The full page snapshot: campaign list, the selected campaign's now strip, needs-you items, runs table and (when open) the drawer detail and handoff text. Read-only, bounded to ~200 KB. @param {string} runsDir @param {Selection} [selection] @returns {Record<string, unknown>} */
+/**
+ * The full page snapshot: the campaign list (for the selector), the selected
+ * campaign's roll-up (`renderCampaignProgress`, the chain and node-graph data
+ * the page draws) and, when a node is selected, that node's drill-down
+ * detail. Read-only, bounded to ~200 KB.
+ *
+ * @param {string} runsDir @param {Selection} [selection] @returns {Record<string, unknown>}
+ */
 export function buildSnapshot(runsDir, selection = {}) {
   const { campaigns, corrupt } = discoverCampaigns(runsDir);
   const campaignList = campaigns.map(({ campaign }) => ({ id: campaign.id, goal: oneLine(campaign.goal), status: campaign.status }));
   const entry = resolveCampaign(campaigns, selection.campaignId);
   const selectedId = entry?.campaign.id ?? null;
-  const linkedRunIds = entry ? entry.campaign.linkedRunIds : [];
-  const runs = linkedRunIds.map((runId) => runSummary(runsDir, runId))
-    .sort((left, right) => String(/** @type {any} */ (right).updatedAt ?? "").localeCompare(String(/** @type {any} */ (left).updatedAt ?? "")));
+  const progress = entry ? /** @type {Record<string, unknown>} */ (JSON.parse(renderCampaignProgress(runsDir, entry.campaign.id))) : null;
+  const contractPaths = entry ? entry.campaign.contracts.map((contract) => contract.path) : [];
+  const validSelection = Boolean(entry && selection.runId && selection.nodeId && entry.campaign.linkedRunIds.includes(selection.runId));
   const payload = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
     campaigns: campaignList,
     corrupt: corrupt.map((entry_) => entry_.id),
     selectedCampaignId: selectedId,
-    now: entry ? nowStrip(runsDir, runs) : { state: "idle", runId: null, updatedAt: null },
-    needsYou: entry ? needsYouItems(runsDir, linkedRunIds) : [],
-    runs,
-    drawer: (entry && selection.runId && linkedRunIds.includes(selection.runId)) ? runDrawer(runsDir, selection.runId, selection.nodeId ?? null) : null,
-    handoff: entry ? readHandoff(campaignDir(runsDir, entry.campaign.id)) : null,
+    progress,
+    contractPaths,
+    detail: validSelection ? buildNodeDetail(runsDir, /** @type {string} */ (selection.runId), /** @type {string} */ (selection.nodeId)) : null,
   };
   return boundSnapshot(payload);
 }
@@ -387,7 +272,6 @@ export function snapshotSignature(runsDir, selection) {
   for (const { path } of campaigns) parts.push(fileSignature([join(path, "campaign.json")]));
   const entry = resolveCampaign(campaigns, selection.campaignId);
   if (!entry) return parts.join("\n");
-  parts.push(fileSignature([join(entry.path, "HANDOFF.md")]));
   for (const runId of entry.campaign.linkedRunIds) {
     const runDir = join(runsDir, runId);
     const nodeFiles = listNodeSnapshots(runDir).sort().map((name) => nodeSnapshotPath(runDir, name.slice(0, -".json".length)));
@@ -422,7 +306,8 @@ export async function startServer({ runsDir, tokenFile, port = 4173, host = "127
     try {
       const refusal = admissionFailure(request, url, token);
       if (refusal) return sendRefusal(response, refusal);
-      if (url.pathname === "/" || url.pathname === "/index.html") return sendFile(response, join(HERE, "index.html"), "text/html; charset=utf-8");
+      const asset = ASSETS[/** @type {keyof typeof ASSETS} */ (url.pathname)];
+      if (asset) return sendFile(response, join(HERE, asset.file), asset.type);
       if (url.pathname === "/api/snapshot") return sendJson(response, buildSnapshot(runsDir, selectionOf(url)));
       if (url.pathname === "/api/stream") return streamSnapshots(request, response, runsDir, selectionOf(url), pollMs);
       if (url.pathname.startsWith("/api/")) {
