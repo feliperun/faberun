@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { initializeCampaign } from "../src/campaign/index.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../src/contract/index.mjs";
 import { createAttemptWorktree } from "../src/repo/worktree.mjs";
-import { campaignDir } from "../src/campaign/layout.mjs";
+import { RUNS_DIR_NAME, campaignTree, runsRoot } from "../src/run/paths.mjs";
 
 // The suite must never pop a macOS desktop notification: when
 // FABERUN_NOTIFY_BIN is unset the outbox records a no_transport
@@ -185,14 +185,14 @@ export function writeContract(directory, value) {
   const path = join(directory, "contract.json");
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
   const cwd = join(directory, typeof value.cwd === "string" ? value.cwd : ".");
-  const runsDir = join(cwd, ".runs");
+  const runsDir = runsRoot(cwd);
   const campaignId = value.campaignId;
   if (typeof campaignId !== "string" || campaignId.length === 0) {
     throw new TypeError("contract.campaignId must be a non-empty string");
   }
   const defaultWriteFile = join(cwd, "README.md");
   if (!existsSync(defaultWriteFile)) writeFileSync(defaultWriteFile, "");
-  const pathForCampaign = campaignDir(runsDir, campaignId);
+  const pathForCampaign = campaignTree(cwd, campaignId);
   if (!existsSync(join(cwd, ".git"))) initializeGit(cwd);
   if (!existsSync(pathForCampaign)) {
     initializeCampaign(runsDir, { campaignId, goal: value.goal });
@@ -206,7 +206,7 @@ export function writeContract(directory, value) {
  */
 export function initializeGit(directory) {
   execFileSync("git", ["init", "-q", directory]);
-  execFileSync("git", ["-C", directory, "add", ".", ":!.runs"]);
+  execFileSync("git", ["-C", directory, "add", ".", `:!${RUNS_DIR_NAME}`]);
   execFileSync("git", ["-C", directory, "-c", "user.email=runner@example.test", "-c", "user.name=runner", "-c", "commit.gpgSign=false", "commit", "-qm", "fixture"]);
 }
 
@@ -267,7 +267,7 @@ if (process.argv.includes("--version")) {
     }
     if (mode === "write-unexpected-judge-prompt" && !judge) writeFileSync("unexpected.txt", "out of scope\\n");
     if (mode === "write-unexpected-long-review" && !judge) writeFileSync("unexpected.txt", "out of scope\\n");
-    if (mode === "write-unexpected-judge-prompt" && judge) appendFileSync(${JSON.stringify(join(directory, ".runs", "judge-prompt.txt"))}, prompt);
+    if (mode === "write-unexpected-judge-prompt" && judge) appendFileSync(${JSON.stringify(join(runsRoot(directory), "judge-prompt.txt"))}, prompt);
     if (mode === "write-unexpected-long-review" && judge) {
       // A summary far longer than any status cell can hold: the note that
       // carries it has to be bounded the same way on every surface.
@@ -302,11 +302,11 @@ if (process.argv.includes("--version")) {
       return;
     }
     if (mode === "write-unexpected-revision" && !judge) {
-      const counterPath = ${JSON.stringify(join(directory, ".runs", "scope-revision-workers"))};
+      const counterPath = ${JSON.stringify(join(runsRoot(directory), "scope-revision-workers"))};
       appendFileSync(counterPath, "x\\n");
       const run = readFileSync(counterPath, "utf8").trim().split("\\n").length;
       writeFileSync(\`unexpected-\${run}.txt\`, "out of scope\\n");
-      if (prompt.includes("quality gate rejected")) appendFileSync(${JSON.stringify(join(directory, ".runs", "scope-retry-prompt.txt"))}, prompt);
+      if (prompt.includes("quality gate rejected")) appendFileSync(${JSON.stringify(join(runsRoot(directory), "scope-retry-prompt.txt"))}, prompt);
       const text = protocolResult(JSON.stringify({ status: "done", summary: \`worker attempt \${run}\`, verification: [], artifacts: [], missingContext: [] }));
       console.log(JSON.stringify({type:"item.completed",item:{type:"agent_message",text}}));
       console.log(JSON.stringify({type:"turn.completed",usage:{input_tokens:10,output_tokens:2,cached_input_tokens:0}}));
@@ -321,7 +321,7 @@ if (process.argv.includes("--version")) {
       // in a fresh worktree, never a continuation of the timed-out one: only
       // the first invocation hangs past its wall-clock deadline, and every
       // invocation after it completes normally.
-      const counterPath = ${JSON.stringify(join(directory, ".runs", "thread-large-timeout-invocations"))};
+      const counterPath = ${JSON.stringify(join(runsRoot(directory), "thread-large-timeout-invocations"))};
       appendFileSync(counterPath, "x\\n");
       const call = readFileSync(counterPath, "utf8").trim().split("\\n").length;
       if (call > 1) {
@@ -338,8 +338,8 @@ if (process.argv.includes("--version")) {
       return;
     }
     if (mode === "wait-for-release") {
-      const started = ${JSON.stringify(join(directory, ".runs", "provider-started"))};
-      const release = ${JSON.stringify(join(directory, ".runs", "provider-release"))};
+      const started = ${JSON.stringify(join(runsRoot(directory), "provider-started"))};
+      const release = ${JSON.stringify(join(runsRoot(directory), "provider-release"))};
       writeFileSync(started, "started");
       const timer = setInterval(() => {
         if (!existsSync(release)) return;

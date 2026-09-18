@@ -7,6 +7,7 @@ import { runContract } from "../src/engine/scheduler.mjs";
 
 import { fixture, packet, writeContract } from "./helpers.mjs";
 import { validateContract } from "../src/contract/index.mjs";
+import { runsRoot } from "../src/run/paths.mjs";
 
 /** @param {import("../src/cli.mjs").RunOutcome} result @param {string} [id] @returns {import("../src/contract/index.mjs").NodeSnapshot} */
 export function nodeState(result, id = "build") {
@@ -91,8 +92,8 @@ export function flagValue(args, flag) {
  */
 export function resultFileCodex(directory, mode) {
   const executable = join(mkdtempSync(join(tmpdir(), "runner-result-file-")), `result-file-${mode}.mjs`);
-  const workerCounter = join(directory, ".runs", `result-file-${mode}-workers`);
-  const judgeCounter = join(directory, ".runs", `result-file-${mode}-judges`);
+  const workerCounter = join(runsRoot(directory), `result-file-${mode}-workers`);
+  const judgeCounter = join(runsRoot(directory), `result-file-${mode}-judges`);
   writeFileSync(executable, `#!${process.execPath}
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 const mode = ${JSON.stringify(mode)};
@@ -165,7 +166,7 @@ if (process.argv.includes("--version")) {
  * @returns {{executable: string, log: string}}
  */
 export function recordingNotifyTransport(directory) {
-  const log = join(directory, ".runs", "notify-record.jsonl");
+  const log = join(runsRoot(directory), "notify-record.jsonl");
   const executable = join(mkdtempSync(join(tmpdir(), "runner-notify-record-")), "notify-record.mjs");
   writeFileSync(executable, `#!${process.execPath}
 import { appendFileSync, mkdirSync } from "node:fs";
@@ -208,7 +209,7 @@ export async function withResultFileCodex(directory, mode, path) {
  */
 export function citedGateCodex(directory) {
   const executable = join(mkdtempSync(join(tmpdir(), "runner-cited-gate-")), "cited-gate.mjs");
-  const workerCounter = join(directory, ".runs", "cited-gate-workers");
+  const workerCounter = join(runsRoot(directory), "cited-gate-workers");
   writeFileSync(executable, `#!${process.execPath}
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 if (process.argv.includes("--version")) {
@@ -364,7 +365,7 @@ export async function withBrokenGateCodex(directory, fn) {
  */
 export function judgeDefectCodex(directory, defect, options = {}) {
   const executable = join(mkdtempSync(join(tmpdir(), "runner-judge-defect-")), `judge-defect-${defect}.mjs`);
-  const calls = join(directory, ".runs", `judge-defect-${defect}${options.again ? "-again" : ""}-judges`);
+  const calls = join(runsRoot(directory), `judge-defect-${defect}${options.again ? "-again" : ""}-judges`);
   writeFileSync(executable, `#!${process.execPath}
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 const defect = ${JSON.stringify(defect)};
@@ -537,7 +538,7 @@ export function persistFailure(runDir, nodeId, failure) {
  */
 export function promptLoggingCodex(directory) {
   const executable = join(mkdtempSync(join(tmpdir(), "runner-prompt-log-")), "prompt-log.mjs");
-  const log = join(directory, ".runs", "worker-prompts.txt");
+  const log = join(runsRoot(directory), "worker-prompts.txt");
   writeFileSync(executable, `#!${process.execPath}
 import { appendFileSync, writeFileSync } from "node:fs";
 if (process.argv.includes("--version")) {
@@ -604,7 +605,7 @@ export function recoveryDecisions(runDir) {
  */
 export function retryJudgeCodex(directory) {
   const executable = join(mkdtempSync(join(tmpdir(), "retry-judge-")), "retry-judge.mjs");
-  const judges = join(directory, ".runs", "retry-judge-calls");
+  const judges = join(runsRoot(directory), "retry-judge-calls");
   writeFileSync(executable, `#!${process.execPath}
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 const judges = ${JSON.stringify(judges)};

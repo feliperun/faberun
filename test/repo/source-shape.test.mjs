@@ -261,8 +261,8 @@ test("only src/run/paths.mjs spells the runs directory literal in src/", () => {
   );
 });
 
-/** Measured 2026-09-18: 195 occurrences of the literal across test/*.mjs. Only falls. */
-const TEST_RUNS_LITERAL_CEILING = 195;
+/** Measured 2026-09-18: 181 occurrences of the literal across test/*.mjs. Only falls. */
+const TEST_RUNS_LITERAL_CEILING = 181;
 
 test(`test/ spells the runs directory literal at most ${TEST_RUNS_LITERAL_CEILING} time(s)`, () => {
   const total = TEST_FILES.reduce((sum, file) => sum + [...file.text.matchAll(RUNS_LITERAL)].length, 0);
