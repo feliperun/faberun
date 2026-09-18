@@ -1,11 +1,20 @@
 /**
- * One rendered progress message for a human, from a run's persisted state
- * plus one terminal event: campaign, phase and node with a glyph for the
- * node's outcome; percent and count done and left; this node's own span; the
- * phase's estimated remaining time, from settled spans alone; the next node
- * in the phase, or that the phase is complete; what the node delivered, in
- * the worker's own words; and cost by role plus the campaign's cumulative
+ * Two renderers sharing one module, so a notification and a campaign page can
+ * never disagree about progress:
+ *
+ * `renderRunProgress` -- one message for a human, from a run's persisted
+ * state plus one terminal event: campaign, phase and node with a glyph for
+ * the node's outcome; percent and count done and left; this node's own span;
+ * the phase's estimated remaining time, from settled spans alone; the next
+ * node in the phase, or that the phase is complete; what the node delivered,
+ * in the worker's own words; and cost by role plus the campaign's cumulative
  * cost.
+ *
+ * `renderCampaignProgress` -- the campaign-wide roll-up: every contract the
+ * manifest declares, in manifest order, whether or not it has a run yet; each
+ * contract's own nodes with their `dependsOn` edges and settlement state;
+ * per-phase and campaign-wide settled/total counts; cost by role; the newest
+ * settled node's own words; and the operator's next action when one exists.
  *
  * Every number here comes from a reader that already owns it -- the status
  * payload (`renderStatusJson`, which already carries per-node phase, spans,
@@ -16,13 +25,15 @@
  * payload uses for this run alone. Nothing here recomputes what one of those
  * already answers.
  */
-import { MARK, formatDuration, formatRole, readRunUsage, renderStatusJson } from "./render.mjs";
-import { readNodeSnapshot } from "../run/node-store.mjs";
+import { MARK, formatDuration, formatRole, readRunUsage, renderStatusJson, roleUsage } from "./render.mjs";
+import { nodeSnapshotPath, readNodeSnapshot } from "../run/node-store.mjs";
 import { boundedUtf8, compactCost } from "../util.mjs";
 import { SETTLED } from "../engine/prompts.mjs";
-import { campaignDir } from "../campaign/layout.mjs";
+import { JOURNAL_FILE, campaignDir } from "../campaign/layout.mjs";
 import { readCampaign } from "../campaign/record.mjs";
-import { dirname, join } from "node:path";
+import { computeNextItems } from "./next.mjs";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 
 /** @typedef {import("./render.mjs").StatusPayloadNode} StatusPayloadNode */
 /** @typedef {import("../notify/index.mjs").NotifyEvent} NotifyEvent */
@@ -213,4 +224,261 @@ function boundToCeiling(lines, valueLineIndex) {
   const trimmed = [...lines];
   trimmed[valueLineIndex] = boundedUtf8(lines[valueLineIndex], Math.max(0, valueLineBytes - overflow));
   return trimmed.join("\n");
+}
+
+/**
+ * @typedef {{id: string, dependsOn: string[], status: string, attempt: number, runtime: string|null, elapsedSpan: string|null, costUsd: number|null, runDir: string|null, workerLogPath: string|null, judgeLogPaths: string[], verificationRecordPath: string|null, attemptBranch: string|null, sealCommit: string|null}} RollupNode
+ * `status` carries every `NodeStatus` plus two the manifest alone can
+ * explain: `not_started` (the contract has no run yet) and `unreadable` (a
+ * run exists but this node's own snapshot does not).
+ */
+/** @typedef {{contractId: string, runId: string|null, phase: string|null, name: string|null, goal: string|null, declaredRequirementIds: string[], nodes: RollupNode[], counts: {settled: number, total: number}}} RollupPhase */
+/** @typedef {{contractId: string, nodeId: string, summary: string}} RollupNewestNode */
+/** @typedef {{reason: string, command: string, runnable: boolean}} RollupNextAction */
+
+/**
+ * The campaign roll-up: `renderRunProgress`'s campaign-wide sibling. Every
+ * field comes from persisted state -- the manifest, each linked run's own
+ * nodes, and the campaign journal -- never from a live model.
+ *
+ * @param {string} runsDir
+ * @param {string} campaignId
+ * @returns {string}
+ */
+export function renderCampaignProgress(runsDir, campaignId) {
+  return `${JSON.stringify(buildCampaignProgress(runsDir, campaignId), null, 2)}\n`;
+}
+
+/**
+ * @param {string} runsDir
+ * @param {string} campaignId
+ * @returns {Record<string, unknown>}
+ */
+function buildCampaignProgress(runsDir, campaignId) {
+  const campaignPath = campaignDir(runsDir, campaignId);
+  const campaign = readCampaign(campaignPath);
+  const decisions = readDecisionEntries(campaignPath);
+  const built = campaign.contracts.map((entry) => buildPhase(entry, decisions));
+  const phases = built.map((entry) => entry.output);
+  const settledNodes = built.flatMap((entry) => entry.settledCandidates);
+  const settled = phases.reduce((total, phase) => total + phase.counts.settled, 0);
+  const total = phases.reduce((total2, phase) => total2 + phase.counts.total, 0);
+  return {
+    schemaVersion: 1,
+    campaignId: campaign.id,
+    goal: campaign.goal,
+    landBranch: campaign.landBranch,
+    phases,
+    counts: { settled, total },
+    // The denominator is every node every manifest contract declares, run or
+    // not: a contract the manifest names but has not launched still counts
+    // its nodes here (see `buildPhase`'s `not_started` branch), so a campaign
+    // can never read as 100% while a declared phase is unauthored work. A
+    // running node is never in `SETTLED`, so it never counts as done either.
+    percentDone: total ? Math.round((settled / total) * 100) : 0,
+    costByRole: roleUsage(/** @type {import("../contract/index.mjs").NodeSnapshot[]} */ (settledNodes.map((entry) => entry.snapshot))),
+    newestSettledNode: newestSettledNode(settledNodes),
+    // The chain calls this contract's own run directory the campaign's
+    // repo root three levels above `campaignPath` (`record.mjs`'s
+    // `preserveCampaignLedger` derives it the same way); reused here so the
+    // next action's command matches what `next` itself would print.
+    nextAction: campaignNextAction(runsDir, campaignId, resolve(campaignPath, "..", "..", "..")),
+  };
+}
+
+/**
+ * One manifest entry's roll-up: the contract's own declared nodes and graph
+ * edges when it has never run, or those same nodes filled in from the run's
+ * persisted snapshots once it has. `settledCandidates` carries the raw
+ * snapshot beside its contract and node id, for the campaign-wide cost and
+ * newest-summary readers, which need the snapshot's own `invocations` and
+ * `result` -- content this function's own output never repeats.
+ *
+ * @param {{path: string, digest: string}} entry
+ * @param {{text: string}[]} decisions
+ * @returns {{output: RollupPhase, settledCandidates: {contractId: string, nodeId: string, snapshot: Record<string, unknown>}[]}}
+ */
+function buildPhase(entry, decisions) {
+  const raw = /** @type {Record<string, unknown>} */ (JSON.parse(readFileSync(entry.path, "utf8")));
+  const contractId = String(raw.id);
+  const cwd = resolve(dirname(entry.path), typeof raw.cwd === "string" ? raw.cwd : ".");
+  const runDir = join(cwd, ".runs", contractId);
+  // The same signal the chain itself uses to decide a contract has started
+  // (`chain.mjs`'s own launch loop checks this file before it trusts a run
+  // directory's contents).
+  const hasRun = existsSync(join(runDir, "run.json"));
+  const rawNodes = Array.isArray(raw.nodes) ? raw.nodes : [];
+  const phaseId = typeof rawNodes[0]?.phase === "string" ? rawNodes[0].phase : null;
+
+  /** @type {{contractId: string, nodeId: string, snapshot: Record<string, unknown>}[]} */
+  const settledCandidates = [];
+  const nodes = rawNodes.map((node) => rollupNode(node, contractId, runDir, hasRun, settledCandidates));
+  const settled = nodes.filter((node) => SETTLED.has(node.status)).length;
+
+  return {
+    output: {
+      contractId,
+      runId: hasRun ? contractId : null,
+      phase: phaseId,
+      name: phaseName(phaseId),
+      goal: typeof raw.goal === "string" ? raw.goal : null,
+      declaredRequirementIds: phaseId ? declaredRequirementIds(decisions, phaseId, contractId) : [],
+      nodes,
+      counts: { settled, total: nodes.length },
+    },
+    settledCandidates,
+  };
+}
+
+/**
+ * @param {Record<string, unknown>} node the manifest's own declared node
+ * @param {string} contractId
+ * @param {string} runDir
+ * @param {boolean} hasRun
+ * @param {{contractId: string, nodeId: string, snapshot: Record<string, unknown>}[]} settledCandidates appended to when this node's own snapshot is readable
+ * @returns {RollupNode}
+ */
+function rollupNode(node, contractId, runDir, hasRun, settledCandidates) {
+  const id = String(node.id);
+  const dependsOn = Array.isArray(node.dependsOn) ? node.dependsOn.map(String) : [];
+  const empty = { id, dependsOn, attempt: 0, runtime: null, elapsedSpan: null, costUsd: null, workerLogPath: null, judgeLogPaths: /** @type {string[]} */ ([]), attemptBranch: null, sealCommit: null };
+  if (!hasRun) return { ...empty, status: "not_started", runDir: null, verificationRecordPath: null };
+
+  let snapshot;
+  try {
+    snapshot = readNodeSnapshot(runDir, id);
+  } catch {
+    return { ...empty, status: "unreadable", runDir, verificationRecordPath: nodeSnapshotPath(runDir, id) };
+  }
+  settledCandidates.push({ contractId, nodeId: id, snapshot });
+
+  const invocations = Array.isArray(snapshot.invocations) ? snapshot.invocations : [];
+  const worker = [...invocations].reverse().find((invocation) => invocation?.role === "worker");
+  const judgeLogPaths = invocations
+    .filter((invocation) => invocation?.role === "judge")
+    .map((invocation) => invocation.stdoutPath)
+    .filter((path) => typeof path === "string");
+  const worktree = snapshot.worktree && typeof snapshot.worktree === "object" ? /** @type {Record<string, unknown>} */ (snapshot.worktree) : null;
+  const runtime = snapshot.runtime && typeof snapshot.runtime === "object" ? /** @type {{harness?: unknown, model?: unknown}} */ (snapshot.runtime) : null;
+
+  return {
+    id,
+    dependsOn,
+    status: typeof snapshot.status === "string" ? snapshot.status : "unreadable",
+    attempt: typeof snapshot.attempt === "number" ? snapshot.attempt : 0,
+    runtime: runtime ? `${runtime.harness}/${runtime.model}` : null,
+    elapsedSpan: spanOf({ startedAt: typeof snapshot.startedAt === "string" ? snapshot.startedAt : null, updatedAt: typeof snapshot.updatedAt === "string" ? snapshot.updatedAt : null }),
+    costUsd: typeof snapshot.costUsd === "number" ? snapshot.costUsd : null,
+    runDir,
+    workerLogPath: typeof worker?.stdoutPath === "string" ? worker.stdoutPath : null,
+    judgeLogPaths,
+    verificationRecordPath: nodeSnapshotPath(runDir, id),
+    attemptBranch: typeof worktree?.branch === "string" ? worktree.branch : null,
+    sealCommit: typeof worktree?.sealedSha === "string" ? worktree.sealedSha : null,
+  };
+}
+
+/**
+ * A phase id is not a name (the owner's own words on seeing `0b3` unlabelled):
+ * hyphens become spaces and the first letter is capitalized, so
+ * `verdict-and-write-check` reads as `Verdict and write check`.
+ *
+ * @param {string|null} phaseId
+ * @returns {string|null}
+ */
+function phaseName(phaseId) {
+  if (!phaseId) return null;
+  const words = phaseId.replaceAll("-", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Matches a requirement id like `R9` or `R11` inside free text. */
+const REQUIREMENT_ID_PATTERN = /\bR\d+\b/gu;
+
+/**
+ * Requirement ids a phase is declared to satisfy, read from the campaign's
+ * own journal decision entries -- never measured against what a node
+ * actually delivered, which is why this is named for what it is. Until a
+ * later phase makes the frozen plan carry requirement ids on the phase
+ * itself, a decision counts toward a phase when its own text names that
+ * phase's id or its contract id; this is the text-matching approximation a
+ * structured field replaces, not the id-based correlation a future
+ * requirement-to-node closure map requires.
+ *
+ * @param {{text: string}[]} decisions
+ * @param {string} phaseId
+ * @param {string} contractId
+ * @returns {string[]}
+ */
+function declaredRequirementIds(decisions, phaseId, contractId) {
+  const ids = new Set();
+  for (const decision of decisions) {
+    if (!decision.text.includes(phaseId) && !decision.text.includes(contractId)) continue;
+    for (const match of decision.text.matchAll(REQUIREMENT_ID_PATTERN)) ids.add(match[0]);
+  }
+  return [...ids].sort();
+}
+
+/**
+ * Every `decision` entry in the campaign journal, tolerantly: a torn trailing
+ * line (the writer's own append-in-progress) is skipped, never thrown on, the
+ * same tolerance `next`'s own node-snapshot reader applies to live state.
+ *
+ * @param {string} campaignPath
+ * @returns {{text: string}[]}
+ */
+function readDecisionEntries(campaignPath) {
+  const path = join(campaignPath, JOURNAL_FILE);
+  if (!existsSync(path)) return [];
+  /** @type {{text: string}[]} */
+  const decisions = [];
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (entry && typeof entry === "object" && entry.type === "decision" && typeof entry.text === "string") {
+      decisions.push({ text: entry.text });
+    }
+  }
+  return decisions;
+}
+
+/**
+ * The most recently settled node across every linked run, campaign-wide --
+ * `renderRunProgress`'s `subjectNode` narrowed to one run; here there is no
+ * event naming a node, only whichever settled last.
+ *
+ * @param {{contractId: string, nodeId: string, snapshot: Record<string, unknown>}[]} candidates
+ * @returns {RollupNewestNode|null}
+ */
+function newestSettledNode(candidates) {
+  const settled = candidates.filter((candidate) => SETTLED.has(/** @type {import("../contract/index.mjs").NodeStatus} */ (String(candidate.snapshot.status)))
+    && typeof candidate.snapshot.updatedAt === "string");
+  const latest = settled.sort((left, right) => String(left.snapshot.updatedAt).localeCompare(String(right.snapshot.updatedAt))).at(-1);
+  if (!latest) return null;
+  const result = /** @type {{summary?: unknown}|null} */ (latest.snapshot.result && typeof latest.snapshot.result === "object" ? latest.snapshot.result : null);
+  const summary = typeof result?.summary === "string" && result.summary.trim() ? result.summary.trim() : null;
+  return { contractId: latest.contractId, nodeId: latest.nodeId, summary: summary ?? NO_SUMMARY };
+}
+
+/**
+ * The operator's next action for this one campaign, reusing `next`'s own
+ * ranked predicates rather than re-deriving them: a second implementation of
+ * "what needs the operator" is exactly how a page and `faberun next` could
+ * disagree. `null` when `next` has nothing runnable or worth naming for this
+ * campaign (an empty command, e.g. "run live; nothing to do").
+ *
+ * @param {string} runsDir
+ * @param {string} campaignId
+ * @param {string} cwd
+ * @returns {RollupNextAction|null}
+ */
+function campaignNextAction(runsDir, campaignId, cwd) {
+  const item = computeNextItems(runsDir, cwd).find((candidate) => candidate.campaign === campaignId);
+  if (!item || !item.command) return null;
+  return { reason: item.reason, command: item.command, runnable: item.runnable };
 }

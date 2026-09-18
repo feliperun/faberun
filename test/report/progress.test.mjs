@@ -3,10 +3,10 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { registerRun } from "../../src/campaign/index.mjs";
+import { authoredContractDigest, initializeCampaign, registerRun } from "../../src/campaign/index.mjs";
 import { campaignDir } from "../../src/campaign/layout.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
-import { PROGRESS_MESSAGE_MAX_BYTES, renderRunProgress } from "../../src/report/progress.mjs";
+import { PROGRESS_MESSAGE_MAX_BYTES, renderCampaignProgress, renderRunProgress } from "../../src/report/progress.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
 
 /**
@@ -197,5 +197,190 @@ test("a message whose worker summary is enormous stays under the ceiling with th
     assert.match(message, /worker says: x+…/u);
   } finally {
     rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+/**
+ * A campaign with one contract per phase spec: each contract's own file
+ * written to disk and listed in the campaign's manifest, in the order given.
+ * A phase spec with `hasRun: true` also gets a run directory with one
+ * snapshot per node; one without it stays a manifest entry the campaign has
+ * never launched.
+ *
+ * @param {string} campaignId
+ * @param {{id: string, phaseId: string, goal?: string, hasRun: boolean, nodes: {id: string, dependsOn?: string[], snapshot?: Record<string, unknown>}[]}[]} phaseSpecs
+ * @returns {{directory: string, runsDir: string, campaignPath: string}}
+ */
+function makeCampaign(campaignId, phaseSpecs) {
+  const directory = mkdtempSync(join(tmpdir(), "faberun-report-campaign-progress-"));
+  const runsDir = join(directory, ".runs");
+  const contracts = phaseSpecs.map((phaseSpec) => {
+    const contractPath = join(directory, `${phaseSpec.id}.contract.json`);
+    writeFileSync(contractPath, `${JSON.stringify({
+      schemaVersion: PROTOCOL_SCHEMA_VERSION,
+      contractVersion: CONTRACT_VERSION,
+      id: phaseSpec.id,
+      campaignId,
+      goal: phaseSpec.goal ?? `Goal for ${phaseSpec.id}`,
+      cwd: ".",
+      nodes: phaseSpec.nodes.map((node) => ({ id: node.id, phase: phaseSpec.phaseId, dependsOn: node.dependsOn ?? [] })),
+    }, null, 2)}\n`);
+    return { path: contractPath, digest: authoredContractDigest(contractPath) };
+  });
+  const { path: campaignPath } = initializeCampaign(runsDir, { campaignId, goal: "Prove the roll-up", contracts });
+  for (const phaseSpec of phaseSpecs) {
+    if (!phaseSpec.hasRun) continue;
+    const runDir = join(runsDir, phaseSpec.id);
+    mkdirSync(join(runDir, "nodes"), { recursive: true });
+    writeFileSync(join(runDir, "run.json"), `${JSON.stringify({
+      schemaVersion: PROTOCOL_SCHEMA_VERSION,
+      contractVersion: CONTRACT_VERSION,
+      pid: process.pid,
+      processStartToken: null,
+      startedAt: "2026-01-01T00:00:00.000Z",
+      sourceIdentity: { kind: "run" },
+    }, null, 2)}\n`);
+    for (const node of phaseSpec.nodes) {
+      writeFileSync(join(runDir, "nodes", `${node.id}.json`), `${JSON.stringify({
+        schemaVersion: PROTOCOL_SCHEMA_VERSION,
+        contractVersion: CONTRACT_VERSION,
+        id: node.id,
+        type: "backend",
+        status: "pending",
+        phase: "worker",
+        attempt: 1,
+        revisions: 0,
+        startedAt: null,
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        result: null,
+        gate: null,
+        error: null,
+        ...node.snapshot,
+      }, null, 2)}\n`);
+    }
+    registerRun(campaignPath, phaseSpec.id);
+  }
+  return { directory, runsDir, campaignPath };
+}
+
+test("a campaign with three contracts where one has no run reports three phases, the first two counted and the third not started", () => {
+  const { directory, runsDir } = makeCampaign("rollup-campaign-one", [
+    { id: "phase-a", phaseId: "phase-a-first-write", hasRun: true, nodes: [{ id: "a1", snapshot: { status: "done", startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", result: doneResult("a1 done") } }] },
+    { id: "phase-b", phaseId: "phase-b", hasRun: true, nodes: [{ id: "b1", dependsOn: ["a1"], snapshot: { status: "done", startedAt: "2026-01-01T00:01:00.000Z", updatedAt: "2026-01-01T00:02:00.000Z", result: doneResult("b1 done") } }] },
+    { id: "phase-c", phaseId: "phase-c", hasRun: false, nodes: [{ id: "c1", dependsOn: ["b1"] }] },
+  ]);
+  try {
+    const progress = JSON.parse(renderCampaignProgress(runsDir, "rollup-campaign-one"));
+    assert.equal(progress.phases.length, 3);
+    assert.equal(progress.phases[0].name, "Phase a first write");
+    assert.equal(progress.phases[0].goal, "Goal for phase-a");
+    assert.equal(progress.phases[0].counts.settled, 1);
+    assert.equal(progress.phases[1].counts.settled, 1);
+    assert.deepEqual(progress.phases[1].nodes[0].dependsOn, ["a1"]);
+    assert.equal(progress.phases[2].runId, null);
+    assert.equal(progress.phases[2].counts.total, 1);
+    assert.equal(progress.phases[2].nodes[0].status, "not_started");
+    assert.deepEqual(progress.phases[2].nodes[0].dependsOn, ["b1"]);
+    assert.equal(progress.counts.settled, 2);
+    assert.equal(progress.counts.total, 3);
+    assert.equal(progress.percentDone, 67);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("the campaign percentage ignores a running node", () => {
+  const { directory, runsDir } = makeCampaign("rollup-campaign-two", [
+    {
+      id: "phase-a",
+      phaseId: "phase-a",
+      hasRun: true,
+      nodes: [
+        { id: "a1", snapshot: { status: "done", startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", result: doneResult("a1 done") } },
+        { id: "a2", snapshot: { status: "running", startedAt: "2026-01-01T00:01:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z" } },
+      ],
+    },
+  ]);
+  try {
+    const progress = JSON.parse(renderCampaignProgress(runsDir, "rollup-campaign-two"));
+    assert.equal(progress.counts.settled, 1);
+    assert.equal(progress.counts.total, 2);
+    assert.equal(progress.percentDone, 50);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("an unpriced judge survives the campaign roll-up, with its log path and tokens kept", () => {
+  /** @param {Record<string, unknown>} overrides */
+  const invocation = (overrides) => ({
+    pid: 1, processGroupId: null, processStartToken: null, planPhase: "p",
+    runId: "phase-a", campaignId: "rollup-campaign-three", nodeId: "one",
+    reasoning: null, sandbox: null, startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z",
+    deadlineAt: "2026-01-01T00:10:00.000Z", closedAt: "2026-01-01T00:01:00.000Z", signal: null,
+    continuationMode: "fresh", status: "closed", promptPath: "prompt.txt", stderrPath: "stderr.txt", exitCode: 0, continuationId: null,
+    ...overrides,
+  });
+  const { directory, runsDir } = makeCampaign("rollup-campaign-three", [
+    {
+      id: "phase-a",
+      phaseId: "phase-a",
+      hasRun: true,
+      nodes: [
+        {
+          id: "one",
+          snapshot: {
+            status: "done",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            updatedAt: "2026-01-01T00:01:00.000Z",
+            result: doneResult("done"),
+            invocations: [
+              invocation({ id: "inv-worker", harness: "codex", phase: "worker", model: "gpt-5.6-luna", role: "worker", executable: "codex", stdoutPath: "stdout-worker.txt", usage: { inputTokens: 500, outputTokens: 100, cacheReadInputTokens: 0 }, costUsd: 0.01 }),
+              invocation({ id: "inv-judge", harness: "agy", phase: "judge", model: "gemini-3.1-pro-high", role: "judge", executable: "agy", stdoutPath: "stdout-judge.txt", usage: { inputTokens: 1200, outputTokens: 300, cacheReadInputTokens: 0 }, costUsd: null }),
+            ],
+          },
+        },
+      ],
+    },
+  ]);
+  try {
+    const progress = JSON.parse(renderCampaignProgress(runsDir, "rollup-campaign-three"));
+    assert.equal(progress.costByRole.judge.costProvenance, "unpriced");
+    assert.equal(progress.costByRole.judge.costUsd, null);
+    assert.equal(progress.costByRole.judge.inputTokens, 1200);
+    assert.equal(progress.costByRole.worker.costUsd, 0.01);
+    assert.equal(progress.newestSettledNode.summary, "done");
+    const node = progress.phases[0].nodes[0];
+    assert.equal(node.workerLogPath, "stdout-worker.txt");
+    assert.deepEqual(node.judgeLogPaths, ["stdout-judge.txt"]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("the campaign next action carries its command", () => {
+  const { directory, runsDir } = makeCampaign("rollup-campaign-four", [
+    {
+      id: "phase-a",
+      phaseId: "phase-a",
+      hasRun: true,
+      nodes: [{
+        id: "build",
+        snapshot: {
+          status: "blocked",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:01:00.000Z",
+          result: { status: "blocked_context", summary: "missing config", verification: [], artifacts: [], missingContext: ["missing.txt"] },
+        },
+      }],
+    },
+  ]);
+  try {
+    const progress = JSON.parse(renderCampaignProgress(runsDir, "rollup-campaign-four"));
+    const runDir = join(runsDir, "phase-a");
+    assert.equal(progress.nextAction.command, `resume ${runDir} --answer build=<answer-file>`);
+    assert.equal(progress.nextAction.runnable, false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
