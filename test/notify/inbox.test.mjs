@@ -79,6 +79,25 @@ test("done-when 2: a succeeded run renders as one line and the most recent atten
   assert.match(block, /attention: node build needs you · run r2 · judge_unavailable/u);
 });
 
+test("a multi-line inbox summary (renderRunProgress's own shape) collapses to its first line in the managed signal block", () => {
+  const directory = tempDir("inbox-signal-multiline-");
+  const runsDir = join(directory, ".runs");
+  initializeCampaign(runsDir, { campaignId: "cm", goal: "prove the block stays single-line" });
+  appendInbox(runsDir, {
+    type: "attention",
+    campaignId: "cm",
+    summary: "node build needs you · run r1 · judge_unavailable\nthis node: 12s\nworker says: multi-line progress text",
+    dedupeKey: "attention:cm:r1:build",
+  });
+  writeFileSync(join(directory, "AGENTS.md"), "# repo\n");
+
+  const block = renderAgentSignalBlock(runsDir);
+  const attentionLines = block.split("\n").filter((line) => line.includes("attention:"));
+  assert.equal(attentionLines.length, 1, block);
+  assert.equal(attentionLines[0], "  - attention: node build needs you · run r1 · judge_unavailable", block);
+  assert.doesNotMatch(block, /worker says: multi-line progress text/u, "only the first line of a multi-line summary reaches the block; the rest lives in the inbox");
+});
+
 test("done-when 3: inbox entries match the schema, dedupe on the key, and survive concurrent appends", async () => {
   const runsDir = join(tempDir("inbox-schema-"), ".runs");
   const first = appendInbox(runsDir, { type: "attention", campaignId: "c", summary: "one", dedupeKey: "k1" });

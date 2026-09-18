@@ -293,7 +293,7 @@ test("the campaign chain names the campaign and draws one box per phase, each by
     for (const phase of snapshot.progress.phases) {
       assert.match(svg, new RegExp(`data-phase="${phase.contractId}"`, "u"));
       assert.match(svg, new RegExp(`>${phase.name}<`, "u"), `${phase.contractId} is shown by its human name, not the id alone`);
-      assert.match(svg, new RegExp(`>${phase.contractId}<`, "u"), `${phase.contractId} still appears as the secondary mono mark`);
+      assert.match(svg, new RegExp(`>${phase.phase}<`, "u"), `${phase.contractId}'s own phase id still appears as the secondary mono mark`);
     }
     const phaseBoxes = (svg.match(/data-phase="/gu) ?? []).length;
     assert.equal(phaseBoxes, stages.length, "one box per stage, including the phases");
@@ -353,15 +353,123 @@ test("the drill-down carries the error code of a failed node and links to its wo
   assert.match(html, /beta\.contract\.json/u);
 });
 
-test("the selectors render with the campaigns this repository holds", () => {
+test("the selectors render with the campaigns this repository holds, labelled by campaign id rather than its goal", () => {
   const world = makeWorld();
   try {
     const snapshot = /** @type {any} */ (buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID }));
     const options = campaignOptionsHtml(snapshot.campaigns, snapshot.selectedCampaignId);
     assert.match(options, new RegExp(`value="${CAMPAIGN_ID}"`, "u"));
-    assert.match(options, /Ship the dashboard rewrite/u);
+    assert.match(options, new RegExp(`>${CAMPAIGN_ID} `, "u"), "the option label leads with the campaign id");
+    assert.doesNotMatch(options, /Ship the dashboard rewrite/u, "the goal sentence is not the option label");
     assert.match(options, /selected/u);
   } finally {
     rmSync(world.directory, { recursive: true, force: true });
   }
+});
+
+test("a phase box carries its own phase id as the secondary mark, not the campaign-prefixed contract id, and a synthetic box carries no id mark", () => {
+  const progress = {
+    phases: [{
+      contractId: "state-location-and-routing-economics-1-run-path-resolver",
+      phase: "1-run-path-resolver",
+      runId: "state-location-and-routing-economics-1-run-path-resolver",
+      name: "Run path resolver",
+      goal: "one module resolves the run path, campaign and worktree",
+      counts: { done: 1, settled: 1, total: 1 },
+    }],
+  };
+  const stages = chainStages(progress, "active");
+  const synthetic = stages.filter((stage) => stage.idMark === null);
+  assert.deepEqual(synthetic.map((stage) => stage.id), ["intent", "plan", "integration", "release"]);
+  const svg = renderChainSvg(stages);
+  assert.match(svg, />1-run-path-resolver</u, "the phase's own id appears as the secondary mark");
+  assert.doesNotMatch(svg, />state-location-and-routing-economics-1-run-path-resolver</u, "the campaign-prefixed contract id never appears as rendered text");
+  const chunks = svg.split(/(?=<g class="stage )/u);
+  for (const stage of synthetic) {
+    const chunk = chunks.find((candidate) => candidate.includes(`data-phase="${stage.id}"`));
+    assert.ok(chunk, `${stage.id} has its own box`);
+    assert.doesNotMatch(/** @type {string} */ (chunk), /class="mono dim stage-id"/u, `${stage.id} carries no id mark`);
+  }
+});
+
+test("a phase holding a blocked, failed or exhausted node does not render as done", () => {
+  const progress = {
+    phases: [{
+      contractId: "gate-and-write-check",
+      phase: "gate-and-write-check",
+      runId: "gate-and-write-check",
+      name: "Gate and write check",
+      goal: "the gate blocks an unverified write",
+      counts: { done: 1, settled: 2, total: 2 },
+    }],
+  };
+  const stages = chainStages(progress, "active");
+  const phaseStage = /** @type {any} */ (stages.find((stage) => stage.id === "gate-and-write-check"));
+  assert.notEqual(phaseStage.state, "done", "settled equalling total is not the same as done equalling total");
+  const svg = renderChainSvg(stages);
+  const chunk = /** @type {string} */ (svg.split(/(?=<g class="stage )/u).find((candidate) => candidate.includes('data-phase="gate-and-write-check"')));
+  assert.match(chunk, /^<g class="stage active/u, "the box's own class is not done");
+  assert.doesNotMatch(chunk, />done<\/text>/u, "the box's own state text does not read done");
+});
+
+/**
+ * Every text element a box owns must lie inside that box's own rectangle —
+ * the geometric check that catches an overprint (two lines at the same y)
+ * and a clipping failure (text starting outside its box) alike, without
+ * asserting anything about font metrics a test cannot measure.
+ *
+ * @param {string} svg
+ * @returns {{x: number, y: number, width: number, height: number, texts: {x: number, y: number}[]}[]}
+ */
+function boxesWithOwnText(svg) {
+  // Every box opens with `<g class="node …"` or `<g class="stage …"`, and
+  // that class never nests (only its own `<clipPath>`/`<g clip-path>` do), so
+  // splitting on that boundary hands each chunk exactly one box's own rect,
+  // clip rect and text elements, with no risk of crossing into the next box.
+  const chunks = svg.split(/(?=<g class="(?:node|stage) )/u).filter((chunk) => /^<g class="(?:node|stage) /u.test(chunk));
+  return chunks.map((chunk) => {
+    const rectMatch = /<rect x="(-?\d+(?:\.\d+)?)" y="(-?\d+(?:\.\d+)?)" width="(\d+(?:\.\d+)?)" height="(\d+(?:\.\d+)?)"/u.exec(chunk);
+    const [, x, y, width, height] = /** @type {RegExpExecArray} */ (rectMatch).map(Number);
+    const texts = [...chunk.matchAll(/<text x="(-?\d+(?:\.\d+)?)" y="(-?\d+(?:\.\d+)?)"/gu)].map((match) => ({ x: Number(match[1]), y: Number(match[2]) }));
+    return { x, y, width, height, texts };
+  });
+}
+
+test("every text element in the chain band and the phase graph lies inside its own box's rectangle", () => {
+  const world = makeWorld();
+  try {
+    const snapshot = /** @type {any} */ (buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID }));
+    const stages = chainStages(snapshot.progress, "active");
+    const chainSvg = renderChainSvg(stages);
+    const chainBoxes = boxesWithOwnText(chainSvg);
+    assert.ok(chainBoxes.length > 0);
+    for (const box of chainBoxes) {
+      assert.ok(box.texts.length > 0, "every box owns at least one text element");
+      for (const text of box.texts) {
+        assert.ok(text.x >= box.x && text.x <= box.x + box.width, `text x ${text.x} lies within box [${box.x}, ${box.x + box.width}]`);
+        assert.ok(text.y >= box.y && text.y <= box.y + box.height, `text y ${text.y} lies within box [${box.y}, ${box.y + box.height}]`);
+      }
+    }
+    const betaPhase = snapshot.progress.phases.find((/** @type {any} */ phase) => phase.contractId === "beta");
+    const nodeSvg = renderPhaseGraphSvg(betaPhase);
+    const nodeBoxes = boxesWithOwnText(nodeSvg);
+    assert.ok(nodeBoxes.length > 0);
+    for (const box of nodeBoxes) {
+      for (const text of box.texts) {
+        assert.ok(text.x >= box.x && text.x <= box.x + box.width, `text x ${text.x} lies within box [${box.x}, ${box.x + box.width}]`);
+        assert.ok(text.y >= box.y && text.y <= box.y + box.height, `text y ${text.y} lies within box [${box.y}, ${box.y + box.height}]`);
+      }
+    }
+  } finally {
+    rmSync(world.directory, { recursive: true, force: true });
+  }
+});
+
+test("a long node id is truncated to an ellipsis inside its own box rather than clipped mid-character", () => {
+  const longId = "one-module-owns-the-run-path-and-the-centralization-guard-only-catches-a-literal-concatenation";
+  const svg = renderPhaseGraphSvg({ nodes: [{ id: longId, dependsOn: [], status: "done" }] });
+  const idMatch = /<text x="\d+" y="\d+" class="node-id mono">([^<]*)<\/text>/u.exec(svg);
+  assert.ok(idMatch);
+  assert.ok(idMatch[1].length < longId.length, "the rendered id is shorter than the raw id");
+  assert.match(idMatch[1], /…$/u, "truncation ends in an ellipsis, not at a character count that happens to overflow");
 });

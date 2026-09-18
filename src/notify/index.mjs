@@ -1,8 +1,9 @@
 /**
  * Direct notification dispatcher (TECH-SPEC lean, rule 6). On `node.terminal`,
- * `run.terminal` and `attention` the controller renders a one-line message
- * from a fixed per-type template, calls `FABERUN_NOTIFY_BIN` with the
- * event as JSON on stdin, and appends a receipt (`delivered`, `failed` or
+ * `run.terminal` and `attention` the controller renders the message through
+ * `renderRunProgress` (`report/progress.mjs`) from the run's own persisted
+ * state, calls `FABERUN_NOTIFY_BIN` with the event as JSON on stdin, and
+ * appends a receipt (`delivered`, `failed` or
  * `no_transport`, with the timestamp) to `<run-dir>/notify.jsonl`. Delivery is
  * lossy: an event is attempted once, a failure schedules no further attempt and
  * is never requeued, and the controller never waits on a retry it will not
@@ -47,6 +48,25 @@ import { join } from "node:path";
 import { createMacosNotifier } from "./os-macos.mjs";
 import { errorMessage } from "../util.mjs";
 
+/**
+ * `report/progress.mjs` reaches back to this module (through
+ * `run/node-store.mjs` -> `run/disk-gc.mjs` -> `host/preflight.mjs`, which
+ * reads `NOTIFY_BIN_ENV`), so a static top-level import of it here would be a
+ * real cycle: `host/preflight.mjs` would read `NOTIFY_BIN_ENV` while this
+ * module's own top level was still mid-evaluation, before the `const` is
+ * assigned. A dynamic import resolves this module first and defers loading
+ * `report/progress.mjs` until the first call, by which point this module has
+ * already finished initializing -- so the cycle is real but harmless. Cached
+ * after the first call so every subsequent render reuses the same module.
+ * @type {Promise<typeof import("../report/progress.mjs")>|null}
+ */
+let progressModule = null;
+/** @returns {Promise<typeof import("../report/progress.mjs")>} */
+function loadProgressModule() {
+  progressModule ??= import("../report/progress.mjs");
+  return progressModule;
+}
+
 export const NOTIFY_BIN_ENV = "FABERUN_NOTIFY_BIN";
 const MACOS_TRANSPORT = "os-macos";
 export const NOTIFY_LOG_FILE = "notify.jsonl";
@@ -68,6 +88,15 @@ export const MAX_ATTEMPTS = 3;
  */
 export const notificationDeliveryTimeoutMs = 5_000;
 
+/**
+ * The one-line, character-based bound this module used to enforce on every
+ * rendered summary. The primary path (below) now defers to
+ * `PROGRESS_MESSAGE_MAX_BYTES` in `report/progress.mjs`, which bounds the
+ * whole rendered message in bytes rather than characters, because that
+ * message is no longer one line. `SUMMARY_CHARS` survives only to bound the
+ * degraded template `renderNotification` falls back to when a caller has no
+ * `runDir` to render from.
+ */
 const SUMMARY_CHARS = 200;
 
 /**
@@ -103,19 +132,68 @@ export const NOTIFY_NO_TRANSPORT_WARNING = "no human notification transport is c
 /** @typedef {{ok: boolean, error?: string, noTransport?: boolean}} DeliveryResult */
 
 /**
- * Render the fixed one-line message for an event, from counters and
- * identifiers only (node id, run id or directory, state, attempt, error
- * code, done/total, cost), never from model text:
+ * Render the message for an event. For `node.terminal`, `run.terminal` and
+ * `attention` this delegates to `renderRunProgress`, which reads the run's
+ * own persisted state (its contract, its node snapshots, its usage) from
+ * `event.runDir` -- so whatever calls this function once gets exactly the
+ * string every audience of that event sees: the inbox entry's `summary` and
+ * the transport's stdin are never rendered separately and never drift.
+ *
+ * `runDir` is absent, or names a directory with no readable run scaffold
+ * (no `contract.json`, no `run.json`, a node snapshot that fails validation),
+ * on two kinds of paths: a caller with no run directory at all, and a render
+ * that fails against a run that is present but broken. Both fall back to
+ * `degradedNotification` below, a fixed one-line, counters-only template --
+ * still one render, still the same text for every audience, just a coarser
+ * one. A render failure must never propagate: this function backs the lossy
+ * notify queue, and a broken render must not turn into a lost receipt.
+ *
+ * The unknown-type case is checked synchronously (it throws, it never
+ * returns a rejected promise a caller might forget to handle); the known
+ * types resolve asynchronously because loading `report/progress.mjs` is
+ * itself async (see `loadProgressModule`).
+ *
+ * @param {NotifyEvent} event
+ * @returns {Promise<string>}
+ */
+export function renderNotification(event) {
+  switch (event.type) {
+    case "node.terminal":
+    case "run.terminal":
+    case "attention":
+      return renderDelegated(event);
+    default:
+      throw new TypeError(`renderNotification: unknown event type ${String(event.type)}`);
+  }
+}
+
+/**
+ * @param {NotifyEvent} event
+ * @returns {Promise<string>}
+ */
+async function renderDelegated(event) {
+  if (typeof event.runDir !== "string" || !event.runDir) return degradedNotification(event);
+  try {
+    const { renderRunProgress } = await loadProgressModule();
+    return renderRunProgress(event.runDir, event);
+  } catch {
+    return degradedNotification(event);
+  }
+}
+
+/**
+ * The fixed one-line message this module rendered for every event before
+ * `renderRunProgress` existed, from counters and identifiers only (node id,
+ * run id or directory, state, attempt, error code, done/total, cost), never
+ * from model text:
  *   `node <id> failed · run <id> · attempt 2 · verification_failed · resume <run-dir>`
  *   `run <id> done · 3/3 nodes · $4.21`
  *   `node <id> needs you · run <id> · <error code>`
- * `runDir` and `costUsd`, when present on the event, come from the run's own
- * `status.json` (`NotifyQueue.enqueue` reads it) — never from the model.
  *
  * @param {NotifyEvent} event
  * @returns {string}
  */
-export function renderNotification(event) {
+function degradedNotification(event) {
   const runId = event.runId ?? "-";
   switch (event.type) {
     case "node.terminal": {
@@ -366,7 +444,7 @@ export class NotifyQueue {
     // one that reaches the transport and the receipt.
     const summary = typeof enriched.summary === "string" && enriched.summary
       ? enriched.summary
-      : renderNotification(enriched);
+      : await renderNotification(enriched);
     // Consumers deduplicate by eventId (the Ford adapter rejects an event without
     // one), so every delivery carries a stable id derived from the dedupe key.
     const eventId = enriched.eventId

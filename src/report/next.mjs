@@ -14,6 +14,7 @@
  * never through `loadRun`/`validateNodeSnapshot`: a torn snapshot is exactly
  * the case this command must survive and report, not crash on.
  */
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { discoverCampaigns } from "../campaign/index.mjs";
 import { readJournalForDedupe } from "../campaign/journal.mjs";
@@ -23,7 +24,17 @@ import { errorMessage } from "../util.mjs";
 
 /** @typedef {Record<string, unknown>} JsonObject */
 /** @typedef {import("../campaign/index.mjs").Campaign} Campaign */
-/** @typedef {{campaign: string, rank: number, reason: string, command: string, runnable: boolean}} NextItem */
+/**
+ * `message`, when present, is the newest already-rendered progress line for
+ * the campaign (read back from a linked run's own `notify.jsonl`, never
+ * re-rendered here). Every per-node/per-run candidate constructor below
+ * leaves it unset; `campaignItem` attaches it once, to whichever candidate
+ * wins, so there is exactly one place that decides it rather than every
+ * constructor repeating the read. It is for the human text only --
+ * `renderNextJson` keeps carrying structure, not prose, so it omits this
+ * field.
+ * @typedef {{campaign: string, rank: number, reason: string, command: string, runnable: boolean, message?: string|null}} NextItem
+ */
 
 /** Node states that are still in flight, versus every settled terminal state. */
 const IN_PROGRESS = new Set(["pending", "running"]);
@@ -49,6 +60,7 @@ export function computeNextItems(runsDir, cwd) {
       reason: `campaign ${entry.id} unreadable: ${errorMessage(entry.error)} (${entry.path})`,
       command: "",
       runnable: false,
+      message: null,
     });
   }
   for (const entry of campaigns) {
@@ -139,19 +151,58 @@ function campaignItem(entry, runsDir, cwd) {
     }
   }
 
+  const message = newestCampaignMessage(runsDir, campaign);
   const best = candidates.reduce(
     (found, candidate) => (!found || candidate.rank < found.rank ? candidate : found),
     /** @type {NextItem|null} */ (null),
   );
-  if (best) return best;
-  if (!inProgress) return closureItem(campaign, entry.path, cwd);
+  if (best) return { ...best, message };
+  if (!inProgress) return { ...closureItem(campaign, entry.path, cwd), message };
   return {
     campaign: campaign.id,
     rank: 6,
     reason: `run ${liveRunId ?? campaign.linkedRunIds[0] ?? ""} live; nothing to do`,
     command: "",
     runnable: false,
+    message,
   };
+}
+
+/**
+ * The newest already-rendered notification text across every run this
+ * campaign links, read straight from each run's own `notify.jsonl` receipts
+ * -- the durable, already-rendered text `NotifyQueue.enqueue` wrote, not a
+ * fresh render. `next` is a second audience for that same string, the way a
+ * bound transport is: reading it back here can never disagree with what the
+ * transport already received, because nothing here re-renders it.
+ *
+ * @param {string} runsDir
+ * @param {Campaign} campaign
+ * @returns {string|null}
+ */
+function newestCampaignMessage(runsDir, campaign) {
+  /** @type {{at: string, summary: string}[]} */
+  const receipts = [];
+  for (const runId of campaign.linkedRunIds) {
+    let text;
+    try {
+      text = readFileSync(join(runsDir, runId, "notify.jsonl"), "utf8");
+    } catch {
+      continue;
+    }
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      let entry;
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      if (entry && typeof entry.summary === "string" && typeof entry.at === "string") receipts.push({ at: entry.at, summary: entry.summary });
+    }
+  }
+  const newest = receipts.sort((left, right) => left.at.localeCompare(right.at)).at(-1);
+  return newest ? newest.summary : null;
 }
 
 /**
@@ -363,11 +414,20 @@ function closureItem(campaign, campaignPath, cwd) {
   };
 }
 
-/** @param {NextItem} item @returns {string} */
+/**
+ * The item's own line, plus its newest progress message indented on the line
+ * after it when one exists -- the same string `next --json` deliberately
+ * omits, since prose has no place in that structured payload.
+ *
+ * @param {NextItem} item
+ * @returns {string}
+ */
 function renderLine(item) {
   const prefix = `${item.campaign}: ${item.reason}`;
-  if (!item.command) return prefix;
-  return `${prefix} · ${item.command}${item.runnable ? "" : " [template]"}`;
+  const line = item.command ? `${prefix} · ${item.command}${item.runnable ? "" : " [template]"}` : prefix;
+  if (!item.message) return line;
+  const indented = item.message.split("\n").map((part) => `  ${part}`).join("\n");
+  return `${line}\n${indented}`;
 }
 
 /**

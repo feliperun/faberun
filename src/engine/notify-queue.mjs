@@ -222,6 +222,12 @@ export function attentionDedupeKey(runId, anchor, slot) {
  * already announced. A receipt is the durable record, so a restarted
  * supervisor reads the same slot as already sent.
  *
+ * The message is rendered exactly once, with `runDir` set, and that one
+ * string is handed to both the inbox entry and the notify queue: `enqueue`
+ * never re-renders a `summary` it is given. Rendering it twice -- once for
+ * the inbox with no `runDir` and once inside `enqueue` with `runDir` filled
+ * in -- is what let the inbox and the transport disagree before.
+ *
  * @param {string} runDir
  * @param {{anchor: string, code?: string|null, campaignId?: string|null, now?: number}} options
  * @returns {Promise<number|null>} the emitted slot, or null when none was due
@@ -234,10 +240,11 @@ export async function emitScheduledAttention(runDir, options) {
   const runId = basename(runDir);
   const dedupeKey = attentionDedupeKey(runId, options.anchor, slot);
   if (alreadyNotified(runDir, dedupeKey)) return null;
-  const summary = renderNotification({
+  const summary = await renderNotification({
     type: "attention",
     runId,
     errorCode: options.code ?? null,
+    runDir,
   });
   // The run-level attention also lands in the campaign-level inbox, which is
   // the append-only record the managed signal block summarises.
@@ -255,6 +262,7 @@ export async function emitScheduledAttention(runDir, options) {
     runId,
     errorCode: options.code ?? null,
     dedupeKey,
+    summary,
   });
   return slot;
 }

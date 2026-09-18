@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { authoredContractDigest, initializeCampaign, registerRun } from "../../src/campaign/index.mjs";
 import { campaignDir } from "../../src/campaign/layout.mjs";
+import { appendJournal } from "../../src/campaign/journal.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 import { PROGRESS_MESSAGE_MAX_BYTES, renderCampaignProgress, renderRunProgress } from "../../src/report/progress.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
@@ -380,6 +382,55 @@ test("the campaign next action carries its command", () => {
     const runDir = join(runsDir, "phase-a");
     assert.equal(progress.nextAction.command, `resume ${runDir} --answer build=<answer-file>`);
     assert.equal(progress.nextAction.runnable, false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a phase whose nodes are one done and one blocked reports done below total and is not reported finished", () => {
+  const { directory, runsDir } = makeCampaign("rollup-campaign-five", [
+    {
+      id: "phase-a",
+      phaseId: "phase-a",
+      hasRun: true,
+      nodes: [
+        { id: "a1", snapshot: { status: "done", startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", result: doneResult("a1 done") } },
+        { id: "a2", snapshot: { status: "blocked", startedAt: "2026-01-01T00:01:00.000Z", updatedAt: "2026-01-01T00:02:00.000Z" } },
+      ],
+    },
+  ]);
+  try {
+    const progress = JSON.parse(renderCampaignProgress(runsDir, "rollup-campaign-five"));
+    // Both nodes have stopped moving on their own (SETTLED), but only one of
+    // them actually finished (SUCCESS): `settled` reaching `total` is not the
+    // same fact as `done` reaching it, and a page that only reads `settled`
+    // would draw this phase as finished.
+    assert.equal(progress.phases[0].counts.done, 1);
+    assert.equal(progress.phases[0].counts.settled, 2);
+    assert.equal(progress.phases[0].counts.total, 2);
+    assert.ok(progress.phases[0].counts.done < progress.phases[0].counts.total, "the phase is not reported finished");
+    assert.equal(progress.counts.done, 1);
+    assert.equal(progress.percentDone, 50, "the percentage counts done, not settled");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a campaign whose journal decisions mention many requirement ids reports no declared ids for a phase, because the scrape is gone", () => {
+  const { directory, runsDir, campaignPath } = makeCampaign("rollup-campaign-six", [
+    { id: "phase-a", phaseId: "phase-a-first-write", hasRun: true, nodes: [{ id: "a1", snapshot: { status: "done", startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", result: doneResult("a1 done") } }] },
+  ]);
+  appendJournal(campaignPath, {
+    type: "decision",
+    at: "2026-01-01T00:00:30.000Z",
+    eventId: randomUUID(),
+    sessionId: "session-1",
+    decisionId: "phase-decomposition",
+    text: "phase-a-first-write (phase-a) covers R1, R2, R3, R4, R5, R6, R7, R8 and R9 in one sentence, the way a phase decomposition decision reads before a frozen plan carries requirement ids on the phase itself",
+  });
+  try {
+    const progress = JSON.parse(renderCampaignProgress(runsDir, "rollup-campaign-six"));
+    assert.deepEqual(progress.phases[0].declaredRequirementIds, []);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

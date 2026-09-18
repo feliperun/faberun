@@ -97,6 +97,27 @@ test("prints one line per active campaign, ranked specific before generic", () =
   assert.equal(renderNext(runsDir, dir), expected);
 });
 
+test("next prints the newest already-rendered message for an active campaign, read from the run's own notify.jsonl, never re-rendered", () => {
+  const dir = makeDir("runner-next-message-");
+  const runsDir = runsDirOf(dir);
+  registerRun(addCampaign(runsDir, "with-message"), "run-message");
+  writeNode(runsDir, "run-message", "build", { id: "build", status: "running" });
+  const runDir = join(runsDir, "run-message");
+  const older = { at: "2026-09-17T00:00:00.000Z", type: "node.terminal", summary: "stale line" };
+  const newer = { at: "2026-09-18T00:00:00.000Z", type: "node.terminal", summary: "line one\nline two" };
+  writeFileSync(join(runDir, "notify.jsonl"), `${JSON.stringify(older)}\n${JSON.stringify(newer)}\n`);
+
+  const item = computeNextItems(runsDir, dir)[0];
+  assert.equal(item.message, "line one\nline two", "the newest receipt by `at` wins, verbatim");
+
+  const text = renderNext(runsDir, dir);
+  assert.ok(text.includes("  line one\n  line two"), text);
+
+  // --json keeps carrying structure, not prose: the message never joins the payload.
+  const payload = JSON.parse(renderNextJson(runsDir, dir));
+  assert.deepEqual(Object.keys(payload.items[0]).sort(), ["campaign", "command", "rank", "reason", "runnable"]);
+});
+
 test("an empty .runs/ prints exactly one line saying nothing needs anyone", () => {
   const dir = makeDir("runner-next-empty-");
   mkdirSync(runsDirOf(dir), { recursive: true });

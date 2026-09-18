@@ -139,11 +139,28 @@ export function layoutNodes(nodes) {
   });
 }
 
-const NODE_COL_WIDTH = 200;
+const NODE_COL_WIDTH = 260;
 const NODE_ROW_HEIGHT = 76;
-const NODE_BOX_W = 176;
+const NODE_BOX_W = 220;
 const NODE_BOX_H = 56;
 const NODE_MARGIN = 16;
+/** A node id is long by this repository's own naming rule; this is the character budget that keeps a mono id's ellipsis inside the box at `NODE_BOX_W`, not a measurement of the rendered glyphs. */
+const NODE_ID_MAX_CHARS = 24;
+
+/**
+ * A box's text, clipped to its own rectangle: a `<clipPath>` keyed to the same
+ * `x, y, width, height` as the box's own `<rect>`, and a `clip-path` on the
+ * group that owns both. Truncation with an ellipsis (`truncateOneLine`) keeps
+ * the common case legible; the clip is what keeps an underestimate from
+ * spilling into the next box's gap instead of merely looking wrong.
+ *
+ * @param {string} clipId
+ * @param {number} x @param {number} y @param {number} width @param {number} height
+ * @returns {string}
+ */
+function clipPathHtml(clipId, x, y, width, height) {
+  return `<clipPath id="${clipId}"><rect x="${x}" y="${y}" width="${width}" height="${height}" /></clipPath>`;
+}
 
 /** @param {{nodes?: {id: string, dependsOn?: string[], status: string}[]}|null|undefined} phase @returns {string} */
 export function renderPhaseGraphSvg(phase) {
@@ -169,12 +186,16 @@ export function renderPhaseGraphSvg(phase) {
       const midX = (x1 + x2) / 2;
       return `<path class="edge" d="M ${x1} ${y1} C ${midX} ${y1}, ${midX} ${y2}, ${x2} ${y2}" />`;
     })).join("");
-  const boxes = laidOut.map((node) => {
+  const boxes = laidOut.map((node, index) => {
     const { x, y } = posOf(node);
+    const clipId = `nodeclip${index}`;
     return `<g class="node ${esc(statusRole(node.status))}" data-node="${esc(node.id)}" tabindex="0" role="button" aria-label="node ${esc(node.id)}, ${esc(statusLabel(node.status))}">
       <rect x="${x}" y="${y}" width="${NODE_BOX_W}" height="${NODE_BOX_H}" rx="8" />
-      <text x="${x + 10}" y="${y + 22}" class="node-id mono">${esc(node.id)}</text>
-      <text x="${x + 10}" y="${y + 40}" class="node-status">${esc(statusLabel(node.status))}</text>
+      <defs>${clipPathHtml(clipId, x, y, NODE_BOX_W, NODE_BOX_H)}</defs>
+      <g clip-path="url(#${clipId})">
+        <text x="${x + 10}" y="${y + 22}" class="node-id mono">${esc(truncateOneLine(node.id, NODE_ID_MAX_CHARS))}</text>
+        <text x="${x + 10}" y="${y + 40}" class="node-status">${esc(statusLabel(node.status))}</text>
+      </g>
     </g>`;
   }).join("");
   return `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="node graph">${edges}${boxes}</svg>`;
@@ -184,45 +205,57 @@ export function renderPhaseGraphSvg(phase) {
  * The campaign chain: two fixed conceptual stages (intent, plan), one stage
  * per manifest phase in order, then integration and release. `current` marks
  * the first phase that is not fully settled — the last one once every phase
- * is.
+ * is. A phase's `idMark` is its own local phase id (the useful, short mark),
+ * never the campaign-prefixed contract id that already prefixes the campaign
+ * heading above the chain; a synthetic stage (intent, plan, integration,
+ * release) carries no id at all, since its label and its id are the same
+ * word.
  *
- * @param {{phases: {contractId: string, runId: string|null, name: string|null, goal: string|null, counts: {settled: number, total: number}}[]}|null} progress
+ * @param {{phases: {contractId: string, phase: string|null, runId: string|null, name: string|null, goal: string|null, counts: {done: number, settled: number, total: number}}[]}|null} progress
  * @param {string|null} campaignStatus
- * @returns {{id: string, label: string, goal?: string|null, state: string, current: boolean}[]}
+ * @returns {{id: string, idMark: string|null, label: string, goal?: string|null, state: string, current: boolean}[]}
  */
 export function chainStages(progress, campaignStatus) {
   const phases = progress?.phases ?? [];
-  const notDone = (/** @type {any} */ phase) => !phase.runId || phase.counts.total === 0 || phase.counts.settled < phase.counts.total;
+  // Whether the phase still needs attention: not started, no nodes yet, or
+  // holding a node that has not reached `done`/`no-op` — a blocked, failed or
+  // exhausted node settles (SETTLED) without finishing (SUCCESS), and this
+  // reads it as unfinished, not as done.
+  const notDone = (/** @type {any} */ phase) => !phase.runId || phase.counts.total === 0 || phase.counts.done < phase.counts.total;
   const firstUnsettled = phases.findIndex(notDone);
   const currentIndex = firstUnsettled === -1 ? phases.length - 1 : firstUnsettled;
   const allDone = phases.length > 0 && phases.every((phase) => !notDone(phase));
-  /** @type {{id: string, label: string, goal?: string|null, state: string, current: boolean}[]} */
+  /** @type {{id: string, idMark: string|null, label: string, goal?: string|null, state: string, current: boolean}[]} */
   const stages = [
-    { id: "intent", label: "Intent", state: "done", current: false },
-    { id: "plan", label: "Plan", state: "done", current: false },
+    { id: "intent", idMark: null, label: "Intent", state: "done", current: false },
+    { id: "plan", idMark: null, label: "Plan", state: "done", current: false },
   ];
   phases.forEach((phase, index) => {
     const started = phase.runId !== null;
-    const done = started && phase.counts.total > 0 && phase.counts.settled === phase.counts.total;
+    const done = started && phase.counts.total > 0 && phase.counts.done === phase.counts.total;
     stages.push({
       id: phase.contractId,
+      idMark: phase.phase,
       label: phase.name ?? phase.contractId,
       goal: phase.goal,
       state: !started ? "not_started" : done ? "done" : "active",
       current: index === currentIndex,
     });
   });
-  stages.push({ id: "integration", label: "Integration", state: allDone ? (campaignStatus === "closed" ? "done" : "active") : "not_started", current: false });
-  stages.push({ id: "release", label: "Release", state: campaignStatus === "closed" ? "done" : "not_started", current: false });
+  stages.push({ id: "integration", idMark: null, label: "Integration", state: allDone ? (campaignStatus === "closed" ? "done" : "active") : "not_started", current: false });
+  stages.push({ id: "release", idMark: null, label: "Release", state: campaignStatus === "closed" ? "done" : "not_started", current: false });
   return stages;
 }
 
 const STAGE_W = 168;
-const STAGE_H = 64;
+const STAGE_H = 80;
 const STAGE_GAP = 40;
 const STAGE_MARGIN = 16;
+const STAGE_LABEL_MAX_CHARS = 20;
+const STAGE_ID_MAX_CHARS = 20;
+const STAGE_GOAL_MAX_CHARS = 22;
 
-/** @param {{id: string, label: string, goal?: string|null, state: string, current: boolean}[]} stages @returns {string} */
+/** @param {{id: string, idMark: string|null, label: string, goal?: string|null, state: string, current: boolean}[]} stages @returns {string} */
 export function renderChainSvg(stages) {
   const width = STAGE_MARGIN * 2 + stages.length * STAGE_W + Math.max(0, stages.length - 1) * STAGE_GAP;
   const height = STAGE_MARGIN * 2 + STAGE_H;
@@ -235,13 +268,18 @@ export function renderChainSvg(stages) {
   const boxes = stages.map((stage, index) => {
     const x = STAGE_MARGIN + index * (STAGE_W + STAGE_GAP);
     const y = STAGE_MARGIN;
-    const goalLine = stage.goal ? `<text x="${x + 10}" y="${y + 56}" class="stage-goal">${esc(truncateOneLine(stage.goal, 26))}</text>` : "";
+    const clipId = `stageclip${index}`;
+    const idLine = stage.idMark ? `<text x="${x + 10}" y="${y + 34}" class="mono dim stage-id">${esc(truncateOneLine(stage.idMark, STAGE_ID_MAX_CHARS))}</text>` : "";
+    const goalLine = stage.goal ? `<text x="${x + 10}" y="${y + 66}" class="stage-goal">${esc(truncateOneLine(stage.goal, STAGE_GOAL_MAX_CHARS))}</text>` : "";
     return `<g class="stage ${esc(stage.state)}${stage.current ? " current" : ""}" data-phase="${esc(stage.id)}">
       <rect x="${x}" y="${y}" width="${STAGE_W}" height="${STAGE_H}" rx="8" />
-      <text x="${x + 10}" y="${y + 20}" class="stage-label">${esc(stage.label)}</text>
-      <text x="${x + 10}" y="${y + 36}" class="mono dim stage-id">${esc(stage.id)}</text>
-      <text x="${x + 10}" y="${y + 52}" class="stage-state">${esc(statusLabel(stage.state))}</text>
-      ${goalLine}
+      <defs>${clipPathHtml(clipId, x, y, STAGE_W, STAGE_H)}</defs>
+      <g clip-path="url(#${clipId})">
+        <text x="${x + 10}" y="${y + 20}" class="stage-label">${esc(truncateOneLine(stage.label, STAGE_LABEL_MAX_CHARS))}</text>
+        ${idLine}
+        <text x="${x + 10}" y="${y + 50}" class="stage-state">${esc(statusLabel(stage.state))}</text>
+        ${goalLine}
+      </g>
     </g>`;
   }).join("");
   return `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="campaign chain">${edges}${boxes}</svg>`;
@@ -253,9 +291,9 @@ function truncateOneLine(value, maxChars) {
   return flat;
 }
 
-/** @param {{id: string, goal: string, status: string}[]} campaigns @param {string|null} selectedId @returns {string} */
+/** The option label is the campaign id — its goal is a one-line-but-still-long sentence, which is what pushed the rest of the header off screen. @param {{id: string, goal: string, status: string}[]} campaigns @param {string|null} selectedId @returns {string} */
 export function campaignOptionsHtml(campaigns, selectedId) {
-  return (campaigns ?? []).map((campaign) => `<option value="${esc(campaign.id)}" ${campaign.id === selectedId ? "selected" : ""}>${esc(campaign.goal)} · ${esc(campaign.id)} (${esc(campaign.status)})</option>`).join("");
+  return (campaigns ?? []).map((campaign) => `<option value="${esc(campaign.id)}" ${campaign.id === selectedId ? "selected" : ""}>${esc(campaign.id)} (${esc(campaign.status)})</option>`).join("");
 }
 
 /** @param {Record<string, any>|null|undefined} detail @returns {string} */
@@ -349,7 +387,7 @@ export function renderDrilldownHtml(node, detail, contractPath) {
     <section class="detailblock timeline"><h4>Journal timeline</h4><div id="timelineBody"><p class="empty">loading…</p></div></section>`;
 }
 
-/** Whether a campaign journal entry names this node or its phase's contract — the same substring approximation `declaredRequirementIds` uses in `src/report/progress.mjs`. @param {Record<string, unknown>} entry @param {string} nodeId @param {string} contractId @returns {boolean} */
+/** Whether a campaign journal entry names this node or its phase's contract, by substring — the timeline's own filter, not a traceability claim. @param {Record<string, unknown>} entry @param {string} nodeId @param {string} contractId @returns {boolean} */
 export function entryMentionsNode(entry, nodeId, contractId) {
   const text = JSON.stringify(entry);
   return text.includes(nodeId) || text.includes(contractId);

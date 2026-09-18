@@ -3,19 +3,28 @@ import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { NotifyQueue, renderNotification } from "../../src/notify/index.mjs";
+import { NotifyQueue, readInbox, renderNotification } from "../../src/notify/index.mjs";
+import { emitScheduledAttention } from "../../src/engine/notify-queue.mjs";
+import { runContract } from "../../src/engine/scheduler.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
-import { nodeState, withResultFileCodex } from "../runner-helpers.mjs";
+import { nodeState, recordingNotifyTransport, resultFileCodex, withResultFileCodex } from "../runner-helpers.mjs";
 
 const SUMMARY_CHARS = 200;
 
-test("renderNotification: node.terminal done names the run and attempt, no resume", () => {
-  const summary = renderNotification({ type: "node.terminal", runId: "run-a", nodeId: "build", status: "done", attempt: 1 });
+// These calls omit `runDir` (or, for the two that supply one, name a
+// directory with no readable run scaffold), so every one of them exercises
+// `renderNotification`'s degraded, one-line fallback template -- the same
+// text this module rendered before `renderRunProgress` existed. The primary,
+// `renderRunProgress`-delegating path is exercised further down, against a
+// real run.
+
+test("renderNotification: node.terminal done names the run and attempt, no resume", async () => {
+  const summary = await renderNotification({ type: "node.terminal", runId: "run-a", nodeId: "build", status: "done", attempt: 1 });
   assert.equal(summary, "node build done · run run-a · attempt 1");
 });
 
-test("renderNotification: node.terminal failure adds the error code and a resume path", () => {
-  const summary = renderNotification({
+test("renderNotification: node.terminal failure adds the error code and a resume path", async () => {
+  const summary = await renderNotification({
     type: "node.terminal",
     runId: "run-a",
     nodeId: "build",
@@ -27,46 +36,66 @@ test("renderNotification: node.terminal failure adds the error code and a resume
   assert.equal(summary, "node build failed · run run-a · attempt 2 · verification_failed · resume /repo/.runs/run-a");
 });
 
-test("renderNotification: node.terminal done never shows a resume path even when one is present", () => {
-  const summary = renderNotification({ type: "node.terminal", runId: "run-a", nodeId: "build", status: "done", attempt: 1, runDir: "/repo/.runs/run-a" });
+test("renderNotification: node.terminal done never shows a resume path even when one is present", async () => {
+  const summary = await renderNotification({ type: "node.terminal", runId: "run-a", nodeId: "build", status: "done", attempt: 1, runDir: "/repo/.runs/run-a" });
   assert.equal(summary, "node build done · run run-a · attempt 1");
 });
 
-test("renderNotification: run.terminal done names the done/total count and cost when known", () => {
-  const summary = renderNotification({ type: "run.terminal", runId: "run-a", done: 3, total: 3, costUsd: 4.212 });
+test("renderNotification: run.terminal done names the done/total count and cost when known", async () => {
+  const summary = await renderNotification({ type: "run.terminal", runId: "run-a", done: 3, total: 3, costUsd: 4.212 });
   assert.equal(summary, "run run-a done · 3/3 nodes · $4.21");
 });
 
-test("renderNotification: run.terminal with unfinished nodes is attention, and omits cost when unknown", () => {
-  const summary = renderNotification({ type: "run.terminal", runId: "run-a", done: 2, total: 3 });
+test("renderNotification: run.terminal with unfinished nodes is attention, and omits cost when unknown", async () => {
+  const summary = await renderNotification({ type: "run.terminal", runId: "run-a", done: 2, total: 3 });
   assert.equal(summary, "run run-a attention · 2/3 nodes");
 });
 
-test("renderNotification: attention names the node and error code", () => {
-  const summary = renderNotification({ type: "attention", runId: "run-a", nodeId: "build", errorCode: "judge_unavailable" });
+test("renderNotification: attention names the node and error code", async () => {
+  const summary = await renderNotification({ type: "attention", runId: "run-a", nodeId: "build", errorCode: "judge_unavailable" });
   assert.equal(summary, "node build needs you · run run-a · judge_unavailable");
 });
 
-test("renderNotification: a run-level attention with no node still names the run", () => {
-  const summary = renderNotification({ type: "attention", runId: "run-a", errorCode: "judge_unavailable" });
+test("renderNotification: a run-level attention with no node still names the run", async () => {
+  const summary = await renderNotification({ type: "attention", runId: "run-a", errorCode: "judge_unavailable" });
   assert.equal(summary, "run run-a needs you · judge_unavailable");
 });
 
-test("renderNotification: an unknown event type throws rather than guessing a template", () => {
+test("renderNotification: an unknown event type throws synchronously rather than guessing a template", () => {
   assert.throws(() => renderNotification(/** @type {any} */ ({ type: "bogus", runId: "run-a" })), /unknown event type bogus/u);
 });
 
-test("renderNotification: every template stays under the 200-character bound", () => {
+test("renderNotification: the degraded fallback stays under the 200-character bound", async () => {
   const long = "x".repeat(500);
-  const summaries = [
+  const summaries = await Promise.all([
     renderNotification({ type: "node.terminal", runId: long, nodeId: long, status: "failed", attempt: 99, errorCode: long, runDir: long }),
     renderNotification({ type: "run.terminal", runId: long, done: 1, total: 2, costUsd: 123456.789 }),
     renderNotification({ type: "attention", runId: long, nodeId: long, errorCode: long }),
-  ];
+  ]);
   for (const summary of summaries) {
     assert.ok(summary.length <= SUMMARY_CHARS, `${summary.length} > ${SUMMARY_CHARS}`);
     assert.ok(summary.endsWith("…"), "an over-long summary is marked as cut");
   }
+});
+
+test("renderNotification: delegates to renderRunProgress for a real run, and both callers of it get the exact same string", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "notify-delegates-"));
+  const path = writeContract(directory, fixture({
+    id: "delegates-run",
+    pollIntervalMs: 10,
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
+  }));
+  const result = await withResultFileCodex(directory, "file-first", path);
+  assert.equal(nodeState(result).status, "done");
+
+  const { renderRunProgress } = await import("../../src/report/progress.mjs");
+  const event = { type: /** @type {const} */ ("run.terminal"), runId: "delegates-run", runDir: result.runDir, done: 1, total: 1 };
+  const [fromNotify, fromProgress] = await Promise.all([
+    renderNotification(event),
+    renderRunProgress(result.runDir, event),
+  ]);
+  assert.equal(fromNotify, fromProgress, "renderNotification must render exactly what renderRunProgress renders, not a template of its own");
+  assert.match(fromNotify, /campaign test-campaign/u, "the primary path renders the rich, multi-line progress message, not the degraded template");
 });
 
 test("NotifyQueue.enqueue reads the run's own status.json for the resume path and cost", async () => {
@@ -193,6 +222,43 @@ test("spawnDeliver (through NotifyQueue's default transport) resolves on the bin
   }
   const receipts = readFileSync(join(runDir, "notify.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
   assert.equal(receipts[0].status, "delivered", "the bin's own exit code 0 is what determines delivery, independent of the grandchild");
+});
+
+test("emitScheduledAttention renders the message once: the inbox summary and the recording transport's stdin are byte-identical", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "notify-attention-parity-"));
+  const path = writeContract(directory, fixture({
+    id: "attention-parity-run",
+    pollIntervalMs: 10,
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
+  }));
+  const previousCodex = process.env.FABERUN_CODEX_BIN;
+  const previousNotify = process.env.FABERUN_NOTIFY_BIN;
+  process.env.FABERUN_CODEX_BIN = resultFileCodex(directory, "file-first");
+  const { executable, log } = recordingNotifyTransport(directory);
+  process.env.FABERUN_NOTIFY_BIN = executable;
+  try {
+    const result = await runContract(path);
+    assert.equal(nodeState(result).status, "done");
+
+    const runsDir = join(directory, ".runs");
+    // 15 minutes ago crosses the schedule's first (10-minute) slot.
+    const anchor = new Date(Date.now() - 15 * 60_000).toISOString();
+    const slot = await emitScheduledAttention(result.runDir, { anchor, code: "judge_unavailable", campaignId: null });
+    assert.equal(slot, 0);
+
+    const inboxEntry = readInbox(runsDir).find((entry) => entry.type === "attention");
+    assert.ok(inboxEntry, "the scheduled attention line reached the campaign inbox");
+
+    const events = readFileSync(log, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    const delivered = events.find((event) => event.type === "attention");
+    assert.ok(delivered, "the recording transport received the attention event");
+    assert.equal(delivered.summary, inboxEntry.summary, "the inbox and the transport must carry the exact same rendered text");
+  } finally {
+    if (previousCodex === undefined) delete process.env.FABERUN_CODEX_BIN;
+    else process.env.FABERUN_CODEX_BIN = previousCodex;
+    if (previousNotify === undefined) delete process.env.FABERUN_NOTIFY_BIN;
+    else process.env.FABERUN_NOTIFY_BIN = previousNotify;
+  }
 });
 
 test("a run driven through withResultFileCodex never reaches a FABERUN_NOTIFY_BIN left bound in the environment", async () => {

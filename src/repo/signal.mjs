@@ -158,9 +158,19 @@ function nodeText(node) {
   return `\`${node.id}:${node.status ?? "unknown"}${node.errorCode ? ` ${node.errorCode}` : ""}\``;
 }
 
-/** @param {string} value @returns {string} */
+/**
+ * The managed block is a list of single lines, so a multi-line summary (the
+ * inbox now carries `renderRunProgress`'s full, multi-line message for a
+ * `node.terminal`/`run.terminal`/`attention` event) is collapsed to its first
+ * line before the character bound applies. The block stays a pointer; the
+ * whole message lives in the inbox, one read away.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
 function boundedAttention(value) {
-  return value.length <= ATTENTION_CHARS ? value : `${value.slice(0, ATTENTION_CHARS - 1)}…`;
+  const line = value.split("\n")[0];
+  return line.length <= ATTENTION_CHARS ? line : `${line.slice(0, ATTENTION_CHARS - 1)}…`;
 }
 
 /**

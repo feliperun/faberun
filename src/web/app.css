@@ -64,7 +64,13 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 .reqstatement { font-size: 12.5px; margin: 2px 0; }
 .reqphase { font-size: 12px; color: var(--text-2); }
 
-.graphcard { overflow-x: auto; }
+/* `display: block` on the svg is load-bearing: a replaced inline element
+   (the svg default) inside an `overflow-x: auto` block can be sized as
+   though it never overflows, so the container never grows a scrollbar and
+   the trailing box (measured: the chain band's Release box) is cut off at
+   the viewport edge instead of reachable by scroll. */
+.graphcard { overflow-x: auto; width: 100%; }
+.graphcard svg { display: block; }
 .phasehead { margin: 0 0 10px; font-size: 13px; }
 .phasehead .phasename { font-weight: 650; }
 .phasehead p { margin: 2px 0 0; }

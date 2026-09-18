@@ -341,12 +341,21 @@ test("runner notifies node.terminal and run.terminal only, never a running node"
   const receipts = notifications(result.runDir);
   assert.deepEqual(receipts.map((event) => event.type), ["node.terminal", "run.terminal"]);
   assert.deepEqual(receipts.map((event) => event.status), ["delivered", "delivered"]);
-  // The template renders counters and identifiers only, never a model note.
-  assert.equal(receipts[0].summary, "node build done · run progress-emission-run · attempt 1");
+  // The summary is `renderRunProgress`'s own rendering of the run's persisted
+  // state -- the same string the inbox and the transport both receive -- so
+  // it now carries the worker's own words too, not counters and identifiers
+  // alone. What stays true for both receipts: the campaign and node it names,
+  // that the node settled `done`, and (unlike the span, which is wall-clock
+  // and not worth pinning) the worker's own summary line.
+  for (const receipt of receipts) {
+    const summary = /** @type {string} */ (receipt.summary);
+    assert.match(summary, /campaign test-campaign · phase fixture-phase-0 · node build/u);
+    assert.match(summary, /1\/1 nodes done · 100% done · 0% left/u);
+    assert.match(summary, /worker says: worker complete/u);
+  }
   assert.equal(receipts[0].nodeId, "build");
   assert.equal(receipts[0].nodeStatus, "done");
   assert.equal(receipts[0].errorCode, null);
-  assert.equal(receipts[1].summary, "run progress-emission-run done · 1/1 nodes");
   assert.deepEqual([receipts[1].done, receipts[1].total], [1, 1]);
 });
 

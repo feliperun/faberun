@@ -22,6 +22,8 @@ const OUTPUT_TAIL_MAX_BYTES = 4 * 1024;
 const PROMPT_MAX_CHARS = 8 * 1024;
 const DIFF_PATH_CAP = 400;
 const GOAL_MAX_CHARS = 200;
+/** The pre-split terminal union (`src/cli/campaign.mjs`'s and `src/web/api.mjs`'s own copies pin the same eight values): whether a node will not move again on its own. Used here only for `buildNodeDetail`'s `closed` flag, which the roll-up's `done`/`settled` split does not carry per selected node. */
+const TERMINAL_STATUSES = new Set(["done", "no-op", "failed", "blocked", "exhausted", "stalled", "canceled", "cancelled"]);
 
 /** The three static files behind the same bearer check as every other route. */
 const ASSETS = {
@@ -195,6 +197,7 @@ function buildNodeDetail(runsDir, runId, nodeId) {
   return {
     id: nodeId,
     runId,
+    closed: TERMINAL_STATUSES.has(String(statusNode?.status)),
     errorCode: statusNode?.errorCode ?? null,
     errorMessage: statusNode?.note ?? null,
     revisions: typeof statusNode?.revisions === "number" ? statusNode.revisions : null,
