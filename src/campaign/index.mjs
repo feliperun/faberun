@@ -238,6 +238,84 @@ export function assertContractManifestIntact(entry) {
 }
 
 /**
+ * Append a contract to an active campaign's manifest, digesting its authored
+ * bytes exactly as `campaign init --contract` does. This is what an operator
+ * used to do by hand-editing `campaign.json` and recomputing
+ * `authoredContractDigest` themselves -- a step that parks the campaign for
+ * good on a typo, since `assertContractManifestIntact` refuses a digest that
+ * does not match at launch.
+ *
+ * Idempotent by path and bytes: adding the same contract path a second time,
+ * with the file unchanged since, finds its digest already recorded and
+ * returns the campaign untouched. A second call after the file changed
+ * updates the recorded digest in place rather than duplicating the entry.
+ *
+ * @param {string} campaignPath
+ * @param {string} contractPath
+ * @param {{at?: string}} [options]
+ * @returns {{campaign: Campaign, added: boolean}}
+ */
+export function addContractToCampaign(campaignPath, contractPath, { at = new Date().toISOString() } = {}) {
+  requireTimestamp(at, "at");
+  requireString(contractPath, "contractPath");
+  if (!existsSync(contractPath)) throw new Error(`contract not found: ${contractPath}`);
+  const campaign = readCampaign(campaignPath);
+  if (campaign.status === "closed") throw new Error(`campaign is closed: ${campaign.id}`);
+  const digest = authoredContractDigest(contractPath);
+  const existingIndex = campaign.contracts.findIndex((entry) => entry.path === contractPath);
+  if (existingIndex !== -1 && campaign.contracts[existingIndex].digest === digest) {
+    return { campaign, added: false };
+  }
+  const entry = { path: contractPath, digest };
+  const contracts = existingIndex === -1
+    ? [...campaign.contracts, entry]
+    : campaign.contracts.map((existing, index) => (index === existingIndex ? entry : existing));
+  const updated = /** @type {Campaign} */ ({ ...campaign, contracts, updatedAt: at });
+  writeJsonAtomic(join(campaignPath, CAMPAIGN_FILE), updated);
+  return { campaign: updated, added: true };
+}
+
+/**
+ * Replace a manifest entry -- matched by its current, recorded path -- with a
+ * freshly authored contract. Re-authoring a phase after a blocked or failed
+ * node is the normal case in this repository, not the exception, so this is
+ * the command form of the hand edit an operator otherwise repeats every time.
+ *
+ * When the campaign's `attention` names the contract being replaced (its
+ * `contractPath` matches `oldPath`), the attention is cleared in the same
+ * write, so a stale park cannot go on refusing `campaign supervise` once the
+ * contract it named is gone. This does not go through `unparkCampaign`
+ * (`./unpark.mjs`, which owns the `campaign.unparked` journal event): that
+ * module already imports `chain.mjs`, which imports this one, and importing
+ * it back here would close that cycle.
+ *
+ * @param {string} campaignPath
+ * @param {string} oldPath
+ * @param {string} newPath
+ * @param {{at?: string}} [options]
+ * @returns {{campaign: Campaign, replaced: CampaignContract, clearedAttention: CampaignAttention|null}}
+ */
+export function replaceContractInCampaign(campaignPath, oldPath, newPath, { at = new Date().toISOString() } = {}) {
+  requireTimestamp(at, "at");
+  requireString(oldPath, "oldPath");
+  requireString(newPath, "newPath");
+  if (!existsSync(newPath)) throw new Error(`contract not found: ${newPath}`);
+  const campaign = readCampaign(campaignPath);
+  if (campaign.status === "closed") throw new Error(`campaign is closed: ${campaign.id}`);
+  const index = campaign.contracts.findIndex((entry) => entry.path === oldPath);
+  if (index === -1) throw new Error(`no contract at ${oldPath} in campaign ${campaign.id}`);
+  const replaced = { path: newPath, digest: authoredContractDigest(newPath) };
+  const contracts = campaign.contracts.map((entry, position) => (position === index ? replaced : entry));
+  const attention = campaign.attention;
+  const clearAttention = attention !== undefined && attention.contractPath === oldPath;
+  /** @type {Campaign} */
+  const updated = { ...campaign, contracts, updatedAt: at };
+  if (clearAttention) delete updated.attention;
+  writeJsonAtomic(join(campaignPath, CAMPAIGN_FILE), updated);
+  return { campaign: updated, replaced, clearedAttention: clearAttention ? /** @type {CampaignAttention} */ (attention) : null };
+}
+
+/**
  * Persist one promotion in the campaign record. Idempotent by run id and the
  * sha it landed: a re-invocation after a crash between the branch move and
  * this write repairs the record without adding a second promotion.

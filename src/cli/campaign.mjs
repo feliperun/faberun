@@ -10,6 +10,7 @@ import {
   renderHandoff,
   resolveCampaign,
 } from "../campaign/index.mjs";
+import { addContract, replaceContract } from "./campaign-contract.mjs";
 import { lockStale, pidAlive, processStartToken, readLock } from "../run/lock.mjs";
 import { runsRoot } from "../run/paths.mjs";
 import { syncAgentSignal } from "../repo/signal.mjs";
@@ -86,12 +87,14 @@ const OPERATION_OPTIONS = {
   close: { cwd: { type: "string" }, "event-id": { type: "string" } },
   supervise: { cwd: { type: "string" }, "allow-main": { type: "boolean" } },
   unpark: { cwd: { type: "string" }, force: { type: "boolean" }, "event-id": { type: "string" } },
+  "add-contract": { cwd: { type: "string" }, path: { type: "string" } },
+  "replace-contract": { cwd: { type: "string" }, path: { type: "string" }, replace: { type: "string" } },
   show: { cwd: { type: "string" } },
   sync: { cwd: { type: "string" }, "session-id": { type: "string" } },
   ack: { cwd: { type: "string" }, "session-id": { type: "string" }, "event-id": { type: "string" } },
 };
 
-/** @typedef {{cwd?: string, goal?: string, contract?: string[], landBranch?: string, tool?: string, sessionId?: string, transcript?: string, format?: string, cursor?: string, since?: string, kind?: string, text?: string, runId?: string, supersedes?: string, decisionId?: string, questionId?: string, eventId?: string, noTranscript?: boolean, wake?: boolean, detach?: boolean, interval?: string, once?: boolean, allowMain?: boolean, force?: boolean}} CliValues */
+/** @typedef {{cwd?: string, goal?: string, contract?: string[], landBranch?: string, tool?: string, sessionId?: string, transcript?: string, format?: string, cursor?: string, since?: string, kind?: string, text?: string, runId?: string, supersedes?: string, decisionId?: string, questionId?: string, eventId?: string, noTranscript?: boolean, wake?: boolean, detach?: boolean, interval?: string, once?: boolean, allowMain?: boolean, force?: boolean, path?: string, replace?: string}} CliValues */
 /** @typedef {import("../campaign/index.mjs").Campaign} Campaign */
 
 /**
@@ -119,6 +122,8 @@ export async function campaignCli(args) {
   if (operation === "show") return show(campaignId, values);
   if (operation === "sync") return sync(campaignId, values);
   if (operation === "ack") return ack(campaignId, values);
+  if (operation === "add-contract") return addContract(campaignId, values);
+  if (operation === "replace-contract") return replaceContract(campaignId, values);
   return usage();
 }
 
@@ -739,7 +744,7 @@ function positiveIntervalMs(value) {
 
 function usage() {
   process.stderr.write(
-    "usage: faberun campaign <init|watch|attach|note|resolve|close|supervise|unpark|show|list|sync|ack> <campaign-id> [--cwd <dir>] ...\n",
+    "usage: faberun campaign <init|watch|attach|note|resolve|close|supervise|unpark|show|list|sync|ack|add-contract|replace-contract> <campaign-id> [--cwd <dir>] ...\n",
   );
   process.exitCode = 2;
 }

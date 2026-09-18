@@ -5,6 +5,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, unlin
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  addContractToCampaign,
   assertContractManifestIntact,
   authoredContractDigest,
   closeCampaign,
@@ -15,6 +16,7 @@ import {
   recordPromotion,
   registerRun,
   renderHandoff,
+  replaceContractInCampaign,
   resolveCampaign,
 } from "../../src/campaign/index.mjs";
 import { readCampaign } from "../../src/campaign/record.mjs";
@@ -622,4 +624,135 @@ test("a parked campaign records attention and refuses a malformed one", () => {
   record.attention = { code: "run_parked", at };
   writeFileSync(join(path, CAMPAIGN_FILE), JSON.stringify(record));
   assert.throws(() => readCampaign(path), /campaign\.attention\.message/u);
+});
+
+// ---------------------------------------------------------------------------
+// A contract can join an active campaign, or replace one, without a hand
+// edit of campaign.json (state-location-and-routing-economics phase 1f).
+// ---------------------------------------------------------------------------
+
+test("adding a contract to an active campaign leaves the manifest intact", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-campaign-add-contract-"));
+  const runsDir = runsRoot(directory);
+  const { path } = initializeCampaign(runsDir, { campaignId: "add", goal: "Add a contract" });
+  const contractPath = join(directory, "phase-1.json");
+  writeFileSync(contractPath, "{}\n");
+
+  const { campaign, added } = addContractToCampaign(path, contractPath);
+  assert.equal(added, true);
+  assert.equal(campaign.contracts.length, 1);
+  assert.equal(campaign.contracts[0].path, contractPath);
+  assert.doesNotThrow(() => assertContractManifestIntact(campaign.contracts[0]), "the manifest entry the product's own integrity check accepts");
+
+  const reread = readCampaign(path);
+  assert.deepEqual(reread.contracts, campaign.contracts);
+});
+
+test("adding the same contract twice is not an error", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-campaign-add-contract-twice-"));
+  const runsDir = runsRoot(directory);
+  const { path } = initializeCampaign(runsDir, { campaignId: "add-twice", goal: "Add a contract twice" });
+  const contractPath = join(directory, "phase-1.json");
+  writeFileSync(contractPath, "{}\n");
+
+  const first = addContractToCampaign(path, contractPath);
+  assert.equal(first.added, true);
+  const second = addContractToCampaign(path, contractPath);
+  assert.equal(second.added, false, "the same path with unchanged bytes writes nothing");
+  assert.equal(readCampaign(path).contracts.length, 1, "the manifest is not duplicated");
+});
+
+test("adding a contract path that does not exist fails with a message naming the path", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-campaign-add-contract-missing-"));
+  const runsDir = runsRoot(directory);
+  const { path } = initializeCampaign(runsDir, { campaignId: "add-missing", goal: "Add a missing contract" });
+  const missing = join(directory, "does-not-exist.json");
+
+  assert.throws(
+    () => addContractToCampaign(path, missing),
+    (/** @type {Error} */ error) => !(error instanceof TypeError) && error.message === `contract not found: ${missing}`,
+  );
+});
+
+test("replacing a contract swaps the entry and drops the attention that named it", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-campaign-replace-contract-"));
+  const runsDir = runsRoot(directory);
+  const oldPath = join(directory, "phase-2.json");
+  writeFileSync(oldPath, "{}\n");
+  const { path } = initializeCampaign(runsDir, {
+    campaignId: "replace",
+    goal: "Replace a contract",
+    contracts: [{ path: oldPath, digest: authoredContractDigest(oldPath) }],
+  });
+  const at = new Date().toISOString();
+  parkCampaign(path, {
+    code: "run_parked",
+    message: "contract phase-2 run parked: node build failed [boom]",
+    at,
+    contractPath: oldPath,
+    contractId: "phase-2",
+    runId: "phase-2",
+    node: "build",
+    status: "failed",
+  });
+  assert.ok(readCampaign(path).attention, "the campaign is parked before the replace");
+
+  const newPath = join(directory, "phase-2-fixed.json");
+  writeFileSync(newPath, "{ \"fixed\": true }\n");
+  const { campaign, replaced, clearedAttention } = replaceContractInCampaign(path, oldPath, newPath);
+  assert.equal(replaced.path, newPath);
+  assert.equal(replaced.digest, authoredContractDigest(newPath));
+  assert.equal(campaign.contracts.length, 1);
+  assert.equal(campaign.contracts[0].path, newPath);
+  assert.ok(clearedAttention, "the attention naming the replaced contract is reported as cleared");
+  assert.equal(clearedAttention?.code, "run_parked");
+
+  const reread = readCampaign(path);
+  assert.equal(reread.attention, undefined, "the campaign is no longer parked");
+});
+
+test("replacing a contract that does not match the parked attention leaves it in place", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-campaign-replace-contract-unrelated-attention-"));
+  const runsDir = runsRoot(directory);
+  const oldPath = join(directory, "phase-1.json");
+  writeFileSync(oldPath, "{}\n");
+  const { path } = initializeCampaign(runsDir, {
+    campaignId: "replace-unrelated",
+    goal: "Replace a contract that is not the parked one",
+    contracts: [{ path: oldPath, digest: authoredContractDigest(oldPath) }],
+  });
+  const at = new Date().toISOString();
+  parkCampaign(path, {
+    code: "run_parked",
+    message: "contract other run parked: node build failed [boom]",
+    at,
+    contractPath: join(directory, "other.json"),
+    contractId: "other",
+    node: "build",
+    status: "failed",
+  });
+
+  const newPath = join(directory, "phase-1-fixed.json");
+  writeFileSync(newPath, "{ \"fixed\": true }\n");
+  const { clearedAttention } = replaceContractInCampaign(path, oldPath, newPath);
+  assert.equal(clearedAttention, null);
+  assert.ok(readCampaign(path).attention, "an attention naming a different contract is left alone");
+});
+
+test("replacing a contract path that does not exist fails with a message naming the path", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-campaign-replace-contract-missing-"));
+  const runsDir = runsRoot(directory);
+  const oldPath = join(directory, "phase-1.json");
+  writeFileSync(oldPath, "{}\n");
+  const { path } = initializeCampaign(runsDir, {
+    campaignId: "replace-missing",
+    goal: "Replace with a missing contract",
+    contracts: [{ path: oldPath, digest: authoredContractDigest(oldPath) }],
+  });
+  const missing = join(directory, "does-not-exist.json");
+
+  assert.throws(
+    () => replaceContractInCampaign(path, oldPath, missing),
+    (/** @type {Error} */ error) => !(error instanceof TypeError) && error.message === `contract not found: ${missing}`,
+  );
 });

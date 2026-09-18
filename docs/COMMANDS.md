@@ -831,6 +831,46 @@ node src/cli.mjs campaign ack feature-42 --cwd /repo --session-id 1f3c --event-i
 ```
 Related: `faberun campaign sync`, `faberun campaign watch`.
 
+### faberun campaign add-contract
+```text
+faberun campaign add-contract <campaign-id> [--cwd <value>] [--path <value>]
+```
+Append a contract to an active campaign's manifest, digesting its authored
+bytes exactly as `campaign init --contract` does. Adding the same path with
+the file unchanged since is not an error: it finds the recorded digest
+already matches and writes nothing.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--path` | contract path | The contract file to add and digest. Required. | — |
+Writes `.runs/campaigns/<id>/campaign.json` and `HANDOFF.md`.
+```bash
+node src/cli.mjs campaign add-contract feature-42 --cwd /repo \
+  --path /repo/.runs/contracts/phase-2.json
+```
+Related: `faberun campaign init`, `faberun campaign replace-contract`, `faberun campaign supervise`.
+### faberun campaign replace-contract
+```text
+faberun campaign replace-contract <campaign-id> [--cwd <value>] [--path <value>] [--replace <value>]
+```
+Swap a manifest entry, matched by its current recorded path, for a freshly
+authored contract. When the campaign's attention names the contract being
+replaced, the swap also clears it, so `campaign supervise` can drive the
+chain again without a separate `campaign unpark`.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--path` | contract path | The replacement contract to digest and record. Required. | — |
+| `--replace` | contract path | The manifest entry's current path to replace. Required. | — |
+Writes `.runs/campaigns/<id>/campaign.json` and `HANDOFF.md`.
+```bash
+node src/cli.mjs campaign replace-contract feature-42 --cwd /repo \
+  --path /repo/.runs/contracts/phase-2-fixed.json \
+  --replace /repo/.runs/contracts/phase-2.json
+```
+Related: `faberun campaign add-contract`, `faberun campaign unpark`, `faberun campaign supervise`.
 ## faberun seat
 ```text
 faberun seat <operation> [<campaign-id>] [--cwd <dir>] ...
