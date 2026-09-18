@@ -5,7 +5,7 @@
  * sequencing and every decision the pipeline makes.
  */
 import { readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { detachArgv, detachSelf, waitForBootstrap } from "./launch.mjs";
 import { classifyRunProgress } from "../campaign/chain.mjs";
 import { runProgress } from "../engine/supervise.mjs";
@@ -13,6 +13,7 @@ import { DISCOVERY_RUNTIME_DEFINITIONS } from "../engine/runtime-discovery.mjs";
 import { validateRuntime } from "../contract/runtime.mjs";
 import { delay } from "../util.mjs";
 import { runPlanningPipeline } from "../plan/pipeline.mjs";
+import { runDirectory } from "../run/paths.mjs";
 
 /** How often a foreground `plan` polls a launched stage's run directory. */
 const DEFAULT_POLL_MS = 1_000;
@@ -117,7 +118,7 @@ export async function planCli(target, values) {
     launch: async (contractPath, contract) => {
       const child = detachSelf("run", contractPath);
       if (child.pid === undefined) throw new Error("detached planning run has no pid");
-      await waitForBootstrap(join(contract.cwd, ".runs", contract.id), child.pid, child);
+      await waitForBootstrap(runDirectory(contract.cwd, contract.id), child.pid, child);
     },
     wait: async (runDir) => {
       for (;;) {

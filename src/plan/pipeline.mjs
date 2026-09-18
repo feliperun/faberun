@@ -16,7 +16,6 @@ import { validateContract } from "../contract/index.mjs";
 import { discoveryOutput } from "../contract/worker-result.mjs";
 import { readWorkerResultFile } from "../engine/result-file.mjs";
 import { classifyRunProgress } from "../campaign/chain.mjs";
-import { campaignDir } from "../campaign/layout.mjs";
 import { appendSeatAllowanceEvent, readJournal } from "../campaign/journal.mjs";
 import { readCampaign } from "../campaign/record.mjs";
 import { campaignCli } from "../cli/campaign.mjs";
@@ -28,6 +27,7 @@ import { RISK_TIERS, buildPlanningContract, validateFindings, validatePlanOutput
 import { applySizingRules } from "./sizing.mjs";
 import { resolveRuntimes } from "./routing.mjs";
 import { freezePlan } from "./freeze.mjs";
+import { campaignTree, runDirectory } from "../run/paths.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -78,7 +78,7 @@ export async function runPlanningPipeline(options) {
   if (typeof wait !== "function") throw new TypeError("runPlanningPipeline requires a wait seam");
   const cwd = resolve(options.cwd ?? ".");
 
-  const campaignPath = campaignDir(join(cwd, ".runs"), campaignId);
+  const campaignPath = campaignTree(cwd, campaignId);
   const campaign = readCampaign(campaignPath);
   if (campaign.status !== "active") throw new Error(`campaign is closed: ${campaignId}`);
 
@@ -90,7 +90,7 @@ export async function runPlanningPipeline(options) {
     throw new Error(`spec ${specPath} fails strict traceability: ${detail}`);
   }
 
-  const plansDir = join(cwd, ".runs", "campaigns", campaignId, "plans", phase);
+  const plansDir = join(campaignTree(cwd, campaignId), "plans", phase);
   mkdirSync(plansDir, { recursive: true });
   const pipelineLog = join(plansDir, "pipeline.jsonl");
   /** @param {string} stage @param {Record<string, unknown>} [extra] */
@@ -128,7 +128,7 @@ export async function runPlanningPipeline(options) {
     const validated = validateContract(raw, contractPath);
     writeFileSync(contractPath, `${JSON.stringify(raw, null, 2)}\n`);
     await launch(contractPath, validated);
-    const runDir = join(validated.cwd, ".runs", validated.id);
+    const runDir = runDirectory(validated.cwd, validated.id);
     const progress = await wait(runDir);
     const classification = classifyRunProgress(progress);
     if (classification !== "succeeded") {

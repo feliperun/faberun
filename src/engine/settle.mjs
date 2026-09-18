@@ -22,10 +22,10 @@ import { alreadyNotified, notifyQueueFor } from "./notify-queue.mjs";
 
 import {
   attemptWorkspace,
-  attemptWorktreePath,
   removeWorktree,
   sealAttempt,
 } from "../repo/worktree.mjs";
+import { attemptWorktreePath } from "../run/paths.mjs";
 import { basename } from "node:path";
 import { boundedUtf8, errorCode, errorMessage } from "../util.mjs";
 import { campaignIdOf } from "../campaign/record.mjs";

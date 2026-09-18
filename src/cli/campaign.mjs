@@ -11,6 +11,7 @@ import {
   resolveCampaign,
 } from "../campaign/index.mjs";
 import { lockStale, pidAlive, processStartToken, readLock } from "../run/lock.mjs";
+import { runsRoot } from "../run/paths.mjs";
 import { syncAgentSignal } from "../repo/signal.mjs";
 import { acknowledgeJournalEvent, appendJournal, appendSeatAllowanceEvent, readJournal, watchJournal } from "../campaign/journal.mjs";
 import { driveCampaignChain } from "../campaign/chain.mjs";
@@ -330,7 +331,7 @@ function watchLockStale(occupant) {
  */
 async function init(campaignId, values) {
   const cwd = resolve(values.cwd ?? ".");
-  const runsDir = join(cwd, ".runs");
+  const runsDir = runsRoot(cwd);
   const goal = textValue(values.goal, "--goal");
   const contracts = contractManifest(values.contract);
   const created = initializeCampaign(runsDir, { campaignId, goal, contracts, landBranch: values.landBranch });
@@ -476,7 +477,7 @@ function close(campaignId, values) {
  */
 async function supervise(campaignId, values) {
   const cwd = resolve(values.cwd ?? ".");
-  const runsDir = join(cwd, ".runs");
+  const runsDir = runsRoot(cwd);
   const { path } = resolveCampaign(runsDir, campaignId);
   const outcome = await driveCampaignChain(path, {
     repo: cwd,
@@ -634,7 +635,7 @@ function sessionCursorId(sessionId) {
  */
 function listCampaigns(values) {
   const cwd = resolve(values.cwd ?? ".");
-  const runsDir = join(cwd, ".runs");
+  const runsDir = runsRoot(cwd);
   const { campaigns, corrupt } = discoverCampaigns(runsDir);
   if (!campaigns.length && !corrupt.length) {
     process.stdout.write("[campaign] none\n");
@@ -658,7 +659,7 @@ function listCampaigns(values) {
  */
 function selectCampaign(campaignId, values) {
   const cwd = resolve(values.cwd ?? ".");
-  const runsDir = join(cwd, ".runs");
+  const runsDir = runsRoot(cwd);
   return { ...resolveCampaign(runsDir, campaignId), runsDir };
 }
 

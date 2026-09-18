@@ -37,6 +37,7 @@ import { renderMetricsJson, renderMetricsReport } from "../report/metrics-report
 import { campaignDir } from "./layout.mjs";
 import { readCampaign } from "./record.mjs";
 import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
+import { runsRoot } from "../run/paths.mjs";
 
 /** Node statuses that are not terminal: everything else settles a logical node. */
 const OPEN_STATUSES = new Set(["pending", "running"]);
@@ -401,7 +402,6 @@ function orderOf(entry) {
 /** @type {import("node:util").ParseArgsOptionsConfig} */
 export const METRICS_OPTIONS = { cwd: { type: "string" }, json: { type: "boolean" } };
 
-const RUNS_DIR_NAME = ".runs";
 const RUN_EVENTS_FILE = "events.jsonl";
 const USAGE_LOG_FILE = "usage.jsonl";
 const NOTIFY_LOG_FILE = "notify.jsonl";
@@ -488,7 +488,7 @@ function readRunNodes(runDir) {
  * @returns {string}
  */
 export function renderCampaignMetrics(campaignId, values = {}) {
-  const runsDir = join(resolve(typeof values.cwd === "string" && values.cwd !== "" ? values.cwd : process.cwd()), RUNS_DIR_NAME);
+  const runsDir = runsRoot(resolve(typeof values.cwd === "string" && values.cwd !== "" ? values.cwd : process.cwd()));
   const sources = readMetricsSources(campaignDir(runsDir, campaignId), { runsDir });
   const metrics = projectMetrics(sources);
   return values.json === true ? renderMetricsJson(sources, metrics) : renderMetricsReport(sources, metrics);

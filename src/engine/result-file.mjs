@@ -22,6 +22,7 @@ import { parseJudge } from "./prompts.mjs";
 import { discoveryOutput, parseWorkerResult } from "../contract/worker-result.mjs";
 import { readJson, writeJsonAtomic, writeTextAtomic } from "../run/store.mjs";
 import { routeRuntimeForState, runtimeSnapshot } from "./failover.mjs";
+import { RUNS_DIR_NAME } from "../run/paths.mjs";
 
 /**
  * Thrown by `resolveWorkerResult` when an execution result declares `output`.
@@ -47,7 +48,7 @@ export function workerResultPath(runDir, nodeId) {
 }
 /** @param {string} runDir @param {string} nodeId @param {string} workspace @returns {string} */
 export function attemptWorkerResultPath(runDir, nodeId, workspace) {
-  return join(workspace, ".runs", "results", `${nodeId}.json`);
+  return join(workspace, RUNS_DIR_NAME, "results", `${nodeId}.json`);
 }
 /** @param {string} workspace @param {string} nodeId */
 export function clearAttemptWorkerResult(workspace, nodeId) {

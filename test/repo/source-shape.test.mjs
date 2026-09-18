@@ -4,6 +4,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runtimeImportGraph } from "../../src/repo/scope-closure.mjs";
+import { RUNS_DIR_NAME } from "../../src/run/paths.mjs";
 
 /**
  * The rules `AGENTS.md` states about the shape of this source tree, enforced.
@@ -59,6 +60,7 @@ const FILES = walk(REPO_DIR).map((path) => ({
 }));
 const SRC_FILES = FILES.filter((file) => file.path.startsWith(SRC_DIR + sep));
 const TEST_FILES = FILES.filter((file) => file.path.startsWith(join(REPO_DIR, "test") + sep));
+const EVALS_FILES = FILES.filter((file) => file.path.startsWith(join(REPO_DIR, "evals") + sep));
 
 test(`no file in the repository exceeds ${LINE_CEILING} lines`, () => {
   const oversized = FILES
@@ -215,6 +217,80 @@ test("no src/ module is a barrel", () => {
     .filter((file) => !/^export\s+(?:async\s+function|function|const|let|class)\s/mu.test(file.text))
     .map((file) => file.label);
   assert.deepEqual(barrels, [], `barrel module(s): ${barrels.join(", ")}`);
+});
+
+/**
+ * R1's centralization ratchet (state-location-and-routing-economics, phase
+ * 1c): the runs directory name is spelled by exactly one place in `src/` --
+ * its resolver, `src/run/paths.mjs` -- and every other module calls it
+ * instead. "Spelled" here means the exact double-quoted token, the same
+ * measurement the two run-path-resolver migration nodes themselves used to
+ * find and rewrite every call site; a mention inside a longer string, a
+ * regex, a template literal or a comment (a human-facing message, a doc
+ * comment, a gitignore-parsing pattern) is not what those nodes migrated and
+ * is not what this holds at zero.
+ *
+ * Measured 2026-09-18, immediately after both migration nodes landed in this
+ * tree: `src/` is down to that one file, so this is a strict invariant held
+ * at zero, not a ratchet with headroom -- a new inline `.runs` anywhere
+ * else is the exact regression R1 exists to prevent, and lowering a ceiling
+ * is not available as an escape hatch here.
+ *
+ * `test/` and `evals/` are deliberately not migrated in this phase: a test
+ * that builds its own fixture run directory is not the coupling R1 is about,
+ * and rewriting every one of those call sites in one phase would swamp
+ * review. They are ratcheted instead, at what this tree actually measures
+ * (195 in `test/`, 7 in `evals/`) rather than migrated -- the spec's own R1
+ * text reads stricter than this, and the orchestrator recorded that gap as
+ * an open question for the owner rather than resolving it here.
+ */
+const RUNS_LITERAL = new RegExp(`"${RUNS_DIR_NAME.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}"`, "gu");
+const RESOLVER_MODULE = "src/run/paths.mjs";
+
+test("only src/run/paths.mjs spells the runs directory literal in src/", () => {
+  const offenders = SRC_FILES
+    .filter((file) => file.label !== RESOLVER_MODULE)
+    .map((file) => ({ label: file.label, count: [...file.text.matchAll(RUNS_LITERAL)].length }))
+    .filter((file) => file.count > 0)
+    .sort((left, right) => right.count - left.count);
+  assert.deepEqual(
+    offenders,
+    [],
+    `spells the runs directory literal directly instead of calling the resolver:\n${offenders.map((f) => `  ${f.count}  ${f.label}`).join("\n")}\n` +
+      `Call ${RESOLVER_MODULE}'s resolver (runsRoot, runDirectory, campaignsRoot, campaignTree, or its RUNS_DIR_NAME export) instead of spelling it.`,
+  );
+});
+
+/** Measured 2026-09-18: 195 occurrences of the literal across test/*.mjs. Only falls. */
+const TEST_RUNS_LITERAL_CEILING = 195;
+
+test(`test/ spells the runs directory literal at most ${TEST_RUNS_LITERAL_CEILING} time(s)`, () => {
+  const total = TEST_FILES.reduce((sum, file) => sum + [...file.text.matchAll(RUNS_LITERAL)].length, 0);
+  assert.ok(
+    total <= TEST_RUNS_LITERAL_CEILING,
+    `${total} occurrence(s) of the runs directory literal in test/, ceiling ${TEST_RUNS_LITERAL_CEILING}`,
+  );
+  assert.equal(
+    total,
+    TEST_RUNS_LITERAL_CEILING,
+    `the count fell to ${total}; lower TEST_RUNS_LITERAL_CEILING to match so it cannot drift back up.`,
+  );
+});
+
+/** Measured 2026-09-18: 7 occurrences of the literal across evals/*.mjs. Only falls. */
+const EVALS_RUNS_LITERAL_CEILING = 7;
+
+test(`evals/ spells the runs directory literal at most ${EVALS_RUNS_LITERAL_CEILING} time(s)`, () => {
+  const total = EVALS_FILES.reduce((sum, file) => sum + [...file.text.matchAll(RUNS_LITERAL)].length, 0);
+  assert.ok(
+    total <= EVALS_RUNS_LITERAL_CEILING,
+    `${total} occurrence(s) of the runs directory literal in evals/, ceiling ${EVALS_RUNS_LITERAL_CEILING}`,
+  );
+  assert.equal(
+    total,
+    EVALS_RUNS_LITERAL_CEILING,
+    `the count fell to ${total}; lower EVALS_RUNS_LITERAL_CEILING to match so it cannot drift back up.`,
+  );
 });
 
 /**

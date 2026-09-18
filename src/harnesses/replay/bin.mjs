@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { RUNS_DIR_NAME } from "../../run/paths.mjs";
 
 const ENVELOPE_STATUSES = new Set(["done", "no-op", "blocked", "failed", "exhausted", "stalled", "canceled"]);
 const LINE_KEYS = new Set(["envelope", "files", "delayMs", "exitCode", "stdoutRaw"]);
@@ -13,7 +14,7 @@ const ENVELOPE_KEYS = new Set([...ENVELOPE_REQUIRED_KEYS, ...ENVELOPE_OPTIONAL_K
 const USAGE_KEYS = new Set(["inputTokens", "outputTokens", "cacheReadInputTokens"]);
 const FILE_KEYS = new Set(["path", "content"]);
 const ERROR_KEYS = new Set(["code", "message", "resetAt"]);
-const METADATA_ROOTS = new Set([".git", ".runs", "node_modules", ".claude", ".codex"]);
+const METADATA_ROOTS = new Set([".git", RUNS_DIR_NAME, "node_modules", ".claude", ".codex"]);
 const PREFLIGHT_TOKEN = "FABERUN_PREFLIGHT_OK";
 
 const PREFLIGHT_ENVELOPE = Object.freeze({

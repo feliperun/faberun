@@ -41,6 +41,7 @@ import { HEARTBEAT_INTERVAL_MS, createHeartbeat, groupAlive, heartbeatBreach, re
 import { pidAlive, processStartToken } from "../run/lock.mjs";
 import { delay, errorCode, errorMessage } from "../util.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
+import { runDirectory } from "../run/paths.mjs";
 
 /** @typedef {import("../contract/index.mjs").ControllerIdentity} ControllerIdentity */
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -333,7 +334,7 @@ function runIdentityFor(contractPath) {
   const raw = /** @type {Record<string, unknown>} */ (JSON.parse(readFileSync(contractPath, "utf8")));
   const cwd = resolve(dirname(contractPath), typeof raw.cwd === "string" ? raw.cwd : ".");
   const id = String(raw.id);
-  return { id, cwd, runDir: join(cwd, ".runs", id) };
+  return { id, cwd, runDir: runDirectory(cwd, id) };
 }
 
 /**

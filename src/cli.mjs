@@ -19,6 +19,7 @@ import { renderNext, renderNextJson } from "./report/next.mjs";
 import {
   writeTextAtomic,
 } from "./run/store.mjs";
+import { runDirectory, runsRoot } from "./run/paths.mjs";
 import {
   acquire as acquireLock,
   validBootstrapNonce,
@@ -246,7 +247,7 @@ async function main(argv) {
   }
   if (command === "next") {
     const cwd = resolve(typeof values.cwd === "string" ? values.cwd : ".");
-    const runsDir = join(cwd, ".runs");
+    const runsDir = runsRoot(cwd);
     process.stdout.write(values.json === true ? renderNextJson(runsDir, cwd) : renderNext(runsDir, cwd));
     return;
   }
@@ -294,7 +295,7 @@ async function main(argv) {
     const absolute = resolve(target);
     const baseRef = typeof values["base-ref"] === "string" && values["base-ref"] ? values["base-ref"] : undefined;
     const contract = validateContractForLaunch(JSON.parse(readFileSync(absolute, "utf8")), absolute, { baseRef });
-    const runDir = join(contract.cwd, ".runs", contract.id);
+    const runDir = runDirectory(contract.cwd, contract.id);
     setLaunchBaseRef(baseRef);
     // The base is what every worktree is cut from; a dirty tree only blocks
     // when the cwd HEAD *is* that base. A `--base-ref` elsewhere leaves the

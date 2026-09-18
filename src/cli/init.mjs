@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { colorLevel, statusToken } from "./brand.mjs";
 import { installSkills } from "./skills.mjs";
 import { boundedGitSync } from "../repo/worktree.mjs";
+import { RUNS_DIR_NAME } from "../run/paths.mjs";
 
 /** @typedef {(text: string) => void} Writer */
 /** @typedef {(question: string) => Promise<string>} Asker */
@@ -160,11 +161,11 @@ function ensureRunsIgnored(cwd) {
   const existing = existsSync(path) ? readFileSync(path, "utf8") : "";
   const ignored = existing.split(/\r?\n/u).some((line) => {
     const trimmed = line.trim();
-    return trimmed === ".runs/" || trimmed === ".runs";
+    return trimmed === `${RUNS_DIR_NAME}/` || trimmed === RUNS_DIR_NAME;
   });
   if (!ignored) {
     const separator = existing.length > 0 && !existing.endsWith("\n") ? "\n" : "";
-    writeFileSync(path, `${existing}${separator}.runs/\n`);
+    writeFileSync(path, `${existing}${separator}${RUNS_DIR_NAME}/\n`);
   }
   return path;
 }

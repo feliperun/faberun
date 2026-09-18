@@ -34,6 +34,7 @@ import { readCampaign } from "../campaign/record.mjs";
 import { computeNextItems } from "./next.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { runDirectory } from "../run/paths.mjs";
 
 /** @typedef {import("./render.mjs").StatusPayloadNode} StatusPayloadNode */
 /** @typedef {import("../notify/index.mjs").NotifyEvent} NotifyEvent */
@@ -317,7 +318,7 @@ function buildPhase(entry) {
   const raw = /** @type {Record<string, unknown>} */ (JSON.parse(readFileSync(entry.path, "utf8")));
   const contractId = String(raw.id);
   const cwd = resolve(dirname(entry.path), typeof raw.cwd === "string" ? raw.cwd : ".");
-  const runDir = join(cwd, ".runs", contractId);
+  const runDir = runDirectory(cwd, contractId);
   // The same signal the chain itself uses to decide a contract has started
   // (`chain.mjs`'s own launch loop checks this file before it trusts a run
   // directory's contents).

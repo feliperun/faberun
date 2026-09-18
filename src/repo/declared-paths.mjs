@@ -15,10 +15,11 @@ import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { RUNS_DIR_NAME } from "../run/paths.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedNode} ValidatedNode */
 
-const ALWAYS_UNOBSERVABLE_ROOTS = new Set([".runs", ".git"]);
+const ALWAYS_UNOBSERVABLE_ROOTS = new Set([RUNS_DIR_NAME, ".git"]);
 /**
  * @param {ValidatedNode} node
  * @param {number} index

@@ -23,6 +23,7 @@ import { randomUUID } from "node:crypto";
 import { readRunNodes } from "../engine/scheduler.mjs";
 import { spawn } from "node:child_process";
 import { validateContract } from "../contract/index.mjs";
+import { runDirectory } from "../run/paths.mjs";
 
 /**
  * The file a detached child is spawned as. It must be the CLI and not this
@@ -182,7 +183,7 @@ export function bootstrapRunDir(command, target) {
       if (!target) return null;
       const path = resolve(target);
       const contract = validateContract(JSON.parse(readFileSync(path, "utf8")), path);
-      return join(contract.cwd, ".runs", contract.id);
+      return runDirectory(contract.cwd, contract.id);
     }
     if (["resume", "cancel"].includes(command)) {
       if (!target) return null;

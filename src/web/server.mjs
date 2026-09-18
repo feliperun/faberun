@@ -9,6 +9,7 @@ import { campaignsDir } from "../campaign/layout.mjs";
 import { renderCampaignProgress } from "../report/progress.mjs";
 import { errorMessage, readJsonTolerant } from "../util.mjs";
 import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
+import { runsRoot } from "../run/paths.mjs";
 import { assertPrivateBind, loadBearerToken, resolveBindAddress } from "./boundary.mjs";
 import { handleApiRequest } from "./api.mjs";
 
@@ -427,7 +428,7 @@ async function main() {
     if (arguments_[index] === "--cwd") cwd = String(arguments_[index + 1] ?? "");
     if (arguments_[index] === "--token-file") tokenFile = String(arguments_[index + 1] ?? "");
   }
-  const runsDir = join(cwd, ".runs");
+  const runsDir = runsRoot(cwd);
   try {
     const server = await startServer({ runsDir, tokenFile: tokenFile || join(runsDir, "dashboard.token"), port, host });
     const address = /** @type {import("node:net").AddressInfo} */ (server.address());

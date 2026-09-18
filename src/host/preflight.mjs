@@ -27,6 +27,7 @@ import { boundedGitSync } from "../repo/worktree.mjs";
 import { routeRuntime } from "../contract/runtime.mjs";
 import { NOTIFY_BIN_ENV, noTransportWarning } from "../notify/index.mjs";
 import { colorLevel, statusToken } from "../cli/brand.mjs";
+import { RUNS_DIR_NAME } from "../run/paths.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {import("../contract/index.mjs").RuntimeSnapshot} RuntimeSnapshot */
@@ -510,7 +511,7 @@ function isGitWorkTree(repoDir) {
  */
 function isRunsIgnored(repoDir) {
   try {
-    const result = boundedGitSync(["-C", repoDir, "check-ignore", "-q", ".runs"], { stdio: ["ignore", "ignore", "ignore"] });
+    const result = boundedGitSync(["-C", repoDir, "check-ignore", "-q", RUNS_DIR_NAME], { stdio: ["ignore", "ignore", "ignore"] });
     if (result.status === 0) return true;
   } catch {
     // A git that cannot run leaves the check-ignore answer unknown; fall through to reading .gitignore directly.

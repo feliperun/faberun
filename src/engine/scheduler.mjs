@@ -46,6 +46,7 @@ import { startJudge, startWorker } from "./dispatch.mjs";
 import { assertEnvironmentReady, captureRunIdentity, createRunMetadata, serializableContract, statesFingerprint } from "./run-identity.mjs";
 import { blockDependents, runtimeAssignments } from "./assignment.mjs";
 import { createHeartbeat, HEARTBEAT_INTERVAL_MS } from "./supervise.mjs";
+import { runDirectory, runsRoot } from "../run/paths.mjs";
 
 /** @typedef {import("../contract/index.mjs").WorkspaceScopeBoundary} WorkspaceScopeBoundary */
 
@@ -192,9 +193,9 @@ function renderFingerprint(states) {
 export async function runContract(contractPath, options = {}) {
   const absoluteContractPath = resolve(contractPath);
   const contract = validateContractForLaunch(JSON.parse(readFileSync(absoluteContractPath, "utf8")), absoluteContractPath, { baseRef: options.baseRef });
-  const runDir = join(contract.cwd, ".runs", contract.id);
+  const runDir = runDirectory(contract.cwd, contract.id);
   if (existsSync(runDir)) throw new Error(`run already exists: ${runDir}`);
-  mkdirSync(join(contract.cwd, ".runs"), { recursive: true });
+  mkdirSync(runsRoot(contract.cwd), { recursive: true });
   try {
     mkdirSync(runDir);
   } catch (error) {
@@ -208,7 +209,7 @@ export async function runContract(contractPath, options = {}) {
     const sourceIdentity = await captureRunIdentity(contract, scopeBoundaries);
     const integrationRef = createRunRef(contract.cwd, contract.id, sourceIdentity.gitHead);
     lock.assert();
-    const runsDir = join(contract.cwd, ".runs");
+    const runsDir = runsRoot(contract.cwd);
     const campaign = resolveCampaign(runsDir, contract.campaignId);
     mkdirSync(join(runDir, "nodes"), { recursive: true });
     mkdirSync(join(runDir, "logs"), { recursive: true });
@@ -281,7 +282,7 @@ export async function runContract(contractPath, options = {}) {
 export async function driveRun(contract, runDir, states, campaign, lock, sourceIdentity, resume = {}, options = {}) {
   lock.assert();
   assertEnvironmentReady(contract, runDir, sourceIdentity);
-  const runsDir = join(contract.cwd, ".runs");
+  const runsDir = runsRoot(contract.cwd);
   const bootstrapNonce = bootstrapNonceForProcess();
   // Only the CLI entry can answer this: a nonce inherited by evals/run.mjs or
   // by a test must not make the controller wait for an acknowledgement nobody

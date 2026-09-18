@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { RUNS_DIR_NAME, attemptWorktreePath, candidateWorktreePath } from "../run/paths.mjs";
 
 /** @typedef {import("../contract/index.mjs").NodeSnapshot} NodeSnapshot */
 
@@ -103,24 +104,9 @@ export function candidateRefName(runId) {
   return `refs/faberun/${runId}/candidate`;
 }
 
-/** @param {string} runDir @param {string} runId @returns {string} */
-function worktreeRoot(runDir, runId) {
-  return join(dirname(runDir), "worktrees", runId);
-}
-
-/** @param {string} runDir @param {string} runId @param {string} nodeId @param {number} attempt @returns {string} */
-export function attemptWorktreePath(runDir, runId, nodeId, attempt) {
-  return join(worktreeRoot(runDir, runId), `${nodeId}.${attempt}`);
-}
-
 /** @param {string} runId @param {string} nodeId @param {number} attempt @returns {string} */
 function attemptBranchName(runId, nodeId, attempt) {
   return `faberun/${runId}/${nodeId}/${attempt}`;
-}
-
-/** @param {string} runDir @param {string} runId @returns {string} */
-export function candidateWorktreePath(runDir, runId) {
-  return join(worktreeRoot(runDir, runId), ".candidate");
 }
 
 /** @param {unknown} error @returns {string} */
@@ -260,12 +246,12 @@ export function sealAttempt({ repo, path, baseSha, runId, nodeId, attempt }) {
   // entry is that link would look dirty, stage it, unstage it, and commit an
   // empty change set — which exits 1 and turns every retry of an
   // already-sealed attempt into a hard failure.
-  const dirty = git(path, ["status", "--porcelain=v1", "--", ".", ":(exclude).runs", ":(exclude)node_modules"]);
+  const dirty = git(path, ["status", "--porcelain=v1", "--", ".", `:(exclude)${RUNS_DIR_NAME}`, ":(exclude)node_modules"]);
   if (dirty) {
     runGit(["-C", path, "add", "-A", "--", "."]);
     // node_modules is linked into the worktree as a symlink, which `node_modules/`
     // in .gitignore does not match; never let the link into the attempt commit.
-    runGit(["-C", path, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", ".runs", "node_modules"]);
+    runGit(["-C", path, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", RUNS_DIR_NAME, "node_modules"]);
     runGit([
       "-C", path,
       "-c", "user.email=runner@example.test",

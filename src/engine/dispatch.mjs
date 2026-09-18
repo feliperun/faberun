@@ -21,8 +21,8 @@ import {
   readWorkerResultFile,
   workerProtocolPrompt,
 } from "./result-file.mjs";
-import { attemptWorkspace } from "../repo/worktree.mjs";
-import { attemptWorktreePath, createAttemptWorktree, sealAttempt } from "../repo/worktree.mjs";
+import { attemptWorkspace, createAttemptWorktree, sealAttempt } from "../repo/worktree.mjs";
+import { attemptWorktreePath } from "../run/paths.mjs";
 import { basename, dirname, join } from "node:path";
 import { boundedUtf8, errorCode, errorMessage, stableJson } from "../util.mjs";
 import { captureWorkspaceScope, captureWorkspaceSnapshot } from "../repo/workspace.mjs";

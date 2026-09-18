@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { stableJson } from "../util.mjs";
 import { validateRunMetadata } from "../contract/snapshot.mjs";
 import { contractDigest } from "../contract/index.mjs";
+import { RUNS_DIR_NAME, runDirectory } from "../run/paths.mjs";
 
 /** @typedef {import("../harnesses/index.mjs").HarnessRuntime} HarnessRuntime */
 /** @typedef {import("../cli.mjs").LockHandle} LockHandle */
@@ -88,7 +89,7 @@ export function createRunMetadata(lock, sourceIdentity, resume = {}, integration
  */
 function runDirFor(sourceIdentity) {
   if (!sourceIdentity.cwd || !sourceIdentity.contractId) return null;
-  return join(sourceIdentity.cwd, ".runs", sourceIdentity.contractId);
+  return runDirectory(sourceIdentity.cwd, sourceIdentity.contractId);
 }
 
 /**
@@ -319,7 +320,7 @@ function walkControllerFiles(root) {
   /** @type {string[]} */
   const found = [];
   for (const entry of readdirSync(root, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
-    if (entry.name === "node_modules" || entry.name === ".git" || entry.name === ".runs") continue;
+    if (entry.name === "node_modules" || entry.name === ".git" || entry.name === RUNS_DIR_NAME) continue;
     const path = join(root, entry.name);
     if (entry.isDirectory()) found.push(...walkControllerFiles(path));
     else if (entry.isFile()) found.push(path);

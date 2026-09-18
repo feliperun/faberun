@@ -7,7 +7,8 @@
  * eval suite where every case would pass without the fix is a suite that
  * measures nothing, which is what `--verify-discriminating` refuses.
  */
-import { attemptWorktreePath, candidateWorktreePath, gitHead, runRefName } from "../src/repo/worktree.mjs";
+import { gitHead, runRefName } from "../src/repo/worktree.mjs";
+import { attemptWorktreePath, candidateWorktreePath } from "../src/run/paths.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { readIntegrationJournal } from "../src/repo/integrate.mjs";

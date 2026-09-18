@@ -24,6 +24,7 @@ import { tmpdir } from "node:os";
 import { validateContract } from "../contract/index.mjs";
 import { validateNodeSnapshot } from "../contract/snapshot.mjs";
 import { compactCost as formatCost } from "../util.mjs";
+import { runsRoot } from "../run/paths.mjs";
 
 /** @typedef {import("../harnesses/index.mjs").ProbeResult} ProbeResult */
 /** @typedef {import("../harnesses/index.mjs").ProviderEnvelope} ProviderEnvelope */
@@ -263,7 +264,7 @@ function redactProviderText(value) {
 export function reusedDoneWarnings(contract) {
   /** @type {string[]} */
   const warnings = [];
-  const runsDir = join(contract.cwd, ".runs");
+  const runsDir = runsRoot(contract.cwd);
   if (!existsSync(runsDir)) return warnings;
   const ownRunDir = join(runsDir, contract.id);
   for (const name of readdirSync(runsDir)) {

@@ -18,6 +18,7 @@ import { briefFromState, materializeBrief } from "../campaign/brief.mjs";
 import { readProjectionState } from "../campaign/projection.mjs";
 import { resolveCampaign } from "../campaign/index.mjs";
 import { errorMessage } from "../util.mjs";
+import { runsRoot } from "../run/paths.mjs";
 
 /** `seat status --json` payload version. */
 const SEAT_STATUS_SCHEMA_VERSION = 1;
@@ -117,7 +118,7 @@ export function stopSeat(options = {}) {
  */
 export function switchSeat(options) {
   const cwd = resolve(options.cwd ?? ".");
-  const runsDir = join(cwd, ".runs");
+  const runsDir = runsRoot(cwd);
   let resolved;
   try {
     resolved = resolveCampaign(runsDir, options.campaign);

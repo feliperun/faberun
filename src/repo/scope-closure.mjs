@@ -49,6 +49,7 @@
 import { errorCode } from "../util.mjs";
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import { RUNS_DIR_NAME } from "../run/paths.mjs";
 
 /** @typedef {import("../contract/index.mjs").TaskPacket} TaskPacket */
 /** @typedef {import("../contract/index.mjs").ValidatedNode} ValidatedNode */
@@ -62,7 +63,7 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
  */
 const SKIPPED_DIRECTORIES = new Set([
   ".git",
-  ".runs",
+  RUNS_DIR_NAME,
   "node_modules",
   ".claude",
   ".codex",

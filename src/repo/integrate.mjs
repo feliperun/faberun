@@ -12,10 +12,10 @@ import {
   gitHead,
   removeWorktree,
   updateRefConditional,
-  candidateWorktreePath,
   runRefName,
   worktreeCheckedOutAt,
 } from "./worktree.mjs";
+import { candidateWorktreePath } from "../run/paths.mjs";
 
 const JOURNAL = "integration.jsonl";
 const TERMINAL = new Set(["accepted", "failed", "conflict"]);

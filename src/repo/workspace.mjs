@@ -22,6 +22,7 @@ import { errorCode } from "../util.mjs";
 import { execFileSync } from "node:child_process";
 import { fail, isContained } from "../util.mjs";
 import { normalizeManagedSignalBlock } from "./signal-block.mjs";
+import { RUNS_DIR_NAME } from "../run/paths.mjs";
 
 /** A `node_modules` directory at any depth, matched as a whole path segment. */
 const NODE_MODULES_SEGMENT = /(?:^|\/)node_modules(?:\/|$)/u;
@@ -311,7 +312,7 @@ function captureIgnoreSources(root) {
       throw fail("snapshot_read_error", `cannot inspect workspace directory ${relativeWorkspacePath(root, directory)}: ${error instanceof Error ? error.message : String(error)}`);
     }
     for (const entry of entries) {
-      if (entry.name === ".git" || entry.name === ".runs") continue;
+      if (entry.name === ".git" || entry.name === RUNS_DIR_NAME) continue;
       // Same exclusions as the entries snapshot (see the task-packet
       // reference): `node_modules` at any depth, and the agent runtimes'
       // scratch state at the root (`.claude`, `.codex`). Ignore files inside
@@ -466,7 +467,7 @@ function relevantWorkspacePaths(cwd) {
   const paths = new Set();
   for (const value of output.toString("utf8").split("\0")) {
     if (!value) continue;
-    if (value === ".runs" || value.startsWith(".runs/")) continue;
+    if (value === RUNS_DIR_NAME || value.startsWith(`${RUNS_DIR_NAME}/`)) continue;
     // Same exclusion as the ignore-source walk above: a repository's
     // gitignore conventionally excludes `node_modules/` as a directory
     // pattern, which does not match the symlink an attempt worktree links it
