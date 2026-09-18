@@ -113,3 +113,29 @@ pre { white-space: pre-wrap; word-break: break-word; background: var(--surface-2
 .trow { display: grid; grid-template-columns: 130px 140px 1fr; gap: 8px; font-size: 12.5px; border-bottom: 1px solid var(--border); padding: 4px 0; }
 .trow .tat { color: var(--text-3); }
 .trow .ttype { color: var(--fr-terra); font-weight: 600; }
+
+/* Narrow viewport (phone widths, ~390px and up to a small tablet): the
+   header stacks instead of clipping, the spec map collapses to one column,
+   and the bands reorder so the open phase — what is happening right now —
+   leads, with the spec map (a static requirement reference) last. The
+   markup is the same document at every width; only this media query moves
+   things, via `order` on the `#main` flex container below, never by
+   emitting different HTML for the two cases. */
+@media (max-width: 600px) {
+  #top { flex-wrap: wrap; row-gap: 8px; }
+  #top .field { flex: 1 1 100%; }
+  #top .field select { width: 100%; }
+  #top .spacer { flex: 0 0 0; display: none; }
+  #conn { flex: 1 1 100%; justify-content: flex-end; }
+
+  #main { display: flex; flex-direction: column; }
+  #phaseGraph { order: 1; }
+  #chain { order: 2; }
+  #drilldown { order: 3; }
+  #specMap { order: 4; }
+
+  .specmap { grid-template-columns: 1fr; }
+
+  .goalclamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden; cursor: pointer; }
+  .goalclamp:focus { -webkit-line-clamp: unset; line-clamp: unset; overflow: visible; }
+}

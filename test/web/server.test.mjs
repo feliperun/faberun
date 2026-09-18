@@ -509,3 +509,35 @@ test("a long node id is truncated to an ellipsis inside its own box rather than 
   assert.ok(idMatch[1].length < longId.length, "the rendered id is shorter than the raw id");
   assert.match(idMatch[1], /…$/u, "truncation ends in an ellipsis, not at a character count that happens to overflow");
 });
+
+// --- narrow-viewport layout: a test cannot measure a rendered pixel, so this
+// asserts only what decides the outcome — that the document declares a
+// device-width viewport, that the stylesheet (not the markup) carries the
+// narrow-viewport rules, and that the same section order ships at every
+// width, so a narrow viewport is never served different HTML. ---
+
+test("the page declares a device-width viewport, and the narrow-viewport layout is expressed in the stylesheet rather than in different markup", async () => {
+  const world = makeWorld();
+  const server = await startServer({ runsDir: world.runsDir, tokenFile: world.tokenFile, port: 0 });
+  try {
+    const { port } = /** @type {{address: () => {port: number}}} */ (server).address();
+    const base = `http://127.0.0.1:${port}`;
+    const html = await (await fetch(`${base}/`, { headers: AUTH })).text();
+    assert.match(html, /<meta name="viewport" content="[^"]*width=device-width[^"]*">/u, "the document declares a device-width viewport");
+    const sectionOrder = [...html.matchAll(/<section id="(\w+)"/gu)].map((match) => match[1]);
+    assert.deepEqual(sectionOrder, ["specMap", "chain", "phaseGraph", "drilldown"], "the served markup keeps one section order regardless of viewport");
+
+    const css = await (await fetch(`${base}/app.css`, { headers: AUTH })).text();
+    const mediaIndex = css.indexOf("@media (max-width:");
+    assert.ok(mediaIndex >= 0, "a narrow-viewport media query exists in the stylesheet");
+    const narrowBody = css.slice(mediaIndex);
+    assert.match(narrowBody, /\.specmap\s*\{[^}]*grid-template-columns:\s*1fr/u, "the narrow query collapses the spec map to a single column");
+    const orderOf = (/** @type {string} */ selector) => Number(new RegExp(`${selector}\\s*\\{[^}]*order:\\s*(\\d+)`, "u").exec(narrowBody)?.[1]);
+    assert.ok(orderOf("#phaseGraph") < orderOf("#chain"), "the open phase is ordered ahead of the campaign chain on a narrow viewport");
+    assert.ok(orderOf("#chain") < orderOf("#specMap"), "the campaign chain is ordered ahead of the spec map on a narrow viewport");
+    assert.ok(orderOf("#specMap") > orderOf("#drilldown"), "the spec map is ordered last on a narrow viewport");
+  } finally {
+    server.close();
+    rmSync(world.directory, { recursive: true, force: true });
+  }
+});

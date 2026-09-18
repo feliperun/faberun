@@ -144,8 +144,17 @@ const NODE_ROW_HEIGHT = 76;
 const NODE_BOX_W = 220;
 const NODE_BOX_H = 56;
 const NODE_MARGIN = 16;
-/** A node id is long by this repository's own naming rule; this is the character budget that keeps a mono id's ellipsis inside the box at `NODE_BOX_W`, not a measurement of the rendered glyphs. */
-const NODE_ID_MAX_CHARS = 24;
+const TEXT_PAD_X = 10;
+/** Typical glyph advance, in px, of the mono and sans stacks at this graph's 12px text size — an approximation, but one tied to the box's own width rather than a per-label constant tuned by hand. */
+const MONO_CHAR_WIDTH_PX = 7.3;
+const SANS_CHAR_WIDTH_PX = 6.6;
+
+/** How many characters of `charWidthPx`-wide text fit inside a box of `boxWidth`, so truncation follows the box it draws into instead of a fixed count that under- or over-estimates it. @param {number} boxWidth @param {number} charWidthPx @returns {number} */
+function maxCharsFor(boxWidth, charWidthPx) {
+  return Math.max(1, Math.floor((boxWidth - TEXT_PAD_X * 2) / charWidthPx));
+}
+
+const NODE_ID_MAX_CHARS = maxCharsFor(NODE_BOX_W, MONO_CHAR_WIDTH_PX);
 
 /**
  * A box's text, clipped to its own rectangle: a `<clipPath>` keyed to the same
@@ -251,9 +260,9 @@ const STAGE_W = 168;
 const STAGE_H = 80;
 const STAGE_GAP = 40;
 const STAGE_MARGIN = 16;
-const STAGE_LABEL_MAX_CHARS = 20;
-const STAGE_ID_MAX_CHARS = 20;
-const STAGE_GOAL_MAX_CHARS = 22;
+const STAGE_LABEL_MAX_CHARS = maxCharsFor(STAGE_W, SANS_CHAR_WIDTH_PX);
+const STAGE_ID_MAX_CHARS = maxCharsFor(STAGE_W, MONO_CHAR_WIDTH_PX);
+const STAGE_GOAL_MAX_CHARS = maxCharsFor(STAGE_W, SANS_CHAR_WIDTH_PX);
 
 /** @param {{id: string, idMark: string|null, label: string, goal?: string|null, state: string, current: boolean}[]} stages @returns {string} */
 export function renderChainSvg(stages) {
@@ -500,8 +509,11 @@ function renderAll(snapshot) {
     state.phaseContractId = (current && progress.phases.some((/** @type {any} */ phase) => phase.contractId === current.id)) ? current.id : progress.phases[0]?.contractId ?? null;
   }
   const phase = progress.phases.find((/** @type {any} */ candidate) => candidate.contractId === state.phaseContractId) ?? null;
+  // The short phase id, not the campaign-prefixed contract id, for the same
+  // reason `renderChainSvg`'s `idMark` picks it: it never needs mid-token
+  // wrapping the way `beta.contract.json`'s campaign prefix does.
   doc.getElementById("phaseGraphHead").innerHTML = phase
-    ? `<span class="phasename">${esc(phase.name ?? phase.contractId)}</span> <span class="mono dim">${esc(phase.contractId)}</span><p class="dim">${esc(phase.goal ?? "")}</p>`
+    ? `<span class="phasename">${esc(phase.name ?? phase.phase ?? phase.contractId)}</span> <span class="mono dim">${esc(phase.phase ?? phase.contractId)}</span><p class="dim">${esc(phase.goal ?? "")}</p>`
     : "";
   doc.getElementById("phaseGraphBody").innerHTML = phase ? renderPhaseGraphSvg(phase) : `<p class="empty">no phase selected</p>`;
   if (state.nodeId && !(phase?.nodes ?? []).some((/** @type {any} */ node) => node.id === state.nodeId)) state.nodeId = null;
