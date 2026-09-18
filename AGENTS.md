@@ -219,6 +219,7 @@ Before starting new work here, check `.runs/`: if a campaign is active or a run 
   - run `state-location-and-routing-economics-0c3-map-and-graph`: canceled
   - run `state-location-and-routing-economics-0c4-graph-and-page`: canceled
   - run `state-location-and-routing-economics-0c5-page-and-delivery`: canceled
+  - run `state-location-and-routing-economics-0c6-legibility-and-delivery`: canceled
   - attention: run harden-chain-and-verification-2-verification-fairness needs you · verification_failed
 - faberun run `adversarial-planner-1-planning-pipeline`: parked — `discovery-result-output:blocked context_missing`, `planning-contract-template:blocked dependency_failed`, `plan-verb:blocked dependency_failed`, `plan-eval-cases:blocked dependency_failed` — resume `node src/cli.mjs resume /Users/frb/dev/frb/skills/.runs/adversarial-planner-1-planning-pipeline`
 - … signal truncated; read the campaign HANDOFF.md for the rest
