@@ -82,6 +82,40 @@ test("verification rejects legacy shell strings", () => {
   assert.throws(() => validateContract(contract, path), /argv command object/u);
 });
 
+test("writeFiles close to the line ceiling warns, one with room does not, and both still validate", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "runner-verification-line-budget-"));
+  writeFileSync(join(cwd, "README.md"), "read\n");
+  // 751 lines (750 newline-terminated) leaves 49 lines of margin, inside the
+  // warning band; 501 lines leaves 299, well outside it.
+  writeFileSync(join(cwd, "tight.mjs"), "// line\n".repeat(750));
+  writeFileSync(join(cwd, "roomy.mjs"), "// line\n".repeat(500));
+  const base = {
+    schemaVersion: PROTOCOL_SCHEMA_VERSION, contractVersion: CONTRACT_VERSION, id: "line-budget", campaignId: "line-budget-campaign",
+    goal: "verify", cwd: ".", runtimeDefaults: { worker: "worker", judge: "worker" },
+    runtimes: { worker: { harness: "codex", model: "test", executable: "/nonexistent/codex" } },
+  };
+  const path = join(cwd, "contract.json");
+  /** @param {string} file */
+  const nodeWriting = (file) => ([{ id: "build", type: "backend", phase: "verification", taskPacket: {
+    mode: "execution", objective: "verify", instructions: ["verify"], readFiles: ["README.md"], writeFiles: [file],
+    symbols: [], decisions: [], nonGoals: [], verification: [],
+  }, gate: false }]);
+
+  const tight = validateContract({ ...base, nodes: nodeWriting("tight.mjs") }, path);
+  assert.equal(tight.id, "line-budget", "the contract still validates");
+  assert.ok(
+    tight.warnings.some((warning) => warning.includes("tight.mjs") && warning.includes("800-line ceiling")),
+    `expected a line-budget warning, got: ${JSON.stringify(tight.warnings)}`,
+  );
+
+  const roomy = validateContract({ ...base, nodes: nodeWriting("roomy.mjs") }, path);
+  assert.equal(roomy.id, "line-budget", "the contract still validates");
+  assert.ok(
+    !roomy.warnings.some((warning) => warning.includes("800-line ceiling")),
+    `expected no line-budget warning, got: ${JSON.stringify(roomy.warnings)}`,
+  );
+});
+
 test("discovery and verification aggregate prompt limits fail before spawn", () => {
   const cwd = mkdtempSync(join(tmpdir(), "runner-verification-oversized-"));
   writeFileSync(join(cwd, "README.md"), "read\n");

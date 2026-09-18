@@ -20,6 +20,16 @@ import { crossNodeScopeFindings, scopeClosureFindings } from "../repo/scope-clos
 
 export { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
 
+// Mirrors test/repo/source-shape.test.mjs's LINE_CEILING; that test refuses a
+// file over it, at commit time. The margin is 100 lines: measured against
+// this tree (`find src -name '*.mjs' | xargs wc -l`, 2026-09-18), it is the
+// smallest round number that would have flagged both write targets a real
+// node overran -- 783 and 749 lines, both later landing at 801 -- while
+// catching only about 8 of this tree's ~230 modules today, so the warning
+// stays rare enough to read instead of becoming routine noise.
+const WRITE_FILE_LINE_CEILING = 800;
+const WRITE_FILE_LINE_WARN_MARGIN = 100;
+
 const CONTRACT_FIELDS = new Set([
   "schemaVersion", "contractVersion", "id", "campaignId", "goal", "cwd", "sourceIdentity",
   "maxParallel", "pollIntervalMs", "stallTimeoutSec", "timeoutSec",
@@ -337,6 +347,7 @@ export function validateContract(raw, contractPath, options = {}) {
   const warnings = nodes.flatMap((node, index) => [
     ...commandCoverageWarnings(node, index),
     ...(persisted ? [] : unsnapshottedWriteWarnings(node, index, cwd)),
+    ...(persisted ? [] : writeFileLineBudgetWarnings(node, index, cwd)),
   ]);
   const contract = /** @type {ValidatedContract} */ ({
     ...raw,
@@ -618,6 +629,39 @@ function dependencyCoversPath(closure, path, cwd) {
     }
   }
   return false;
+}
+
+/**
+ * A `writeFiles` entry naming a file already close to the line ceiling is
+ * legal -- the ceiling refuses the file itself, at commit time, not the
+ * contract that names it -- but a worker cannot discover the file has no
+ * room for its diff until an attempt has already spent an invocation
+ * finding out. This warns, never refuses, so the author decides whether the
+ * write set needs a split before dispatch. A missing file has no current
+ * count to warn about, so it is skipped, not treated as zero.
+ *
+ * @param {ValidatedNode} node
+ * @param {number} index
+ * @param {string} cwd
+ * @returns {string[]}
+ */
+function writeFileLineBudgetWarnings(node, index, cwd) {
+  const warnings = [];
+  for (const path of node.taskPacket.writeFiles ?? []) {
+    let text;
+    try {
+      text = readFileSync(resolve(cwd, path), "utf8");
+    } catch {
+      continue;
+    }
+    const lines = text.split("\n").length;
+    const remaining = WRITE_FILE_LINE_CEILING - lines;
+    if (remaining > WRITE_FILE_LINE_WARN_MARGIN) continue;
+    warnings.push(
+      `nodes[${index}] (${node.id}): writeFiles ${path} is already ${lines} lines, ${remaining} from the ${WRITE_FILE_LINE_CEILING}-line ceiling; confirm this node's write has room before it starts`,
+    );
+  }
+  return warnings;
 }
 
 /**

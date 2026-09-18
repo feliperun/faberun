@@ -146,7 +146,15 @@ function parkedRun(campaignId) {
   const runDir = runDirectory(repo, "r1");
   writeRunDir({ repo, runDir, contract, node: { id: "build", status: "failed", phase: "worker", error: { code: "boom", message: "boom" } } });
   const at = "2026-09-16T00:00:00.000Z";
-  parkCampaign(campaignPath, { code: "run_parked", message: "contract r1 run parked", at, runId: "r1" });
+  parkCampaign(campaignPath, {
+    code: "run_parked",
+    message: "contract r1 run parked",
+    at,
+    runId: "r1",
+    node: "build",
+    status: "failed",
+    resume: `resume ${runDir}`,
+  });
   return { repo, runsDir: runsRoot(repo), campaignPath, campaignId, contractPath, contract, runDir, at };
 }
 
@@ -222,7 +230,10 @@ test("campaign unpark through the CLI prints the success line and exits 1 on ref
   const fixture = parkedRun("unpark-cli");
   const refused = spawnSync(process.execPath, [CLI, "campaign", "unpark", "unpark-cli", "--cwd", fixture.repo], { encoding: "utf8" });
   assert.equal(refused.status, 1, `${refused.stdout ?? ""}${refused.stderr ?? ""}`);
-  assert.match(String(refused.stderr).trim(), /run r1 is still parked/u);
+  const refusal = String(refused.stderr).trim();
+  assert.match(refusal, /run r1 node build \(failed\) is still parked/u, "names the parked run and node");
+  assert.match(refusal, /--force clears only the campaign's parked attention/u, "says what --force changes");
+  assert.match(refusal, /does not resume, cancel, or otherwise change run r1/u, "says what --force does not change");
   assert.equal(String(refused.stdout).trim(), "", "a refusal writes one line to stderr and nothing to stdout");
 
   succeedAfterPark(fixture);

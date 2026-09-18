@@ -508,13 +508,42 @@ async function supervise(campaignId, values) {
  * @param {CliValues} values
  */
 function unpark(campaignId, values) {
-  const { path, runsDir } = selectCampaign(campaignId, values);
-  const result = unparkCampaign(path, {
-    runsDir,
-    force: values.force === true,
-    eventId: values.eventId ?? randomUUID(),
-  });
-  process.stdout.write(`[campaign] ${result.campaign.id} unparked · ${result.cleared.code} cleared\n`);
+  const { path, runsDir, campaign } = selectCampaign(campaignId, values);
+  try {
+    const result = unparkCampaign(path, {
+      runsDir,
+      force: values.force === true,
+      eventId: values.eventId ?? randomUUID(),
+    });
+    process.stdout.write(`[campaign] ${result.campaign.id} unparked · ${result.cleared.code} cleared\n`);
+  } catch (error) {
+    throw explainStillParked(error, campaign.attention);
+  }
+}
+
+/**
+ * `unparkCampaign`'s still-parked refusal names the run and its state but not
+ * the node holding the park, and tells the operator to pass `--force` without
+ * saying what that flag will and will not do -- an operator told only the
+ * flag types the flag. The campaign's own `attention` record already carries
+ * the node, its status, and the resume command the chain wrote when it
+ * parked (see `chain.mjs`'s `park`), so recompose the message from that
+ * instead of changing what the still-parked check itself reports. Any other
+ * refusal (closed campaign, not parked) is passed through unchanged.
+ *
+ * @param {unknown} error
+ * @param {Campaign["attention"]} attention
+ * @returns {unknown}
+ */
+function explainStillParked(error, attention) {
+  if (!(error instanceof Error) || !attention) return error;
+  const match = /^run (\S+) is still (parked|canceled); resume it first or pass --force$/u.exec(error.message);
+  if (!match) return error;
+  const [, runId, state] = match;
+  const node = attention.node ? ` node ${attention.node}${attention.status ? ` (${attention.status})` : ""}` : "";
+  return new Error(
+    `run ${runId}${node} is still ${state}. --force clears only the campaign's parked attention so \`supervise campaign\` can drive the chain again; it does not resume, cancel, or otherwise change run ${runId}, which stays ${state} until you act on it directly. Resume the run, or pass --force to move on without resuming it.`,
+  );
 }
 
 /**
