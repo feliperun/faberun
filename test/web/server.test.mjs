@@ -340,7 +340,7 @@ test("a phase with no run is drawn as not started", () => {
 
 test("the drill-down carries the error code of a failed node and links to its worker transcript", () => {
   const node = {
-    id: "right", status: "exhausted", attempt: 2, dependsOn: ["root"], runtime: "claude/claude-sonnet-5",
+    id: "right", status: "exhausted", attempt: 2, dependsOn: ["root"], workerRuntime: "claude/claude-sonnet-5", judgeRuntime: "dsh/deepseek-flash",
     elapsedSpan: "1m00s", costUsd: 0.4, workerLogPath: "logs/right.2.worker.jsonl", judgeLogPaths: [],
     verificationRecordPath: "nodes/right.json", attemptBranch: "attempt/right-2", sealCommit: null,
   };
@@ -351,6 +351,41 @@ test("the drill-down carries the error code of a failed node and links to its wo
   assert.match(html, /logs\/right\.2\.worker\.jsonl/u);
   assert.match(html, /attempt\/right-2/u);
   assert.match(html, /beta\.contract\.json/u);
+});
+
+test("the drill-down labels the worker's runtime and the judge's runtime as two separate facts", () => {
+  const node = {
+    id: "right", status: "done", attempt: 2, dependsOn: ["root"], workerRuntime: "claude/claude-sonnet-5", judgeRuntime: "dsh/deepseek-flash",
+    elapsedSpan: "1m00s", costUsd: 0.4, workerLogPath: null, judgeLogPaths: [], verificationRecordPath: null, attemptBranch: null, sealCommit: null,
+  };
+  const html = renderDrilldownHtml(node, null, null);
+  assert.match(html, /worker runtime[\s\S]*?claude\/claude-sonnet-5/u);
+  assert.match(html, /judge runtime[\s\S]*?dsh\/deepseek-flash/u);
+});
+
+test("a node with no gate reports no judge runtime rather than repeating the worker's", () => {
+  const node = {
+    id: "solo", status: "done", attempt: 1, dependsOn: [], workerRuntime: "claude/claude-sonnet-5", judgeRuntime: null,
+    elapsedSpan: null, costUsd: null, workerLogPath: null, judgeLogPaths: [], verificationRecordPath: null, attemptBranch: null, sealCommit: null,
+  };
+  const html = renderDrilldownHtml(node, null, null);
+  const judgeRow = /<div class="drow"><div class="dlabel">judge runtime<\/div><div class="dvalue">([^<]*)<\/div><\/div>/u.exec(html);
+  assert.ok(judgeRow);
+  assert.equal(judgeRow[1], "–");
+  assert.doesNotMatch(html, /judge runtime[\s\S]*?claude\/claude-sonnet-5/u, "the judge row never repeats the worker's runtime");
+});
+
+test("the error cell reads empty when nothing failed, and a note reads in its own full-width row", () => {
+  const node = {
+    id: "root", status: "done", attempt: 1, dependsOn: [], workerRuntime: "claude/claude-sonnet-5", judgeRuntime: null,
+    elapsedSpan: "1m00s", costUsd: 0.1, workerLogPath: null, judgeLogPaths: [], verificationRecordPath: null, attemptBranch: null, sealCommit: null,
+  };
+  const detail = { errorCode: null, errorMessage: "gate fail (major) · needs work", revisions: 0, workerRuntime: null, judgeRounds: [] };
+  const html = renderDrilldownHtml(node, detail, null);
+  const errorRow = /<div class="drow"><div class="dlabel">error<\/div><div class="dvalue">([^<]*)<\/div><\/div>/u.exec(html);
+  assert.ok(errorRow);
+  assert.equal(errorRow[1], "–", "the error cell is empty when the node never failed");
+  assert.match(html, /<section class="detailblock"><h4>Note<\/h4><p>gate fail \(major\) · needs work<\/p><\/section>/u);
 });
 
 test("the selectors render with the campaigns this repository holds, labelled by campaign id rather than its goal", () => {

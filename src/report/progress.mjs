@@ -227,10 +227,16 @@ function boundToCeiling(lines, valueLineIndex) {
 }
 
 /**
- * @typedef {{id: string, dependsOn: string[], status: string, attempt: number, runtime: string|null, elapsedSpan: string|null, costUsd: number|null, runDir: string|null, workerLogPath: string|null, judgeLogPaths: string[], verificationRecordPath: string|null, attemptBranch: string|null, sealCommit: string|null}} RollupNode
+ * @typedef {{id: string, dependsOn: string[], status: string, attempt: number, workerRuntime: string|null, judgeRuntime: string|null, elapsedSpan: string|null, costUsd: number|null, runDir: string|null, workerLogPath: string|null, judgeLogPaths: string[], verificationRecordPath: string|null, attemptBranch: string|null, sealCommit: string|null}} RollupNode
  * `status` carries every `NodeStatus` plus two the manifest alone can
  * explain: `not_started` (the contract has no run yet) and `unreadable` (a
  * run exists but this node's own snapshot does not).
+ * `workerRuntime` and `judgeRuntime` are two different facts, not one field
+ * whichever role happened to run last: a gated node's `state.runtime` is
+ * overwritten by the judge dispatch (`src/engine/dispatch.mjs` writes it at
+ * three points), so a single `runtime` field reads as though the judge did
+ * the worker's job. `judgeRuntime` is `null` for a node with no gate, or one
+ * whose gate never ran -- never the worker's own runtime repeated.
  */
 /**
  * `counts.done` and `counts.settled` are two different numbers: `done` is
@@ -318,10 +324,11 @@ function buildPhase(entry) {
   const hasRun = existsSync(join(runDir, "run.json"));
   const rawNodes = Array.isArray(raw.nodes) ? raw.nodes : [];
   const phaseId = typeof rawNodes[0]?.phase === "string" ? rawNodes[0].phase : null;
+  const workerRuntimeById = hasRun ? workerRuntimeMap(runDir) : new Map();
 
   /** @type {{contractId: string, nodeId: string, snapshot: Record<string, unknown>}[]} */
   const settledCandidates = [];
-  const nodes = rawNodes.map((node) => rollupNode(node, contractId, runDir, hasRun, settledCandidates));
+  const nodes = rawNodes.map((node) => rollupNode(node, contractId, runDir, hasRun, settledCandidates, workerRuntimeById));
   const done = nodes.filter((node) => SUCCESS.has(node.status)).length;
   const settled = nodes.filter((node) => SETTLED.has(node.status)).length;
 
@@ -350,17 +357,56 @@ function buildPhase(entry) {
 }
 
 /**
+ * The honest per-node worker runtime, read from the same status payload
+ * `buildStatusPayload` already computes (`workerRuntimeLabel`'s scan of the
+ * invocation ledger for the worker that actually ran) -- never recomputed
+ * here, so this reader and `status --json`/`report` can never disagree about
+ * who worked a node. Empty when the run's own payload cannot be built at all
+ * (e.g. a snapshot elsewhere in the run is corrupt), so one broken sibling
+ * never hides this phase's readable nodes; `rollupNode` falls back to `null`
+ * per node in that case, same as an unreadable snapshot would.
+ *
+ * @param {string} runDir
+ * @returns {Map<string, string|null>}
+ */
+function workerRuntimeMap(runDir) {
+  try {
+    const payload = /** @type {{nodes: {id: string, workerRuntime: string|null}[]}} */ (JSON.parse(renderStatusJson(runDir)));
+    return new Map(payload.nodes.map((entry) => [entry.id, entry.workerRuntime]));
+  } catch {
+    return new Map();
+  }
+}
+
+/**
+ * The judge that actually reviewed this node, read the same way
+ * `workerRuntimeLabel` reads the worker: the invocation ledger's own last
+ * `role: "judge"` entry. Unlike the worker there is no fallback to
+ * `snapshot.runtime` -- a node with no gate, or one whose gate never ran, has
+ * no judge invocation at all, and must report no judge runtime rather than
+ * the worker's runtime standing in for it.
+ *
+ * @param {Record<string, unknown>[]} invocations
+ * @returns {string|null}
+ */
+function judgeRuntimeLabel(invocations) {
+  const judge = /** @type {{harness?: unknown, model?: unknown}|undefined} */ ([...invocations].reverse().find((invocation) => invocation?.role === "judge"));
+  return judge?.harness && judge?.model ? `${judge.harness}/${judge.model}` : null;
+}
+
+/**
  * @param {Record<string, unknown>} node the manifest's own declared node
  * @param {string} contractId
  * @param {string} runDir
  * @param {boolean} hasRun
  * @param {{contractId: string, nodeId: string, snapshot: Record<string, unknown>}[]} settledCandidates appended to when this node's own snapshot is readable
+ * @param {Map<string, string|null>} workerRuntimeById
  * @returns {RollupNode}
  */
-function rollupNode(node, contractId, runDir, hasRun, settledCandidates) {
+function rollupNode(node, contractId, runDir, hasRun, settledCandidates, workerRuntimeById) {
   const id = String(node.id);
   const dependsOn = Array.isArray(node.dependsOn) ? node.dependsOn.map(String) : [];
-  const empty = { id, dependsOn, attempt: 0, runtime: null, elapsedSpan: null, costUsd: null, workerLogPath: null, judgeLogPaths: /** @type {string[]} */ ([]), attemptBranch: null, sealCommit: null };
+  const empty = { id, dependsOn, attempt: 0, workerRuntime: null, judgeRuntime: null, elapsedSpan: null, costUsd: null, workerLogPath: null, judgeLogPaths: /** @type {string[]} */ ([]), attemptBranch: null, sealCommit: null };
   if (!hasRun) return { ...empty, status: "not_started", runDir: null, verificationRecordPath: null };
 
   let snapshot;
@@ -378,14 +424,14 @@ function rollupNode(node, contractId, runDir, hasRun, settledCandidates) {
     .map((invocation) => invocation.stdoutPath)
     .filter((path) => typeof path === "string");
   const worktree = snapshot.worktree && typeof snapshot.worktree === "object" ? /** @type {Record<string, unknown>} */ (snapshot.worktree) : null;
-  const runtime = snapshot.runtime && typeof snapshot.runtime === "object" ? /** @type {{harness?: unknown, model?: unknown}} */ (snapshot.runtime) : null;
 
   return {
     id,
     dependsOn,
     status: typeof snapshot.status === "string" ? snapshot.status : "unreadable",
     attempt: typeof snapshot.attempt === "number" ? snapshot.attempt : 0,
-    runtime: runtime ? `${runtime.harness}/${runtime.model}` : null,
+    workerRuntime: workerRuntimeById.get(id) ?? null,
+    judgeRuntime: judgeRuntimeLabel(invocations),
     elapsedSpan: spanOf({ startedAt: typeof snapshot.startedAt === "string" ? snapshot.startedAt : null, updatedAt: typeof snapshot.updatedAt === "string" ? snapshot.updatedAt : null }),
     costUsd: typeof snapshot.costUsd === "number" ? snapshot.costUsd : null,
     runDir,

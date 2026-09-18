@@ -357,16 +357,27 @@ export function renderDrilldownHtml(node, detail, contractPath) {
   const hasInvocation = Boolean(detail?.workerRuntime) || Boolean(detail?.judgeRounds?.length);
   const costDisplay = node.costUsd != null ? fmtUsd(node.costUsd) : (hasInvocation ? "unpriced" : "–");
   const drow = (/** @type {string} */ label, /** @type {string} */ value) => `<div class="drow"><div class="dlabel">${esc(label)}</div><div class="dvalue">${value}</div></div>`;
+  // An error and a note are two different things: `errorCode` is set only
+  // when the node actually failed (`buildNodeDetail`'s own read of the raw
+  // snapshot's `error`), so the compact metric-width cell reads empty rather
+  // than carrying a gate summary or review note that never was an error.
+  const hasError = Boolean(detail?.errorCode);
   const rows = [
     drow("attempt", esc(node.attempt != null ? String(node.attempt) : "–")),
     drow("revisions", esc(detail?.revisions != null ? String(detail.revisions) : "–")),
-    drow("runtime", esc(node.runtime ?? "–")),
+    drow("worker runtime", esc(node.workerRuntime ?? "–")),
+    drow("judge runtime", esc(node.judgeRuntime ?? "–")),
     drow("elapsed", esc(node.elapsedSpan ?? "–")),
     drow("cost", esc(costDisplay)),
+    drow("error", hasError ? `${esc(detail?.errorCode)}${detail?.errorMessage ? ` · ${esc(detail.errorMessage)}` : ""}` : "–"),
   ];
-  if (detail?.errorCode || detail?.errorMessage) {
-    rows.push(drow("error", `${esc(detail?.errorCode ?? "–")}${detail?.errorMessage ? ` · ${esc(detail.errorMessage)}` : ""}`));
-  }
+  // The note (a gate summary, a review outcome, a blocked reason -- whatever
+  // `statusNote` in render.mjs composed) reads as prose, in its own
+  // full-width row: the `.drows` grid's metric-width columns are for short
+  // facts, and wrapping a sentence into one truncates it mid-word.
+  const noteHtml = detail?.errorMessage
+    ? `<section class="detailblock"><h4>Note</h4><p>${esc(detail.errorMessage)}</p></section>`
+    : "";
   const links = [
     node.workerLogPath ? `<div class="link mono">worker transcript: ${esc(node.workerLogPath)}</div>` : null,
     ...(node.judgeLogPaths ?? []).map((/** @type {string} */ path, /** @type {number} */ index) => `<div class="link mono">judge round ${index + 1}: ${esc(path)}</div>`),
@@ -377,6 +388,7 @@ export function renderDrilldownHtml(node, detail, contractPath) {
   ].filter(Boolean).join("");
   return `<div class="drilldown-head"><h3 class="mono">${esc(node.id)}</h3><span class="pill ${esc(statusRole(node.status))}">${esc(statusLabel(node.status))}</span></div>
     <div class="drows">${rows.join("")}</div>
+    ${noteHtml}
     <section class="detailblock"><h4>On disk</h4>${links || '<p class="empty">nothing recorded yet</p>'}</section>
     ${judgeRoundsHtml(detail)}
     ${logSectionHtml(detail)}

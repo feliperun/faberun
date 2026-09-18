@@ -8,6 +8,7 @@ import { authoredContractDigest, initializeCampaign, registerRun } from "../../s
 import { campaignDir } from "../../src/campaign/layout.mjs";
 import { appendJournal } from "../../src/campaign/journal.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
+import { harnessCapabilities } from "../../src/harnesses/index.mjs";
 import { PROGRESS_MESSAGE_MAX_BYTES, renderCampaignProgress, renderRunProgress } from "../../src/report/progress.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
 
@@ -355,6 +356,121 @@ test("an unpriced judge survives the campaign roll-up, with its log path and tok
     const node = progress.phases[0].nodes[0];
     assert.equal(node.workerLogPath, "stdout-worker.txt");
     assert.deepEqual(node.judgeLogPaths, ["stdout-judge.txt"]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a node worked by one runtime and judged by another reports both, each under its own name", () => {
+  // The exact shape of the defect this guards: `state.runtime` is the last
+  // *dispatched* runtime, which for a gated node is the judge's -- here the
+  // worker ran on codex/gpt-5.6-luna and the judge on agy/gemini-3.1-pro-high,
+  // so a roll-up reading `snapshot.runtime` alone would report the judge as
+  // though it had done the worker's job.
+  const campaignId = "rollup-campaign-runtimes";
+  const directory = mkdtempSync(join(tmpdir(), "faberun-report-campaign-runtime-"));
+  const runsDir = join(directory, ".runs");
+  const contractPath = join(directory, "phase-a.contract.json");
+  writeFileSync(join(directory, "contract.json"), "{}");
+  const contractValue = fixture({
+    id: "phase-a",
+    campaignId,
+    nodes: [{ id: "one", type: "backend", taskPacket: packet(), gate: { failOn: ["critical"] }, phase: "phase-a" }],
+  });
+  writeFileSync(contractPath, `${JSON.stringify(contractValue, null, 2)}\n`);
+  const contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
+  const { path: campaignPath } = initializeCampaign(runsDir, {
+    campaignId,
+    goal: "Prove the roll-up carries both runtimes",
+    contracts: [{ path: contractPath, digest: authoredContractDigest(contractPath) }],
+  });
+  const runDir = join(runsDir, "phase-a");
+  mkdirSync(join(runDir, "nodes"), { recursive: true });
+  writeFileSync(join(runDir, "contract.json"), readFileSync(contractPath));
+  writeFileSync(join(runDir, "run.json"), `${JSON.stringify({
+    schemaVersion: PROTOCOL_SCHEMA_VERSION,
+    contractVersion: CONTRACT_VERSION,
+    pid: process.pid,
+    processStartToken: null,
+    startedAt: "2026-01-01T00:00:00.000Z",
+    sourceIdentity: { kind: "run" },
+  }, null, 2)}\n`);
+  const planNode = /** @type {import("../../src/contract/index.mjs").ValidatedNode} */ (contract.nodes.find((node) => node.id === "one"));
+  /** @param {Record<string, unknown>} overrides */
+  const invocation = (overrides) => ({
+    pid: 1, processGroupId: null, processStartToken: null, planPhase: "phase-a",
+    runId: "phase-a", campaignId, nodeId: "one", reasoning: null, sandbox: null,
+    deadlineAt: "2026-01-01T00:10:00.000Z", signal: null, continuationMode: "fresh", status: "closed",
+    promptPath: "prompt.txt", stderrPath: "stderr.txt", exitCode: 0, continuationId: null,
+    runtimeFingerprint: `${overrides.harness}/${overrides.model}`,
+    ...overrides,
+  });
+  writeFileSync(join(runDir, "nodes", "one.json"), `${JSON.stringify({
+    schemaVersion: PROTOCOL_SCHEMA_VERSION,
+    contractVersion: CONTRACT_VERSION,
+    id: "one",
+    type: planNode.type,
+    sourceIdentity: planNode.sourceIdentity,
+    packetHash: planNode.packetHash,
+    status: "done",
+    phase: "complete",
+    attempt: 1,
+    revisions: 0,
+    // The last-dispatched runtime, the judge's -- the field this node's own
+    // roll-up must stop reading for "who worked this node".
+    runtime: { id: "agy", harness: "agy", model: "gemini-3.1-pro-high", capabilities: harnessCapabilities({ harness: "agy" }) },
+    blockedBy: [],
+    startedAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:01:30.000Z",
+    result: doneResult("done"),
+    gate: { verdict: "pass", maxSeverity: "none", summary: "looks good", findings: [] },
+    error: null,
+    invocations: [
+      invocation({ id: "inv-worker", harness: "codex", phase: "worker", model: "gpt-5.6-luna", role: "worker", executable: "codex", stdoutPath: "stdout-worker.txt", startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", closedAt: "2026-01-01T00:01:00.000Z", usage: { inputTokens: 500, outputTokens: 100, cacheReadInputTokens: 0 }, costUsd: 0.01 }),
+      invocation({ id: "inv-judge", harness: "agy", phase: "judge", model: "gemini-3.1-pro-high", role: "judge", executable: "agy", stdoutPath: "stdout-judge.txt", startedAt: "2026-01-01T00:01:00.000Z", updatedAt: "2026-01-01T00:01:30.000Z", closedAt: "2026-01-01T00:01:30.000Z", usage: { inputTokens: 1200, outputTokens: 300, cacheReadInputTokens: 0 }, costUsd: 0.02 }),
+    ],
+  }, null, 2)}\n`);
+  registerRun(campaignPath, "phase-a");
+  try {
+    const progress = JSON.parse(renderCampaignProgress(runsDir, campaignId));
+    const node = progress.phases[0].nodes[0];
+    assert.equal(node.workerRuntime, "codex/gpt-5.6-luna");
+    assert.equal(node.judgeRuntime, "agy/gemini-3.1-pro-high");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a node with no gate reports no judge runtime rather than repeating the worker's", () => {
+  const { directory, runsDir } = makeCampaign("rollup-campaign-no-gate", [
+    {
+      id: "phase-a",
+      phaseId: "phase-a",
+      hasRun: true,
+      nodes: [{
+        id: "one",
+        snapshot: {
+          status: "done",
+          startedAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:01:00.000Z",
+          result: doneResult("done"),
+          runtime: { harness: "codex", model: "gpt-5.6-luna" },
+          invocations: [{
+            id: "inv-worker", pid: 1, processGroupId: null, processStartToken: null, harness: "codex", phase: "worker", planPhase: "p",
+            runId: "phase-a", campaignId: "rollup-campaign-no-gate", nodeId: "one", model: "gpt-5.6-luna", reasoning: null, sandbox: null,
+            startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", deadlineAt: "2026-01-01T00:10:00.000Z",
+            closedAt: "2026-01-01T00:01:00.000Z", signal: null, role: "worker", continuationMode: "fresh", status: "closed",
+            promptPath: "prompt.txt", stdoutPath: "stdout-worker.txt", stderrPath: "stderr.txt", executable: "codex", exitCode: 0,
+            usage: { inputTokens: 500, outputTokens: 100, cacheReadInputTokens: 0 }, costUsd: 0.01, continuationId: null,
+          }],
+        },
+      }],
+    },
+  ]);
+  try {
+    const progress = JSON.parse(renderCampaignProgress(runsDir, "rollup-campaign-no-gate"));
+    const node = progress.phases[0].nodes[0];
+    assert.equal(node.judgeRuntime, null, "no judge invocation ever ran, so there is no judge runtime to report");
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
