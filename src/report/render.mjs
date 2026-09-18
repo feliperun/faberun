@@ -171,7 +171,7 @@ function formatElapsed(node, now) {
 }
 
 /** @param {number} ms @returns {string} */
-function formatDuration(ms) {
+export function formatDuration(ms) {
   const totalSeconds = Math.floor(ms / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -537,7 +537,7 @@ function readNodes(runDir, contract) {
  * @param {string} runDir
  * @returns {{inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUsd: number|null}}
  */
-function readRunUsage(runDir) {
+export function readRunUsage(runDir) {
   const totals = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, costUsd: /** @type {number|null} */ (null) };
   const path = join(runDir, "usage.jsonl");
   if (!existsSync(path)) return totals;
@@ -733,7 +733,7 @@ export function roleCosts(nodes) {
  * @param {RoleUsage} role
  * @returns {string}
  */
-function formatRole(role) {
+export function formatRole(role) {
   if (role.costUsd !== null) return compactCost(role.costUsd);
   if (role.costProvenance === "none") return "-";
   return `unpriced (in ${compactTokens(role.inputTokens)} · out ${compactTokens(role.outputTokens)} · cache ${compactTokens(role.cacheReadInputTokens)})`;
