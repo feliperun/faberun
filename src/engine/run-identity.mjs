@@ -320,6 +320,12 @@ function walkControllerFiles(root) {
   /** @type {string[]} */
   const found = [];
   for (const entry of readdirSync(root, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+    // The controller identity hashes the executable snapshot, not the tree it
+    // is running in: `node_modules` is a dependency install, `.git` is
+    // repository metadata, and `RUNS_DIR_NAME` is the runner's own scratch
+    // state written while a run is in flight. None of the three is a change
+    // to the controller's source, so the sha must never move because the
+    // runner wrote to its own state -- only because tracked source did.
     if (entry.name === "node_modules" || entry.name === ".git" || entry.name === RUNS_DIR_NAME) continue;
     const path = join(root, entry.name);
     if (entry.isDirectory()) found.push(...walkControllerFiles(path));

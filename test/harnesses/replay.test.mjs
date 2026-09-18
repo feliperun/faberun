@@ -16,7 +16,7 @@ import { runRefName } from "../../src/repo/worktree.mjs";
 
 import { fixture, packet, writeContract } from "../helpers.mjs";
 import { assertExecutable, envelope, workerResult, writeRecording } from "./replay-helpers.mjs";
-import { runDirectory } from "../../src/run/paths.mjs";
+import { runDirectory, RUNS_DIR_NAME } from "../../src/run/paths.mjs";
 
 const bin = fileURLToPath(new URL("../../src/harnesses/replay/bin.mjs", import.meta.url));
 const zeroUsage = Object.freeze({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 });
@@ -434,6 +434,33 @@ test("containment violations fail closed: nothing written, cursor untouched, exi
     const retry = await runBin({ args: ["--recording", recording], cwd: scenario.workspace, input: `retry ${scenario.name}` });
     assert.equal(retry.code, 2, `${scenario.name} stays deterministic`);
   }
+});
+
+test("a recorded write under the runs directory is refused as a metadata root, the same as .git", async () => {
+  // The runner's own scratch tree is a metadata root exactly like `.git`: a
+  // recorded write that targets it is refused before it is ever written, so
+  // it never reaches whatever later compares the live run's workspace against
+  // what happened. This is the recording-side half of the same exclusion
+  // `workspace.mjs`'s snapshot enforces on the live side.
+  const workspace = mkdtempSync(join(tmpdir(), "replay-runs-dir-ws-"));
+  mkdirSync(join(workspace, RUNS_DIR_NAME));
+  const targetPath = join(RUNS_DIR_NAME, "escape.json");
+  const target = join(workspace, targetPath);
+  const recording = writeRecording(workspace, [{
+    envelope: envelope(),
+    files: [{ path: targetPath, content: "must never be written" }],
+  }], "runs-dir-metadata-root.jsonl");
+  const cursorPath = `${recording}.cursor`;
+  writeFileSync(cursorPath, "0\n");
+  const result = await runBin({ args: ["--recording", recording], cwd: workspace, input: "attempt runs directory metadata root" });
+  assert.equal(result.code, 2);
+  assert.equal(result.stderr, "", "reports through the envelope, not stderr");
+  const envelopeLine = parseEnvelopeLine(result.stdout);
+  assert.equal(envelopeLine.status, "failed");
+  assert.equal(/** @type {{code?: unknown}} */ (envelopeLine.error)?.code, "replay_path_escape");
+  assert.equal(existsSync(target), false, "the runs directory receives no recorded write");
+  assert.equal(readFileSync(cursorPath, "utf8"), "0\n", "the cursor stays untouched");
+  assert.equal(existsSync(`${recording}.invocations.jsonl`), false, "no invocation is appended");
 });
 
 test("runContract drives a two-node dependsOn chain through replay worker and judge runtimes", async () => {

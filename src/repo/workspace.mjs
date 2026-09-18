@@ -312,6 +312,11 @@ function captureIgnoreSources(root) {
       throw fail("snapshot_read_error", `cannot inspect workspace directory ${relativeWorkspacePath(root, directory)}: ${error instanceof Error ? error.message : String(error)}`);
     }
     for (const entry of entries) {
+      // The runner's own state and git's own metadata carry no ignore rule a
+      // fingerprint here needs to see: `.runs/` is the runner's scratch tree,
+      // walked elsewhere for evidence and never for gitignore files, and
+      // `.git` is git's own directory, not the workspace git ignores things
+      // in.
       if (entry.name === ".git" || entry.name === RUNS_DIR_NAME) continue;
       // Same exclusions as the entries snapshot (see the task-packet
       // reference): `node_modules` at any depth, and the agent runtimes'
@@ -467,6 +472,10 @@ function relevantWorkspacePaths(cwd) {
   const paths = new Set();
   for (const value of output.toString("utf8").split("\0")) {
     if (!value) continue;
+    // The runner's own scratch tree, excluded for the same reason as in the
+    // ignore-source walk above: it is machine-owned state, not evidence of
+    // what the worker changed, and letting it into the snapshot would fail a
+    // node on the runner's own bookkeeping rather than on the worker's work.
     if (value === RUNS_DIR_NAME || value.startsWith(`${RUNS_DIR_NAME}/`)) continue;
     // Same exclusion as the ignore-source walk above: a repository's
     // gitignore conventionally excludes `node_modules/` as a directory

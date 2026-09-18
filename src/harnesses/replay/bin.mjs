@@ -14,6 +14,14 @@ const ENVELOPE_KEYS = new Set([...ENVELOPE_REQUIRED_KEYS, ...ENVELOPE_OPTIONAL_K
 const USAGE_KEYS = new Set(["inputTokens", "outputTokens", "cacheReadInputTokens"]);
 const FILE_KEYS = new Set(["path", "content"]);
 const ERROR_KEYS = new Set(["code", "message", "resetAt"]);
+// A recorded file write is refused, not merely ignored, if it targets any of
+// these roots: `.git` is repository metadata, `RUNS_DIR_NAME` is the runner's
+// own scratch tree, `node_modules` is a dependency install, and `.claude` and
+// `.codex` are agent runtimes' own scratch state. A replayed recording that
+// named one of these would be indistinguishable from a live worker escaping
+// its workspace into the runner's own bookkeeping, so replay comparison
+// treats all five the same way live execution does: never a legitimate
+// worker write.
 const METADATA_ROOTS = new Set([".git", RUNS_DIR_NAME, "node_modules", ".claude", ".codex"]);
 const PREFLIGHT_TOKEN = "FABERUN_PREFLIGHT_OK";
 

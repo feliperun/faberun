@@ -19,6 +19,11 @@ import { RUNS_DIR_NAME } from "../run/paths.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedNode} ValidatedNode */
 
+// `RUNS_DIR_NAME` (the runner's own scratch tree) is never part of the
+// closed-scope snapshot, so a packet that declares a write under it warns
+// instead of refusing: the author may mean it, but no diff will ever exist to
+// prove the write happened. `.git` is unobservable for the same reason as any
+// path git ignores: there is nothing for `git status` to show.
 const ALWAYS_UNOBSERVABLE_ROOTS = new Set([RUNS_DIR_NAME, ".git"]);
 /**
  * @param {ValidatedNode} node
