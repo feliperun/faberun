@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { syncAgentSignal } from "../repo/signal.mjs";
 import { JUDGE_SCHEMA, PARKED, SETTLED, retryPrompt } from "./prompts.mjs";
@@ -18,8 +18,10 @@ import {
 } from "../run/store.mjs";
 import {
   acquire as acquireLock,
+  lockStale,
   LockLostError,
   processStartToken,
+  readLock,
 } from "../run/lock.mjs";
 import { registerRun, resolveCampaign } from "../campaign/index.mjs";
 import { createRunRef, runRefName } from "../repo/worktree.mjs";
@@ -181,6 +183,25 @@ function renderFingerprint(states) {
 }
 
 /**
+ * Move a cancelled run's directory out of the way of its own id, once, so
+ * the launch that needs the id back can create it fresh. Never called for
+ * any other reason a run directory might already exist -- this is the one
+ * occupant a launch is allowed to displace on its own.
+ *
+ * @param {string} runDir
+ * @returns {void}
+ */
+function archiveCanceledRunDir(runDir) {
+  let archivedPath = `${runDir}.canceled-${Date.now()}`;
+  let suffix = 0;
+  while (existsSync(archivedPath)) {
+    suffix += 1;
+    archivedPath = `${runDir}.canceled-${Date.now()}-${suffix}`;
+  }
+  renameSync(runDir, archivedPath);
+}
+
+/**
  * @param {string} contractPath
  * @param {{detachedBootstrap?: boolean, baseRef?: string}} [options]
  *   `detachedBootstrap` is set only by the CLI entry when this process is its
@@ -194,7 +215,19 @@ export async function runContract(contractPath, options = {}) {
   const absoluteContractPath = resolve(contractPath);
   const contract = validateContractForLaunch(JSON.parse(readFileSync(absoluteContractPath, "utf8")), absoluteContractPath, { baseRef: options.baseRef });
   const runDir = runDirectory(contract.cwd, contract.id);
-  if (existsSync(runDir)) throw new Error(`run already exists: ${runDir}`);
+  if (existsSync(runDir)) {
+    // A cancelled run is the one prior occupant of this id a fresh launch may
+    // move aside on its own: `cancel` already released the git names (the run
+    // ref, every node's attempt branch) this launch needs back, and the
+    // cancel-request marker plus a stale controller lock is what proves no
+    // process can still be writing into it. Anything else at this path --
+    // still running, or settled without ever being cancelled -- keeps
+    // refusing exactly as before; the operator's evidence is never silently
+    // claimed.
+    const wasCanceled = existsSync(join(runDir, "cancel.request.json")) && lockStale(readLock(runDir));
+    if (!wasCanceled) throw new Error(`run already exists: ${runDir}`);
+    archiveCanceledRunDir(runDir);
+  }
   mkdirSync(runsRoot(contract.cwd), { recursive: true });
   try {
     mkdirSync(runDir);

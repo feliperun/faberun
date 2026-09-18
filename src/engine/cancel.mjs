@@ -17,6 +17,7 @@ import { terminateInvocation } from "./process.mjs";
 import { join, resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { readRunNodes } from "./scheduler.mjs";
+import { deleteRef, releaseAttemptWorktree, runRefName } from "../repo/worktree.mjs";
 import { syncAgentSignal } from "../repo/signal.mjs";
 import { transition, writeNode } from "./state.mjs";
 import { validateContract } from "../contract/index.mjs";
@@ -107,6 +108,18 @@ export async function cancelRun(runDirPath) {
       throw error;
     }
     if (!await waitForTerminal(runDir, 1_000)) throw new Error("cancel could not confirm a terminal run state");
+    // The run directory is evidence a campaign ledger may still want, so it
+    // stays; the run ref and every node's attempt branch are just git names
+    // the next launch of this same contract id needs back, and cancel is the
+    // operator saying this run is over. Releasing a name is not destroying a
+    // record -- each state's `worktree.branch`/`commit` fields, and the sha
+    // this ref pointed at, remain in the persisted snapshot regardless.
+    // Idempotent both ways: `removeWorktree` and `deleteRef` already tolerate
+    // an artefact a previous cancel (or the run itself) already released.
+    for (const state of states) {
+      if (state.worktree?.branch) releaseAttemptWorktree(contract.cwd, state.worktree.path, state.worktree.branch);
+    }
+    deleteRef(contract.cwd, runRefName(contract.id));
     syncAgentSignal(join(runDir, ".."));
     return true;
   } finally {

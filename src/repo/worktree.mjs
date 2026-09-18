@@ -325,6 +325,23 @@ export function removeWorktree(repo, path) {
   }
 }
 
+/**
+ * Release one node's attempt worktree and the branch name it was checked out
+ * on. Git refuses to delete a branch that is still checked out anywhere, so
+ * the worktree goes first; both halves already tolerate an artefact that is
+ * already gone, which is what makes calling this on an accepted (worktree
+ * already `removed`) or an already-released attempt harmless.
+ *
+ * @param {string} repo
+ * @param {string|null|undefined} path
+ * @param {string} branch
+ * @returns {void}
+ */
+export function releaseAttemptWorktree(repo, path, branch) {
+  removeWorktree(repo, path);
+  deleteRef(repo, `refs/heads/${branch}`);
+}
+
 /** @param {string} repo @param {string} runDir @param {string} runId @returns {void} */
 export function cleanupCandidate(repo, runDir, runId) {
   removeWorktree(repo, candidateWorktreePath(runDir, runId));
