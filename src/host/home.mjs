@@ -3,9 +3,11 @@
  *
  * One module owns every path the installer, the self-updater and the banner
  * must agree on: `versions/<v>/`, the `current` symlink, `config.json`,
- * `update-check.json` and `tmp/`. install.sh is owned by another node; if it
- * and the updater each spelled the layout out, they would drift until
- * `current` pointed at a directory one of them did not mean.
+ * `update-check.json`, `tmp/` and `projects/`. install.sh is owned by another
+ * node; if it and the updater each spelled the layout out, they would drift
+ * until `current` pointed at a directory one of them did not mean.
+ * `projects/` holds the project registry; `host/projects.mjs` owns what goes
+ * inside it, since this module owns where things sit, not what they mean.
  */
 import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -48,6 +50,11 @@ export function updateCheckPath(home) {
 /** @param {string} home @returns {string} */
 export function tmpDir(home) {
   return join(home, "tmp");
+}
+
+/** @param {string} home @returns {string} */
+export function projectsDir(home) {
+  return join(home, "projects");
 }
 
 /**

@@ -342,6 +342,30 @@ update available · run faberun update
 ```
 Related: `faberun --version`, `faberun doctor`.
 
+## faberun project
+```text
+faberun project <new-path> [--from <value>]
+```
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--from` | old path | The path the project was previously registered at. | found by matching the current remotes |
+Re-associate a project whose repository moved to a new path, keeping its
+opaque id -- and every campaign that will hang off it -- unchanged. With
+`--from`, the project once registered at that path is moved to `<new-path>`.
+Without it, the project is found by matching the git remotes `<new-path>`
+reports now against the remotes every registered project last recorded;
+ambiguity, or no match at all, is refused rather than guessed. Already being
+registered at `<new-path>` -- the first time, or a repeat of a call that
+already landed -- is not an error: an operator unsure whether a previous
+attempt succeeded can simply run it again.
+Reads and writes `$FABERUN_HOME/projects/` (`index.json` and the moved
+project's `project.json`); nothing under `<new-path>` itself is touched.
+```bash
+node src/cli.mjs project /repo-moved --from /repo
+[project] 3f9c1e2a-2b7e-4b8b-9a1f-6f1c2a9d7e10 · /repo-moved
+```
+Related: `faberun doctor`, `faberun init`.
+
 ## faberun models
 ```text
 faberun models [--probe] [--json]

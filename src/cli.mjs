@@ -11,6 +11,8 @@ import { modelsCommand } from "./harnesses/catalogue.mjs";
 import { bulkReadCommand } from "./engine/bulk-read.mjs";
 import { doctorCommand, environmentPreflight, findExecutable, notifyTransportCheck, reachableRuntimes, timeVerificationCommands } from "./host/preflight.mjs";
 import { packageName, packageVersion } from "./host/package.mjs";
+import { faberunHome } from "./host/home.mjs";
+import { reassociateProject } from "./cli/project.mjs";
 import { colorLevel, renderBanner, renderUsage, statusToken } from "./cli/brand.mjs";
 import { noTransportWarning } from "./notify/index.mjs";
 import { renderFindings, renderReport, renderReportJson, renderStatus, renderStatusJson } from "./report/render.mjs";
@@ -106,6 +108,7 @@ export const COMMAND_OPTIONS = {
   "bulk-read": { question: { type: "string" }, paths: { type: "string", multiple: true }, json: { type: "boolean" } },
   next: { cwd: { type: "string" }, json: { type: "boolean" } },
   update: { check: { type: "boolean" }, json: { type: "boolean" } },
+  project: { from: { type: "string" } },
   setup: { yes: { type: "boolean" }, harnesses: { type: "string" }, worker: { type: "string" }, judge: { type: "string" }, "no-skill": { type: "boolean" }, json: { type: "boolean" } },
   init: { cwd: { type: "string" }, yes: { type: "boolean" }, "no-skill": { type: "boolean" }, agentkit: { type: "boolean" }, greenfield: { type: "boolean" }, stable: { type: "boolean" }, json: { type: "boolean" } },
   metrics: METRICS_OPTIONS,
@@ -290,6 +293,13 @@ async function main(argv) {
     return;
   }
   if (!target) { usage(); return; }
+  if (command === "project") {
+    const record = reassociateProject(faberunHome(process.env), target, {
+      from: typeof values.from === "string" && values.from ? values.from : undefined,
+    });
+    process.stdout.write(`[project] ${record.id} · ${record.path}\n`);
+    return;
+  }
   if (command === "run") {
     warnIfNoTransport();
     const absolute = resolve(target);

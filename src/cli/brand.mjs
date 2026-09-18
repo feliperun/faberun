@@ -191,6 +191,7 @@ export function renderUsage() {
     "setup [--yes] [--no-skill] [--harnesses <a,b>] [--worker <id>] [--judge <id>] [--json]",
     "init [--cwd <dir>] [--yes] [--no-skill] [--agentkit] [--greenfield|--stable] [--json]",
     "update [--check] [--json]",
+    "project <new-path> [--from <old-path>]",
     "models [--probe] [--json]",
     "next [--cwd <dir>] [--json]",
     "bulk-read --question <text> --paths <a,b,c> [--json]",
