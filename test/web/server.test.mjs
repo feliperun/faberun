@@ -14,6 +14,7 @@ import {
   renderChainSvg,
   renderDrilldownHtml,
   renderPhaseGraphSvg,
+  renderSummaryBandHtml,
 } from "../../src/web/app.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
@@ -65,10 +66,10 @@ function writeJson(path, value) {
  * two children of the same parent are siblings — the fixture the depth/row
  * tests need), and `gamma`, authored but never launched (`hasRun: false`).
  *
- * @param {{longLog?: boolean}} [options]
+ * @param {{longLog?: boolean, wholeObjectLog?: boolean}} [options]
  * @returns {{directory: string, runsDir: string, tokenFile: string}}
  */
-function makeWorld({ longLog = false } = {}) {
+function makeWorld({ longLog = false, wholeObjectLog = false } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "faberun-dashboard-"));
   const tokenFile = join(directory, "dashboard.token");
   writeFileSync(tokenFile, `${TOKEN}\n`);
@@ -92,15 +93,24 @@ function makeWorld({ longLog = false } = {}) {
   const alphaNodes = [{ id: "a1" }];
   const betaNodes = [{ id: "root" }, { id: "left", dependsOn: ["root"] }, { id: "right", dependsOn: ["root"] }];
   const gammaNodes = [{ id: "g1" }];
-  const contracts = [contractFor("alpha", alphaNodes), contractFor("beta", betaNodes), contractFor("gamma", gammaNodes)];
+  const contractsByPhase = { alpha: contractFor("alpha", alphaNodes), beta: contractFor("beta", betaNodes), gamma: contractFor("gamma", gammaNodes) };
+  const contracts = Object.values(contractsByPhase);
   const { path: campaignPath } = initializeCampaign(runsDir, { campaignId: CAMPAIGN_ID, goal: "Ship the dashboard rewrite", contracts });
 
-  /** @param {string} phaseId @param {{id: string, snapshot?: Record<string, unknown>}[]} nodes */
+  /**
+   * @param {string} phaseId @param {{id: string, snapshot?: Record<string, unknown>}[]} nodes
+   */
   const writeRun = (phaseId, nodes) => {
     const runDir = join(runsDir, phaseId);
     mkdirSync(join(runDir, "nodes"), { recursive: true });
     mkdirSync(join(runDir, "logs"), { recursive: true });
     writeJson(join(runDir, "run.json"), { schemaVersion: PROTOCOL_SCHEMA_VERSION, contractVersion: CONTRACT_VERSION, pid: process.pid, processStartToken: null, startedAt: NOW, sourceIdentity: { kind: "run" } });
+    // A real run always carries this: scheduler.mjs writes a re-serialized
+    // copy of the authored contract into its own run directory the moment a
+    // run launches, and buildLinkedRunPhase (src/report/progress.mjs) reads
+    // it from there, not from the manifest's own copy. Missing it here would
+    // report recordGone for every fixture run, which no real launched run is.
+    writeFileSync(join(runDir, "contract.json"), readFileSync(contractsByPhase[/** @type {keyof typeof contractsByPhase} */ (phaseId)].path));
     for (const node of nodes) {
       writeJson(join(runDir, "nodes", `${node.id}.json`), {
         schemaVersion: PROTOCOL_SCHEMA_VERSION, contractVersion: CONTRACT_VERSION, id: node.id, type: "backend",
@@ -125,7 +135,27 @@ function makeWorld({ longLog = false } = {}) {
     },
   }]);
   mkdirSync(join(runsDir, "alpha", "logs"), { recursive: true });
-  writeFileSync(logPath, longLog ? `${"x".repeat(80)}\n`.repeat(6_000) : "line one\nline two\n");
+  // A worker transcript in the wire shape a stream-json harness writes: the
+  // frames a reader needs (the Write tool call, the scope refusal, the
+  // worker's own words, a plain engine guard line) beside the frames they do
+  // not (session init, the result/usage frame).
+  const transcriptLines = [
+    JSON.stringify({ type: "system", subtype: "init", cwd: "/repo", session_id: "s-1" }),
+    JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: "t1", name: "Write", input: { file_path: "/repo/src/resolve.mjs", content: "export const one = 1;" } }] } }),
+    JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "write denied: this path is outside the declared write scope" }] } }),
+    JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "The resolver now lives in one module." }] } }),
+    "warn: lock file stale, assumed abandoned",
+    JSON.stringify({ type: "result", subtype: "success", is_error: false, usage: { input_tokens: 12, output_tokens: 7 } }),
+  ];
+  // zcode's `--json` shape: one pretty-printed object dumped at exit, never
+  // one record per line, so every physical line fails transcriptStep's own
+  // per-line parse on its own.
+  const wholeObjectLogText = JSON.stringify({
+    sessionId: "sess_1", traceId: "trace_1", turnId: "turn_1",
+    response: "The resolver now lives in one module.",
+    usage: { inputTokens: 12, outputTokens: 7 },
+  }, null, 2);
+  writeFileSync(logPath, longLog ? `${"x".repeat(80)}\n`.repeat(6_000) : wholeObjectLog ? `${wholeObjectLogText}\n` : `${transcriptLines.join("\n")}\n`);
   writeFileSync(promptPath, longLog ? "Implement the dashboard rewrite. ".repeat(4_000) : "Implement the dashboard rewrite.");
 
   const betaRunDir = writeRun("beta", [
@@ -166,12 +196,16 @@ test("buildSnapshot embeds the campaign roll-up, the campaign list and the paral
   }
 });
 
-test("the drill-down detail reads the worker log, verification, diff, prompt, error code and revisions", () => {
+test("the drill-down detail reads the transcript, verification, diff, prompt, error code and revisions", () => {
   const world = makeWorld();
   try {
     const snapshot = /** @type {any} */ (buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID, runId: "alpha", nodeId: "a1" }));
     const detail = snapshot.detail;
-    assert.deepEqual(detail.log.lines, ["line one", "line two"]);
+    assert.deepEqual(detail.transcript.steps.map((/** @type {any} */ step) => step.kind), ["tool", "error", "message", "note"], "the init and result frames are dropped, everything the worker did stays");
+    assert.equal(detail.transcript.steps[0].label, "Write");
+    assert.equal(detail.transcript.steps[0].detail, "/repo/src/resolve.mjs");
+    assert.match(detail.transcript.steps[1].detail, /write denied: this path is outside the declared write scope/u);
+    assert.match(detail.transcript.steps[2].detail, /The resolver now lives in one module\./u);
     assert.equal(detail.verification.commands[0].command, "npm run check");
     assert.equal(detail.diff.stat, "1 file changed");
     assert.match(detail.prompt, /Implement the dashboard rewrite/u);
@@ -181,6 +215,38 @@ test("the drill-down detail reads the worker log, verification, diff, prompt, er
     assert.equal(failing.detail.errorCode, "gate_failed");
     assert.equal(failing.detail.revisions, 1);
     assert.equal(failing.detail.findings.findings[0].severity, "major");
+  } finally {
+    rmSync(world.directory, { recursive: true, force: true });
+  }
+});
+
+test("the transcript panel renders a tool call and the refusal it hit, and the raw JSONL never reaches the page", () => {
+  const world = makeWorld();
+  try {
+    const snapshot = /** @type {any} */ (buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID, runId: "alpha", nodeId: "a1" }));
+    // The wire format stays out of the payload's transcript itself.
+    assert.doesNotMatch(JSON.stringify(snapshot.detail.transcript), /tool_use|session_id|input_tokens/u);
+    const node = snapshot.progress.phases[0].nodes[0];
+    const panel = renderDrilldownHtml(node, snapshot.detail, null);
+    assert.match(panel, /<span class="pill progress">tool<\/span> <b>Write<\/b>/u);
+    assert.match(panel, /\/repo\/src\/resolve\.mjs/u);
+    assert.match(panel, /<div class="tstep error">[\s\S]*?write denied: this path is outside the declared write scope/u);
+    assert.match(panel, /The resolver now lives in one module\./u);
+    assert.doesNotMatch(panel, /"type":"tool_use"/u, "no raw JSON line is dumped into the panel");
+    // The raw file itself stays one click away, named in the On-disk block.
+    assert.match(panel, /worker transcript: [\s\S]*a1\.1\.worker\.jsonl/u);
+  } finally {
+    rmSync(world.directory, { recursive: true, force: true });
+  }
+});
+
+test("a whole-file pretty-printed worker log (zcode's --json shape) renders its response, not one raw line per physical line", () => {
+  const world = makeWorld({ wholeObjectLog: true });
+  try {
+    const snapshot = /** @type {any} */ (buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID, runId: "alpha", nodeId: "a1" }));
+    assert.deepEqual(snapshot.detail.transcript.steps.map((/** @type {any} */ step) => step.kind), ["message"], "one message step, not a note per physical line");
+    assert.equal(snapshot.detail.transcript.steps[0].detail, "The resolver now lives in one module.");
+    assert.doesNotMatch(JSON.stringify(snapshot.detail.transcript), /sessionId|traceId|inputTokens/u, "the wire fields never reach the payload");
   } finally {
     rmSync(world.directory, { recursive: true, force: true });
   }
@@ -289,7 +355,7 @@ test("snapshotSignature changes when a node snapshot changes and is stable other
 // --- src/web/app.mjs: pure graph/layout functions, importable directly since
 // they never touch a DOM global at module load time. ---
 
-test("the campaign chain names the campaign and draws one box per phase, each by its human name with the id as a secondary mark", () => {
+test("the campaign chain names the campaign and draws one box per phase, each by its human name", () => {
   const world = makeWorld();
   try {
     const snapshot = /** @type {any} */ (buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID }));
@@ -299,7 +365,7 @@ test("the campaign chain names the campaign and draws one box per phase, each by
     for (const phase of snapshot.progress.phases) {
       assert.match(svg, new RegExp(`data-phase="${phase.contractId}"`, "u"));
       assert.match(svg, new RegExp(`>${phase.name}<`, "u"), `${phase.contractId} is shown by its human name, not the id alone`);
-      assert.match(svg, new RegExp(`>${phase.phase}<`, "u"), `${phase.contractId}'s own phase id still appears as the secondary mono mark`);
+      assert.doesNotMatch(svg, new RegExp(`>${phase.phase}<`, "u"), `${phase.contractId}'s id line is gone from the box; it lives in the phase head`);
     }
     const phaseBoxes = (svg.match(/data-phase="/gu) ?? []).length;
     assert.equal(phaseBoxes, stages.length, "one box per stage, including the phases");
@@ -408,7 +474,7 @@ test("the selectors render with the campaigns this repository holds, labelled by
   }
 });
 
-test("a phase box carries its own phase id as the secondary mark, not the campaign-prefixed contract id, and a synthetic box carries no id mark", () => {
+test("a phase box shows only what fits -- its name and its state -- and leaves the id and the goal to the phase head", () => {
   const progress = {
     phases: [{
       contractId: "state-location-and-routing-economics-1-run-path-resolver",
@@ -423,13 +489,15 @@ test("a phase box carries its own phase id as the secondary mark, not the campai
   const synthetic = stages.filter((stage) => stage.idMark === null);
   assert.deepEqual(synthetic.map((stage) => stage.id), ["intent", "plan", "integration", "release"]);
   const svg = renderChainSvg(stages);
-  assert.match(svg, />1-run-path-resolver</u, "the phase's own id appears as the secondary mark");
-  assert.doesNotMatch(svg, />state-location-and-routing-economics-1-run-path-resolver</u, "the campaign-prefixed contract id never appears as rendered text");
+  assert.match(svg, />Run path resolver</u, "the phase renders by its human name");
+  assert.match(svg, /class="stage-state">active<\/text>/u, "the state line is the box's other half");
+  assert.doesNotMatch(svg, />1-run-path-resolver</u, "the id line is gone from the box -- four truncated lines was the noise");
+  assert.doesNotMatch(svg, /one module resolves/u, "the goal line is gone from the box; the open-phase head carries it untruncated");
   const chunks = svg.split(/(?=<g class="stage )/u);
-  for (const stage of synthetic) {
+  for (const stage of [...stages]) {
     const chunk = chunks.find((candidate) => candidate.includes(`data-phase="${stage.id}"`));
     assert.ok(chunk, `${stage.id} has its own box`);
-    assert.doesNotMatch(/** @type {string} */ (chunk), /class="mono dim stage-id"/u, `${stage.id} carries no id mark`);
+    assert.equal((/** @type {string} */ (chunk).match(/<text /gu) ?? []).length, 2, `${stage.id} carries exactly its label and its state`);
   }
 });
 
@@ -515,11 +583,75 @@ test("a long node id is truncated to an ellipsis inside its own box rather than 
   assert.match(idMatch[1], /…$/u, "truncation ends in an ellipsis, not at a character count that happens to overflow");
 });
 
+test("a node box reads its id as the sentence it is, while selection keeps the raw id", () => {
+  const svg = renderPhaseGraphSvg({ nodes: [{ id: "state-lives-under-the-home", dependsOn: [], status: "done" }] });
+  assert.match(svg, />State lives under the home</u, "the hyphens become the sentence the id always was");
+  assert.match(svg, /data-node="state-lives-under-the-home"/u, "selection still carries the raw id");
+  assert.match(svg, /aria-label="node state-lives-under-the-home, done"/u);
+});
+
+/**
+ * A roll-up carrying the four answers, in exactly the shape
+ * `renderCampaignProgress` emits (src/report/progress.mjs) -- the fields the
+ * summary band reads and nothing it invents.
+ */
+const ROLLUP = {
+  campaignId: CAMPAIGN_ID,
+  goal: "Ship the dashboard rewrite",
+  counts: { done: 8, settled: 11, total: 13 },
+  percentDone: 62,
+  costByRole: {
+    worker: { costUsd: 3.42, costProvenance: "priced", inputTokens: 6_900_000, outputTokens: 1_200_000, cacheReadInputTokens: 333_500_000, pricedInvocations: 5, unpricedInvocations: 0 },
+    judge: { costUsd: null, costProvenance: "unpriced", inputTokens: 1200, outputTokens: 300, cacheReadInputTokens: null, pricedInvocations: 0, unpricedInvocations: 2 },
+  },
+  costTotalUsd: 3.69,
+  time: { startedAt: NOW, elapsed: "5h00m", remaining: "~1h30m remaining (from 11 settled nodes)" },
+};
+
+test("the summary band opens the page with the four answers, rendered from the roll-up that carries them", () => {
+  const band = renderSummaryBandHtml(ROLLUP);
+  // Question one: the campaign and the value it delivers.
+  assert.match(band, /dash-campaign/u);
+  assert.match(band, /Ship the dashboard rewrite/u);
+  // Question two: progress as done over total, behind the notification's bar.
+  assert.match(band, /8\/13 nodes done/u);
+  assert.match(band, /38% left/u);
+  assert.match(band, /class="progressfill" style="width:62%"/u);
+  // Question three: cost with the token counts beside it, three kinds kept apart.
+  assert.match(band, /worker \$3\.42/u);
+  assert.match(band, /in 6\.9M · out 1\.2M · cache 333\.5M/u);
+  assert.match(band, /campaign total \$3\.69/u);
+  // Question four: elapsed, and the estimate of what is left, labelled as one.
+  assert.match(band, /running 5h00m/u);
+  assert.match(band, /~1h30m remaining \(from 11 settled nodes\)/u);
+});
+
+test("an unpriced role reads as unpriced in the summary band, never as a zero", () => {
+  const band = renderSummaryBandHtml(ROLLUP);
+  assert.match(band, /judge unpriced \(in 1\.2k · out 300 · cache –\)/u);
+  assert.doesNotMatch(band, /judge \$0/u);
+  // A role that never ran is a dash -- also never a fabricated zero.
+  const idle = renderSummaryBandHtml({
+    ...ROLLUP,
+    costByRole: { ...ROLLUP.costByRole, judge: { costUsd: null, costProvenance: "none", inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, pricedInvocations: 0, unpricedInvocations: 0 } },
+  });
+  assert.match(idle, /judge –/u);
+  assert.doesNotMatch(idle, /judge unpriced/u);
+});
+
+test("the summary band says the estimate is unknown when nothing has settled, and never prints one", () => {
+  const band = renderSummaryBandHtml({ ...ROLLUP, time: { startedAt: NOW, elapsed: "0h05m", remaining: null } });
+  assert.match(band, /running 0h05m/u);
+  assert.match(band, /estimate unknown/u);
+  assert.doesNotMatch(band, /remaining \(from/u);
+});
+
 // --- narrow-viewport layout: a test cannot measure a rendered pixel, so this
 // asserts only what decides the outcome — that the document declares a
 // device-width viewport, that the stylesheet (not the markup) carries the
 // narrow-viewport rules, and that the same section order ships at every
-// width, so a narrow viewport is never served different HTML. ---
+// width — summary first, spec map last — so a narrow viewport is never
+// served different HTML. ---
 
 test("the page declares a device-width viewport, and the narrow-viewport layout is expressed in the stylesheet rather than in different markup", async () => {
   const world = makeWorld();
@@ -530,7 +662,7 @@ test("the page declares a device-width viewport, and the narrow-viewport layout 
     const html = await (await fetch(`${base}/`, { headers: AUTH })).text();
     assert.match(html, /<meta name="viewport" content="[^"]*width=device-width[^"]*">/u, "the document declares a device-width viewport");
     const sectionOrder = [...html.matchAll(/<section id="(\w+)"/gu)].map((match) => match[1]);
-    assert.deepEqual(sectionOrder, ["specMap", "chain", "phaseGraph", "drilldown"], "the served markup keeps one section order regardless of viewport");
+    assert.deepEqual(sectionOrder, ["summary", "chain", "phaseGraph", "drilldown", "specMap"], "the served markup keeps one section order regardless of viewport");
 
     const css = await (await fetch(`${base}/app.css`, { headers: AUTH })).text();
     const mediaIndex = css.indexOf("@media (max-width:");
@@ -538,9 +670,29 @@ test("the page declares a device-width viewport, and the narrow-viewport layout 
     const narrowBody = css.slice(mediaIndex);
     assert.match(narrowBody, /\.specmap\s*\{[^}]*grid-template-columns:\s*1fr/u, "the narrow query collapses the spec map to a single column");
     const orderOf = (/** @type {string} */ selector) => Number(new RegExp(`${selector}\\s*\\{[^}]*order:\\s*(\\d+)`, "u").exec(narrowBody)?.[1]);
+    assert.ok(orderOf("#summary") < orderOf("#phaseGraph"), "the summary band leads on a narrow viewport");
     assert.ok(orderOf("#phaseGraph") < orderOf("#chain"), "the open phase is ordered ahead of the campaign chain on a narrow viewport");
     assert.ok(orderOf("#chain") < orderOf("#specMap"), "the campaign chain is ordered ahead of the spec map on a narrow viewport");
     assert.ok(orderOf("#specMap") > orderOf("#drilldown"), "the spec map is ordered last on a narrow viewport");
+  } finally {
+    server.close();
+    rmSync(world.directory, { recursive: true, force: true });
+  }
+});
+
+test("the spec map is present but not first: it ships collapsed and last, never greeting the reader", async () => {
+  const world = makeWorld();
+  const server = await startServer({ runsDir: world.runsDir, tokenFile: world.tokenFile, port: 0 });
+  try {
+    const { port } = /** @type {{address: () => {port: number}}} */ (server).address();
+    const html = await (await fetch(`http://127.0.0.1:${port}/`, { headers: AUTH })).text();
+    const sections = [...html.matchAll(/<section id="(\w+)"/gu)].map((match) => match[1]);
+    assert.equal(sections.at(-1), "specMap", "the spec map is the page's last band");
+    assert.notEqual(sections[0], "specMap", "the spec map is not the first thing on the page");
+    assert.match(html, /id="specMapBody"/u, "the spec map is present, not removed");
+    const detailsMatch = /<section id="specMap"[\s\S]*?<details class="specdetails">([\s\S]*?)<div id="specMapBody"/u.exec(html);
+    assert.ok(detailsMatch, "the spec map body sits inside a collapsible details element");
+    assert.doesNotMatch(/** @type {RegExpExecArray} */ (detailsMatch)[1], /\bopen\b/u, "the spec map ships collapsed by default");
   } finally {
     server.close();
     rmSync(world.directory, { recursive: true, force: true });

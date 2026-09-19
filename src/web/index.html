@@ -23,9 +23,8 @@
 </header>
 <main id="main">
   <p class="empty" id="emptyState">loading .runs …</p>
-  <section id="specMap" class="band" hidden>
-    <h2>Spec map</h2>
-    <div id="specMapBody" class="card"></div>
+  <section id="summary" class="band" hidden>
+    <div id="summaryBody" class="card summaryband"></div>
   </section>
   <section id="chain" class="band" hidden>
     <h2>Campaign</h2>
@@ -40,6 +39,14 @@
   <section id="drilldown" class="band" hidden>
     <h2>Node detail</h2>
     <div id="drilldownBody" class="card"><p class="empty">select a node above</p></div>
+  </section>
+  <section id="specMap" class="band" hidden>
+    <!-- A reference table is something a reader opens, not something that
+         greets them: collapsed by default, last on the page. -->
+    <details class="specdetails">
+      <summary>Spec map</summary>
+      <div id="specMapBody" class="card"></div>
+    </details>
   </section>
 </main>
 <script type="module" src="/app.mjs"></script>

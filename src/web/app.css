@@ -56,6 +56,24 @@ button { font: inherit; color: inherit; background: none; border: none; cursor: 
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
 .caveat { color: var(--text-2); font-size: 12.5px; margin: 0 0 12px; }
 
+/* The opening band: the owner's four questions, answered the way the
+   notification answers them. It leads the page at every width. */
+.summaryband { display: flex; flex-direction: column; gap: 10px; }
+.sumhead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.sumname { font-weight: 700; font-size: 15px; color: var(--fr-terra); }
+@media (prefers-color-scheme: dark) { .sumname { color: var(--fr-terra-300); } }
+.sumgoal { color: var(--text-2); font-size: 13px; }
+.sumrow { font-size: 13px; }
+.sumrow.progressline { display: flex; align-items: center; gap: 12px; }
+.progresstrack { flex: 1; min-width: 120px; height: 8px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
+.progressfill { height: 100%; background: var(--ok); }
+.sumcounts { white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* The collapsed spec map: a reference table a reader opens, styled so the
+   closed summary reads as the band heading it replaced. */
+.specdetails > summary { font-size: 12px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-3); cursor: pointer; margin: 0 0 10px; display: inline-block; list-style: revert; }
+.specdetails > summary:hover { color: var(--text-2); }
+
 .specmap { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .specfront h3 { font-size: 12.5px; margin: 0 0 8px; color: var(--fr-terra); }
 .reqrow { border-top: 1px solid var(--border); padding: 8px 0; }
@@ -107,6 +125,16 @@ svg .node:focus-visible rect, svg .stage:focus-visible rect { outline: 2px solid
 .link { padding: 2px 0; word-break: break-all; }
 .finding { padding: 6px 0; border-bottom: 1px solid var(--border); }
 .finding:last-child { border-bottom: none; }
+
+/* The worker transcript, one step per line: what the worker did, not the
+   wire format it did it in. The raw file the On-disk block names stays the
+   place to read the JSONL itself. */
+.tstep { padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap; }
+.tstep:last-child { border-bottom: none; }
+.tstep .mono { word-break: break-all; }
+.tstep.error { color: var(--fail); }
+.tstep.message { color: var(--text); }
+.tstep.note { color: var(--text-2); }
 pre { white-space: pre-wrap; word-break: break-word; background: var(--surface-2); border-radius: 8px; padding: 10px 12px; font-family: var(--mono); font-size: 12px; max-height: 360px; overflow: auto; }
 
 .timelinelist { display: flex; flex-direction: column; gap: 6px; }
@@ -116,11 +144,11 @@ pre { white-space: pre-wrap; word-break: break-word; background: var(--surface-2
 
 /* Narrow viewport (phone widths, ~390px and up to a small tablet): the
    header stacks instead of clipping, the spec map collapses to one column,
-   and the bands reorder so the open phase — what is happening right now —
-   leads, with the spec map (a static requirement reference) last. The
-   markup is the same document at every width; only this media query moves
-   things, via `order` on the `#main` flex container below, never by
-   emitting different HTML for the two cases. */
+   and the bands reorder so the summary — the four answers — leads and the
+   open phase follows, with the spec map (a static requirement reference)
+   last. The markup is the same document at every width; only this media
+   query moves things, via `order` on the `#main` flex container below,
+   never by emitting different HTML for the two cases. */
 @media (max-width: 600px) {
   #top { flex-wrap: wrap; row-gap: 8px; }
   #top .field { flex: 1 1 100%; }
@@ -129,10 +157,11 @@ pre { white-space: pre-wrap; word-break: break-word; background: var(--surface-2
   #conn { flex: 1 1 100%; justify-content: flex-end; }
 
   #main { display: flex; flex-direction: column; }
-  #phaseGraph { order: 1; }
-  #chain { order: 2; }
-  #drilldown { order: 3; }
-  #specMap { order: 4; }
+  #summary { order: 1; }
+  #phaseGraph { order: 2; }
+  #chain { order: 3; }
+  #drilldown { order: 4; }
+  #specMap { order: 5; }
 
   .specmap { grid-template-columns: 1fr; }
 

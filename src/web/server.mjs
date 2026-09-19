@@ -158,11 +158,137 @@ function findingsTab(gate) {
   };
 }
 
-/** @param {string} runDir @param {Record<string, any>} node @returns {{lines: string[], path: string|null}} */
-function workerLogTab(runDir, node) {
+/**
+ * What the worker did, read out of its own stdout transcript: the sequence of
+ * its tool calls with the file or command each touched, its own messages, and
+ * every error or refusal it hit. The raw JSONL -- usage counters, session
+ * init frames, base64 thinking signatures -- is exactly what a reader cannot
+ * read (measured 2026-09-18: the dump hid a `write denied: this path is
+ * outside the declared write scope` line inside that wall), so the panel
+ * renders these steps and the raw file stays where the drill-down's On-disk
+ * block already names it.
+ *
+ * @param {Record<string, any>} node @returns {{steps: {kind: "tool"|"message"|"error"|"note", label: string|null, detail: string}[], path: string|null}}
+ */
+function transcriptTab(node) {
   const worker = lastWorkerInvocation(node.invocations);
-  if (!worker?.stdoutPath) return { lines: [], path: null };
-  return { lines: tailTextLines(worker.stdoutPath, LOG_TAIL_MAX_LINES, LOG_TAIL_MAX_BYTES), path: basename(worker.stdoutPath) };
+  if (!worker?.stdoutPath) return { steps: [], path: null };
+  const lines = tailTextLines(worker.stdoutPath, LOG_TAIL_MAX_LINES, LOG_TAIL_MAX_BYTES);
+  const whole = wholeRecordStep(lines);
+  if (whole) return { steps: [whole], path: basename(worker.stdoutPath) };
+  const steps = [];
+  for (const line of lines) {
+    const step = transcriptStep(line);
+    if (step) steps.push(step);
+  }
+  return { steps: steps.slice(-TRANSCRIPT_MAX_STEPS), path: basename(worker.stdoutPath) };
+}
+
+/**
+ * A worker log that is one pretty-printed JSON object rather than one JSON
+ * record per line -- measured 2026-09-19: zcode's `--json` dumps a whole turn
+ * this way, at exit. `transcriptStep`'s per-line parse fails on every line of
+ * such a file, since none is valid JSON on its own, and the panel fell back
+ * to rendering each physical line verbatim: session ids and token counters,
+ * the exact wall this tab exists to hide. Tried before the per-line loop, on
+ * the same already-windowed lines `transcriptTab` reads (no second file
+ * read): only when rejoining them parses as one object does this return a
+ * step, so a genuine JSONL stream -- several objects, one per line, whose
+ * join is never valid JSON -- falls through unchanged, and a file larger
+ * than the tail window (whose lines are a fragment of the object, not the
+ * whole of it) correctly fails to parse here too.
+ *
+ * @param {string[]} lines @returns {{kind: "tool"|"message"|"error"|"note", label: string|null, detail: string}|null}
+ */
+function wholeRecordStep(lines) {
+  if (lines.length < 2) return null;
+  let record;
+  try {
+    record = JSON.parse(lines.join("\n"));
+  } catch {
+    return null;
+  }
+  if (!record || typeof record !== "object" || Array.isArray(record)) return null;
+  const response = typeof record.response === "string" ? record.response.trim() : "";
+  if (!response) return null;
+  return { kind: "message", label: null, detail: oneLine(response) };
+}
+
+/** The most steps a transcript panel carries; the tail keeps the newest. */
+const TRANSCRIPT_MAX_STEPS = 120;
+/** A refusal or scope violation the worker hit, wherever the harness logged it. */
+const REFUSAL_RE = /(denied|refused|outside the declared (write|read) scope)/i;
+
+/**
+ * One readable step from one transcript line. No provider's wire schema is
+ * named here -- the harnesses differ and change -- so the record is scanned
+ * depth-first for the semantic signals: a tool name, the file or command the
+ * tool touched, the worker's own words, an error or refusal. A line carrying
+ * none of them (usage counters, heartbeats, init frames) is dropped; a line
+ * that is not JSON at all is kept verbatim, since the engine writes plain
+ * guard lines into that stream.
+ *
+ * @param {string} line @returns {{kind: "tool"|"message"|"error"|"note", label: string|null, detail: string}|null}
+ */
+function transcriptStep(line) {
+  let record;
+  try {
+    record = /** @type {Record<string, any>} */ (JSON.parse(line));
+  } catch {
+    const text = oneLine(line);
+    if (!text) return null;
+    return { kind: REFUSAL_RE.test(text) ? "error" : "note", label: null, detail: text };
+  }
+  if (!record || typeof record !== "object" || Array.isArray(record)) return null;
+  /** @type {{tool: string|null, target: string|null, text: string|null, error: string|null, isError: boolean}} */
+  const hits = { tool: null, target: null, text: null, error: null, isError: false };
+  scanTranscriptRecord(record, 0, hits);
+  // An error outranks the tool call in the same record: a reader skimming the
+  // sequence needs the refusal, not the tool that caused it. A bare
+  // `is_error: true` with no message of its own still reports, generically,
+  // rather than silently dropping the failure.
+  if (hits.error) return { kind: "error", label: null, detail: oneLine(hits.error) };
+  if (hits.isError) return { kind: "error", label: null, detail: oneLine(hits.text?.trim() || "the tool reported an error") };
+  if (hits.tool) return { kind: "tool", label: hits.tool, detail: hits.target ? oneLine(hits.target) : "" };
+  if (hits.text?.trim()) return { kind: "message", label: null, detail: oneLine(hits.text) };
+  return null;
+}
+
+/** @param {unknown} value @param {number} depth @param {{tool: string|null, target: string|null, text: string|null, error: string|null, isError: boolean}} hits */
+function scanTranscriptRecord(value, depth, hits) {
+  if (depth > 6 || value === null || typeof value !== "object") return;
+  if (Array.isArray(value)) {
+    for (const item of value.slice(0, 24)) scanTranscriptRecord(item, depth + 1, hits);
+    return;
+  }
+  // A tool call announces itself by its own `type`, checked on this record
+  // directly -- not from the parent's point of view -- because a tool_use
+  // record most often arrives as an *array element* (a content block), never
+  // reached as an object-valued property the old check below relied on;
+  // measured 2026-09-19: that asymmetry dropped every tool step from a
+  // Claude-shaped transcript, the exact case this panel exists to render.
+  const record = /** @type {Record<string, unknown>} */ (value);
+  if ((record.type === "tool_use" || record.type === "function_call" || record.type === "exec_command_begin") && !hits.tool) {
+    hits.tool = String(record.name ?? "command");
+  }
+  if (typeof record.exit_code === "number" && record.exit_code !== 0 && !hits.error) hits.error = `exit code ${record.exit_code}`;
+  for (const [key, item] of Object.entries(record)) {
+    if (item === null || item === undefined) continue;
+    if (typeof item === "string") {
+      if ((key === "tool_name" || key === "tool") && !hits.tool) hits.tool = item;
+      else if ((key === "file_path" || key === "file" || key === "path" || key === "command") && !hits.target) hits.target = item;
+      else if ((key === "text" || key === "message") && !hits.text) hits.text = item;
+      else if ((key === "error" || key === "stderr") && item.trim() && !hits.error) hits.error = item;
+      else if (!hits.error && REFUSAL_RE.test(item)) hits.error = item;
+    } else if (Array.isArray(item)) {
+      if (key === "command" && !hits.target && item.every((entry) => typeof entry === "string")) hits.target = item.join(" ");
+      else scanTranscriptRecord(item, depth + 1, hits);
+    } else if (typeof item === "object") {
+      scanTranscriptRecord(item, depth + 1, hits);
+    } else if (typeof item === "boolean") {
+      if (key === "is_error" && item) hits.isError = true;
+    }
+  }
 }
 
 /** @param {Record<string, any>} node @returns {string|null} */
@@ -210,7 +336,7 @@ function buildNodeDetail(runsDir, runId, nodeId) {
       status: invocation.status ?? null,
       costUsd: typeof invocation.costUsd === "number" ? invocation.costUsd : null,
     })),
-    log: workerLogTab(runDir, record),
+    transcript: transcriptTab(record),
     verification: verificationTab(record.verification),
     diff: diffTab(record.scope),
     findings: findingsTab(record.gate),
@@ -218,12 +344,12 @@ function buildNodeDetail(runsDir, runId, nodeId) {
   };
 }
 
-/** Shrink the payload, in order, until it fits the 200 KB ceiling: the open node's log tail, its verification output tails, then its prompt. @param {Record<string, any>} payload @returns {Record<string, unknown>} */
+/** Shrink the payload, in order, until it fits the 200 KB ceiling: the open node's transcript steps, its verification output tails, then its prompt. @param {Record<string, any>} payload @returns {Record<string, unknown>} */
 function boundSnapshot(payload) {
   const fits = () => Buffer.byteLength(JSON.stringify(payload), "utf8") <= SNAPSHOT_MAX_BYTES;
   if (fits()) return payload;
   const detail = payload.detail;
-  if (detail?.log?.lines) detail.log.lines = detail.log.lines.slice(-20);
+  if (detail?.transcript?.steps) detail.transcript.steps = detail.transcript.steps.slice(-20);
   if (fits()) return payload;
   if (detail?.verification?.commands) detail.verification.commands = detail.verification.commands.map((/** @type {any} */ command) => ({ ...command, outputTail: truncateChars(command.outputTail, 200) }));
   if (fits()) return payload;

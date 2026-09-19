@@ -30,6 +30,64 @@ export function fmtUsd(value) {
   return typeof value === "number" ? `$${value.toFixed(2)}` : "–";
 }
 
+/** Token counts in the compact scale the status table prints: `300`, `1.2k`, `6.9M`; an unreported count is a dash, never a zero. @param {number|null|undefined} value @returns {string} */
+export function fmtTokens(value) {
+  if (typeof value !== "number" || !Number.isFinite(value)) return "–";
+  /** @param {number} scaled @returns {string} */
+  const trim = (scaled) => {
+    const fixed = scaled.toFixed(1);
+    return fixed.endsWith(".0") ? fixed.slice(0, -2) : fixed;
+  };
+  if (value >= 1e6) return `${trim(value / 1e6)}M`;
+  if (value >= 1e3) return `${trim(value / 1e3)}k`;
+  return String(Math.round(value));
+}
+
+/**
+ * One role's cell in the summary band's cost line: the dollars when the role
+ * has them on record, `unpriced` when it ran but any price is missing, `–`
+ * when it never ran -- and the three token counts beside the money in every
+ * cell that reports a role at all, because the three kinds differ by two
+ * orders of magnitude (measured 2026-09-18: 6.9M input against 333.5M
+ * cache-read) and a dollar figure alone hides that scale. A missing price is
+ * never a zero.
+ *
+ * @param {Record<string, any>|null|undefined} role @returns {string}
+ */
+export function roleCostCell(role) {
+  if (!role || role.costProvenance === "none") return "–";
+  const dollars = typeof role.costUsd === "number" ? fmtUsd(role.costUsd) : "unpriced";
+  return `${dollars} (in ${fmtTokens(role.inputTokens)} · out ${fmtTokens(role.outputTokens)} · cache ${fmtTokens(role.cacheReadInputTokens)})`;
+}
+
+/**
+ * The page's first band, answering the owner's four questions the way the
+ * notification answers them -- the bar, not an inspiration: what this
+ * campaign delivers, progress as done over total behind the same percentage
+ * the notification prints, cost with the token counts beside it (a role with
+ * no price reads as unpriced, never a zero), and elapsed with the estimate
+ * of what is left -- a `~` number from settled spans alone, `complete` when
+ * nothing is left, and `estimate unknown` when nothing has settled to base
+ * one on. Everything comes from the roll-up; nothing is recomputed here.
+ *
+ * @param {Record<string, any>|null|undefined} progress @returns {string}
+ */
+export function renderSummaryBandHtml(progress) {
+  if (!progress) return `<p class="empty">no campaign found</p>`;
+  const counts = progress.counts ?? { done: 0, total: 0 };
+  const pct = typeof progress.percentDone === "number" ? progress.percentDone : 0;
+  const time = progress.time ?? {};
+  const remaining = typeof time.remaining === "string" ? time.remaining : "estimate unknown";
+  return `
+    <div class="sumhead"><span class="sumname mono">${esc(progress.campaignId ?? "")}</span><span class="sumgoal">${esc(progress.goal ?? "")}</span></div>
+    <div class="sumrow progressline">
+      <div class="progresstrack" role="progressbar" aria-valuenow="${pct}" aria-valuemin="0" aria-valuemax="100" aria-label="${counts.done} of ${counts.total} nodes done"><div class="progressfill" style="width:${pct}%"></div></div>
+      <span class="sumcounts">${counts.done}/${counts.total} nodes done · ${100 - pct}% left</span>
+    </div>
+    <div class="sumrow dim">cost — worker ${roleCostCell(progress.costByRole?.worker)} · judge ${roleCostCell(progress.costByRole?.judge)} · campaign total ${fmtUsd(progress.costTotalUsd)}</div>
+    <div class="sumrow dim">running ${esc(time.elapsed ?? "–")} · ${esc(remaining)}</div>`;
+}
+
 /** @param {string|null|undefined} iso @returns {string} */
 function fmtWhen(iso) {
   const t = Date.parse(String(iso ?? ""));
@@ -171,6 +229,19 @@ function clipPathHtml(clipId, x, y, width, height) {
   return `<clipPath id="${clipId}"><rect x="${x}" y="${y}" width="${width}" height="${height}" /></clipPath>`;
 }
 
+/**
+ * A node id in this repository is a sentence with hyphens, so the box reads
+ * it as one — the same treatment a phase id gets from `phaseName` in the
+ * roll-up. The raw id stays in `data-node` (selection) and the aria-label
+ * (screen readers); only the rendered text changes.
+ *
+ * @param {string} id @returns {string}
+ */
+function nodeIdSentence(id) {
+  const words = String(id).replaceAll("-", " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 /** @param {{nodes?: {id: string, dependsOn?: string[], status: string}[]}|null|undefined} phase @returns {string} */
 export function renderPhaseGraphSvg(phase) {
   if (!phase || !Array.isArray(/** @type {any} */ (phase).nodes) || /** @type {any} */ (phase).nodes.length === 0) {
@@ -202,7 +273,7 @@ export function renderPhaseGraphSvg(phase) {
       <rect x="${x}" y="${y}" width="${NODE_BOX_W}" height="${NODE_BOX_H}" rx="8" />
       <defs>${clipPathHtml(clipId, x, y, NODE_BOX_W, NODE_BOX_H)}</defs>
       <g clip-path="url(#${clipId})">
-        <text x="${x + 10}" y="${y + 22}" class="node-id mono">${esc(truncateOneLine(node.id, NODE_ID_MAX_CHARS))}</text>
+        <text x="${x + 10}" y="${y + 22}" class="node-id mono">${esc(truncateOneLine(nodeIdSentence(node.id), NODE_ID_MAX_CHARS))}</text>
         <text x="${x + 10}" y="${y + 40}" class="node-status">${esc(statusLabel(node.status))}</text>
       </g>
     </g>`;
@@ -214,11 +285,13 @@ export function renderPhaseGraphSvg(phase) {
  * The campaign chain: two fixed conceptual stages (intent, plan), one stage
  * per manifest phase in order, then integration and release. `current` marks
  * the first phase that is not fully settled — the last one once every phase
- * is. A phase's `idMark` is its own local phase id (the useful, short mark),
- * never the campaign-prefixed contract id that already prefixes the campaign
- * heading above the chain; a synthetic stage (intent, plan, integration,
- * release) carries no id at all, since its label and its id are the same
- * word.
+ * is. The box renders the two lines that fit — the phase's human name and
+ * its state — and nothing else: all four former lines truncated at once
+ * (measured 2026-09-18: name, id, state and goal), which is why the chain
+ * read as noise, while the id mark and the goal already live, untruncated,
+ * in the open-phase band's head a click away. A phase's `idMark` and `goal`
+ * stay on the stage object for that head; a synthetic stage (intent, plan,
+ * integration, release) carries neither.
  *
  * @param {{phases: {contractId: string, phase: string|null, runId: string|null, name: string|null, goal: string|null, counts: {done: number, settled: number, total: number}}[]}|null} progress
  * @param {string|null} campaignStatus
@@ -261,8 +334,6 @@ const STAGE_H = 80;
 const STAGE_GAP = 40;
 const STAGE_MARGIN = 16;
 const STAGE_LABEL_MAX_CHARS = maxCharsFor(STAGE_W, SANS_CHAR_WIDTH_PX);
-const STAGE_ID_MAX_CHARS = maxCharsFor(STAGE_W, MONO_CHAR_WIDTH_PX);
-const STAGE_GOAL_MAX_CHARS = maxCharsFor(STAGE_W, SANS_CHAR_WIDTH_PX);
 
 /** @param {{id: string, idMark: string|null, label: string, goal?: string|null, state: string, current: boolean}[]} stages @returns {string} */
 export function renderChainSvg(stages) {
@@ -278,16 +349,12 @@ export function renderChainSvg(stages) {
     const x = STAGE_MARGIN + index * (STAGE_W + STAGE_GAP);
     const y = STAGE_MARGIN;
     const clipId = `stageclip${index}`;
-    const idLine = stage.idMark ? `<text x="${x + 10}" y="${y + 34}" class="mono dim stage-id">${esc(truncateOneLine(stage.idMark, STAGE_ID_MAX_CHARS))}</text>` : "";
-    const goalLine = stage.goal ? `<text x="${x + 10}" y="${y + 66}" class="stage-goal">${esc(truncateOneLine(stage.goal, STAGE_GOAL_MAX_CHARS))}</text>` : "";
     return `<g class="stage ${esc(stage.state)}${stage.current ? " current" : ""}" data-phase="${esc(stage.id)}">
       <rect x="${x}" y="${y}" width="${STAGE_W}" height="${STAGE_H}" rx="8" />
       <defs>${clipPathHtml(clipId, x, y, STAGE_W, STAGE_H)}</defs>
       <g clip-path="url(#${clipId})">
-        <text x="${x + 10}" y="${y + 20}" class="stage-label">${esc(truncateOneLine(stage.label, STAGE_LABEL_MAX_CHARS))}</text>
-        ${idLine}
-        <text x="${x + 10}" y="${y + 50}" class="stage-state">${esc(statusLabel(stage.state))}</text>
-        ${goalLine}
+        <text x="${x + 10}" y="${y + 34}" class="stage-label">${esc(truncateOneLine(stage.label, STAGE_LABEL_MAX_CHARS))}</text>
+        <text x="${x + 10}" y="${y + 56}" class="stage-state">${esc(statusLabel(stage.state))}</text>
       </g>
     </g>`;
   }).join("");
@@ -305,10 +372,27 @@ export function campaignOptionsHtml(campaigns, selectedId) {
   return (campaigns ?? []).map((campaign) => `<option value="${esc(campaign.id)}" ${campaign.id === selectedId ? "selected" : ""}>${esc(campaign.id)} (${esc(campaign.status)})</option>`).join("");
 }
 
-/** @param {Record<string, any>|null|undefined} detail @returns {string} */
-function logSectionHtml(detail) {
-  const lines = detail?.log?.lines ?? [];
-  return `<section class="detailblock"><h4>Worker transcript</h4>${lines.length ? `<pre>${esc(lines.join("\n"))}</pre>` : '<p class="empty">no log yet</p>'}</section>`;
+/**
+ * What the worker did, one step per line: its tool calls with the file or
+ * command each touched, its own messages, and every error or refusal in the
+ * fail color. The raw JSONL stays in the file the On-disk block names -- the
+ * transcript's own `path` -- never in the reader's face.
+ *
+ * @param {Record<string, any>|null|undefined} detail @returns {string}
+ */
+function transcriptSectionHtml(detail) {
+  const steps = detail?.transcript?.steps ?? [];
+  const body = steps.length
+    ? steps.map((/** @type {any} */ step) => {
+      const mark = step.kind === "tool"
+        ? `<span class="pill progress">tool</span> <b>${esc(step.label ?? "tool")}</b>`
+        : step.kind === "error" ? `<span class="pill fail">error</span>`
+          : step.kind === "note" ? `<span class="pill muted">note</span>` : "";
+      const detailText = step.detail ? `<span${step.kind === "tool" ? ' class="mono"' : ""}>${esc(step.detail)}</span>` : "";
+      return `<div class="tstep ${esc(step.kind)}">${mark}${detailText ? ` ${detailText}` : ""}</div>`;
+    }).join("")
+    : '<p class="empty">no transcript yet</p>';
+  return `<section class="detailblock"><h4>Worker transcript</h4>${body}</section>`;
 }
 
 /** @param {Record<string, any>|null|undefined} detail @returns {string} */
@@ -400,7 +484,7 @@ export function renderDrilldownHtml(node, detail, contractPath) {
     ${noteHtml}
     <section class="detailblock"><h4>On disk</h4>${links || '<p class="empty">nothing recorded yet</p>'}</section>
     ${judgeRoundsHtml(detail)}
-    ${logSectionHtml(detail)}
+    ${transcriptSectionHtml(detail)}
     ${verificationSectionHtml(detail)}
     ${diffSectionHtml(detail)}
     ${findingsSectionHtml(detail)}
@@ -489,7 +573,7 @@ function campaignStatusOf(snapshot) {
 /** @param {Record<string, any>} snapshot */
 function renderAll(snapshot) {
   const doc = G().document;
-  const bandIds = ["specMap", "chain", "phaseGraph", "drilldown"];
+  const bandIds = ["summary", "specMap", "chain", "phaseGraph", "drilldown"];
   const empty = doc.getElementById("emptyState");
   if (!snapshot.selectedCampaignId || !snapshot.progress) {
     empty.hidden = false;
@@ -500,6 +584,10 @@ function renderAll(snapshot) {
   empty.hidden = true;
   for (const id of bandIds) doc.getElementById(id).hidden = false;
   const progress = snapshot.progress;
+  // The page opens with the answers, not with a reference table: the summary
+  // band first, the spec map last and collapsed (index.html ships it inside a
+  // closed `<details>`), where a reader opens it deliberately.
+  doc.getElementById("summaryBody").innerHTML = renderSummaryBandHtml(progress);
   doc.getElementById("specMapBody").innerHTML = buildSpecMapHtml(progress.phases);
   const stages = chainStages(progress, campaignStatusOf(snapshot));
   doc.getElementById("chainGoal").textContent = campaignHeadingText(progress);
