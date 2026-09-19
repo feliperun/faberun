@@ -16,6 +16,11 @@ import { appendJournal } from "../../src/campaign/journal.mjs";
 import { computeNextItems, renderNext, renderNextJson } from "../../src/report/next.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
+// runsRoot registers every resolved path under $FABERUN_HOME; these fixtures
+// resolve through it without the shared helpers, so the home is always a
+// throwaway directory, never the operator's own ~/.faberun.
+process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home-"));
+
 const CLI = fileURLToPath(new URL("../../src/cli.mjs", import.meta.url));
 
 /** @param {string} prefix @returns {string} */

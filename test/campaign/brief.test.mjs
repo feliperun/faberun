@@ -12,6 +12,11 @@ import { BRIEF_BYTES, BRIEF_FILE, HANDOFF_FILE, PROJECTION_FILE } from "../../sr
 import { renderCampaignHandoffSafely } from "../../src/engine/notify-queue.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
+// runsRoot registers every resolved path under $FABERUN_HOME; these fixtures
+// resolve through it without the shared helpers, so the home is always a
+// throwaway directory, never the operator's own ~/.faberun.
+process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home-"));
+
 // The operator brief: a pure, hard-bounded rendering of the campaign's durable
 // facts, refreshed at the same seam that rewrites HANDOFF.md.
 

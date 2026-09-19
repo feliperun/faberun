@@ -5,7 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeCampaign, initializeCampaign, preserveCampaignLedger, registerRun } from "../../src/campaign/index.mjs";
 import { appendJournal } from "../../src/campaign/journal.mjs";
+import { reassociateProject } from "../../src/cli/project.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
+
+// runsRoot registers every resolved path under $FABERUN_HOME; these fixtures
+// resolve through it without the shared helpers, so the home is always a
+// throwaway directory, never the operator's own ~/.faberun.
+process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home-"));
 
 // campaign close preserves ledger: journal, record and linked-run usage survive under docs/.
 
@@ -57,4 +63,47 @@ test("preserveCampaignLedger is idempotent across repeated calls", () => {
   assert.deepEqual(firstListing, secondListing);
   assert.equal(first.length, second.length);
   assert.equal(readFileSync(join(ledgerDir, "run-1.usage.jsonl"), "utf8"), '{"tokens":3}\n');
+});
+
+/**
+ * @param {string} campaignPath @param {string} eventId @returns {void}
+ */
+function recordRetrospective(campaignPath, eventId) {
+  appendJournal(campaignPath, {
+    type: "retrospective",
+    eventId,
+    at: new Date().toISOString(),
+    sessionId: "codex-1",
+    text: "Retrospective: shipped; no follow-ups.",
+  });
+}
+
+test("close preserves the ledger at the project's registered repository, not under the home", () => {
+  const home = mkdtempSync(join(tmpdir(), "faberun-ledger-home-"));
+  process.env.FABERUN_HOME = home;
+  const repo = mkdtempSync(join(tmpdir(), "runner-campaign-ledger-repo-"));
+  const runsDir = runsRoot(repo);
+  const created = initializeCampaign(runsDir, { campaignId: "homed", goal: "Preserve inside the repository" });
+  recordRetrospective(created.path, "retro-homed");
+
+  const closed = closeCampaign(created.path);
+  const ledgerDir = join(repo, "docs", "campaigns", "homed", "ledger");
+  assert.deepEqual(closed.ledgerFiles, [join(ledgerDir, "journal.jsonl"), join(ledgerDir, "campaign.json")]);
+  assert.ok(existsSync(join(ledgerDir, "journal.jsonl")), "the ledger lands inside the git repository");
+  assert.equal(existsSync(join(home, "docs")), false, "nothing is preserved under the home");
+});
+
+test("a project reassociated after creation preserves the ledger at its new path", () => {
+  const home = mkdtempSync(join(tmpdir(), "faberun-ledger-home-"));
+  process.env.FABERUN_HOME = home;
+  const original = mkdtempSync(join(tmpdir(), "runner-campaign-ledger-move-from-"));
+  const runsDir = runsRoot(original);
+  const created = initializeCampaign(runsDir, { campaignId: "moved", goal: "Follow the repository" });
+  recordRetrospective(created.path, "retro-moved");
+  const moved = join(tmpdir(), "runner-campaign-ledger-move-to");
+  reassociateProject(home, moved, { from: original });
+
+  closeCampaign(created.path);
+  assert.ok(existsSync(join(moved, "docs", "campaigns", "moved", "ledger", "journal.jsonl")), "preserved at the current registered path");
+  assert.equal(existsSync(join(original, "docs")), false, "not at the path the project has moved away from");
 });

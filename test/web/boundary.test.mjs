@@ -7,6 +7,11 @@ import { assertPrivateBind, loadBearerToken, resolveBindAddress } from "../../sr
 import { startServer } from "../../src/web/server.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
+// runsRoot registers every resolved path under $FABERUN_HOME; these fixtures
+// resolve through it without the shared helpers, so the home is always a
+// throwaway directory, never the operator's own ~/.faberun.
+process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home-"));
+
 const TOKEN = "boundary-test-bearer-7f3d9c2e5a8146b0";
 const AUTH = { authorization: `Bearer ${TOKEN}` };
 

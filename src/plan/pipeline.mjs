@@ -49,6 +49,16 @@ import { campaignTree, runDirectory } from "../run/paths.mjs";
 export const PLANNER_SESSION_ID = "planner";
 
 /**
+ * Where this pipeline stages the scratch files it must hand a discovery node
+ * through `readFiles`: `<cwd>/<this>/<campaignId>/<phase>/`, gitignored. Kept
+ * out of `RUNS_DIR_NAME` on purpose — a repository with nothing under the
+ * home yet treats a present `.runs` as an unmigrated legacy layout
+ * (`runsRoot` in `src/run/paths.mjs`), and this directory must never trip
+ * that check.
+ */
+const PLAN_SCRATCH_DIR_NAME = ".faberun-plan";
+
+/**
  * No taskKind/riskTier row is opinionated by default: absent an operator
  * `--runtime-defaults` instruction, every sized node routes through plain
  * availability discovery (`resolveRuntimes`'s cheapest worker, strongest
@@ -98,8 +108,17 @@ export async function runPlanningPipeline(options) {
     type: "plan.stage", at: new Date().toISOString(), campaignId, phase, stage, ...extra,
   });
 
+  // A discovery node's `readFiles` must resolve inside `cwd` (the task packet's
+  // own containment rule), but `plansDir` lives under the home since R2 and no
+  // longer nests inside the repository. Repo facts, the working plan and each
+  // round's findings are relayed to a worker through `readFiles`, so they are
+  // staged here instead, gitignored and disposable — the durable record stays
+  // in `plansDir`.
+  const scratchDir = join(cwd, PLAN_SCRATCH_DIR_NAME, campaignId, phase);
+  mkdirSync(scratchDir, { recursive: true });
+
   const repoFacts = collectRepoFacts(cwd);
-  const repoFactsPath = join(plansDir, "repo-facts.json");
+  const repoFactsPath = join(scratchDir, "repo-facts.json");
   writeFileSync(repoFactsPath, `${JSON.stringify(repoFacts, null, 2)}\n`);
   const relativeRepoFactsPath = relative(cwd, repoFactsPath);
   logStage("repo-facts", { gitHead: repoFacts.gitHead });
@@ -144,7 +163,7 @@ export async function runPlanningPipeline(options) {
   let plan = validatePlanOutput(draft.output.plan);
   logStage("draft", { runId: draft.contract.id, nodeCount: plan.nodes.length });
 
-  const workingPlanPath = join(plansDir, "plan.working.json");
+  const workingPlanPath = join(scratchDir, "plan.working.json");
   writeJsonAtomic(workingPlanPath, plan);
   const relativeWorkingPlanPath = relative(cwd, workingPlanPath);
 
@@ -167,7 +186,7 @@ export async function runPlanningPipeline(options) {
       ]);
       return { status: "contested", plansDir, planPath, findings, round };
     }
-    const findingsPath = join(plansDir, `findings-round-${round}.json`);
+    const findingsPath = join(scratchDir, `findings-round-${round}.json`);
     writeJsonAtomic(findingsPath, findings);
     const revise = await runStage("revise", {
       specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, findingsPath: relative(cwd, findingsPath),

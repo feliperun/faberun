@@ -10,6 +10,11 @@ import { allowanceDelta, allowanceEventFields, defaultInvoke, sampleAllowance } 
 import { normalizeClaudeResult } from "../../src/harnesses/protocol.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
+// runsRoot registers every resolved path under $FABERUN_HOME; these fixtures
+// resolve through it without the shared helpers, so the home is always a
+// throwaway directory, never the operator's own ~/.faberun.
+process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home-"));
+
 /** The `rate_limit_event` line as measured 2026-09-17 against a live `claude -p` probe, verbatim. */
 const MEASURED_RATE_LIMIT_LINE = JSON.stringify({
   type: "rate_limit_event",

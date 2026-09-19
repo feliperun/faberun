@@ -8,6 +8,11 @@ import { initializeCampaign, promoteRunInCampaign } from "../../src/campaign/ind
 import { readCampaign } from "../../src/campaign/record.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
+// runsRoot registers every resolved path under $FABERUN_HOME; these fixtures
+// resolve through it without the shared helpers, so the home is always a
+// throwaway directory, never the operator's own ~/.faberun.
+process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home-"));
+
 /** @param {string} repo @param {string[]} args @returns {string} */
 function git(repo, args) {
   return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();

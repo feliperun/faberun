@@ -23,6 +23,11 @@ import { readCampaign } from "../../src/campaign/record.mjs";
 import { captureSourceIdentity } from "../../src/repo/source-identity.mjs";
 import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
+// runsRoot registers every resolved path under $FABERUN_HOME; these fixtures
+// resolve through it without the shared helpers, so the home is always a
+// throwaway directory, never the operator's own ~/.faberun.
+process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home-"));
+
 test("run creation source identity includes resolved cwd and task-packet hashes", () => {
   const cwd = mkdtempSync(join(tmpdir(), "runner-source-"));
   const contract = {

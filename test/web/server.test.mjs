@@ -17,6 +17,11 @@ import {
 } from "../../src/web/app.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
+// runsRoot registers every resolved path under $FABERUN_HOME; these fixtures
+// resolve through it without the shared helpers, so the home is always a
+// throwaway directory, never the operator's own ~/.faberun.
+process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home-"));
+
 const NOW = "2026-01-01T00:00:00.000Z";
 const LATER = "2026-01-01T00:05:00.000Z";
 const CAMPAIGN_ID = "dash-campaign";

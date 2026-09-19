@@ -14,6 +14,11 @@ import { TASK_KIND_CATALOGUE_PATH } from "../../src/plan/template.mjs";
 import { envelope, writeRecording } from "../harnesses/replay-helpers.mjs";
 import { campaignTree, runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
+// runsRoot registers every resolved path under $FABERUN_HOME; these fixtures
+// resolve through it without the shared helpers, so the home is always a
+// throwaway directory, never the operator's own ~/.faberun.
+process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home-"));
+
 /**
  * Every discovery `done` result — planning or not — is checked by the
  * existing discovery protocol (`parseDiscoveryResult`, `lifecycle.mjs`)

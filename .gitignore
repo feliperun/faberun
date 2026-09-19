@@ -6,6 +6,7 @@ node_modules/
 *.log
 .claude/settings.local.json
 .runs/
+.faberun-plan/
 
 .claude/session-handoff.md
 

@@ -19,6 +19,13 @@ if (!process.env.FABERUN_NOTIFY_BIN) {
   process.env.FABERUN_NOTIFY_BIN = path;
 }
 
+// runsRoot registers every path it resolves as a project under $FABERUN_HOME.
+// Every fixture this suite builds resolves through it, so an unset variable
+// would write real project entries into the operator's own ~/.faberun as a
+// side effect of running the tests. Always a throwaway home, never the
+// operator's, even when one is configured: no suite run should depend on it.
+process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home-"));
+
 /**
  * @param {number} milliseconds
  * @returns {Promise<void>}

@@ -8,6 +8,7 @@ import {
 import { createHash, randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import { writeJsonAtomic } from "../run/store.mjs";
+import { projectIdForRunsDir, repositoryForRunsDir } from "../run/paths.mjs";
 import { requireId, requirePacketHash, requireString, requireTimestamp } from "../contract/assert.mjs";
 import { promoteRun } from "../repo/integrate.mjs";
 import { CAMPAIGN_FILE, GOAL_TEXT_BYTES, JOURNAL_FILE, PROJECTION_FILE, campaignDir, campaignsDir } from "./layout.mjs";
@@ -132,12 +133,34 @@ export function closeCampaign(campaignPath, { at = new Date().toISOString(), eve
   if (!readJournalForDedupe(campaignPath).some((entry) => entry.type === "retrospective")) {
     throw new Error(`campaign ${campaign.id} has no recorded retrospective; record one with note --kind retrospective before close`);
   }
-  const repoRoot = resolve(campaignPath, "..", "..", "..");
+  const repoRoot = campaignRepoRoot(campaignPath);
   const ledgerFiles = preserveCampaignLedger(campaignPath, repoRoot);
   const closed = /** @type {Campaign} */ ({ ...campaign, status: "closed", closedAt: at, updatedAt: at });
   writeJsonAtomic(join(campaignPath, CAMPAIGN_FILE), closed);
   appendJournal(campaignPath, { type: "campaign.closed", at, eventId });
   return { path: campaignPath, campaign: closed, ledgerFiles };
+}
+
+/**
+ * The repository a campaign's ledger is preserved into. Under the home layout
+ * the campaign path carries the project id at the resolver's fixed position,
+ * so the repository is looked up live in the registry rather than derived by
+ * climbing: a project reassociated after the campaign was created preserves
+ * at its current repository, which a path cached anywhere would not. A
+ * campaign under a legacy `<repo>/.runs` keeps the old three-directory climb,
+ * which is exact there because the campaign path ends `<repo>/.runs/campaigns/<id>`.
+ *
+ * @param {string} campaignPath
+ * @returns {string}
+ */
+function campaignRepoRoot(campaignPath) {
+  const runsDir = resolve(campaignPath, "..", "..");
+  const repository = repositoryForRunsDir(runsDir);
+  if (repository) return repository;
+  if (projectIdForRunsDir(runsDir)) {
+    throw new Error(`no project record for ${campaignPath}; the registry cannot name the repository its ledger belongs to`);
+  }
+  return resolve(campaignPath, "..", "..", "..");
 }
 
 /**

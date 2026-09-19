@@ -23,6 +23,7 @@ import { dirname, join } from "node:path";
 import { discoverCampaigns } from "../campaign/index.mjs";
 import { runProgress } from "../engine/supervise.mjs";
 import { readInbox } from "../notify/index.mjs";
+import { repositoryForRunsDir } from "../run/paths.mjs";
 import { SIGNAL_END, SIGNAL_START } from "./signal-block.mjs";
 import { HANDOFF_FILE } from "../campaign/layout.mjs";
 
@@ -194,16 +195,22 @@ function boundLines(lines) {
 }
 
 /**
- * Rewrites the managed signal block at the bottom of <repo>/AGENTS.md from
- * the current .runs state. Leaves the file untouched when there is no
- * AGENTS.md, no active work, or nothing changed. Returns true when the file
- * was written.
+ * Rewrites the managed signal block at the bottom of the repository's
+ * AGENTS.md from the current runs state. Leaves the file untouched when there
+ * is no AGENTS.md, no active work, or nothing changed. Returns true when the
+ * file was written.
+ *
+ * The repository is named by the project registry, not derived as a sibling
+ * of `runsDir`: since the runs directory moved under the home, a directory
+ * climb would land inside `<home>/projects/<id>` and the block would silently
+ * stop being maintained. A legacy `<repo>/.runs` has no registry entry, so it
+ * keeps the parent-of answer, which is exact there.
  *
  * @param {string} runsDir
  * @returns {boolean}
  */
 export function syncAgentSignal(runsDir) {
-  const agentsPath = join(dirname(runsDir), "AGENTS.md");
+  const agentsPath = join(repositoryForRunsDir(runsDir) ?? dirname(runsDir), "AGENTS.md");
   if (!existsSync(agentsPath)) return false;
   const current = readFileSync(agentsPath, "utf8");
   const block = renderAgentSignalBlock(runsDir);

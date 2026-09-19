@@ -12,6 +12,11 @@ import { closeCampaign, initializeCampaign } from "../../src/campaign/index.mjs"
 import { appendJournal } from "../../src/campaign/journal.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
+// runsRoot registers every resolved path under $FABERUN_HOME; these fixtures
+// resolve through it without the shared helpers, so the home is always a
+// throwaway directory, never the operator's own ~/.faberun.
+process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home-"));
+
 /**
  * @returns {{repo: string, runsDir: string, agentsPath: string}}
  */
