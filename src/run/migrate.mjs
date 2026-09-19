@@ -49,6 +49,21 @@ import { errorCode } from "../util.mjs";
 /** @typedef {{moved: boolean, legacy: string, target: string|null, runs: number, campaigns: number}} MigrateResult */
 
 /**
+ * `rmSync`'s own retry knobs for a recursive removal, applied to every
+ * removal in this module: Node's own docs name a large recursive removal as
+ * the case `maxRetries`/`retryDelay` exist for, retrying on EBUSY, EMFILE,
+ * ENFILE, ENOTEMPTY and EPERM. Measured 2026-09-19: a bare
+ * `rmSync(legacy, { recursive: true })` raised ENOTEMPTY twice running
+ * against this repository's own `.runs` — thousands of files across many
+ * attempt worktrees and controller snapshots — with no concurrent writer of
+ * this module's own; a fresh copy had already verified byte for byte before
+ * either attempt, so this was the removal racing something transient
+ * (Spotlight, a `.DS_Store` write, an FS event listener), never a sign the
+ * data was unsafe to remove.
+ */
+const REMOVE_OPTIONS = { recursive: true, maxRetries: 5, retryDelay: 100 };
+
+/**
  * Move the legacy runs root at `<cwd>/.runs` into the home layout:
  * `<home>/projects/<project id>/runs` for the project `cwd` registers as,
  * with its git remotes recorded so a later repository move can be
@@ -90,13 +105,13 @@ export function migrateRunState(cwd, options = {}) {
     const runs = countRunDirs(legacy);
     const campaigns = countCampaigns(legacy);
     refuseLiveLeases(leasesOf(legacy));
-    rmSync(legacy, { recursive: true });
+    rmSync(legacy, REMOVE_OPTIONS);
     return { moved: true, legacy, target, runs, campaigns };
   }
   const staging = join(projectDir, "runs.incoming");
   // A staging left by an interrupted attempt is a partial copy of a tree
   // that may have changed since; it is discarded, never merged with.
-  rmSync(staging, { recursive: true, force: true });
+  rmSync(staging, { ...REMOVE_OPTIONS, force: true });
   // verbatimSymlinks: the default resolves a copied link's target to an
   // absolute path back into the tree being removed, which would dangle the
   // moment the removal ran; verbatim keeps the literal target, so relative
@@ -117,7 +132,7 @@ export function migrateRunState(cwd, options = {}) {
   // creates `runs`: from this instant the home side is authoritative and
   // complete, and nothing reads the legacy tree again except this removal.
   renameSync(staging, target);
-  rmSync(legacy, { recursive: true });
+  rmSync(legacy, REMOVE_OPTIONS);
   return { moved: true, legacy, target, runs, campaigns };
 }
 
@@ -205,7 +220,14 @@ function verifyNothingExtra(source, copy) {
     if (entry.isDirectory()) {
       if (!lstatSync(inSource, { throwIfNoEntry: false })?.isDirectory()) throw verifyExtraFailure(inCopy);
       verifyNothingExtra(inSource, inCopy);
-    } else if (readOrUndefined(inSource) === undefined && readLinkOrUndefined(inSource) === undefined) {
+    } else if (entry.isSymbolicLink()) {
+      // readlinkSync, never readFileSync: a worktree's node_modules symlink
+      // (prepareWorktreeEnvironment in repo/worktree.mjs) targets a
+      // directory, and readFileSync on a symlink dereferences it — measured
+      // 2026-09-19, this crashed migrate with EISDIR against this
+      // repository's own .runs tree before the branch below existed.
+      if (readLinkOrUndefined(inSource) === undefined) throw verifyExtraFailure(inCopy);
+    } else if (readOrUndefined(inSource) === undefined) {
       throw verifyExtraFailure(inCopy);
     }
   }

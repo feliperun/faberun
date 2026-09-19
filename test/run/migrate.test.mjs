@@ -13,8 +13,13 @@ const DEAD_PID = 2_147_483_647;
 
 /**
  * A legacy in-tree runs root with one run (journal, logs), one campaign and
- * one attempt worktree carrying a symlink — the shapes a migration must move
- * whole. Returns the root's path.
+ * one attempt worktree carrying a symlink to a file and a symlink to a
+ * directory — the shapes a migration must move whole. The directory symlink
+ * stands in for the `node_modules` link `prepareWorktreeEnvironment` (`repo/
+ * worktree.mjs`) plants in every attempt worktree: measured 2026-09-19
+ * against this repository's own `.runs` tree, `readFileSync` dereferencing
+ * one of those crashed the copy verification with EISDIR before this fixture
+ * carried the case. Returns the root's path.
  *
  * @param {string} repo
  * @returns {string}
@@ -28,9 +33,11 @@ function seedLegacyRuns(repo) {
   writeFileSync(join(runDir, "logs", "worker.jsonl"), "line\n");
   mkdirSync(join(legacy, "campaigns", "legacy-campaign"), { recursive: true });
   writeFileSync(join(legacy, "campaigns", "legacy-campaign", "ledger.jsonl"), '{"event":1}\n');
-  mkdirSync(join(legacy, "worktrees", "legacy-run"), { recursive: true });
+  mkdirSync(join(legacy, "worktrees", "legacy-run", "node_modules", "marker-package"), { recursive: true });
+  writeFileSync(join(legacy, "worktrees", "legacy-run", "node_modules", "marker-package", "index.js"), "module.exports = {};\n");
   writeFileSync(join(legacy, "worktrees", "legacy-run", "file.txt"), "content\n");
   symlinkSync("file.txt", join(legacy, "worktrees", "legacy-run", "link.txt"));
+  symlinkSync("node_modules", join(legacy, "worktrees", "legacy-run", "node_modules_link"));
   return legacy;
 }
 
@@ -81,6 +88,7 @@ test("migrate runs moves the legacy tree under the home and the resolver answers
     assert.equal(readFileSync(join(result.target, "campaigns", "legacy-campaign", "ledger.jsonl"), "utf8"), '{"event":1}\n');
     assert.equal(readFileSync(join(result.target, "worktrees", "legacy-run", "file.txt"), "utf8"), "content\n");
     assert.equal(readlinkSync(join(result.target, "worktrees", "legacy-run", "link.txt")), "file.txt", "symlinks move as symlinks");
+    assert.equal(readlinkSync(join(result.target, "worktrees", "legacy-run", "node_modules_link")), "node_modules", "a symlink to a directory moves as a symlink, never dereferenced");
     // The project the migration registered is the one the reading side
     // resolves, and it now answers the home copy with no legacy root left.
     const project = findProjectByPath(home, repo);
