@@ -1,14 +1,14 @@
 {
   "expectPaths": {
     "present": [
-      ".runs/campaigns/d25-campaign/plans/build/contract.json"
+      "campaigns/d25-campaign/plans/build/contract.json"
     ],
     "absent": [
-      ".runs/d25-campaign-build"
+      "d25-campaign-build"
     ]
   },
   "plan": {
-    "path": ".runs/campaigns/d25-campaign/plans/build/plan.json",
+    "path": "campaigns/d25-campaign/plans/build/plan.json",
     "fields": {
       "status": "frozen"
     }

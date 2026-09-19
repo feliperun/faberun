@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,10 +17,14 @@ function home() {
   return mkdtempSync(join(tmpdir(), "faberun-project-home-"));
 }
 
-/** @returns {string} a fresh, empty directory standing in for a repository */
+/**
+ * @returns {string} a fresh, empty directory standing in for a repository,
+ *   realpath-resolved: the registry keys on it, since $TMPDIR itself is a
+ *   symlink on macOS (`/var` -> `/private/var`).
+ */
 function repo(name = "repo") {
   const path = mkdtempSync(join(tmpdir(), `faberun-project-${name}-`));
-  return path;
+  return realpathSync(path);
 }
 
 test("a moved path re-associates and the campaigns under it are still reachable", () => {

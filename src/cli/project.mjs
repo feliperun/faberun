@@ -12,10 +12,10 @@
  * discipline the registry itself uses, rather than inventing a second
  * on-disk format for the same directory.
  */
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../run/store.mjs";
 import { errorCode } from "../util.mjs";
-import { findProjectByPath, projectsDir, readProject } from "../host/projects.mjs";
+import { findProjectByPath, projectsDir, readProject, resolveIdentity } from "../host/projects.mjs";
 import { boundedGitSync } from "../repo/worktree.mjs";
 
 /** @typedef {import("../host/projects.mjs").ProjectRecord} ProjectRecord */
@@ -133,11 +133,11 @@ function moveProject(home, project, newPath) {
  * @returns {ProjectRecord}
  */
 export function reassociateProject(home, newPath, options = {}) {
-  const resolvedNew = resolve(newPath);
+  const resolvedNew = resolveIdentity(newPath);
   const already = findProjectByPath(home, resolvedNew);
   if (already) return already;
   if (options.from) {
-    const resolvedFrom = resolve(options.from);
+    const resolvedFrom = resolveIdentity(options.from);
     const found = findProjectByPath(home, resolvedFrom);
     if (!found) throw new Error(`no project is registered at ${resolvedFrom}`);
     return moveProject(home, found, resolvedNew);

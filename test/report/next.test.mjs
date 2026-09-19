@@ -255,15 +255,26 @@ test("a corrupt campaign.json is its own rank-4 line, not skipped", () => {
 });
 
 test("arguments containing spaces are single-quoted in the rendered command", () => {
-  const dir = mkdtempSync(join(tmpdir(), "runner-next space-"));
-  const runsDir = runsDirOf(dir);
-  registerRun(addCampaign(runsDir, "spaced"), "run-spaced");
-  writeNode(runsDir, "run-spaced", "build", { id: "build", status: "running" });
+  // A run id can never carry a space (requireId in src/contract/assert.mjs
+  // rejects it), and since R2 runDir no longer inherits the repository's own
+  // path either — it hangs off $FABERUN_HOME instead. The one path segment
+  // that can still legitimately carry a space is the home itself, the way an
+  // operator's own home directory can.
+  const previousHome = process.env.FABERUN_HOME;
+  process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home space-"));
+  try {
+    const dir = makeDir("runner-next-");
+    const runsDir = runsDirOf(dir);
+    registerRun(addCampaign(runsDir, "spaced"), "run-spaced");
+    writeNode(runsDir, "run-spaced", "build", { id: "build", status: "running" });
 
-  const runDir = join(runsDir, "run-spaced");
-  const item = computeNextItems(runsDir, dir)[0];
-  assert.equal(item.rank, 1);
-  assert.equal(item.command, `resume '${runDir}'`);
+    const runDir = join(runsDir, "run-spaced");
+    const item = computeNextItems(runsDir, dir)[0];
+    assert.equal(item.rank, 1);
+    assert.equal(item.command, `resume '${runDir}'`);
+  } finally {
+    process.env.FABERUN_HOME = previousHome;
+  }
 });
 
 test("human and --json outputs derive from the same computed list", () => {

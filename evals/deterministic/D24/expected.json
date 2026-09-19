@@ -1,11 +1,11 @@
 {
   "expectPaths": {
     "absent": [
-      ".runs/campaigns/d24-campaign/plans/build/contract.json"
+      "campaigns/d24-campaign/plans/build/contract.json"
     ]
   },
   "plan": {
-    "path": ".runs/campaigns/d24-campaign/plans/build/plan.json",
+    "path": "campaigns/d24-campaign/plans/build/plan.json",
     "fields": {
       "status": "contested",
       "rounds": 1,

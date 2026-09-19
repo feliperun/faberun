@@ -63,7 +63,7 @@
     },
     {
       "type": "waitForPath",
-      "path": ".runs/d25-campaign-plan-build-draft-1/bootstrap.json",
+      "path": "d25-campaign-plan-build-draft-1/bootstrap.json",
       "timeoutMs": 120000
     },
     {
@@ -72,7 +72,7 @@
     },
     {
       "type": "waitForPath",
-      "path": ".runs/campaigns/d25-campaign/plans/build/plan.json",
+      "path": "campaigns/d25-campaign/plans/build/plan.json",
       "timeoutMs": 300000,
       "field": "status"
     }

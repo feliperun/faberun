@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeCampaign, initializeCampaign, preserveCampaignLedger, registerRun } from "../../src/campaign/index.mjs";
@@ -81,7 +81,9 @@ function recordRetrospective(campaignPath, eventId) {
 test("close preserves the ledger at the project's registered repository, not under the home", () => {
   const home = mkdtempSync(join(tmpdir(), "faberun-ledger-home-"));
   process.env.FABERUN_HOME = home;
-  const repo = mkdtempSync(join(tmpdir(), "runner-campaign-ledger-repo-"));
+  // realpath-resolved: the project registry keys on it, since $TMPDIR itself
+  // is a symlink on macOS (`/var` -> `/private/var`).
+  const repo = realpathSync(mkdtempSync(join(tmpdir(), "runner-campaign-ledger-repo-")));
   const runsDir = runsRoot(repo);
   const created = initializeCampaign(runsDir, { campaignId: "homed", goal: "Preserve inside the repository" });
   recordRetrospective(created.path, "retro-homed");

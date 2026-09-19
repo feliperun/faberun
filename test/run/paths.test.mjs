@@ -8,7 +8,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { findProjectByPath, registerProject } from "../../src/host/projects.mjs";
@@ -32,8 +32,13 @@ function home() {
   return directory;
 }
 
+/**
+ * @returns {string} a fresh, empty directory standing in for a repository,
+ *   realpath-resolved: the registry keys on it, since $TMPDIR itself is a
+ *   symlink on macOS (`/var` -> `/private/var`).
+ */
 function repo() {
-  return mkdtempSync(join(tmpdir(), "faberun-paths-repo-"));
+  return realpathSync(mkdtempSync(join(tmpdir(), "faberun-paths-repo-")));
 }
 
 /** @param {() => void} body @returns {string} everything written to stderr during `body` */

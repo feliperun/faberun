@@ -23,6 +23,7 @@
  * simply registers again the next time its path is looked up.
  */
 import { randomUUID } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { readJson, writeJsonAtomic } from "../run/store.mjs";
 import { errorCode } from "../util.mjs";
@@ -31,6 +32,33 @@ import { projectsDir } from "./home.mjs";
 export { projectsDir };
 
 /** @typedef {{schemaVersion: 1, id: string, path: string, remotes: string[], createdAt: string, updatedAt: string}} ProjectRecord */
+
+/**
+ * `path`, realpath-resolved so two different spellings of the same real
+ * directory key the same project — `$TMPDIR` itself is a symlink on macOS
+ * (`/var` -> `/private/var`), which is what actually surfaced this,
+ * measured 2026-09-19. Falls back to a plain `resolve` for a path that does
+ * not exist: `cwd` from a live process always exists, but a path this
+ * registry is asked about — a stale config entry, an operator's typo — need
+ * not, and nothing could already be registered under either spelling of a
+ * path that was never real to begin with, so there is nothing to reconcile.
+ *
+ * Exported because `cli/project.mjs` writes this same index directly (it has
+ * no registry operation that keeps an id while changing its path) and must
+ * key its write identically, or a write it makes becomes one this module's
+ * own lookups can never find again.
+ *
+ * @param {string} path
+ * @returns {string}
+ */
+export function resolveIdentity(path) {
+  try {
+    return realpathSync(path);
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return resolve(path);
+    throw error;
+  }
+}
 
 /** @param {string} home @returns {string} */
 function projectIndexPath(home) {
@@ -70,16 +98,19 @@ export function readProject(home, id) {
 
 /**
  * The project registered at `path`, or null when that path has never been
- * registered. `path` is resolved to an absolute path first, the same
- * normalization `registerProject` applies, so a caller need not agree in
- * advance on relative-vs-absolute spelling.
+ * registered. `path` is realpath-resolved first, the same normalization
+ * `registerProject` applies, so a caller need not agree in advance on
+ * relative-vs-absolute spelling, and two different spellings of the same
+ * real directory — a symlinked `$TMPDIR` on macOS is the case that actually
+ * surfaced this, measured 2026-09-19 — still answer the same project rather
+ * than silently minting two.
  *
  * @param {string} home
  * @param {string} path
  * @returns {ProjectRecord|null}
  */
 export function findProjectByPath(home, path) {
-  const id = readIndex(home)[resolve(path)];
+  const id = readIndex(home)[resolveIdentity(path)];
   return id ? readProject(home, id) : null;
 }
 
@@ -101,7 +132,7 @@ export function findProjectByPath(home, path) {
  * @returns {ProjectRecord}
  */
 export function registerProject(home, path, remotes = []) {
-  const resolved = resolve(path);
+  const resolved = resolveIdentity(path);
   const index = readIndex(home);
   let id = index[resolved];
   if (!id) {

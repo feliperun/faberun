@@ -122,6 +122,13 @@ function sourcePathspec(options = {}) {
   return [
     ".",
     ":(exclude).runs",
+    // The planning pipeline's own scratch relay (src/plan/pipeline.mjs's
+    // PLAN_SCRATCH_DIR_NAME) lands inside the target repo the same way
+    // .runs used to: untracked, and not every target repository's own
+    // .gitignore names it. Excluded here for the same reason .runs is —
+    // a dirty-tree refusal must not fire on state the pipeline itself
+    // wrote, only on an operator's own uncommitted work.
+    ":(exclude).faberun-plan",
     ":(exclude)AGENTS.md",
     ...(options.ignorePaths ?? []).map((path) => `:(exclude)${path}`),
     ...(options.ignoreRoots ?? []).map((path) => `:(exclude)${path}`),

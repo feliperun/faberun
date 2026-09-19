@@ -64,9 +64,10 @@ export function loadCase(caseId) {
   return { caseDir, spec, expected };
 }
 /**
+ * @template T
  * @param {Record<string, unknown>|undefined} overlay
- * @param {() => Promise<unknown>} fn
- * @returns {Promise<unknown>}
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
  */
 export async function withEnvOverlay(overlay, fn) {
   const keys = Object.keys(overlay ?? {});
@@ -86,6 +87,25 @@ export async function withEnvOverlay(overlay, fn) {
       else process.env[key] = previous[key];
     }
   }
+}
+
+/**
+ * Run `fn` with `FABERUN_HOME` pointed at a fresh, case-scoped temp
+ * directory for its whole duration, restored after. Every case's fixture
+ * repository resolves its runs root through the same resolver the product
+ * itself uses (`materializeCase`/`materializePlanCase` both call `runsRoot`),
+ * and a spawned step's child process inherits `process.env` — so without
+ * this, every deterministic-eval invocation on a developer's own machine
+ * would register its throwaway fixture as a real project and write real
+ * state under that operator's actual `~/.faberun`, one eval run at a time.
+ *
+ * @template T
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+export function withScopedFaberunHome(fn) {
+  const home = mkdtempSync(join(tmpdir(), "faberun-eval-home-"));
+  return withEnvOverlay({ FABERUN_HOME: home }, fn);
 }
 /**
  * @template T
