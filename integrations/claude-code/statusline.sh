@@ -1,12 +1,16 @@
 #!/bin/sh
 # Claude Code statusLine renderer for faberun ambient liveness. Reads
-# the session JSON on stdin, reads that repo's .runs/status.json pointer
-# (rewritten every controller tick), and prints one line:
+# the session JSON on stdin, resolves that repo's runs pointer (rewritten
+# every controller tick), and prints one line:
 #   <run-id> · <state> · <node> <elapsed> · $<usd> · needs you: <n>
 # elapsedSec, costUsd and needsYou are precomputed by the controller, so this
 # never touches a clock or a node process, only formats. No pointer, an
 # unreadable file, or one over the 1 KiB cap prints an empty line, exit 0.
 # jq is used when present; otherwise sed/grep pull the flat top-level fields.
+#
+# This file is a hand-maintained seam: the repository's source-shape guard
+# walks .mjs files only, so no test fails when this script and the resolver
+# drift -- test/integrations/statusline.test.mjs is the only pin here.
 #
 # Allowance guard. The same session JSON carries rate_limits.five_hour
 # (used_percentage plus a reset instant); the script otherwise reads stdin only
@@ -27,7 +31,32 @@ ALLOWANCE_WARN_PCT=85
 
 session=$(cat)
 repo=$(printf '%s' "$session" | sed -n 's/.*"cwd":"\([^"]*\)".*/\1/p;s/.*"current_dir":"\([^"]*\)".*/\1/p' | head -n 1)
+# The pointer follows the state (R2): the project registry under the faberun
+# home maps the repository's resolved path to an opaque id, and the pointer
+# sits in that project's runs directory. A repository whose runs never moved
+# still answers in-tree -- R7 keeps the reading side dual-layout until
+# `faberun migrate` runs -- so the legacy path stays the fallback, and the
+# home side wins when both exist, exactly like the resolver. Two fixed paths:
+# no glob, no newest-by-mtime. That is the half of R6 already true and to
+# keep; the one machine-wide pointer is a later phase, not this lookup.
+home=${FABERUN_HOME:-$HOME/.faberun}
+index="$home/projects/index.json"
+id=
+if [ -n "$repo" ] && [ -f "$index" ]; then
+  if command -v jq >/dev/null 2>&1; then
+    id=$(jq -r --arg p "$repo" '.[$p] // empty' "$index" 2>/dev/null) || id=
+  else
+    # The index is pretty-printed, one `"path": "id"` pair per line, so a
+    # fixed-string grep for the quoted key picks exactly that one line and
+    # the id follows its colon. Fixed-string on purpose: a repo path is
+    # data, not a regex.
+    id=$(grep -F "\"$repo\"" "$index" 2>/dev/null | sed -n 's/^.*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  fi
+fi
 pointer="$repo/.runs/status.json"
+if [ -n "$id" ] && [ -d "$home/projects/$id/runs" ]; then
+  pointer="$home/projects/$id/runs/status.json"
+fi
 
 # The nested five_hour.used_percentage. jq when present; otherwise flatten the
 # session JSON and pull the field out of the five_hour object with sed. The

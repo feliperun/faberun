@@ -121,3 +121,31 @@ test("--greenfield with --stable is a usage error", () => {
   assert.match(result.stderr, /usage: faberun init /u);
   assert.ok(!existsSync(join(cwd, ".gitignore")), "the contradiction is refused before anything is written");
 });
+
+/** @param {{stdout: string}} result @returns {{name: string, ok: boolean, detail: string}[]} */
+function doctorChecks(result) {
+  const payload = /** @type {{checks: {name: string, ok: boolean, detail: string}[]}} */ (JSON.parse(result.stdout));
+  return payload.checks;
+}
+
+test("doctor still reports a repository whose .gitignore lacks the .runs line", () => {
+  const cwd = freshRepo(mkdtempSync(join(tmpdir(), "init-doctor-runs-ignored-")));
+  const before = doctorChecks(run(["doctor", "--json", "--cwd", cwd], cwd));
+  const check = before.find((entry) => entry.name === ".runs ignored");
+  assert.ok(check, "the gitignore check stays in doctor's report after the move to the home");
+  assert.equal(check.ok, false);
+  assert.match(check.detail, /not git-ignored/u);
+});
+
+test("the .runs/ gitignore line survives the move to the home: the attempt worktree's result sidecar still needs it", () => {
+  const cwd = freshRepo(mkdtempSync(join(tmpdir(), "init-sidecar-gitignore-")));
+  assert.equal(run(["init", "--no-skill", "--yes"], cwd).status, 0);
+  assert.deepEqual(runsLines(cwd), [".runs/"]);
+  // Why the machinery is not dead cleanup: run state left the repository, but
+  // an attempt worktree is still a git working tree and R3 keeps the worker's
+  // result sidecar inside it under .runs/. Deleting ensureRunsIgnored makes
+  // this doctor check red and fails this test; deleting the check itself
+  // fails the test above.
+  const after = doctorChecks(run(["doctor", "--json", "--cwd", cwd], cwd));
+  assert.equal(after.find((entry) => entry.name === ".runs ignored")?.ok, true, "after init the check is green, so a deleted writer turns this test red");
+});

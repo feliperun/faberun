@@ -1,13 +1,26 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
-import { runsRoot } from "../../src/run/paths.mjs";
+import { RUNS_DIR_NAME, runsRoot } from "../../src/run/paths.mjs";
 
 const scriptPath = fileURLToPath(new URL("../../integrations/claude-code/statusline.sh", import.meta.url));
+
+/**
+ * A fresh, empty directory standing in for a repository, realpath-resolved:
+ * the project registry keys on it, since $TMPDIR itself is a symlink on
+ * macOS (`/var` -> `/private/var`), and the script under test reads its own
+ * `cwd` from the session JSON verbatim, with no normalization of its own.
+ *
+ * @param {string} prefix
+ * @returns {string}
+ */
+function repoDir(prefix) {
+  return realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+}
 
 /**
  * @param {Record<string, unknown>} [overrides]
@@ -32,7 +45,10 @@ function makePointer(overrides = {}) {
 }
 
 /**
- * Write the pointer exactly like the bounded writer does: compact, one line.
+ * Write the pointer exactly like the bounded writer does — compact, one
+ * line, at the runs root the resolver answers. A repository that has never
+ * run resolves fresh, so this lands on the home side and registers the
+ * project in the index the status-line script reads.
  *
  * @param {string} directory
  * @param {Record<string, unknown>} [overrides]
@@ -47,8 +63,30 @@ function writePointer(directory, overrides = {}) {
 }
 
 /**
+ * Point `FABERUN_HOME` at a fresh temporary directory for the duration of
+ * `run`, so no test registers a repository in, or reads a pointer from, the
+ * operator's real home.
+ *
+ * @param {(home: string) => void} run
+ * @returns {string} the temporary home
+ */
+function withTemporaryHome(run) {
+  const home = mkdtempSync(join(tmpdir(), "if-statusline-home-"));
+  const previous = process.env.FABERUN_HOME;
+  process.env.FABERUN_HOME = home;
+  try {
+    run(home);
+  } finally {
+    if (previous === undefined) delete process.env.FABERUN_HOME;
+    else process.env.FABERUN_HOME = previous;
+  }
+  return home;
+}
+
+/**
  * Build the restricted PATH fixture: only the binaries the no-jq fallback
- * path uses, no jq and no date.
+ * path uses, no jq and no date. Everything else in the environment passes
+ * through, so the FABERUN_HOME the test installed reaches the script.
  *
  * @returns {{ binDir: string, env: NodeJS.ProcessEnv }}
  */
@@ -69,7 +107,7 @@ function restrictedEnv() {
     assert.ok(source !== undefined, `no ${name} binary found`);
     symlinkSync(source, join(binDir, name));
   }
-  return { binDir, env: { PATH: binDir } };
+  return { binDir, env: { ...process.env, PATH: binDir } };
 }
 
 /**
@@ -99,89 +137,133 @@ function singleLine(stdout) {
   return line;
 }
 
-test("statusline renders run id, state, active node, elapsed, cost and needs-you count", () => {
-  const directory = mkdtempSync(join(tmpdir(), "if-statusline-render-"));
-  writePointer(directory);
-  const line = singleLine(render(directory));
-  assert.equal(line, "run-a · attention · node-a 3m05s · $4.2 · needs you: 2");
+test("statusline renders the pointer at the home-side runs root the resolver answers", () => {
+  withTemporaryHome(() => {
+    const directory = repoDir("if-statusline-render-");
+    const path = writePointer(directory);
+    assert.equal(path.includes(`${sep}projects${sep}`), true, "the pointer lives under the home's project registry, not the repository");
+    assert.equal(existsSync(join(directory, RUNS_DIR_NAME, "status.json")), false, "nothing is written in-tree");
+    const line = singleLine(render(directory));
+    assert.equal(line, "run-a · attention · node-a 3m05s · $4.2 · needs you: 2");
+  });
 });
 
-test("statusline degrades to the same line without jq", () => {
-  const { binDir, env } = restrictedEnv();
-  assert.equal(existsSync(join(binDir, "jq")), false, "jq must be absent from the degrade PATH");
-  assert.equal(existsSync(join(binDir, "date")), false, "date must be absent from the degrade PATH");
-  const directory = mkdtempSync(join(tmpdir(), "if-statusline-nojq-"));
-  writePointer(directory);
-  const line = singleLine(render(directory, env));
-  assert.equal(line, "run-a · attention · node-a 3m05s · $4.2 · needs you: 2");
+test("statusline resolves the project through the registry with and without jq", () => {
+  withTemporaryHome(() => {
+    // Inside the temporary home, so the restricted env captures FABERUN_HOME.
+    const { binDir, env } = restrictedEnv();
+    assert.equal(existsSync(join(binDir, "jq")), false, "jq must be absent from the degrade PATH");
+    assert.equal(existsSync(join(binDir, "date")), false, "date must be absent from the degrade PATH");
+    const withJq = repoDir("if-statusline-nojq-");
+    writePointer(withJq);
+    assert.equal(singleLine(render(withJq)), "run-a · attention · node-a 3m05s · $4.2 · needs you: 2");
+    const withoutJq = repoDir("if-statusline-nojq-2-");
+    writePointer(withoutJq);
+    assert.equal(singleLine(render(withoutJq, env)), "run-a · attention · node-a 3m05s · $4.2 · needs you: 2", "the no-jq fallback reads the same registry the jq path does");
+  });
+});
+
+test("statusline still reads a repository whose runs never moved to the home", () => {
+  withTemporaryHome(() => {
+    const directory = repoDir("if-statusline-legacy-");
+    // The pre-migration layout: the pointer in-tree, the project never
+    // registered, the index absent. R7 keeps this reading side alive for one
+    // version.
+    mkdirSync(join(directory, RUNS_DIR_NAME), { recursive: true });
+    writeFileSync(join(directory, RUNS_DIR_NAME, "status.json"), `${JSON.stringify(makePointer())}\n`);
+    const line = singleLine(render(directory));
+    assert.equal(line, "run-a · attention · node-a 3m05s · $4.2 · needs you: 2");
+  });
+});
+
+test("statusline prefers the home side when both layouts hold a pointer, like the resolver", () => {
+  withTemporaryHome(() => {
+    const directory = repoDir("if-statusline-both-");
+    writePointer(directory, { runId: "home-run" });
+    mkdirSync(join(directory, RUNS_DIR_NAME), { recursive: true });
+    writeFileSync(join(directory, RUNS_DIR_NAME, "status.json"), `${JSON.stringify(makePointer({ runId: "legacy-run" }))}\n`);
+    assert.match(singleLine(render(directory)), /^home-run ·/u, "the home copy is authoritative once it exists");
+  });
 });
 
 test("statusline renders an idle run with no active node and no needs-you", () => {
-  const directory = mkdtempSync(join(tmpdir(), "if-statusline-idle-"));
-  writePointer(directory, { state: "done", activeNode: null, runtime: null, elapsedSec: null, needsYou: 0, attention: null });
-  assert.equal(singleLine(render(directory)), "run-a · done · - - · $4.2 · needs you: 0");
+  withTemporaryHome(() => {
+    const directory = repoDir("if-statusline-idle-");
+    writePointer(directory, { state: "done", activeNode: null, runtime: null, elapsedSec: null, needsYou: 0, attention: null });
+    assert.equal(singleLine(render(directory)), "run-a · done · - - · $4.2 · needs you: 0");
+  });
 });
 
 test("statusline formats elapsed seconds, minutes and hours", () => {
-  for (const [elapsedSec, expected] of [[45, "45s"], [125, "2m05s"], [3725, "1h02m"]]) {
-    const directory = mkdtempSync(join(tmpdir(), "if-statusline-elapsed-"));
-    writePointer(directory, { elapsedSec });
-    const line = singleLine(render(directory));
-    assert.ok(line.includes(`node-a ${expected} ·`), `${line} expected elapsed ${expected}`);
-  }
+  withTemporaryHome(() => {
+    for (const [elapsedSec, expected] of [[45, "45s"], [125, "2m05s"], [3725, "1h02m"]]) {
+      const directory = repoDir("if-statusline-elapsed-");
+      writePointer(directory, { elapsedSec });
+      const line = singleLine(render(directory));
+      assert.ok(line.includes(`node-a ${expected} ·`), `${line} expected elapsed ${expected}`);
+    }
+  });
 });
 
 test("statusline renders a dash for a missing cost", () => {
-  const directory = mkdtempSync(join(tmpdir(), "if-statusline-nocost-"));
-  writePointer(directory, { costUsd: null });
-  const line = singleLine(render(directory));
-  assert.ok(line.includes("· - · needs you:"), line);
+  withTemporaryHome(() => {
+    const directory = repoDir("if-statusline-nocost-");
+    writePointer(directory, { costUsd: null });
+    const line = singleLine(render(directory));
+    assert.ok(line.includes("· - · needs you:"), line);
+  });
 });
 
 test("statusline prints an empty line without a run, with no external tool required", () => {
-  const withoutRuns = mkdtempSync(join(tmpdir(), "if-statusline-none-"));
-  assert.equal(render(withoutRuns), "\n");
+  withTemporaryHome(() => {
+    const withoutRuns = repoDir("if-statusline-none-");
+    assert.equal(render(withoutRuns), "\n");
 
-  const brokenDir = mkdtempSync(join(tmpdir(), "if-statusline-broken-"));
-  mkdirSync(runsRoot(brokenDir), { recursive: true });
-  writeFileSync(join(runsRoot(brokenDir), "status.json"), "not json at all\n");
-  assert.equal(render(brokenDir), "\n");
+    const brokenDir = repoDir("if-statusline-broken-");
+    mkdirSync(runsRoot(brokenDir), { recursive: true });
+    writeFileSync(join(runsRoot(brokenDir), "status.json"), "not json at all\n");
+    assert.equal(render(brokenDir), "\n");
+  });
 });
 
 test("statusline degrades silently on a pointer larger than the 1 KiB cap, with and without jq", () => {
-  const { env } = restrictedEnv();
-  for (const runnerEnv of [undefined, env]) {
-    const directory = mkdtempSync(join(tmpdir(), "if-statusline-oversize-"));
-    const path = writePointer(directory);
-    const original = readFileSync(path, "utf8");
-    writeFileSync(path, `${original}${" ".repeat(2048)}`);
-    assert.equal(render(directory, runnerEnv), "\n");
-  }
+  withTemporaryHome(() => {
+    const { env } = restrictedEnv();
+    for (const runnerEnv of [undefined, env]) {
+      const directory = repoDir("if-statusline-oversize-");
+      const path = writePointer(directory);
+      const original = readFileSync(path, "utf8");
+      writeFileSync(path, `${original}${" ".repeat(2048)}`);
+      assert.equal(render(directory, runnerEnv), "\n");
+    }
+  });
 });
 
 test("seat allowance warning", () => {
-  const directory = mkdtempSync(join(tmpdir(), "if-statusline-allowance-"));
-  writePointer(directory);
-  const base = "run-a · attention · node-a 3m05s · $4.2 · needs you: 2";
-  /** @param {number} used @returns {Record<string, unknown>} */
-  const rate = (used) => ({ rate_limits: { five_hour: { used_percentage: used, resets_at: 1_800_000_000 } } });
+  withTemporaryHome(() => {
+    const directory = repoDir("if-statusline-allowance-");
+    writePointer(directory);
+    const base = "run-a · attention · node-a 3m05s · $4.2 · needs you: 2";
+    /** @param {number} used @returns {Record<string, unknown>} */
+    const rate = (used) => ({ rate_limits: { five_hour: { used_percentage: used, resets_at: 1_800_000_000 } } });
 
-  const high = singleLine(render(directory, undefined, rate(91.5)));
-  assert.ok(high.startsWith(base), `the run segment stays intact: ${high}`);
-  assert.match(high, /\[warn\]/u, "above the threshold the line warns");
-  assert.match(high, /91\.5%/u, "the warning reports the used percentage");
-  assert.match(high, /85%/u, "the warning names the threshold");
-  assert.match(high, /seat switch --harness/u, "the warning names the switch command");
+    const high = singleLine(render(directory, undefined, rate(91.5)));
+    assert.ok(high.startsWith(base), `the run segment stays intact: ${high}`);
+    assert.match(high, /\[warn\]/u, "above the threshold the line warns");
+    assert.match(high, /91\.5%/u, "the warning reports the used percentage");
+    assert.match(high, /85%/u, "the warning names the threshold");
+    assert.match(high, /seat switch --harness/u, "the warning names the switch command");
 
-  assert.equal(singleLine(render(directory, undefined, rate(84.9))), base, "below the threshold nothing is appended");
-  assert.equal(singleLine(render(directory)), base, "no rate signal, no warning");
+    assert.equal(singleLine(render(directory, undefined, rate(84.9))), base, "below the threshold nothing is appended");
+    assert.equal(singleLine(render(directory)), base, "no rate signal, no warning");
 
-  // The nested field is not jq-only: the fallback reaches it too.
-  const { binDir, env } = restrictedEnv();
-  assert.equal(existsSync(join(binDir, "jq")), false, "jq must be absent from the degrade PATH");
-  const noJq = singleLine(render(directory, env, rate(91.5)));
-  assert.ok(noJq.startsWith(base), `the run segment stays intact: ${noJq}`);
-  assert.match(noJq, /\[warn\]/u, "the no-jq fallback still warns above the threshold");
-  assert.match(noJq, /seat switch --harness/u, "the no-jq fallback names the switch command");
-  assert.equal(singleLine(render(directory, env, rate(84.9))), base, "the no-jq fallback stays quiet below the threshold");
+    // The nested field is not jq-only: the fallback reaches it too.
+    const { binDir, env } = restrictedEnv();
+    assert.equal(existsSync(join(binDir, "jq")), false, "jq must be absent from the degrade PATH");
+    const noJq = singleLine(render(directory, env, rate(91.5)));
+    assert.ok(noJq.startsWith(base), `the run segment stays intact: ${noJq}`);
+    assert.match(noJq, /\[warn\]/u, "the no-jq fallback still warns above the threshold");
+    assert.match(noJq, /seat switch --harness/u, "the no-jq fallback names the switch command");
+    assert.equal(singleLine(render(directory, env, rate(84.9))), base, "the no-jq fallback stays quiet below the threshold");
+  });
 });

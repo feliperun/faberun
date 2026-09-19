@@ -506,6 +506,14 @@ function isGitWorkTree(repoDir) {
 }
 
 /**
+ * Whether the runs directory name is ignored in `repoDir`.
+ *
+ * Not dead cleanup after run state moved under the faberun home: an attempt
+ * worktree is still a git working tree, and R3 keeps the worker's result
+ * sidecar inside it, under `.runs/`. The ignore line is what keeps that
+ * sidecar out of the worktree's scope diff, so this check -- and the
+ * `.gitignore` line `cli/init.mjs` writes -- survive the move.
+ *
  * @param {string} repoDir
  * @returns {boolean}
  */

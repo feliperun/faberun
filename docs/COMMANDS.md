@@ -366,6 +366,32 @@ node src/cli.mjs project /repo-moved --from /repo
 ```
 Related: `faberun doctor`, `faberun init`.
 
+## faberun migrate
+```text
+faberun migrate [--cwd <value>]
+```
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--cwd` | directory | Repository holding the legacy `.runs/`. | current directory |
+Move a repository's run state from the legacy `.runs/` inside the repository
+into the project's directory under `$FABERUN_HOME`, so no durable run state
+stays in the target tree: runs, attempt worktrees, campaign trees, journals,
+ledgers and heartbeats all move. The command refuses while any run under the
+legacy root holds a live controller lock, copies everything before it removes
+anything, verifies the copy byte for byte against the original, re-checks the
+lease, and only then removes the original -- an interrupted migration always
+leaves a complete original or a complete copy, never a partial in two places.
+Running it again after it has landed finds nothing to move and says so; until
+it has run, the reading side answers the legacy `.runs/` with a warning.
+Reads everything under `<repo>/.runs/` and the repository's git remotes;
+writes `$FABERUN_HOME/projects/` (registering the project if it is new) and
+the project's `runs/` directory, then removes `<repo>/.runs/`.
+```bash
+node src/cli.mjs migrate
+[migrate] /repo/.runs -> /home/me/.faberun/projects/<id>/runs · 3 runs, 1 campaign
+```
+Related: `faberun project`, `faberun next`.
+
 ## faberun models
 ```text
 faberun models [--probe] [--json]

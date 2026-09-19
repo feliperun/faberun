@@ -306,12 +306,18 @@ test("done-when 8: contractDigest and scopeDecision survive creation, a resume a
   assert.deepEqual(relaunched.scopeDecision, created.scopeDecision, "a metadata rewrite preserves the launch scope decision");
 });
 
-/** The fs names the contract graph imports; every one but readFileSync throws. */
+/**
+ * The fs names the contract graph imports; every one but readFileSync throws.
+ * The list must track the graph's imports, not its calls: a name missing here
+ * breaks the import itself, before any call can be judged (measured
+ * 2026-09-19: store.mjs grew an ftruncateSync import and the purity child
+ * failed to load).
+ */
 const MOCK_FS_NAMES = [
   "accessSync", "appendFileSync", "chmodSync", "closeSync", "existsSync", "fstatSync", "fsyncSync",
-  "linkSync", "lstatSync", "mkdirSync", "mkdtempSync", "openSync", "readdirSync", "readFileSync",
-  "readlinkSync", "readSync", "realpathSync", "renameSync", "rmSync", "statSync", "symlinkSync",
-  "unlinkSync", "writeFileSync", "writeSync",
+  "ftruncateSync", "linkSync", "lstatSync", "mkdirSync", "mkdtempSync", "openSync", "readdirSync",
+  "readFileSync", "readlinkSync", "readSync", "realpathSync", "renameSync", "rmSync", "statSync",
+  "symlinkSync", "unlinkSync", "writeFileSync", "writeSync",
 ];
 
 /** @returns {string} */

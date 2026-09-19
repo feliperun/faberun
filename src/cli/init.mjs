@@ -153,6 +153,11 @@ function isGitWorkTree(cwd) {
  * exists, creating the file when missing. A file that does not end in a newline
  * gets one before the appended line, so the result is always a whole line.
  *
+ * Run state itself lives under the faberun home now, but this line is not
+ * obsolete: every attempt worktree is still a git working tree, and R3 keeps
+ * the worker's result sidecar inside it, under `.runs/`, where the scope diff
+ * must not see it. Do not remove this as cleanup.
+ *
  * @param {string} cwd
  * @returns {string} the `.gitignore` path written or confirmed
  */

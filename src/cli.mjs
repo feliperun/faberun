@@ -22,6 +22,7 @@ import {
   writeTextAtomic,
 } from "./run/store.mjs";
 import { runDirectory, runsRoot } from "./run/paths.mjs";
+import { migrateRunState } from "./run/migrate.mjs";
 import {
   acquire as acquireLock,
   validBootstrapNonce,
@@ -109,6 +110,7 @@ export const COMMAND_OPTIONS = {
   next: { cwd: { type: "string" }, json: { type: "boolean" } },
   update: { check: { type: "boolean" }, json: { type: "boolean" } },
   project: { from: { type: "string" } },
+  migrate: { cwd: { type: "string" } },
   setup: { yes: { type: "boolean" }, harnesses: { type: "string" }, worker: { type: "string" }, judge: { type: "string" }, "no-skill": { type: "boolean" }, json: { type: "boolean" } },
   init: { cwd: { type: "string" }, yes: { type: "boolean" }, "no-skill": { type: "boolean" }, agentkit: { type: "boolean" }, greenfield: { type: "boolean" }, stable: { type: "boolean" }, json: { type: "boolean" } },
   metrics: METRICS_OPTIONS,
@@ -149,7 +151,8 @@ function parseCli(argv, quiet = false) {
   if (command === "update" && parsed.positionals.length !== 0) return null;
   if (command === "setup" && parsed.positionals.length !== 0) return null;
   if (command === "init" && parsed.positionals.length !== 0) return null;
-  if (command !== "doctor" && command !== "models" && command !== "bulk-read" && command !== "next" && command !== "update" && command !== "setup" && command !== "init" && parsed.positionals.length !== 1) return null;
+  if (command === "migrate" && parsed.positionals.length !== 0) return null;
+  if (command !== "doctor" && command !== "models" && command !== "bulk-read" && command !== "next" && command !== "update" && command !== "setup" && command !== "init" && command !== "migrate" && parsed.positionals.length !== 1) return null;
   return {
     command,
     target: parsed.positionals[0],
@@ -290,6 +293,17 @@ async function main(argv) {
       env: process.env,
       isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     });
+    return;
+  }
+  if (command === "migrate") {
+    const result = migrateRunState(resolve(typeof values.cwd === "string" ? values.cwd : "."), { home: faberunHome(process.env) });
+    if (!result.moved) {
+      process.stdout.write(`[migrate] nothing to move · ${result.legacy} does not exist\n`);
+      return;
+    }
+    const runs = `${result.runs} run${result.runs === 1 ? "" : "s"}`;
+    const campaigns = `${result.campaigns} campaign${result.campaigns === 1 ? "" : "s"}`;
+    process.stdout.write(`[migrate] ${result.legacy} -> ${result.target} · ${runs}, ${campaigns}\n`);
     return;
   }
   if (!target) { usage(); return; }

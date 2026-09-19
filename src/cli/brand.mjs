@@ -192,6 +192,7 @@ export function renderUsage() {
     "init [--cwd <dir>] [--yes] [--no-skill] [--agentkit] [--greenfield|--stable] [--json]",
     "update [--check] [--json]",
     "project <new-path> [--from <old-path>]",
+    "migrate [--cwd <dir>]",
     "models [--probe] [--json]",
     "next [--cwd <dir>] [--json]",
     "bulk-read --question <text> --paths <a,b,c> [--json]",
