@@ -2,6 +2,32 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.12.0](https://github.com/feliperun/faberun/compare/v0.11.0...v0.12.0) (2026-09-19)
+
+
+### Features
+
+* **campaign:** a contract can join an active campaign ([ce66980](https://github.com/feliperun/faberun/commit/ce66980efe8e20b2232cb5beb554d169ea518190))
+* **engine:** a cancelled run relaunches with one command ([c4b61b4](https://github.com/feliperun/faberun/commit/c4b61b49290de80781a3e67ca0a40be4e6c81b7e))
+* **host:** a project is identified by its path and survives moving ([cbfd2f6](https://github.com/feliperun/faberun/commit/cbfd2f61137b86b4c7d05f3c69282ee0a5205cdb))
+* one render reaches both audiences, and the page reads at a glance ([e733ff8](https://github.com/feliperun/faberun/commit/e733ff8c81a05bc64861a86c20fd5cc8c3157158))
+* **report:** one renderer turns a run's state into the progress message ([3ff4e0a](https://github.com/feliperun/faberun/commit/3ff4e0a45bb8d9e08bee7a4f11bc542bade3de35))
+* **report:** the progress model answers for the campaign, not one run ([20c3551](https://github.com/feliperun/faberun/commit/20c355123f0061b610c568f012e17f05fb984ba8))
+* **run:** a repository migrates to the home in one command, safely twice ([e85a9e6](https://github.com/feliperun/faberun/commit/e85a9e69c40ee8607e85a746724596a3bd59f41f))
+* **run:** one module owns every run, campaign and worktree path ([a9847c5](https://github.com/feliperun/faberun/commit/a9847c5f6d3db59b7bf81f5807c42b42ef675cd7))
+* **run:** the run and campaign resolver answers from the operator's home ([8a660c3](https://github.com/feliperun/faberun/commit/8a660c399f4d3217826bdbb2071176843cd20834))
+* unpark and validate name what they found and what to do about it ([a1117f7](https://github.com/feliperun/faberun/commit/a1117f7254c82b6e08908d54df3c46aa6666b838))
+* **web:** the dashboard answers what value, progress, cost and time left ([6679073](https://github.com/feliperun/faberun/commit/6679073bd487a0ff88ecc43fa6bf952db1297e9e))
+* **web:** the dashboard is a map of the spec and a graph of the campaign ([068c50b](https://github.com/feliperun/faberun/commit/068c50b35632f04c1be5849d30b06118c69ed3ff))
+* **web:** the dashboard reads on a phone ([3b901ac](https://github.com/feliperun/faberun/commit/3b901acf122d7caba7fde8633ea3234555bb6858))
+
+
+### Bug Fixes
+
+* **host:** a project's identity survives two spellings of the same path ([5259869](https://github.com/feliperun/faberun/commit/5259869f0dde568d1b2c1c2c8149c34a928d410e))
+* **report:** the roll-up says who did the work and who judged it ([1632b43](https://github.com/feliperun/faberun/commit/1632b43bb87fb1c41392621ab23ac01201075348))
+* **run:** migrate survives a symlinked node_modules and a large removal ([419b87c](https://github.com/feliperun/faberun/commit/419b87c86ef9a425d4eedde0ebef0e9d12b77968))
+
 ## [0.11.0](https://github.com/feliperun/faberun/compare/v0.10.0...v0.11.0) (2026-09-18)
 
 
