@@ -19,6 +19,7 @@ import { detectStalls, invocationAlive, monitorInvocation, startProcess, termina
 
 import { fixture, writeContract } from "../helpers.mjs";
 import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
+import { errorCode } from "../../src/util.mjs";
 
 /**
  * @param {string} runDir
@@ -375,8 +376,17 @@ test("stall supervision never kills a runtime whose harness declares no streamed
     },
     delayMs: 5_000,
   })}\n`);
-  const { contract, node } = validatedRun(runDir, { stallTimeoutSec: 0.05, timeoutSec: 0.6 });
+  // One home for the wall-clock budget the early polls must land inside:
+  // node --test runs this file beside dozens of spawn-heavy siblings, and
+  // measured 2026-09-19 a loaded machine pushed a poll past the budget, where
+  // the exhausted verdict is the correct answer, not a regression. The polls
+  // below therefore assert "no verdict yet" only while they land inside it.
+  const wallClockSec = 0.6;
+  const { contract, node } = validatedRun(runDir, { stallTimeoutSec: 0.05, timeoutSec: wallClockSec });
   const state = nodeSnapshot(node, []);
+  // Captured before the spawn, so this elapsed clock only overstates the
+  // scheduler's own: a skipped poll means the budget genuinely elapsed.
+  const startedMs = Date.now();
   const job = startProcess({
     contract,
     node,
@@ -399,7 +409,9 @@ test("stall supervision never kills a runtime whose harness declares no streamed
     await detectStalls(contract, new Map([["build", job]]), async (currentJob, status, error) => {
       firstTimeout = { currentJob, status, error };
     });
-    assert.equal(firstTimeout, undefined, "silence alone must not kill a harness that never reports streamed output");
+    if (Date.now() - startedMs < wallClockSec * 1_000) {
+      assert.equal(firstTimeout, undefined, "silence alone must not kill a harness that never reports streamed output");
+    }
 
     // Discriminating check: the gate's stdout/stderr files exist (created
     // empty before spawn) from the very first poll onward, so a streamsOutput
@@ -413,7 +425,9 @@ test("stall supervision never kills a runtime whose harness declares no streamed
     await detectStalls(contract, new Map([["build", job]]), async (currentJob, status, error) => {
       secondTimeout = { currentJob, status, error };
     });
-    assert.equal(secondTimeout, undefined, "a harness that never reports streamed output must survive well past stallTimeoutSec");
+    if (Date.now() - startedMs < wallClockSec * 1_000) {
+      assert.equal(secondTimeout, undefined, "a harness that never reports streamed output must survive well past stallTimeoutSec");
+    }
 
     await new Promise((resolve) => setTimeout(resolve, 300));
     /** @type {{currentJob: import("../../src/cli.mjs").Job, status: "exhausted"|"stalled", error: {code: string, message: string}}|undefined} */
@@ -536,9 +550,17 @@ test("a persistence failure leaves the gated provider unstarted and terminates i
         throw new Error("persistence failed");
       },
     }), /persistence failed/u);
-    await new Promise((resolve) => setTimeout(resolve, 150));
     assert.equal(existsSync(marker), false);
-    assert.equal(invocationAlive(persistedInvocation), false);
+    // A SIGTERM only schedules the gate's own SIGKILL 100ms out (src/engine/
+    // gate.mjs stopProvider), and a loaded machine fires that timer late, so
+    // death is not claimable at any fixed checkpoint. The claim is that the
+    // unstarted wrapper dies, so poll for it: 60s, like the gate test below,
+    // which the source-shape deadline ratchet deliberately does not count.
+    const terminateDeadline = Date.now() + 60_000;
+    while (invocationAlive(persistedInvocation) && Date.now() < terminateDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.equal(invocationAlive(persistedInvocation), false, "a persistence failure terminates the wrapper that persisted nothing");
   } finally {
     if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
     else process.env.FABERUN_CODEX_BIN = previous;
@@ -575,9 +597,21 @@ test("a gate exits once the directory holding its release file is gone", async (
   });
   try {
     const pid = job.invocation.pid;
-    // The gate's release path lives under logs/: removing the whole directory
-    // is what a vanished run directory looks like from the gate's side.
-    rmSync(logs, { recursive: true, force: true });
+    // The gate is released the moment startProcess persists the invocation, so
+    // it can be mid-release right here: on its release tick it creates the two
+    // log files with "wx" (src/engine/gate.mjs), and a creation landing between
+    // rmSync's readdir and rmdir fails the removal with ENOTEMPTY. The removal
+    // is the test's point, so retry it: measured 2026-09-19 this exact race
+    // failed a green tree. 20 x 25ms is far past any release tick (10ms).
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        rmSync(logs, { recursive: true, force: true });
+        break;
+      } catch (error) {
+        if (errorCode(error) !== "ENOTEMPTY" || attempt >= 20) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+    }
     // A generous deadline, not a claim about how fast the gate reacts: the
     // ratchet in test/repo/source-shape.test.mjs caps deadlines under 60s at
     // three, and this one is a fourth if it races under that line.

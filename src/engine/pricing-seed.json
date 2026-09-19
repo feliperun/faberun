@@ -1,0 +1,543 @@
+{
+  "fetchedAt": "2026-09-19",
+  "source": "https://models.dev/api.json",
+  "providers": [
+    "anthropic",
+    "deepseek",
+    "google",
+    "openai",
+    "zhipuai"
+  ],
+  "models": {
+    "claude-fable-5": {
+      "inputPerMTok": 10,
+      "cachedInputPerMTok": 1,
+      "outputPerMTok": 50
+    },
+    "claude-fable-5-1": {
+      "inputPerMTok": 10,
+      "cachedInputPerMTok": 0.25,
+      "outputPerMTok": 50
+    },
+    "claude-haiku-4-5": {
+      "inputPerMTok": 1,
+      "cachedInputPerMTok": 0.1,
+      "outputPerMTok": 5
+    },
+    "claude-haiku-4-5-20251001": {
+      "inputPerMTok": 1,
+      "cachedInputPerMTok": 0.1,
+      "outputPerMTok": 5
+    },
+    "claude-opus-4-5": {
+      "inputPerMTok": 5,
+      "cachedInputPerMTok": 0.5,
+      "outputPerMTok": 25
+    },
+    "claude-opus-4-5-20251101": {
+      "inputPerMTok": 5,
+      "cachedInputPerMTok": 0.5,
+      "outputPerMTok": 25
+    },
+    "claude-opus-4-6": {
+      "inputPerMTok": 5,
+      "cachedInputPerMTok": 0.5,
+      "outputPerMTok": 25
+    },
+    "claude-opus-4-7": {
+      "inputPerMTok": 5,
+      "cachedInputPerMTok": 0.5,
+      "outputPerMTok": 25
+    },
+    "claude-opus-4-8": {
+      "inputPerMTok": 5,
+      "cachedInputPerMTok": 0.5,
+      "outputPerMTok": 25
+    },
+    "claude-opus-5": {
+      "inputPerMTok": 5,
+      "cachedInputPerMTok": 0.5,
+      "outputPerMTok": 25
+    },
+    "claude-sonnet-4-5": {
+      "inputPerMTok": 3,
+      "cachedInputPerMTok": 0.3,
+      "outputPerMTok": 15
+    },
+    "claude-sonnet-4-5-20250929": {
+      "inputPerMTok": 3,
+      "cachedInputPerMTok": 0.3,
+      "outputPerMTok": 15
+    },
+    "claude-sonnet-4-6": {
+      "inputPerMTok": 3,
+      "cachedInputPerMTok": 0.3,
+      "outputPerMTok": 15
+    },
+    "claude-sonnet-5": {
+      "inputPerMTok": 2,
+      "cachedInputPerMTok": 0.2,
+      "outputPerMTok": 10
+    },
+    "deep-research-max-preview-04-2026": {
+      "inputPerMTok": 2,
+      "cachedInputPerMTok": 0.2,
+      "outputPerMTok": 12
+    },
+    "deep-research-preview-04-2026": {
+      "inputPerMTok": 2,
+      "cachedInputPerMTok": 0.2,
+      "outputPerMTok": 12
+    },
+    "deepseek-flash": {
+      "inputPerMTok": 0.15,
+      "cachedInputPerMTok": 0.003,
+      "outputPerMTok": 0.6
+    },
+    "deepseek-v4-flash": {
+      "inputPerMTok": 0.15,
+      "cachedInputPerMTok": 0.003,
+      "outputPerMTok": 0.6
+    },
+    "deepseek-v4-flash-vision-exp": {
+      "inputPerMTok": 0.15,
+      "cachedInputPerMTok": 0.003,
+      "outputPerMTok": 0.6
+    },
+    "deepseek-v4-pro": {
+      "inputPerMTok": 0.435,
+      "cachedInputPerMTok": 0.003625,
+      "outputPerMTok": 0.87
+    },
+    "gemini-2.5-computer-use-preview-10-2025": {
+      "inputPerMTok": 1.25,
+      "outputPerMTok": 10
+    },
+    "gemini-2.5-flash": {
+      "inputPerMTok": 0.3,
+      "cachedInputPerMTok": 0.03,
+      "outputPerMTok": 2.5
+    },
+    "gemini-2.5-flash-image": {
+      "inputPerMTok": 0.3,
+      "cachedInputPerMTok": 0.075,
+      "outputPerMTok": 30
+    },
+    "gemini-2.5-flash-lite": {
+      "inputPerMTok": 0.1,
+      "cachedInputPerMTok": 0.01,
+      "outputPerMTok": 0.4
+    },
+    "gemini-2.5-flash-preview-tts": {
+      "inputPerMTok": 0.5,
+      "outputPerMTok": 10
+    },
+    "gemini-2.5-pro": {
+      "inputPerMTok": 1.25,
+      "cachedInputPerMTok": 0.125,
+      "outputPerMTok": 10
+    },
+    "gemini-2.5-pro-preview-tts": {
+      "inputPerMTok": 1,
+      "outputPerMTok": 20
+    },
+    "gemini-3-flash-preview": {
+      "inputPerMTok": 0.5,
+      "cachedInputPerMTok": 0.05,
+      "outputPerMTok": 3
+    },
+    "gemini-3-pro-image": {
+      "inputPerMTok": 2,
+      "outputPerMTok": 120
+    },
+    "gemini-3-pro-image-preview": {
+      "inputPerMTok": 2,
+      "outputPerMTok": 120
+    },
+    "gemini-3.1-flash-image": {
+      "inputPerMTok": 0.5,
+      "outputPerMTok": 60
+    },
+    "gemini-3.1-flash-image-preview": {
+      "inputPerMTok": 0.5,
+      "outputPerMTok": 60
+    },
+    "gemini-3.1-flash-lite": {
+      "inputPerMTok": 0.25,
+      "cachedInputPerMTok": 0.025,
+      "outputPerMTok": 1.5
+    },
+    "gemini-3.1-flash-lite-image": {
+      "inputPerMTok": 0.25,
+      "outputPerMTok": 30
+    },
+    "gemini-3.1-flash-lite-preview": {
+      "inputPerMTok": 0.25,
+      "cachedInputPerMTok": 0.025,
+      "outputPerMTok": 1.5
+    },
+    "gemini-3.1-flash-live-preview": {
+      "inputPerMTok": 0.75,
+      "outputPerMTok": 4.5
+    },
+    "gemini-3.1-flash-tts-preview": {
+      "inputPerMTok": 1,
+      "outputPerMTok": 20
+    },
+    "gemini-3.1-pro-preview": {
+      "inputPerMTok": 2,
+      "cachedInputPerMTok": 0.2,
+      "outputPerMTok": 12
+    },
+    "gemini-3.1-pro-preview-customtools": {
+      "inputPerMTok": 2,
+      "cachedInputPerMTok": 0.2,
+      "outputPerMTok": 12
+    },
+    "gemini-3.5-flash": {
+      "inputPerMTok": 1.5,
+      "cachedInputPerMTok": 0.15,
+      "outputPerMTok": 9
+    },
+    "gemini-3.5-flash-lite": {
+      "inputPerMTok": 0.3,
+      "cachedInputPerMTok": 0.03,
+      "outputPerMTok": 2.5
+    },
+    "gemini-3.5-live-translate-preview": {
+      "inputPerMTok": 3.5,
+      "outputPerMTok": 21
+    },
+    "gemini-3.6-flash": {
+      "inputPerMTok": 0.75,
+      "cachedInputPerMTok": 0.075,
+      "outputPerMTok": 3.75
+    },
+    "gemini-3.7-flash": {
+      "inputPerMTok": 0.75,
+      "cachedInputPerMTok": 0.075,
+      "outputPerMTok": 3.75
+    },
+    "gemini-3.8-flash": {
+      "inputPerMTok": 0.75,
+      "cachedInputPerMTok": 0.075,
+      "outputPerMTok": 3.75
+    },
+    "gemini-embedding-001": {
+      "inputPerMTok": 0.15,
+      "outputPerMTok": 0
+    },
+    "gemini-embedding-2": {
+      "inputPerMTok": 0.2,
+      "outputPerMTok": 0
+    },
+    "gemini-flash-latest": {
+      "inputPerMTok": 0.75,
+      "cachedInputPerMTok": 0.075,
+      "outputPerMTok": 3.75
+    },
+    "gemini-flash-lite-latest": {
+      "inputPerMTok": 0.3,
+      "cachedInputPerMTok": 0.03,
+      "outputPerMTok": 2.5
+    },
+    "gemini-omni-flash-preview": {
+      "inputPerMTok": 1.5,
+      "outputPerMTok": 17.5
+    },
+    "glm-4.5": {
+      "inputPerMTok": 0.6,
+      "cachedInputPerMTok": 0.11,
+      "outputPerMTok": 2.2
+    },
+    "glm-4.5-air": {
+      "inputPerMTok": 0.2,
+      "cachedInputPerMTok": 0.03,
+      "outputPerMTok": 1.1
+    },
+    "glm-4.5-flash": {
+      "inputPerMTok": 0,
+      "cachedInputPerMTok": 0,
+      "outputPerMTok": 0
+    },
+    "glm-4.5v": {
+      "inputPerMTok": 0.6,
+      "outputPerMTok": 1.8
+    },
+    "glm-4.6": {
+      "inputPerMTok": 0.6,
+      "cachedInputPerMTok": 0.11,
+      "outputPerMTok": 2.2
+    },
+    "glm-4.6v": {
+      "inputPerMTok": 0.3,
+      "outputPerMTok": 0.9
+    },
+    "glm-4.7": {
+      "inputPerMTok": 0.6,
+      "cachedInputPerMTok": 0.11,
+      "outputPerMTok": 2.2
+    },
+    "glm-4.7-flash": {
+      "inputPerMTok": 0,
+      "cachedInputPerMTok": 0,
+      "outputPerMTok": 0
+    },
+    "glm-4.7-flashx": {
+      "inputPerMTok": 0.07,
+      "cachedInputPerMTok": 0.01,
+      "outputPerMTok": 0.4
+    },
+    "glm-5": {
+      "inputPerMTok": 1,
+      "cachedInputPerMTok": 0.2,
+      "outputPerMTok": 3.2
+    },
+    "glm-5.1": {
+      "inputPerMTok": 1.4,
+      "cachedInputPerMTok": 0.26,
+      "outputPerMTok": 4.4
+    },
+    "glm-5.2": {
+      "inputPerMTok": 1.4,
+      "cachedInputPerMTok": 0.26,
+      "outputPerMTok": 4.4
+    },
+    "glm-5.3": {
+      "inputPerMTok": 1.4,
+      "cachedInputPerMTok": 0.26,
+      "outputPerMTok": 4.4
+    },
+    "glm-5.3-flash": {
+      "inputPerMTok": 0.15,
+      "cachedInputPerMTok": 0.03,
+      "outputPerMTok": 0.5
+    },
+    "glm-5.3-flashx": {
+      "inputPerMTok": 0.37,
+      "cachedInputPerMTok": 0.075,
+      "outputPerMTok": 1.25
+    },
+    "glm-5v-turbo": {
+      "inputPerMTok": 5,
+      "cachedInputPerMTok": 1.2,
+      "outputPerMTok": 22
+    },
+    "gpt-3.5-turbo": {
+      "inputPerMTok": 0.5,
+      "cachedInputPerMTok": 0,
+      "outputPerMTok": 1.5
+    },
+    "gpt-4": {
+      "inputPerMTok": 30,
+      "outputPerMTok": 60
+    },
+    "gpt-4-turbo": {
+      "inputPerMTok": 10,
+      "outputPerMTok": 30
+    },
+    "gpt-4.1": {
+      "inputPerMTok": 2,
+      "cachedInputPerMTok": 0.5,
+      "outputPerMTok": 8
+    },
+    "gpt-4.1-mini": {
+      "inputPerMTok": 0.4,
+      "cachedInputPerMTok": 0.1,
+      "outputPerMTok": 1.6
+    },
+    "gpt-4.1-nano": {
+      "inputPerMTok": 0.1,
+      "cachedInputPerMTok": 0.025,
+      "outputPerMTok": 0.4
+    },
+    "gpt-4o": {
+      "inputPerMTok": 2.5,
+      "cachedInputPerMTok": 1.25,
+      "outputPerMTok": 10
+    },
+    "gpt-4o-2024-05-13": {
+      "inputPerMTok": 5,
+      "outputPerMTok": 15
+    },
+    "gpt-4o-2024-08-06": {
+      "inputPerMTok": 2.5,
+      "cachedInputPerMTok": 1.25,
+      "outputPerMTok": 10
+    },
+    "gpt-4o-2024-11-20": {
+      "inputPerMTok": 2.5,
+      "cachedInputPerMTok": 1.25,
+      "outputPerMTok": 10
+    },
+    "gpt-4o-mini": {
+      "inputPerMTok": 0.15,
+      "cachedInputPerMTok": 0.075,
+      "outputPerMTok": 0.6
+    },
+    "gpt-5": {
+      "inputPerMTok": 1.25,
+      "cachedInputPerMTok": 0.125,
+      "outputPerMTok": 10
+    },
+    "gpt-5-mini": {
+      "inputPerMTok": 0.25,
+      "cachedInputPerMTok": 0.025,
+      "outputPerMTok": 2
+    },
+    "gpt-5-nano": {
+      "inputPerMTok": 0.05,
+      "cachedInputPerMTok": 0.005,
+      "outputPerMTok": 0.4
+    },
+    "gpt-5-pro": {
+      "inputPerMTok": 15,
+      "outputPerMTok": 120
+    },
+    "gpt-5.1": {
+      "inputPerMTok": 1.25,
+      "cachedInputPerMTok": 0.125,
+      "outputPerMTok": 10
+    },
+    "gpt-5.2": {
+      "inputPerMTok": 1.75,
+      "cachedInputPerMTok": 0.175,
+      "outputPerMTok": 14
+    },
+    "gpt-5.2-chat-latest": {
+      "inputPerMTok": 1.75,
+      "cachedInputPerMTok": 0.175,
+      "outputPerMTok": 14
+    },
+    "gpt-5.2-pro": {
+      "inputPerMTok": 21,
+      "outputPerMTok": 168
+    },
+    "gpt-5.3-chat-latest": {
+      "inputPerMTok": 1.75,
+      "cachedInputPerMTok": 0.175,
+      "outputPerMTok": 14
+    },
+    "gpt-5.3-codex": {
+      "inputPerMTok": 1.75,
+      "cachedInputPerMTok": 0.175,
+      "outputPerMTok": 14
+    },
+    "gpt-5.3-codex-spark": {
+      "inputPerMTok": 1.75,
+      "cachedInputPerMTok": 0.175,
+      "outputPerMTok": 14
+    },
+    "gpt-5.4": {
+      "inputPerMTok": 2.5,
+      "cachedInputPerMTok": 0.25,
+      "outputPerMTok": 15
+    },
+    "gpt-5.4-mini": {
+      "inputPerMTok": 0.75,
+      "cachedInputPerMTok": 0.075,
+      "outputPerMTok": 4.5
+    },
+    "gpt-5.4-nano": {
+      "inputPerMTok": 0.2,
+      "cachedInputPerMTok": 0.02,
+      "outputPerMTok": 1.25
+    },
+    "gpt-5.4-pro": {
+      "inputPerMTok": 30,
+      "outputPerMTok": 180
+    },
+    "gpt-5.5": {
+      "inputPerMTok": 5,
+      "cachedInputPerMTok": 0.5,
+      "outputPerMTok": 30
+    },
+    "gpt-5.5-pro": {
+      "inputPerMTok": 30,
+      "outputPerMTok": 180
+    },
+    "gpt-5.6": {
+      "inputPerMTok": 4,
+      "cachedInputPerMTok": 0.4,
+      "outputPerMTok": 20
+    },
+    "gpt-5.6-luna": {
+      "inputPerMTok": 0.2,
+      "cachedInputPerMTok": 0.02,
+      "outputPerMTok": 1.2
+    },
+    "gpt-5.6-sol": {
+      "inputPerMTok": 4,
+      "cachedInputPerMTok": 0.4,
+      "outputPerMTok": 20
+    },
+    "gpt-5.6-terra": {
+      "inputPerMTok": 2,
+      "cachedInputPerMTok": 0.2,
+      "outputPerMTok": 12
+    },
+    "gpt-6-astra": {
+      "inputPerMTok": 10,
+      "cachedInputPerMTok": 1,
+      "outputPerMTok": 50
+    },
+    "gpt-image-2": {
+      "inputPerMTok": 5,
+      "cachedInputPerMTok": 1.25,
+      "outputPerMTok": 30
+    },
+    "gpt-realtime-2.1": {
+      "inputPerMTok": 4,
+      "cachedInputPerMTok": 0.4,
+      "outputPerMTok": 24
+    },
+    "lyria-3-clip-preview": {
+      "inputPerMTok": 0,
+      "outputPerMTok": 0
+    },
+    "lyria-3-pro-preview": {
+      "inputPerMTok": 0,
+      "outputPerMTok": 0
+    },
+    "o1": {
+      "inputPerMTok": 15,
+      "cachedInputPerMTok": 7.5,
+      "outputPerMTok": 60
+    },
+    "o1-pro": {
+      "inputPerMTok": 150,
+      "outputPerMTok": 600
+    },
+    "o3": {
+      "inputPerMTok": 2,
+      "cachedInputPerMTok": 0.5,
+      "outputPerMTok": 8
+    },
+    "o3-mini": {
+      "inputPerMTok": 1.1,
+      "cachedInputPerMTok": 0.55,
+      "outputPerMTok": 4.4
+    },
+    "o3-pro": {
+      "inputPerMTok": 20,
+      "outputPerMTok": 80
+    },
+    "o4-mini": {
+      "inputPerMTok": 1.1,
+      "cachedInputPerMTok": 0.275,
+      "outputPerMTok": 4.4
+    },
+    "text-embedding-3-large": {
+      "inputPerMTok": 0.13,
+      "outputPerMTok": 0
+    },
+    "text-embedding-3-small": {
+      "inputPerMTok": 0.02,
+      "outputPerMTok": 0
+    },
+    "text-embedding-ada-002": {
+      "inputPerMTok": 0.1,
+      "outputPerMTok": 0
+    }
+  }
+}

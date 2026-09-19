@@ -253,6 +253,20 @@ test("doctor reports the four environment checks", () => {
   assert.equal(worktree?.ok, true, "an advisory worktree finding never fails doctor");
 });
 
+test("doctor reports the vendored pricing seed as a fact that never fails", () => {
+  const directory = mkdtempSync(join(tmpdir(), "env-preflight-doctor-seed-"));
+  const contractPath = writeContract(directory, fixture());
+  const result = spawnSync(process.execPath, [runner, "doctor", "--json", "--cwd", directory, contractPath], {
+    encoding: "utf8",
+    env: { ...process.env, FABERUN_CODEX_BIN: fakeCodex(directory) },
+  });
+  const payload = /** @type {{ok: boolean, checks: {name: string, ok: boolean, detail: string}[]}} */ (JSON.parse(result.stdout));
+  const seed = payload.checks.find((check) => check.name === "pricing seed");
+  assert.ok(seed, "doctor reports the vendored pricing seed");
+  assert.equal(seed.ok, true, "a stale seed still prices better than no seed, so the check informs and never gates");
+  assert.match(seed.detail, /models\.dev/u);
+});
+
 test("verification timing measures each declared command against its own timeout", () => {
   const contract = /** @type {any} */ ({
     cwd: process.cwd(),

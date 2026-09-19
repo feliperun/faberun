@@ -14,6 +14,7 @@ import { errorCode, errorMessage } from "../util.mjs";
 import { fileURLToPath } from "node:url";
 import { harnessCapabilities, normalizeProviderResult, providerCommand } from "../harnesses/index.mjs";
 import { latestTimeoutSec } from "./backoff.mjs";
+import { seedPricing } from "./pricing-seed.mjs";
 import { attemptWorkspace, sealAttempt } from "../repo/worktree.mjs";
 
 import { invocationOwned, processGroupAlive, processStartTokenMatches } from "./process-identity.mjs";
@@ -550,6 +551,11 @@ export function invocationResult(invocation, runtime, options = {}) {
  * missing measurement, not a zero contribution, so it keeps the whole record
  * `unknown` (`costUsd: null`) rather than understating it.
  *
+ * When the runtime declares no pricing of its own, the rates fall back to the
+ * vendored models.dev snapshot (`pricing-seed.mjs`) keyed by the runtime's
+ * model, and a seed-priced invocation is exactly as `priced` as an
+ * operator-declared one; a model the seed does not know stays unknown.
+ *
  * It lives beside `invocationResult`, the second source point, rather than in
  * `run/usage.mjs`, which re-exports it: that module already imports this one,
  * so defining it here is what keeps the two source points acyclic.
@@ -561,7 +567,8 @@ export function invocationResult(invocation, runtime, options = {}) {
  */
 export function priceUsage(runtime, usage, reportedCostUsd) {
   if (typeof reportedCostUsd === "number") return { costUsd: reportedCostUsd, costProvenance: undefined };
-  const pricing = /** @type {{pricing?: RuntimePricing}|null|undefined} */ (runtime)?.pricing;
+  const declaredRuntime = /** @type {{pricing?: RuntimePricing, model?: string}|null|undefined} */ (runtime);
+  const pricing = declaredRuntime?.pricing ?? seedPricing(declaredRuntime?.model);
   if (!pricing) return { costUsd: null, costProvenance: undefined };
   /** @type {[number|null|undefined, number|undefined][]} */
   const terms = [

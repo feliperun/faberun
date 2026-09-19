@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendUsageRecord, priceUsage } from "../../src/run/usage.mjs";
+import { seedPricing } from "../../src/engine/pricing-seed.mjs";
 import { bulkRead } from "../../src/engine/bulk-read.mjs";
 import { READ_LINE_LIMIT } from "../../src/harnesses/index.mjs";
 import { validateRuntime } from "../../src/contract/runtime.mjs";
@@ -35,6 +36,29 @@ test("done-when 4: no declared pricing is unknown, not zero", () => {
   for (const runtime of [undefined, null, {}, { pricing: undefined }]) {
     assert.deepEqual(priceUsage(runtime, FULL_USAGE, undefined), { costUsd: null, costProvenance: undefined });
   }
+});
+
+test("done-when 12: a runtime with only a model prices from the vendored seed", () => {
+  const rate = seedPricing("claude-opus-5");
+  assert.ok(rate, "claude-opus-5 must be vendored");
+  assert.equal(typeof rate.inputPerMTok, "number");
+  assert.equal(typeof rate.outputPerMTok, "number");
+  // The expectation is derived from the vendored rate object itself, so a
+  // re-vendor cannot leave a hardcoded USD literal silently wrong.
+  const expected = (
+    FULL_USAGE.inputTokens * /** @type {number} */ (rate.inputPerMTok)
+    + FULL_USAGE.cacheReadInputTokens * (rate.cachedInputPerMTok ?? 0)
+    + FULL_USAGE.outputTokens * /** @type {number} */ (rate.outputPerMTok)
+  ) / 1_000_000;
+  assert.deepEqual(priceUsage({ model: "claude-opus-5" }, FULL_USAGE, undefined), { costUsd: expected, costProvenance: "priced" });
+});
+
+test("done-when 13: declared pricing wins over the seed even when the seed knows the model", () => {
+  assert.deepEqual(priceUsage({ model: "claude-opus-5", ...PRICED }, FULL_USAGE, undefined), { costUsd: 1.65, costProvenance: "priced" });
+});
+
+test("done-when 14: an unmatched model with no declared pricing stays unknown", () => {
+  assert.deepEqual(priceUsage({ model: "not-a-vendored-model" }, FULL_USAGE, undefined), { costUsd: null, costProvenance: undefined });
 });
 
 test("done-when 5: a missing rate for a measured counter is unknown, never a zero contribution", () => {

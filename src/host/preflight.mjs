@@ -19,6 +19,7 @@ import { existsSync, readFileSync, statfsSync } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, getHarness, probeRuntime } from "../harnesses/index.mjs";
 import { addRuntimeRequirement, failoverTargets, runtimeSnapshot } from "../engine/failover.mjs";
+import { pricingSeedAge } from "../engine/pricing-seed.mjs";
 import { validateContract } from "../contract/index.mjs";
 import { sharedVerificationCommands } from "../contract/final-verification.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS, discoverRuntimes } from "../engine/runtime-discovery.mjs";
@@ -411,6 +412,17 @@ export async function doctorCommand(contractPath, values) {
     checks.push({ name: `binary ${binary}`, ok: found !== null, detail: found ?? "not found on PATH" });
   }
   checks.push({ name: "runner schema", ok: true, detail: `protocol ${PROTOCOL_SCHEMA_VERSION} · runner ${CONTRACT_VERSION}` });
+  // A stale seed still prices better than no seed, so this check informs and
+  // never fails: a fact beside the runner-schema line, not a gate like the
+  // advisory checks below it, which exist because they can genuinely fail.
+  const seedAge = pricingSeedAge();
+  checks.push({
+    name: "pricing seed",
+    ok: true,
+    detail: seedAge.stale
+      ? `models.dev rates vendored ${seedAge.fetchedAt} · ${seedAge.ageDays} days old; re-vendor src/engine/pricing-seed.json`
+      : `models.dev rates vendored ${seedAge.fetchedAt}`,
+  });
   /** @type {Set<string>} */
   let usedHarnesses = new Set();
   /** @type {Set<string>} */
