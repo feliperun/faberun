@@ -9,7 +9,7 @@ import { git } from "../repo/worktree.mjs";
 
 /** @typedef {"command"|"path"|"judgment"} ProofKind */
 /** @typedef {{kind: ProofKind, ref?: string}} SpecProof */
-/** @typedef {{id: string|null, title: string, statement: string|null, proof: SpecProof|null, constraints: string|null, line: number}} SpecRequirement */
+/** @typedef {{id: string|null, title: string, statement: string|null, proof: SpecProof|null, measure: SpecProof|null, constraints: string|null, line: number}} SpecRequirement */
 /** @typedef {Record<string, string>} SpecFrontMatter */
 /** @typedef {{heading: string, body: string, line: number}} SpecSection */
 /** @typedef {{frontMatter: SpecFrontMatter|null, sections: Map<string, SpecSection>, requirements: SpecRequirement[]}} ParsedSpec */
@@ -160,6 +160,7 @@ function extractRequirements(section) {
       title: idMatch ? idMatch[2].trim() : heading,
       statement: bullets.get("statement") ?? null,
       proof: parseProof(bullets.get("proof")),
+      measure: parseProof(bullets.get("measure")),
       constraints: bullets.get("constraints") ?? null,
       line: blockLine,
     });

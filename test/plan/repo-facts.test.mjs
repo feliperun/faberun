@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { collectRepoFacts } from "../../src/plan/repo-facts.mjs";
+import { collectRepoFacts, measureRequirements } from "../../src/plan/repo-facts.mjs";
 
 /**
  * @returns {string} a temp git repository with a package.json, two src
@@ -36,19 +36,42 @@ function fixtureRepo() {
  * `run()` inside `timeVerificationCommands` — reports a deterministic elapsed
  * span without spawning anything real.
  *
+ * A `measure` command reaches the same `run` as a one-argument spawn (`shell:
+ * true` passes the whole line as the file), distinguished here by the second
+ * argument not being an argv array; those calls return the canned result
+ * keyed on the command line instead of a timing.
+ *
  * @param {Record<string, number>} durationsMs
+ * @param {Record<string, {status?: number|null, stdout?: string, stderr?: string}>} [commandResults]
  * @returns {{now: () => number, run: typeof import("node:child_process").spawnSync}}
  */
-function fakeMeasure(durationsMs) {
+function fakeMeasure(durationsMs, commandResults = {}) {
   let clock = 0;
   return {
     now: () => clock,
-    run: /** @type {any} */ ((/** @type {string} */ file, /** @type {string[]} */ args) => {
+    run: /** @type {any} */ ((/** @type {string} */ file, /** @type {unknown[]} */ ...rest) => {
+      const args = /** @type {string[]|null} */ (Array.isArray(rest[0]) ? rest[0] : null);
+      if (args === null) {
+        const canned = commandResults[file] ?? {};
+        return { status: canned.status ?? 0, signal: null, stdout: canned.stdout ?? "", stderr: canned.stderr ?? "" };
+      }
       const key = [file, ...args].join(" ");
       clock += durationsMs[key] ?? 1_000;
       return { status: 0, signal: null };
     }),
   };
+}
+
+/**
+ * A SpecRequirement-shaped fixture: `measureRequirements` reads only the id
+ * and the measure proof off it.
+ *
+ * @param {string|null} id
+ * @param {import("../../src/plan/spec.mjs").SpecProof|null} measure
+ * @returns {import("../../src/plan/spec.mjs").SpecRequirement}
+ */
+function requirement(id, measure) {
+  return { id, title: id ?? "untitled", statement: null, proof: null, measure, constraints: null, line: 1 };
 }
 
 /** @type {Record<string, number>} */
@@ -121,4 +144,57 @@ test("the paths cap sets truncated and bounds the returned paths array", () => {
   const facts = collectRepoFacts(directory, { measure: fakeMeasure(DURATIONS), maxPaths: 2 });
   assert.equal(facts.truncated, true);
   assert.equal(facts.paths.length, 2);
+});
+
+test("collectRepoFacts records a command measure and skips requirements without one", () => {
+  const directory = fixtureRepo();
+  const facts = collectRepoFacts(directory, {
+    measure: fakeMeasure(DURATIONS, { "grep -c TODO src/plan/repo-facts.mjs": { status: 0, stdout: "2\n" } }),
+    requirements: [
+      requirement("R1", { kind: "command", ref: "grep -c TODO src/plan/repo-facts.mjs" }),
+      requirement("R2", null),
+    ],
+  });
+  assert.deepEqual(facts.requirementMeasurements, [
+    { requirementId: "R1", command: "grep -c TODO src/plan/repo-facts.mjs", output: "2\n", exitCode: 0, truncated: false },
+  ]);
+});
+
+test("a failing measure is recorded with its exit code, not thrown", () => {
+  const directory = mkdtempSync(join(tmpdir(), "measure-requirements-"));
+  const measurements = measureRequirements(
+    directory,
+    [requirement("R1", { kind: "command", ref: "grep -c ABSENT src/plan/repo-facts.mjs" })],
+    fakeMeasure(DURATIONS, { "grep -c ABSENT src/plan/repo-facts.mjs": { status: 1 } }),
+  );
+  assert.deepEqual(measurements, [
+    { requirementId: "R1", command: "grep -c ABSENT src/plan/repo-facts.mjs", output: "", exitCode: 1, truncated: false },
+  ]);
+});
+
+test("measure output beyond 4096 bytes is cut to the cap and marked truncated", () => {
+  const directory = mkdtempSync(join(tmpdir(), "measure-requirements-"));
+  const measurements = measureRequirements(
+    directory,
+    [requirement("R1", { kind: "command", ref: "cat big.txt" })],
+    fakeMeasure(DURATIONS, { "cat big.txt": { status: 0, stdout: "a".repeat(3000), stderr: "b".repeat(3000) } }),
+  );
+  assert.equal(measurements.length, 1);
+  assert.equal(measurements[0].truncated, true);
+  assert.equal(measurements[0].output, `${"a".repeat(3000)}${"b".repeat(1096)}`);
+  assert.equal(Buffer.byteLength(measurements[0].output), 4096);
+});
+
+test("a requirement without a measure, or with a non-command kind, contributes nothing", () => {
+  const directory = mkdtempSync(join(tmpdir(), "measure-requirements-"));
+  const measurements = measureRequirements(
+    directory,
+    [
+      requirement("R1", null),
+      requirement("R2", { kind: "path", ref: "src/plan" }),
+      requirement("R3", { kind: "judgment" }),
+    ],
+    fakeMeasure(DURATIONS),
+  );
+  assert.deepEqual(measurements, []);
 });

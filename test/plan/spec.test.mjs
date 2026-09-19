@@ -82,6 +82,25 @@ test("parseSpec reads front matter, sections and requirements", () => {
   assert.deepEqual(parsed.requirements[0].proof, { kind: "command", ref: 'node --test test/feature.test.mjs' });
 });
 
+test("parseSpec reads measure as the same proof shape, or null without one", () => {
+  const text = `## Requirements
+
+### R1. Counted before drafting
+
+- **statement:** the planner measures this instead of inferring it.
+- **proof:** \`command: node --test test/plan/spec.test.mjs\`
+- **measure:** \`command: grep -rn "TODO" src | wc -l\`
+
+### R2. Nothing to measure
+
+- **statement:** no fact precedes the draft here.
+- **proof:** \`command: node --test test/plan/spec.test.mjs\`
+`;
+  const parsed = parseSpec(text);
+  assert.deepEqual(parsed.requirements[0].measure, { kind: "command", ref: 'grep -rn "TODO" src | wc -l' });
+  assert.equal(parsed.requirements[1].measure, null);
+});
+
 test("spec validate invokes no model", () => {
   const graph = runtimeImportGraph(SRC_DIR);
   /** @type {Set<string>} */

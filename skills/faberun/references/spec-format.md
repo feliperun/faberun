@@ -71,6 +71,15 @@ comparative arm, a follow-up spec). `statement` is the testable claim.
 A requirement may add its own `- **constraints:** ...` line for a rule
 scoped to it alone, distinct from the spec-wide Constraints section.
 
+A requirement may also declare a measurement with
+`- **measure:** command: <shell command>` — a read-only check the planner
+runs against the repository *before* drafting anything, folded into the repo
+facts the draft stage reads. The distinction from `proof` is timing: `proof`
+is what the finished node satisfies, while `measure` is checkable before any
+node exists — a grep, a `wc -l`, a small pipeline, run through the shell
+exactly as written here, pipes included. Only the `command` kind is wired;
+`path` and `judgment` measures parse but run nothing.
+
 ## What `faberun spec validate` checks
 
 Deterministic, no model call. Rejects:

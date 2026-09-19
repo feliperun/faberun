@@ -21,7 +21,7 @@ import { readCampaign } from "../campaign/record.mjs";
 import { campaignCli } from "../cli/campaign.mjs";
 import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
 import { allowanceDelta, allowanceEventFields, sampleAllowance } from "../seat/allowance.mjs";
-import { validateSpec } from "./spec.mjs";
+import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
 import { RISK_TIERS, buildPlanningContract, validateFindings, validatePlanOutput } from "./template.mjs";
 import { applySizingRules } from "./sizing.mjs";
@@ -117,7 +117,11 @@ export async function runPlanningPipeline(options) {
   const scratchDir = join(cwd, PLAN_SCRATCH_DIR_NAME, campaignId, phase);
   mkdirSync(scratchDir, { recursive: true });
 
-  const repoFacts = collectRepoFacts(cwd);
+  // A requirement's `measure` command runs here, before any node exists, so
+  // the draft stage reads what the planner measured instead of inferring it
+  // from the spec's prose.
+  const parsedSpec = parseSpec(specText);
+  const repoFacts = collectRepoFacts(cwd, { requirements: parsedSpec.requirements });
   const repoFactsPath = join(scratchDir, "repo-facts.json");
   writeFileSync(repoFactsPath, `${JSON.stringify(repoFacts, null, 2)}\n`);
   const relativeRepoFactsPath = relative(cwd, repoFactsPath);

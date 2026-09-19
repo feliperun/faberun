@@ -5,24 +5,53 @@
  * A planning stage's draft is authored against exactly this JSON instead of
  * the session reading the repository by hand.
  *
+ * When the caller passes the spec's parsed requirements, every `measure`
+ * command a requirement declares also runs here — read-only, before any node
+ * exists — and its output rides along as `requirementMeasurements`: the draft
+ * reasons from a fact the planner measured, not one it inferred from prose.
+ *
  * Sorting and the absence of any clock in the output itself (only inside an
  * injected measurer's own numbers) is what makes two calls at the same HEAD
  * byte-identical.
  */
+import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { timeVerificationCommands } from "../host/preflight.mjs";
+import { NOTIFY_BIN_ENV } from "../notify/index.mjs";
 import { boundedGitSync, gitHead } from "../repo/worktree.mjs";
 
+/** @typedef {import("./spec.mjs").SpecRequirement} SpecRequirement */
+/** @typedef {{requirementId: string|null, command: string, output: string, exitCode: number|null, truncated: boolean}} RequirementMeasurement */
 /** @typedef {{argv: string[], measuredMs: number, eligible: boolean}} VerificationCandidate */
 /** @typedef {{path: string, covers: string|null}} TestFileEntry */
-/** @typedef {{formatVersion: number, gitHead: string|null, paths: string[], truncated: boolean, scripts: Record<string, string>, verificationCandidates: VerificationCandidate[], testFiles: TestFileEntry[]}} RepoFacts */
+/** @typedef {{formatVersion: number, gitHead: string|null, paths: string[], truncated: boolean, scripts: Record<string, string>, verificationCandidates: VerificationCandidate[], testFiles: TestFileEntry[], requirementMeasurements: RequirementMeasurement[]}} RepoFacts */
 /** @typedef {{now?: () => number, run?: typeof import("node:child_process").spawnSync}} MeasureProbes */
 
 const FORMAT_VERSION = 1;
 const DEFAULT_MAX_PATHS = 2000;
 const ELIGIBLE_MS_CEILING = 600_000;
 const CANDIDATE_TIMEOUT_SEC = ELIGIBLE_MS_CEILING / 1_000;
+const MEASURE_TIMEOUT_MS = 30_000;
+const MEASURE_OUTPUT_CAP_BYTES = 4096;
+
+/**
+ * The same named few `timeVerificationCommands` subtracts before spawning a
+ * measurement (SIDE_EFFECT_ENV_KEYS in src/host/preflight.mjs, which is
+ * module-private and could not be edited by the node that added this): a
+ * measure must not notify a human and must not be redirectable at a live,
+ * paid harness binary. A subtraction of a named few, not an allowlist — PATH,
+ * HOME and every ordinary variable still pass through unchanged.
+ */
+const MEASURE_SIDE_EFFECT_ENV_KEYS = [
+  NOTIFY_BIN_ENV,
+  "FABERUN_CODEX_BIN",
+  "FABERUN_CLAUDE_BIN",
+  "FABERUN_AGY_BIN",
+  "FABERUN_DSH_BIN",
+  "FABERUN_ZCODE_BIN",
+  "FABERUN_EXEC_JSONL_BIN",
+];
 
 /**
  * Every path git tracks at HEAD, sorted. The bounded spawn is the same
@@ -125,8 +154,56 @@ function measureCandidates(cwd, commands, probes) {
 }
 
 /**
+ * Run every requirement's declared `measure` command against the repository
+ * as it stands right now and record what it reports. This is the planner's
+ * fact, not the node's proof: it has to be evaluable before any node exists,
+ * which is why it reuses the same SpecProof shape `proof` parses into.
+ *
+ * The command goes through the shell (`spawnSync` with `shell: true`), so a
+ * requirement's own pipe — `| wc -l`, `| grep -v …` — works exactly as a spec
+ * author would type it at a terminal. The bounding shape matches
+ * `timeVerificationCommands` (stripped env, injectable probes, a hard
+ * ceiling) but that function discards stdout by design, so it cannot be
+ * reused where the output is the point. A non-zero exit is recorded, never
+ * thrown: finding the pattern still present is exactly the fact a draft
+ * needs.
+ *
  * @param {string} cwd
- * @param {{measure?: MeasureProbes, maxPaths?: number}} [options]
+ * @param {SpecRequirement[]} requirements
+ * @param {MeasureProbes} [probes]
+ * @returns {RequirementMeasurement[]}
+ */
+export function measureRequirements(cwd, requirements, probes = {}) {
+  if (requirements.length === 0) return [];
+  const run = probes.run ?? spawnSync;
+  const env = { ...process.env };
+  for (const key of MEASURE_SIDE_EFFECT_ENV_KEYS) delete env[key];
+  /** @type {RequirementMeasurement[]} */
+  const measurements = [];
+  for (const requirement of requirements) {
+    // Only the `command` kind is wired: a `path` or `judgment` measure parses
+    // (parseProof already accepts both) but nothing runs it — left unmeasured
+    // rather than guessed at.
+    if (requirement.measure?.kind !== "command" || !requirement.measure.ref) continue;
+    const command = requirement.measure.ref;
+    const result = run(command, { shell: true, cwd, timeout: MEASURE_TIMEOUT_MS, encoding: "utf8", env });
+    const combined = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+    const bytes = Buffer.from(combined, "utf8");
+    const truncated = bytes.length > MEASURE_OUTPUT_CAP_BYTES;
+    measurements.push({
+      requirementId: requirement.id,
+      command,
+      output: truncated ? bytes.subarray(0, MEASURE_OUTPUT_CAP_BYTES).toString("utf8") : combined,
+      exitCode: result.status,
+      truncated,
+    });
+  }
+  return measurements;
+}
+
+/**
+ * @param {string} cwd
+ * @param {{measure?: MeasureProbes, maxPaths?: number, requirements?: SpecRequirement[]}} [options]
  * @returns {RepoFacts}
  */
 export function collectRepoFacts(cwd, options = {}) {
@@ -144,5 +221,6 @@ export function collectRepoFacts(cwd, options = {}) {
     scripts,
     verificationCandidates: measureCandidates(cwd, commands, options.measure ?? {}),
     testFiles: testFileEntries(allPaths, pathSet),
+    requirementMeasurements: measureRequirements(cwd, options.requirements ?? [], options.measure ?? {}),
   };
 }
