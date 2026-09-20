@@ -4,7 +4,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileS
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
-import { forceFreshSession } from "../../src/engine/dispatch.mjs";
+import { forceFreshSession } from "../../src/engine/phase-session.mjs";
 import { applyRejection } from "../../src/engine/settle.mjs";
 import { emitNodeAdvisory, emitNodeAdvisories, nodeAdvisoryCrossings, notifyQueuesByRun } from "../../src/engine/notify-queue.mjs";
 import {

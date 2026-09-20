@@ -275,7 +275,7 @@ export async function terminateInvocation(invocation, options = {}) {
  * sealing here, a timeout parks with an empty seal and the recorded work is
  * abandoned in a worktree the next attempt never reads.
  */
-const SEAL_BEFORE_KILL_CODES = new Set(["wall_clock_timeout", "stall_timeout"]);
+const SEAL_BEFORE_KILL_CODES = new Set(["wall_clock_timeout", "stall_timeout", "turn_limit"]);
 
 /**
  * How long a `SIGSTOP`ped process group is given to actually stop before the
@@ -347,8 +347,8 @@ function resumeInvocation(invocation) {
 }
 
 /**
- * The pre-termination seam, filled: on `wall_clock_timeout` and `stall_timeout`
- * quiesce the provider, seal the attempt worktree, and only then let the caller
+ * The pre-termination seam, filled: on `wall_clock_timeout`, `stall_timeout`
+ * and `turn_limit` quiesce the provider, seal the attempt worktree, and only then let the caller
  * terminate it, so the next attempt is cut from the seal. The seal is bounded
  * by the same git timeout every synchronous git call uses
  * (`GIT_SYNC_TIMEOUT_MS`, overridable with `FABERUN_GIT_TIMEOUT_MS`);
@@ -440,6 +440,25 @@ export async function detectStalls(contract, running, onTimeout, onProgress, onB
         // signal (scheduler.mjs): keep it advancing for an event that counts
         // as liveness, not only for an mtime that no longer does.
         job.lastOutputAt = Date.now();
+      }
+      // The attempt's request ceiling: a turn still making requests past it
+      // is the runaway shape, not progress. measured 2026-09-20: two 600-request
+      // turns re-sent 190M and 167M tokens of context and produced no result;
+      // the 23 turns with no result held 25% of all context spend. Ends the
+      // attempt the way a timeout does: sealed, then one automatic retry.
+      // (`turns` counts provider requests for claude, dsh and agy; codex
+      // reports whole turns, so its cap is in effect a turn count.)
+      const turnCap = job.node?.maxTurns ?? contract.maxTurns;
+      if (typeof turnCap === "number" && monitored.turns >= turnCap) {
+        const limit = {
+          code: "turn_limit",
+          message: `${job.phase} made ${monitored.turns} provider requests, the attempt's maxTurns of ${turnCap}`,
+        };
+        await onBeforeTerminate(job, limit);
+        await terminateProcess(job);
+        running.delete(nodeId);
+        await onTimeout(job, "exhausted", limit);
+        continue;
       }
     } else if (job.observedOnce !== true) {
       job.progressTicks = now;

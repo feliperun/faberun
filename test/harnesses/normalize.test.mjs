@@ -694,3 +694,16 @@ test("accepts a zcode runtime in contracts and keeps the zhipu vendor", () => {
   assert.equal(contract.runtimes.zcodeFlash.vendor, "zhipu", "the harness default names the vendor");
   assert.equal(routeRuntime(contract, { id: "z", type: "backend", runtime: "zcodeFlash", gate: {} }).id, "zcodeFlash");
 });
+
+test("a Claude turn stopped by --max-turns is turn_limit, the controller's own cap, not a provider error", () => {
+  const stdout = [
+    { type: "system", subtype: "init", session_id: "s-1" },
+    { type: "assistant", message: { usage: { input_tokens: 5, cache_read_input_tokens: 10 }, content: [] } },
+    { type: "result", subtype: "error_max_turns", is_error: true, session_id: "s-1", num_turns: 2, usage: { input_tokens: 9, cache_read_input_tokens: 30 } },
+  ].map((event) => JSON.stringify(event)).join("\n");
+  const envelope = normalizeProviderResult({ harness: "claude" }, stdout, 0, null);
+  assert.equal(envelope.status, "failed");
+  assert.equal(envelope.error?.code, "turn_limit");
+  assert.equal(envelope.continuationId, "s-1", "the session id survives for the retry's own decision");
+  assert.deepEqual(envelope.usage, { inputTokens: 9, outputTokens: null, cacheReadInputTokens: 30 }, "the spend of the capped attempt is kept");
+});

@@ -684,3 +684,21 @@ test("validate rejects legacy prompt and promptFile fields", () => {
   const filePath = helpers.writeContract(directory, fileValue);
   assert.throws(() => validateContract(JSON.parse(readFileSync(filePath, "utf8")), filePath), /must not use prompt or promptFile/u);
 });
+
+test("maxTurns bounds one attempt's provider requests: contract default, node override, positive integer only", () => {
+  const path = helpers.writeContract(mkdtempSync(join(tmpdir(), "runner-max-turns-")), helpers.fixture({ id: "max-turns-run" }));
+  const contract = validateContract(JSON.parse(readFileSync(path, "utf8")), path);
+  assert.equal(contract.maxTurns, 150, "the default is the measured ceiling (p99 122, max 339 over 200 completed turns), not a guess");
+  assert.equal(contract.nodes[0].maxTurns, undefined, "a node without its own cap inherits the contract's at dispatch");
+  const overridden = helpers.fixture({ id: "max-turns-override", maxTurns: 40 });
+  /** @type {Record<string, unknown>[]} */ (overridden.nodes)[0].maxTurns = 12;
+  const overriddenPath = helpers.writeContract(mkdtempSync(join(tmpdir(), "runner-max-turns-override-")), overridden);
+  const validated = validateContract(JSON.parse(readFileSync(overriddenPath, "utf8")), overriddenPath);
+  assert.equal(validated.maxTurns, 40);
+  assert.equal(validated.nodes[0].maxTurns, 12);
+  for (const bad of [0, -1, 1.5, "12"]) {
+    const invalid = helpers.fixture({ id: "max-turns-bad", maxTurns: bad });
+    const invalidPath = helpers.writeContract(mkdtempSync(join(tmpdir(), "runner-max-turns-bad-")), invalid);
+    assert.throws(() => validateContract(JSON.parse(readFileSync(invalidPath, "utf8")), invalidPath), /contract\.maxTurns/u, `${JSON.stringify(bad)} is refused`);
+  }
+});

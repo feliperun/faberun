@@ -32,16 +32,25 @@ const WRITE_FILE_LINE_WARN_MARGIN = 100;
 
 const CONTRACT_FIELDS = new Set([
   "schemaVersion", "contractVersion", "id", "campaignId", "goal", "cwd", "sourceIdentity",
-  "maxParallel", "pollIntervalMs", "stallTimeoutSec", "timeoutSec",
+  "maxParallel", "pollIntervalMs", "stallTimeoutSec", "timeoutSec", "maxTurns",
   "runtimeDefaults", "runtimes", "nodes", "warnings", "finalVerification", "sharedVerification", "nodeAdvisory",
 ]);
 const DEFAULTS_FIELDS = new Set(["worker", "judge"]);
 const NODE_FIELDS = new Set([
   "id", "type", "phase", "runtime", "dependsOn", "taskPacket", "taskPacketFile", "prompt", "promptFile",
-  "definitionOfDone", "gate", "timeoutSec",
+  "definitionOfDone", "gate", "timeoutSec", "maxTurns",
   "requiredCapabilities", "packetHash", "sourceIdentity", "replayPolicy",
 ]);
 const REPLAY_POLICIES = new Set(["safe", "reconcile", "never"]);
+/**
+ * Provider requests one attempt may make before the controller ends it, when
+ * neither the contract nor the node says otherwise. measured 2026-09-20 over
+ * 200 completed claude worker turns: p90 83, p95 96, p99 122, max 339; the 23
+ * turns that never produced a result held 25% of all context spend, and six
+ * of them ran past 150 (180 to 600 requests). One completed turn would have
+ * been cut and retried once.
+ */
+const DEFAULT_MAX_TURNS = 150;
 const GATE_FIELDS = new Set(["enabled", "runtime", "review", "failOn", "maxRevisions", "requiredCapabilities", "skipWhen"]);
 const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 
@@ -59,9 +68,9 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 
 /** @typedef {{enabled: boolean, review?: ("none"|"advisory"|"blocking"), runtime?: string, failOn?: ("minor"|"major"|"critical")[], maxRevisions?: number, requiredCapabilities?: CapabilityRequirements, skipWhen?: {verificationGreen: true, maxChangedPaths: number}}} ValidatedGate */
 
-/** @typedef {{id: string, type: string, phase: string, runtime?: string, dependsOn: string[], taskPacket: TaskPacket, taskPacketFile?: string, prompt: string, definitionOfDone: import("./definition-of-done.mjs").DefinitionOfDoneItem[], gate: ValidatedGate, timeoutSec?: number, requiredCapabilities: CapabilityRequirements, packetHash: string, sourceIdentity: SourceIdentity, replayPolicy: "safe"|"reconcile"|"never"}} ValidatedNode */
+/** @typedef {{id: string, type: string, phase: string, runtime?: string, dependsOn: string[], taskPacket: TaskPacket, taskPacketFile?: string, prompt: string, definitionOfDone: import("./definition-of-done.mjs").DefinitionOfDoneItem[], gate: ValidatedGate, timeoutSec?: number, maxTurns?: number, requiredCapabilities: CapabilityRequirements, packetHash: string, sourceIdentity: SourceIdentity, replayPolicy: "safe"|"reconcile"|"never"}} ValidatedNode */
 
-/** @typedef {{schemaVersion: number, contractVersion: string, id: string, campaignId: string, goal: string, cwd: string, sourceIdentity: SourceIdentity, runtimes: Record<string, ValidatedRuntime>, runtimeDefaults: {worker?: string, judge?: string}, nodes: ValidatedNode[], maxParallel: number, pollIntervalMs: number, stallTimeoutSec: number, timeoutSec: number, finalVerification?: VerificationCommand[], sharedVerification?: VerificationCommand[], nodeAdvisory?: NodeAdvisoryPolicy, warnings: string[]}} ValidatedContract */
+/** @typedef {{schemaVersion: number, contractVersion: string, id: string, campaignId: string, goal: string, cwd: string, sourceIdentity: SourceIdentity, runtimes: Record<string, ValidatedRuntime>, runtimeDefaults: {worker?: string, judge?: string}, nodes: ValidatedNode[], maxParallel: number, pollIntervalMs: number, stallTimeoutSec: number, timeoutSec: number, maxTurns: number, finalVerification?: VerificationCommand[], sharedVerification?: VerificationCommand[], nodeAdvisory?: NodeAdvisoryPolicy, warnings: string[]}} ValidatedContract */
 /** @typedef {{costUsd?: number, durationSec?: number}} NodeAdvisoryPolicy */
 
 /** @typedef {"pending"|"running"|"done"|"no-op"|"blocked"|"failed"|"exhausted"|"stalled"|"canceled"} NodeStatus */
@@ -220,6 +229,9 @@ export function validateContract(raw, contractPath, options = {}) {
     const timeoutSec = node.timeoutSec === undefined
       ? undefined
       : positiveNumber(node.timeoutSec, `nodes[${index}].timeoutSec`);
+    const maxTurns = node.maxTurns === undefined
+      ? undefined
+      : positiveInteger(node.maxTurns, `nodes[${index}].maxTurns`);
     const replayPolicy = validateReplayPolicy(node.replayPolicy, `nodes[${index}]`);
     return /** @type {ValidatedNode} */ ({
       ...node,
@@ -232,6 +244,7 @@ export function validateContract(raw, contractPath, options = {}) {
       prompt,
       gate,
       timeoutSec,
+      maxTurns,
       replayPolicy,
     });
   });
@@ -362,6 +375,7 @@ export function validateContract(raw, contractPath, options = {}) {
     pollIntervalMs: positiveInteger(raw.pollIntervalMs ?? 1_000, "contract.pollIntervalMs"),
     stallTimeoutSec: positiveNumber(raw.stallTimeoutSec ?? 300, "contract.stallTimeoutSec"),
     timeoutSec: positiveNumber(raw.timeoutSec ?? 2_400, "contract.timeoutSec"),
+    maxTurns: positiveInteger(raw.maxTurns ?? DEFAULT_MAX_TURNS, "contract.maxTurns"),
     finalVerification: validateFinalVerification(raw.finalVerification, "contract.finalVerification"),
     sharedVerification: validateSharedVerification(raw.sharedVerification, "contract.sharedVerification"),
     nodeAdvisory: validateNodeAdvisory(raw.nodeAdvisory),

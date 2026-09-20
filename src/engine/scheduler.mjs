@@ -583,7 +583,7 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
         // A judge killed on its own wall clock produced no verdict. That is a
         // judge protocol defect, not a node outcome: it earns the one bounded
         // re-ask, and only then the review mode settles the node.
-        if (job.phase === "judge" && error.code === "wall_clock_timeout") {
+        if (job.phase === "judge" && (error.code === "wall_clock_timeout" || error.code === "turn_limit")) {
           await applyJudgeProtocolFailure(contract, job.node, job.state, runDir, running, lock, states, campaign.path, error.message);
           return;
         }

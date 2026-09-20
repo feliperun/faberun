@@ -56,9 +56,11 @@ change, and the work remains.
   fully mechanical node costs no judge.
 - **Cross-vendor review.** A gate's judge resolves to a different vendor from
   the worker that ran the attempt. Validation rejects a same-vendor pairing.
-- **No spend ceiling, bounded attempts.** `timeoutSec` and `stallTimeoutSec`
-  bound one attempt. A spent provider allowance is handled by re-tiering and
-  fallback, never by a budget the operator had to guess.
+- **No spend ceiling, bounded attempts.** `timeoutSec`, `stallTimeoutSec`
+  and `maxTurns` bound one attempt: wall clock, silence, and provider requests
+  (a turn still making requests past the cap is the runaway shape, not work).
+  A spent provider allowance is handled by re-tiering and fallback, never by
+  a budget the operator had to guess.
 - **History is never rewritten.** `docs/history/`, `docs/campaigns/` and
   `evals/golden/` keep what a worker was actually told. A rename or a fix
   applies to the live tree only.

@@ -83,7 +83,7 @@ const CAPABILITY_NAMES = new Set([
 /** Line count above which a whole-file read is denied by the tool policy hook. */
 export const READ_LINE_LIMIT = 1500;
 
-/** @typedef {{schema?: object, schemaPath?: string, continuationId?: string|null, toolPolicy?: ToolPolicy, env?: Record<string, string>}} CommandOptions */
+/** @typedef {{schema?: object, schemaPath?: string, continuationId?: string|null, toolPolicy?: ToolPolicy, env?: Record<string, string>, maxTurns?: number}} CommandOptions */
 
 /** @typedef {{preferStructured?: boolean, exitCode?: number|null, signal?: string|null, stderr?: string}} NormalizeOptions */
 
