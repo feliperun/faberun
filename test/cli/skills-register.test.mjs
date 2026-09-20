@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const BIN = fileURLToPath(new URL("../../bin/faberun.mjs", import.meta.url));
@@ -28,7 +28,23 @@ function fixture(options = {}) {
     writeFileSync(path, `#!${process.execPath}\nconsole.log("fake ${harness} 1.0.0");\n`);
     chmodSync(path, 0o755);
   }
-  return { home, env: { ...process.env, HOME: home, PATH: `${bin}:/usr/bin:/bin` } };
+  // The system directories are POSIX names and the separator is the platform's:
+  // a PATH joined with `:` on Windows is one entry that names nothing, which
+  // reports every harness uninstalled rather than testing the registration.
+  const path = [bin, ...(process.platform === "win32" ? [] : ["/usr/bin", "/bin"])].join(delimiter);
+  return { home, env: { ...process.env, HOME: home, PATH: path } };
+}
+
+/**
+ * The `~`-prefixed path the human lines carry, as a regular expression source.
+ * The separator is the platform's, so the line reads `~\.claude\skills` on
+ * Windows and `~/.claude/skills` everywhere else.
+ *
+ * @param {...string} segments
+ * @returns {string}
+ */
+function homePath(...segments) {
+  return ["~", ...segments].join(sep).replace(/[.\\]/gu, "\\$&");
 }
 
 /**
@@ -66,9 +82,9 @@ test("a second register reports unchanged", () => {
   assert.equal(register([], env).status, 0);
   const second = register([], env);
   assert.equal(second.status, 0, second.stderr);
-  assert.match(second.stdout, /\[ok\] claude · ~\/\.claude\/skills\/faberun · unchanged/u);
-  assert.match(second.stdout, /\[ok\] codex · ~\/\.codex\/skills\/faberun · unchanged/u);
-  assert.match(second.stdout, /\[ok\] agents · ~\/\.agents\/skills\/faberun · unchanged/u);
+  for (const harness of ["claude", "codex", "agents"]) {
+    assert.match(second.stdout, new RegExp(`\\[ok\\] ${harness} · ${homePath(`.${harness}`, "skills", "faberun")} · unchanged`, "u"));
+  }
 });
 
 test("a real directory in the way is refused without --force and replaced with it", () => {
@@ -104,7 +120,7 @@ test("a missing skills directory is a warn line, not an error", () => {
   const { home, env } = fixture({ harnesses: ["agy"], dirs: [] });
   const result = register(["--harness", "agy"], env);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /\[warn\] agy · no skills directory \(~\/\.gemini\/config\/skills\)/u);
+  assert.match(result.stdout, new RegExp(`\\[warn\\] agy · no skills directory \\(${homePath(".gemini", "config", "skills")}\\)`, "u"));
   assert.equal(existsSync(join(home, ".gemini", "config", "skills", "faberun")), false);
 });
 

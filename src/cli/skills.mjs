@@ -20,7 +20,6 @@ import {
   readdirSync,
   realpathSync,
   rmSync,
-  symlinkSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
@@ -28,7 +27,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs as parseFlags } from "node:util";
 
 import { faberunHome, installedVersionDir } from "../host/home.mjs";
-import { findExecutable } from "../host/preflight.mjs";
+import { findExecutable, linkDirectory } from "../host/platform.mjs";
 import { colorLevel, statusToken } from "./brand.mjs";
 
 const SKILLS_DIR = fileURLToPath(new URL("../../skills", import.meta.url));
@@ -304,7 +303,7 @@ function linkSkill(source, destination, force) {
     if (!existing.isSymbolicLink() && !force) return "skipped";
     rmSync(destination, { recursive: true, force: true });
   }
-  symlinkSync(source, destination);
+  linkDirectory(destination, source);
   return "linked";
 }
 

@@ -16,7 +16,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statfsSync } from "node:fs";
-import { delimiter, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, getHarness, probeRuntime } from "../harnesses/index.mjs";
 import { addRuntimeRequirement, failoverTargets, runtimeSnapshot } from "../engine/failover.mjs";
 import { pricingSeedAge } from "../engine/pricing-seed.mjs";
@@ -27,6 +27,7 @@ import { errorMessage } from "../util.mjs";
 import { boundedGitSync } from "../repo/worktree.mjs";
 import { routeRuntime } from "../contract/runtime.mjs";
 import { NOTIFY_BIN_ENV, noTransportWarning } from "../notify/index.mjs";
+import { findExecutable } from "./platform.mjs";
 import { colorLevel, statusToken } from "../cli/brand.mjs";
 import { RUNS_DIR_NAME } from "../run/paths.mjs";
 
@@ -543,22 +544,3 @@ function isRunsIgnored(repoDir) {
     return false;
   }
 }
-
-/**
- * The first directory on PATH that holds `name`, or null. Exported because the
- * banner counts the harness binaries with the same lookup the doctor uses,
- * rather than a second copy that can disagree.
- *
- * @param {string} name
- * @returns {string|null}
- */
-export function findExecutable(name) {
-  if (name.includes("/") || name.includes("\\")) return existsSync(name) ? name : null;
-  for (const dir of (process.env.PATH ?? "").split(delimiter)) {
-    if (!dir) continue;
-    const candidate = join(dir, name);
-    if (existsSync(candidate)) return candidate;
-  }
-  return null;
-}
-
