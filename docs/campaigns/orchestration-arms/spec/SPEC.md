@@ -1,12 +1,12 @@
 ---
 id: orchestration-arms
 title: "Does orchestrating with faberun beat one session, or one session with its own subagents?"
-version: 1.1.0
+version: 1.2.0
 status: draft
 date: 2026-09-20
 owner: Felipe Broering
 target: feliperun/faberun
-baseline: a1117f7
+baseline: a1117f7 (simple corpus), 4913ef2 (complex corpus)
 ---
 
 # Does orchestrating with faberun beat one session, or one session with its own subagents?
@@ -34,6 +34,10 @@ The ten open requirements the `spike-leitura-teto` campaign wrote against fork `
 
 Every run of every arm starts from the same commit: the fork plus one commit adding the proofs. All three arms see the same requirement text, the same write scope, the same relevant files and the same proof command; arm A gets them as a packet per node, B and C as one prompt.
 
+**Complex corpus (version 1.2.0).** The full round on the ten independent requirements answered the cost question but not the one the product exists for: work whose parts depend on one another and cross the repository. The owner's instruction was that small campaigns do not make sense as the test, so the second corpus is a real phase of a real campaign, `1c-run-path-resolver` of `state-location-and-routing-economics`, exactly as it was executed on 2026-09-18 against base `4913ef2`: four nodes (`spike/corpus-complex/nodes.json`, extracted from the recorded contract), a resolver module whose exports three other nodes consume, two migration nodes that depend on it and together rewrite 26 files of `src/`, and a ratchet node that depends on both. The arms receive the recorded packets word for word -- objective, instructions, symbols, decisions, non-goals, read and write files -- plus one line in the resolver node naming the seven exports the landed acceptance test imports, so no arm fails for a naming choice. Per-node verification is trimmed from the recorded whole-directory suites to what proves each node (the recorded `test/engine/` alone runs 19 minutes).
+
+The acceptance is hidden from the arms and run by the driver on the final tree: the test the phase actually landed (`test/run/paths.test.mjs` at `054dd4c`, restored over whatever the arm wrote), a centralization check that measures what the landed ratchet measures (only `src/run/paths.mjs` spells the double-quoted runs literal in `src/`; 21 files do at the base), the repository typecheck, and the regression suites the phase verified against (`test/run/`, `test/repo/`, `test/cli/`, `test/campaign/`, 307 tests, about 3 minutes). Both were verified to fail at the base and pass at the landing. Historical reference for the same work: the real run cost US$ 7 of worker, took 68 minutes, and its resolver node needed two attempts.
+
 ## Metrics
 
 | metric | definition | direction |
@@ -52,7 +56,8 @@ Every run of every arm starts from the same commit: the fork plus one commit add
 
 - **Interleaving.** Within one repetition the three arms run back to back in a seeded shuffled order, so a provider that drifts over the day drifts across arms rather than between them (the first spike ran one arm two hours later and measured the clock instead of the treatment).
 - **Repetitions and the band.** Arm A is the control and is repeated; its spread across repetitions is the noise band, computed with `evals/run.mjs --band`, and every comparison is judged against it with `--compare --band`. A delta inside the band is reported as "not measured", never as "no difference".
-- **Phases and budget.** *Smoke*: one requirement, one repetition, all arms, to prove the pipeline end to end. *Pilot*: five requirements, three repetitions per arm (extended from one when the first came in at a fifth of the cap), to size cost and time and to obtain a first band. *Full*: the ten requirements, two repetitions per arm and four arms, launched under the owner's standing instruction to measure this now and inside the same US$ 40 envelope (pilot spend US$ 13, full round projected at US$ 20 from pilot rates); a third repetition is a separate decision. Spend is recorded per run in the ledger.
+- **Phases and budget.** *Smoke*: one requirement, one repetition, all arms, to prove the pipeline end to end. *Pilot*: five requirements, three repetitions per arm (extended from one when the first came in at a fifth of the cap), to size cost and time and to obtain a first band. *Full*: the ten requirements, two repetitions per arm and four arms, launched under the owner's standing instruction to measure this now and inside the same US$ 40 envelope (pilot spend US$ 13, full round projected at US$ 20 from pilot rates); a third repetition is a separate decision. *Complex* (version 1.2.0): the four-node phase, four arms, two repetitions, under a separate US$ 60 envelope (about US$ 30 per repetition from the historical run's worker cost plus the judge's share measured in the full round), the first repetition launched on 2026-09-20 with the second to follow unless the owner says otherwise. Spend is recorded per run in the ledger.
+- **Delivered, on the complex corpus.** The denominator of the top metric is the acceptance checks that pass (four per run), not requirements: a migration that leaves one call site behind fails centralization and typecheck together, and counting it as three quarters delivered would be generous to every arm alike. The session arms are told the acceptance commands, not given the acceptance files.
 - **What is deliberately asymmetric.** Arm A has a judge, a write-scope boundary, a request cap of 150 per node and parallel nodes; B and C have none of that and a cap of 1000 requests for the whole session. Those are the product's mechanics and the thing under test; the comparison charges arm A the judge's cost and reports the others' out-of-scope edits.
 
 ## Hypotheses
@@ -68,6 +73,8 @@ Every run of every arm starts from the same commit: the fork plus one commit add
 
 H6 is the honesty hypothesis and it decides what the report may say.
 
+On the complex corpus the same six are re-tested with `proofsPassed` read as acceptance checks passed, and H4 is the one the corpus was chosen for: two of the four nodes are independent of each other and the product runs them in parallel while a session does them in sequence, so if orchestration has a wall-clock advantage on dependent work this is where it shows. H5 gains teeth too: 26 files of write scope across `src/` is where a session drifts.
+
 ## Kill criteria
 
 Discard the premise, without a second attempt, if H3 fails in the full round: faberun delivers fewer proofs than a single session on the same corpus. Report "not measured" and stop, if the full round's effects all sit inside the band: the answer is more repetitions or a harder corpus, not another hypothesis. Abort the pilot and report if a session arm cannot complete the corpus at all (a cap or a crash) — that is a finding about the arm, not noise.
@@ -76,7 +83,7 @@ Discard the premise, without a second attempt, if H3 fails in the full round: fa
 
 ### R1. The three arms run the same corpus from the same commit
 
-- **statement:** every run of every arm starts from fork `a1117f7` plus the proofs commit, and the requirement text, write scope, relevant files and proof command an arm receives are identical across arms; B and C differ from each other only by the delegation paragraph.
+- **statement:** every run of every arm starts from the corpus fork (`a1117f7` plus the proofs commit for the simple corpus, `4913ef2` plus `npm ci` for the complex one), and the requirement text, write scope, relevant files and verification an arm receives are identical across arms; B and C differ from each other only by the delegation paragraph.
 - **proof:** `command: node --test spike/arms/test/arms.test.mjs`
 
 ### R2. Every run is measured the same way
@@ -103,7 +110,7 @@ Discard the premise, without a second attempt, if H3 fails in the full round: fa
 
 ## Constraints
 
-- The corpus and its proofs are never edited by an arm; a run that edits a proof is measured against the restored proof and the edit is recorded.
+- The corpus and its proofs are never edited by an arm; a run that edits a proof is measured against the restored proof and the edit is recorded. On the complex corpus the acceptance files are not in the tree an arm works on at all: the landed test is restored over the arm's tree afterwards, and the centralization check lives in the driver.
 - Arm A runs under its own `FABERUN_HOME` so the experiment never touches the user's projects, and no arm can reach the notification transport.
 - Arms run sequentially, never in parallel with each other: the machine's memory and the provider's quota are shared confounders.
 
