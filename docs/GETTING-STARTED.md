@@ -83,9 +83,10 @@ things differ, each because Windows differs:
   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/feliperun/faberun/main/install.ps1))) -AddToPath
   ```
 
-Running a campaign end to end on Windows is not covered yet: the engine's
-process control and the `seat` command are POSIX-shaped, and the test suite is
-green on Linux and macOS only.
+A campaign runs on Windows: the engine resolves a harness through `PATHEXT`,
+runs one installed as a `.cmd` through the command interpreter, reads a `#!`
+line when handed a POSIX script, and ends a provider by its process tree.
+`faberun seat` is the exception — it is tmux, and therefore POSIX.
 
 ### npm
 

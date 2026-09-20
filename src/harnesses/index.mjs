@@ -7,6 +7,7 @@ import { zcodeHarness } from "./zcode/index.mjs";
 import { execJsonlHarness } from "./exec-jsonl/index.mjs";
 import { replayHarness } from "./replay/index.mjs";
 import { withoutNotifyEnv } from "../notify/index.mjs";
+import { spawnInvocation } from "../host/platform.mjs";
 
 /** Current wire-contract version for runner protocol artifacts. */
 export const PROTOCOL_SCHEMA_VERSION = 3;
@@ -471,13 +472,15 @@ export function probeRuntime(runtime, options = {}) {
   return new Promise((settle) => {
     let child;
     try {
-      child = spawn(executable, args, {
+      const invocation = spawnInvocation(executable, args);
+      child = spawn(invocation.command, invocation.args, {
         cwd: options.cwd,
         // A worker or judge never delivers a notification; the controller does.
         // In this repository a worker runs the test suite, whose fixture
         // controllers would otherwise inherit a live transport and deliver.
         env: withoutNotifyEnv(process.env),
         stdio: ["ignore", "pipe", "pipe"],
+        ...invocation.options,
       });
     } catch (error) {
       settle({

@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { gitArguments } from "../host/platform.mjs";
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { RUNS_DIR_NAME, attemptWorktreePath, candidateWorktreePath } from "../run/paths.mjs";
@@ -46,7 +47,7 @@ function gitSyncTimeoutMs(optionMs) {
  */
 export function boundedGitSync(args, options = {}) {
   const timeoutMs = gitSyncTimeoutMs(options.timeoutMs);
-  const result = spawnSync("git", args, {
+  const result = spawnSync("git", gitArguments(args), {
     encoding: options.encoding ?? "utf8",
     stdio: options.stdio ?? ["ignore", "pipe", "pipe"],
     timeout: timeoutMs,

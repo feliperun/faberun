@@ -7,6 +7,33 @@ import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../src/contract/index
 import { createAttemptWorktree } from "../src/repo/worktree.mjs";
 import { RUNS_DIR_NAME, campaignTree, runsRoot } from "../src/run/paths.mjs";
 
+/**
+ * Write a stand-in binary the host can actually run, and answer with the path
+ * to spawn it by.
+ *
+ * A shebang is a POSIX kernel feature. On Windows the same file spawns as
+ * EFTYPE, which is why every fixture runtime here used to report "no version"
+ * there — a `.cmd` beside the module is what that platform runs, and it is the
+ * same shape npm installs a Node CLI as, so the suite exercises the spawn path
+ * a real Windows machine takes.
+ *
+ * @param {string} path the module's path, ending in `.mjs` or bare
+ * @param {string} body the program, without a shebang line
+ * @returns {string} the path to spawn
+ */
+export function writeExecutable(path, body) {
+  if (process.platform !== "win32") {
+    writeFileSync(path, `#!${process.execPath}\n${body}`);
+    chmodSync(path, 0o755);
+    return path;
+  }
+  const script = path.endsWith(".mjs") ? path : `${path}.mjs`;
+  writeFileSync(script, body);
+  const shim = `${path.replace(/\.mjs$/u, "")}.cmd`;
+  writeFileSync(shim, `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`);
+  return shim;
+}
+
 // The suite must never notify a person or wake a session; `./setup.mjs` is
 // the one place that neutralises every notify variable, and `npm test`
 // preloads it into every test process. Importing it here covers a file run
@@ -224,8 +251,7 @@ export function initializeGit(directory) {
  */
 export function fakeCodex(directory, mode = "pass") {
   const path = join(mkdtempSync(join(tmpdir(), "runner-fake-codex-")), `fake-codex-${mode}.mjs`);
-  writeFileSync(path, `#!${process.execPath}
-import { appendFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+  const source = `import { appendFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 const mode = ${JSON.stringify(mode)};
 if (process.argv.includes("--version")) {
   if (mode === "version-fail") {
@@ -462,9 +488,8 @@ if (process.argv.includes("--version")) {
     }
   });
 }
-`);
-  chmodSync(path, 0o755);
-  return path;
+`;
+  return writeExecutable(path, source);
 }
 
 /**
@@ -474,8 +499,7 @@ if (process.argv.includes("--version")) {
  */
 export function fakeExecJsonl(directory, mode = "pass") {
   const path = join(mkdtempSync(join(tmpdir(), "runner-fake-jsonl-")), "fake-jsonl.mjs");
-  const script = process.platform === "win32" ? `#!${process.execPath}
-const mode = ${JSON.stringify(mode)};
+  const script = process.platform === "win32" ? `const mode = ${JSON.stringify(mode)};
 if (process.argv.includes("--version")) {
   console.log("fake-jsonl 1.0.0");
 } else {
@@ -511,9 +535,7 @@ case "$request" in
 esac
 printf '%s\\n' '{"schemaVersion":1,"type":"run.completed","result":'"$(printf '%s' "$result" | sed 's/"/\\\\"/g; s/^/"/; s/$/"/')"',"continuationId":"fake-thread","usage":{"inputTokens":5,"outputTokens":2,"cacheReadInputTokens":1},"costUsd":0.01}'
 `;
-  writeFileSync(path, script);
-  chmodSync(path, 0o755);
-  return path;
+  return writeExecutable(path, script);
 }
 
 /**
@@ -528,8 +550,7 @@ printf '%s\\n' '{"schemaVersion":1,"type":"run.completed","result":'"$(printf '%
  */
 export function fakeAgy(directory) {
   const path = join(mkdtempSync(join(tmpdir(), "runner-fake-agy-")), "agy");
-  writeFileSync(path, `#!${process.execPath}
-if (process.argv.includes("--version")) {
+  const source = `if (process.argv.includes("--version")) {
   console.log("agy 1.0.0");
 } else if (process.argv.includes("models")) {
   console.error("Fetching available models...");
@@ -545,9 +566,8 @@ console.log(JSON.stringify({event:"result",result:{
   usage:{input_tokens:4,output_tokens:1,cache_read_tokens:2}
 }}));
 }
-`);
-  chmodSync(path, 0o755);
-  return path;
+`;
+  return writeExecutable(path, source);
 }
 
 /**
@@ -563,8 +583,7 @@ console.log(JSON.stringify({event:"result",result:{
  */
 export function fakeDsh(directory, mode = "pass") {
   const path = join(mkdtempSync(join(tmpdir(), "runner-fake-dsh-")), `fake-dsh-${mode}.mjs`);
-  writeFileSync(path, `#!${process.execPath}
-const mode = ${JSON.stringify(mode)};
+  const source = `const mode = ${JSON.stringify(mode)};
 const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
 if (process.argv.includes("--version")) {
   console.log("fake-dsh 0.1.5-rc.1");
@@ -620,9 +639,8 @@ if (process.argv.includes("--version")) {
     }
   });
 }
-`);
-  chmodSync(path, 0o755);
-  return path;
+`;
+  return writeExecutable(path, source);
 }
 
 /**

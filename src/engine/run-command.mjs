@@ -17,6 +17,7 @@ import { processStartToken } from "../run/lock.mjs";
 import { randomUUID } from "node:crypto";
 import { runMutation } from "./mutation.mjs";
 import { spawn } from "node:child_process";
+import { killTarget, spawnInvocation } from "../host/platform.mjs";
 /** @typedef {import("../contract/verification.mjs").VerificationOptions} VerificationOptions */
 
 /** @typedef {import("node:child_process").ChildProcess} ChildProcess */
@@ -228,7 +229,11 @@ function runCommand(command, baseCwd, commandCwd, attempt, signal, options, comm
       };
       options?.onAttemptStart?.({ ...identity });
       const env = verificationEnv(command);
-      child = spawn(command.argv[0], command.argv.slice(1), { cwd, env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+      // A verification command names a binary the same way a harness runtime
+      // does, and on Windows `npm test` is `npm.cmd`: the invocation, not the
+      // raw argv, is what can actually be spawned there.
+      const invocation = spawnInvocation(command.argv[0], command.argv.slice(1));
+      child = spawn(invocation.command, invocation.args, { cwd, env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"], ...invocation.options });
       const pid = child.pid ?? null;
       let paused = false;
       if (process.platform !== "win32" && pid) {
@@ -268,8 +273,7 @@ function runCommand(command, baseCwd, commandCwd, attempt, signal, options, comm
  */
 function terminateGroup(child) {
   try {
-    if (process.platform !== "win32") process.kill(-/** @type {number} */ (child.pid), "SIGTERM");
-    else child.kill("SIGTERM");
+    killTarget(process.platform === "win32" ? /** @type {number} */ (child.pid) : -/** @type {number} */ (child.pid), "SIGTERM");
   } catch {
     try { child.kill("SIGTERM"); } catch {
       // ESRCH: the group kill failed and the leader was already gone.
@@ -277,8 +281,7 @@ function terminateGroup(child) {
   }
   setTimeout(() => {
     try {
-      if (process.platform !== "win32") process.kill(-/** @type {number} */ (child.pid), "SIGKILL");
-      else child.kill("SIGKILL");
+      killTarget(process.platform === "win32" ? /** @type {number} */ (child.pid) : -/** @type {number} */ (child.pid), "SIGKILL");
     } catch {
       try { child.kill("SIGKILL"); } catch {
         // ESRCH: the SIGKILL fallback found no leader left to kill.

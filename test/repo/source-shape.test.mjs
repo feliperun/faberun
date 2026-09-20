@@ -395,7 +395,7 @@ const SYNC_GIT_SPAWN = /(?:execFileSync|spawnSync)\s*\(\s*["'`]git/u;
 
 /** @type {{file: string, match: string, reason: string}[]} */
 const SYNC_GIT_EXEMPTIONS = [
-  { file: "src/repo/worktree.mjs", match: "spawnSync(\"git\", args, {", reason: "the boundedGitSync wrapper itself" },
+  { file: "src/repo/worktree.mjs", match: "spawnSync(\"git\", gitArguments(args), {", reason: "the boundedGitSync wrapper itself" },
   { file: "src/repo/workspace.mjs", match: "\"rev-parse\", \"--git-path\"", reason: "read-only path probe; cannot take index.lock" },
   { file: "src/repo/workspace.mjs", match: "execFileSync(\"git\", args, {", reason: "read-only ls-files index read; cannot take index.lock" },
   { file: "src/repo/declared-paths.mjs", match: "\"ls-files\", \"--cached\", \"--error-unmatch\"", reason: "read-only index probe" },

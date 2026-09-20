@@ -42,6 +42,7 @@ import { pidAlive, processStartToken } from "../run/lock.mjs";
 import { delay, errorCode, errorMessage } from "../util.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
 import { runDirectory } from "../run/paths.mjs";
+import { gitArguments, killTarget } from "../host/platform.mjs";
 
 /** @typedef {import("../contract/index.mjs").ControllerIdentity} ControllerIdentity */
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -140,7 +141,7 @@ function groupKill(pid, signal) {
         if (errorCode(error) !== "ESRCH") throw error;
       }
     }
-    process.kill(pid, signal);
+    killTarget(pid, signal);
   } catch (error) {
     if (errorCode(error) !== "ESRCH") throw error;
   }
@@ -269,7 +270,7 @@ export function validateContractAgainstRef(raw, contractPath, context = {}) {
   const originalCwd = resolve(dirname(contractPath), typeof raw.cwd === "string" ? raw.cwd : ".");
   const worktree = mkdtempSync(join(tmpdir(), "runner-chain-ref-"));
   try {
-    execFileSync("git", ["-C", repo, "worktree", "add", "--detach", worktree, baseRef], { stdio: ["ignore", "pipe", "pipe"] });
+    execFileSync("git", gitArguments(["-C", repo, "worktree", "add", "--detach", worktree, baseRef]), { stdio: ["ignore", "pipe", "pipe"] });
     const relativedCwd = relative(repo, originalCwd);
     const mappedCwd = relativedCwd && !relativedCwd.startsWith("..") ? join(worktree, relativedCwd) : worktree;
     const relativeContract = relative(repo, contractPath);

@@ -17,6 +17,7 @@ import { errorMessage } from "../util.mjs";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { normalizeProviderResult, probeRuntime, providerCommand } from "../harnesses/index.mjs";
+import { killTarget, spawnInvocation } from "../host/platform.mjs";
 import { reachableRuntimes } from "../host/preflight.mjs";
 import { spawn } from "node:child_process";
 import { boundedGitSync } from "../repo/worktree.mjs";
@@ -156,11 +157,13 @@ function livePreflight(runtime, cwd, timeoutSec) {
         else env[key] = value;
       }
       delete env.FABERUN_NOTIFY_BIN;
-      child = /** @type {import("node:child_process").ChildProcessWithoutNullStreams} */ (spawn(command.executable, command.args, {
+      const invocation = spawnInvocation(command.executable, command.args);
+      child = /** @type {import("node:child_process").ChildProcessWithoutNullStreams} */ (spawn(invocation.command, invocation.args, {
         cwd,
         env,
         detached: process.platform !== "win32",
         stdio: [command.promptTransport === "stdin" ? "pipe" : "ignore", "pipe", "pipe"],
+        ...invocation.options,
       }));
     } catch (error) {
       settle({
@@ -192,8 +195,7 @@ function livePreflight(runtime, cwd, timeoutSec) {
     /** @param {NodeJS.Signals} name */
     const signal = (name) => {
       try {
-        if (process.platform === "win32") child.kill(name);
-        else process.kill(-/** @type {number} */ (child.pid), name);
+        killTarget(process.platform === "win32" ? /** @type {number} */ (child.pid) : -/** @type {number} */ (child.pid), name);
       } catch {
         // ESRCH: the child is already gone, so there is no process to signal.
       }
