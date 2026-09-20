@@ -25,7 +25,11 @@ const PROMPT_MAX_BYTES = 64 * 1024;
  * process-free command, so a sandbox that cannot signal processes never hangs
  * on the node's own verification.
  */
-const VERIFICATION_PARAGRAPH = "The controller runs every command below after you report; its recorded results are the proof of this node. Running a command yourself is optional and only for one that finishes in seconds and spawns no long-lived process. Keep output bounded (pipe through `| tail -n 200`). Never wait on a background job, never run the whole test suite, and never run tests that start and terminate other processes.";
+// measured 2026-09-20 over 228 stored claude worker turns: tool results are
+// 73% of what enters the context after the packet (Read 38%, Bash 32%), edits
+// and whole-file writes 24%, and each byte is re-read by a median of 49 later
+// requests of the same turn. Hence the last sentence.
+const VERIFICATION_PARAGRAPH = "The controller runs every command below after you report; its recorded results are the proof of this node. Running a command yourself is optional and only for one that finishes in seconds and spawns no long-lived process. Keep output bounded (pipe through `| tail -n 200`). Never wait on a background job, never run the whole test suite, and never run tests that start and terminate other processes. Prefer a targeted edit over rewriting a whole file, and read with an offset and limit rather than whole files: every byte you read or write is re-read by every later request of this turn.";
 
 /**
  * The `## Required output` schema every mode states: literally every key
