@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "congeladoEm": "2026-09-19T20:24:14.273Z",
+  "requisitos": 10,
+  "hash": "99747dee1fbc434f40bd914dec87c00fe775ab62a629dd863c8d3dbdee107a76",
+  "gabarito": {
+    "CLI": [
+      "src/cli.mjs",
+      "src/cli/brand.mjs",
+      "src/cli/campaign.mjs",
+      "src/cli/contract.mjs",
+      "src/cli/seat.mjs",
+      "src/cli/skills.mjs",
+      "src/cli/spec.mjs",
+      "test/cli/brand.test.mjs"
+    ],
+    "CONTRACT": [
+      "src/contract/assert.mjs",
+      "src/contract/definition-of-done.mjs",
+      "src/contract/index.mjs",
+      "test/contract/contract.test.mjs"
+    ],
+    "ENGINE": [
+      "src/contract/index.mjs",
+      "src/contract/snapshot.mjs",
+      "src/engine/dispatch.mjs",
+      "src/engine/notify-queue.mjs",
+      "test/engine/spend.test.mjs"
+    ],
+    "HARNESSES": [
+      "src/contract/review-modes.mjs",
+      "src/harnesses/index.mjs",
+      "src/harnesses/replay/bin.mjs",
+      "src/harnesses/replay/index.mjs",
+      "test/harnesses/replay.test.mjs"
+    ],
+    "HOST": [
+      "src/cli.mjs",
+      "src/cli/skills.mjs",
+      "src/harnesses/zcode/index.mjs",
+      "src/host/preflight.mjs",
+      "test/host/preflight.test.mjs"
+    ],
+    "NOTIFY": [
+      "src/cli/campaign.mjs",
+      "src/engine/notify-queue.mjs",
+      "src/notify/index.mjs",
+      "src/repo/signal.mjs",
+      "test/notify/inbox.test.mjs"
+    ],
+    "PLAN": [
+      "src/plan/pipeline.mjs",
+      "src/plan/template.mjs",
+      "test/cli/plan.test.mjs",
+      "test/plan/template.test.mjs"
+    ],
+    "REPO": [
+      "src/contract/verification.mjs",
+      "src/repo/declared-paths.mjs",
+      "src/repo/workspace.mjs",
+      "test/contract/verification.test.mjs"
+    ],
+    "REPORT": [
+      "src/campaign/record.mjs",
+      "src/contract/index.mjs",
+      "src/contract/snapshot.mjs",
+      "src/report/progress.mjs",
+      "src/report/render.mjs",
+      "src/run/node-store.mjs",
+      "test/report/progress.test.mjs"
+    ],
+    "RUN": [
+      "src/run/disk-gc.mjs",
+      "src/run/paths.mjs",
+      "test/host/preflight.test.mjs",
+      "test/run/paths.test.mjs"
+    ]
+  }
+}

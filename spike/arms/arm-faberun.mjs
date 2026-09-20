@@ -1,0 +1,118 @@
+/**
+ * Arm A: the corpus run by faberun. A fresh checkout at the base, a contract
+ * with one node per requirement, `faberun run` in the foreground under the
+ * experiment's own home, and then the same two measurements every arm gets:
+ * the proofs, run on the tree the run integrated (`refs/faberun/<id>/run`),
+ * and the scope audit. Cost is the run's own usage.jsonl, priced by the
+ * product; requests are the per-request session ledgers it now persists.
+ */
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { faberunContract } from "./contract.mjs";
+import { auditScope, commitAll, git, keepFinalTree, prepareCheckout, removeCheckout, runProofs } from "./fork.mjs";
+import { EXPERIMENT_HOME, FABERUN_CLI, LOGS, RESULTS, providerEnv, readJsonl, writeJson } from "./lib.mjs";
+
+/** @typedef {import("./corpus.mjs").Requirement} Requirement */
+
+/** @param {string} runId @returns {string|null} */
+function findRunDir(runId) {
+  const projects = join(EXPERIMENT_HOME, "projects");
+  if (!existsSync(projects)) return null;
+  for (const project of readdirSync(projects)) {
+    const candidate = join(projects, project, "runs", runId);
+    if (existsSync(join(candidate, "usage.jsonl")) || existsSync(join(candidate, "nodes"))) return candidate;
+  }
+  return null;
+}
+
+/**
+ * @param {{label: string, repetition: number, requirements: Requirement[]}} input
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function runFaberunArm({ label, repetition, requirements }) {
+  const name = `${label}-A-r${repetition}`;
+  // A run id is unique per attempt: faberun refuses to reuse one whose
+  // directory exists, and a refused launch leaves a stub behind.
+  const runId = `arms-${label}-a-r${repetition}-${Date.now().toString(36)}`;
+  const { dir } = prepareCheckout(name);
+  const env = providerEnv(undefined, { FABERUN_HOME: EXPERIMENT_HOME });
+  // A run belongs to a campaign of its checkout's project, so each arm-A
+  // checkout gets the campaign registered under the experiment home. The
+  // init writes the managed AGENTS.md block into the checkout; committing it
+  // keeps the base the run cuts from clean.
+  const init = spawnSync(process.execPath, [FABERUN_CLI, "campaign", "init", "orchestration-arms", "--cwd", dir, "--goal", `Arm A of the orchestration-arms measurement (${label}, repetition ${repetition}): one faberun node per corpus requirement`], { cwd: dir, env, encoding: "utf8" });
+  // The checkout path, and so the project, repeats across attempts; a campaign already registered there is the state we want.
+  if (init.status !== 0 && !/already exists/u.test(`${init.stdout}${init.stderr}`)) {
+    throw new Error(`campaign init failed in the arm A checkout: ${init.stdout}${init.stderr}`);
+  }
+  const baseSha = commitAll(dir, "chore(arms): campaign signal block written by faberun campaign init");
+  const contract = faberunContract({ id: runId, cwd: dir, requirements });
+  const contractPath = join(RESULTS, "contracts", `${runId}.json`);
+  writeJson(contractPath, contract);
+  const validation = spawnSync(process.execPath, [FABERUN_CLI, "validate", contractPath], { cwd: dir, env, encoding: "utf8" });
+  if (validation.status !== 0) {
+    throw new Error(`arm A contract did not validate: ${validation.stdout}${validation.stderr}`);
+  }
+  const startedAt = new Date().toISOString();
+  const started = Date.now();
+  const run = spawnSync(process.execPath, [FABERUN_CLI, "run", contractPath], {
+    cwd: dir,
+    env,
+    encoding: "utf8",
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  const wallMs = Date.now() - started;
+  writeFileSync(join(LOGS, `${name}.stdout.log`), run.stdout ?? "");
+  writeFileSync(join(LOGS, `${name}.stderr.log`), run.stderr ?? "");
+
+  const runDir = findRunDir(runId);
+  const usage = runDir ? readJsonl(join(runDir, "usage.jsonl")) : [];
+  const nodes = runDir && existsSync(join(runDir, "nodes"))
+    ? readdirSync(join(runDir, "nodes")).filter((file) => file.endsWith(".json")).map((file) => JSON.parse(readFileSync(join(runDir, "nodes", file), "utf8")))
+    : [];
+  const workerUsage = usage.filter((record) => record.role === "worker");
+  const judgeUsage = usage.filter((record) => record.role === "judge");
+  const sum = (/** @type {any[]} */ records, /** @type {string} */ key) => records.reduce((total, record) => total + (typeof record[key] === "number" ? record[key] : 0), 0);
+  const sessions = usage.map((record) => record.session).filter((session) => session && typeof session === "object");
+
+  let finalSha = null;
+  try {
+    finalSha = git(["rev-parse", `refs/faberun/${runId}/run`], dir);
+  } catch {
+    finalSha = null;
+  }
+  const finalCheckout = finalSha ? prepareCheckout(`${name}-final`, { sha: finalSha, withProofs: false }) : { dir, baseSha };
+  const scope = auditScope({ dir: finalCheckout.dir, baseSha, requirements });
+  const proofs = runProofs({ dir: finalCheckout.dir, requirements });
+  const keptSha = keepFinalTree(finalCheckout.dir, `refs/arms/${label}/A-r${repetition}`);
+  removeCheckout(finalCheckout.dir);
+  if (finalCheckout.dir !== dir) removeCheckout(dir);
+
+  return {
+    arm: "A",
+    label,
+    repetition,
+    runId,
+    runDir,
+    exitCode: run.status,
+    startedAt,
+    finishedAt: new Date().toISOString(),
+    wallMs,
+    baseSha,
+    finalSha: keptSha,
+    costUsd: sum(usage, "costUsd"),
+    workerCostUsd: sum(workerUsage, "costUsd"),
+    judgeCostUsd: sum(judgeUsage, "costUsd"),
+    unpricedInvocations: usage.filter((record) => typeof record.costUsd !== "number").length,
+    tokens: { input: sum(usage, "inputTokens"), cacheRead: sum(usage, "cacheReadInputTokens"), output: sum(usage, "outputTokens") },
+    requests: sessions.reduce((total, session) => total + (session.requests ?? 0), 0),
+    toolCalls: sessions.reduce((total, session) => total + (session.toolCalls ?? 0), 0),
+    contextMax: sessions.reduce((best, session) => Math.max(best, session.contextMax ?? 0), 0),
+    invocations: usage.length,
+    nodes: nodes.map((node) => ({ id: node.id, status: node.status, attempt: node.attempt, revisions: node.revisions, error: node.error?.code ?? null })),
+    proofs,
+    proofsPassed: proofs.filter((proof) => proof.passed).length,
+    scope,
+  };
+}

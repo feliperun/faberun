@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "label": "smoke",
+    "arm": "B",
+    "runs": 1
+  },
+  "indicators": {
+    "costPerDeliveredRequirementUsd": {
+      "value": 0.0903,
+      "direction": "down",
+      "count": 1
+    },
+    "costUsd": {
+      "value": 0.0903,
+      "direction": "down",
+      "count": 1
+    },
+    "proofsPassed": {
+      "value": 1,
+      "direction": "up",
+      "count": 1
+    },
+    "wallClockMinutes": {
+      "value": 0.6137,
+      "direction": "down",
+      "count": 1
+    },
+    "requests": {
+      "value": 10,
+      "direction": "down",
+      "count": 1
+    },
+    "contextMaxKTokens": {
+      "value": 27.225,
+      "direction": "down",
+      "count": 1
+    },
+    "outOfScopeFiles": {
+      "value": 0,
+      "direction": "down",
+      "count": 1
+    }
+  }
+}

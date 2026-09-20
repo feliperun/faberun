@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "repetitions": 3,
+  "indicators": {
+    "contextMaxKTokens": {
+      "band": 1.217,
+      "median": 27.669,
+      "n": 3
+    },
+    "costPerDeliveredRequirementUsd": {
+      "band": 0.0595,
+      "median": 0.165,
+      "n": 2
+    },
+    "costUsd": {
+      "band": 0.0628,
+      "median": 0.2245,
+      "n": 3
+    },
+    "outOfScopeFiles": {
+      "band": 0,
+      "median": 0,
+      "n": 3
+    },
+    "proofsPassed": {
+      "band": 0.5,
+      "median": 1,
+      "n": 3
+    },
+    "requests": {
+      "band": 4.5,
+      "median": 13,
+      "n": 3
+    },
+    "wallClockMinutes": {
+      "band": 0.4154,
+      "median": 1.0946,
+      "n": 3
+    }
+  }
+}
