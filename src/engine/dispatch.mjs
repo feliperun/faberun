@@ -31,7 +31,8 @@ import { deterministicGate, judgeReaskReason, judgeRequired, judgeSkippedByScope
 import { emptyScope, persistedScopeBoundary, workerScope } from "./scope.mjs";
 import { hasOperationIntent, hasOperationSettlement, operationNeedsRecovery, operationNextState, persistInvocationIntent, providerReceipts, settleInvocation } from "../run/operations.mjs";
 import { invocationCost, invocationUsage } from "../run/usage.mjs";
-import { logPaths, readBoundedTail, startProcess } from "./process.mjs";
+import { logPaths, startProcess } from "./process.mjs";
+import { readBoundedTail } from "./transcript.mjs";
 import { mkdirSync, statSync } from "node:fs";
 import { READ_LINE_LIMIT, normalizeProviderResult, providerCommand } from "../harnesses/index.mjs";
 import { readJson, writeJsonAtomic } from "../run/store.mjs";

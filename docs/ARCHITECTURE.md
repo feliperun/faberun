@@ -84,8 +84,9 @@ Everything the controller writes lives under the target repository's gitignored
   blocking questions.
 - **`logs/`** holds the raw worker and judge streams; **`operations/`** holds
   the exact-once intent and settlement record for every provider invocation.
-- **`usage.jsonl`** is one line per invocation — tokens and cost for reporting
-  only; no control path reads it. **`integration.jsonl`** is the serialized
+- **`usage.jsonl`** is one line per invocation — tokens, cost and the
+  per-request `session` ledger (requests, tool calls, first/largest/last
+  context) for reporting only; no control path reads it. **`integration.jsonl`** is the serialized
   integration transaction log. **`events.jsonl`** is the append-only node
   transition record. **`notify.jsonl`** holds delivery receipts.
 - **`worktrees/`** holds every attempt worktree and the integration candidate

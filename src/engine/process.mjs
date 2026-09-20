@@ -7,8 +7,8 @@
  * a judge decides, or when a run is done. That separation is the point: a stuck
  * provider is killed by the same code whatever it was asked to do.
  */
-import { SessionMetricsParser } from "../harnesses/session-metrics.mjs";
-import { closeSync, existsSync, fsyncSync, openSync, readFileSync, readSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { boundedRegion, monitorInvocation } from "./transcript.mjs";
+import { closeSync, existsSync, fsyncSync, openSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { errorCode, errorMessage } from "../util.mjs";
 import { fileURLToPath } from "node:url";
@@ -33,7 +33,7 @@ import { writeNodeSnapshot } from "../run/node-store.mjs";
 /** @typedef {ProviderEnvelope & {costProvenance?: "priced"}} PricedEnvelope */
 /** @typedef {import("node:child_process").ChildProcess} ChildProcess */
 /** @typedef {{prompt: string|null, stdout: string, stderr: string}} PathSet */
-/** @typedef {{id: string, pid: number, processGroupId: number|null, processStartToken: string|null, harness: string, runtimeId: string|null, runtimeFingerprint?: string, revision?: number, phase: string, promptPath: string|null, stdoutPath: string, stderrPath: string, startedAt: string, deadlineAt: string|null, updatedAt: string, closedAt: string|null, exitCode: number|null, signal: string|null, status: "active"|"closed"|"terminated", executable: string, snapshotPath?: string, usage?: Usage, usageEstimated?: boolean, costUsd?: number|null, costProvenance?: "priced", runId?: string, campaignId?: string, nodeId?: string, attempt?: number, workspace?: string, worktreeBranch?: string|null, worktreeBaseSha?: string|null, planPhase?: string, role?: "worker"|"judge", model?: string, reasoning?: string|null, sandbox?: string|null, continuationId?: string|null, continuationMode?: "fresh"|"reuse"|"rotate"}} Invocation */
+/** @typedef {{id: string, pid: number, processGroupId: number|null, processStartToken: string|null, harness: string, runtimeId: string|null, runtimeFingerprint?: string, revision?: number, phase: string, promptPath: string|null, stdoutPath: string, stderrPath: string, startedAt: string, deadlineAt: string|null, updatedAt: string, closedAt: string|null, exitCode: number|null, signal: string|null, status: "active"|"closed"|"terminated", executable: string, snapshotPath?: string, usage?: Usage, usageEstimated?: boolean, costUsd?: number|null, costProvenance?: "priced", runId?: string, campaignId?: string, nodeId?: string, attempt?: number, workspace?: string, worktreeBranch?: string|null, worktreeBaseSha?: string|null, planPhase?: string, role?: "worker"|"judge", model?: string, reasoning?: string|null, sandbox?: string|null, continuationId?: string|null, continuationMode?: "fresh"|"reuse"|"rotate", session?: import("../harnesses/session-metrics.mjs").SessionLedger|null}} Invocation */
 /** @typedef {{pid: number|null, processGroupId?: number|null, processStartToken?: string|null}} InvocationProbe */
 /** @typedef {{child: ChildProcess, contract: ValidatedContract, node: ValidatedNode, state: NodeSnapshot, runtime: HarnessRuntime & {id: string|null}, cwd: string, paths: PathSet, phase: string, invocation: Invocation, startedAt: string, startedTicks: bigint, progressTicks: bigint, lastOutputAt: number, closed: boolean, exitCode: number|null, signal: string|null, spawnError: Error|null, terminating: Promise<void>|null, gateConfigPath: string, gateReleasePath: string, scopeBaseline?: unknown, scopeChecked?: boolean, scopeViolation?: boolean, resultMaterialization?: boolean, recoveryBaseline?: unknown, observeTimer?: ReturnType<typeof setInterval>, monitorOffset?: number, monitorParser?: import("../harnesses/session-metrics.mjs").SessionMetricsParser, lastEventCount?: number, observedOnce?: boolean, onClose?: (invocation: Invocation) => void, onInvocationUpdate?: (invocation: Invocation) => void, onProgress?: (state: NodeSnapshot) => void}} Job */
 /** @typedef {{graceMs?: number, killGraceMs?: number, escalate?: boolean, runDir?: string, kill?: (pid: number, signal: string|number) => unknown, child?: ChildProcess|null}} TerminateOptions */
@@ -41,11 +41,6 @@ import { writeNodeSnapshot } from "../run/node-store.mjs";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_GRACE_MS = 2_000;
 const GATE_PATH = join(HERE, "gate.mjs");
-const MAX_PROVIDER_LOG_BYTES = 512 * 1024;
-/** Fixed-size read for incremental transcript observation. */
-const MONITOR_CHUNK_BYTES = 64 * 1024;
-/** Per-observation read budget: one tick never blocks on a huge backlog. */
-const MONITOR_CALL_BUDGET_BYTES = 1024 * 1024;
 /**
  * @param {{contract: ValidatedContract, node: ValidatedNode, state: NodeSnapshot, runtime: HarnessRuntime & {id: string|null}, prompt: string, paths: PathSet, phase: string, workspace?: string, commandOptions?: import("../harnesses/index.mjs").CommandOptions, onInvocation: (invocation: Invocation, job: Job) => void, onInvocationUpdate?: (invocation: Invocation) => void, onProgress?: (state: NodeSnapshot) => void}} args
  * @returns {Job}
@@ -199,47 +194,6 @@ function observeInvocation(job) {
     // monitorInvocation already swallows its own IO, so the only thing left that
     // can throw here is the caller's onInvocationUpdate: observing a continuation
     // id must not be able to kill the job that is being observed.
-  }
-}
-/**
- * Observe the transcript incrementally: read only the bytes appended since
- * the last observation, in fixed-size chunks folded into a parser whose
- * retained state never scales with the unread length — so the metrics
- * survive both a transcript that outgrows any fixed window and an
- * already-large transcript on the first call after a controller restart.
- * The gate caps the log only at close, so byte offsets stay valid while the
- * provider is live. Only newline-terminated records are evidence; a
- * trailing partial record stays unconsumed for the next observation. The
- * generic metrics are zero for a provider that does not expose them.
- *
- * @param {Job} job
- * @returns {{continuationId: string|null, turns: number, cacheReadInputTokens: number, toolCalls: number, completed: boolean}}
- */
-export function monitorInvocation(job) {
-  try {
-    const parser = job.monitorParser ?? (job.monitorParser = new SessionMetricsParser(job.runtime.harness));
-    const size = statSync(job.paths.stdout).size;
-    let offset = job.monitorOffset ?? 0;
-    let budget = MONITOR_CALL_BUDGET_BYTES;
-    if (size > offset) {
-      const fd = openSync(job.paths.stdout, "r");
-      try {
-        const chunk = Buffer.alloc(MONITOR_CHUNK_BYTES);
-        while (offset < size && budget > 0) {
-          const read = readSync(fd, chunk, 0, Math.min(chunk.length, size - offset, budget), offset);
-          if (read <= 0) break;
-          parser.push(chunk.subarray(0, read));
-          offset += read;
-          budget -= read;
-        }
-      } finally {
-        closeSync(fd);
-      }
-      job.monitorOffset = offset;
-    }
-    return { continuationId: parser.continuationId, ...parser.metrics() };
-  } catch {
-    return { continuationId: null, turns: 0, cacheReadInputTokens: 0, toolCalls: 0, completed: false };
   }
 }
 /**
@@ -584,28 +538,6 @@ export function priceUsage(runtime, usage, reportedCostUsd) {
   return { costUsd: total / 1_000_000, costProvenance: "priced" };
 }
 /**
- * @param {string} path
- * @param {number} maxBytes
- * @returns {string}
- */
-function boundedRegion(path, maxBytes = MAX_PROVIDER_LOG_BYTES) {
-  try {
-    return dropPartialLogLine(readFileSync(`${path}.tail`, "utf8"));
-  } catch (error) {
-    if (errorCode(error) !== "ENOENT") throw error;
-  }
-  const size = statSync(path).size;
-  if (size <= maxBytes) return readFileSync(path, "utf8");
-  const fd = openSync(path, "r");
-  try {
-    const bytes = Buffer.alloc(maxBytes);
-    readSync(fd, bytes, 0, maxBytes, size - maxBytes);
-    return dropPartialLogLine(bytes.toString("utf8"));
-  } finally {
-    closeSync(fd);
-  }
-}
-/**
  * Signal the invocation's process group only when ownership is proven. Never
  * throws: ESRCH is gone, EPERM is a group this user cannot signal and therefore
  * never spawned, and both mean the caller must treat the invocation as already
@@ -745,37 +677,4 @@ export function logPaths(runDir, nodeId, phase, attempt) {
     stdout: join(runDir, "logs", `${stem}.jsonl`),
     stderr: join(runDir, "logs", `${stem}.err`),
   };
-}
-/**
- * @param {string} path
- * @param {number} [maxBytes]
- * @returns {string}
- */
-export function readBoundedTail(path, maxBytes = 512 * 1024) {
-  try {
-    try { return dropPartialLogLine(readFileSync(`${path}.tail`, "utf8")); } catch (tailError) {
-      if (errorCode(tailError) !== "ENOENT") throw tailError;
-    }
-    const size = statSync(path).size;
-    if (size <= maxBytes) return readFileSync(path, "utf8");
-    const fd = openSync(path, "r");
-    try {
-      const bytes = Buffer.alloc(maxBytes);
-      readSync(fd, bytes, 0, maxBytes, size - maxBytes);
-      return dropPartialLogLine(bytes.toString("utf8"));
-    } finally {
-      closeSync(fd);
-    }
-  } catch (error) {
-    if (errorCode(error) === "ENOENT") return "";
-    throw error;
-  }
-}
-/**
- * @param {unknown} value
- * @returns {string}
- */
-function dropPartialLogLine(value) {
-  const newline = String(value).indexOf("\n");
-  return newline < 0 ? "" : String(value).slice(newline + 1);
 }

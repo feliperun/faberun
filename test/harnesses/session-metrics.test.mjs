@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { liveInputTokens, liveSessionMetrics, liveUsage } from "../../src/harnesses/session-metrics.mjs";
+import { SessionMetricsParser, liveInputTokens, liveSessionMetrics, liveUsage } from "../../src/harnesses/session-metrics.mjs";
 
 test("live metering reads cumulative Codex usage from a growing transcript", () => {
   const stream = [
@@ -148,4 +148,36 @@ test("dsh and agy session events are metered: turns, tool calls, cache reads and
     "the result event folds completion and its session total wins",
   );
   assert.deepEqual(liveUsage("agy", agyTerminal), { inputTokens: 31000, cacheReadInputTokens: 25000 });
+});
+
+test("the per-request ledger records how many requests a turn made and how its context grew", () => {
+  const claude = new SessionMetricsParser("claude");
+  claude.push([
+    { type: "assistant", message: { usage: { input_tokens: 10, cache_creation_input_tokens: 5, cache_read_input_tokens: 40 }, content: [{ type: "tool_use" }] } },
+    { type: "assistant", message: { usage: { input_tokens: 5, cache_read_input_tokens: 120 }, content: [] } },
+    { type: "assistant", message: { usage: { input_tokens: 2, cache_read_input_tokens: 60 }, content: [] } },
+    { type: "result", result: "ok", usage: { input_tokens: 17, cache_read_input_tokens: 220 } },
+  ].map((event) => JSON.stringify(event)).join("\n"));
+  claude.flush();
+  assert.deepEqual(
+    claude.session(),
+    { turns: 3, toolCalls: 1, requests: 3, contextFirst: 55, contextMax: 125, contextLast: 62, contextSum: 242, completed: true },
+    "context is uncached input (cache writes included) plus cache reads, per request; the result record is a total, not a request",
+  );
+  const codex = new SessionMetricsParser("codex");
+  codex.push(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 500, cached_input_tokens: 300 } }));
+  codex.flush();
+  assert.deepEqual(
+    codex.session(),
+    { turns: 1, toolCalls: 0, requests: 0, contextFirst: null, contextMax: null, contextLast: null, contextSum: null, completed: false },
+    "codex usage is cumulative per turn, not per request, so the request fields stay null rather than inventing a shape",
+  );
+  const dsh = new SessionMetricsParser("dsh");
+  dsh.push([
+    { type: "dsh.message", text: "a", usage: { inputTokens: 100, outputTokens: 1, cacheReadInputTokens: 900 } },
+    { type: "dsh.message", text: "b" },
+    { type: "dsh.message", text: "c", usage: { inputTokens: 120, outputTokens: 1, cacheReadInputTokens: 1000 } },
+  ].map((event) => JSON.stringify(event)).join("\n"));
+  dsh.flush();
+  assert.deepEqual(dsh.session(), { turns: 3, toolCalls: 0, requests: 2, contextFirst: 1000, contextMax: 1120, contextLast: 1120, contextSum: 2120, completed: false }, "a message without usage is a turn but not a counted request");
 });

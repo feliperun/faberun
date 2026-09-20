@@ -15,7 +15,8 @@ import {
   readLock,
 } from "../../src/run/lock.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
-import { detectStalls, invocationAlive, monitorInvocation, startProcess, terminateInvocation } from "../../src/engine/process.mjs";
+import { detectStalls, invocationAlive, startProcess, terminateInvocation } from "../../src/engine/process.mjs";
+import { monitorInvocation } from "../../src/engine/transcript.mjs";
 
 import { fixture, writeContract } from "../helpers.mjs";
 import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";

@@ -165,6 +165,13 @@ else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; });
   assert.deepEqual(result.states.get("second")?.invocations?.map((invocation) => invocation.continuationMode), ["reuse"]);
   const usageRecords = readFileSync(join(result.runDir, "usage.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
   assert.equal(usageRecords.length, 2);
+  for (const record of usageRecords) {
+    assert.deepEqual(
+      record.session,
+      { turns: 1, toolCalls: 0, requests: 1, contextFirst: 2, contextMax: 2, contextLast: 2, contextSum: 2, completed: true },
+      "the per-request ledger is persisted with the usage: one completed exec-jsonl run is one request",
+    );
+  }
 });
 
 test("does not reuse a phase continuation after a runtime identity change", async () => {

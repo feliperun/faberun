@@ -246,7 +246,7 @@ function validateInvocations(value, label) {
       "promptPath", "stdoutPath", "stderrPath", "startedAt", "updatedAt", "closedAt", "deadlineAt",
       "exitCode", "signal", "status", "executable", "usage", "usageEstimated", "costUsd", "costProvenance", "snapshotPath", "revision", "cycle",
       "runId", "campaignId", "planPhase", "role", "runtimeFingerprint", "model", "reasoning", "sandbox", "continuationId", "continuationMode",
-      "nodeId", "attempt", "workspace", "worktreeBranch", "worktreeBaseSha",
+      "nodeId", "attempt", "workspace", "worktreeBranch", "worktreeBaseSha", "session",
     ]);
     rejectUnknown(invocation, allowed, `${label}[${index}]`);
     requireString(invocation.id, `${label}[${index}].id`);
@@ -272,6 +272,7 @@ function validateInvocations(value, label) {
     if (!['fresh', 'reuse', 'rotate'].includes(/** @type {string} */ (invocation.continuationMode))) {
       throw new TypeError(`${label}[${index}].continuationMode is invalid`);
     }
+    if (invocation.session !== undefined && invocation.session !== null) validateSessionLedger(invocation.session, `${label}[${index}].session`);
     if (invocation.revision !== undefined) nonNegativeInteger(invocation.revision, `${label}[${index}].revision`);
     if (invocation.cycle !== undefined) nonNegativeInteger(invocation.cycle, `${label}[${index}].cycle`);
     for (const key of ["promptPath", "stdoutPath", "stderrPath", "executable"]) {
@@ -642,4 +643,25 @@ function validateScopeBoundarySnapshot(value, label) {
       if (!origin.paths.includes(origin.literal)) throw new TypeError(`${label}.${kind}[${index}] must include its literal path`);
     }
   }
+}
+
+const SESSION_LEDGER_FIELDS = new Set(["turns", "toolCalls", "requests", "contextFirst", "contextMax", "contextLast", "contextSum", "completed"]);
+
+/**
+ * The per-request ledger an invocation carries (`session-metrics.mjs`'s
+ * SessionLedger): counts are non-negative integers, the context fields are
+ * non-negative integers or null when no request reported usage.
+ *
+ * @param {unknown} value
+ * @param {string} label
+ */
+function validateSessionLedger(value, label) {
+  assertObject(value, label);
+  const record = /** @type {Record<string, unknown>} */ (value);
+  rejectUnknown(record, SESSION_LEDGER_FIELDS, label);
+  for (const key of ["turns", "toolCalls", "requests"]) nonNegativeInteger(record[key], `${label}.${key}`);
+  for (const key of ["contextFirst", "contextMax", "contextLast", "contextSum"]) {
+    if (record[key] !== null) nonNegativeInteger(record[key], `${label}.${key}`);
+  }
+  if (typeof record.completed !== "boolean") throw new TypeError(`${label}.completed must be a boolean`);
 }

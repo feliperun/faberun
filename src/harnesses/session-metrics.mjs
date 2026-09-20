@@ -11,6 +11,18 @@
 import { canonicalUsage, eventItem, extractJson } from "./protocol.mjs";
 import { finite } from "../util.mjs";
 
+/** @typedef {{turns: number, cacheReadInputTokens: number, toolCalls: number, completed: boolean, requests: number, contextFirst: number|null, contextMax: number|null, contextLast: number|null, contextSum: number}} SessionTotals */
+/**
+ * The per-request ledger one transcript proves: provider requests that
+ * reported usage, and the context each re-sent -- uncached input (cache
+ * writes included) plus cache reads -- for the first, largest and last of
+ * them, with their sum. Persisted on the invocation and in usage.jsonl.
+ * measured 2026-09-20 over 149 stored claude worker turns: median 49
+ * requests, context growing 1.9x within a turn, 3.3M tokens re-sent per
+ * turn; the two 600-request turns re-sent 190M and 167M.
+ * @typedef {{turns: number, toolCalls: number, requests: number, contextFirst: number|null, contextMax: number|null, contextLast: number|null, contextSum: number|null, completed: boolean}} SessionLedger
+ */
+
 /**
  * Best-effort input-token meter over a still-growing transcript. The
  * controller never owns the provider stream (the gate writes stdout straight
@@ -196,11 +208,17 @@ export class SessionMetricsParser {
    */
   constructor(harness, previous = {}) {
     this.harness = harness;
+    /** @type {SessionTotals} */
     this.totals = {
       turns: previous.turns ?? 0,
       cacheReadInputTokens: previous.cacheReadInputTokens ?? 0,
       toolCalls: previous.toolCalls ?? 0,
       completed: previous.completed === true,
+      requests: 0,
+      contextFirst: null,
+      contextMax: null,
+      contextLast: null,
+      contextSum: 0,
     };
     /** @type {string|null} */
     this.continuationId = null;
@@ -246,6 +264,26 @@ export class SessionMetricsParser {
       cacheReadInputTokens: this.totals.cacheReadInputTokens,
       toolCalls: this.totals.toolCalls,
       completed: this.totals.completed === true,
+    };
+  }
+
+  /**
+   * The per-request ledger folded so far. Codex reports usage cumulatively
+   * per turn rather than per request, so its request fields stay null.
+   *
+   * @returns {SessionLedger}
+   */
+  session() {
+    const totals = this.totals;
+    return {
+      turns: totals.turns,
+      toolCalls: totals.toolCalls,
+      requests: totals.requests,
+      contextFirst: totals.contextFirst,
+      contextMax: totals.contextMax,
+      contextLast: totals.contextLast,
+      contextSum: totals.requests > 0 ? totals.contextSum : null,
+      completed: totals.completed === true,
     };
   }
 
@@ -377,7 +415,7 @@ export class SessionMetricsParser {
  * a terminal result event carries the authoritative session total.
  *
  * @param {string} harness
- * @param {{turns: number, cacheReadInputTokens: number, toolCalls: number, completed: boolean}} totals
+ * @param {SessionTotals} totals
  * @param {Record<string, unknown>} record
  */
 function foldRecord(harness, totals, record) {
@@ -395,6 +433,7 @@ function foldRecord(harness, totals, record) {
       const message = /** @type {Record<string, unknown>} */ (record.message ?? {});
       totals.turns += 1;
       totals.cacheReadInputTokens += canonicalUsage(message.usage).cacheReadInputTokens ?? 0;
+      foldRequestUsage(totals, canonicalUsage(message.usage));
       totals.toolCalls += Array.isArray(message.content)
         ? message.content.filter((/** @type {{type?: unknown}} */ block) => block?.type === "tool_use").length
         : 0;
@@ -414,6 +453,7 @@ function foldRecord(harness, totals, record) {
     if (record.type === "dsh.message") {
       totals.turns += 1;
       totals.cacheReadInputTokens += canonicalUsage(record.usage).cacheReadInputTokens ?? 0;
+      foldRequestUsage(totals, canonicalUsage(record.usage));
     } else if (record.type === "dsh.tool") {
       totals.toolCalls += 1;
     } else if (record.type === "dsh.completed" || record.type === "dsh.failed") {
@@ -433,6 +473,7 @@ function foldRecord(harness, totals, record) {
       if (step.step_type === "agent_response" && step.state === "DONE") {
         totals.turns += 1;
         totals.cacheReadInputTokens += canonicalUsage(step.usage).cacheReadInputTokens ?? 0;
+        foldRequestUsage(totals, canonicalUsage(step.usage));
       } else if (step.step_type === "tool" && (step.state === "DONE" || step.state === "ERROR")) {
         totals.toolCalls += 1;
       }
@@ -446,13 +487,32 @@ function foldRecord(harness, totals, record) {
     // The protocol carries no tool events; only a completed run proves a turn.
     totals.turns += 1;
     totals.cacheReadInputTokens += canonicalUsage(record.usage).cacheReadInputTokens ?? 0;
+    foldRequestUsage(totals, canonicalUsage(record.usage));
   }
   if (harness === "replay" && typeof record.status === "string") {
     // A replayed envelope is the whole invocation: one completed turn, no
     // tool events, usage only in the terminal record.
     totals.turns += 1;
     totals.cacheReadInputTokens += canonicalUsage(record.usage).cacheReadInputTokens ?? 0;
+    foldRequestUsage(totals, canonicalUsage(record.usage));
   }
+}
+
+/**
+ * Fold one provider request's usage into the per-request ledger. A request
+ * with no measured input is not one the ledger can count.
+ *
+ * @param {SessionTotals} totals
+ * @param {{inputTokens: number|null, cacheReadInputTokens: number|null}} usage
+ */
+function foldRequestUsage(totals, usage) {
+  if (usage.inputTokens === null) return;
+  const context = usage.inputTokens + (usage.cacheReadInputTokens ?? 0);
+  totals.requests += 1;
+  totals.contextFirst ??= context;
+  totals.contextMax = Math.max(totals.contextMax ?? 0, context);
+  totals.contextLast = context;
+  totals.contextSum += context;
 }
 
 /** @param {Record<string, unknown>} record @returns {Record<string, any>|null} the agy step_update payload, if this record is one */
@@ -475,7 +535,7 @@ function agyResult(record) {
  * oversized record is never silently skipped.
  *
  * @param {string} harness
- * @param {{turns: number, cacheReadInputTokens: number, toolCalls: number, completed: boolean}} totals
+ * @param {SessionTotals} totals
  * @param {{head: string, tail: string, toolUse: number}} fragments
  */
 function foldFragmentRecord(harness, totals, fragments) {

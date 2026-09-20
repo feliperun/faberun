@@ -12,7 +12,8 @@ import { errorMessage, stableJson } from "../util.mjs";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { liveUsage } from "../harnesses/session-metrics.mjs";
 
-import { priceUsage, readBoundedTail } from "../engine/process.mjs";
+import { priceUsage } from "../engine/process.mjs";
+import { readBoundedTail, sessionLedger } from "../engine/transcript.mjs";
 import { writeNode } from "../engine/state.mjs";
 import { normalizeProviderResult } from "../harnesses/index.mjs";
 
@@ -80,8 +81,12 @@ export function recordInvocationUsage(job, options = {}) {
   // the single priced object every later copy spreads from.
   const priced = priceUsage(job.runtime, envelope.usage, envelope.costUsd);
   envelope = { ...envelope, costUsd: priced.costUsd, costProvenance: priced.costProvenance };
+  // The per-request ledger is read here, with the usage, for the same reason
+  // the usage is: after this point the transcript may already be capped.
+  const session = sessionLedger(job);
+  job.invocation.session = session;
   state.invocations = (state.invocations ?? []).map((invocation) => invocation.id === job.invocation.id
-    ? { ...invocation, usage: envelope.usage, costUsd: envelope.costUsd, costProvenance: envelope.costProvenance }
+    ? { ...invocation, usage: envelope.usage, costUsd: envelope.costUsd, costProvenance: envelope.costProvenance, session }
     : invocation);
   if (options.accumulate !== false) state.usage = addUsage(state.usage, envelope.usage);
   return envelope;
@@ -158,6 +163,7 @@ export function appendUsageRecord(runDir, invocation) {
     // A persisted `priced` marker wins; otherwise the pre-Phase-4 rule applies
     // unchanged: a reported number is `provider`, absence is `unknown`.
     costProvenance: invocation.costProvenance ?? (typeof invocation.costUsd === "number" ? "provider" : "unknown"),
+    session: invocation.session ?? null,
     startedAt: invocation.startedAt ?? null,
     finishedAt: invocation.closedAt ?? null,
   });
