@@ -1,26 +1,33 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, realpathSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { withEmptyPath } from "../helpers.mjs";
+import { tarExecutable } from "../../src/host/platform.mjs";
 
 /**
- * install.sh against local sources only: a tarball with the GitHub archive
- * shape (one top-level `faberun-test/` directory) and a plain directory. No
- * test reaches the network. The upgrade case exists because a `current` link
- * repointed with a non-`-n` `ln` silently stays on the old version.
+ * install.ps1 against local sources only, the same three scenarios
+ * install-sh.test.mjs covers for the POSIX installer: a tarball with the GitHub
+ * archive shape, a plain directory, and an upgrade that has to move `current`.
+ * No test reaches the network.
+ *
+ * The script runs under `powershell.exe`, Windows PowerShell 5.1, rather than
+ * `pwsh`: 5.1 is the shell every Windows has and the one a copy-pasted install
+ * line lands in, and it is stricter than pwsh about TLS and strict mode.
  */
 
-// install.ps1 is the Windows installer and test/host/install-ps1.test.mjs covers
-// it; this script is POSIX `sh`, and the layout it builds is made of symlinks a
-// stock Windows refuses.
-const POSIX_ONLY = process.platform === "win32" ? "install.sh is the POSIX installer" : false;
+const WINDOWS_ONLY = process.platform === "win32" ? false : "install.ps1 is the Windows installer";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
-const INSTALL_SH = join(ROOT, "install.sh");
+const INSTALL_PS1 = join(ROOT, "install.ps1");
+const SYSTEM32 = join(process.env.SystemRoot ?? "C:\\Windows", "System32");
+// Both by absolute path: one test empties PATH, and a shell that cannot be
+// found reports the same "no node" the test is looking for, from the wrong
+// cause.
+const POWERSHELL = join(SYSTEM32, "WindowsPowerShell", "v1.0", "powershell.exe");
+const COMSPEC = process.env.ComSpec ?? join(SYSTEM32, "cmd.exe");
 const PACKAGE_VERSION = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
 const COPIED = ["bin", "src", "skills", "integrations", "package.json"];
 
@@ -32,7 +39,7 @@ const COPIED = ["bin", "src", "skills", "integrations", "package.json"];
  * @returns {{parent: string, dir: string}}
  */
 function stageTree(version) {
-  const parent = mkdtempSync(join(tmpdir(), "install-sh-stage-"));
+  const parent = mkdtempSync(join(tmpdir(), "install-ps1-stage-"));
   const dir = join(parent, "faberun-test");
   mkdirSync(dir);
   for (const entry of COPIED) {
@@ -52,15 +59,15 @@ function stageTree(version) {
  * @returns {string} a `.tar.gz` whose single top-level member is `faberun-test/`
  */
 function tarballOf(parent) {
-  const target = join(mkdtempSync(join(tmpdir(), "install-sh-tar-")), "faberun-test.tar.gz");
-  const result = spawnSync("tar", ["-czf", target, "-C", parent, "faberun-test"], { encoding: "utf8" });
+  const target = join(mkdtempSync(join(tmpdir(), "install-ps1-tar-")), "faberun-test.tar.gz");
+  const result = spawnSync(tarExecutable(), ["-czf", target, "-C", parent, "faberun-test"], { encoding: "utf8" });
   assert.equal(result.status, 0, `tar failed: ${result.stderr}`);
   return target;
 }
 
 /** @returns {{root: string, home: string, bin: string}} */
 function workspace() {
-  const root = mkdtempSync(join(tmpdir(), "install-sh-"));
+  const root = mkdtempSync(join(tmpdir(), "install-ps1-"));
   const home = join(root, "home");
   const bin = join(root, "bin");
   mkdirSync(home, { recursive: true });
@@ -76,7 +83,7 @@ function workspace() {
  * @returns {import("node:child_process").SpawnSyncReturns<string>}
  */
 function runInstall(space, source, version, extraEnv = {}) {
-  return spawnSync("sh", [INSTALL_SH], {
+  return spawnSync(POWERSHELL, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", INSTALL_PS1], {
     encoding: "utf8",
     env: {
       ...process.env,
@@ -92,8 +99,8 @@ function runInstall(space, source, version, extraEnv = {}) {
 
 /**
  * The state the installer promises: `versions/<v>/bin/faberun.mjs`, `current`
- * pointing at it, `<bin>/faberun` through current, and a binary that prints its
- * own version.
+ * pointing at it, both shims in the bin directory, and a `faberun.cmd` that
+ * prints the version through them.
  *
  * @param {{home: string, bin: string}} space
  * @param {string} version
@@ -105,20 +112,25 @@ function assertInstall(space, version) {
   assert.ok(existsSync(binary), `missing ${binary}`);
 
   const current = join(space.home, "current");
-  assert.ok(lstatSync(current).isSymbolicLink(), `${current} is not a symlink`);
+  assert.ok(lstatSync(current).isSymbolicLink(), `${current} is not a link`);
   assert.equal(realpathSync(current), realpathSync(versionDir), `${current} does not resolve to ${versionDir}`);
 
-  const link = join(space.bin, "faberun");
-  assert.ok(lstatSync(link).isSymbolicLink(), `${link} is not a symlink`);
-  assert.equal(readlinkSync(link), join(space.home, "current", "bin", "faberun.mjs"));
-  assert.equal(realpathSync(link), realpathSync(binary));
+  // Two shims because Windows has two shells: PATHEXT finds `faberun.cmd` from
+  // cmd and PowerShell, and Git Bash resolves neither PATHEXT nor `.cmd`, so it
+  // finds only the extensionless POSIX script.
+  const cmdShim = join(space.bin, "faberun.cmd");
+  const shShim = join(space.bin, "faberun");
+  for (const shim of [cmdShim, shShim]) {
+    assert.ok(existsSync(shim), `missing ${shim}`);
+    assert.match(readFileSync(shim, "utf8"), /current[\\/]bin[\\/]faberun\.mjs/u, `${shim} does not run through current`);
+  }
 
-  const result = spawnSync(link, ["--version"], { encoding: "utf8" });
+  const result = spawnSync(COMSPEC, ["/c", cmdShim, "--version"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), `faberun ${version}`);
 }
 
-test("install.sh installs a release tarball and is idempotent", { skip: POSIX_ONLY }, () => {
+test("install.ps1 installs a release tarball and is idempotent", { skip: WINDOWS_ONLY }, () => {
   const space = workspace();
   const tarball = tarballOf(stageTree().parent);
 
@@ -133,7 +145,7 @@ test("install.sh installs a release tarball and is idempotent", { skip: POSIX_ON
   assertInstall(space, PACKAGE_VERSION);
 });
 
-test("install.sh installs from a source directory", { skip: POSIX_ONLY }, () => {
+test("install.ps1 installs from a source directory", { skip: WINDOWS_ONLY }, () => {
   const space = workspace();
   const result = runInstall(space, stageTree().dir, PACKAGE_VERSION);
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
@@ -141,7 +153,7 @@ test("install.sh installs from a source directory", { skip: POSIX_ONLY }, () => 
   assertInstall(space, PACKAGE_VERSION);
 });
 
-test("install.sh repoints current when FABERUN_VERSION changes", { skip: POSIX_ONLY }, () => {
+test("install.ps1 repoints current when FABERUN_VERSION changes", { skip: WINDOWS_ONLY }, () => {
   const space = workspace();
   const first = runInstall(space, stageTree(PACKAGE_VERSION).dir, PACKAGE_VERSION);
   assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}`);
@@ -152,45 +164,22 @@ test("install.sh repoints current when FABERUN_VERSION changes", { skip: POSIX_O
   const second = runInstall(space, stageTree(nextVersion).dir, nextVersion);
   assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`);
 
-  // The regression the non-`-n` form caused: current stayed on the old version
-  // because the temporary link was moved inside the directory it pointed at.
-  assert.equal(readlinkSync(join(space.home, "current")), join("versions", nextVersion));
+  // The regression a `Remove-Item -Recurse` over the junction would cause: the
+  // link resolves to the new version and the old one is still on disk, because
+  // removing `current` must remove the link and never what it points at.
   assertInstall(space, nextVersion);
-  assert.notEqual(realpathSync(join(space.home, "current")), realpathSync(join(space.home, "versions", PACKAGE_VERSION)));
+  assert.ok(existsSync(join(space.home, "versions", PACKAGE_VERSION, "bin", "faberun.mjs")), "the previous version survives the repoint");
 });
 
-// Every utility install.sh invokes for this scenario (a tarball source with
-// FABERUN_VERSION set, so the curl/sed/head version-lookup branch never
-// runs), minus node itself: sh to run the script, tar to extract the
-// tarball, and mkdir/rm/mv/ln/chmod/cp to lay out the version and its links.
-const INSTALL_SH_BINARIES_WITHOUT_NODE = ["sh", "tar", "mkdir", "rm", "mv", "ln", "chmod", "cp"];
-
-test("install.sh fails when node is missing from PATH", { skip: POSIX_ONLY }, async () => {
+test("install.ps1 fails when node is missing from PATH", { skip: WINDOWS_ONLY }, () => {
   const space = workspace();
-  const tarball = tarballOf(stageTree().parent);
-  await withEmptyPath(() => {
-    const result = spawnSync("sh", [INSTALL_SH], {
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        FABERUN_HOME: space.home,
-        FABERUN_BIN_DIR: space.bin,
-        FABERUN_INSTALL_SOURCE: tarball,
-        FABERUN_VERSION: PACKAGE_VERSION,
-        FABERUN_NO_SETUP: "1",
-      },
-    });
-    assert.equal(result.status, 1);
-    assert.match(`${result.stdout}${result.stderr}`, /\[fail\] node/);
-  }, { binaries: INSTALL_SH_BINARIES_WITHOUT_NODE });
-});
-
-test("withEmptyPath exposes only the binaries it is asked for", { skip: process.platform === "win32" ? "withEmptyPath empties a POSIX PATH and HOME" : false }, async () => {
-  await withEmptyPath(() => {
-    const missing = spawnSync("sh", ["-c", "command -v tar"], { encoding: "utf8" });
-    assert.notEqual(missing.status, 0, "tar must not resolve when it was not requested");
-
-    const present = spawnSync("sh", ["-c", "command -v sh"], { encoding: "utf8" });
-    assert.equal(present.status, 0, present.stderr);
-  }, { binaries: ["sh"] });
+  const empty = mkdtempSync(join(tmpdir(), "install-ps1-nopath-"));
+  const result = runInstall(space, stageTree().dir, PACKAGE_VERSION, {
+    // PowerShell itself is launched by absolute name, so an empty PATH leaves
+    // the script running with nothing to find.
+    PATH: empty,
+    PATHEXT: ".COM;.EXE;.BAT;.CMD",
+  });
+  assert.equal(result.status, 1, `${result.stdout}\n${result.stderr}`);
+  assert.match(`${result.stdout}${result.stderr}`, /\[fail\] node/);
 });

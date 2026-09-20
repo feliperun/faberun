@@ -29,3 +29,24 @@ jobs:
       - run: npm test
       - run: node evals/run.mjs --class deterministic --assert-no-model
       - run: node evals/run.mjs --verify-discriminating
+
+  # Windows carries the install surface only: install.ps1, the platform
+  # primitives it shares with `faberun update` and `skills register`, and the
+  # commands that read them. The rest of the suite is not green on Windows —
+  # the engine's process control and the `seat` command are POSIX-shaped — and
+  # a job that ran it would be red for reasons this job does not cover. See
+  # docs/adr/0007-windows-install-and-directory-links.md.
+  windows-install:
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci
+      - run: npm run typecheck
+      - run: node --test test/host/platform.test.mjs test/host/install-ps1.test.mjs test/cli/update.test.mjs test/cli/skills-register.test.mjs

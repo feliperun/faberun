@@ -13,8 +13,9 @@ machine, prepare a repository, and run one node to a verified result.
   runs a turn; a *model* is what the harness asks; a *vendor* is who answers.
   `faberun setup` enables the harnesses it finds and refuses a judge that shares
   the worker's vendor.
-- **`curl`, `tar` and a POSIX `sh`** for the installer only. The npm and source
-  installs need Node and git alone.
+- **`curl`, `tar` and a POSIX `sh`** for the installer only — on Windows,
+  PowerShell 5.1 and the `tar` System32 has shipped since Windows 10 1803. The
+  npm and source installs need Node and git alone.
 
 | Harness | Binary | Vendor | Credential |
 | --- | --- | --- | --- |
@@ -54,6 +55,37 @@ requested version exactly as `faberun update` would.
 | `FABERUN_VERSION` | install this tag instead of the newest release |
 | `FABERUN_INSTALL_SOURCE` | a local tarball or directory instead of the network |
 | `FABERUN_NO_SETUP` | non-empty skips the final `faberun setup` |
+
+### Installer script on Windows
+
+```powershell
+irm https://raw.githubusercontent.com/feliperun/faberun/main/install.ps1 | iex
+```
+
+`install.ps1` is the same installer for Windows PowerShell 5.1 and newer: the
+same environment variables, the same output, the same idempotence. It checks
+Node 22+ and `tar`, resolves the newest release the same way, and builds the
+same layout under `$FABERUN_HOME` (default `%USERPROFILE%\.faberun`). Three
+things differ, each because Windows differs:
+
+- **`current` is a junction, not a symlink.** A directory symlink needs
+  Developer Mode or an elevated shell; a junction needs neither and resolves
+  the same way. `faberun update` repoints it the same way.
+- **The binary is two shims**, in `$FABERUN_BIN_DIR` (default
+  `$FABERUN_HOME\bin`, because `~/.local/bin` is on no Windows `PATH`):
+  `faberun.cmd` for PowerShell and cmd, and an extensionless `faberun` for Git
+  Bash, which resolves neither `PATHEXT` nor `.cmd`.
+- **`PATH` is advice, not an edit**, as on POSIX. To have the installer add the
+  bin directory to your user `PATH`, pass `-AddToPath` (or set
+  `FABERUN_ADD_TO_PATH=1`), which needs the script as a file or a script block:
+
+  ```powershell
+  & ([scriptblock]::Create((irm https://raw.githubusercontent.com/feliperun/faberun/main/install.ps1))) -AddToPath
+  ```
+
+Running a campaign end to end on Windows is not covered yet: the engine's
+process control and the `seat` command are POSIX-shaped, and the test suite is
+green on Linux and macOS only.
 
 ### npm
 

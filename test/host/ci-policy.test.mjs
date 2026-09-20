@@ -61,18 +61,37 @@ test("ci.yml runs the required matrix on push to main and pull_request", () => {
   const ci = read(".github/workflows/ci.yml");
   assert.match(ci, /push:\s*\n\s*branches:\s*\[main\]/);
   assert.match(ci, /pull_request:/);
-  assert.deepEqual(matrixList(ci, "os"), ["ubuntu-latest", "macos-latest"]);
-  assert.deepEqual(matrixList(ci, "node"), ["22", "24"]);
+  // Read from the `ci` job alone: a second job must not be able to widen or
+  // narrow the required matrix by adding steps elsewhere in the file.
+  const required = block(ci, "ci");
+  assert.deepEqual(matrixList(required, "os"), ["ubuntu-latest", "macos-latest"]);
+  assert.deepEqual(matrixList(required, "node"), ["22", "24"]);
   // The deterministic eval class and its discriminator check are part of the
   // required matrix: a suite that only proves the cases pass, without proving
   // they can fail, is half a proof (TECH-SPEC-2026-09-09 C1.1, c1.7).
-  assert.deepEqual(runSteps(ci), [
+  assert.deepEqual(runSteps(required), [
     "npm ci",
     "npm run check",
     "npm run typecheck",
     "npm test",
     "node evals/run.mjs --class deterministic --assert-no-model",
     "node evals/run.mjs --verify-discriminating",
+  ]);
+});
+
+test("ci.yml carries a Windows job scoped to the install surface", () => {
+  // Windows runs the install surface and says so: the layout install.ps1
+  // builds, the primitives `faberun update` and `skills register` share with
+  // it, and nothing else, because the rest of the suite is not green there
+  // (docs/adr/0007-windows-install-and-directory-links.md). A job that grew to
+  // `npm test` would be red for reasons this one does not cover.
+  const windows = block(read(".github/workflows/ci.yml"), "windows-install");
+  assert.match(windows, /runs-on:\s*windows-latest/);
+  assert.deepEqual(matrixList(windows, "node"), ["22", "24"]);
+  assert.deepEqual(runSteps(windows), [
+    "npm ci",
+    "npm run typecheck",
+    "node --test test/host/platform.test.mjs test/host/install-ps1.test.mjs test/cli/update.test.mjs test/cli/skills-register.test.mjs",
   ]);
 });
 
