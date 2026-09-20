@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.12.1](https://github.com/feliperun/faberun/compare/v0.12.0...v0.12.1) (2026-09-20)
+
+
+### Bug Fixes
+
+* **plan:** the planner states the shape it enforces and survives a miss ([6dc9dee](https://github.com/feliperun/faberun/commit/6dc9dee0359f5950f8f0856451582434c3c59a1e))
+
 ## [0.12.0](https://github.com/feliperun/faberun/compare/v0.11.0...v0.12.0) (2026-09-20)
 
 
