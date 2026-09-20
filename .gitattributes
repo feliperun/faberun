@@ -1,0 +1,7 @@
+# Shell scripts keep LF in the working tree on every platform. Git's default
+# on Windows is `core.autocrlf=true`, which checks them out with CRLF, and a
+# CRLF script run through `sh` fails on its own shebang — `install.sh` and
+# every husky hook, including the pre-commit gate, stop working on a machine
+# whose only fault was cloning with the default configuration.
+*.sh text eol=lf
+.husky/* text eol=lf

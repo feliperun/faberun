@@ -14,6 +14,11 @@ import { withEmptyPath } from "../helpers.mjs";
  * repointed with a non-`-n` `ln` silently stays on the old version.
  */
 
+// install.ps1 is the Windows installer and test/host/install-ps1.test.mjs covers
+// it; this script is POSIX `sh`, and the layout it builds is made of symlinks a
+// stock Windows refuses.
+const POSIX_ONLY = process.platform === "win32" ? "install.sh is the POSIX installer" : false;
+
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const INSTALL_SH = join(ROOT, "install.sh");
 const PACKAGE_VERSION = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version;
@@ -113,7 +118,7 @@ function assertInstall(space, version) {
   assert.equal(result.stdout.trim(), `faberun ${version}`);
 }
 
-test("install.sh installs a release tarball and is idempotent", () => {
+test("install.sh installs a release tarball and is idempotent", { skip: POSIX_ONLY }, () => {
   const space = workspace();
   const tarball = tarballOf(stageTree().parent);
 
@@ -128,7 +133,7 @@ test("install.sh installs a release tarball and is idempotent", () => {
   assertInstall(space, PACKAGE_VERSION);
 });
 
-test("install.sh installs from a source directory", () => {
+test("install.sh installs from a source directory", { skip: POSIX_ONLY }, () => {
   const space = workspace();
   const result = runInstall(space, stageTree().dir, PACKAGE_VERSION);
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
@@ -136,7 +141,7 @@ test("install.sh installs from a source directory", () => {
   assertInstall(space, PACKAGE_VERSION);
 });
 
-test("install.sh repoints current when FABERUN_VERSION changes", () => {
+test("install.sh repoints current when FABERUN_VERSION changes", { skip: POSIX_ONLY }, () => {
   const space = workspace();
   const first = runInstall(space, stageTree(PACKAGE_VERSION).dir, PACKAGE_VERSION);
   assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}`);
@@ -160,7 +165,7 @@ test("install.sh repoints current when FABERUN_VERSION changes", () => {
 // tarball, and mkdir/rm/mv/ln/chmod/cp to lay out the version and its links.
 const INSTALL_SH_BINARIES_WITHOUT_NODE = ["sh", "tar", "mkdir", "rm", "mv", "ln", "chmod", "cp"];
 
-test("install.sh fails when node is missing from PATH", async () => {
+test("install.sh fails when node is missing from PATH", { skip: POSIX_ONLY }, async () => {
   const space = workspace();
   const tarball = tarballOf(stageTree().parent);
   await withEmptyPath(() => {
@@ -180,7 +185,7 @@ test("install.sh fails when node is missing from PATH", async () => {
   }, { binaries: INSTALL_SH_BINARIES_WITHOUT_NODE });
 });
 
-test("withEmptyPath exposes only the binaries it is asked for", async () => {
+test("withEmptyPath exposes only the binaries it is asked for", { skip: process.platform === "win32" ? "withEmptyPath empties a POSIX PATH and HOME" : false }, async () => {
   await withEmptyPath(() => {
     const missing = spawnSync("sh", ["-c", "command -v tar"], { encoding: "utf8" });
     assert.notEqual(missing.status, 0, "tar must not resolve when it was not requested");

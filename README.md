@@ -178,6 +178,12 @@ The installer resolves the newest release, checks the requirements and runs
 curl -fsSL https://raw.githubusercontent.com/feliperun/faberun/main/install.sh | sh
 ```
 
+On Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/feliperun/faberun/main/install.ps1 | iex
+```
+
 `faberun setup` runs at the end of the installer and registers the `faberun`
 skill for the harnesses it finds (Claude Code, Codex and the shared
 `~/.agents/skills`, plus any measured convention); `faberun skills register`

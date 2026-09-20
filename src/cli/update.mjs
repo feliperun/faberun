@@ -13,9 +13,10 @@
  * rather than something to compare as if it were a release.
  */
 import { spawnSync } from "node:child_process";
-import { mkdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { compareVersions, currentLink, faberunHome, installedVersionDir, tmpDir, versionsDir, writeUpdateCheck } from "../host/home.mjs";
+import { linkDirectory, tarExecutable } from "../host/platform.mjs";
 import { packageVersion } from "../host/package.mjs";
 import { errorMessage } from "../util.mjs";
 
@@ -170,7 +171,7 @@ async function downloadTarball(fetchImpl, url, destination) {
  * @returns {void}
  */
 function extractTarball(tarball, destination) {
-  const result = spawnSync("tar", ["-xzf", tarball, "--strip-components=1", "-C", destination], { encoding: "utf8" });
+  const result = spawnSync(tarExecutable(), ["-xzf", tarball, "--strip-components=1", "-C", destination], { encoding: "utf8" });
   if (result.error) throw result.error;
   if (result.status !== 0) throw new Error(`tar failed: ${String(result.stderr ?? "").trim() || `exit ${result.status}`}`);
 }
@@ -193,21 +194,17 @@ function verifyVersion(partial, version) {
 }
 
 /**
- * Point `current` at the new version atomically: a `current.tmp` symlink then a
- * rename over `current`, so a concurrent reader sees either the old target or
- * the new one, never a missing link.
+ * Point `current` at the new version. `linkDirectory` owns how: a rename over
+ * a sibling temporary link where the platform makes that atomic, a remove and
+ * remake on Windows where it does not.
  *
  * @param {string} home
  * @param {string} version
  * @returns {void}
  */
 function repointCurrent(home, version) {
-  const link = currentLink(home);
-  const temporary = `${link}.tmp`;
-  rmSync(temporary, { force: true });
   // SPEC.md's layout: `current -> versions/<v>`, relative to the home.
-  symlinkSync(join("versions", version), temporary);
-  renameSync(temporary, link);
+  linkDirectory(currentLink(home), join("versions", version));
 }
 
 /** @returns {Record<string, string>} */

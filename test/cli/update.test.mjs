@@ -1,7 +1,7 @@
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { renderBanner } from "../../src/cli/brand.mjs";
 import { updateCommand } from "../../src/cli/update.mjs";
 import { readUpdateCheck, writeUpdateCheck } from "../../src/host/home.mjs";
+import { linkDirectory, tarExecutable } from "../../src/host/platform.mjs";
 import { packageVersion } from "../../src/host/package.mjs";
 
 const CURRENT = packageVersion();
@@ -83,7 +84,7 @@ function buildTarball({ version, printedVersion = version }) {
   writeFileSync(join(top, "package.json"), `${JSON.stringify({ name: "faberun", version }, null, 2)}\n`);
   writeFileSync(join(top, "bin", "faberun.mjs"), `#!${process.execPath}\nprocess.stdout.write(${JSON.stringify(`faberun ${printedVersion}\n`)});\n`);
   const tarball = join(root, "release.tgz");
-  execFileSync("tar", ["-czf", tarball, "-C", root, "faberun-x"]);
+  execFileSync(tarExecutable(), ["-czf", tarball, "-C", root, "faberun-x"]);
   return tarball;
 }
 
@@ -140,6 +141,21 @@ test("--check --json reports the machine-readable result", async () => {
   assert.deepEqual(JSON.parse(result.stdout), { current: CURRENT, latest: NEXT, updated: false, installedUnderHome: true, home });
 });
 
+/**
+ * `current` resolves to `versions/<version>`. What the link *holds* is
+ * `linkDirectory`'s business and is asserted where it lives, in
+ * test/host/platform.test.mjs: a POSIX symlink keeps the relative target the
+ * layout is written in, a Windows junction has only an absolute one.
+ *
+ * @param {string} home
+ * @param {string} version
+ * @param {string} message
+ * @returns {void}
+ */
+function assertCurrentPointsAt(home, version, message) {
+  assert.equal(realpathSync(join(home, "current")), realpathSync(join(home, "versions", version)), message);
+}
+
 test("update outside the home reports the not-installed line", async () => {
   const home = setupHome();
   const result = await run({ entryPath: join(home, "checkout", "bin", "faberun.mjs") });
@@ -160,7 +176,7 @@ test("update installs a newer release and moves current", async () => {
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stdout, new RegExp(`updated · ${CURRENT} to ${NEXT.replace(/\./gu, "\\.")}`, "u"));
   assert.ok(existsSync(join(home, "versions", NEXT, "bin", "faberun.mjs")), "the new version is installed");
-  assert.equal(readlinkSync(join(home, "current")), join("versions", NEXT), "current points at the new version");
+  assertCurrentPointsAt(home, NEXT, "current points at the new version");
   assert.ok(!existsSync(join(home, "versions", `${NEXT_TAG}.partial`)), "the partial directory is gone");
 });
 
@@ -169,7 +185,7 @@ test("a release that prints the wrong version leaves current untouched", async (
   const entry = join(home, "versions", CURRENT, "bin", "faberun.mjs");
   mkdirSync(join(home, "versions", CURRENT, "bin"), { recursive: true });
   writeFileSync(entry, "// installed\n");
-  symlinkSync(join("versions", CURRENT), join(home, "current"));
+  linkDirectory(join(home, "current"), join("versions", CURRENT));
   tarballPath = buildTarball({ version: NEXT, printedVersion: "1.2.3" });
   serveRelease(NEXT_TAG);
   const result = await run({ entryPath: entry });
@@ -177,7 +193,7 @@ test("a release that prints the wrong version leaves current untouched", async (
   assert.equal(result.stderr.trim().split("\n").length, 1, "one line");
   assert.match(result.stderr, /expected faberun /u);
   assert.ok(!existsSync(join(home, "versions", `${NEXT_TAG}.partial`)), "the partial directory is removed");
-  assert.equal(readlinkSync(join(home, "current")), join("versions", CURRENT), "current is untouched");
+  assertCurrentPointsAt(home, CURRENT, "current is untouched");
 });
 
 test("a failed release lookup exits 1 with one line and no stack trace", async () => {
