@@ -84,7 +84,16 @@ export function phaseInvocationPlan(contract, node, state, runDir, role, prompt,
     && session.invocation.reasoning === (runtime.reasoning ?? null)
     && session.invocation.sandbox === (runtime.sandbox ?? null);
   const canContinue = runtime.capabilities.continuation === true;
-  if (identityMatches && canContinue) {
+  // A node continuing its own earlier session keeps it. A phase sibling's
+  // session is reused only when the contract opts in (`phaseSessionReuse`):
+  // measured 2026-09-20 over 21 runs with both kinds of turn, a turn opened
+  // on a sibling's session cost 1.87x the fresh one at the same request
+  // count -- it began with 200k tokens of context instead of 45k and re-read
+  // them on every request -- while the rotation below hands the sibling's
+  // structured summary to a fresh session whose first request is already 90%
+  // served from the shared prefix cache.
+  const ownSession = session !== undefined && session.nodeId === node.id;
+  if (identityMatches && canContinue && (ownSession || contract.phaseSessionReuse === true)) {
     return { prompt, continuationId: session.invocation.continuationId ?? null, mode: "reuse" };
   }
   // A harness that cannot continue at all, or a session picked up from a

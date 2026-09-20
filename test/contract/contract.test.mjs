@@ -702,3 +702,12 @@ test("maxTurns bounds one attempt's provider requests: contract default, node ov
     assert.throws(() => validateContract(JSON.parse(readFileSync(invalidPath, "utf8")), invalidPath), /contract\.maxTurns/u, `${JSON.stringify(bad)} is refused`);
   }
 });
+
+test("phaseSessionReuse is an explicit opt-in: false by default, a boolean or refused", () => {
+  const path = helpers.writeContract(mkdtempSync(join(tmpdir(), "runner-phase-reuse-flag-")), helpers.fixture({ id: "phase-reuse-flag" }));
+  assert.equal(validateContract(JSON.parse(readFileSync(path, "utf8")), path).phaseSessionReuse, false);
+  const on = helpers.writeContract(mkdtempSync(join(tmpdir(), "runner-phase-reuse-on-")), helpers.fixture({ id: "phase-reuse-on", phaseSessionReuse: true }));
+  assert.equal(validateContract(JSON.parse(readFileSync(on, "utf8")), on).phaseSessionReuse, true);
+  const bad = helpers.writeContract(mkdtempSync(join(tmpdir(), "runner-phase-reuse-bad-")), helpers.fixture({ id: "phase-reuse-bad", phaseSessionReuse: "yes" }));
+  assert.throws(() => validateContract(JSON.parse(readFileSync(bad, "utf8")), bad), /contract\.phaseSessionReuse/u);
+});

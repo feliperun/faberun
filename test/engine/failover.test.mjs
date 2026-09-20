@@ -151,6 +151,7 @@ else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; });
   chmodSync(executable, 0o755);
   const path = writeContract(directory, fixture({
     id: "phase-reuse-run",
+    phaseSessionReuse: true,
     runtimeDefaults: { worker: "jsonl", judge: "jsonl" },
     runtimes: { jsonl: { harness: "exec-jsonl", model: "phase-model", vendor: "exec-jsonl-worker", executable } },
     nodes: [
@@ -263,6 +264,7 @@ else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; });
   chmodSync(executable, 0o755);
   const path = writeContract(directory, fixture({
     id: "phase-chronology-run",
+    phaseSessionReuse: true,
     runtimeDefaults: { worker: "jsonl", judge: "jsonl" },
     runtimes: { jsonl: { harness: "exec-jsonl", model: "phase-model", vendor: "exec-jsonl-worker", executable } },
     nodes: [
@@ -282,6 +284,7 @@ test("Claude phase reuse passes the first explicit session through --resume", as
   const fake = fakeClaudeLike(directory);
   const path = writeContract(directory, fixture({
     id: "claude-phase-reuse-run",
+    phaseSessionReuse: true,
     runtimeDefaults: { worker: "provider", judge: "provider" },
     runtimes: { provider: { harness: "claude", model: "test-model", permissionMode: "bypassPermissions", executable: fake.executable } },
     nodes: [
@@ -455,4 +458,35 @@ test("a contract without finalVerification leaves controller verification untouc
   const result = await withFakeCodex(directory, "pass", () => runContract(path));
   assert.equal(nodeState(result).status, "done");
   assert.equal(nodeState(result).verification?.commands?.length, 1);
+});
+
+test("a phase sibling's session is rotated by default: fresh session, structured summary in the prompt, no continuation id", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-phase-rotate-"));
+  const requestLog = join(runsRoot(directory), "phase-requests.jsonl");
+  const executable = join(directory, "phase-wrapper.mjs");
+  writeFileSync(executable, `#!${process.execPath}
+import { appendFileSync } from "node:fs";
+if (process.argv.includes("--version")) console.log("phase-wrapper 1.0.0");
+else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; }); process.stdin.on("end", () => {
+  const request = JSON.parse(input); appendFileSync(${JSON.stringify(requestLog)}, JSON.stringify(request) + "\\n");
+  console.log(JSON.stringify({ schemaVersion: 1, type: "run.completed", result: JSON.stringify({ status: "done", summary: "phase complete", verification: [], artifacts: [], missingContext: [] }), continuationId: request.continuationId || "phase-thread", usage: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 1 }, costUsd: null }));
+}); }
+`);
+  chmodSync(executable, 0o755);
+  const path = writeContract(directory, fixture({
+    id: "phase-rotate-run",
+    runtimeDefaults: { worker: "jsonl", judge: "jsonl" },
+    runtimes: { jsonl: { harness: "exec-jsonl", model: "phase-model", vendor: "exec-jsonl-worker", executable } },
+    nodes: [
+      { id: "first", type: "backend", phase: "implementation", taskPacket: packet(), gate: false },
+      { id: "second", type: "backend", phase: "implementation", dependsOn: ["first"], taskPacket: packet({ objective: "Continue it" }), gate: false },
+    ],
+  }));
+  const result = await runContract(path);
+  assert.equal(result.ok, true);
+  const requests = readFileSync(requestLog, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.deepEqual(requests.map((request) => request.continuationId), [null, null], "the sibling's session id is not handed on");
+  assert.deepEqual(result.states.get("second")?.invocations?.map((invocation) => invocation.continuationMode), ["rotate"]);
+  assert.match(String(requests[1].prompt), /Continue phase implementation as the worker agent in a fresh provider session/u);
+  assert.match(String(requests[1].prompt), /first: phase complete/u, "the prior node's structured summary travels in the prompt, not its transcript");
 });

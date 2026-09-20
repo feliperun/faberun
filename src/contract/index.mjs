@@ -32,7 +32,7 @@ const WRITE_FILE_LINE_WARN_MARGIN = 100;
 
 const CONTRACT_FIELDS = new Set([
   "schemaVersion", "contractVersion", "id", "campaignId", "goal", "cwd", "sourceIdentity",
-  "maxParallel", "pollIntervalMs", "stallTimeoutSec", "timeoutSec", "maxTurns",
+  "maxParallel", "pollIntervalMs", "stallTimeoutSec", "timeoutSec", "maxTurns", "phaseSessionReuse",
   "runtimeDefaults", "runtimes", "nodes", "warnings", "finalVerification", "sharedVerification", "nodeAdvisory",
 ]);
 const DEFAULTS_FIELDS = new Set(["worker", "judge"]);
@@ -70,7 +70,7 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 
 /** @typedef {{id: string, type: string, phase: string, runtime?: string, dependsOn: string[], taskPacket: TaskPacket, taskPacketFile?: string, prompt: string, definitionOfDone: import("./definition-of-done.mjs").DefinitionOfDoneItem[], gate: ValidatedGate, timeoutSec?: number, maxTurns?: number, requiredCapabilities: CapabilityRequirements, packetHash: string, sourceIdentity: SourceIdentity, replayPolicy: "safe"|"reconcile"|"never"}} ValidatedNode */
 
-/** @typedef {{schemaVersion: number, contractVersion: string, id: string, campaignId: string, goal: string, cwd: string, sourceIdentity: SourceIdentity, runtimes: Record<string, ValidatedRuntime>, runtimeDefaults: {worker?: string, judge?: string}, nodes: ValidatedNode[], maxParallel: number, pollIntervalMs: number, stallTimeoutSec: number, timeoutSec: number, maxTurns: number, finalVerification?: VerificationCommand[], sharedVerification?: VerificationCommand[], nodeAdvisory?: NodeAdvisoryPolicy, warnings: string[]}} ValidatedContract */
+/** @typedef {{schemaVersion: number, contractVersion: string, id: string, campaignId: string, goal: string, cwd: string, sourceIdentity: SourceIdentity, runtimes: Record<string, ValidatedRuntime>, runtimeDefaults: {worker?: string, judge?: string}, nodes: ValidatedNode[], maxParallel: number, pollIntervalMs: number, stallTimeoutSec: number, timeoutSec: number, maxTurns: number, phaseSessionReuse: boolean, finalVerification?: VerificationCommand[], sharedVerification?: VerificationCommand[], nodeAdvisory?: NodeAdvisoryPolicy, warnings: string[]}} ValidatedContract */
 /** @typedef {{costUsd?: number, durationSec?: number}} NodeAdvisoryPolicy */
 
 /** @typedef {"pending"|"running"|"done"|"no-op"|"blocked"|"failed"|"exhausted"|"stalled"|"canceled"} NodeStatus */
@@ -376,6 +376,13 @@ export function validateContract(raw, contractPath, options = {}) {
     stallTimeoutSec: positiveNumber(raw.stallTimeoutSec ?? 300, "contract.stallTimeoutSec"),
     timeoutSec: positiveNumber(raw.timeoutSec ?? 2_400, "contract.timeoutSec"),
     maxTurns: positiveInteger(raw.maxTurns ?? DEFAULT_MAX_TURNS, "contract.maxTurns"),
+    // Opt-in: a phase sibling's provider session is rotated (fresh session,
+    // structured summaries carried) unless the contract asks to reuse it.
+    // measured 2026-09-20 over 21 runs with both kinds of turn: a turn opened
+    // on a sibling's session cost 1.87x the fresh one at the same request
+    // count, because it began with 200k tokens of context instead of 45k and
+    // re-read them on every request.
+    phaseSessionReuse: booleanField(raw.phaseSessionReuse, false, "contract.phaseSessionReuse"),
     finalVerification: validateFinalVerification(raw.finalVerification, "contract.finalVerification"),
     sharedVerification: validateSharedVerification(raw.sharedVerification, "contract.sharedVerification"),
     nodeAdvisory: validateNodeAdvisory(raw.nodeAdvisory),
@@ -699,4 +706,11 @@ function validateMaxParallel(value) {
   // Filesystem isolation (attempt worktrees) exists now, so nothing caps this
   // beyond being a sane positive integer.
   return positiveInteger(value, "contract.maxParallel");
+}
+
+/** @param {unknown} value @param {boolean} fallback @param {string} label @returns {boolean} */
+function booleanField(value, fallback, label) {
+  if (value === undefined) return fallback;
+  if (typeof value !== "boolean") throw new TypeError(`${label} must be a boolean`);
+  return value;
 }
