@@ -23,7 +23,7 @@ const arg = (name, fallback) => {
   return index === -1 ? fallback : String(args[index + 1]);
 };
 const LABEL = arg("label", "smoke");
-const ARMS = arg("arms", "A,B,C,D,E").split(",").map((arm) => arm.trim()).filter(Boolean);
+const ARMS = arg("arms", `B,C,${Object.keys(FABERUN_ARMS).join(",")}`).split(",").map((arm) => arm.trim()).filter(Boolean);
 const REPETITIONS = Number(arg("repetitions", "1"));
 const KIND = /** @type {"simple"|"complex"} */ (arg("corpus", "simple"));
 const CORPUS = loadCorpusSet(KIND, arg("requirements", "all"));
@@ -31,7 +31,7 @@ const SEED = Number(arg("seed", "20260920"));
 /** `--force` reruns keys already in the ledger; the earlier lines stay, the analysis takes every measured one. */
 const FORCE = args.includes("--force");
 
-for (const arm of ARMS) if (!["A", "B", "C", "D", "E"].includes(arm)) throw new Error(`unknown arm ${arm}`);
+for (const arm of ARMS) if (!["B", "C"].includes(arm) && !(arm in FABERUN_ARMS)) throw new Error(`unknown arm ${arm}`);
 if (!Number.isInteger(REPETITIONS) || REPETITIONS < 1) throw new Error("--repetitions needs a positive integer");
 mkdirSync(RESULTS, { recursive: true });
 mkdirSync(LOGS, { recursive: true });
@@ -52,7 +52,7 @@ for (let repetition = 1; repetition <= REPETITIONS; repetition += 1) {
     const common = { label: LABEL, repetition, corpus: CORPUS };
     try {
       const record = arm in FABERUN_ARMS
-        ? await runFaberunArm({ ...common, arm: /** @type {"A"|"D"|"E"} */ (arm) })
+        ? await runFaberunArm({ ...common, arm })
         : await runSessionArm({ ...common, arm: /** @type {"B"|"C"} */ (arm) });
       appendJsonl(LEDGER, {
         schemaVersion: 1,

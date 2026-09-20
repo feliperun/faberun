@@ -14,6 +14,7 @@ using the harness's own subagents? Spec and rationale:
 | C | arm B plus the `Agent` tool and the delegation paragraph | same as B, plus the count of `Agent` calls |
 | D | arm A with `gate: false`: the proof is the only gate, no judge | same as A |
 | E | arm D with the writer swapped for DeepSeek Flash through dsh (`DEEPSEEK_RUNTIME`), no fallback | same as A; dsh reports no cost, so the product prices the counters from the vendored models.dev seed |
+| F–J | arm D with the writer swapped (`FABERUN_ARMS`): F claude-opus-5, G gpt-5.6-sol, H gpt-5.6-luna, I gpt-6-astra (list price declared on the runtime), J glm-5.3-flash; no fallback | same as A; priced from the seed or the declared rates |
 
 Two corpora, one shape (`corpus.mjs`). `simple`: the ten frozen requirements
 of `spike/corpus/`, independent, each with a visible proof; every run starts
@@ -32,7 +33,7 @@ against the union of write scopes, and keeps the final tree under
 ```bash
 node spike/arms/measure.mjs --corpus simple --label pilot --requirements CONTRACT,HOST,NOTIFY,REPO,RUN --arms A,B,C,D --repetitions 3
 node spike/arms/measure.mjs --corpus simple --label full --requirements all --arms A,B,C,D --repetitions 2
-node spike/arms/measure.mjs --corpus complex --label complex --arms A,B,C,D,E --repetitions 2
+node spike/arms/measure.mjs --corpus complex --label complex --arms A,B,C,D,E,F,G,H,I,J --repetitions 1
 node spike/arms/analyse.mjs --label complex
 node --test spike/arms/test/arms.test.mjs
 ```

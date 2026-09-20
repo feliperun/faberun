@@ -1,7 +1,7 @@
 ---
 id: orchestration-arms
 title: "Does orchestrating with faberun beat one session, or one session with its own subagents?"
-version: 1.3.0
+version: 1.4.0
 status: draft
 date: 2026-09-20
 owner: Felipe Broering
@@ -24,7 +24,9 @@ The question is stated as three arms and two comparisons:
 
 - **Arm E, faberun with a cheaper writer.** Added with the complex round (version 1.3.0), at the owner's request: arm D with the worker swapped for DeepSeek Flash through the dsh harness, no fallback, the same packets, the same proof-only gate. The owner's hypothesis is that a writer whose list price is 13x lower on input and 17x lower on output than the frontier models (deepseek-flash 0.15 / 0.003 / 0.60 USD per MTok against claude-sonnet-5 2 / 0.2 / 10 and gpt-5.6-sol 4 / 0.4 / 20) delivers the corpus for less in total even if it spends more tokens and more attempts getting there, so that depending only on Claude or Codex is the expensive choice. dsh reports no cost; the product prices its token counts from the vendored models.dev seed, the same rates the CLI-reported Claude cost is built from.
 
-Comparison 1 is A against B; comparison 2 is A against C. B against C is reported because it falls out for free and says whether native delegation is the cheaper half of orchestration. D against B and D against C say what the orchestration costs without the judge. E against D is the cheaper-writer question with everything else held equal; E against A, B and C say whether the cheaper writer beats every frontier configuration.
+- **Arms F to J, faberun with other writers.** Added the same evening (version 1.4.0), again at the owner's request: arm D with the writer swapped, one model per arm across four harnesses, no fallback, the same packets and the same proof-only gate. F claude-opus-5 through claude (5 / 0.5 / 25), G gpt-5.6-sol through codex (4 / 0.4 / 20), H gpt-5.6-luna through codex (0.2 / 0.02 / 1.2), I gpt-6-astra through codex (10 / 1 / 50, the OpenAI list price read from models.dev on 2026-09-20 and declared on the runtime because the vendored seed predates the model), J glm-5.3-flash through zcode (0.15 / 0.03 / 0.5). The owner asked for "GLM 5.5 Flash"; no such model exists in models.dev, the product's catalogue or this machine's ZCode history, so the newest flash stands in and the substitution is recorded here. Together with E the writer arms span a 67x range of output price, from luna and deepseek at the bottom to astra at the top, under one orchestration.
+
+Comparison 1 is A against B; comparison 2 is A against C. B against C is reported because it falls out for free and says whether native delegation is the cheaper half of orchestration. D against B and D against C say what the orchestration costs without the judge. Each writer arm (E to J) is compared against D, the same orchestration with the sonnet writer, which is the writer question with everything else held equal; and against A and B, which say whether that writer beats the judged configuration and the single session.
 
 ## Estado medido
 
@@ -58,7 +60,7 @@ The acceptance is hidden from the arms and run by the driver on the final tree: 
 
 - **Interleaving.** Within one repetition the three arms run back to back in a seeded shuffled order, so a provider that drifts over the day drifts across arms rather than between them (the first spike ran one arm two hours later and measured the clock instead of the treatment).
 - **Repetitions and the band.** Arm A is the control and is repeated; its spread across repetitions is the noise band, computed with `evals/run.mjs --band`, and every comparison is judged against it with `--compare --band`. A delta inside the band is reported as "not measured", never as "no difference".
-- **Phases and budget.** *Smoke*: one requirement, one repetition, all arms, to prove the pipeline end to end. *Pilot*: five requirements, three repetitions per arm (extended from one when the first came in at a fifth of the cap), to size cost and time and to obtain a first band. *Full*: the ten requirements, two repetitions per arm and four arms, launched under the owner's standing instruction to measure this now and inside the same US$ 40 envelope (pilot spend US$ 13, full round projected at US$ 20 from pilot rates); a third repetition is a separate decision. *Complex* (version 1.2.0): the four-node phase, four arms, two repetitions, under a separate US$ 60 envelope (about US$ 30 per repetition from the historical run's worker cost plus the judge's share measured in the full round), the first repetition launched on 2026-09-20 with the second to follow unless the owner says otherwise. Spend is recorded per run in the ledger.
+- **Phases and budget.** *Smoke*: one requirement, one repetition, all arms, to prove the pipeline end to end. *Pilot*: five requirements, three repetitions per arm (extended from one when the first came in at a fifth of the cap), to size cost and time and to obtain a first band. *Full*: the ten requirements, two repetitions per arm and four arms, launched under the owner's standing instruction to measure this now and inside the same US$ 40 envelope (pilot spend US$ 13, full round projected at US$ 20 from pilot rates); a third repetition is a separate decision. *Complex* (version 1.2.0): the four-node phase, four arms, two repetitions, under a separate US$ 60 envelope (about US$ 30 per repetition from the historical run's worker cost plus the judge's share measured in the full round), the first repetition launched on 2026-09-20 with the second to follow unless the owner says otherwise. With arms E to J (versions 1.3.0 and 1.4.0) the first repetition is ten arms and the envelope for it is US$ 130: the six writer arms scale the historical US$ 7 sonnet worker cost by their price ratio (deepseek, luna and glm under US$ 1 each; sol about US$ 14; opus about US$ 18; astra about US$ 35). The second repetition is a decision the owner takes on the first's report, not a default. Spend is recorded per run in the ledger.
 - **Delivered, on the complex corpus.** The denominator of the top metric is the acceptance checks that pass (four per run), not requirements: a migration that leaves one call site behind fails centralization and typecheck together, and counting it as three quarters delivered would be generous to every arm alike. The session arms are told the acceptance commands, not given the acceptance files.
 - **What is deliberately asymmetric.** Arm A has a judge, a write-scope boundary, a request cap of 150 per node and parallel nodes; B and C have none of that and a cap of 1000 requests for the whole session. Those are the product's mechanics and the thing under test; the comparison charges arm A the judge's cost and reports the others' out-of-scope edits.
 
@@ -72,7 +74,8 @@ The acceptance is hidden from the arms and run by the driver on the final tree: 
 | H4 | faberun finishes the corpus in less wall clock than B (parallel nodes against one context) | A→B | outside the band |
 | H5 | the session arms change files outside the write scopes and faberun does not | all | count |
 | H6 | every effect claimed above is larger than arm A's own noise band | all | direct |
-| H7 | a cheaper writer delivers for less in total: `costPerDeliveredRequirementUsd` E below D, and below A, B and C, even with more tokens and attempts | E→D, E→A, E→B, E→C | outside the band, and E delivers at least as many acceptance checks as D |
+| H7 | a cheaper writer delivers for less in total: `costPerDeliveredRequirementUsd` of E, H and J below D, and below A and B, even with more tokens and attempts | E→D, H→D, J→D, and each →A, →B | outside the band, and the arm delivers at least as many acceptance checks as D |
+| H8 | a pricier frontier writer does not deliver more per dollar: `costPerDeliveredRequirementUsd` of F, G and I is not below D | F→D, G→D, I→D | outside the band |
 
 H6 is the honesty hypothesis and it decides what the report may say.
 
@@ -80,7 +83,7 @@ On the complex corpus the same six are re-tested, plus H7, with `proofsPassed` r
 
 ## Kill criteria
 
-Discard the premise, without a second attempt, if H3 fails in the full round: faberun delivers fewer proofs than a single session on the same corpus. H7 is refuted for this corpus, whatever the price, if arm E delivers fewer acceptance checks than arm D: a cheaper writer that does not finish the work has no cost per delivered requirement to compare. Report "not measured" and stop, if the full round's effects all sit inside the band: the answer is more repetitions or a harder corpus, not another hypothesis. Abort the pilot and report if a session arm cannot complete the corpus at all (a cap or a crash) — that is a finding about the arm, not noise.
+Discard the premise, without a second attempt, if H3 fails in the full round: faberun delivers fewer proofs than a single session on the same corpus. H7 is refuted for a writer, whatever its price, if its arm delivers fewer acceptance checks than arm D: a cheaper writer that does not finish the work has no cost per delivered requirement to compare. A writer arm that dies on a provider quota or a subscription limit is not measured and is rerun, not counted. Report "not measured" and stop, if the full round's effects all sit inside the band: the answer is more repetitions or a harder corpus, not another hypothesis. Abort the pilot and report if a session arm cannot complete the corpus at all (a cap or a crash) — that is a finding about the arm, not noise.
 
 ## Requirements
 

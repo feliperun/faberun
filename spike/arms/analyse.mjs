@@ -14,7 +14,21 @@ import { LEDGER, REPORTS, RESULTS, isMeasuredRun, median, readJsonl, writeJson }
 
 /** @typedef {{value: number|null, direction: "down"|"up"|"informative", count: number}} Indicator */
 
-const ARM_NAMES = { A: "faberun, judge", B: "single session", C: "session with subagents", D: "faberun, proof-only gate", E: "faberun, DeepSeek Flash writer, proof-only gate" };
+/** @type {Record<string, string>} */
+const ARM_NAMES = {
+  A: "faberun, judge",
+  B: "single session",
+  C: "session with subagents",
+  D: "faberun, proof-only gate",
+  E: "faberun, deepseek-flash writer",
+  F: "faberun, claude-opus-5 writer",
+  G: "faberun, gpt-5.6-sol writer",
+  H: "faberun, gpt-5.6-luna writer",
+  I: "faberun, gpt-6-astra writer",
+  J: "faberun, glm-5.3-flash writer",
+};
+/** Every writer arm against D (same orchestration, sonnet writer), A (sonnet with judge) and B (one session). */
+const COMPARISONS = [["A", "B"], ["A", "C"], ["B", "C"], ["D", "B"], ["D", "C"], ["A", "D"], ...["E", "F", "G", "H", "I", "J"].flatMap((arm) => [[arm, "D"], [arm, "A"], [arm, "B"]])];
 
 /**
  * The indicators one run yields. Cost per delivered requirement is the top
@@ -78,7 +92,7 @@ export function analyse(label) {
   }
   lines.push("");
 
-  lines.push("## Arm medians", "", "| indicator | direction | " + Object.keys(medians).map((arm) => `${arm} (${ARM_NAMES[/** @type {"A"|"B"|"C"|"D"|"E"} */ (arm)]})`).join(" | ") + " |", "| --- | --- | " + Object.keys(medians).map(() => "---").join(" | ") + " |");
+  lines.push("## Arm medians", "", "| indicator | direction | " + Object.keys(medians).map((arm) => `${arm} (${ARM_NAMES[(arm)]})`).join(" | ") + " |", "| --- | --- | " + Object.keys(medians).map(() => "---").join(" | ") + " |");
   const first = Object.values(medians)[0] ?? {};
   for (const name of Object.keys(first)) {
     lines.push(`| ${name} | ${first[name].direction} | ${Object.keys(medians).map((arm) => `${fmt(medians[arm][name].value)} (n=${medians[arm][name].count})`).join(" | ")} |`);
@@ -98,9 +112,9 @@ export function analyse(label) {
   }
 
   lines.push("## Comparisons (before = first arm, after = second)", "");
-  for (const [left, right] of [["A", "B"], ["A", "C"], ["B", "C"], ["D", "B"], ["D", "C"], ["A", "D"], ["E", "D"], ["E", "A"], ["E", "B"], ["E", "C"]]) {
+  for (const [left, right] of COMPARISONS) {
     if (!medians[left] || !medians[right]) continue;
-    lines.push(`### ${left} (${ARM_NAMES[/** @type {"A"|"B"|"C"|"D"|"E"} */ (left)]}) → ${right} (${ARM_NAMES[/** @type {"A"|"B"|"C"|"D"|"E"} */ (right)]})`, "", "```");
+    lines.push(`### ${left} (${ARM_NAMES[(left)]}) → ${right} (${ARM_NAMES[(right)]})`, "", "```");
     lines.push(renderEvalComparisonReport(compareEvalReports(medians[left], medians[right], band ?? undefined)).trimEnd());
     lines.push("```", "");
   }

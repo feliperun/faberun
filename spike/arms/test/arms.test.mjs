@@ -96,6 +96,20 @@ test("arms A and D carry the same corpus as a contract: dependencies, packet tex
   assert.equal(cheapWriter.runtimes["dsh-deepseek-flash-worker"].fallback, undefined, "no fallback: another model would contaminate the arm");
   assert.deepEqual(cheapWriter.nodes.map((node) => node.gate), [false, false, false, false], "arm E is arm D with the writer swapped");
   assert.deepEqual(cheapWriter.nodes.map((node) => node.taskPacket), proofOnly.nodes.map((node) => node.taskPacket), "the packets are identical to arm D's");
+  const expected = { F: ["claude", "claude-opus-5"], G: ["codex", "gpt-5.6-sol"], H: ["codex", "gpt-5.6-luna"], I: ["codex", "gpt-6-astra"], J: ["zcode", "glm-5.3-flash"] };
+  for (const [arm, [harness, model]] of Object.entries(expected)) {
+    const contract = /** @type {any} */ (faberunContract({ id: `arms-test-${arm.toLowerCase()}`, cwd: "/tmp/x", corpus, arm }));
+    const writer = contract.runtimes[contract.runtimeDefaults.worker];
+    assert.equal(writer.harness, harness, `${arm} harness`);
+    assert.equal(writer.model, model, `${arm} model`);
+    assert.equal(writer.fallback, undefined, `${arm} has no fallback`);
+    assert.equal(writer.maxConcurrent, 3, `${arm} shares the concurrency bound`);
+    assert.deepEqual(contract.nodes.map((node) => node.gate), [false, false, false, false], `${arm} is proof-only`);
+    assert.deepEqual(contract.nodes.map((node) => node.taskPacket), proofOnly.nodes.map((node) => node.taskPacket), `${arm} packets are arm D's`);
+    if (harness === "codex") assert.equal(writer.sandbox, "workspace-write", `${arm} codex writer may write`);
+  }
+  assert.deepEqual(/** @type {any} */ (faberunContract({ id: "x", cwd: "/tmp/x", corpus, arm: "I" })).runtimes["codex-astra-worker"].pricing, { inputPerMTok: 10, cachedInputPerMTok: 1, outputPerMTok: 50 }, "astra predates the price seed, so its list price is declared");
+  assert.throws(() => faberunContract({ id: "x", cwd: "/tmp/x", corpus, arm: "B" }), /not a faberun arm/u);
   const simple = /** @type {any} */ (faberunContract({ id: "arms-test-s", cwd: "/tmp/x", corpus: loadCorpusSet("simple", "CONTRACT,HOST,REPO") }));
   assert.deepEqual(simple.nodes.map((node) => node.id), ["contract", "host", "repo"], "corpus order, lower-cased ids");
 });

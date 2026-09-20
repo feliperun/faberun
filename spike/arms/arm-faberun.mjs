@@ -28,7 +28,7 @@ function findRunDir(runId) {
 }
 
 /**
- * @param {{label: string, repetition: number, corpus: CorpusSet, arm?: "A"|"D"|"E"}} input D is the proof as the only gate; E is D with the DeepSeek Flash writer
+ * @param {{label: string, repetition: number, corpus: CorpusSet, arm?: string}} input an arm of FABERUN_ARMS: A judged, D proof-only, E to J proof-only with another writer
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runFaberunArm({ label, repetition, corpus, arm = "A" }) {

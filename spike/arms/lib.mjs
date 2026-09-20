@@ -110,6 +110,7 @@ export function median(values) {
  */
 export function isMeasuredRun(run) {
   if (!run || run.error) return false;
-  if (["A", "D", "E"].includes(run.arm) && (run.invocations ?? 0) === 0) return false;
+  // A faberun record always carries `invocations`; one with none never launched a worker.
+  if (typeof run.invocations === "number" && run.invocations === 0) return false;
   return true;
 }
