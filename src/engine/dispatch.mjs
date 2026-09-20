@@ -387,6 +387,7 @@ function ensureAttemptWorkspace(contract, node, state, runDir, lock) {
     runId: contract.id,
     nodeId: node.id,
     attempt: state.attempt,
+    declaredReads: node.taskPacket.readFiles,
     base: previous?.sha,
   });
   const boundary = captureWorkspaceScope(worktree.path, workerScope(node.taskPacket));

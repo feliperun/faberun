@@ -303,7 +303,10 @@ export async function resumeRun(runDirPath, options = {}) {
             await applyInvalidWorkerResult(contract, node, state, runDir, null, lock, errorMessage(error), states, campaign.path);
             continue;
           }
-          if (node.taskPacket.mode === "discovery" && parsedWorkerResult.status === "done") {
+          // Same discriminator as lifecycle.mjs: the artifact is owed only by
+          // the repo-reading discovery packet (empty readFiles), never by one
+          // closed to its listed read files, which delivers through `output`.
+          if (node.taskPacket.mode === "discovery" && node.taskPacket.readFiles.length === 0 && parsedWorkerResult.status === "done") {
             try {
               parseDiscoveryResult(parsedWorkerResult, attemptWorkspace(state) ?? contract.cwd);
             } catch (error) {

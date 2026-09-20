@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resumeRun } from "../../src/engine/resume.mjs";
@@ -74,6 +74,45 @@ test("a discovery node's output field is persisted, reloads on a validated snaps
 
   // (c) a resume of the finished run does not throw.
   await assert.doesNotReject(() => resumeRun(result.runDir));
+});
+
+test("a discovery node closed to its read files delivers through output and owes no artifact", async () => {
+  // The repo-reading discovery packet (empty readFiles) is the only one that
+  // owes the execution-packet artifact; a packet closed to listed read files
+  // -- every planning node -- delivers its structured result through `output`.
+  const directory = mkdtempSync(join(tmpdir(), "discovery-output-closed-"));
+  const recordingDir = mkdtempSync(join(tmpdir(), "discovery-output-closed-rec-"));
+  writeFileSync(join(directory, "spec.md"), "# Feature 42\n\nThe spec under planning.\n");
+  const plan = {
+    nodes: [{
+      id: "build", objective: "Implement the feature", taskKind: "implement", riskTier: "standard",
+      dependsOn: [], readFiles: ["spec.md"], writeFiles: ["src/index.mjs"], definitionOfDone: [], verification: [],
+    }],
+  };
+  const workerRecording = writeRecording(recordingDir, [{
+    envelope: envelope({
+      result: JSON.stringify({
+        status: "done",
+        summary: "planned",
+        verification: [],
+        artifacts: [],
+        missingContext: [],
+        output: { plan },
+      }),
+    }),
+  }], "worker.jsonl");
+
+  const path = replayContractPath(directory, "discovery-output-closed-run", [{
+    id: "plan",
+    type: "backend",
+    taskPacket: packet({ mode: "discovery", readFiles: ["spec.md"], writeFiles: [], objective: "Draft the plan" }),
+    gate: false,
+  }], workerRecording);
+
+  const result = await runContract(path);
+  const state = nodeState(result, "plan");
+  assert.equal(state.status, "done", state.error?.message);
+  assert.deepEqual(/** @type {{output?: unknown}} */ (state.result).output, { plan });
 });
 
 test("an execution node whose worker returns output ends failed, naming the field", async () => {

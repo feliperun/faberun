@@ -19,25 +19,6 @@ import { campaignTree, runDirectory, runsRoot } from "../../src/run/paths.mjs";
 // throwaway directory, never the operator's own ~/.faberun.
 process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home-"));
 
-/**
- * Every discovery `done` result — planning or not — is checked by the
- * existing discovery protocol (`parseDiscoveryResult`, `lifecycle.mjs`)
- * against `artifacts[0]`, which must parse as a valid execution task packet
- * regardless of what the planning pipeline itself reads (`output`). This
- * placeholder satisfies that check without the pipeline ever looking at it.
- */
-const PLACEHOLDER_EXECUTION_PACKET = JSON.stringify({
-  mode: "execution",
-  objective: "placeholder, unread by the planning pipeline",
-  instructions: ["placeholder, unread by the planning pipeline"],
-  readFiles: ["src/index.mjs"],
-  writeFiles: ["src/index.mjs"],
-  symbols: [],
-  decisions: [],
-  nonGoals: [],
-  verification: [],
-});
-
 /** @param {string} cwd @param {string} relative @param {string} content */
 function writeFixtureFile(cwd, relative, content) {
   const path = join(cwd, relative);
@@ -114,14 +95,14 @@ function setup(campaignId, { reviewMode = "clean", highRisk = false } = {}) {
   // runtime reused across draft and revise, or across two pipeline calls in
   // one test, needs one line per invocation it will actually serve.
   const draftLine = { envelope: envelope({ result: JSON.stringify({
-    status: "done", summary: "drafted", verification: [], artifacts: [PLACEHOLDER_EXECUTION_PACKET], missingContext: [],
+    status: "done", summary: "drafted", verification: [], artifacts: [], missingContext: [],
     output: { plan: twoNodePlan({ highRisk }) },
   }) }) };
   const reviewFindings = reviewMode === "critical"
     ? [{ id: "F1", severity: "critical", nodeId: "build", text: "the plan is missing a rollback path" }]
     : [];
   const reviewLine = { envelope: envelope({ result: JSON.stringify({
-    status: "done", summary: "reviewed", verification: [], artifacts: [PLACEHOLDER_EXECUTION_PACKET], missingContext: [],
+    status: "done", summary: "reviewed", verification: [], artifacts: [], missingContext: [],
     output: { findings: reviewFindings },
   }) }) };
   const recordingDir = mkdtempSync(join(tmpdir(), "plan-pipeline-rec-"));

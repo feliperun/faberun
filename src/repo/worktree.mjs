@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { RUNS_DIR_NAME, attemptWorktreePath, candidateWorktreePath } from "../run/paths.mjs";
 
 /** @typedef {import("../contract/index.mjs").NodeSnapshot} NodeSnapshot */
@@ -169,14 +169,16 @@ export function createRunRef(repo, runId, head) {
 }
 
 /**
- * @param {{repo: string, runDir: string, runId: string, nodeId: string, attempt: number, base?: string}} args
+ * @param {{repo: string, runDir: string, runId: string, nodeId: string, attempt: number, base?: string, declaredReads?: string[]}} args
  *   `base` cuts the new branch from a sealed sha instead of the run ref tip —
  *   the previous attempt's sealed work, when it left one (TECH-SPEC lean
  *   v0.3 section 3 rule 4). Omitted, it falls back to the run ref tip as
- *   before.
+ *   before. `declaredReads` names the packet's readFiles: entries git does
+ *   not track are carried into the fresh worktree, since a checkout carries
+ *   only tracked content and the worker reads the packet's reads from here.
  * @returns {AttemptWorktree}
  */
-export function createAttemptWorktree({ repo, runDir, runId, nodeId, attempt, base }) {
+export function createAttemptWorktree({ repo, runDir, runId, nodeId, attempt, base, declaredReads }) {
   const runRefSha = gitHead(repo, runRefName(runId));
   if (!runRefSha) throw Object.assign(new Error(`integration ref is unavailable for ${runId}`), { code: "run_ref_missing" });
   const path = attemptWorktreePath(runDir, runId, nodeId, attempt);
@@ -192,6 +194,7 @@ export function createAttemptWorktree({ repo, runDir, runId, nodeId, attempt, ba
     runGit(["-C", repo, "worktree", "add", path, "-b", branch, base ?? runRefName(runId)]);
   }
   prepareWorktreeEnvironment(repo, path);
+  carryDeclaredReads(repo, path, declaredReads ?? []);
   return { status: "ready", path, branch, commit: gitHead(path), baseSha: base ?? runRefSha };
 }
 
@@ -225,6 +228,67 @@ function isSymlink(path) {
     return lstatSync(path).isSymbolicLink();
   } catch {
     return false;
+  }
+}
+
+/**
+ * Carry a packet's declared reads that git does not track from the repository
+ * checkout into a freshly created attempt worktree. Validation checks
+ * readFiles against the repository, but the worker reads them from the
+ * worktree, and a worktree carries only tracked content: an ignored or
+ * untracked declared read — the plan pipeline's gitignored repo-facts relay is
+ * the live case — would be absent from the very packet that names it.
+ *
+ * A tracked file is never copied, so a dirty working copy cannot leak into a
+ * clean attempt: the worktree's own checkout is the only source for those. A
+ * path already present in the worktree is left alone, so recreating one never
+ * clobbers what an attempt left there.
+ *
+ * @param {string} repo @param {string} worktree @param {string[]} readFiles @returns {void}
+ */
+function carryDeclaredReads(repo, worktree, readFiles) {
+  const repoRoot = resolve(repo);
+  const realRepoRoot = realpathSync(repoRoot);
+  for (const read of readFiles) {
+    if (typeof read !== "string" || !read || isAbsolute(read)) continue;
+    const source = resolve(repoRoot, read);
+    let real;
+    try {
+      if (!statSync(source).isFile()) continue;
+      real = realpathSync(source);
+    } catch {
+      // Absent or unreadable — including a broken symlink inside the path:
+      // nothing exists to carry, and a declared read may legitimately be
+      // produced later or removed since authoring.
+      continue;
+    }
+    // Containment inline: task-packet.mjs owns pathInside privately, and a
+    // second top-level body would fail the duplicate-body gate.
+    const rel = relative(realRepoRoot, real);
+    if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) continue;
+    if (gitTracks(repo, read)) continue;
+    const target = join(worktree, read);
+    if (existsSync(target) || isSymlink(target)) continue;
+    mkdirSync(dirname(target), { recursive: true });
+    // A copy, never a symlink back at the checkout: the attempt's grounding
+    // input is frozen at creation, exactly like the tracked content around it.
+    writeFileSync(target, readFileSync(source));
+  }
+}
+
+/**
+ * Whether git lists the path in the index, i.e. a fresh worktree's checkout
+ * already brings it on its own.
+ *
+ * @param {string} repo @param {string} read @returns {boolean}
+ */
+function gitTracks(repo, read) {
+  try {
+    return git(repo, ["ls-files", "--", read]).length > 0;
+  } catch {
+    // git could not answer (locked index, unusable repository): fail toward
+    // "tracked", because never copying a tracked file outranks carrying one.
+    return true;
   }
 }
 

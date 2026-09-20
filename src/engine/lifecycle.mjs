@@ -521,7 +521,13 @@ export async function finalizeClosedJobs(contract, runDir, states, running, lock
         await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, errorMessage(error), states, campaignPath);
         continue;
       }
-      if (job.node.taskPacket.mode === "discovery" && workerResult.status === "done") {
+      // The artifact demand follows the documented discovery contract, not the
+      // mode alone: only a packet with no read files -- the one exception to
+      // closed scope, allowed to read the repository to produce an execution
+      // packet -- owes that artifact. A discovery packet closed to its listed
+      // read files delivers through `output` (a planning node's plan or
+      // findings) and carries none.
+      if (job.node.taskPacket.mode === "discovery" && job.node.taskPacket.readFiles.length === 0 && workerResult.status === "done") {
         try {
           parseDiscoveryResult(workerResult, attemptWorkspace(state) ?? contract.cwd);
         } catch (error) {
