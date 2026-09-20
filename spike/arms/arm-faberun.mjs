@@ -1,19 +1,20 @@
 /**
- * Arm A: the corpus run by faberun. A fresh checkout at the base, a contract
- * with one node per requirement, `faberun run` in the foreground under the
- * experiment's own home, and then the same two measurements every arm gets:
- * the proofs, run on the tree the run integrated (`refs/faberun/<id>/run`),
- * and the scope audit. Cost is the run's own usage.jsonl, priced by the
- * product; requests are the per-request session ledgers it now persists.
+ * Arms A and D: the corpus run by faberun. A fresh checkout at the base, a
+ * contract with one node per requirement, `faberun run` in the foreground
+ * under the experiment's own home, and then the same two measurements every
+ * arm gets: the acceptance, run on the tree the run integrated
+ * (`refs/faberun/<id>/run`), and the scope audit. Cost is the run's own
+ * usage.jsonl, priced by the product; requests are the per-request session
+ * ledgers it persists.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { faberunContract } from "./contract.mjs";
-import { auditScope, commitAll, git, keepFinalTree, prepareCheckout, removeCheckout, runProofs } from "./fork.mjs";
+import { auditScope, commitAll, git, keepFinalTree, prepareCheckout, removeCheckout, runAcceptance } from "./fork.mjs";
 import { EXPERIMENT_HOME, FABERUN_CLI, LOGS, RESULTS, providerEnv, readJsonl, writeJson } from "./lib.mjs";
 
-/** @typedef {import("./corpus.mjs").Requirement} Requirement */
+/** @typedef {import("./corpus.mjs").CorpusSet} CorpusSet */
 
 /** @param {string} runId @returns {string|null} */
 function findRunDir(runId) {
@@ -27,27 +28,27 @@ function findRunDir(runId) {
 }
 
 /**
- * @param {{label: string, repetition: number, requirements: Requirement[], arm?: "A"|"D"}} input arm D is faberun with the proof as the only gate
+ * @param {{label: string, repetition: number, corpus: CorpusSet, arm?: "A"|"D"}} input arm D is faberun with the proof as the only gate
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runFaberunArm({ label, repetition, requirements, arm = "A" }) {
+export async function runFaberunArm({ label, repetition, corpus, arm = "A" }) {
   const name = `${label}-${arm}-r${repetition}`;
   // A run id is unique per attempt: faberun refuses to reuse one whose
   // directory exists, and a refused launch leaves a stub behind.
   const runId = `arms-${label}-${arm.toLowerCase()}-r${repetition}-${Date.now().toString(36)}`;
-  const { dir } = prepareCheckout(name);
+  const { dir } = prepareCheckout(name, corpus);
   const env = providerEnv(undefined, { FABERUN_HOME: EXPERIMENT_HOME });
-  // A run belongs to a campaign of its checkout's project, so each arm-A
+  // A run belongs to a campaign of its checkout's project, so each faberun
   // checkout gets the campaign registered under the experiment home. The
   // init writes the managed AGENTS.md block into the checkout; committing it
   // keeps the base the run cuts from clean.
-  const init = spawnSync(process.execPath, [FABERUN_CLI, "campaign", "init", "orchestration-arms", "--cwd", dir, "--goal", `Arm A of the orchestration-arms measurement (${label}, repetition ${repetition}): one faberun node per corpus requirement`], { cwd: dir, env, encoding: "utf8" });
+  const init = spawnSync(process.execPath, [FABERUN_CLI, "campaign", "init", "orchestration-arms", "--cwd", dir, "--goal", `Arm ${arm} of the orchestration-arms measurement (${label}, repetition ${repetition}): one faberun node per corpus requirement`], { cwd: dir, env, encoding: "utf8" });
   // The checkout path, and so the project, repeats across attempts; a campaign already registered there is the state we want.
   if (init.status !== 0 && !/already exists/u.test(`${init.stdout}${init.stderr}`)) {
-    throw new Error(`campaign init failed in the arm A checkout: ${init.stdout}${init.stderr}`);
+    throw new Error(`campaign init failed in the arm ${arm} checkout: ${init.stdout}${init.stderr}`);
   }
   const baseSha = commitAll(dir, "chore(arms): campaign signal block written by faberun campaign init");
-  const contract = faberunContract({ id: runId, cwd: dir, requirements, judge: arm === "A" });
+  const contract = faberunContract({ id: runId, cwd: dir, corpus, judge: arm === "A" });
   const contractPath = join(RESULTS, "contracts", `${runId}.json`);
   writeJson(contractPath, contract);
   // The product's scope closure refuses a packet whose write files have an
@@ -58,7 +59,7 @@ export async function runFaberunArm({ label, repetition, requirements, arm = "A"
   /** @type {string[]} */
   const acknowledged = [];
   let validation = spawnSync(process.execPath, [FABERUN_CLI, "validate", contractPath], { cwd: dir, env, encoding: "utf8" });
-  for (let round = 0; round < 4 && validation.status !== 0; round += 1) {
+  for (let round = 0; round < 8 && validation.status !== 0; round += 1) {
     const message = `${validation.stdout}${validation.stderr}`;
     const findings = [...message.matchAll(/nodes\[(\d+)\] \(([^)]+)\): (\S+) \(/gu)];
     if (!findings.length) break;
@@ -72,7 +73,7 @@ export async function runFaberunArm({ label, repetition, requirements, arm = "A"
     validation = spawnSync(process.execPath, [FABERUN_CLI, "validate", contractPath], { cwd: dir, env, encoding: "utf8" });
   }
   if (validation.status !== 0) {
-    throw new Error(`arm A contract did not validate: ${validation.stdout}${validation.stderr}`);
+    throw new Error(`arm ${arm} contract did not validate: ${validation.stdout}${validation.stderr}`);
   }
   const startedAt = new Date().toISOString();
   const started = Date.now();
@@ -102,9 +103,12 @@ export async function runFaberunArm({ label, repetition, requirements, arm = "A"
   } catch {
     finalSha = null;
   }
-  const finalCheckout = finalSha ? prepareCheckout(`${name}-final`, { sha: finalSha, withProofs: false }) : { dir, baseSha };
-  const scope = auditScope({ dir: finalCheckout.dir, baseSha, requirements });
-  const proofs = runProofs({ dir: finalCheckout.dir, requirements });
+  // The integrated tree gets its own checkout, with the toolchain the
+  // acceptance needs; the run's own checkout is the fallback when no node
+  // integrated anything.
+  const finalCheckout = finalSha ? prepareCheckout(`${name}-final`, { ...corpus, visibleProofs: false }, { sha: finalSha }) : { dir, baseSha };
+  const scope = auditScope({ dir: finalCheckout.dir, baseSha, corpus });
+  const acceptance = runAcceptance({ dir: finalCheckout.dir, corpus });
   const keptSha = keepFinalTree(finalCheckout.dir, `refs/arms/${label}/${arm}-r${repetition}`);
   removeCheckout(finalCheckout.dir);
   if (finalCheckout.dir !== dir) removeCheckout(dir);
@@ -132,8 +136,9 @@ export async function runFaberunArm({ label, repetition, requirements, arm = "A"
     contextMax: sessions.reduce((best, session) => Math.max(best, session.contextMax ?? 0), 0),
     invocations: usage.length,
     nodes: nodes.map((node) => ({ id: node.id, status: node.status, attempt: node.attempt, revisions: node.revisions, error: node.error?.code ?? null })),
-    proofs,
-    proofsPassed: proofs.filter((proof) => proof.passed).length,
+    acceptance,
+    acceptanceTotal: acceptance.length,
+    proofsPassed: acceptance.filter((check) => check.passed).length,
     scope,
   };
 }

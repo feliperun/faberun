@@ -1,41 +1,166 @@
 /**
- * The corpus every arm works on: the ten open requirements the spike-leitura-teto
- * campaign wrote against fork a1117f7 and froze with their acceptance proofs
- * and a hand-made list of relevant files. Reused unchanged, for two reasons:
- * every proof was verified to fail at the fork and to pass when the
- * requirement is met, and a corpus another campaign froze cannot have been
- * tuned to favour one arm of this one.
+ * The two corpora every arm works on, in one shape.
+ *
+ * `simple`: the ten open requirements the spike-leitura-teto campaign froze
+ * against fork a1117f7, each independent, each with a proof the arms may see.
+ * `complex`: a real phase of a real campaign, `1c-run-path-resolver` of
+ * state-location-and-routing-economics, taken from its recorded contract:
+ * four dependent nodes, a resolver whose exports three other nodes consume,
+ * 26 files of src/ migrated, and as acceptance the test the phase actually
+ * landed plus a centralization check, typecheck and the regression suites the
+ * phase itself verified against. The acceptance is hidden from the arms; what
+ * they get is the packets the real nodes got, word for word, plus one line
+ * naming the resolver API the acceptance imports, so an arm that chose other
+ * names would not fail for that alone.
  */
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { ROOT } from "./lib.mjs";
 
-/** @typedef {{id: string, titulo: string, objetivo: string, prova: string, comando: string, escopoEscrita: string[], gabarito: string[]}} Requirement */
+/** @typedef {{argv: string[], timeoutSec: number}} Command */
+/** @typedef {{id: string, title: string, objective: string, instructions: string[], readFiles: string[], writeFiles: string[], symbols: string[], dependsOn: string[], decisions: string[], nonGoals: string[], scopeAcknowledged: string[], verification: Command[]}} Requirement */
+/** @typedef {{id: string, argv: string[], timeoutSec: number}} Acceptance */
+/** @typedef {{path: string, sha?: string, file?: string}} RestoreFile */
+/** @typedef {{kind: "simple"|"complex", fork: string, npmCi: boolean, visibleProofs: boolean, restore: RestoreFile[], requirements: Requirement[], acceptance: Acceptance[], hash: string}} CorpusSet */
 
-const CORPUS = resolve(ROOT, "spike/corpus/requisitos.jsonl");
-const KEY = resolve(ROOT, "spike/corpus/gabarito.json");
+const NODE = process.execPath;
+const TSC = [NODE, "node_modules/typescript/bin/tsc"];
+const SIMPLE_FORK = "a1117f7";
+/** The commit the 1c phase's landed tests are taken from: its own integrated head. */
+export const COMPLEX_INTEGRATED = "054dd4c";
+const CENTRALIZATION_CHECK = resolve(ROOT, "spike/arms/checks/centralization.mjs");
 
-/** @returns {Requirement[]} */
-export function loadCorpus() {
-  return readFileSync(CORPUS, "utf8").split("\n").filter((line) => line.trim()).map((line) => /** @type {Requirement} */ (JSON.parse(line)));
+/**
+ * @param {"simple"|"complex"} kind
+ * @param {string} [selection] comma-separated requirement ids for the simple corpus, or "all"
+ * @returns {CorpusSet}
+ */
+export function loadCorpusSet(kind, selection = "all") {
+  if (kind === "simple") return simpleCorpus(selection);
+  if (kind === "complex") return complexCorpus();
+  throw new Error(`unknown corpus ${kind}`);
+}
+
+/** @param {string} selection @returns {CorpusSet} */
+function simpleCorpus(selection) {
+  const all = readFileSync(resolve(ROOT, "spike/corpus/requisitos.jsonl"), "utf8").split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line));
+  const wanted = selection === "all" ? null : new Set(selection.split(",").map((id) => id.trim()).filter(Boolean));
+  if (wanted) {
+    const unknown = [...wanted].filter((id) => !all.some((requirement) => requirement.id === id));
+    if (unknown.length) throw new Error(`unknown requirement id(s): ${unknown.join(", ")}`);
+  }
+  const chosen = wanted ? all.filter((requirement) => wanted.has(requirement.id)) : all;
+  const key = JSON.parse(readFileSync(resolve(ROOT, "spike/corpus/gabarito.json"), "utf8"));
+  return {
+    kind: "simple",
+    fork: SIMPLE_FORK,
+    npmCi: false,
+    visibleProofs: true,
+    restore: chosen.map((requirement) => ({ path: requirement.prova, file: resolve(ROOT, requirement.prova) })),
+    requirements: chosen.map((requirement) => ({
+      id: requirement.id,
+      title: requirement.titulo,
+      objective: requirement.titulo,
+      instructions: [
+        requirement.objetivo,
+        "Never edit or delete anything under spike/corpus/provas/: those are the acceptance proofs, and the controller runs them after you report.",
+        "Return the worker result as the only JSON object of your final message.",
+      ],
+      readFiles: [...new Set([...requirement.gabarito, requirement.prova])],
+      writeFiles: requirement.escopoEscrita,
+      symbols: [],
+      dependsOn: [],
+      decisions: [],
+      nonGoals: ["Do not change files outside the write scope."],
+      scopeAcknowledged: [],
+      verification: [{ argv: [NODE, "--test", requirement.prova], timeoutSec: 180 }],
+    })),
+    acceptance: chosen.map((requirement) => ({ id: requirement.id, argv: [NODE, "--test", requirement.prova], timeoutSec: 180 })),
+    hash: String(key.hash),
+  };
 }
 
 /**
- * The subset a phase names, in corpus order, or the whole corpus for "all".
- *
- * @param {string} spec comma-separated ids or "all"
- * @returns {Requirement[]}
+ * The resolver API the landed acceptance test imports. Stated to every arm as
+ * the last instruction of the resolver node, because the real packet named
+ * only the three genuinely new symbols and let the export list follow the
+ * call sites; an arm that named a builder differently would fail the
+ * acceptance for a naming choice, not for the work.
  */
-export function selectRequirements(spec) {
-  const all = loadCorpus();
-  if (spec === "all") return all;
-  const wanted = new Set(spec.split(",").map((id) => id.trim()).filter(Boolean));
-  const unknown = [...wanted].filter((id) => !all.some((requirement) => requirement.id === id));
-  if (unknown.length) throw new Error(`unknown requirement id(s): ${unknown.join(", ")}`);
-  return all.filter((requirement) => wanted.has(requirement.id));
+const RESOLVER_API = "The acceptance test the driver runs after this phase imports these exact names from src/run/paths.mjs, so export them with these signatures and results: RUNS_DIR_NAME (the string \".runs\"); runsRoot(cwd) = join(cwd, \".runs\"); runDirectory(cwd, runId) = join(cwd, \".runs\", runId); campaignsRoot(cwd) = join(cwd, \".runs\", \"campaigns\"); campaignTree(cwd, campaignId) = join(cwd, \".runs\", \"campaigns\", campaignId); attemptWorktreePath(runDir, runId, nodeId, attempt) = join(dirname(runDir), \"worktrees\", runId, `${nodeId}.${attempt}`); candidateWorktreePath(runDir, runId) = join(dirname(runDir), \"worktrees\", runId, \".candidate\"). A relative cwd resolves relatively, exactly as the call sites do today.";
+
+/**
+ * Per-node verification, trimmed from the recorded contract's whole-directory
+ * suites (test/engine/ alone runs 19 minutes) to the suites that prove each
+ * node: the run suite and typecheck for the resolver, typecheck plus run and
+ * repo suites for the two migrations, the ratchet's own files for the guard.
+ *
+ * @type {Record<string, Command[]>}
+ */
+const COMPLEX_VERIFICATION = {
+  "one-module-owns-the-run-paths": [{ argv: [NODE, "--test", "test/run/"], timeoutSec: 300 }, { argv: TSC, timeoutSec: 300 }],
+  "engine-and-campaign-callers-use-the-resolver": [{ argv: TSC, timeoutSec: 300 }, { argv: [NODE, "--test", "test/run/", "test/repo/"], timeoutSec: 600 }],
+  "cli-repo-and-surface-callers-use-the-resolver": [{ argv: TSC, timeoutSec: 300 }, { argv: [NODE, "--test", "test/run/", "test/repo/"], timeoutSec: 600 }],
+  "the-centralization-guard-only-falls": [{ argv: [NODE, "--test", "test/repo/source-shape.test.mjs", "test/run/paths.test.mjs"], timeoutSec: 300 }, { argv: TSC, timeoutSec: 300 }],
+};
+
+/** @returns {CorpusSet} */
+function complexCorpus() {
+  const text = readFileSync(resolve(ROOT, "spike/corpus-complex/nodes.json"), "utf8");
+  const spec = JSON.parse(text);
+  const requirements = spec.nodes.map((/** @type {any} */ node) => {
+    const verification = COMPLEX_VERIFICATION[node.id];
+    if (!verification) throw new Error(`no trimmed verification for node ${node.id}`);
+    return {
+      id: node.id,
+      title: node.id.replace(/-/gu, " "),
+      objective: node.taskPacket.objective,
+      instructions: [...node.taskPacket.instructions, ...(node.id === "one-module-owns-the-run-paths" ? [RESOLVER_API] : [])],
+      readFiles: node.taskPacket.readFiles ?? [],
+      writeFiles: node.taskPacket.writeFiles ?? [],
+      symbols: node.taskPacket.symbols ?? [],
+      dependsOn: node.dependsOn ?? [],
+      decisions: node.taskPacket.decisions ?? [],
+      nonGoals: node.taskPacket.nonGoals ?? [],
+      scopeAcknowledged: node.taskPacket.scopeAcknowledged ?? [],
+      verification,
+    };
+  });
+  return {
+    kind: "complex",
+    fork: String(spec.base).slice(0, 7),
+    npmCi: true,
+    visibleProofs: false,
+    restore: [{ path: "test/run/paths.test.mjs", sha: COMPLEX_INTEGRATED }],
+    requirements,
+    acceptance: [
+      { id: "resolver-api", argv: [NODE, "--test", "test/run/paths.test.mjs"], timeoutSec: 180 },
+      { id: "src-centralization", argv: [NODE, CENTRALIZATION_CHECK, "."], timeoutSec: 60 },
+      { id: "typecheck", argv: TSC, timeoutSec: 300 },
+      { id: "regression", argv: [NODE, "--test", "test/run/", "test/repo/", "test/cli/", "test/campaign/"], timeoutSec: 1500 },
+    ],
+    hash: createHash("sha256").update(text).digest("hex"),
+  };
 }
 
-/** The frozen key's hash, recorded with every run so a changed corpus is visible. @returns {string} */
-export function corpusHash() {
-  return String(JSON.parse(readFileSync(KEY, "utf8")).hash);
+/**
+ * Requirements in an order that satisfies dependsOn, stable within a tier
+ * (the session prompt lists them in this order).
+ *
+ * @param {Requirement[]} requirements
+ * @returns {Requirement[]}
+ */
+export function topologicalOrder(requirements) {
+  /** @type {Requirement[]} */
+  const ordered = [];
+  const placed = new Set();
+  let remaining = [...requirements];
+  while (remaining.length) {
+    const ready = remaining.filter((requirement) => requirement.dependsOn.every((id) => placed.has(id)));
+    if (!ready.length) throw new Error(`dependency cycle among ${remaining.map((requirement) => requirement.id).join(", ")}`);
+    for (const requirement of ready) { ordered.push(requirement); placed.add(requirement.id); }
+    remaining = remaining.filter((requirement) => !placed.has(requirement.id));
+  }
+  return ordered;
 }

@@ -58,7 +58,7 @@ export function analyse(label) {
   const byArm = /** @type {Record<string, any[]>} */ ({});
   for (const run of runs) (byArm[run.arm] ??= []).push(run);
   const lines = [`# orchestration-arms · ${label}`, ""];
-  lines.push(`Runs in the ledger: ${runs.length}${Object.keys(byArm).map((arm) => ` · ${arm} ${byArm[arm].length}`).join("")}. Requirements per run: ${runs[0]?.requirementIds?.length ?? "?"}.`, "");
+  lines.push(`Runs in the ledger: ${runs.length}${Object.keys(byArm).map((arm) => ` · ${arm} ${byArm[arm].length}`).join("")}. Requirements per run: ${runs[0]?.requirementIds?.length ?? "?"}; acceptance checks per run: ${runs[0]?.acceptanceTotal ?? runs[0]?.requirementIds?.length ?? "?"}${runs[0]?.corpus ? ` (corpus ${runs[0].corpus})` : ""}.`, "");
 
   /** @type {Record<string, Record<string, Indicator>>} */
   const medians = {};
@@ -74,7 +74,7 @@ export function analyse(label) {
     const ind = runIndicators(run);
     const notes = [run.arm === "C" ? `${run.agentCalls} Agent calls` : null, run.resultSubtype && run.resultSubtype !== "success" ? run.resultSubtype : null, run.exitCode ? `exit ${run.exitCode}` : null, run.scope?.proofsEdited?.length ? `proofs edited: ${run.scope.proofsEdited.length}` : null].filter(Boolean).join("; ");
     const judge = typeof run.judgeCostUsd === "number" && run.judgeCostUsd > 0 ? `judge ${fmt(run.judgeCostUsd)}` : null;
-    lines.push(`| ${run.arm} | ${run.repetition} | ${run.proofsPassed}/${run.requirementIds.length} | ${fmt(ind.costUsd.value)} | ${fmt(ind.costPerDeliveredRequirementUsd.value)} | ${fmt(ind.wallClockMinutes.value, 1)} | ${run.requests} | ${fmt(ind.contextMaxKTokens.value, 0)} | ${ind.outOfScopeFiles.value ?? "?"} | ${[judge, notes].filter(Boolean).join("; ")} |`);
+    lines.push(`| ${run.arm} | ${run.repetition} | ${run.proofsPassed}/${run.acceptanceTotal ?? run.requirementIds.length} | ${fmt(ind.costUsd.value)} | ${fmt(ind.costPerDeliveredRequirementUsd.value)} | ${fmt(ind.wallClockMinutes.value, 1)} | ${run.requests} | ${fmt(ind.contextMaxKTokens.value, 0)} | ${ind.outOfScopeFiles.value ?? "?"} | ${[judge, notes].filter(Boolean).join("; ")} |`);
   }
   lines.push("");
 

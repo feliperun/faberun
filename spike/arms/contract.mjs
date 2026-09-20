@@ -1,16 +1,18 @@
 /**
- * Arm A's contract: the same corpus as the session arms, one faberun node per
- * requirement, with everything the product brings to a node -- a closed
- * packet, a write scope the tool boundary enforces, the proof as the node's
- * verification, a cross-vendor blocking judge with one revision, and the
- * product's own attempt bounds. The worker is the same model the session
- * arms run; what differs is the orchestration, which is the thing measured.
+ * Arms A and D: the corpus as a faberun contract, one node per requirement
+ * with its dependencies, the packet's own text, symbols, decisions and
+ * non-goals, its verification as deterministic Definition of Done items, and
+ * -- for arm A -- a judgment item that makes the blocking cross-vendor judge
+ * run. Arm D (`judge: false`) is the configuration the product documents for
+ * a fully mechanical node: the proof is the gate and no judge is paid. The
+ * worker is the same model the session arms run; what differs is the
+ * orchestration, which is the thing measured.
  */
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/contract/index.mjs";
 
-/** @typedef {import("./corpus.mjs").Requirement} Requirement */
+/** @typedef {import("./corpus.mjs").CorpusSet} CorpusSet */
 
-/** The writer of every arm. `maxConcurrent` is the product's new per-runtime bound; three matches the contract's maxParallel. */
+/** The writer of every arm. `maxConcurrent` is the product's per-runtime bound; three matches the contract's maxParallel. */
 export const WORKER_MODEL = "claude-sonnet-5";
 export const WORKER_RUNTIME = {
   harness: "claude",
@@ -33,60 +35,54 @@ export const JUDGE_RUNTIME = {
   costRank: 1,
 };
 
+/** @param {string} id @returns {string} */
+const slug = (id) => id.toLowerCase();
+
 /**
- * `judge: false` is arm D: the same orchestration with the proof as the
- * only gate -- the configuration the product documents for a fully
- * mechanical node, which costs no judge. Measured in the pilot: the judge
- * was 42% of arm A's cost, and arm A's worker-only cost equalled one
- * session's whole cost, so the two have to be measured apart.
- *
- * @param {{id: string, cwd: string, requirements: Requirement[], maxParallel?: number, judge?: boolean}} input
+ * @param {{id: string, cwd: string, corpus: CorpusSet, maxParallel?: number, judge?: boolean}} input
  * @returns {Record<string, unknown>}
  */
-export function faberunContract({ id, cwd, requirements, maxParallel = 3, judge = true }) {
+export function faberunContract({ id, cwd, corpus, maxParallel = 3, judge = true }) {
   return {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
     contractVersion: CONTRACT_VERSION,
     id,
     campaignId: "orchestration-arms",
-    goal: `Arm A of the orchestration-arms campaign: ${requirements.length} open corpus requirement(s), one node each`,
+    goal: `Arm ${judge ? "A" : "D"} of the orchestration-arms campaign on the ${corpus.kind} corpus: ${corpus.requirements.length} requirement(s), one node each`,
     cwd,
     runtimeDefaults: { worker: "claude-sonnet-worker", judge: "codex-sol-judge" },
     runtimes: { "claude-sonnet-worker": WORKER_RUNTIME, "codex-sol-judge": JUDGE_RUNTIME },
     maxParallel,
     stallTimeoutSec: 900,
-    timeoutSec: 3600,
-    nodes: requirements.map((requirement) => ({
-      id: requirement.id.toLowerCase(),
+    timeoutSec: 7200,
+    nodes: corpus.requirements.map((requirement) => ({
+      id: slug(requirement.id),
       type: "backend",
       phase: "corpus",
-      dependsOn: [],
+      dependsOn: requirement.dependsOn.map(slug),
       taskPacket: {
         mode: "execution",
-        objective: requirement.titulo,
-        instructions: [
-          requirement.objetivo,
-          "Never edit or delete anything under spike/corpus/provas/: those are the acceptance proofs, and the controller runs them after you report.",
-          "Return the worker result as the only JSON object of your final message.",
-        ],
-        readFiles: [...new Set([...requirement.gabarito, requirement.prova])],
-        writeFiles: requirement.escopoEscrita,
-        symbols: [],
-        decisions: [],
-        nonGoals: ["Do not change files outside the write scope."],
-        verification: [{ argv: [process.execPath, "--test", requirement.prova], timeoutSec: 180 }],
+        objective: requirement.objective,
+        instructions: requirement.instructions,
+        readFiles: requirement.readFiles,
+        writeFiles: requirement.writeFiles,
+        symbols: requirement.symbols,
+        decisions: requirement.decisions,
+        nonGoals: requirement.nonGoals,
+        ...(requirement.scopeAcknowledged.length ? { scopeAcknowledged: requirement.scopeAcknowledged } : {}),
+        verification: requirement.verification,
       },
-      // A judgment item is what makes the blocking judge run: with only the
-      // deterministic proof the product settles the gate without a review,
-      // and the arm would not carry the judge's cost the campaign charges it.
       definitionOfDone: [
-        // A command proof's ref is the shell command the gate runs, not an
-        // index into verification (measured in the smoke: ref "0" ran `0`).
-        { id: "proof-passes", text: `The acceptance proof passes: ${requirement.comando}`, proof: { kind: "command", ref: requirement.comando } },
-        ...(judge ? [{ id: "requirement-met", text: `The requirement is met as stated, without collateral change: ${requirement.titulo}`, judgment: true }] : []),
+        // A verification proof's ref is the index into the packet's verification.
+        ...requirement.verification.map((command, index) => ({
+          id: `verification-${index}`,
+          text: `passes: ${command.argv.slice(1).join(" ")}`,
+          proof: { kind: "verification", ref: String(index) },
+        })),
+        ...(judge ? [{ id: "requirement-met", text: `The requirement is met as stated, without collateral change: ${requirement.title}`, judgment: true }] : []),
       ],
       gate: judge ? { review: "blocking", failOn: ["major", "critical"], maxRevisions: 1 } : false,
-      timeoutSec: 2400,
+      timeoutSec: 3600,
     })),
   };
 }

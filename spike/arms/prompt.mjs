@@ -1,42 +1,66 @@
 /**
  * The one prompt arms B and C receive, and the single paragraph that tells
- * them apart. Pure and exported so a test can hold the campaign to its own
- * claim: the session arms differ only in whether they may delegate.
+ * them apart. Every requirement is rendered from the same packet a faberun
+ * node gets -- objective, instructions, symbols, decisions, non-goals, read
+ * and write files, verification -- in dependency order. Pure and exported so
+ * a test can hold the campaign to its own claim: the session arms differ only
+ * in whether they may delegate.
  */
+import { topologicalOrder } from "./corpus.mjs";
 
-/** @typedef {import("./corpus.mjs").Requirement} Requirement */
+/** @typedef {import("./corpus.mjs").CorpusSet} CorpusSet */
 
 const DELEGATION = [
   "## Delegation",
   "",
-  "You have the Agent tool. Delegate each requirement to its own subagent, giving it the requirement's full text, write scope, relevant files and proof command, and launch independent requirements in parallel (several Agent calls in one message). Integrate what the subagents return, resolve any overlap between them, and run every proof yourself before the final message.",
+  "You have the Agent tool. Delegate each requirement to its own subagent, giving it the requirement's full text, write scope, relevant files and verification commands. Respect the dependencies: launch a requirement only after every requirement it depends on is done and integrated, and launch independent requirements in parallel (several Agent calls in one message). Integrate what the subagents return, resolve any overlap between them, and run every verification yourself before the final message.",
   "",
 ].join("\n");
 
 /**
- * @param {{arm: "B"|"C", requirements: Requirement[], sha: string}} input
+ * @param {{arm: "B"|"C", corpus: CorpusSet, sha: string}} input
  * @returns {string}
  */
-export function sessionPrompt({ arm, requirements, sha }) {
-  const count = requirements.length;
+export function sessionPrompt({ arm, corpus, sha }) {
+  const ordered = topologicalOrder(corpus.requirements);
+  const count = ordered.length;
+  const dependent = ordered.some((requirement) => requirement.dependsOn.length > 0);
   const head = [
-    `# Corpus run: ${count} open requirement${count === 1 ? "" : "s"} in one checkout`,
+    `# Corpus run: ${count} requirement${count === 1 ? "" : "s"} in one checkout`,
     "",
-    `You are working in a checkout of the faberun repository at commit ${sha}. Implement every requirement below in this checkout. Each one has a write scope, a list of files the requirement's author considered relevant, and an acceptance proof: a test that fails now and must pass when the requirement is met. Run a requirement's proof with the command given once you have implemented it.`,
+    `You are working in a checkout of the faberun repository at commit ${sha}. Implement every requirement below in this checkout. Each one is a closed packet: an objective, instructions, the symbols it introduces, decisions already made, non-goals, the files its author considered relevant, its write scope, and the verification commands that prove it. Run a requirement's verification once you have implemented it.`,
     "",
-    "Rules: never edit or delete anything under spike/corpus/provas/ (the proofs are restored from the corpus and run again by the driver after you finish); do not commit; do not run the whole test suite, only the proofs named here and the tests you write. There is no node_modules directory and none is needed: the proofs use node:test alone.",
+    dependent
+      ? "The requirements depend on one another and are listed in dependency order: a requirement that depends on another must be done on top of the other's result, not in parallel with it. Independent requirements may be done in any order."
+      : "The requirements are independent of one another and may be done in any order.",
+    "",
+    corpus.npmCi
+      ? "node_modules is installed in this checkout (npm ci), so the typecheck and test commands below run as written."
+      : "There is no node_modules directory and none is needed: the proofs use node:test alone.",
+    "",
+    corpus.visibleProofs
+      ? "Rules: never edit or delete anything under spike/corpus/provas/ (the proofs are restored from the corpus and run again by the driver after you finish); do not commit; do not run the whole test suite, only the proofs named here and the tests you write."
+      : `Rules: do not commit; do not run the whole test suite, only the verification named here and the tests you write. After you finish, the driver runs the following acceptance on your tree, with its own copy of any test file it owns: ${corpus.acceptance.map((check) => check.argv.map((part, index) => (index === 0 ? "node" : part.replace(/^.*\/spike\//u, "spike/"))).join(" ")).join("; ")}.`,
     "",
     'When every requirement is done, or you cannot finish one, end with exactly one JSON object as your final message and nothing else: {"status":"done","summary":"<one paragraph>","requirements":{"<ID>":"done"|"partial"|"skipped"}}.',
     "",
   ];
-  const body = requirements.map((requirement, index) => [
-    `## ${index + 1}. ${requirement.id}: ${requirement.titulo}`,
+  const body = ordered.map((requirement, index) => [
+    `## ${index + 1}. ${requirement.id}: ${requirement.title}`,
     "",
-    requirement.objetivo,
+    requirement.objective,
     "",
-    `- write scope: ${requirement.escopoEscrita.join(", ")}`,
-    `- relevant files: ${requirement.gabarito.join(", ")}`,
-    `- proof: ${requirement.comando}`,
+    ...(requirement.dependsOn.length ? [`Depends on: ${requirement.dependsOn.join(", ")}.`, ""] : []),
+    "### Instructions",
+    "",
+    ...requirement.instructions.map((instruction, position) => `${position + 1}. ${instruction}`),
+    "",
+    ...(requirement.symbols.length ? [`- symbols this requirement introduces: ${requirement.symbols.join(", ")}`] : []),
+    ...(requirement.decisions.length ? ["- decisions already made:", ...requirement.decisions.map((decision) => `  - ${decision}`)] : []),
+    ...(requirement.nonGoals.length ? ["- non-goals:", ...requirement.nonGoals.map((nonGoal) => `  - ${nonGoal}`)] : []),
+    `- relevant files: ${requirement.readFiles.join(", ")}`,
+    `- write scope: ${requirement.writeFiles.join(", ")}`,
+    `- verification: ${requirement.verification.map((command) => command.argv.map((part, position) => (position === 0 ? "node" : part)).join(" ")).join("; ")}`,
     "",
   ].join("\n"));
   return [...head, ...(arm === "C" ? [DELEGATION] : []), ...body].join("\n");

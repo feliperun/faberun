@@ -5,8 +5,7 @@
  * preamble, tool set and flags match; only the prompt (the whole corpus at
  * once) and, for C, the Agent tool differ. Cost is what the CLI reports for
  * the session; the per-request ledger comes from the product's session meter
- * over the same stream, and both are recorded so a subagent's spend that the
- * parent's total may or may not include is visible as a gap between them.
+ * over the same stream.
  */
 import { spawn } from "node:child_process";
 import { createWriteStream, readFileSync } from "node:fs";
@@ -15,23 +14,23 @@ import { DEFAULT_CLAUDE_TOOLS } from "../../src/harnesses/claude/index.mjs";
 import { providerCommand } from "../../src/harnesses/index.mjs";
 import { SessionMetricsParser } from "../../src/harnesses/session-metrics.mjs";
 import { WORKER_MODEL } from "./contract.mjs";
-import { auditScope, keepFinalTree, prepareCheckout, removeCheckout, runProofs } from "./fork.mjs";
+import { auditScope, keepFinalTree, prepareCheckout, removeCheckout, runAcceptance } from "./fork.mjs";
 import { LOGS, providerEnv } from "./lib.mjs";
 import { sessionPrompt } from "./prompt.mjs";
 
-/** @typedef {import("./corpus.mjs").Requirement} Requirement */
+/** @typedef {import("./corpus.mjs").CorpusSet} CorpusSet */
 
 /** A whole corpus in one session is many nodes' worth of requests; the cap only has to catch a runaway. */
 const SESSION_MAX_TURNS = 1000;
 
 /**
- * @param {{arm: "B"|"C", label: string, repetition: number, requirements: Requirement[]}} input
+ * @param {{arm: "B"|"C", label: string, repetition: number, corpus: CorpusSet}} input
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runSessionArm({ arm, label, repetition, requirements }) {
+export async function runSessionArm({ arm, label, repetition, corpus }) {
   const name = `${label}-${arm}-r${repetition}`;
-  const { dir, baseSha } = prepareCheckout(name);
-  const prompt = sessionPrompt({ arm, requirements, sha: baseSha });
+  const { dir, baseSha } = prepareCheckout(name, corpus);
+  const prompt = sessionPrompt({ arm, corpus, sha: baseSha });
   const runtime = {
     harness: "claude",
     model: WORKER_MODEL,
@@ -73,8 +72,8 @@ export async function runSessionArm({ arm, label, repetition, requirements }) {
   }
   const usage = result?.usage ?? {};
 
-  const scope = auditScope({ dir, baseSha, requirements });
-  const proofs = runProofs({ dir, requirements });
+  const scope = auditScope({ dir, baseSha, corpus });
+  const acceptance = runAcceptance({ dir, corpus });
   const finalSha = keepFinalTree(dir, `refs/arms/${label}/${arm}-r${repetition}`);
   removeCheckout(dir);
 
@@ -107,8 +106,9 @@ export async function runSessionArm({ arm, label, repetition, requirements }) {
     contextSum: ledger.contextSum,
     agentCalls,
     finalMessage: typeof result?.result === "string" ? result.result.slice(0, 4000) : null,
-    proofs,
-    proofsPassed: proofs.filter((proof) => proof.passed).length,
+    acceptance,
+    acceptanceTotal: acceptance.length,
+    proofsPassed: acceptance.filter((check) => check.passed).length,
     scope,
     logPath,
   };
