@@ -143,7 +143,14 @@ export function faberunContract({ id, cwd, corpus, maxParallel = 3, arm = "A" })
         })),
         ...(judge ? [{ id: "requirement-met", text: `The requirement is met as stated, without collateral change: ${requirement.title}`, judgment: true }] : []),
       ],
-      gate: judge ? { review: "blocking", failOn: ["major", "critical"], maxRevisions: 1 } : false,
+      // Every faberun arm has the same revision budget, one; what differs is
+      // whether a judge is paid. `review: "none"` dispatches no judge and keeps
+      // the revision: a red verification starts one fresh attempt with the
+      // failure in front of the worker, as it does under the blocking judge.
+      // Measured 2026-09-20 with `gate: false`: a red verification ended the
+      // node outright, and one timing test that flaked under three concurrent
+      // workers cost arm E a node and its dependant with no second attempt.
+      gate: judge ? { review: "blocking", failOn: ["major", "critical"], maxRevisions: 1 } : { review: "none", maxRevisions: 1 },
       timeoutSec: 3600,
     })),
   };

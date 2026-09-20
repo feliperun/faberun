@@ -86,7 +86,7 @@ test("arms A and D carry the same corpus as a contract: dependencies, packet tex
   }
   const proofOnly = /** @type {any} */ (faberunContract({ id: "arms-test-d-r1", cwd: "/tmp/x", corpus, arm: "D" }));
   for (const node of proofOnly.nodes) {
-    assert.equal(node.gate, false, "arm D has no judge");
+    assert.deepEqual(node.gate, { review: "none", maxRevisions: 1 }, "arm D has no judge and the same single revision arm A has");
     assert.equal(node.definitionOfDone.some((item) => item.judgment === true), false);
   }
   assert.notEqual(withJudge.runtimes["claude-sonnet-worker"].vendor, withJudge.runtimes["codex-sol-judge"].vendor, "the judge is another vendor");
@@ -95,7 +95,7 @@ test("arms A and D carry the same corpus as a contract: dependencies, packet tex
   assert.equal(cheapWriter.runtimes["dsh-deepseek-flash-worker"].harness, "dsh");
   assert.equal(cheapWriter.runtimes["dsh-deepseek-flash-worker"].model, "deepseek-flash");
   assert.equal(cheapWriter.runtimes["dsh-deepseek-flash-worker"].fallback, undefined, "no fallback: another model would contaminate the arm");
-  assert.deepEqual(cheapWriter.nodes.map((node) => node.gate), [false, false, false, false], "arm E is arm D with the writer swapped");
+  assert.deepEqual(cheapWriter.nodes.map((node) => node.gate), proofOnly.nodes.map((node) => node.gate), "arm E is arm D with the writer swapped");
   assert.deepEqual(cheapWriter.nodes.map((node) => node.taskPacket), proofOnly.nodes.map((node) => node.taskPacket), "the packets are identical to arm D's");
   const expected = { F: ["claude", "claude-opus-5"], G: ["codex", "gpt-5.6-sol"], H: ["codex", "gpt-5.6-luna"], I: ["codex", "gpt-6-astra"], J: ["zcode", "glm-5.3-flash"] };
   for (const [arm, [harness, model]] of Object.entries(expected)) {
@@ -105,7 +105,7 @@ test("arms A and D carry the same corpus as a contract: dependencies, packet tex
     assert.equal(writer.model, model, `${arm} model`);
     assert.equal(writer.fallback, undefined, `${arm} has no fallback`);
     assert.equal(writer.maxConcurrent, 3, `${arm} shares the concurrency bound`);
-    assert.deepEqual(contract.nodes.map((node) => node.gate), [false, false, false, false], `${arm} is proof-only`);
+    assert.deepEqual(contract.nodes.map((node) => node.gate), proofOnly.nodes.map((node) => node.gate), `${arm} is proof-only with one revision`);
     assert.deepEqual(contract.nodes.map((node) => node.taskPacket), proofOnly.nodes.map((node) => node.taskPacket), `${arm} packets are arm D's`);
     if (harness === "codex") assert.equal(writer.sandbox, "workspace-write", `${arm} codex writer may write`);
   }

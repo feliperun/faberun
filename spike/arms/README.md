@@ -12,7 +12,7 @@ using the harness's own subagents? Spec and rationale:
 | A | `faberun run` on a contract with one node per requirement (`contract.mjs`), blocking codex judge, `maxParallel` 3, under `spike/.runs/home` | the run's `usage.jsonl` (priced by the product, workers and judges), its per-request session ledgers, the tree at `refs/faberun/<run>/run` |
 | B | one `claude -p` session given the whole corpus (`prompt.mjs`) | the CLI's `total_cost_usd`, the product's session meter over the same stream |
 | C | arm B plus the `Agent` tool and the delegation paragraph | same as B, plus the count of `Agent` calls |
-| D | arm A with `gate: false`: the proof is the only gate, no judge | same as A |
+| D | arm A without the judge: `gate: { review: "none", maxRevisions: 1 }`, the proof is the only gate and a red verification gets the same single revision arm A gets | same as A |
 | E | arm D with the writer swapped for DeepSeek Flash through dsh (`DEEPSEEK_RUNTIME`), no fallback | same as A; dsh reports no cost, so the product prices the counters from the vendored models.dev seed |
 | F–J | arm D with the writer swapped (`FABERUN_ARMS`): F claude-opus-5, G gpt-5.6-sol, H gpt-5.6-luna, I gpt-6-astra (list price declared on the runtime), J glm-5.3-flash; no fallback | same as A; priced from the seed or the declared rates |
 

@@ -1,0 +1,473 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "arms-complex-e-r1-muaepyip",
+  "campaignId": "orchestration-arms",
+  "goal": "Arm E of the orchestration-arms campaign on the complex corpus: 4 requirement(s), one node each, writer deepseek-flash, proof-only gate",
+  "cwd": "/Users/frb/dev/frb/skills/.claude/worktrees/cost-and-cache-improvements/spike/.runs/worktrees/arms/complex-E-r1",
+  "runtimeDefaults": {
+    "worker": "dsh-deepseek-flash-worker",
+    "judge": "codex-sol-judge"
+  },
+  "runtimes": {
+    "dsh-deepseek-flash-worker": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "workspace-write",
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "tier": 1,
+      "costRank": 1,
+      "maxConcurrent": 3
+    },
+    "codex-sol-judge": {
+      "harness": "codex",
+      "model": "gpt-5.6-sol",
+      "reasoning": "high",
+      "vendor": "openai-sol",
+      "sandbox": "read-only",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "maxParallel": 3,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 7200,
+  "nodes": [
+    {
+      "id": "one-module-owns-the-run-paths",
+      "type": "backend",
+      "phase": "corpus",
+      "dependsOn": [],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "One module, src/run/paths.mjs, owns how a run, a campaign and a worktree path is built, and owns the runs directory name, so R1's later migration has one thing to point at and R2's move has one thing to change.",
+        "instructions": [
+          "Measured on this tree 2026-09-17: the exact literal \"'.runs'\" appears 31 times across 20 files of src/, and src/run/paths.mjs is the module that will own every one of them. The inventory was taken with `grep -rl '\"[.]runs\"' src/`, so take it from the code and not from a remembered list -- a drafted plan for this phase named 14 modules that do not carry the literal and missed 6 that do.",
+          "Two different uses hide behind the same literal and they must not be conflated. Most are path construction (`join(cwd, \".runs\")`, `join(contract.cwd, \".runs\", contract.id)`), which becomes a call to the resolver. A few are the directory *name* in a git pathspec or a directory-skip (src/repo/worktree.mjs:268 excludes it from a `git rm --cached`, src/engine/run-identity.mjs:322 skips it while walking), which becomes the resolver's exported name constant. Neither may keep spelling the literal.",
+          "Behaviour does not change in this phase. The resolver wraps today's shapes exactly; moving the location under the user home is R2 and a later phase. If a call site's current shape looks wrong, say so in your summary and leave it.",
+          "Export the builders the 20 call sites actually need, and nothing speculative: read every one of them first (the inventory command is in the first instruction) and let the export list follow the call sites. The shapes visible today include the runs root `join(cwd, \".runs\")` (src/cli.mjs:249), a run directory `join(contract.cwd, \".runs\", contract.id)` (src/cli.mjs:297, src/engine/run-identity.mjs:91), the campaign tree under src/campaign/layout.mjs, and the worktree tree under src/repo/worktree.mjs.",
+          "Reuse what exists rather than re-deriving it: src/host/home.mjs already owns `$FABERUN_HOME` with its default, and src/campaign/layout.mjs already owns the campaign directory shape given a runs root. The resolver composes those; it does not replace layout.mjs and does not read process.env itself.",
+          "The module needs a header comment saying what it owns and why it is a separate module, which is a rule of this repository and is checked by test/repo/source-shape.test.mjs.",
+          "Tests, in test/run/paths.test.mjs: every exported builder returns exactly the path the current call sites build, asserted against literal expected strings so a later refactor cannot quietly change a shape; the directory name is exported and is what the pathspec users need; and a relative cwd resolves the same way it does today.",
+          "Nothing calls the module yet. That is deliberate: the migration is the next two nodes, and this node must be reviewable on its own.",
+          "Two names you introduce already appear in the tree and a later node will change both: RUNS_DIR_NAME is a module-private constant in src/campaign/metrics.mjs:404, which is one of the twenty files to migrate and had already solved this locally, and runsRoot is a local variable in evals/compare.mjs. Neither is an exported name, so no export collides, but say in your summary that you checked -- this repository refuses the same name exported from two modules.",
+          "This node was attempted once and exhausted on a ratchet, and the reason is in your write set now rather than left for you to discover. Verbatim from the failure: `no name is exported from two src/ modules` -- `attemptWorktreePath: repo/worktree.mjs, run/paths.mjs` and `candidateWorktreePath: repo/worktree.mjs, run/paths.mjs`. The previous attempt was right to put worktree paths in the resolver, because R1 says the module resolves run, campaign AND worktree paths; what it could not do was remove the old exports, because src/repo/worktree.mjs was not in its scope. It is now.",
+          "So move, do not copy. src/repo/worktree.mjs loses the definitions of attemptWorktreePath and candidateWorktreePath and imports them from the resolver for its own three internal call sites (measured 2026-09-18: lines 196, 324 and 344). Four importers each change where one name comes from: src/engine/dispatch.mjs (line 25 import, used at 381), src/engine/resume.mjs (21, used at 593), src/engine/settle.mjs (25, used at 170) and src/repo/integrate.mjs (15, used at 467). Five importers, not four: this sentence previously said four and was wrong, and the last attempt blocked on exactly that. Re-measured 2026-09-18 across the whole repository rather than a chosen subset of directories: evals/compare.mjs is the fifth, importing both names at line 10 and using them at 174 and 178, and evals/**/*.mjs is inside tsconfig.json's include so tsc sees it. No file under test/ imports either name. The only other hit in the tree is a .patch under docs/campaigns/, which is a historical record and must not be edited.",
+          "Measured 2026-09-18, and this is the trap to avoid: src/engine/dispatch.mjs is at 797 lines against the repository's 800-line ceiling, so it has three lines of margin and an import restructure that adds two would fail the same ratchet that exhausted the last attempt. Merge into one import statement per source module rather than adding statements, and check every file you touch against the ceiling before you declare done. src/repo/worktree.mjs is at 353, resume.mjs at 636, settle.mjs at 237 and integrate.mjs at 552, all with room.",
+          "Do not declare attemptWorktreePath or candidateWorktreePath in symbols. This repository's rule is that symbols names what a node introduces, never a name it merely relocates, because a widely imported name fails scope closure against every importer. The three genuinely new names stay declared; the two moved ones are described here instead.",
+          "The acceptance test the driver runs after this phase imports these exact names from src/run/paths.mjs, so export them with these signatures and results: RUNS_DIR_NAME (the string \".runs\"); runsRoot(cwd) = join(cwd, \".runs\"); runDirectory(cwd, runId) = join(cwd, \".runs\", runId); campaignsRoot(cwd) = join(cwd, \".runs\", \"campaigns\"); campaignTree(cwd, campaignId) = join(cwd, \".runs\", \"campaigns\", campaignId); attemptWorktreePath(runDir, runId, nodeId, attempt) = join(dirname(runDir), \"worktrees\", runId, `${nodeId}.${attempt}`); candidateWorktreePath(runDir, runId) = join(dirname(runDir), \"worktrees\", runId, \".candidate\"). A relative cwd resolves relatively, exactly as the call sites do today."
+        ],
+        "readFiles": [
+          "src/host/home.mjs",
+          "src/campaign/layout.mjs",
+          "src/cli.mjs",
+          "src/engine/run-identity.mjs",
+          "src/repo/worktree.mjs",
+          "src/run/store.mjs",
+          "src/run/node-store.mjs",
+          "test/run/node-store.test.mjs",
+          "src/repo/workspace.mjs",
+          "src/engine/dispatch.mjs",
+          "src/engine/resume.mjs",
+          "src/engine/settle.mjs",
+          "src/repo/integrate.mjs",
+          "test/repo/source-shape.test.mjs",
+          "evals/compare.mjs",
+          "tsconfig.json"
+        ],
+        "writeFiles": [
+          "evals/compare.mjs",
+          "src/engine/dispatch.mjs",
+          "src/engine/resume.mjs",
+          "src/engine/settle.mjs",
+          "src/repo/integrate.mjs",
+          "src/repo/worktree.mjs",
+          "src/run/paths.mjs",
+          "test/run/paths.test.mjs"
+        ],
+        "symbols": [
+          "runsRoot",
+          "runDirectory",
+          "RUNS_DIR_NAME"
+        ],
+        "decisions": [
+          "The resolver composes host/home.mjs and campaign/layout.mjs; it replaces neither.",
+          "Exports follow the call sites, not a guess.",
+          "The resolver owns worktree paths as well as run and campaign paths, because R1 says so and because leaving them behind is what made the intermediate state illegal.",
+          "Move the two exports in the same node that creates their new home. A migration cannot be split across nodes if the split leaves a duplicate export in between: the shared verification runs on every node and the duplicate-export ratchet makes that intermediate state fail.",
+          "An inventory for a packet is grepped across the whole repository with the standard exclusions, never across a hand-picked set of directories. Every scope omission in this campaign came from the second habit."
+        ],
+        "nonGoals": [
+          "No call site changes: the migration is the next two nodes.",
+          "No change to where state lives.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done.",
+          "No new test depends on the wall clock from above, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node; no live model (replay or the fixture runtimes only).",
+          "Any new persisted field goes with its validator allowlist and its typedef; any new events.jsonl or journal field goes with its declaration in docs/FIELD-OWNERSHIP.md."
+        ],
+        "scopeAcknowledged": [
+          "src/host/home.mjs",
+          "src/campaign/layout.mjs",
+          "src/cli.mjs",
+          "src/engine/run-identity.mjs",
+          "src/run/store.mjs",
+          "src/run/node-store.mjs",
+          "src/repo/workspace.mjs",
+          "test/run/node-store.test.mjs",
+          "test/repo/source-shape.test.mjs",
+          "src/campaign/metrics.mjs"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/installs/nodejs/26.8.1/bin/node",
+              "--test",
+              "test/run/"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/installs/nodejs/26.8.1/bin/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 300
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "verification-0",
+          "text": "passes: --test test/run/",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "verification-1",
+          "text": "passes: node_modules/typescript/bin/tsc",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        }
+      ],
+      "gate": {
+        "review": "none",
+        "maxRevisions": 1
+      },
+      "timeoutSec": 3600
+    },
+    {
+      "id": "engine-and-campaign-callers-use-the-resolver",
+      "type": "backend",
+      "phase": "corpus",
+      "dependsOn": [
+        "one-module-owns-the-run-paths"
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "The engine, campaign, plan and host modules build run, campaign and worktree paths only through src/run/paths.mjs.",
+        "instructions": [
+          "Measured on this tree 2026-09-17: the exact literal \"'.runs'\" appears 31 times across 20 files of src/, and src/run/paths.mjs is the module that will own every one of them. The inventory was taken with `grep -rl '\"[.]runs\"' src/`, so take it from the code and not from a remembered list -- a drafted plan for this phase named 14 modules that do not carry the literal and missed 6 that do.",
+          "Two different uses hide behind the same literal and they must not be conflated. Most are path construction (`join(cwd, \".runs\")`, `join(contract.cwd, \".runs\", contract.id)`), which becomes a call to the resolver. A few are the directory *name* in a git pathspec or a directory-skip (src/repo/worktree.mjs:268 excludes it from a `git rm --cached`, src/engine/run-identity.mjs:322 skips it while walking), which becomes the resolver's exported name constant. Neither may keep spelling the literal.",
+          "Behaviour does not change in this phase. The resolver wraps today's shapes exactly; moving the location under the user home is R2 and a later phase. If a call site's current shape looks wrong, say so in your summary and leave it.",
+          "Your eight files are the ones in writeFiles and they are disjoint from the other migration node's twelve, so the two run in parallel. Do not touch a file outside your list even if it carries the literal: it belongs to the other node."
+        ],
+        "readFiles": [
+          "src/run/paths.mjs",
+          "src/host/home.mjs",
+          "src/campaign/chain.mjs",
+          "src/campaign/metrics.mjs",
+          "src/engine/live-preflight.mjs",
+          "src/engine/result-file.mjs",
+          "src/engine/run-identity.mjs",
+          "src/engine/scheduler.mjs",
+          "src/host/preflight.mjs",
+          "src/plan/pipeline.mjs"
+        ],
+        "writeFiles": [
+          "src/campaign/chain.mjs",
+          "src/campaign/metrics.mjs",
+          "src/engine/live-preflight.mjs",
+          "src/engine/result-file.mjs",
+          "src/engine/run-identity.mjs",
+          "src/engine/scheduler.mjs",
+          "src/host/preflight.mjs",
+          "src/plan/pipeline.mjs"
+        ],
+        "symbols": [],
+        "decisions": [
+          "The resolver owns both the root builder and the directory name.",
+          "No behaviour change: the shapes are wrapped, not moved."
+        ],
+        "nonGoals": [
+          "No change to where run state lives: that is R2 and a later phase.",
+          "No edit to src/run/paths.mjs: it is the previous node's module and is read-only here.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done.",
+          "No new test depends on the wall clock from above, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node; no live model (replay or the fixture runtimes only).",
+          "Any new persisted field goes with its validator allowlist and its typedef; any new events.jsonl or journal field goes with its declaration in docs/FIELD-OWNERSHIP.md."
+        ],
+        "scopeAcknowledged": [
+          "src/run/paths.mjs",
+          "src/host/home.mjs",
+          "test/run/paths.test.mjs",
+          "test/repo/source-shape.test.mjs",
+          "test/cli/cli.test.mjs"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/installs/nodejs/26.8.1/bin/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/installs/nodejs/26.8.1/bin/node",
+              "--test",
+              "test/run/",
+              "test/repo/"
+            ],
+            "timeoutSec": 600
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "verification-0",
+          "text": "passes: node_modules/typescript/bin/tsc",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "verification-1",
+          "text": "passes: --test test/run/ test/repo/",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        }
+      ],
+      "gate": {
+        "review": "none",
+        "maxRevisions": 1
+      },
+      "timeoutSec": 3600
+    },
+    {
+      "id": "cli-repo-and-surface-callers-use-the-resolver",
+      "type": "backend",
+      "phase": "corpus",
+      "dependsOn": [
+        "one-module-owns-the-run-paths"
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "The cli, repo, seat, web and replay modules build run, campaign and worktree paths only through src/run/paths.mjs.",
+        "instructions": [
+          "Measured on this tree 2026-09-17: the exact literal \"'.runs'\" appears 31 times across 20 files of src/, and src/run/paths.mjs is the module that will own every one of them. The inventory was taken with `grep -rl '\"[.]runs\"' src/`, so take it from the code and not from a remembered list -- a drafted plan for this phase named 14 modules that do not carry the literal and missed 6 that do.",
+          "Two different uses hide behind the same literal and they must not be conflated. Most are path construction (`join(cwd, \".runs\")`, `join(contract.cwd, \".runs\", contract.id)`), which becomes a call to the resolver. A few are the directory *name* in a git pathspec or a directory-skip (src/repo/worktree.mjs:268 excludes it from a `git rm --cached`, src/engine/run-identity.mjs:322 skips it while walking), which becomes the resolver's exported name constant. Neither may keep spelling the literal.",
+          "Behaviour does not change in this phase. The resolver wraps today's shapes exactly; moving the location under the user home is R2 and a later phase. If a call site's current shape looks wrong, say so in your summary and leave it.",
+          "Your twelve files are the ones in writeFiles and they are disjoint from the other migration node's eight, so the two run in parallel. Do not touch a file outside your list even if it carries the literal: it belongs to the other node.",
+          "src/harnesses/replay/bin.mjs is a spawned program with no importers, so check how it resolves modules before importing the resolver into it, and report what you found.",
+          "Re-measured 2026-09-18, after phases 0c to 0c7 landed and before this run: src/report/progress.mjs line 314 builds a run directory by literal concatenation (join(cwd, \".runs\", contractId)). That module did not exist when this contract was authored, so it is added to your write set now rather than discovered by a blocked attempt. It is a presentation-layer caller like src/web/server.mjs and it migrates the same way. Its test constructs its own fixture run directories, which is not the coupling R1 is about, so test/report/progress.test.mjs stays out of scope unless the migration changes behaviour -- and it must not."
+        ],
+        "readFiles": [
+          "src/run/paths.mjs",
+          "src/host/home.mjs",
+          "src/cli.mjs",
+          "src/cli/campaign.mjs",
+          "src/cli/init.mjs",
+          "src/cli/launch.mjs",
+          "src/cli/plan.mjs",
+          "src/repo/declared-paths.mjs",
+          "src/repo/scope-closure.mjs",
+          "src/repo/workspace.mjs",
+          "src/repo/worktree.mjs",
+          "src/seat/index.mjs",
+          "src/web/server.mjs",
+          "src/harnesses/replay/bin.mjs",
+          "src/report/progress.mjs"
+        ],
+        "writeFiles": [
+          "src/cli.mjs",
+          "src/cli/campaign.mjs",
+          "src/cli/init.mjs",
+          "src/cli/launch.mjs",
+          "src/cli/plan.mjs",
+          "src/harnesses/replay/bin.mjs",
+          "src/repo/declared-paths.mjs",
+          "src/repo/scope-closure.mjs",
+          "src/repo/workspace.mjs",
+          "src/repo/worktree.mjs",
+          "src/report/progress.mjs",
+          "src/seat/index.mjs",
+          "src/web/server.mjs"
+        ],
+        "symbols": [],
+        "decisions": [
+          "The resolver owns both the root builder and the directory name.",
+          "No behaviour change: the shapes are wrapped, not moved."
+        ],
+        "nonGoals": [
+          "No change to where run state lives: that is R2 and a later phase.",
+          "No edit to src/run/paths.mjs: it is the previous node's module and is read-only here.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done.",
+          "No new test depends on the wall clock from above, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node; no live model (replay or the fixture runtimes only).",
+          "Any new persisted field goes with its validator allowlist and its typedef; any new events.jsonl or journal field goes with its declaration in docs/FIELD-OWNERSHIP.md."
+        ],
+        "scopeAcknowledged": [
+          "src/run/paths.mjs",
+          "src/host/home.mjs",
+          "test/run/paths.test.mjs",
+          "test/repo/source-shape.test.mjs"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/installs/nodejs/26.8.1/bin/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/installs/nodejs/26.8.1/bin/node",
+              "--test",
+              "test/run/",
+              "test/repo/"
+            ],
+            "timeoutSec": 600
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "verification-0",
+          "text": "passes: node_modules/typescript/bin/tsc",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "verification-1",
+          "text": "passes: --test test/run/ test/repo/",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        }
+      ],
+      "gate": {
+        "review": "none",
+        "maxRevisions": 1
+      },
+      "timeoutSec": 3600
+    },
+    {
+      "id": "the-centralization-guard-only-falls",
+      "type": "backend",
+      "phase": "corpus",
+      "dependsOn": [
+        "engine-and-campaign-callers-use-the-resolver",
+        "cli-repo-and-surface-callers-use-the-resolver"
+      ],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "A ratchet keeps run path resolution centralized: in src/ the runs directory is spelled only by its resolver, and the counts in test/ and evals/ are asserted at today's measured numbers so they can only fall.",
+        "instructions": [
+          "This is R1's proof, and it belongs with this repository's other ratchets in test/repo/source-shape.test.mjs, next to the file-ceiling, import-cycle and module-header rules, whose idiom you should follow exactly: assert at the measured count, with a dated comment saying what was measured and why raising it is not a fix.",
+          "Re-measured 2026-09-18 immediately before this run, which supersedes the 2026-09-17 count this contract was authored with: the exact literal appears 32 times in 21 files of src/, 184 times in 47 files of test/ and 7 times in 4 files of evals/. The src/ and test/ numbers both moved because phases 0c to 0c7 added src/report/progress.mjs, src/web/app.mjs and their tests. After the two migration nodes, src/ must be down to src/run/paths.mjs alone; measure it yourself and assert that, not my number.",
+          "test/ and evals/ are ratcheted rather than migrated, and the comment must say why: a test that builds its own fixture runs directory is not the coupling R1 is about, and 183 edits in one phase would swamp review. The orchestrator recorded this as an open question for the owner, because the spec's R1 text is stricter than this. State the deviation in your summary too.",
+          "The failure message names the offending file and says the fix is to call the resolver, the way the other ratchets in that file name theirs.",
+          "The test must be a static scan of file contents, not an import-time check, and must not shell out to grep: read the trees the way source-shape.test.mjs already reads them."
+        ],
+        "readFiles": [
+          "test/repo/source-shape.test.mjs",
+          "src/run/paths.mjs",
+          "test/run/paths.test.mjs",
+          "test/repo/brand.test.mjs"
+        ],
+        "writeFiles": [
+          "test/repo/source-shape.test.mjs"
+        ],
+        "symbols": [],
+        "decisions": [
+          "src/ is held strictly; test/ and evals/ are ratcheted at the measured counts.",
+          "The guard lives with the other source-shape ratchets and follows their idiom."
+        ],
+        "nonGoals": [
+          "No migration of test/ or evals/ occurrences in this phase.",
+          "No new test file: the ratchet belongs in the file that holds the others.",
+          "No edit to skills/faberun/references/{rules,engineering,workflow,handoffs,contract,operations}.md, docs/history/**, evals/golden/**, or any existing file under docs/campaigns/**. CONTRACT_VERSION stays 0.3.0.",
+          "No file over 800 lines: extend by adding a module or test file, never by growing one past the ceiling.",
+          "Do not run the full suite yourself; the controller runs your verification after you declare done.",
+          "No new test depends on the wall clock from above, on a binary in PATH, or on the machine layout; no fixture shebang through /usr/bin/env node; no live model (replay or the fixture runtimes only).",
+          "Any new persisted field goes with its validator allowlist and its typedef; any new events.jsonl or journal field goes with its declaration in docs/FIELD-OWNERSHIP.md."
+        ],
+        "scopeAcknowledged": [
+          "src/run/paths.mjs",
+          "test/run/paths.test.mjs",
+          "test/repo/brand.test.mjs"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/installs/nodejs/26.8.1/bin/node",
+              "--test",
+              "test/repo/source-shape.test.mjs",
+              "test/run/paths.test.mjs"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "/Users/frb/.asdf/installs/nodejs/26.8.1/bin/node",
+              "node_modules/typescript/bin/tsc"
+            ],
+            "timeoutSec": 300
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "verification-0",
+          "text": "passes: --test test/repo/source-shape.test.mjs test/run/paths.test.mjs",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        },
+        {
+          "id": "verification-1",
+          "text": "passes: node_modules/typescript/bin/tsc",
+          "proof": {
+            "kind": "verification",
+            "ref": "1"
+          }
+        }
+      ],
+      "gate": {
+        "review": "none",
+        "maxRevisions": 1
+      },
+      "timeoutSec": 3600
+    }
+  ]
+}
