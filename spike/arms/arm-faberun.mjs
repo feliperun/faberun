@@ -16,6 +16,9 @@ import { EXPERIMENT_HOME, FABERUN_CLI, LOGS, RESULTS, providerEnv, readJsonl, wr
 
 /** @typedef {import("./corpus.mjs").CorpusSet} CorpusSet */
 
+/** @param {number} count @returns {number|null} null when the stream carried no meter */
+const metered = (count) => (count > 0 ? count : null);
+
 /** @param {string} runId @returns {string|null} */
 function findRunDir(runId) {
   const projects = join(EXPERIMENT_HOME, "projects");
@@ -132,9 +135,12 @@ export async function runFaberunArm({ label, repetition, corpus, arm = "A" }) {
     judgeCostUsd: sum(judgeUsage, "costUsd"),
     unpricedInvocations: usage.filter((record) => typeof record.costUsd !== "number").length,
     tokens: { input: sum(usage, "inputTokens"), cacheRead: sum(usage, "cacheReadInputTokens"), output: sum(usage, "outputTokens") },
-    requests: sessions.reduce((total, session) => total + (session.requests ?? 0), 0),
+    // The per-request ledger exists for the claude, dsh and agy streams; a
+    // codex or zcode worker leaves no request count and no context size, and
+    // a faberun run always has at least one request, so zero means unmetered.
+    requests: metered(sessions.reduce((total, session) => total + (session.requests ?? 0), 0)),
     toolCalls: sessions.reduce((total, session) => total + (session.toolCalls ?? 0), 0),
-    contextMax: sessions.reduce((best, session) => Math.max(best, session.contextMax ?? 0), 0),
+    contextMax: metered(sessions.reduce((best, session) => Math.max(best, session.contextMax ?? 0), 0)),
     invocations: usage.length,
     nodes: nodes.map((node) => ({ id: node.id, status: node.status, attempt: node.attempt, revisions: node.revisions, error: node.error?.code ?? null })),
     acceptance,

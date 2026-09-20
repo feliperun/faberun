@@ -40,8 +40,8 @@ node --test spike/arms/test/arms.test.mjs
 
 Arms run sequentially, in a seeded shuffled order per repetition. A
 `(label, arm, repetition)` already in the ledger is skipped, so an interrupted
-measurement resumes; `--force` reruns it and the analysis takes every measured
-line. Provider streams and faberun output go to `spike/.runs/arms-logs/`;
+measurement resumes; `--force` reruns it and the analysis takes the latest
+measured line per arm and repetition (a remeasurement supersedes). Provider streams and faberun output go to `spike/.runs/arms-logs/`;
 the ledger (`resultados/runs.jsonl`), the contracts, the indicator reports and
 `analysis-<label>.md` are committed.
 

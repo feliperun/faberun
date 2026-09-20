@@ -37,7 +37,8 @@ test("the complex corpus is the recorded 1c phase: four dependent nodes, hidden 
   assert.deepEqual(corpus.requirements[3].dependsOn, ["engine-and-campaign-callers-use-the-resolver", "cli-repo-and-surface-callers-use-the-resolver"]);
   assert.ok(corpus.requirements[0].instructions.at(-1)?.includes("candidateWorktreePath(runDir, runId)"), "the resolver node is told the API the acceptance imports");
   assert.deepEqual(corpus.requirements[0].symbols, ["runsRoot", "runDirectory", "RUNS_DIR_NAME"], "the recorded packet's symbols travel unchanged");
-  assert.deepEqual(corpus.acceptance.map((check) => check.id), ["resolver-api", "src-centralization", "typecheck", "regression"]);
+  assert.deepEqual(corpus.acceptance.map((check) => check.id), ["src-centralization", "typecheck", "regression", "resolver-api"]);
+  assert.deepEqual(corpus.acceptance.map((check) => check.restore === true), [false, false, false, true], "only the landed test runs after the restore; the suites run on the arm's own tree");
   assert.equal(corpus.visibleProofs, false, "the acceptance is the driver's, not the arm's");
   assert.equal(corpus.npmCi, true, "typecheck needs the toolchain");
   assert.deepEqual(corpus.restore.map((item) => item.path), ["test/run/paths.test.mjs"]);

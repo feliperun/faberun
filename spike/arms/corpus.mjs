@@ -20,7 +20,7 @@ import { ROOT } from "./lib.mjs";
 
 /** @typedef {{argv: string[], timeoutSec: number}} Command */
 /** @typedef {{id: string, title: string, objective: string, instructions: string[], readFiles: string[], writeFiles: string[], symbols: string[], dependsOn: string[], decisions: string[], nonGoals: string[], scopeAcknowledged: string[], verification: Command[]}} Requirement */
-/** @typedef {{id: string, argv: string[], timeoutSec: number}} Acceptance */
+/** @typedef {{id: string, argv: string[], timeoutSec: number, restore?: boolean}} Acceptance a check with `restore` runs after the corpus's acceptance files are written over the arm's tree; the others run on the tree exactly as the arm left it */
 /** @typedef {{path: string, sha?: string, file?: string}} RestoreFile */
 /** @typedef {{kind: "simple"|"complex", fork: string, npmCi: boolean, visibleProofs: boolean, restore: RestoreFile[], requirements: Requirement[], acceptance: Acceptance[], hash: string}} CorpusSet */
 
@@ -76,7 +76,7 @@ function simpleCorpus(selection) {
       scopeAcknowledged: [],
       verification: [{ argv: [NODE, "--test", requirement.prova], timeoutSec: 180 }],
     })),
-    acceptance: chosen.map((requirement) => ({ id: requirement.id, argv: [NODE, "--test", requirement.prova], timeoutSec: 180 })),
+    acceptance: chosen.map((requirement) => ({ id: requirement.id, argv: [NODE, "--test", requirement.prova], timeoutSec: 180, restore: true })),
     hash: String(key.hash),
   };
 }
@@ -134,11 +134,16 @@ function complexCorpus() {
     visibleProofs: false,
     restore: [{ path: "test/run/paths.test.mjs", sha: COMPLEX_INTEGRATED }],
     requirements,
+    // The regression suites run on the tree as the arm left it, its own tests
+    // included: measured 2026-09-20, arm C wrote an exact-count ratchet over
+    // test/ and the landed paths test, written over the arm's own before the
+    // suites ran, moved the count by three and failed a check the arm had
+    // passed. Only the landed test itself runs after the restore.
     acceptance: [
-      { id: "resolver-api", argv: [NODE, "--test", "test/run/paths.test.mjs"], timeoutSec: 180 },
       { id: "src-centralization", argv: [NODE, CENTRALIZATION_CHECK, "."], timeoutSec: 60 },
       { id: "typecheck", argv: TSC, timeoutSec: 300 },
       { id: "regression", argv: [NODE, "--test", "test/run/", "test/repo/", "test/cli/", "test/campaign/"], timeoutSec: 1500 },
+      { id: "resolver-api", argv: [NODE, "--test", "test/run/paths.test.mjs"], timeoutSec: 180, restore: true },
     ],
     hash: createHash("sha256").update(text).digest("hex"),
   };

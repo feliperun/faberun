@@ -147,16 +147,23 @@ export function auditScope({ dir, baseSha, corpus }) {
 }
 
 /**
- * The corpus's acceptance, run by the driver against the tree with the
- * acceptance files restored. Pass is the exit code: `node --test` and `tsc`
- * both exit non-zero on any failure.
+ * The corpus's acceptance, run by the driver. Checks without `restore` run on
+ * the tree exactly as the arm left it, in corpus order; then the corpus's
+ * acceptance files are written over the arm's own and the `restore` checks
+ * run. Pass is the exit code: `node --test` and `tsc` both exit non-zero on
+ * any failure.
  *
  * @param {{dir: string, corpus: CorpusSet}} input
  * @returns {{id: string, passed: boolean, ms: number, tail: string}[]}
  */
 export function runAcceptance({ dir, corpus }) {
-  restoreFiles(dir, corpus);
-  return corpus.acceptance.map((check) => {
+  const ordered = [...corpus.acceptance.filter((check) => !check.restore), ...corpus.acceptance.filter((check) => check.restore)];
+  let restored = false;
+  return ordered.map((check) => {
+    if (check.restore && !restored) {
+      restoreFiles(dir, corpus);
+      restored = true;
+    }
     const started = Date.now();
     const result = spawnSync(check.argv[0], check.argv.slice(1), {
       cwd: dir,

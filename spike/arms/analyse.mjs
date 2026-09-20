@@ -68,7 +68,12 @@ export function medianReport(reports) {
 
 /** @param {string} label @returns {string} the rendered analysis */
 export function analyse(label) {
-  const runs = readJsonl(LEDGER).filter((run) => run.label === label && isMeasuredRun(run));
+  // The latest measured line per (arm, repetition) is the run: a later line
+  // with the same key is a remeasurement (an acceptance re-run after a driver
+  // fix, or a --force rerun) and supersedes the earlier one.
+  const latest = new Map();
+  for (const run of readJsonl(LEDGER)) if (run.label === label && isMeasuredRun(run)) latest.set(`${run.arm}-r${run.repetition}`, run);
+  const runs = [...latest.values()];
   const byArm = /** @type {Record<string, any[]>} */ ({});
   for (const run of runs) (byArm[run.arm] ??= []).push(run);
   const lines = [`# orchestration-arms · ${label}`, ""];
@@ -88,7 +93,7 @@ export function analyse(label) {
     const ind = runIndicators(run);
     const notes = [run.arm === "C" ? `${run.agentCalls} Agent calls` : null, run.workerModel && run.workerModel !== "claude-sonnet-5" ? `writer ${run.workerModel}` : null, run.unpricedInvocations ? `unpriced: ${run.unpricedInvocations}` : null, run.resultSubtype && run.resultSubtype !== "success" ? run.resultSubtype : null, run.exitCode ? `exit ${run.exitCode}` : null, run.scope?.proofsEdited?.length ? `proofs edited: ${run.scope.proofsEdited.length}` : null].filter(Boolean).join("; ");
     const judge = typeof run.judgeCostUsd === "number" && run.judgeCostUsd > 0 ? `judge ${fmt(run.judgeCostUsd)}` : null;
-    lines.push(`| ${run.arm} | ${run.repetition} | ${run.proofsPassed}/${run.acceptanceTotal ?? run.requirementIds.length} | ${fmt(ind.costUsd.value)} | ${fmt(ind.costPerDeliveredRequirementUsd.value)} | ${fmt(ind.wallClockMinutes.value, 1)} | ${run.requests} | ${fmt(ind.contextMaxKTokens.value, 0)} | ${ind.outOfScopeFiles.value ?? "?"} | ${[judge, notes].filter(Boolean).join("; ")} |`);
+    lines.push(`| ${run.arm} | ${run.repetition} | ${run.proofsPassed}/${run.acceptanceTotal ?? run.requirementIds.length} | ${fmt(ind.costUsd.value)} | ${fmt(ind.costPerDeliveredRequirementUsd.value)} | ${fmt(ind.wallClockMinutes.value, 1)} | ${run.requests ?? "-"} | ${fmt(ind.contextMaxKTokens.value, 0)} | ${ind.outOfScopeFiles.value ?? "?"} | ${[judge, notes].filter(Boolean).join("; ")} |`);
   }
   lines.push("");
 

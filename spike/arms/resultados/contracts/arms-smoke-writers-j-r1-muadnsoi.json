@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "arms-smoke-writers-j-r1-muadnsoi",
+  "campaignId": "orchestration-arms",
+  "goal": "Arm J of the orchestration-arms campaign on the simple corpus: 1 requirement(s), one node each, writer glm-5.3-flash, proof-only gate",
+  "cwd": "/Users/frb/dev/frb/skills/.claude/worktrees/cost-and-cache-improvements/spike/.runs/worktrees/arms/smoke-writers-J-r1",
+  "runtimeDefaults": {
+    "worker": "zcode-glm-flash-worker",
+    "judge": "codex-sol-judge"
+  },
+  "runtimes": {
+    "zcode-glm-flash-worker": {
+      "harness": "zcode",
+      "model": "glm-5.3-flash",
+      "vendor": "zhipu",
+      "permissionMode": "yolo",
+      "config": {
+        "auth_token.env_key": "ZAI_API_KEY"
+      },
+      "tier": 1,
+      "costRank": 1,
+      "maxConcurrent": 3
+    },
+    "codex-sol-judge": {
+      "harness": "codex",
+      "model": "gpt-5.6-sol",
+      "reasoning": "high",
+      "vendor": "openai-sol",
+      "sandbox": "read-only",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "maxParallel": 3,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 7200,
+  "nodes": [
+    {
+      "id": "contract",
+      "type": "backend",
+      "phase": "corpus",
+      "dependsOn": [],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Refuse a node whose Definition of Done repeats an item id",
+        "instructions": [
+          "A Definition of Done item's `id` is the only handle a judge has for the item it addresses and the key the controller's proof results are matched by, so two items sharing an id inside one node make the checklist ambiguous and silently bind one item to another item's recorded result. Today `validateDefinitionOfDone` in `src/contract/definition-of-done.mjs` validates each item in isolation and accepts an array in which two items declare the same `id`. Change it so that, while it maps the array, it remembers every id it has already accepted and refuses any later item whose `id` repeats one, throwing a `TypeError` whose message contains the repeated id. The check belongs to the single array the function is handed, which is exactly one node's checklist, so the same id appearing in two different nodes stays legal. Every existing rule and message must stay intact: a present but malformed id is still refused by `requireId`, an item still needs `proof` or `judgment: true`, and unknown fields are still rejected. `src/contract/index.mjs` and `src/plan/template.mjs` already call this validator once per node, so no other file needs to change. `spike/corpus/provas/CONTRACT.test.mjs` proves it: at this commit the duplicate is accepted and the proof fails, and once the duplicate is refused the proof passes; run it with `node --test spike/corpus/provas/CONTRACT.test.mjs`.",
+          "Never edit or delete anything under spike/corpus/provas/: those are the acceptance proofs, and the controller runs them after you report.",
+          "Return the worker result as the only JSON object of your final message."
+        ],
+        "readFiles": [
+          "src/contract/definition-of-done.mjs",
+          "src/contract/index.mjs",
+          "src/contract/assert.mjs",
+          "test/contract/contract.test.mjs",
+          "spike/corpus/provas/CONTRACT.test.mjs"
+        ],
+        "writeFiles": [
+          "src/contract/definition-of-done.mjs"
+        ],
+        "symbols": [],
+        "decisions": [],
+        "nonGoals": [
+          "Do not change files outside the write scope."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/installs/nodejs/26.8.1/bin/node",
+              "--test",
+              "spike/corpus/provas/CONTRACT.test.mjs"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "verification-0",
+          "text": "passes: --test spike/corpus/provas/CONTRACT.test.mjs",
+          "proof": {
+            "kind": "verification",
+            "ref": "0"
+          }
+        }
+      ],
+      "gate": false,
+      "timeoutSec": 3600
+    }
+  ]
+}
