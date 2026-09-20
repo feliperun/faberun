@@ -10,6 +10,8 @@
  * module only reshapes the node list itself.
  */
 
+import { dirname } from "node:path";
+
 /** @typedef {import("../contract/definition-of-done.mjs").DefinitionOfDoneItem} DefinitionOfDoneItem */
 
 /** @typedef {{argv: string[], cwd?: string, timeoutSec?: number, repeat?: number, env?: string[], measuredMs?: number, flaggedOverBudget?: true}} SizingVerificationCommand */
@@ -18,12 +20,27 @@
 /** @typedef {{nodes: PlanNode[], justification?: string, [key: string]: unknown}} Plan */
 /** @typedef {{path: string, covers: string|null}} SizingTestFileEntry */
 /** @typedef {{testFiles?: SizingTestFileEntry[]}} SizingFacts */
-/** @typedef {{nodeBudgetMs: number, targetedFix?: boolean, facts?: SizingFacts}} SizingOptions */
+/** @typedef {{nodeBudgetMs: number, targetedFix?: boolean, facts?: SizingFacts, minWriteFiles?: number, maxMergedWriteFiles?: number, turnCeiling?: number}} SizingOptions */
 /** @typedef {{rule: string, nodes: string[], detail: string}} SizingTransformation */
-/** @typedef {{plan: Plan, transformations: SizingTransformation[]}} SizingResult */
+/** @typedef {{plan: Plan, transformations: SizingTransformation[], estimate: {nodes: number, overheadMinutes: number}}} SizingResult */
 
 /** The dependency-chain depth past which a plan needs `plan.justification`. */
 const DEPTH_CEILING = 8;
+
+/**
+ * Floor for a node's write set, applied when the caller asks (the pipeline
+ * does). measured 2026-09-20 over 100 stored claude worker nodes: cost per
+ * turn barely moves with the write set (rank correlation 0.05; a median of
+ * 44 requests at 2-3 files against 56 at 7 or more), each node pays about
+ * 14.5 minutes of verification, judge and integration outside its worker
+ * turn, and cost per delivered write file was lowest at 4-6 files (0.10M
+ * input-equivalent tokens per file, against 0.22M at 2-3).
+ */
+export const MIN_WRITE_FILES = 4;
+/** Ceiling for a merged write set: above it cost per delivered node doubled (1.52M-eq at 7+ files against 0.65M-eq at 4-6). */
+const MAX_MERGED_WRITE_FILES = 6;
+/** Non-worker wall clock one node costs the run, in minutes: verification and candidate 6.3, judge 1.8, integration 6.4 (medians, 2026-09-20). */
+const NODE_OVERHEAD_MINUTES = 14.5;
 
 /**
  * @param {Plan} plan
@@ -41,8 +58,10 @@ export function applySizingRules(plan, options) {
 
   nodes = mergeNoMechanicalProof(nodes, transformations);
   nodes = mergeContainedWriteSet(nodes, transformations);
+  nodes = mergeUnderfilledSiblings(nodes, options.minWriteFiles ?? null, options.maxMergedWriteFiles ?? MAX_MERGED_WRITE_FILES, transformations);
   nodes = splitOverBudgetVerification(nodes, nodeBudgetMs, facts, transformations);
   nodes = markParallelisable(nodes, transformations);
+  nodes = flagOverTurnCeiling(nodes, options.turnCeiling ?? null, transformations);
 
   if (nodes.length === 1 && !targetedFix) {
     throw new Error(`sizing_single_node_plan: node ${nodes[0].id} is the plan's only node; pass options.targetedFix to allow a single-node plan`);
@@ -53,7 +72,13 @@ export function applySizingRules(plan, options) {
     throw new Error(`sizing_depth_exceeds_ceiling: dependency chain depth ${depth} exceeds ${DEPTH_CEILING} and plan.justification is required`);
   }
 
-  return { plan: { ...plan, nodes }, transformations };
+  return {
+    plan: { ...plan, nodes },
+    transformations,
+    // What the node count costs the run before any worker turn: the number a
+    // plan reader needs to weigh one more split against.
+    estimate: { nodes: nodes.length, overheadMinutes: nodes.length * NODE_OVERHEAD_MINUTES },
+  };
 }
 
 /**
@@ -101,8 +126,9 @@ function findContainingNode(node, nodes) {
 }
 
 /**
- * Fold `child` into `parent` in place: writeFiles, verification and
- * definitionOfDone are unioned (deduplicated), and every other node's
+ * Fold `child` into `parent` in place: writeFiles, readFiles, verification and
+ * definitionOfDone are unioned (deduplicated), the child's objective is
+ * appended to the parent's, and every other node's
  * dependsOn is rewritten to point at `parent` instead of `child`, with the
  * self-reference this can create dropped. `parent`'s own dependsOn is unioned
  * with `child`'s too, and both a self-reference and a reference to the
@@ -116,6 +142,12 @@ function findContainingNode(node, nodes) {
  */
 function foldNodeInto(nodes, child, parent) {
   parent.taskPacket.writeFiles = dedupe([...(parent.taskPacket.writeFiles ?? []), ...(child.taskPacket.writeFiles ?? [])]);
+  const parentReads = Array.isArray(parent.taskPacket.readFiles) ? /** @type {string[]} */ (parent.taskPacket.readFiles) : null;
+  const childReads = Array.isArray(child.taskPacket.readFiles) ? /** @type {string[]} */ (child.taskPacket.readFiles) : [];
+  if (parentReads !== null || childReads.length > 0) parent.taskPacket.readFiles = dedupe([...(parentReads ?? []), ...childReads]);
+  if (typeof parent.objective === "string" && typeof child.objective === "string" && child.objective !== parent.objective) {
+    parent.objective = `${parent.objective} Also: ${child.objective}`;
+  }
   parent.taskPacket.verification = dedupeVerification([...parent.taskPacket.verification, ...child.taskPacket.verification]);
   parent.definitionOfDone = dedupeById([...(parent.definitionOfDone ?? []), ...(child.definitionOfDone ?? [])]);
   parent.dependsOn = dedupe([...(parent.dependsOn ?? []), ...(child.dependsOn ?? [])]).filter((id) => id !== parent.id && id !== child.id);
@@ -207,6 +239,109 @@ function mergeContainedWriteSet(nodes, transformations) {
     current = foldNodeInto(current, child, parent);
   }
   return current;
+}
+
+/**
+ * Two siblings under the write-set floor, in the same directory, alike in
+ * taskKind and riskTier, with no dependency path between them and a union
+ * under the merged ceiling, become one node: the later folds into the
+ * earlier. Inactive unless the caller sets `minWriteFiles`. Runs to a
+ * fixpoint, so a merged node still under the floor may take a third.
+ *
+ * @param {PlanNode[]} nodes
+ * @param {number|null} minWriteFiles
+ * @param {number} ceiling
+ * @param {SizingTransformation[]} transformations
+ * @returns {PlanNode[]}
+ */
+function mergeUnderfilledSiblings(nodes, minWriteFiles, ceiling, transformations) {
+  if (minWriteFiles === null) return nodes;
+  let current = nodes;
+  for (;;) {
+    let folded = false;
+    for (const child of current) {
+      if (!isUnderfilled(child, minWriteFiles)) continue;
+      const parent = current.slice(0, current.indexOf(child)).find((candidate) => isUnderfilled(candidate, minWriteFiles)
+        && candidate.taskKind === child.taskKind && candidate.riskTier === child.riskTier
+        && sharesDirectory(candidate, child)
+        && dedupe([...writeFilesOf(candidate), ...writeFilesOf(child)]).length <= ceiling
+        && !dependencyRelated(candidate, child, current));
+      if (!parent) continue;
+      transformations.push({
+        rule: "underfilled-sibling-merge",
+        nodes: [child.id, parent.id],
+        detail: `${child.id} (${writeFilesOf(child).length} write file(s)) and ${parent.id} (${writeFilesOf(parent).length}) are both under the ${minWriteFiles}-file floor, in the same directory, with no dependency between them; merged into ${parent.id}`,
+      });
+      current = foldNodeInto(current, child, parent);
+      folded = true;
+      break;
+    }
+    if (!folded) break;
+  }
+  return current;
+}
+
+/** @param {PlanNode} node @param {number} minWriteFiles @returns {boolean} */
+function isUnderfilled(node, minWriteFiles) {
+  const count = writeFilesOf(node).length;
+  return count > 0 && count < minWriteFiles;
+}
+
+/** @param {PlanNode} left @param {PlanNode} right @returns {boolean} whether a write file of each sits in the same directory */
+function sharesDirectory(left, right) {
+  const directories = new Set(writeFilesOf(left).map((path) => dirname(path)));
+  return writeFilesOf(right).some((path) => directories.has(dirname(path)));
+}
+
+/**
+ * Whether one node reaches the other through dependsOn, in either direction.
+ *
+ * @param {PlanNode} left
+ * @param {PlanNode} right
+ * @param {PlanNode[]} nodes
+ * @returns {boolean}
+ */
+function dependencyRelated(left, right, nodes) {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  /** @param {string} from @param {string} to @returns {boolean} */
+  const reaches = (from, to) => {
+    const seen = new Set();
+    const stack = [from];
+    while (stack.length > 0) {
+      const id = /** @type {string} */ (stack.pop());
+      if (id === to) return true;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      stack.push(...(byId.get(id)?.dependsOn ?? []));
+    }
+    return false;
+  };
+  return reaches(left.id, right.id) || reaches(right.id, left.id);
+}
+
+/**
+ * A node the drafter expects to need more provider requests than one attempt
+ * is allowed is flagged, once, for the operator to split: the run would cut
+ * it at the cap and retry it, and a plan that knows this before launch is
+ * cheaper than a run that learns it.
+ *
+ * @param {PlanNode[]} nodes
+ * @param {number|null} ceiling
+ * @param {SizingTransformation[]} transformations
+ * @returns {PlanNode[]}
+ */
+function flagOverTurnCeiling(nodes, ceiling, transformations) {
+  if (ceiling === null) return nodes;
+  return nodes.map((node) => {
+    const expected = node.expectedTurns;
+    if (typeof expected !== "number" || expected <= ceiling || node.flaggedOverTurnCeiling === true) return node;
+    transformations.push({
+      rule: "over-turn-ceiling",
+      nodes: [node.id],
+      detail: `${node.id} expects ${expected} provider requests, above the ${ceiling}-request attempt cap; split it before launch or the run will cut it at the cap and retry it once`,
+    });
+    return { ...node, flaggedOverTurnCeiling: true };
+  });
 }
 
 /**

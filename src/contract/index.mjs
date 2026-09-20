@@ -50,7 +50,7 @@ const REPLAY_POLICIES = new Set(["safe", "reconcile", "never"]);
  * of them ran past 150 (180 to 600 requests). One completed turn would have
  * been cut and retried once.
  */
-const DEFAULT_MAX_TURNS = 150;
+export const DEFAULT_MAX_TURNS = 150;
 const GATE_FIELDS = new Set(["enabled", "runtime", "review", "failOn", "maxRevisions", "requiredCapabilities", "skipWhen"]);
 const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 

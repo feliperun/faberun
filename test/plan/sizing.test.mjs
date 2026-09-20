@@ -275,3 +275,63 @@ test("sizing is idempotent: applying it to its own output yields the same plan a
   assert.deepEqual(second.transformations, []);
   assert.deepEqual(second.plan, first.plan);
 });
+
+/** @param {string} id @param {string[]} writeFiles @param {Record<string, unknown>} [extra] @returns {import("../../src/plan/sizing.mjs").PlanNode} */
+function provenNode(id, writeFiles, extra = {}) {
+  return {
+    id,
+    taskKind: "implement",
+    riskTier: "standard",
+    objective: `Implement ${id}`,
+    taskPacket: { readFiles: [`docs/${id}.md`], writeFiles, verification: [{ argv: ["node", "--test", `test/${id}.test.mjs`], measuredMs: 100 }] },
+    definitionOfDone: [{ id: `${id}-done`, text: `implements ${id}`, proof: { kind: "command", ref: "0" } }],
+    ...extra,
+  };
+}
+
+test("underfilled-sibling merge: two small nodes in the same directory with no dependency between them become one; a different directory or a dependency keeps them apart", () => {
+  const plan = { nodes: [
+    provenNode("a", ["src/engine/a.mjs"]),
+    provenNode("b", ["src/engine/b.mjs", "test/engine/b.test.mjs"]),
+    provenNode("c", ["src/plan/c.mjs"]),
+    provenNode("d", ["src/engine/d.mjs"], { dependsOn: ["a"] }),
+  ] };
+  const { plan: sized, transformations } = applySizingRules(plan, { nodeBudgetMs: BUDGET, minWriteFiles: 4 });
+  assert.deepEqual(sized.nodes.map((node) => node.id), ["a", "c", "d"], "b folded into a; c is another directory; d depends on a");
+  const merged = /** @type {import("../../src/plan/sizing.mjs").PlanNode} */ (sized.nodes.find((node) => node.id === "a"));
+  assert.deepEqual(merged.taskPacket.writeFiles, ["src/engine/a.mjs", "src/engine/b.mjs", "test/engine/b.test.mjs"]);
+  assert.deepEqual(merged.taskPacket.readFiles, ["docs/a.md", "docs/b.md"], "the merged node may read what either read");
+  assert.equal(merged.objective, "Implement a Also: Implement b");
+  assert.deepEqual(merged.definitionOfDone?.map((item) => item.id), ["a-done", "b-done"]);
+  assert.ok(transformations.some((entry) => entry.rule === "underfilled-sibling-merge" && entry.nodes[0] === "b" && entry.nodes[1] === "a"));
+  assert.deepEqual(applySizingRules(plan, { nodeBudgetMs: BUDGET }).plan.nodes.map((node) => node.id), ["a", "b", "c", "d"], "inactive without minWriteFiles");
+});
+
+test("underfilled-sibling merge respects the merged ceiling and stays idempotent", () => {
+  const plan = { nodes: [
+    provenNode("x", ["src/a/1.mjs", "src/a/2.mjs", "src/a/3.mjs"]),
+    provenNode("y", ["src/a/4.mjs", "src/a/5.mjs", "src/a/6.mjs"]),
+    provenNode("z", ["src/a/7.mjs", "src/a/8.mjs", "src/a/9.mjs"]),
+  ] };
+  const first = applySizingRules(plan, { nodeBudgetMs: BUDGET, minWriteFiles: 4, turnCeiling: 150 });
+  assert.deepEqual(first.plan.nodes.map((node) => `${node.id}:${node.taskPacket.writeFiles?.length}`), ["x:6", "z:3"], "x took y up to the 6-file ceiling; z would push it past and stays");
+  const second = applySizingRules(first.plan, { nodeBudgetMs: BUDGET, minWriteFiles: 4, turnCeiling: 150 });
+  assert.deepEqual(second.transformations, []);
+  assert.deepEqual(second.plan, first.plan);
+});
+
+test("over-turn-ceiling: a node expected past the attempt cap is flagged once, never split behind the drafter's back", () => {
+  const plan = { nodes: [
+    provenNode("big", ["src/a/1.mjs", "src/a/2.mjs", "src/a/3.mjs", "src/a/4.mjs"], { expectedTurns: 200 }),
+    provenNode("fine", ["src/b/1.mjs", "src/b/2.mjs", "src/b/3.mjs", "src/b/4.mjs"], { expectedTurns: 60 }),
+  ] };
+  const first = applySizingRules(plan, { nodeBudgetMs: BUDGET, turnCeiling: 150 });
+  assert.equal(first.plan.nodes.length, 2, "flagging never merges or splits");
+  assert.equal(first.plan.nodes.find((node) => node.id === "big")?.flaggedOverTurnCeiling, true);
+  assert.equal(first.plan.nodes.find((node) => node.id === "fine")?.flaggedOverTurnCeiling, undefined);
+  const flagged = first.transformations.filter((entry) => entry.rule === "over-turn-ceiling");
+  assert.deepEqual(flagged.map((entry) => entry.nodes), [["big"]]);
+  assert.match(flagged[0].detail, /200 provider requests, above the 150-request attempt cap/u);
+  assert.deepEqual(applySizingRules(first.plan, { nodeBudgetMs: BUDGET, turnCeiling: 150 }).transformations, [], "a flagged node is not re-flagged");
+  assert.deepEqual(first.estimate, { nodes: 2, overheadMinutes: 29 }, "the plan states what its node count costs before any worker turn");
+});

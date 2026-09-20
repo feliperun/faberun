@@ -13,7 +13,7 @@
  */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../contract/index.mjs";
+import { CONTRACT_VERSION, DEFAULT_MAX_TURNS, PROTOCOL_SCHEMA_VERSION, validateContract } from "../contract/index.mjs";
 import { discoveryOutput } from "../contract/worker-result.mjs";
 import { readWorkerResultFile } from "../engine/result-file.mjs";
 import { classifyRunProgress } from "../campaign/chain.mjs";
@@ -25,7 +25,7 @@ import { allowanceDelta, allowanceEventFields, sampleAllowance } from "../seat/a
 import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
 import { RISK_TIERS, buildPlanningContract, validateFindings, validatePlanOutput } from "./template.mjs";
-import { applySizingRules } from "./sizing.mjs";
+import { MIN_WRITE_FILES, applySizingRules } from "./sizing.mjs";
 import { resolveRuntimes } from "./routing.mjs";
 import { freezePlan } from "./freeze.mjs";
 import { campaignTree, runDirectory } from "../run/paths.mjs";
@@ -228,7 +228,7 @@ export async function runPlanningPipeline(options) {
     stage = "sizing";
     const sizing = applySizingRules(
       { nodes: currentPlan.nodes.map(toSizingNode), justification: currentPlan.justification },
-      { nodeBudgetMs: DEFAULT_NODE_BUDGET_MS, facts: repoFacts },
+      { nodeBudgetMs: DEFAULT_NODE_BUDGET_MS, facts: repoFacts, minWriteFiles: MIN_WRITE_FILES, turnCeiling: DEFAULT_MAX_TURNS },
     );
     stage = "routing";
     const routing = resolveRuntimes(sizing.plan.nodes, {
@@ -354,7 +354,7 @@ export async function runPlanningPipeline(options) {
   let highestRiskTier;
   try {
     assembled = assembleFrozenNodes(plan);
-    logStage("sizing", { transformations: assembled.sizing.transformations.length, nodeCount: assembled.sizing.plan.nodes.length });
+    logStage("sizing", { transformations: assembled.sizing.transformations.length, nodeCount: assembled.sizing.plan.nodes.length, overheadMinutes: assembled.sizing.estimate.overheadMinutes });
     logStage("routing", { assignments: Object.keys(assembled.routing.assignments).length });
     highestRiskTier = highestOf(assembled.sizing.plan.nodes.map((node) => node.riskTier ?? RISK_TIERS[0]));
     frozen = freezePlan(frozenContractRaw(assembled.nodes), {
@@ -501,6 +501,7 @@ function toSizingNode(node) {
     taskKind: node.taskKind,
     riskTier: node.riskTier,
     objective: node.objective,
+    expectedTurns: node.expectedTurns,
     definitionOfDone: node.definitionOfDone,
     taskPacket: {
       readFiles: node.readFiles,

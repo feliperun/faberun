@@ -380,3 +380,11 @@ test("buildPlanningContract requires every input a kind names", () => {
   assert.throws(() => buildPlanningContract("spec-author", baseInputs({ notesPath: undefined })), /notesPath/);
   assert.throws(() => buildPlanningContract("spec-review", baseInputs({ specPath: undefined })), /specPath/);
 });
+
+test("a plan node may declare expectedTurns, a positive integer, and the drafter is told how to size a node", () => {
+  const node = { id: "build", objective: "Implement it", taskKind: "implement", riskTier: "standard", dependsOn: [], readFiles: ["README.md"], writeFiles: ["README.md"] };
+  assert.equal(validatePlanOutput({ nodes: [{ ...node, expectedTurns: 40 }] }).nodes[0].expectedTurns, 40);
+  assert.equal(validatePlanOutput({ nodes: [node] }).nodes[0].expectedTurns, undefined);
+  assert.throws(() => validatePlanOutput({ nodes: [{ ...node, expectedTurns: 0 }] }), /expectedTurns/u);
+  assert.throws(() => validatePlanOutput({ nodes: [{ ...node, expectedTurns: "many" }] }), /expectedTurns/u);
+});
