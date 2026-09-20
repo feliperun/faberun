@@ -34,10 +34,16 @@ export const JUDGE_RUNTIME = {
 };
 
 /**
- * @param {{id: string, cwd: string, requirements: Requirement[], maxParallel?: number}} input
+ * `judge: false` is arm D: the same orchestration with the proof as the
+ * only gate -- the configuration the product documents for a fully
+ * mechanical node, which costs no judge. Measured in the pilot: the judge
+ * was 42% of arm A's cost, and arm A's worker-only cost equalled one
+ * session's whole cost, so the two have to be measured apart.
+ *
+ * @param {{id: string, cwd: string, requirements: Requirement[], maxParallel?: number, judge?: boolean}} input
  * @returns {Record<string, unknown>}
  */
-export function faberunContract({ id, cwd, requirements, maxParallel = 3 }) {
+export function faberunContract({ id, cwd, requirements, maxParallel = 3, judge = true }) {
   return {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
     contractVersion: CONTRACT_VERSION,
@@ -77,9 +83,9 @@ export function faberunContract({ id, cwd, requirements, maxParallel = 3 }) {
         // A command proof's ref is the shell command the gate runs, not an
         // index into verification (measured in the smoke: ref "0" ran `0`).
         { id: "proof-passes", text: `The acceptance proof passes: ${requirement.comando}`, proof: { kind: "command", ref: requirement.comando } },
-        { id: "requirement-met", text: `The requirement is met as stated, without collateral change: ${requirement.titulo}`, judgment: true },
+        ...(judge ? [{ id: "requirement-met", text: `The requirement is met as stated, without collateral change: ${requirement.titulo}`, judgment: true }] : []),
       ],
-      gate: { review: "blocking", failOn: ["major", "critical"], maxRevisions: 1 },
+      gate: judge ? { review: "blocking", failOn: ["major", "critical"], maxRevisions: 1 } : false,
       timeoutSec: 2400,
     })),
   };

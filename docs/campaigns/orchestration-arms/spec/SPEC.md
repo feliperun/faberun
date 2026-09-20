@@ -1,7 +1,7 @@
 ---
 id: orchestration-arms
 title: "Does orchestrating with faberun beat one session, or one session with its own subagents?"
-version: 1.0.0
+version: 1.1.0
 status: draft
 date: 2026-09-20
 owner: Felipe Broering
@@ -20,8 +20,9 @@ The question is stated as three arms and two comparisons:
 - **Arm A, faberun.** One contract with one node per requirement, the product's closed execution packet, the write scope enforced at the tool boundary, the requirement's proof as the node's verification, a blocking cross-vendor judge with one revision, `maxParallel` 3 and the product's attempt bounds (150 requests, wall clock, stall).
 - **Arm B, single session.** One `claude -p` session, the same model and permission mode as arm A's workers, the same built-in tools, given every requirement at once with the same text, write scope, relevant files and proof command a faberun node gets, and told to run the proofs.
 - **Arm C, session with subagents.** Arm B plus the Agent tool and one paragraph telling it to delegate each requirement to a subagent, run independent ones in parallel and integrate.
+- **Arm D, faberun with the proof as the only gate.** Added after the pilot (version 1.1.0): arm A without the judge, `gate: false`, the configuration the product documents for a fully mechanical node. The pilot measured the judge at 42% of arm A's cost and arm A's worker-only cost equal to one session's whole cost, so the orchestration and the judge have to be measured apart to say which one the premium belongs to.
 
-Comparison 1 is A against B; comparison 2 is A against C. B against C is reported because it falls out for free and says whether native delegation is the cheaper half of orchestration.
+Comparison 1 is A against B; comparison 2 is A against C. B against C is reported because it falls out for free and says whether native delegation is the cheaper half of orchestration. D against B and D against C say what the orchestration costs without the judge.
 
 ## Estado medido
 
@@ -51,7 +52,7 @@ Every run of every arm starts from the same commit: the fork plus one commit add
 
 - **Interleaving.** Within one repetition the three arms run back to back in a seeded shuffled order, so a provider that drifts over the day drifts across arms rather than between them (the first spike ran one arm two hours later and measured the clock instead of the treatment).
 - **Repetitions and the band.** Arm A is the control and is repeated; its spread across repetitions is the noise band, computed with `evals/run.mjs --band`, and every comparison is judged against it with `--compare --band`. A delta inside the band is reported as "not measured", never as "no difference".
-- **Phases and budget.** *Smoke*: one requirement, one repetition, all arms, to prove the pipeline end to end. *Pilot*: five requirements, one repetition per arm, to size cost and time. *Full*: the ten requirements, three repetitions per arm, launched only if the pilot projects the total under the budget the owner sets. Spend is recorded per run in the ledger; the cap for smoke plus pilot is US$ 40, and the full round is a separate decision with the pilot's numbers in hand.
+- **Phases and budget.** *Smoke*: one requirement, one repetition, all arms, to prove the pipeline end to end. *Pilot*: five requirements, three repetitions per arm (extended from one when the first came in at a fifth of the cap), to size cost and time and to obtain a first band. *Full*: the ten requirements, two repetitions per arm and four arms, launched under the owner's standing instruction to measure this now and inside the same US$ 40 envelope (pilot spend US$ 13, full round projected at US$ 20 from pilot rates); a third repetition is a separate decision. Spend is recorded per run in the ledger.
 - **What is deliberately asymmetric.** Arm A has a judge, a write-scope boundary, a request cap of 150 per node and parallel nodes; B and C have none of that and a cap of 1000 requests for the whole session. Those are the product's mechanics and the thing under test; the comparison charges arm A the judge's cost and reports the others' out-of-scope edits.
 
 ## Hypotheses

@@ -27,14 +27,14 @@ function findRunDir(runId) {
 }
 
 /**
- * @param {{label: string, repetition: number, requirements: Requirement[]}} input
+ * @param {{label: string, repetition: number, requirements: Requirement[], arm?: "A"|"D"}} input arm D is faberun with the proof as the only gate
  * @returns {Promise<Record<string, unknown>>}
  */
-export async function runFaberunArm({ label, repetition, requirements }) {
-  const name = `${label}-A-r${repetition}`;
+export async function runFaberunArm({ label, repetition, requirements, arm = "A" }) {
+  const name = `${label}-${arm}-r${repetition}`;
   // A run id is unique per attempt: faberun refuses to reuse one whose
   // directory exists, and a refused launch leaves a stub behind.
-  const runId = `arms-${label}-a-r${repetition}-${Date.now().toString(36)}`;
+  const runId = `arms-${label}-${arm.toLowerCase()}-r${repetition}-${Date.now().toString(36)}`;
   const { dir } = prepareCheckout(name);
   const env = providerEnv(undefined, { FABERUN_HOME: EXPERIMENT_HOME });
   // A run belongs to a campaign of its checkout's project, so each arm-A
@@ -47,7 +47,7 @@ export async function runFaberunArm({ label, repetition, requirements }) {
     throw new Error(`campaign init failed in the arm A checkout: ${init.stdout}${init.stderr}`);
   }
   const baseSha = commitAll(dir, "chore(arms): campaign signal block written by faberun campaign init");
-  const contract = faberunContract({ id: runId, cwd: dir, requirements });
+  const contract = faberunContract({ id: runId, cwd: dir, requirements, judge: arm === "A" });
   const contractPath = join(RESULTS, "contracts", `${runId}.json`);
   writeJson(contractPath, contract);
   // The product's scope closure refuses a packet whose write files have an
@@ -105,12 +105,12 @@ export async function runFaberunArm({ label, repetition, requirements }) {
   const finalCheckout = finalSha ? prepareCheckout(`${name}-final`, { sha: finalSha, withProofs: false }) : { dir, baseSha };
   const scope = auditScope({ dir: finalCheckout.dir, baseSha, requirements });
   const proofs = runProofs({ dir: finalCheckout.dir, requirements });
-  const keptSha = keepFinalTree(finalCheckout.dir, `refs/arms/${label}/A-r${repetition}`);
+  const keptSha = keepFinalTree(finalCheckout.dir, `refs/arms/${label}/${arm}-r${repetition}`);
   removeCheckout(finalCheckout.dir);
   if (finalCheckout.dir !== dir) removeCheckout(dir);
 
   return {
-    arm: "A",
+    arm,
     label,
     repetition,
     runId,

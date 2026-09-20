@@ -31,7 +31,7 @@ const SEED = Number(arg("seed", "20260920"));
 /** `--force` reruns keys already in the ledger; the earlier lines stay, the analysis takes every measured one. */
 const FORCE = args.includes("--force");
 
-for (const arm of ARMS) if (!["A", "B", "C"].includes(arm)) throw new Error(`unknown arm ${arm}`);
+for (const arm of ARMS) if (!["A", "B", "C", "D"].includes(arm)) throw new Error(`unknown arm ${arm}`);
 if (!Number.isInteger(REPETITIONS) || REPETITIONS < 1) throw new Error("--repetitions needs a positive integer");
 mkdirSync(RESULTS, { recursive: true });
 mkdirSync(LOGS, { recursive: true });
@@ -52,8 +52,8 @@ for (let repetition = 1; repetition <= REPETITIONS; repetition += 1) {
     process.stdout.write(`run ${key} (${position + 1}/${order.length} of repetition ${repetition}) · ${new Date().toISOString()}\n`);
     const common = { label: LABEL, repetition, requirements: REQUIREMENTS };
     try {
-      const record = arm === "A"
-        ? await runFaberunArm(common)
+      const record = arm === "A" || arm === "D"
+        ? await runFaberunArm({ ...common, arm })
         : await runSessionArm({ ...common, arm: /** @type {"B"|"C"} */ (arm) });
       appendJsonl(LEDGER, {
         schemaVersion: 1,

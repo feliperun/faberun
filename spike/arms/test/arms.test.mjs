@@ -55,6 +55,12 @@ test("arm A's contract carries the same corpus, one node per requirement, with t
   assert.notEqual(contract.runtimes["claude-sonnet-worker"].vendor, contract.runtimes["codex-sol-judge"].vendor, "the judge is another vendor");
   assert.equal(contract.maxParallel, 3);
   assert.equal(contract.runtimes["claude-sonnet-worker"].maxConcurrent, 3);
+  const proofOnly = /** @type {any} */ (faberunContract({ id: "arms-test-d-r1", cwd: "/tmp/x", requirements, judge: false }));
+  for (const node of proofOnly.nodes) {
+    assert.equal(node.gate, false, "arm D has no judge");
+    assert.equal(node.definitionOfDone.some((item) => item.judgment === true), false, "and no judgment item that would ask for one");
+    assert.ok(node.definitionOfDone.some((item) => item.proof?.kind === "command"), "the proof stays the mechanical gate");
+  }
 });
 
 test("indicators: cost per delivered requirement is null when nothing was delivered, and medians ignore nulls", () => {

@@ -110,6 +110,6 @@ export function median(values) {
  */
 export function isMeasuredRun(run) {
   if (!run || run.error) return false;
-  if (run.arm === "A" && (run.invocations ?? 0) === 0) return false;
+  if ((run.arm === "A" || run.arm === "D") && (run.invocations ?? 0) === 0) return false;
   return true;
 }
