@@ -83,12 +83,19 @@ test("arms A and D carry the same corpus as a contract: dependencies, packet tex
     assert.ok(node.definitionOfDone.some((item) => item.judgment === true), "a judgment item makes the blocking judge run");
     assert.equal(node.definitionOfDone.filter((item) => item.proof?.kind === "verification").length, requirement.verification.length, "every verification command is a mechanical item");
   }
-  const proofOnly = /** @type {any} */ (faberunContract({ id: "arms-test-d-r1", cwd: "/tmp/x", corpus, judge: false }));
+  const proofOnly = /** @type {any} */ (faberunContract({ id: "arms-test-d-r1", cwd: "/tmp/x", corpus, arm: "D" }));
   for (const node of proofOnly.nodes) {
     assert.equal(node.gate, false, "arm D has no judge");
     assert.equal(node.definitionOfDone.some((item) => item.judgment === true), false);
   }
   assert.notEqual(withJudge.runtimes["claude-sonnet-worker"].vendor, withJudge.runtimes["codex-sol-judge"].vendor, "the judge is another vendor");
+  const cheapWriter = /** @type {any} */ (faberunContract({ id: "arms-test-e-r1", cwd: "/tmp/x", corpus, arm: "E" }));
+  assert.equal(cheapWriter.runtimeDefaults.worker, "dsh-deepseek-flash-worker");
+  assert.equal(cheapWriter.runtimes["dsh-deepseek-flash-worker"].harness, "dsh");
+  assert.equal(cheapWriter.runtimes["dsh-deepseek-flash-worker"].model, "deepseek-flash");
+  assert.equal(cheapWriter.runtimes["dsh-deepseek-flash-worker"].fallback, undefined, "no fallback: another model would contaminate the arm");
+  assert.deepEqual(cheapWriter.nodes.map((node) => node.gate), [false, false, false, false], "arm E is arm D with the writer swapped");
+  assert.deepEqual(cheapWriter.nodes.map((node) => node.taskPacket), proofOnly.nodes.map((node) => node.taskPacket), "the packets are identical to arm D's");
   const simple = /** @type {any} */ (faberunContract({ id: "arms-test-s", cwd: "/tmp/x", corpus: loadCorpusSet("simple", "CONTRACT,HOST,REPO") }));
   assert.deepEqual(simple.nodes.map((node) => node.id), ["contract", "host", "repo"], "corpus order, lower-cased ids");
 });

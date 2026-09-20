@@ -10,7 +10,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { faberunContract } from "./contract.mjs";
+import { FABERUN_ARMS, faberunContract } from "./contract.mjs";
 import { auditScope, commitAll, git, keepFinalTree, prepareCheckout, removeCheckout, runAcceptance } from "./fork.mjs";
 import { EXPERIMENT_HOME, FABERUN_CLI, LOGS, RESULTS, providerEnv, readJsonl, writeJson } from "./lib.mjs";
 
@@ -28,7 +28,7 @@ function findRunDir(runId) {
 }
 
 /**
- * @param {{label: string, repetition: number, corpus: CorpusSet, arm?: "A"|"D"}} input arm D is faberun with the proof as the only gate
+ * @param {{label: string, repetition: number, corpus: CorpusSet, arm?: "A"|"D"|"E"}} input D is the proof as the only gate; E is D with the DeepSeek Flash writer
  * @returns {Promise<Record<string, unknown>>}
  */
 export async function runFaberunArm({ label, repetition, corpus, arm = "A" }) {
@@ -48,7 +48,7 @@ export async function runFaberunArm({ label, repetition, corpus, arm = "A" }) {
     throw new Error(`campaign init failed in the arm ${arm} checkout: ${init.stdout}${init.stderr}`);
   }
   const baseSha = commitAll(dir, "chore(arms): campaign signal block written by faberun campaign init");
-  const contract = faberunContract({ id: runId, cwd: dir, corpus, judge: arm === "A" });
+  const contract = faberunContract({ id: runId, cwd: dir, corpus, arm });
   const contractPath = join(RESULTS, "contracts", `${runId}.json`);
   writeJson(contractPath, contract);
   // The product's scope closure refuses a packet whose write files have an
@@ -119,6 +119,7 @@ export async function runFaberunArm({ label, repetition, corpus, arm = "A" }) {
     repetition,
     runId,
     runDir,
+    workerModel: FABERUN_ARMS[arm].model,
     scopeAcknowledged: acknowledged,
     exitCode: run.status,
     startedAt,

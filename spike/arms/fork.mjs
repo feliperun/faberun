@@ -15,6 +15,16 @@ import { ROOT, WORKTREES } from "./lib.mjs";
 /** @typedef {import("./corpus.mjs").CorpusSet} CorpusSet */
 
 const GIT_IDENTITY = ["-c", "user.name=orchestration-arms", "-c", "user.email=arms@faberun.invalid"];
+/**
+ * The driver's bookkeeping commits run with no hooks: a snapshot of an arm's
+ * tree has to record whatever the arm left, and a checkout with node_modules
+ * carries husky's commitlint and `npm run check` (measured 2026-09-20: the
+ * complex round's four snapshot commits were all refused for their message
+ * type, and the measurement of each arm was lost with them). An empty hooks
+ * directory of the experiment's own is how git is told there are none.
+ */
+const NO_HOOKS = join(WORKTREES, ".no-hooks");
+const COMMIT = [...GIT_IDENTITY, "-c", `core.hooksPath=${NO_HOOKS}`, "commit", "-q", "-m"];
 
 /** @param {string[]} args @param {string} [cwd] @returns {string} */
 export function git(args, cwd = ROOT) {
@@ -58,7 +68,7 @@ export function restoreFiles(dir, corpus) {
 export function prepareCheckout(name, corpus, options = {}) {
   const dir = join(WORKTREES, name);
   removeCheckout(dir);
-  mkdirSync(WORKTREES, { recursive: true });
+  mkdirSync(NO_HOOKS, { recursive: true });
   git(["worktree", "add", "--detach", dir, options.sha ?? forkSha(corpus.fork)]);
   if (corpus.npmCi) {
     const install = spawnSync("npm", ["ci", "--no-audit", "--no-fund"], { cwd: dir, encoding: "utf8", timeout: 300_000 });
@@ -67,7 +77,7 @@ export function prepareCheckout(name, corpus, options = {}) {
   if (corpus.visibleProofs) {
     restoreFiles(dir, corpus);
     git(["add", "-A", "--", ...corpus.restore.map((item) => item.path)], dir);
-    git([...GIT_IDENTITY, "commit", "-q", "-m", "test(corpus): acceptance proofs for the corpus requirements"], dir);
+    git([...COMMIT, "test(corpus): acceptance proofs for the corpus requirements"], dir);
   }
   return { dir, baseSha: git(["rev-parse", "HEAD"], dir) };
 }
@@ -99,7 +109,7 @@ export function commitAll(dir, message) {
   git(["add", "-A"], dir);
   // `diff --quiet` answers with its exit code, so it does not go through `git()`, which throws on non-zero.
   const dirty = spawnSync("git", ["diff", "--cached", "--quiet"], { cwd: dir }).status !== 0;
-  if (dirty) git([...GIT_IDENTITY, "commit", "-q", "-m", message], dir);
+  if (dirty) git([...COMMIT, message], dir);
   return git(["rev-parse", "HEAD"], dir);
 }
 

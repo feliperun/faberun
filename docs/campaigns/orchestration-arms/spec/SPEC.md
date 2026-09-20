@@ -1,7 +1,7 @@
 ---
 id: orchestration-arms
 title: "Does orchestrating with faberun beat one session, or one session with its own subagents?"
-version: 1.2.0
+version: 1.3.0
 status: draft
 date: 2026-09-20
 owner: Felipe Broering
@@ -22,7 +22,9 @@ The question is stated as three arms and two comparisons:
 - **Arm C, session with subagents.** Arm B plus the Agent tool and one paragraph telling it to delegate each requirement to a subagent, run independent ones in parallel and integrate.
 - **Arm D, faberun with the proof as the only gate.** Added after the pilot (version 1.1.0): arm A without the judge, `gate: false`, the configuration the product documents for a fully mechanical node. The pilot measured the judge at 42% of arm A's cost and arm A's worker-only cost equal to one session's whole cost, so the orchestration and the judge have to be measured apart to say which one the premium belongs to.
 
-Comparison 1 is A against B; comparison 2 is A against C. B against C is reported because it falls out for free and says whether native delegation is the cheaper half of orchestration. D against B and D against C say what the orchestration costs without the judge.
+- **Arm E, faberun with a cheaper writer.** Added with the complex round (version 1.3.0), at the owner's request: arm D with the worker swapped for DeepSeek Flash through the dsh harness, no fallback, the same packets, the same proof-only gate. The owner's hypothesis is that a writer whose list price is 13x lower on input and 17x lower on output than the frontier models (deepseek-flash 0.15 / 0.003 / 0.60 USD per MTok against claude-sonnet-5 2 / 0.2 / 10 and gpt-5.6-sol 4 / 0.4 / 20) delivers the corpus for less in total even if it spends more tokens and more attempts getting there, so that depending only on Claude or Codex is the expensive choice. dsh reports no cost; the product prices its token counts from the vendored models.dev seed, the same rates the CLI-reported Claude cost is built from.
+
+Comparison 1 is A against B; comparison 2 is A against C. B against C is reported because it falls out for free and says whether native delegation is the cheaper half of orchestration. D against B and D against C say what the orchestration costs without the judge. E against D is the cheaper-writer question with everything else held equal; E against A, B and C say whether the cheaper writer beats every frontier configuration.
 
 ## Estado medido
 
@@ -70,14 +72,15 @@ The acceptance is hidden from the arms and run by the driver on the final tree: 
 | H4 | faberun finishes the corpus in less wall clock than B (parallel nodes against one context) | A→B | outside the band |
 | H5 | the session arms change files outside the write scopes and faberun does not | all | count |
 | H6 | every effect claimed above is larger than arm A's own noise band | all | direct |
+| H7 | a cheaper writer delivers for less in total: `costPerDeliveredRequirementUsd` E below D, and below A, B and C, even with more tokens and attempts | E→D, E→A, E→B, E→C | outside the band, and E delivers at least as many acceptance checks as D |
 
 H6 is the honesty hypothesis and it decides what the report may say.
 
-On the complex corpus the same six are re-tested with `proofsPassed` read as acceptance checks passed, and H4 is the one the corpus was chosen for: two of the four nodes are independent of each other and the product runs them in parallel while a session does them in sequence, so if orchestration has a wall-clock advantage on dependent work this is where it shows. H5 gains teeth too: 26 files of write scope across `src/` is where a session drifts.
+On the complex corpus the same six are re-tested, plus H7, with `proofsPassed` read as acceptance checks passed, and H4 is the one the corpus was chosen for: two of the four nodes are independent of each other and the product runs them in parallel while a session does them in sequence, so if orchestration has a wall-clock advantage on dependent work this is where it shows. H5 gains teeth too: 26 files of write scope across `src/` is where a session drifts.
 
 ## Kill criteria
 
-Discard the premise, without a second attempt, if H3 fails in the full round: faberun delivers fewer proofs than a single session on the same corpus. Report "not measured" and stop, if the full round's effects all sit inside the band: the answer is more repetitions or a harder corpus, not another hypothesis. Abort the pilot and report if a session arm cannot complete the corpus at all (a cap or a crash) — that is a finding about the arm, not noise.
+Discard the premise, without a second attempt, if H3 fails in the full round: faberun delivers fewer proofs than a single session on the same corpus. H7 is refuted for this corpus, whatever the price, if arm E delivers fewer acceptance checks than arm D: a cheaper writer that does not finish the work has no cost per delivered requirement to compare. Report "not measured" and stop, if the full round's effects all sit inside the band: the answer is more repetitions or a harder corpus, not another hypothesis. Abort the pilot and report if a session arm cannot complete the corpus at all (a cap or a crash) — that is a finding about the arm, not noise.
 
 ## Requirements
 
@@ -123,3 +126,5 @@ The pilot yields one ledger line per arm with all seven metrics, a validated con
 - **Subagent spend.** Whether a claude session's `total_cost_usd` includes its subagents' calls is unverified; the driver records the session meter's per-request sum beside it so a gap is visible, and the smoke checks it.
 - **A session that never ends.** The 1000-request cap ends it; the run is then recorded with what it delivered.
 - **Memory on the host.** A live campaign was running its own verification while this was built; arms run one at a time and arm A's `maxParallel` is 3.
+- **The subscription's session limit.** Measured 2026-09-20 17:00 BRT: the first launch of the complex round hit the Claude subscription's session limit ("You've hit your session limit", reset 18:40) after the pilot and full round had consumed the window; arms B, D and A failed inside two minutes with nothing spent, arm C spent US$ 1.86 on a subagent before being cut. A run whose result is that message is not a measurement and is rerun after the reset; arm E does not share the limit.
+- **The checkout's own hooks.** Measured the same day: a checkout with `npm ci` carries husky's commitlint and `npm run check`, which refused the driver's snapshot commits and lost the measurement of all four arms; the driver's bookkeeping commits now run with an empty hooks directory.
