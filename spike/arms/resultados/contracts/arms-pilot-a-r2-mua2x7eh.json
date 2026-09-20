@@ -1,0 +1,370 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "arms-pilot-a-r2-mua2x7eh",
+  "campaignId": "orchestration-arms",
+  "goal": "Arm A of the orchestration-arms campaign: 5 open corpus requirement(s), one node each",
+  "cwd": "/Users/frb/dev/frb/skills/.claude/worktrees/cost-and-cache-improvements/spike/.runs/worktrees/arms/pilot-A-r2",
+  "runtimeDefaults": {
+    "worker": "claude-sonnet-worker",
+    "judge": "codex-sol-judge"
+  },
+  "runtimes": {
+    "claude-sonnet-worker": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic-sonnet",
+      "permissionMode": "bypassPermissions",
+      "tier": 1,
+      "costRank": 1,
+      "maxConcurrent": 3
+    },
+    "codex-sol-judge": {
+      "harness": "codex",
+      "model": "gpt-5.6-sol",
+      "reasoning": "high",
+      "vendor": "openai-sol",
+      "sandbox": "read-only",
+      "tier": 1,
+      "costRank": 1
+    }
+  },
+  "maxParallel": 3,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 3600,
+  "nodes": [
+    {
+      "id": "contract",
+      "type": "backend",
+      "phase": "corpus",
+      "dependsOn": [],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Refuse a node whose Definition of Done repeats an item id",
+        "instructions": [
+          "A Definition of Done item's `id` is the only handle a judge has for the item it addresses and the key the controller's proof results are matched by, so two items sharing an id inside one node make the checklist ambiguous and silently bind one item to another item's recorded result. Today `validateDefinitionOfDone` in `src/contract/definition-of-done.mjs` validates each item in isolation and accepts an array in which two items declare the same `id`. Change it so that, while it maps the array, it remembers every id it has already accepted and refuses any later item whose `id` repeats one, throwing a `TypeError` whose message contains the repeated id. The check belongs to the single array the function is handed, which is exactly one node's checklist, so the same id appearing in two different nodes stays legal. Every existing rule and message must stay intact: a present but malformed id is still refused by `requireId`, an item still needs `proof` or `judgment: true`, and unknown fields are still rejected. `src/contract/index.mjs` and `src/plan/template.mjs` already call this validator once per node, so no other file needs to change. `spike/corpus/provas/CONTRACT.test.mjs` proves it: at this commit the duplicate is accepted and the proof fails, and once the duplicate is refused the proof passes; run it with `node --test spike/corpus/provas/CONTRACT.test.mjs`.",
+          "Never edit or delete anything under spike/corpus/provas/: those are the acceptance proofs, and the controller runs them after you report.",
+          "Return the worker result as the only JSON object of your final message."
+        ],
+        "readFiles": [
+          "src/contract/definition-of-done.mjs",
+          "src/contract/index.mjs",
+          "src/contract/assert.mjs",
+          "test/contract/contract.test.mjs",
+          "spike/corpus/provas/CONTRACT.test.mjs"
+        ],
+        "writeFiles": [
+          "src/contract/definition-of-done.mjs"
+        ],
+        "symbols": [],
+        "decisions": [],
+        "nonGoals": [
+          "Do not change files outside the write scope."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/installs/nodejs/26.8.1/bin/node",
+              "--test",
+              "spike/corpus/provas/CONTRACT.test.mjs"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "proof-passes",
+          "text": "The acceptance proof passes: node --test spike/corpus/provas/CONTRACT.test.mjs",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test spike/corpus/provas/CONTRACT.test.mjs"
+          }
+        },
+        {
+          "id": "requirement-met",
+          "text": "The requirement is met as stated, without collateral change: Refuse a node whose Definition of Done repeats an item id",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "timeoutSec": 2400
+    },
+    {
+      "id": "host",
+      "type": "backend",
+      "phase": "corpus",
+      "dependsOn": [],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "findExecutable answers whether the path is a runnable binary, not whether it exists",
+        "instructions": [
+          "`findExecutable` in `src/host/preflight.mjs` is the only answer faberun gives to \"is this binary on this machine?\": `doctor` renders it as the `binary codex` lines, the banner counts the detected harnesses with it, and `src/cli/skills.mjs` decides with it whether a skill's binary is installed. Today it answers with `existsSync` alone, so a directory named `codex` and a file with no execute bit are both reported as present binaries, and the operator learns otherwise only when the spawn fails with EACCES or EISDIR. The requirement is that the lookup answer whether the path is a regular file the current process can execute, in both spellings the function already accepts: a bare name searched on `PATH`, and a path that already contains a separator. A file with no execute bit, a directory (even a traversable one, which passes X_OK) and a path that does not exist are not binaries; an executable file is, including one reached through a symlink that points at it. This is the same criterion the `zcode` adapter already applies in `resolvesOnPath` (`accessSync` with `constants.X_OK`), plus `statSync().isFile()` to exclude directories and broken links. `spike/corpus/provas/HOST.test.mjs` proves it by building a temporary `PATH` that holds a directory named like the command, a 0644 file and a 0755 file, and requiring `null` for the directory and the non-executable file and the path itself for the executable, on both the bare-name and the absolute-path branches. On the fork the directory assertion fails: the directory named like the command is returned as a binary path. Only `src/host/preflight.mjs` changes.",
+          "Never edit or delete anything under spike/corpus/provas/: those are the acceptance proofs, and the controller runs them after you report.",
+          "Return the worker result as the only JSON object of your final message."
+        ],
+        "readFiles": [
+          "src/host/preflight.mjs",
+          "test/host/preflight.test.mjs",
+          "src/harnesses/zcode/index.mjs",
+          "src/cli.mjs",
+          "src/cli/skills.mjs",
+          "spike/corpus/provas/HOST.test.mjs"
+        ],
+        "writeFiles": [
+          "src/host/preflight.mjs"
+        ],
+        "symbols": [],
+        "decisions": [],
+        "nonGoals": [
+          "Do not change files outside the write scope."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/installs/nodejs/26.8.1/bin/node",
+              "--test",
+              "spike/corpus/provas/HOST.test.mjs"
+            ],
+            "timeoutSec": 180
+          }
+        ],
+        "scopeAcknowledged": [
+          "test/cli/cli.test.mjs"
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "proof-passes",
+          "text": "The acceptance proof passes: node --test spike/corpus/provas/HOST.test.mjs",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test spike/corpus/provas/HOST.test.mjs"
+          }
+        },
+        {
+          "id": "requirement-met",
+          "text": "The requirement is met as stated, without collateral change: findExecutable answers whether the path is a runnable binary, not whether it exists",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "timeoutSec": 2400
+    },
+    {
+      "id": "notify",
+      "type": "backend",
+      "phase": "corpus",
+      "dependsOn": [],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "appendInbox refuses an entry with no summary",
+        "instructions": [
+          "`appendInbox` in `src/notify/index.mjs` is the only writer of `<runs-dir>/inbox.jsonl`, and its documented `InboxEntry` schema carries a `summary` string beside `dedupeKey`. Today it throws for a missing or empty `dedupeKey` but accepts an event with no `summary`; because `JSON.stringify` drops an `undefined` value, the committed line ends up with no `summary` key at all. That breaks the readers: `renderAgentSignalBlock` in `src/repo/signal.mjs` hands `latest.summary` to a helper that calls `.split` on it, so the managed AGENTS.md block throws instead of rendering the attention line. The requirement is that `appendInbox` refuse an event whose `summary` is not a non-empty string with a `TypeError` whose message names the summary, before anything is read or appended, exactly as it already refuses an empty `dedupeKey`. The implementer must verify that every existing caller already passes a summary, so the new refusal breaks no working path: the callers are `src/engine/notify-queue.mjs` and `src/cli/campaign.mjs`, and `test/notify/inbox.test.mjs` pins the inbox schema and the dedupe behaviour that must survive unchanged. `spike/corpus/provas/NOTIFY.test.mjs` proves it in fresh temp directories: an event with no summary and an event with an empty summary both throw and leave no `inbox.jsonl`, while an event with a summary appends an entry whose `summary` is present and equal to the one given.",
+          "Never edit or delete anything under spike/corpus/provas/: those are the acceptance proofs, and the controller runs them after you report.",
+          "Return the worker result as the only JSON object of your final message."
+        ],
+        "readFiles": [
+          "src/notify/index.mjs",
+          "src/engine/notify-queue.mjs",
+          "src/cli/campaign.mjs",
+          "src/repo/signal.mjs",
+          "test/notify/inbox.test.mjs",
+          "spike/corpus/provas/NOTIFY.test.mjs"
+        ],
+        "writeFiles": [
+          "src/notify/index.mjs"
+        ],
+        "symbols": [],
+        "decisions": [],
+        "nonGoals": [
+          "Do not change files outside the write scope."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/installs/nodejs/26.8.1/bin/node",
+              "--test",
+              "spike/corpus/provas/NOTIFY.test.mjs"
+            ],
+            "timeoutSec": 180
+          }
+        ],
+        "scopeAcknowledged": [
+          "test/cli/cli.test.mjs"
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "proof-passes",
+          "text": "The acceptance proof passes: node --test spike/corpus/provas/NOTIFY.test.mjs",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test spike/corpus/provas/NOTIFY.test.mjs"
+          }
+        },
+        {
+          "id": "requirement-met",
+          "text": "The requirement is met as stated, without collateral change: appendInbox refuses an entry with no summary",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "timeoutSec": 2400
+    },
+    {
+      "id": "repo",
+      "type": "backend",
+      "phase": "corpus",
+      "dependsOn": [],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "O arquivo nomeado em core.excludesFile é uma fonte de ignore do snapshot da workspace",
+        "instructions": [
+          "`captureWorkspaceSnapshot`, em `src/repo/workspace.mjs`, fingerprinta as fontes de ignore que decidem o que o snapshot enxerga (o `.git/config`, o `.git/info/exclude` e cada `.gitignore` da árvore), de modo que um worker que edite as regras no meio do nó não consiga esconder uma escrita do diff. Falta a fonte que o próprio Git consulta por último: o arquivo que a configuração do repositório nomeia em `core.excludesFile`. O Git o honra ao enumerar a workspace com `--exclude-standard`, então uma única edição nesse arquivo esconde uma escrita nova e o nó passa com a escrita invisível. O requisito: ao capturar as fontes de ignore, resolver o `core.excludesFile` efetivo (caminho absoluto, ou relativo resolvido contra a raiz quando a configuração o nomeia assim) e incluir o conteúdo desse arquivo no fingerprint, pelo mesmo mecanismo que já registra `.git/info/exclude` — ele pode estar fora da árvore, então precisa entrar como caminho efetivo do Git e não sofrer a checagem de contenção da workspace. Um arquivo ausente é ignorado, sem erro, como hoje. A prova cria um repositório temporário em `os.tmpdir()` cuja configuração aponta `core.excludesFile` para um arquivo fora do worktree, tira o snapshot inicial, edita o arquivo apontado (uma vez com uma escrita escondida e outra sem nada a esconder) e exige que `compareWorkspaceSnapshot` lance `snapshot_ignore_changed` nas duas vezes. No fork as duas asserções falham porque a comparação volta limpa: a edição é invisível.",
+          "Never edit or delete anything under spike/corpus/provas/: those are the acceptance proofs, and the controller runs them after you report.",
+          "Return the worker result as the only JSON object of your final message."
+        ],
+        "readFiles": [
+          "src/repo/workspace.mjs",
+          "src/repo/declared-paths.mjs",
+          "src/contract/verification.mjs",
+          "test/contract/verification.test.mjs",
+          "spike/corpus/provas/REPO.test.mjs"
+        ],
+        "writeFiles": [
+          "src/repo/workspace.mjs"
+        ],
+        "symbols": [],
+        "decisions": [],
+        "nonGoals": [
+          "Do not change files outside the write scope."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/installs/nodejs/26.8.1/bin/node",
+              "--test",
+              "spike/corpus/provas/REPO.test.mjs"
+            ],
+            "timeoutSec": 180
+          }
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "proof-passes",
+          "text": "The acceptance proof passes: node --test spike/corpus/provas/REPO.test.mjs",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test spike/corpus/provas/REPO.test.mjs"
+          }
+        },
+        {
+          "id": "requirement-met",
+          "text": "The requirement is met as stated, without collateral change: O arquivo nomeado em core.excludesFile é uma fonte de ignore do snapshot da workspace",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "timeoutSec": 2400
+    },
+    {
+      "id": "run",
+      "type": "backend",
+      "phase": "corpus",
+      "dependsOn": [],
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "O gc recolhe a árvore de worktrees do run junto com o diretório do run, e registra as duas remoções",
+        "instructions": [
+          "`runGarbageCollection`, em `src/run/disk-gc.mjs`, remove `<runsDir>/<runId>` de um run elegível e para aí. A árvore de worktrees daquele run vive em `<runsDir>/worktrees/<runId>` — um checkout completo por tentativa, o maior artefato que um run terminado deixa no disco — e a forma desse caminho pertence a `src/run/paths.mjs`, que já resolve `attemptWorktreePath` e `candidateWorktreePath`. Como o propósito do gc é recuperar espaço sob ENOSPC, deixar essa árvore para trás não devolve o disco que motivou a coleta, e o `gc.jsonl` registra só o diretório do run, como se nada tivesse sobrado. O requisito: ao coletar um run, remover também a árvore `<runsDir>/worktrees/<runId>` e registrar cada remoção no `gc.jsonl`, porque a invariante declarada do módulo é que nenhuma remoção é silenciosa; worktrees de um run não coletado não podem ser tocados. A forma do caminho deve sair de `src/run/paths.mjs`, e a remoção e o registro, de `src/run/disk-gc.mjs`. A prova cria um `.runs` temporário em `os.tmpdir()` com um run terminado e um run que ainda tem um nó não-terminal, cada um com sua árvore de worktree no caminho que o módulo de paths define, roda `runGarbageCollection` com o limiar simulado e exige que a árvore do run coletado desapareça, que a do run não coletado permaneça e que o `gc.jsonl` nomeie a remoção da árvore. No fork as duas asserções de remoção falham: só o diretório do run é removido e registrado.",
+          "Never edit or delete anything under spike/corpus/provas/: those are the acceptance proofs, and the controller runs them after you report.",
+          "Return the worker result as the only JSON object of your final message."
+        ],
+        "readFiles": [
+          "src/run/disk-gc.mjs",
+          "src/run/paths.mjs",
+          "test/host/preflight.test.mjs",
+          "test/run/paths.test.mjs",
+          "spike/corpus/provas/RUN.test.mjs"
+        ],
+        "writeFiles": [
+          "src/run/disk-gc.mjs",
+          "src/run/paths.mjs"
+        ],
+        "symbols": [],
+        "decisions": [],
+        "nonGoals": [
+          "Do not change files outside the write scope."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "/Users/frb/.asdf/installs/nodejs/26.8.1/bin/node",
+              "--test",
+              "spike/corpus/provas/RUN.test.mjs"
+            ],
+            "timeoutSec": 180
+          }
+        ],
+        "scopeAcknowledged": [
+          "test/cli/cli.test.mjs"
+        ]
+      },
+      "definitionOfDone": [
+        {
+          "id": "proof-passes",
+          "text": "The acceptance proof passes: node --test spike/corpus/provas/RUN.test.mjs",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test spike/corpus/provas/RUN.test.mjs"
+          }
+        },
+        {
+          "id": "requirement-met",
+          "text": "The requirement is met as stated, without collateral change: O gc recolhe a árvore de worktrees do run junto com o diretório do run, e registra as duas remoções",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "timeoutSec": 2400
+    }
+  ]
+}
