@@ -18,7 +18,7 @@ import { validateVerificationCommands } from "../contract/verification.mjs";
 /** @typedef {"draft"|"review"|"revise"|"spec-author"|"spec-review"} PlanningKind */
 /** @typedef {"low"|"standard"|"high"} RiskTier */
 /** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, specPath?: string, repoFactsPath?: string, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
-/** @typedef {{id: string, objective: string, taskKind: string, riskTier: RiskTier, dependsOn: string[], readFiles: string[], writeFiles: string[], definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], verification: import("../contract/verification.mjs").VerificationCommand[]}} PlanOutputNode */
+/** @typedef {{id: string, objective: string, taskKind: string, riskTier: RiskTier, dependsOn: string[], readFiles: string[], writeFiles: string[], scopeAcknowledged: string[], definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], verification: import("../contract/verification.mjs").VerificationCommand[]}} PlanOutputNode */
 /** @typedef {{nodes: PlanOutputNode[], justification?: string}} PlanOutput */
 /** @typedef {{id: string, severity: "critical"|"major"|"minor", nodeId: string, text: string}} PlanFindingOutput */
 
@@ -70,8 +70,18 @@ const REQUIRED_INPUTS = Object.freeze({
 // run had already succeeded. The id charset is requireId's
 // (contract/assert.mjs) verbatim, because an id that is present but invalid
 // fails that same validator just as late.
-const PLAN_OUTPUT_SHAPE = '{nodes: [{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, definitionOfDone: [{id, text, proof?: {kind: "command"|"path"|"verification", ref}, judgment?: true}], verification: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}]}], justification?}; every id in it (node and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly "." or ".."';
+const PLAN_OUTPUT_SHAPE = '{nodes: [{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: [{id, text, proof?: {kind: "command"|"path"|"verification", ref}, judgment?: true}], verification: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}]}], justification?}; every id in it (node and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly "." or ".."';
 const FINDINGS_SHAPE = "[{id, severity, nodeId, text}]";
+
+// The rule every planned packet is held to at freeze time, worded from
+// AGENTS.md's Faberun protocol and src/repo/scope-closure.mjs ("reading it
+// cannot fix it"): a first draft that ignores it produces a plan that fails
+// the pipeline's in-round contract check a round later than a draft that
+// could have written the write set honestly.
+const SCOPE_CLOSURE_RULE = Object.freeze([
+  "Each node's writeFiles lists what the change forces to change, not only what it intends to: the importers a written module drags along, the schema validator for a field the node adds, the registry that field is recorded in, and any reader the node's own instructions tell the worker to touch.",
+  "Scope closure refuses a task packet whose transitive imports reach an undeclared file, so an importer the change breaks belongs in writeFiles or scopeAcknowledged — readFiles only permits reading, and a broken importer can only be repaired by a write.",
+]);
 
 /** @type {Record<PlanningKind, string>} */
 const OBJECTIVES = Object.freeze({
@@ -86,12 +96,13 @@ const OBJECTIVES = Object.freeze({
 const INSTRUCTIONS = Object.freeze({
   draft: [
     `Consult ${TASK_KIND_CATALOGUE_PATH}'s exported TASK_KINDS before classifying any node; taskKind must be one of that catalogue and riskTier must be one of ${RISK_TIERS.join(", ")}.`,
+    ...SCOPE_CLOSURE_RULE,
     `Return exactly one worker-result JSON object. Put the plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan. taskKind and riskTier are the only classification a draft makes; a routing table assigns a runtime afterward, from those two fields alone.",
   ],
   revise: [
     "Read the findings and resolve every one; do not leave a critical or major finding unaddressed.",
-    `Consult ${TASK_KIND_CATALOGUE_PATH}'s exported TASK_KINDS before classifying any node; taskKind must be one of that catalogue and riskTier must be one of ${RISK_TIERS.join(", ")}.`,
+    ...SCOPE_CLOSURE_RULE,
     `Return exactly one worker-result JSON object. Put the revised plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan.",
   ],
@@ -196,7 +207,7 @@ export function buildPlanningContract(kind, inputs) {
 }
 
 const PLAN_FIELDS = new Set(["nodes", "justification"]);
-const PLAN_NODE_FIELDS = new Set(["id", "objective", "taskKind", "riskTier", "dependsOn", "readFiles", "writeFiles", "definitionOfDone", "verification"]);
+const PLAN_NODE_FIELDS = new Set(["id", "objective", "taskKind", "riskTier", "dependsOn", "readFiles", "writeFiles", "scopeAcknowledged", "definitionOfDone", "verification"]);
 
 /**
  * Validate a draft or revise worker's `output.plan`. Rejects a node naming a
@@ -232,6 +243,14 @@ export function validatePlanOutput(plan) {
     requireStringArray(readFiles, `${label}.readFiles`);
     const writeFiles = nodeRecord.writeFiles ?? [];
     requireStringArray(writeFiles, `${label}.writeFiles`);
+    // A node that reaches an importer it must not change says so here. Without
+    // this field the drafter is told (INSTRUCTIONS, draft/revise) to answer a
+    // scope-closure finding with `writeFiles or scopeAcknowledged` and has no
+    // way to say the second, so the only expressible answer is the wrong one:
+    // declaring a read-only importer writable. Measured 2026-09-20 -- a revise
+    // round could not resolve the finding the preflight had just raised.
+    const scopeAcknowledged = nodeRecord.scopeAcknowledged ?? [];
+    requireStringArray(scopeAcknowledged, `${label}.scopeAcknowledged`);
     const definitionOfDone = validateDefinitionOfDone(nodeRecord.definitionOfDone ?? [], `${label}.definitionOfDone`);
     const verification = validateVerificationCommands(nodeRecord.verification ?? [], `${label}.verification`);
     return /** @type {PlanOutputNode} */ ({
@@ -242,6 +261,7 @@ export function validatePlanOutput(plan) {
       dependsOn: /** @type {string[]} */ (dependsOn),
       readFiles: /** @type {string[]} */ (readFiles),
       writeFiles: /** @type {string[]} */ (writeFiles),
+      scopeAcknowledged: /** @type {string[]} */ (scopeAcknowledged),
       definitionOfDone,
       verification,
     });

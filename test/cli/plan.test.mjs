@@ -34,6 +34,51 @@ function initializeGit(cwd) {
 }
 
 /**
+ * A plan whose write set drags along a file it does not declare: the test
+ * named after the entry point runs src/cli.mjs, which imports
+ * src/plan/thing.mjs, so scope closure refuses the packet — the exact shape
+ * that killed the live pipeline between the routing and freeze stage lines
+ * on 2026-09-20. `closed` declares the dragged-along test, the fix a revise
+ * round is expected to make once the in-round contract check reports it.
+ *
+ * @param {{closed?: boolean}} [options]
+ * @returns {Record<string, unknown>}
+ */
+function scopeGapPlan({ closed = false } = {}) {
+  return {
+    nodes: [
+      {
+        id: "thing",
+        objective: "Implement the thing",
+        taskKind: "implement",
+        riskTier: "standard",
+        dependsOn: [],
+        readFiles: ["src/cli.mjs"],
+        writeFiles: closed ? ["src/plan/thing.mjs", "test/cli/cli.test.mjs"] : ["src/plan/thing.mjs"],
+        definitionOfDone: [{ id: "works", text: "It works", proof: { kind: "path", ref: "src/plan/thing.mjs" } }],
+        verification: [],
+      },
+      {
+        id: "docs",
+        objective: "Document the feature",
+        taskKind: "docs",
+        riskTier: "low",
+        dependsOn: [],
+        readFiles: ["docs/spec.md"],
+        writeFiles: ["docs/spec.md"],
+        definitionOfDone: [{ id: "documented", text: "Documented", proof: { kind: "path", ref: "docs/spec.md" } }],
+        verification: [],
+      },
+    ],
+  };
+}
+
+/** @param {string} plansDir @returns {Array<Record<string, unknown>>} the pipeline.jsonl stage lines */
+function readPipelineStages(plansDir) {
+  return readFileSync(join(plansDir, "pipeline.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+}
+
+/**
  * A minimal, schema-valid draft/revise plan: two independent nodes, each with
  * its own mechanical Definition of Done proof and disjoint writeFiles, so
  * sizing's merge rules leave both in place (a single-node plan is refused).
@@ -74,17 +119,25 @@ function twoNodePlan({ highRisk = false } = {}) {
  * A temp checkout with everything a planning contract's readFiles may name,
  * two replay runtimes (distinct vendors, one per role) and an active
  * campaign. `reviewMode` picks the review recording: "clean" never finds a
- * critical, "critical" always does.
+ * critical, "critical" always does. `plans` lists the plan each worker
+ * invocation emits, in order (the draft, then one revise output per later
+ * invocation); the default repeats the same valid two-node plan.
  *
  * @param {string} campaignId
- * @param {{reviewMode?: "clean"|"critical", highRisk?: boolean}} [options]
+ * @param {{reviewMode?: "clean"|"critical", highRisk?: boolean, plans?: unknown[]}} [options]
  * @returns {{cwd: string, campaignId: string, runtimes: Record<string, Record<string, unknown>>, runtimeDefaults: {worker: string, judge: string}}}
  */
-function setup(campaignId, { reviewMode = "clean", highRisk = false } = {}) {
+function setup(campaignId, { reviewMode = "clean", highRisk = false, plans } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), "plan-pipeline-"));
   writeFixtureFile(cwd, TASK_KIND_CATALOGUE_PATH, "export const TASK_KINDS = [];\n");
   writeFixtureFile(cwd, "src/index.mjs", "export default 1;\n");
   writeFixtureFile(cwd, "docs/spec.md", "# Feature 42\n\nA legacy spec with no front matter, accepted outright.\n");
+  // The scope-closure pair a planned write set is checked against: the entry
+  // point imports the module a scope-gap plan writes, and the test named
+  // after the entry runs it — the dragged-along obligation detector 1 names,
+  // in the shape that cost the live run on 2026-09-20.
+  writeFixtureFile(cwd, "src/cli.mjs", "import { thing } from \"./plan/thing.mjs\";\nexport default thing;\n");
+  writeFixtureFile(cwd, "test/cli/cli.test.mjs", "new URL(\"../../src/cli.mjs\", import.meta.url);\n");
   initializeGit(cwd);
 
   const runsDir = runsRoot(cwd);
@@ -94,10 +147,8 @@ function setup(campaignId, { reviewMode = "clean", highRisk = false } = {}) {
   // order and persisted in a `.cursor` sidecar next to the recording — so a
   // runtime reused across draft and revise, or across two pipeline calls in
   // one test, needs one line per invocation it will actually serve.
-  const draftLine = { envelope: envelope({ result: JSON.stringify({
-    status: "done", summary: "drafted", verification: [], artifacts: [], missingContext: [],
-    output: { plan: twoNodePlan({ highRisk }) },
-  }) }) };
+  const invocationBudget = 10;
+  const workerPlans = plans ?? Array(invocationBudget).fill(twoNodePlan({ highRisk }));
   const reviewFindings = reviewMode === "critical"
     ? [{ id: "F1", severity: "critical", nodeId: "build", text: "the plan is missing a rollback path" }]
     : [];
@@ -106,8 +157,10 @@ function setup(campaignId, { reviewMode = "clean", highRisk = false } = {}) {
     output: { findings: reviewFindings },
   }) }) };
   const recordingDir = mkdtempSync(join(tmpdir(), "plan-pipeline-rec-"));
-  const invocationBudget = 10;
-  const draftRecording = writeRecording(recordingDir, Array(invocationBudget).fill(draftLine), "draft.jsonl");
+  const draftRecording = writeRecording(recordingDir, workerPlans.map((plan) => ({ envelope: envelope({ result: JSON.stringify({
+    status: "done", summary: "drafted", verification: [], artifacts: [], missingContext: [],
+    output: { plan },
+  }) }) })), "draft.jsonl");
   const reviewRecording = writeRecording(recordingDir, Array(invocationBudget).fill(reviewLine), "review.jsonl");
 
   const runtimes = {
@@ -263,6 +316,80 @@ test("contested plan writes no contract", async () => {
   assert.equal(result.status, "contested");
   assert.equal(result.round, 2);
   assert.ok(result.findings.some((finding) => finding.severity === "critical"));
+  assert.equal(existsSync(join(result.plansDir, "contract.json")), false);
+  const journal = readJournal(campaignTree(cwd, campaignId));
+  assert.ok(journal.some((entry) => entry.type === "open-question" && entry.questionId === "plan-build-contested"));
+});
+
+test("a plan that cannot freeze is caught while a revise round remains, and the revise closes the scope", async () => {
+  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("preflight-demo", {
+    plans: [scopeGapPlan(), scopeGapPlan({ closed: true })],
+  });
+  const result = await runPlanningPipeline({
+    specPath: join(cwd, "docs/spec.md"),
+    campaignId,
+    phase: "build",
+    cwd,
+    runtimes,
+    runtimeDefaults,
+    launch,
+    wait,
+  });
+  assert.equal(result.status, "frozen");
+
+  // Round 1 recorded the freeze failure on its review line and spent a revise
+  // on it; round 2's plan closed the scope and froze.
+  const stages = readPipelineStages(result.plansDir);
+  const round1 = stages.find((entry) => entry.stage === "review" && entry.round === 1);
+  assert.ok(round1, "round 1 recorded a review stage line");
+  assert.match(String(round1.freezeFailed), /task packet scope does not close/);
+  assert.match(String(round1.freezeFailed), /test\/cli\/cli\.test\.mjs/);
+  assert.ok(stages.some((entry) => entry.stage === "revise"), "the freeze finding drove a revise round");
+
+  const contract = JSON.parse(readFileSync(result.contractPath, "utf8"));
+  const thing = contract.nodes.find((/** @type {any} */ node) => node.id === "thing");
+  assert.ok(thing.taskPacket.writeFiles.includes("test/cli/cli.test.mjs"), "the revise declared the dragged-along test");
+});
+
+test("a deterministic stage that fails after the rounds ends contested with its stage line", async () => {
+  const soloPlan = {
+    nodes: [{
+      id: "solo",
+      objective: "Implement the feature alone",
+      taskKind: "implement",
+      riskTier: "standard",
+      dependsOn: [],
+      readFiles: ["src/index.mjs"],
+      writeFiles: ["src/index.mjs"],
+      definitionOfDone: [{ id: "works", text: "It works", proof: { kind: "path", ref: "src/index.mjs" } }],
+      verification: [],
+    }],
+  };
+  // With no review round configured there is no in-round pre-flight to catch
+  // the single-node plan sizing refuses; the wrap must still record the
+  // failure and contest instead of dying between stage lines.
+  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("tail-wrap-demo", { plans: [soloPlan] });
+  const result = await runPlanningPipeline({
+    specPath: join(cwd, "docs/spec.md"),
+    campaignId,
+    phase: "build",
+    cwd,
+    runtimes,
+    runtimeDefaults,
+    reviewRounds: 0,
+    launch,
+    wait,
+  });
+  assert.equal(result.status, "contested");
+  assert.equal(result.round, 0);
+  const sizing = result.findings.find((finding) => finding.id === "plan-shape-sizing");
+  assert.ok(sizing, "the failed stage is recorded as a critical finding");
+  assert.match(sizing.text, /sizing_single_node_plan/);
+
+  const stages = readPipelineStages(result.plansDir);
+  const sizingLine = stages.find((entry) => entry.stage === "sizing");
+  assert.ok(sizingLine, "the failing stage wrote its line");
+  assert.match(String(sizingLine.failed), /sizing_single_node_plan/);
   assert.equal(existsSync(join(result.plansDir, "contract.json")), false);
   const journal = readJournal(campaignTree(cwd, campaignId));
   assert.ok(journal.some((entry) => entry.type === "open-question" && entry.questionId === "plan-build-contested"));

@@ -158,6 +158,18 @@ test("draft and revise instructions spell the nested definitionOfDone and verifi
   }
 });
 
+test("draft and revise instructions carry the scope-closure rule writeFiles is held to", () => {
+  const cwd = checkout();
+  const contractPath = join(cwd, "contract.json");
+  for (const kind of /** @type {const} */ (["draft", "revise"])) {
+    const contract = validateContract(buildPlanningContract(kind, baseInputs()), contractPath);
+    const instructions = contract.nodes[0].taskPacket.instructions.join("\n");
+    assert.match(instructions, /writeFiles lists what the change forces to change, not only what it intends to/);
+    assert.match(instructions, /Scope closure refuses a task packet whose transitive imports reach an undeclared file/);
+    assert.match(instructions, /readFiles only permits reading/);
+  }
+});
+
 test("a plan emitted exactly as the instructions spell it validates", () => {
   const validated = validatePlanOutput({
     nodes: [{
@@ -181,6 +193,53 @@ test("a plan emitted exactly as the instructions spell it validates", () => {
     { id: "judged", text: "The diff reads cleanly", judgment: true },
   ]);
   assert.deepEqual(validated.nodes[0].verification, [{ argv: ["node", "--test"], timeoutSec: 120, repeat: 1, env: ["CI"] }]);
+});
+
+test("a plan can acknowledge an importer it will not change, which is the only answer to a scope-closure finding it can give", () => {
+  // The preflight raises a scope-closure failure as a finding and the
+  // instructions tell the drafter to answer it with `writeFiles or
+  // scopeAcknowledged`. Measured 2026-09-20: without this field the second
+  // answer was inexpressible -- validatePlanOutput rejected it as an unknown
+  // node field -- so the only plan a revise round could emit declared a
+  // read-only importer writable, which is exactly what scope closure exists
+  // to stop someone doing silently.
+  const validated = validatePlanOutput({
+    nodes: [{
+      id: "build",
+      objective: "Implement it",
+      taskKind: "implement",
+      riskTier: "standard",
+      dependsOn: [],
+      readFiles: ["README.md"],
+      writeFiles: ["README.md"],
+      scopeAcknowledged: ["test/cli/cli.test.mjs"],
+      definitionOfDone: [],
+      verification: [],
+    }],
+  });
+  assert.deepEqual(validated.nodes[0].scopeAcknowledged, ["test/cli/cli.test.mjs"]);
+
+  // Absent is the common case and stays legal: a node that drags nothing along
+  // declares nothing, and reads back as an empty list rather than undefined.
+  const bare = validatePlanOutput({
+    nodes: [{
+      id: "build", objective: "Implement it", taskKind: "implement", riskTier: "standard",
+      dependsOn: [], readFiles: ["README.md"], writeFiles: ["README.md"], definitionOfDone: [], verification: [],
+    }],
+  });
+  assert.deepEqual(bare.nodes[0].scopeAcknowledged, []);
+
+  assert.throws(
+    () => validatePlanOutput({
+      nodes: [{
+        id: "build", objective: "Implement it", taskKind: "implement", riskTier: "standard",
+        dependsOn: [], readFiles: ["README.md"], writeFiles: ["README.md"],
+        scopeAcknowledged: "test/cli/cli.test.mjs",
+        definitionOfDone: [], verification: [],
+      }],
+    }),
+    /plan\.nodes\[0\]\.scopeAcknowledged/u,
+  );
 });
 
 test("the shapes a worker plausibly guesses are rejected, with the plan path named", () => {

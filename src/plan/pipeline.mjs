@@ -4,15 +4,16 @@
  * (sizing, routing, freeze), never as one long-lived process. Separate from
  * `template.mjs` (which only builds the one-node contracts) and from
  * `freeze.mjs` (which only turns a plan into a validated contract on disk):
- * this module is the one place that sequences those runs, decides when a
- * plan is contested instead of frozen, and records the operator-approval
- * open-question. `launch` and `wait` are the only two seams that touch a
+ * this module is the one place that sequences those runs, checks each round's
+ * plan against the contract it would freeze into while a revise can still
+ * act on the failure, and decides when a plan is contested instead of
+ * frozen. `launch` and `wait` are the only two seams that touch a
  * process or the wall clock, so a test drives the whole pipeline through
  * `runContract` in-process, deterministically.
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { validateContract } from "../contract/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../contract/index.mjs";
 import { discoveryOutput } from "../contract/worker-result.mjs";
 import { readWorkerResultFile } from "../engine/result-file.mjs";
 import { classifyRunProgress } from "../campaign/chain.mjs";
@@ -205,7 +206,73 @@ export async function runPlanningPipeline(options) {
     return { status: "contested", plansDir, planPath, findings, round };
   };
 
+  // Which deterministic stage is running, advanced by `assembleFrozenNodes`
+  // so the freeze-wrap catch below names the stage that threw.
+  let stage = "sizing";
+  // The last review round entered, so the freeze-wrap catch contests with
+  // the count of rounds that actually ran.
+  let roundsRun = 0;
+
+  /**
+   * The one assembly a plan freezes through, one home for the expression the
+   * in-round pre-flight and the final freeze must run identically: sizing
+   * reshapes the drafted nodes, routing assigns worker and judge, and
+   * `toContractNode` renders the contract shape. Local and cheap — no I/O,
+   * no model — so running it once per round costs nothing. It advances
+   * `stage` as it goes; see the declaration above.
+   *
+   * @param {PlanOutput} currentPlan
+   * @returns {{sizing: import("./sizing.mjs").SizingResult, routing: import("./routing.mjs").RoutingResult, nodes: JsonObject[]}}
+   */
+  const assembleFrozenNodes = (currentPlan) => {
+    stage = "sizing";
+    const sizing = applySizingRules(
+      { nodes: currentPlan.nodes.map(toSizingNode), justification: currentPlan.justification },
+      { nodeBudgetMs: DEFAULT_NODE_BUDGET_MS, facts: repoFacts },
+    );
+    stage = "routing";
+    const routing = resolveRuntimes(sizing.plan.nodes, {
+      table: [...DEFAULT_ROUTING_TABLE],
+      runtimes: /** @type {Record<string, import("./routing.mjs").RoutingRuntime>} */ (runtimes),
+      availability: availabilityOf(runtimes),
+      runtimeDefaults,
+    });
+    stage = "freeze";
+    return {
+      sizing,
+      routing,
+      nodes: sizing.plan.nodes.map((node) => toContractNode(/** @type {SizedPlanNode} */ (node), phase, routing.assignments[node.id])),
+    };
+  };
+
+  /**
+   * The raw contract exactly as `freezePlan` will assemble and validate it,
+   * schemaVersion and contractVersion included. `validateContract` never
+   * reads the path it is given — only `dirname(resolve(contractPath))` to
+   * resolve `raw.cwd` — so the pre-flight passes the path the contract will
+   * occupy, `contract.json` inside `plansDir`, and validates in memory
+   * without writing or deleting anything.
+   *
+   * @param {JsonObject[]} nodes
+   * @returns {JsonObject}
+   */
+  const frozenContractRaw = (nodes) => ({
+    schemaVersion: PROTOCOL_SCHEMA_VERSION,
+    contractVersion: CONTRACT_VERSION,
+    id: `${campaignId}-${phase}`,
+    campaignId,
+    goal: campaign.goal,
+    // `freezePlan` writes contract.json inside `outDir` (`plansDir`), so
+    // `cwd` has to point back at the repo root from there, exactly like
+    // `runStage` computes it for the nodes it writes under `plansDir/nodes/`.
+    cwd: relative(plansDir, cwd) || ".",
+    runtimes,
+    runtimeDefaults,
+    nodes,
+  });
+
   for (let round = 1; round <= reviewRounds; round += 1) {
+    roundsRun = round;
     if (plan) {
       // The reviewer grades a structurally valid plan; an invalid one skips
       // review and reaches revise through the validator's finding instead.
@@ -223,11 +290,28 @@ export async function runPlanningPipeline(options) {
         invalidFindings = invalidPlanFinding(`review-r${round}`, error);
         findings = [...findings, invalidFindings];
       }
+      // The contract this plan would freeze into is checked here, inside the
+      // round and after the review's findings replaced the previous round's,
+      // because freeze runs after the last one: caught here, a plan that
+      // cannot freeze still has a revise left to fix it. The failure is a
+      // critical finding, never an auto-filled acknowledgement — scope
+      // closure exists to force the per-file decision (declare a write, or
+      // acknowledge a read-only importer), and the revise worker, which can
+      // read the repository, makes it from the validator's own message.
+      /** @type {PlanFindingOutput|null} */
+      let freezeFailure = null;
+      try {
+        validateContract(frozenContractRaw(assembleFrozenNodes(plan).nodes), join(plansDir, "contract.json"));
+      } catch (error) {
+        freezeFailure = invalidPlanFinding(`freeze-r${round}`, error);
+        findings = [...findings, freezeFailure];
+      }
       logStage("review", {
         round,
         runId: review.contract.id,
         findingsCount: findings.length,
         criticalCount: findings.filter((finding) => finding.severity === "critical").length,
+        ...(freezeFailure === null ? {} : { freezeFailed: freezeFailure.text }),
         ...(invalidFindings === null ? {} : { invalid: invalidFindings.text }),
       });
     }
@@ -257,45 +341,45 @@ export async function runPlanningPipeline(options) {
   // end rather than a silent crash at sizing.
   if (plan === null) return await contest(0);
 
-  const sizing = applySizingRules(
-    { nodes: plan.nodes.map(toSizingNode), justification: plan.justification },
-    { nodeBudgetMs: DEFAULT_NODE_BUDGET_MS, facts: repoFacts },
-  );
-  logStage("sizing", { transformations: sizing.transformations.length, nodeCount: sizing.plan.nodes.length });
-
-  const routingRuntimes = /** @type {Record<string, import("./routing.mjs").RoutingRuntime>} */ (runtimes);
-  const routing = resolveRuntimes(sizing.plan.nodes, {
-    table: [...DEFAULT_ROUTING_TABLE],
-    runtimes: routingRuntimes,
-    availability: availabilityOf(runtimes),
-    runtimeDefaults,
-  });
-  logStage("routing", { assignments: Object.keys(routing.assignments).length });
-
-  const highestRiskTier = highestOf(sizing.plan.nodes.map((node) => node.riskTier ?? RISK_TIERS[0]));
-  const nodes = sizing.plan.nodes.map((node) => toContractNode(/** @type {SizedPlanNode} */ (node), phase, routing.assignments[node.id]));
-  const frozen = freezePlan({
-    id: `${campaignId}-${phase}`,
-    campaignId,
-    goal: campaign.goal,
-    // `freezePlan` writes contract.json inside `outDir` (`plansDir`), so `cwd`
-    // has to point back at the repo root from there, exactly like `runStage`
-    // computes it for the nodes it writes under `plansDir/nodes/`.
-    cwd: relative(plansDir, cwd) || ".",
-    runtimes,
-    runtimeDefaults,
-    nodes,
-  }, {
-    outDir: plansDir,
-    provenance: {
-      targetGitHead: repoFacts.gitHead,
-      planner: { runtimeId: runtimeDefaults.worker ?? "", model: modelOf(runtimes, runtimeDefaults.worker) },
-      reviewer: { runtimeId: runtimeDefaults.judge ?? "", model: modelOf(runtimes, runtimeDefaults.judge) },
-      sizing: sizing.transformations,
-      findings,
-    },
-  });
-  logStage("freeze", { contractId: `${campaignId}-${phase}`, highestRiskTier });
+  // The pre-flight ran this exact assembly through the same validator in the
+  // round that just broke, so a failure here is nearly impossible — but
+  // `nearly` is what this whole phase is about: an unanticipated failure
+  // writes its stage line and takes the contested exit instead of leaving
+  // pipeline.jsonl stopping between stages.
+  /** @type {{sizing: import("./sizing.mjs").SizingResult, routing: import("./routing.mjs").RoutingResult, nodes: JsonObject[]}|undefined} */
+  let assembled;
+  /** @type {import("./freeze.mjs").FrozenPlan|undefined} */
+  let frozen;
+  /** @type {string|undefined} */
+  let highestRiskTier;
+  try {
+    assembled = assembleFrozenNodes(plan);
+    logStage("sizing", { transformations: assembled.sizing.transformations.length, nodeCount: assembled.sizing.plan.nodes.length });
+    logStage("routing", { assignments: Object.keys(assembled.routing.assignments).length });
+    highestRiskTier = highestOf(assembled.sizing.plan.nodes.map((node) => node.riskTier ?? RISK_TIERS[0]));
+    frozen = freezePlan(frozenContractRaw(assembled.nodes), {
+      outDir: plansDir,
+      provenance: {
+        targetGitHead: repoFacts.gitHead,
+        planner: { runtimeId: runtimeDefaults.worker ?? "", model: modelOf(runtimes, runtimeDefaults.worker) },
+        reviewer: { runtimeId: runtimeDefaults.judge ?? "", model: modelOf(runtimes, runtimeDefaults.judge) },
+        sizing: assembled.sizing.transformations,
+        findings,
+      },
+    });
+    logStage("freeze", { contractId: `${campaignId}-${phase}`, highestRiskTier });
+  } catch (error) {
+    // The stage line the pipeline would otherwise have stopped short of, the
+    // failure carried as the critical finding that names it, and the
+    // contested end every other unresolvable plan takes.
+    logStage(stage, { failed: error instanceof Error ? error.message : String(error) });
+    findings = [...findings, invalidPlanFinding(stage, error)];
+    // freezePlan removes contract.json itself when validation refuses it; a
+    // failure after that write and before its return would otherwise leave a
+    // contract.json no contested result may have.
+    rmSync(join(plansDir, "contract.json"), { force: true });
+    return await contest(roundsRun);
+  }
 
   // A delta only means something between two samples of the same seat: freeze
   // re-samples the exact harness `campaign init` recorded at `sample: "start"`
@@ -352,9 +436,10 @@ function repoRelativePath(cwd, path, label) {
 }
 
 /**
- * A validatePlanOutput or validateFindings rejection, shaped as the finding a
- * review round already carries to revise, so a structurally invalid plan — or
- * a review whose findings are not findings — reaches the stage that can act on
+ * A validatePlanOutput, validateFindings or in-round validateContract
+ * rejection, shaped as the finding a review round already carries to revise,
+ * so a structurally invalid plan, a review whose findings are not findings —
+ * or a plan that would not survive freeze — reaches the stage that can act on
  * it instead of killing the pipeline between the run finishing and its stage
  * line. `nodeId` is "plan" because the validator's message names a path into
  * the plan, not one of its nodes.
@@ -420,6 +505,7 @@ function toSizingNode(node) {
     taskPacket: {
       readFiles: node.readFiles,
       writeFiles: node.writeFiles,
+      scopeAcknowledged: node.scopeAcknowledged,
       verification: node.verification,
     },
   });
@@ -457,6 +543,10 @@ function toContractNode(node, phase, assignment) {
       instructions: [node.objective],
       readFiles: node.taskPacket.readFiles ?? [],
       writeFiles: node.taskPacket.writeFiles ?? [],
+      // Carried, never computed here: the drafter decided which importers it
+      // will not change, and scope closure exists to force that decision on a
+      // person rather than answer it for them (src/repo/scope-closure.mjs).
+      scopeAcknowledged: node.taskPacket.scopeAcknowledged ?? [],
       symbols: [],
       decisions: [],
       nonGoals: [],
