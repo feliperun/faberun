@@ -46,7 +46,11 @@ export function assertObject(value, label) {
  * @returns {asserts value is string}
  */
 export function requireId(value, label) {
-  if (typeof value !== "string" || !/^[A-Za-z0-9._-]+$/u.test(value)) {
+  // Absent and malformed refuse with different messages: observed 2026-09-20,
+  // a missing id answered with the character-class message and sent the reader
+  // hunting for an illegal character that was not there.
+  if (typeof value !== "string" || !value) throw new TypeError(`${label} is required`);
+  if (!/^[A-Za-z0-9._-]+$/u.test(value)) {
     throw new TypeError(`${label} must contain only letters, numbers, dot, underscore, or dash`);
   }
   if (value === "." || value === "..") throw new TypeError(`${label} must not be "." or ".."`);

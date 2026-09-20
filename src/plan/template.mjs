@@ -62,7 +62,15 @@ const REQUIRED_INPUTS = Object.freeze({
   "spec-review": ["specPath"],
 });
 
-const PLAN_OUTPUT_SHAPE = "{nodes: [{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, definitionOfDone, verification}], justification?}";
+// The nested shapes are spelled from DefinitionOfDoneItem
+// (contract/definition-of-done.mjs) and VerificationCommand
+// (contract/verification.mjs), never from prose: observed 2026-09-20, bare
+// field names made a worker guess — a DoD item with no id, a `command` string
+// where argv belongs — and the guess failed validatePlanOutput only after the
+// run had already succeeded. The id charset is requireId's
+// (contract/assert.mjs) verbatim, because an id that is present but invalid
+// fails that same validator just as late.
+const PLAN_OUTPUT_SHAPE = '{nodes: [{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, definitionOfDone: [{id, text, proof?: {kind: "command"|"path"|"verification", ref}, judgment?: true}], verification: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}]}], justification?}; every id in it (node and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly "." or ".."';
 const FINDINGS_SHAPE = "[{id, severity, nodeId, text}]";
 
 /** @type {Record<PlanningKind, string>} */

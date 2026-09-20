@@ -647,7 +647,19 @@ test("validate requires a campaignId", () => {
   delete value.campaignId;
   const path = join(directory, "contract.json");
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
-  assert.throws(() => validateContract(JSON.parse(readFileSync(path, "utf8")), path), /campaignId/u);
+  // An absent id says it is absent: observed 2026-09-20, the character-class
+  // message for a missing field cost real debugging time.
+  assert.throws(
+    () => validateContract(JSON.parse(readFileSync(path, "utf8")), path),
+    /contract\.campaignId is required/u,
+  );
+
+  const illegal = helpers.fixture({ campaignId: "has space" });
+  writeFileSync(path, `${JSON.stringify(illegal, null, 2)}\n`);
+  assert.throws(
+    () => validateContract(JSON.parse(readFileSync(path, "utf8")), path),
+    /contract\.campaignId must contain only letters, numbers, dot, underscore, or dash/u,
+  );
 
   for (const campaignId of [".", ".."]) {
     const invalid = helpers.fixture({ campaignId });

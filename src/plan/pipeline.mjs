@@ -155,50 +155,107 @@ export async function runPlanningPipeline(options) {
     const progress = await wait(runDir);
     const classification = classifyRunProgress(progress);
     if (classification !== "succeeded") {
+      logStage(kind, { runId: validated.id, failed: classification });
       throw new Error(`planning stage ${kind} did not succeed: run ${validated.id} ${classification}`);
     }
     const result = readWorkerResultFile(runDir, kind);
     const output = result ? discoveryOutput(result) : null;
-    if (!output) throw new Error(`planning stage ${kind}: run ${validated.id} recorded no discovery output`);
+    if (!output) {
+      logStage(kind, { runId: validated.id, failed: "no_discovery_output" });
+      throw new Error(`planning stage ${kind}: run ${validated.id} recorded no discovery output`);
+    }
     return { contract: validated, output };
   };
 
   const draft = await runStage("draft", { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath });
-  let plan = validatePlanOutput(draft.output.plan);
-  logStage("draft", { runId: draft.contract.id, nodeCount: plan.nodes.length });
-
-  const workingPlanPath = join(scratchDir, "plan.working.json");
-  writeJsonAtomic(workingPlanPath, plan);
-  const relativeWorkingPlanPath = relative(cwd, workingPlanPath);
-
+  /** @type {PlanOutput|null} */
+  let plan = null;
   /** @type {PlanFindingOutput[]} */
   let findings = [];
-  for (let round = 1; round <= reviewRounds; round += 1) {
-    const review = await runStage("review", { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, planPath: relativeWorkingPlanPath });
-    findings = validateFindings(review.output.findings);
+  try {
+    plan = validatePlanOutput(draft.output.plan);
+  } catch (error) {
+    findings = [invalidPlanFinding("draft", error)];
+  }
+  logStage("draft", plan === null
+    ? { runId: draft.contract.id, invalid: findings[0].text }
+    : { runId: draft.contract.id, nodeCount: plan.nodes.length });
+
+  const workingPlanPath = join(scratchDir, "plan.working.json");
+  const relativeWorkingPlanPath = relative(cwd, workingPlanPath);
+
+  /**
+   * End the pipeline the way an unresolvable plan already ends: the contested
+   * result, the outstanding findings that forced it, and an open question on
+   * the campaign journal. Every no-valid-plan exit funnels through here.
+   *
+   * @param {number} round
+   * @returns {Promise<ContestedPipelineResult>}
+   */
+  const contest = async (round) => {
     const criticalFindings = findings.filter((finding) => finding.severity === "critical");
-    logStage("review", { round, runId: review.contract.id, findingsCount: findings.length, criticalCount: criticalFindings.length });
-    if (criticalFindings.length === 0) break;
-    if (round === reviewRounds) {
-      const planPath = join(plansDir, "plan.json");
-      writeJsonAtomic(planPath, { formatVersion: 1, status: "contested", rounds: round, findings });
-      logStage("contested", { round, criticalCount: criticalFindings.length });
-      await campaignCli([
-        "note", campaignId, "--cwd", cwd, "--session-id", PLANNER_SESSION_ID,
-        "--kind", "open-question", "--question-id", `plan-${phase}-contested`,
-        "--text", `Plan for phase ${phase} is contested after ${round} review round(s): ${criticalFindings.map((finding) => finding.text).join("; ")}`,
-      ]);
-      return { status: "contested", plansDir, planPath, findings, round };
+    const planPath = join(plansDir, "plan.json");
+    writeJsonAtomic(planPath, { formatVersion: 1, status: "contested", rounds: round, findings });
+    logStage("contested", { round, criticalCount: criticalFindings.length });
+    await campaignCli([
+      "note", campaignId, "--cwd", cwd, "--session-id", PLANNER_SESSION_ID,
+      "--kind", "open-question", "--question-id", `plan-${phase}-contested`,
+      "--text", `Plan for phase ${phase} is contested after ${round} review round(s): ${criticalFindings.map((finding) => finding.text).join("; ")}`,
+    ]);
+    return { status: "contested", plansDir, planPath, findings, round };
+  };
+
+  for (let round = 1; round <= reviewRounds; round += 1) {
+    if (plan) {
+      // The reviewer grades a structurally valid plan; an invalid one skips
+      // review and reaches revise through the validator's finding instead.
+      writeJsonAtomic(workingPlanPath, plan);
+      const review = await runStage("review", { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, planPath: relativeWorkingPlanPath });
+      /** @type {PlanFindingOutput|null} */
+      let invalidFindings = null;
+      try {
+        findings = validateFindings(review.output.findings);
+      } catch (error) {
+        // The review said nothing usable about the plan, so the plan cannot be
+        // treated as clean: the malformed-output finding is critical and
+        // drives the same revise-or-contest path a real critical finding does,
+        // with the still-outstanding findings riding along.
+        invalidFindings = invalidPlanFinding(`review-r${round}`, error);
+        findings = [...findings, invalidFindings];
+      }
+      logStage("review", {
+        round,
+        runId: review.contract.id,
+        findingsCount: findings.length,
+        criticalCount: findings.filter((finding) => finding.severity === "critical").length,
+        ...(invalidFindings === null ? {} : { invalid: invalidFindings.text }),
+      });
     }
+    const criticalFindings = findings.filter((finding) => finding.severity === "critical");
+    if (criticalFindings.length === 0) break;
+    if (round === reviewRounds) return await contest(round);
     const findingsPath = join(scratchDir, `findings-round-${round}.json`);
     writeJsonAtomic(findingsPath, findings);
     const revise = await runStage("revise", {
       specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, findingsPath: relative(cwd, findingsPath),
     });
-    plan = validatePlanOutput(revise.output.plan);
-    writeJsonAtomic(workingPlanPath, plan);
-    logStage("revise", { round, runId: revise.contract.id });
+    /** @type {PlanFindingOutput|null} */
+    let invalid = null;
+    try {
+      plan = validatePlanOutput(revise.output.plan);
+    } catch (error) {
+      // The revise output was rejected wholesale, so the round's review
+      // findings are still outstanding and ride along to the next round.
+      invalid = invalidPlanFinding(`revise-r${round}`, error);
+      plan = null;
+      findings = [...findings, invalid];
+    }
+    logStage("revise", { round, runId: revise.contract.id, ...(invalid === null ? {} : { invalid: invalid.text }) });
   }
+  // Reached only when no review round is configured (reviewRounds <= 0) and
+  // the draft never validated: no revise exists to reach, so contested is the
+  // end rather than a silent crash at sizing.
+  if (plan === null) return await contest(0);
 
   const sizing = applySizingRules(
     { nodes: plan.nodes.map(toSizingNode), justification: plan.justification },
@@ -292,6 +349,23 @@ function repoRelativePath(cwd, path, label) {
   const relativePath = relative(cwd, resolve(cwd, path));
   if (relativePath.startsWith("..")) throw new Error(`${label} must be inside ${cwd}: ${path}`);
   return relativePath;
+}
+
+/**
+ * A validatePlanOutput or validateFindings rejection, shaped as the finding a
+ * review round already carries to revise, so a structurally invalid plan — or
+ * a review whose findings are not findings — reaches the stage that can act on
+ * it instead of killing the pipeline between the run finishing and its stage
+ * line. `nodeId` is "plan" because the validator's message names a path into
+ * the plan, not one of its nodes.
+ *
+ * @param {string} label
+ * @param {unknown} error
+ * @returns {PlanFindingOutput}
+ */
+function invalidPlanFinding(label, error) {
+  const text = error instanceof Error ? error.message : String(error);
+  return { id: `plan-shape-${label}`, severity: "critical", nodeId: "plan", text };
 }
 
 /**
