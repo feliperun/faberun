@@ -113,7 +113,10 @@ test("--copy lays down a real skill tree", () => {
   assert.equal(/** @type {{action: string}[]} */ (JSON.parse(result.stdout))[0].action, "copied");
   const tree = join(home, ".claude", "skills", "faberun");
   assert.equal(lstatSync(tree).isSymbolicLink(), false, "the copy is a real directory");
-  assert.match(readFileSync(join(tree, "SKILL.md"), "utf8"), /^---\nname: faberun/u);
+  // `\r?`: what is asserted is that the copy carries the real SKILL.md, and a
+  // checkout under git's default `core.autocrlf=true` on Windows — GitHub's
+  // runner is one — hands it over with CRLF.
+  assert.match(readFileSync(join(tree, "SKILL.md"), "utf8"), /^---\r?\nname: faberun/u);
 });
 
 test("a missing skills directory is a warn line, not an error", () => {

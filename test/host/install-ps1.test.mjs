@@ -113,7 +113,12 @@ function assertInstall(space, version) {
 
   const current = join(space.home, "current");
   assert.ok(lstatSync(current).isSymbolicLink(), `${current} is not a link`);
-  assert.equal(realpathSync(current), realpathSync(versionDir), `${current} does not resolve to ${versionDir}`);
+  // `realpathSync.native`, not `realpathSync`: GitHub's Windows runner puts
+  // TEMP at the 8.3 short name `C:\Users\RUNNER~1\...`, which the JavaScript
+  // implementation passes through untouched while the junction PowerShell
+  // created stores the expanded `runneradmin` form. Only the native call
+  // canonicalizes both to the same spelling.
+  assert.equal(realpathSync.native(current), realpathSync.native(versionDir), `${current} does not resolve to ${versionDir}`);
 
   // Two shims because Windows has two shells: PATHEXT finds `faberun.cmd` from
   // cmd and PowerShell, and Git Bash resolves neither PATHEXT nor `.cmd`, so it
