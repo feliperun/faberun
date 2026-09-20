@@ -33,7 +33,7 @@ import { invocationCost, invocationUsage } from "../run/usage.mjs";
 import { logPaths, startProcess } from "./process.mjs";
 import { readBoundedTail } from "./transcript.mjs";
 import { mkdirSync, statSync } from "node:fs";
-import { READ_LINE_LIMIT, normalizeProviderResult } from "../harnesses/index.mjs";
+import { READ_BYTE_LIMIT, READ_LINE_LIMIT, normalizeProviderResult } from "../harnesses/index.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
 import { judgeReaskInstruction, reviewMode } from "../contract/review-modes.mjs";
 import { routeRuntimeForState, runtimeSnapshot } from "./failover.mjs";
@@ -133,6 +133,7 @@ function workerToolPolicy(runtime, node, workspace) {
     writeFiles: node.taskPacket.writeFiles ?? [],
     writeRoots: node.taskPacket.writeRoots ?? [],
     maxReadLines: READ_LINE_LIMIT,
+    maxReadBytes: READ_BYTE_LIMIT,
   };
 }
 /**

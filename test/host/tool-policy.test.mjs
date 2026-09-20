@@ -216,3 +216,28 @@ test("tool policy missing path", () => {
   assert.equal(readThresholdDecision({ maxReadLines: 1500 }, { tool_name: "Read", tool_input: { file_path: newFile } }), null, "a nonexistent read target is never denied: it cannot be measured");
   assert.equal(bashReadDecision({ maxReadLines: 1500 }, { tool_name: "Bash", tool_input: { command: `cat ${newFile}` } }), null, "a nonexistent bash read target is never denied: it cannot be measured");
 });
+
+test("tool policy read byte threshold: a file of few long lines is denied by size, with the same retry hint", () => {
+  const workspace = mkdtempSync(join(tmpdir(), "runner-tool-policy-bytes-"));
+  const wide = join(workspace, "wide.json");
+  writeFileSync(wide, `${"x".repeat(40 * 1024)}\n`);
+  const policy = { maxReadLines: 1500, maxReadBytes: 32 * 1024 };
+  const denial = readThresholdDecision(policy, { tool_name: "Read", tool_input: { file_path: wide } });
+  assert.equal(denial?.hookSpecificOutput.permissionDecision, "deny");
+  assert.match(String(denial?.hookSpecificOutput.permissionDecisionReason), /40961 bytes/u);
+  assert.match(String(denial?.hookSpecificOutput.permissionDecisionReason), /32768-byte/u);
+  assert.match(String(denial?.hookSpecificOutput.permissionDecisionReason), /offset and limit/u);
+  assert.equal(readThresholdDecision(policy, { tool_name: "Read", tool_input: { file_path: wide, limit: 1 } }), null, "a targeted read passes without measuring");
+  const bash = bashReadDecision(policy, { tool_name: "Bash", tool_input: { command: `cat ${wide}` } });
+  assert.match(String(bash?.hookSpecificOutput.permissionDecisionReason), /40961 bytes/u, "the same whole-file read through bash is denied by size too");
+  const small = join(workspace, "small.json");
+  writeFileSync(small, `${"y".repeat(1024)}\n`);
+  assert.equal(readThresholdDecision(policy, { tool_name: "Read", tool_input: { file_path: small } }), null, "a small file passes");
+  assert.equal(
+    readThresholdDecision({ maxReadLines: null, maxReadBytes: 32 * 1024 }, { tool_name: "Read", tool_input: { file_path: wide } })?.hookSpecificOutput.permissionDecision,
+    "deny",
+    "the byte threshold stands on its own",
+  );
+  const command = hookCommand({ ...policy, foregroundOnly: false, maxToolOutputBytes: null, workspace, writeFiles: [], writeRoots: [] });
+  assert.ok(command.includes("'--max-read-bytes' '32768'"), `the hook command carries the byte threshold: ${command}`);
+});

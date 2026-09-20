@@ -8,7 +8,7 @@
  *   true` and the background-output tools; a `Write`/`Edit`/`NotebookEdit`
  *   outside the declared write scope; a whole-file `Read`, or the same read
  *   done through `Bash` (`cat`/`less`/`more`, or `head`/`tail` with no
- *   explicit limit), above `--max-read-lines`. Every denial reason tells the
+ *   explicit limit), above `--max-read-lines` or `--max-read-bytes`. Every denial reason tells the
  *   model how to retry. The write-scope and read-threshold judgment calls
  *   live in `tool-policy-decisions.mjs`; this module is the argv wiring and
  *   event dispatch, not the decisions themselves.
@@ -47,7 +47,7 @@ export const PRE_TOOL_MATCHER = ["Bash", ...BACKGROUND_OUTPUT_TOOLS, "Write", "E
 export const FOREGROUND_ONLY_DENIAL = "background tool invocation denied by the foreground-only tool policy; rerun the tool in the foreground and wait for it to finish";
 
 /** The policy shape as parsed off argv: `workspace` is null when the flag was omitted, unlike the always-populated {@link import("../harnesses/index.mjs").ToolPolicy} the engine builds.
- * @typedef {{foregroundOnly: boolean, maxToolOutputBytes: number, workspace: string|null, writeFiles: string[], writeRoots: string[], maxReadLines: number|null}} ParsedPolicy
+ * @typedef {{foregroundOnly: boolean, maxToolOutputBytes: number, workspace: string|null, writeFiles: string[], writeRoots: string[], maxReadLines: number|null, maxReadBytes: number|null}} ParsedPolicy
  */
 
 /**
@@ -62,9 +62,11 @@ function parsePolicy(argv) {
     "write-file": { type: "string", multiple: true, default: [] },
     "write-root": { type: "string", multiple: true, default: [] },
     "max-read-lines": { type: "string" },
+    "max-read-bytes": { type: "string" },
   } });
   const raw = Number(flags.values["max-tool-output-bytes"]);
   const rawMaxReadLines = Number(flags.values["max-read-lines"]);
+  const rawMaxReadBytes = Number(flags.values["max-read-bytes"]);
   return {
     foregroundOnly: Boolean(flags.values["foreground-only"]),
     maxToolOutputBytes: Number.isInteger(raw) && raw > 0 ? raw : TOOL_OUTPUT_LIMIT_BYTES,
@@ -74,6 +76,9 @@ function parsePolicy(argv) {
     maxReadLines: flags.values["max-read-lines"] === undefined
       ? null
       : (Number.isInteger(rawMaxReadLines) && rawMaxReadLines > 0 ? rawMaxReadLines : null),
+    maxReadBytes: flags.values["max-read-bytes"] === undefined
+      ? null
+      : (Number.isInteger(rawMaxReadBytes) && rawMaxReadBytes > 0 ? rawMaxReadBytes : null),
   };
 }
 
@@ -96,6 +101,9 @@ export function hookCommand(policy) {
   if (typeof policy.maxReadLines === "number" && policy.maxReadLines > 0) {
     argv.push("--max-read-lines", String(policy.maxReadLines));
   }
+  if (typeof policy.maxReadBytes === "number" && policy.maxReadBytes > 0) {
+    argv.push("--max-read-bytes", String(policy.maxReadBytes));
+  }
   return argv.map(shellQuote).join(" ");
 }
 
@@ -111,7 +119,8 @@ export function hookSettings(policy) {
   /** @type {Record<string, {matcher: string, hooks: {type: "command", command: string}[]}[]>} */
   const hooks = {};
   const hasWriteScope = Boolean((policy.writeFiles ?? []).length || (policy.writeRoots ?? []).length);
-  const hasReadThreshold = typeof policy.maxReadLines === "number" && policy.maxReadLines > 0;
+  const hasReadThreshold = (typeof policy.maxReadLines === "number" && policy.maxReadLines > 0)
+    || (typeof policy.maxReadBytes === "number" && policy.maxReadBytes > 0);
   if (policy.foregroundOnly || hasWriteScope || hasReadThreshold) {
     hooks.PreToolUse = [{ matcher: PRE_TOOL_MATCHER, hooks: [hookEntry(policy)] }];
   }

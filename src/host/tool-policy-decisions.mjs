@@ -21,7 +21,7 @@
  * catches the effect once the attempt completes.
  */
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
-import { closeSync, fstatSync, openSync, readSync, realpathSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readSync, realpathSync, statSync } from "node:fs";
 
 /**
  * Tool name to the payload field carrying the path it would write.
@@ -117,28 +117,73 @@ function writeScopeDenialReason(writeFiles, writeRoots) {
   return `write denied: this path is outside the declared write scope. Declared write paths: ${shown.join(", ")}${remainder}. Write only to one of those.`;
 }
 
+/** @typedef {{maxReadLines: number|null, maxReadBytes?: number|null}} ReadPolicy */
+
 /**
  * DECISION 2: deny a `Read` call that would read an entire file above
- * `policy.maxReadLines` with neither `offset` nor `limit`. A file that cannot
- * be measured -- missing, unreadable, not a regular file -- passes through.
+ * `policy.maxReadLines` lines or `policy.maxReadBytes` bytes with neither
+ * `offset` nor `limit`. A file that cannot be measured -- missing,
+ * unreadable, not a regular file -- passes through.
  *
- * @param {{maxReadLines: number|null}} policy
+ * @param {ReadPolicy} policy
  * @param {{tool_name?: unknown, tool_input?: unknown}} payload
  * @returns {{hookSpecificOutput: Record<string, unknown>}|null}
  */
 export function readThresholdDecision(policy, payload) {
   if (typeof payload?.tool_name !== "string" || payload.tool_name !== "Read") return null;
-  const maxReadLines = policy.maxReadLines;
-  if (typeof maxReadLines !== "number" || maxReadLines <= 0) return null;
+  const thresholds = readThresholds(policy);
+  if (!thresholds) return null;
   const input = payload?.tool_input;
   if (!input || typeof input !== "object") return null;
   const record = /** @type {Record<string, unknown>} */ (input);
   if (record.offset !== undefined || record.limit !== undefined) return null;
   const rawPath = record.file_path;
   if (typeof rawPath !== "string" || !rawPath) return null;
-  const lines = countLines(rawPath);
-  if (lines === null || lines <= maxReadLines) return null;
-  return denyPreTool(readThresholdDenialReason(lines, maxReadLines));
+  return wholeFileDenial(rawPath, thresholds, false);
+}
+
+/**
+ * @param {ReadPolicy} policy
+ * @returns {{lines: number|null, bytes: number|null}|null} the thresholds in force, or null when the policy sets none
+ */
+function readThresholds(policy) {
+  const lines = typeof policy.maxReadLines === "number" && policy.maxReadLines > 0 ? policy.maxReadLines : null;
+  const bytes = typeof policy.maxReadBytes === "number" && policy.maxReadBytes > 0 ? policy.maxReadBytes : null;
+  return lines === null && bytes === null ? null : { lines, bytes };
+}
+
+/**
+ * The byte threshold is judged first, from a stat: it is the cheaper
+ * measurement and the one that tracks what a read costs. measured 2026-09-20:
+ * a file of few very long lines passes the line threshold and still lands
+ * whole in every later request's context (273 of 1189 stored Read results
+ * exceeded 8 KiB under the line threshold alone).
+ *
+ * @param {string} path
+ * @param {{lines: number|null, bytes: number|null}} thresholds
+ * @param {boolean} viaBash
+ * @returns {{hookSpecificOutput: Record<string, unknown>}|null}
+ */
+function wholeFileDenial(path, thresholds, viaBash) {
+  if (thresholds.bytes !== null) {
+    const bytes = fileBytes(path);
+    if (bytes !== null && bytes > thresholds.bytes) return denyPreTool(readBytesDenialReason(bytes, thresholds.bytes, viaBash));
+  }
+  if (thresholds.lines !== null) {
+    const lines = countLines(path);
+    if (lines !== null && lines > thresholds.lines) return denyPreTool(readThresholdDenialReason(lines, thresholds.lines, viaBash));
+  }
+  return null;
+}
+
+/** @param {string} path @returns {number|null} the size of a regular file, else null */
+function fileBytes(path) {
+  try {
+    const stats = statSync(path);
+    return stats.isFile() ? stats.size : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -148,14 +193,14 @@ export function readThresholdDecision(policy, payload) {
  * chain passes without analysis: the named file is then a filter's input, not
  * evidence entering the model's context.
  *
- * @param {{maxReadLines: number|null}} policy
+ * @param {ReadPolicy} policy
  * @param {{tool_name?: unknown, tool_input?: unknown}} payload
  * @returns {{hookSpecificOutput: Record<string, unknown>}|null}
  */
 export function bashReadDecision(policy, payload) {
   if (typeof payload?.tool_name !== "string" || payload.tool_name !== "Bash") return null;
-  const maxReadLines = policy.maxReadLines;
-  if (typeof maxReadLines !== "number" || maxReadLines <= 0) return null;
+  const thresholds = readThresholds(policy);
+  if (!thresholds) return null;
   const input = payload?.tool_input;
   const command = input && typeof input === "object" ? /** @type {Record<string, unknown>} */ (input).command : undefined;
   if (typeof command !== "string" || !command.trim()) return null;
@@ -164,25 +209,23 @@ export function bashReadDecision(policy, payload) {
   const program = basename(tokens[0] ?? "");
   const args = tokens.slice(1);
   if (WHOLE_FILE_READERS.has(program)) {
-    return bashTargetDenial(args, maxReadLines);
+    return bashTargetDenial(args, thresholds);
   }
   if (BOUNDED_BY_DEFAULT_READERS.has(program) && !hasExplicitLimit(args)) {
-    return bashTargetDenial(args, maxReadLines);
+    return bashTargetDenial(args, thresholds);
   }
   return null;
 }
 
 /**
  * @param {string[]} args
- * @param {number} maxReadLines
+ * @param {{lines: number|null, bytes: number|null}} thresholds
  * @returns {{hookSpecificOutput: Record<string, unknown>}|null}
  */
-function bashTargetDenial(args, maxReadLines) {
+function bashTargetDenial(args, thresholds) {
   const target = [...args].reverse().find((token) => !token.startsWith("-"));
   if (!target) return null;
-  const lines = countLines(target);
-  if (lines === null || lines <= maxReadLines) return null;
-  return denyPreTool(readThresholdDenialReason(lines, maxReadLines, true));
+  return wholeFileDenial(target, thresholds, true);
 }
 
 /**
@@ -200,10 +243,24 @@ function hasExplicitLimit(args) {
  * @returns {string}
  */
 function readThresholdDenialReason(lines, maxReadLines, viaBash = false) {
-  const retry = viaBash
+  return `read denied: this file has ${lines} lines, above the ${maxReadLines}-line read threshold; ${readRetryHint(viaBash)}.`;
+}
+
+/**
+ * @param {number} bytes
+ * @param {number} maxReadBytes
+ * @param {boolean} [viaBash]
+ * @returns {string}
+ */
+function readBytesDenialReason(bytes, maxReadBytes, viaBash = false) {
+  return `read denied: this file is ${bytes} bytes, above the ${maxReadBytes}-byte read threshold; ${readRetryHint(viaBash)}.`;
+}
+
+/** @param {boolean} viaBash @returns {string} */
+function readRetryHint(viaBash) {
+  return viaBash
     ? "rerun with an explicit limit (head -n, tail -n) or use the Read tool with an offset and limit"
     : "reread it with an offset and limit instead of the whole file";
-  return `read denied: this file has ${lines} lines, above the ${maxReadLines}-line read threshold; ${retry}.`;
 }
 
 /**

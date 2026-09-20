@@ -77,11 +77,21 @@ const CAPABILITY_NAMES = new Set([
  * Claude-compatible adapters enforce it through hook settings; an adapter
  * that cannot prove enforcement must never receive it.
  *
- * @typedef {{foregroundOnly: boolean, maxToolOutputBytes: number|null, workspace: string, writeFiles: string[], writeRoots: string[], maxReadLines: number|null}} ToolPolicy
+ * @typedef {{foregroundOnly: boolean, maxToolOutputBytes: number|null, workspace: string, writeFiles: string[], writeRoots: string[], maxReadLines: number|null, maxReadBytes?: number|null}} ToolPolicy
  */
 
 /** Line count above which a whole-file read is denied by the tool policy hook. */
 export const READ_LINE_LIMIT = 1500;
+/**
+ * Whole-file reads above this many bytes are denied at the tool boundary
+ * with the same retry hint (offset and limit). measured 2026-09-20 over 1189
+ * Read results in stored claude worker turns: p50 2.9 KB, p90 16.7 KB, p95
+ * 24 KB, max 57 KB; 28 exceeded 32 KiB. Every byte read is written to the
+ * cache once and re-read by every later request of the turn (median 49), so
+ * one 57 KB read costs about a tenth of a median turn by itself. The line
+ * threshold above misses a file of few very long lines; this one does not.
+ */
+export const READ_BYTE_LIMIT = 32 * 1024;
 
 /** @typedef {{schema?: object, schemaPath?: string, continuationId?: string|null, toolPolicy?: ToolPolicy, env?: Record<string, string>, maxTurns?: number}} CommandOptions */
 
