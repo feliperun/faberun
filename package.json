@@ -24,7 +24,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "check": "for f in bin/*.mjs .claude/hooks/*.mjs src/*.mjs src/*/*.mjs src/*/*/*.mjs evals/*.mjs test/*.mjs test/*/*.mjs; do node --check \"$f\" || exit 1; done",
+    "check": "node -e \"const{readdirSync}=require('node:fs');const{spawnSync}=require('node:child_process');const roots=['bin','.claude/hooks','src','evals','test'];const files=roots.flatMap(r=>readdirSync(r,{recursive:true}).map(String).filter(p=>p.endsWith('.mjs')).map(p=>r+'/'+p));for(const f of files)if(spawnSync(process.execPath,['--check',f],{stdio:'inherit'}).status!==0)process.exit(1);console.log(files.length+' files checked')\"",
     "typecheck": "tsc",
     "test": "node --test test/*.test.mjs test/*/*.test.mjs",
     "docs": "node src/cli/manual.mjs --write",
