@@ -3,43 +3,43 @@
   "provenance": {
     "label": "pilot",
     "arm": "A",
-    "runs": 1
+    "runs": 3
   },
   "indicators": {
     "costPerDeliveredRequirementUsd": {
-      "value": 0.3692,
+      "value": 0.3513,
       "direction": "down",
-      "count": 1
+      "count": 3
     },
     "costUsd": {
-      "value": 1.846,
+      "value": 1.7564,
       "direction": "down",
-      "count": 1
+      "count": 3
     },
     "proofsPassed": {
       "value": 5,
       "direction": "up",
-      "count": 1
+      "count": 3
     },
     "wallClockMinutes": {
-      "value": 3.3927,
+      "value": 3.3845,
       "direction": "down",
-      "count": 1
+      "count": 3
     },
     "requests": {
       "value": 82,
       "direction": "down",
-      "count": 1
+      "count": 3
     },
     "contextMaxKTokens": {
-      "value": 58.769,
+      "value": 50.465,
       "direction": "down",
-      "count": 1
+      "count": 3
     },
     "outOfScopeFiles": {
       "value": 0,
       "direction": "down",
-      "count": 1
+      "count": 3
     }
   }
 }
