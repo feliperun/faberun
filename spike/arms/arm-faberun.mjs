@@ -50,7 +50,27 @@ export async function runFaberunArm({ label, repetition, requirements }) {
   const contract = faberunContract({ id: runId, cwd: dir, requirements });
   const contractPath = join(RESULTS, "contracts", `${runId}.json`);
   writeJson(contractPath, contract);
-  const validation = spawnSync(process.execPath, [FABERUN_CLI, "validate", contractPath], { cwd: dir, env, encoding: "utf8" });
+  // The product's scope closure refuses a packet whose write files have an
+  // importer (a test, typically) that is neither declared nor acknowledged.
+  // A packet author answers by acknowledging the paths the validator names;
+  // the driver does the same, mechanically, and records what it acknowledged
+  // so the arm's authoring cost is visible in the ledger.
+  /** @type {string[]} */
+  const acknowledged = [];
+  let validation = spawnSync(process.execPath, [FABERUN_CLI, "validate", contractPath], { cwd: dir, env, encoding: "utf8" });
+  for (let round = 0; round < 4 && validation.status !== 0; round += 1) {
+    const message = `${validation.stdout}${validation.stderr}`;
+    const findings = [...message.matchAll(/nodes\[(\d+)\] \(([^)]+)\): (\S+) \(/gu)];
+    if (!findings.length) break;
+    for (const [, index, nodeId, path] of findings) {
+      const node = /** @type {any} */ (contract.nodes[Number(index)]);
+      if (!node || node.id !== nodeId) continue;
+      node.taskPacket.scopeAcknowledged = [...new Set([...(node.taskPacket.scopeAcknowledged ?? []), path])];
+      acknowledged.push(`${nodeId}: ${path}`);
+    }
+    writeJson(contractPath, contract);
+    validation = spawnSync(process.execPath, [FABERUN_CLI, "validate", contractPath], { cwd: dir, env, encoding: "utf8" });
+  }
   if (validation.status !== 0) {
     throw new Error(`arm A contract did not validate: ${validation.stdout}${validation.stderr}`);
   }
@@ -95,6 +115,7 @@ export async function runFaberunArm({ label, repetition, requirements }) {
     repetition,
     runId,
     runDir,
+    scopeAcknowledged: acknowledged,
     exitCode: run.status,
     startedAt,
     finishedAt: new Date().toISOString(),
