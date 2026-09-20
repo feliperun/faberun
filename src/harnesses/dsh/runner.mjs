@@ -13,7 +13,9 @@
  *
  * Transcript, the only thing this process writes to stdout:
  *   {"type":"dsh.started","sessionId":string}
- *   {"type":"dsh.message","text":string}          one per non-empty assistant message
+ *   {"type":"dsh.tool","name":string,"target":string|null}   one per tool call
+ *   {"type":"dsh.message","text":string,"usage"?:Usage}      one per non-empty assistant message,
+ *                                                  with that message's own usage when the harness sent it
  *   {"type":"dsh.completed","sessionId":string,"result":string,"usage":Usage}
  *   {"type":"dsh.failed","sessionId":string,"kind":string,"error":{...},"usage":Usage}
  * where Usage is `{inputTokens, outputTokens, cacheReadInputTokens}` with
@@ -99,6 +101,27 @@ function addUsage(totals, usage) {
   return observed;
 }
 
+/**
+ * The file, path, command or pattern a tool call names, bounded: the
+ * controller's live meter counts the call and the run page shows the target.
+ *
+ * @param {unknown} rawArguments the harness's JSON-encoded tool arguments
+ * @returns {string|null}
+ */
+function toolTarget(rawArguments) {
+  if (typeof rawArguments !== "string" || !rawArguments) return null;
+  let parsed;
+  try {
+    parsed = JSON.parse(rawArguments);
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const record = /** @type {Record<string, unknown>} */ (parsed);
+  const value = record.file_path ?? record.path ?? record.command ?? record.pattern ?? null;
+  return typeof value === "string" ? value.slice(0, 200) : null;
+}
+
 /** @param {unknown} reason @returns {{kind: string, error: {code: string, message: string, retryAfterMs?: number} | null}} */
 function describeReason(reason) {
   const record = reason && typeof reason === "object" ? /** @type {Record<string, unknown>} */ (reason) : {};
@@ -149,9 +172,21 @@ function fail(kind, error, exitCode = 1) {
 
 /** @param {Record<string, any>} event */
 function fold(event) {
+  if (event.type === "tool/call") {
+    // Forwarded, not folded away: a tool call is the liveness evidence the
+    // controller's stall detector counts, and the step the run page renders.
+    const data = event.data && typeof event.data === "object" ? /** @type {Record<string, unknown>} */ (event.data) : {};
+    emit({ type: "dsh.tool", name: typeof data.name === "string" ? data.name : "tool", target: toolTarget(data.arguments) });
+    return;
+  }
   if (event.type === "assistant/message") {
     const data = event.data && typeof event.data === "object" ? /** @type {Record<string, unknown>} */ (event.data) : {};
-    sawUsage = addUsage(usage, data.usage) || sawUsage;
+    const messageUsage = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 };
+    const observed = addUsage(messageUsage, data.usage);
+    if (observed) {
+      addUsage(usage, data.usage);
+      sawUsage = true;
+    }
     const message = data.message && typeof data.message === "object" ? /** @type {Record<string, unknown>} */ (data.message) : {};
     const blocks = Array.isArray(message.content) ? message.content : [];
     const text = blocks.map((block) => (block && typeof block === "object" && typeof block.text === "string" ? block.text : "")).join("");
@@ -159,7 +194,7 @@ function fold(event) {
       texts.push(text);
       // Every message, not only the last: a judge that returns two verdicts
       // must be visible as two, and the adapter counts them here.
-      emit({ type: "dsh.message", text });
+      emit({ type: "dsh.message", text, ...(observed ? { usage: messageUsage } : {}) });
     }
     return;
   }

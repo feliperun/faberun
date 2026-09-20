@@ -8,10 +8,12 @@ import test from "node:test";
 import { validateContract } from "../../src/contract/index.mjs";
 import { dshHarness } from "../../src/harnesses/dsh/index.mjs";
 import { normalizeProviderAvailability, normalizeProviderResult, probeRuntime, providerCommand } from "../../src/harnesses/index.mjs";
-import { closeResult, fixture, withFakeDsh, writeContract } from "../helpers.mjs";
+import { liveSessionMetrics } from "../../src/harnesses/session-metrics.mjs";
+import { closeResult, fakeDsh, fixture, withFakeDsh, writeContract } from "../helpers.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PATCH = join(HERE, "..", "..", "src", "harnesses", "dsh", "closed-packet.patch.yml");
+const RUNNER = join(HERE, "..", "..", "src", "harnesses", "dsh", "runner.mjs");
 
 /** @param {Record<string, unknown>} [patch] */
 function runtime(patch = {}) {
@@ -390,4 +392,24 @@ test("a real harness turns one prompt into a result with real tokens", { skip: H
   // the adapter owes is a done envelope carrying the answer and real tokens.
   assert.match(envelope.result ?? "", /OK/u);
   assert.ok((envelope.usage.inputTokens ?? 0) > 0, "a real turn reports the tokens it actually spent");
+});
+
+test("the runner forwards tool calls and per-message usage, so the controller's live meter sees a dsh turn", async () => {
+  const directory = scratch("dsh-runner-tool-");
+  const fake = fakeDsh(directory, "tool");
+  const child = spawn(process.execPath, [RUNNER, "--dsh", fake, "--provider", "deepseek-official", "--model", "deepseek-flash"], {
+    cwd: directory,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  child.stdout.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => { stdout += chunk; });
+  child.stdin.end("do the thing");
+  await closeResult(child);
+  const events = stdout.trim().split("\n").map((line) => JSON.parse(line));
+  assert.deepEqual(events.map((event) => event.type), ["dsh.started", "dsh.tool", "dsh.message", "dsh.completed"], "a tool call is forwarded, not folded away");
+  assert.deepEqual(events[1], { type: "dsh.tool", name: "read", target: "src/a.mjs" });
+  assert.deepEqual(events[2].usage, { inputTokens: 120, outputTokens: 40, cacheReadInputTokens: 800 }, "each message carries its own usage");
+  assert.deepEqual(liveSessionMetrics("dsh", stdout), { turns: 1, cacheReadInputTokens: 800, toolCalls: 1, completed: true });
+  assert.equal(normalizeProviderResult(runtime(), stdout, 0, null).status, "done", "the adapter's normalizer tolerates the forwarded record types");
 });

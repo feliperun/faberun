@@ -11,13 +11,7 @@ import {
   normalizeProviderResult,
   providerCommand,
 } from "../../src/harnesses/index.mjs";
-import {
-  TOOL_OUTPUT_LIMIT_BYTES,
-  liveInputTokens,
-  liveSessionMetrics,
-  liveUsage,
-  truncateToolOutput,
-} from "../../src/harnesses/exec-jsonl/index.mjs";
+import { TOOL_OUTPUT_LIMIT_BYTES, truncateToolOutput } from "../../src/harnesses/exec-jsonl/index.mjs";
 import { ensureZcodeAvailable } from "../../src/harnesses/zcode/index.mjs";
 import { normalizeCodexResult } from "../../src/harnesses/protocol.mjs";
 import { FOREGROUND_ONLY_DENIAL, HOOK_PATH } from "../../src/host/tool-policy-hook.mjs";
@@ -237,92 +231,6 @@ test("normalizes separate Claude cache reads and cache writes without overlap", 
     outputTokens: 1,
     cacheReadInputTokens: 5,
   });
-});
-
-test("live metering reads cumulative Codex usage from a growing transcript", () => {
-  const stream = [
-    { type: "thread.started", thread_id: "t" },
-    { type: "turn.completed", usage: { input_tokens: 400, output_tokens: 10 } },
-    { type: "turn.completed", usage: { input_tokens: 1200, output_tokens: 30 } },
-  ].map((event) => JSON.stringify(event)).join("\n");
-  assert.equal(liveInputTokens("codex", stream), 1200);
-  assert.equal(liveInputTokens("codex", `${stream}\n{"type":"turn.compl`), 1200, "partial trailing line is ignored");
-  assert.equal(liveInputTokens("codex", "not json at all"), 0);
-});
-
-test("live metering separates and weights cached reads like the campaign ledger", () => {
-  const stream = [
-    { type: "turn.completed", usage: { input_tokens: 2000, cached_input_tokens: 1800, output_tokens: 10 } },
-  ].map((event) => JSON.stringify(event)).join("\n");
-  assert.deepEqual(liveUsage("codex", stream), { inputTokens: 200, cacheReadInputTokens: 1800 }, "uncached and cached components");
-  assert.equal(liveInputTokens("codex", stream, 0.1), 380, "cached reads count at the weighted rate");
-  assert.equal(liveInputTokens("codex", stream), 2000, "default weight meters the raw total");
-  const allCache = JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1800, cached_input_tokens: 1800 } });
-  assert.equal(liveInputTokens("codex", allCache, 0.1), 180, "fully cached input meters at the weighted rate");
-});
-
-test("live metering sums per-request Claude usage and prefers the terminal total", () => {
-  const partial = [
-    { type: "assistant", message: { usage: { input_tokens: 100 } } },
-    { type: "assistant", message: { usage: { input_tokens: 250 } } },
-  ].map((event) => JSON.stringify(event)).join("\n");
-  assert.equal(liveInputTokens("claude", partial), 350, "mid-run sum of per-request usage");
-  const terminal = `${partial}\n${JSON.stringify({ type: "result", result: "ok", usage: { input_tokens: 320 } })}`;
-  assert.equal(liveInputTokens("claude", terminal), 320, "terminal session total wins");
-  assert.equal(liveInputTokens("exec-jsonl", partial), 0, "completion-only harnesses meter as zero mid-run");
-});
-
-test("live session metrics expose only what each harness's events prove", () => {
-  const codexEvents = [
-    { type: "thread.started", thread_id: "t" },
-    { type: "item.completed", item: { type: "command_execution" } },
-    { type: "turn.completed", usage: { input_tokens: 500, cached_input_tokens: 300 } },
-    { type: "item.completed", item: { type: "tool_call" } },
-    { type: "item.completed", item: { type: "agent_message", text: "ok" } },
-    { type: "turn.completed", usage: { input_tokens: 900, cached_input_tokens: 700 } },
-    { type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ status: "done", summary: "done" }) } },
-    { type: "turn.completed", usage: { input_tokens: 1200, cached_input_tokens: 900 } },
-  ];
-  const codex = codexEvents.map((event) => JSON.stringify(event)).join("\n");
-  assert.deepEqual(
-    liveSessionMetrics("codex", codex),
-    { turns: 3, cacheReadInputTokens: 900, toolCalls: 2, completed: true },
-    "Codex turn completions, cumulative cache-read maximum, tool items, and the terminal turn that ends with the result message",
-  );
-  const midSession = codexEvents.slice(0, 6).map((event) => JSON.stringify(event)).join("\n");
-  assert.deepEqual(
-    liveSessionMetrics("codex", midSession),
-    { turns: 2, cacheReadInputTokens: 700, toolCalls: 2, completed: false },
-    "a turn.completed that does not end with the result-carrying message is not a completed invocation",
-  );
-  assert.deepEqual(
-    liveSessionMetrics("codex", `${codex}\n{"type":"turn.compl`),
-    { turns: 3, cacheReadInputTokens: 900, toolCalls: 2, completed: true },
-    "a partial trailing line is ignored",
-  );
-  const claude = [
-    { type: "assistant", message: { usage: { input_tokens: 10, cache_read_input_tokens: 40 }, content: [{ type: "tool_use" }, { type: "tool_use" }, { type: "text", text: "working" }] } },
-    { type: "assistant", message: { usage: { input_tokens: 5, cache_read_input_tokens: 20 }, content: [] } },
-  ].map((event) => JSON.stringify(event)).join("\n");
-  assert.deepEqual(
-    liveSessionMetrics("claude", claude),
-    { turns: 2, cacheReadInputTokens: 60, toolCalls: 2, completed: false },
-    "assistant turns, summed per-request cache reads, and tool_use blocks",
-  );
-  const terminal = `${claude}\n${JSON.stringify({ type: "result", result: "ok", usage: { input_tokens: 15, cache_read_input_tokens: 90 } })}`;
-  assert.deepEqual(
-    liveSessionMetrics("claude", terminal),
-    { turns: 2, cacheReadInputTokens: 90, toolCalls: 2, completed: true },
-    "the terminal session total wins over the mid-run sum and the result record folds completion",
-  );
-  const execJsonl = JSON.stringify({ schemaVersion: 1, type: "run.completed", result: "ok", continuationId: null, usage: { inputTokens: 5, outputTokens: 1, cacheReadInputTokens: 7 }, costUsd: null });
-  assert.deepEqual(
-    liveSessionMetrics("exec-jsonl", execJsonl),
-    { turns: 1, cacheReadInputTokens: 7, toolCalls: 0, completed: true },
-    "the protocol carries no tool events, so only a completed run proves a turn",
-  );
-  assert.deepEqual(liveSessionMetrics("codex", "not json at all"), { turns: 0, cacheReadInputTokens: 0, toolCalls: 0, completed: false }, "malformed input meters as zero");
-  assert.deepEqual(liveSessionMetrics("agy", codex), { turns: 0, cacheReadInputTokens: 0, toolCalls: 0, completed: false }, "unsupported harnesses meter as zero");
 });
 
 test("the codex harness bounds the harness preamble before the runtime's own config overrides", () => {
@@ -785,12 +693,4 @@ test("accepts a zcode runtime in contracts and keeps the zhipu vendor", () => {
   assert.equal(contract.runtimes.zcodeFlash.harness, "zcode");
   assert.equal(contract.runtimes.zcodeFlash.vendor, "zhipu", "the harness default names the vendor");
   assert.equal(routeRuntime(contract, { id: "z", type: "backend", runtime: "zcodeFlash", gate: {} }).id, "zcodeFlash");
-});
-
-test("live metering has no zcode transcript: usage settles from the terminal envelope", () => {
-  assert.deepEqual(
-    liveSessionMetrics("zcode", JSON.stringify({ sessionId: "s", response: "ok", usage: { inputTokens: 5 } })),
-    { turns: 0, cacheReadInputTokens: 0, toolCalls: 0, completed: false },
-    "the single-JSON output is only parseable at process end, so mid-run metering reads zero",
-  );
 });

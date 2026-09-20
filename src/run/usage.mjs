@@ -10,7 +10,7 @@ import { appendJsonl, writeJsonAtomic } from "./store.mjs";
 import { basename, join } from "node:path";
 import { errorMessage, stableJson } from "../util.mjs";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { liveUsage } from "../harnesses/exec-jsonl/index.mjs";
+import { liveUsage } from "../harnesses/session-metrics.mjs";
 
 import { priceUsage, readBoundedTail } from "../engine/process.mjs";
 import { writeNode } from "../engine/state.mjs";
