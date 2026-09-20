@@ -24,11 +24,16 @@ reading one and want the file as it is now.
 ## Usage
 
 ```
-node evals/run.mjs --class deterministic [--case <id>] [--assert-no-model] [--verify-discriminating] [--json]
+node evals/run.mjs --class deterministic [--case <id>] [--repeat <n>] [--assert-no-model] [--verify-discriminating] [--json]
 ```
 
 - `--class deterministic` runs every case under `evals/deterministic/`.
 - `--case <id>` narrows to one case (combine with `--class deterministic`).
+- `--repeat <n>` runs each case `n` times, sequentially, and reports it ok
+  only when every run is; the summary shows `passes/repeats` and each
+  failing run's failures carry their ordinal. A case that passes once and
+  fails once is a flaky case, and this is how it reads as one instead of
+  as whichever run happened last.
 - `--assert-no-model` additionally fails if any case's contract declares a
   runtime whose harness is not `replay`, and runs with
   `FABERUN_CODEX_BIN`, `FABERUN_CLAUDE_BIN`,
@@ -49,7 +54,8 @@ node evals/run.mjs --class deterministic [--case <id>] [--assert-no-model] [--ve
 
 ```
 node evals/run.mjs --project <runDir>... [--campaign <id>] [--note <text>] [--json]
-node evals/run.mjs --compare <before.json> <after.json> [--json]
+node evals/run.mjs --band <report.json> <report.json>... [--json]
+node evals/run.mjs --compare <before.json> <after.json> [--band <band.json>] [--json]
 ```
 
 `--project` reads one or more orchestrator run directories' own
@@ -67,12 +73,24 @@ regenerated and checked against the run directories it claims to measure;
 `evals/baseline.json` and `evals/fixtures/{a,b}.json` are this command's own
 output, not written by hand.
 
+`--band` reads two or more such reports from repeated runs of the same
+setup and prints, per indicator, the noise band (half the range of the
+measured values), the median and the number of readings; an indicator with
+fewer than two readings has no band, because one reading is not a spread.
+Measured 2026-09-20: the same packet on the same model varied by a factor of
+3.3 across 10 repetitions in one campaign and 2.12 across 2 in another, so a
+comparison of one run per arm reports noise as a result.
+
 `--compare` reads two such reports (either the bare indicator map or the
 `--project`-shaped `{provenance, indicators}` wrapper) and prints, per
 indicator, each side's value and sample count, the delta, and the direction
 that counts as improvement. Comparing a `null` indicator against a measured
 number never produces a numeric delta — it reports "no data"
 (`comparable: false`) instead of a delta that would silently read as zero.
+With `--band <band.json>` (the `--band --json` output) each comparison also
+says whether the delta is outside that indicator's noise band; a delta
+inside it prints as "not measured", never as a number that reads as a
+result, and `significant: false` in the JSON.
 
 Exit code is 1 if any case fails, 0 otherwise.
 

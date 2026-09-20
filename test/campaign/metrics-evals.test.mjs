@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { compareEvalReports, projectEvalIndicators } from "../../evals/metrics.mjs";
+import { compareEvalReports, noiseBandOf, projectEvalIndicators, renderEvalComparisonReport } from "../../evals/metrics.mjs";
 
 /** @param {number} minute @param {number} [second] @returns {string} */
 const at = (minute, second = 0) => new Date(Date.parse("2026-09-10T10:00:00.000Z") + (minute * 60 + second) * 1000).toISOString();
@@ -139,4 +139,28 @@ test("evals compareEvalReports reports a real numeric delta when both sides are 
     delta: -4,
     comparable: true,
   });
+});
+
+test("evals noise band: half the range across repeated reports, null below two readings; a delta inside it is not measured", () => {
+  const reports = [
+    { indicators: { costPerClosedCheckpoint: { value: 10, direction: "down", count: 1 }, firstPassGateRate: { value: 1, direction: "up", count: 1 } } },
+    { indicators: { costPerClosedCheckpoint: { value: 14, direction: "down", count: 1 } } },
+    { costPerClosedCheckpoint: { value: 12, direction: "down", count: 1 } },
+  ];
+  const band = noiseBandOf(reports);
+  assert.deepEqual(band.costPerClosedCheckpoint, { band: 2, median: 12, n: 3 }, "half the range, the median, the readings; a bare map counts like a wrapper");
+  assert.deepEqual(band.firstPassGateRate, { band: null, median: 1, n: 1 }, "one reading is not a spread");
+  const before = { costPerClosedCheckpoint: { value: 12, direction: "down", count: 1 } };
+  const inside = compareEvalReports(before, { costPerClosedCheckpoint: { value: 10.5, direction: "down", count: 1 } }, band);
+  assert.equal(inside.costPerClosedCheckpoint.delta, -1.5);
+  assert.equal(inside.costPerClosedCheckpoint.band, 2);
+  assert.equal(inside.costPerClosedCheckpoint.significant, false);
+  assert.match(renderEvalComparisonReport(inside), /delta: {2}not measured: \|-1\.5\| is within the noise band ±2/u);
+  const outside = compareEvalReports(before, { costPerClosedCheckpoint: { value: 6, direction: "down", count: 1 } }, band);
+  assert.equal(outside.costPerClosedCheckpoint.significant, true);
+  assert.match(renderEvalComparisonReport(outside), /delta: {2}-6 \(outside the noise band ±2\)/u);
+  const unbanded = compareEvalReports(before, { costPerClosedCheckpoint: { value: 6, direction: "down", count: 1 } }, { firstPassGateRate: 0.1 });
+  assert.equal(unbanded.costPerClosedCheckpoint.band, null, "an indicator the band report never measured compares without a band");
+  assert.equal(unbanded.costPerClosedCheckpoint.significant, null);
+  assert.equal("band" in compareEvalReports(before, before).costPerClosedCheckpoint, false, "without a band report the comparison keeps its shape");
 });

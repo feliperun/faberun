@@ -16,7 +16,7 @@ import { acquire as acquireControllerLock, lockPath, processStartToken as comput
 import { writeJsonAtomic } from "../src/run/store.mjs";
 import { createAttemptWorktree } from "../src/repo/worktree.mjs";
 import { RUNS_DIR_NAME, runsRoot } from "../src/run/paths.mjs";
-import { compareEvalReports, mergeEvalRunSources, projectEvalIndicators, readEvalRunSources, renderEvalComparisonReport } from "./metrics.mjs";
+import { compareEvalReports, mergeEvalRunSources, noiseBandOf, projectEvalIndicators, readEvalRunSources, renderEvalComparisonReport } from "./metrics.mjs";
 import { discoverCaseIds, loadCase, materializeCase, safeJoin, withEnvOverlay, withModelBinsUnavailable, withScopedFaberunHome } from "./case.mjs";
 import { applyDiscriminator, compareGc, compareIntegration, compareNode, comparePreflight, normalizedSteps } from "./compare.mjs";
 import { runValidateGolden, runVerifyFixtures } from "./golden.mjs";
@@ -29,10 +29,13 @@ const REPO_ROOT = resolve(EVALS_ROOT, "..");
 
 /** @typedef {Record<string, unknown>} JsonObject */
 
+/** @typedef {{id: string, title: string, proves: string, ok: boolean, failures: string[]}} CaseOutcome */
+
 /** @type {import("node:util").ParseArgsOptionsConfig} */
 const CLI_OPTIONS = {
   class: { type: "string" },
   case: { type: "string" },
+  repeat: { type: "string" },
   json: { type: "boolean" },
   "assert-no-model": { type: "boolean" },
   "verify-discriminating": { type: "boolean" },
@@ -303,7 +306,13 @@ function evalIndicatorsOf(parsed) {
  */
 function runCompare(rest) {
   const asJson = rest.includes("--json");
-  const positionals = rest.filter((arg) => arg !== "--json");
+  const bandIndex = rest.indexOf("--band");
+  const bandPath = bandIndex >= 0 ? rest[bandIndex + 1] : undefined;
+  if (bandIndex >= 0 && (bandPath === undefined || bandPath.startsWith("--"))) {
+    usageError("--band needs the path of a report written by `--band <report.json>...`");
+    return;
+  }
+  const positionals = rest.filter((arg, index) => arg !== "--json" && index !== bandIndex && index !== bandIndex + 1);
   if (positionals.length !== 2) {
     usageError("--compare needs exactly two report paths: <before.json> <after.json>");
     return;
@@ -311,7 +320,8 @@ function runCompare(rest) {
   const [beforePath, afterPath] = positionals;
   const before = evalIndicatorsOf(JSON.parse(readFileSync(resolve(beforePath), "utf8")));
   const after = evalIndicatorsOf(JSON.parse(readFileSync(resolve(afterPath), "utf8")));
-  const comparison = compareEvalReports(before, after);
+  const bands = bandPath === undefined ? undefined : evalIndicatorsOf(JSON.parse(readFileSync(resolve(bandPath), "utf8")));
+  const comparison = compareEvalReports(before, after, bands);
   process.stdout.write(asJson ? `${JSON.stringify({ schemaVersion: 1, indicators: comparison }, null, 2)}\n` : renderEvalComparisonReport(comparison));
 }
 
@@ -460,6 +470,10 @@ async function main(argv) {
     runProject(argv.slice(1));
     return;
   }
+  if (argv[0] === "--band") {
+    runBand(argv.slice(1));
+    return;
+  }
   if (argv[0] === "--validate-golden") {
     runValidateGolden(argv.slice(1));
     return;
@@ -488,6 +502,11 @@ async function main(argv) {
   const assertNoModel = values["assert-no-model"] === true;
   const verifyDiscriminatingFlag = values["verify-discriminating"] === true;
   const asJson = values.json === true;
+  const repeat = values.repeat === undefined ? 1 : Number(values.repeat);
+  if (!Number.isInteger(repeat) || repeat < 1) {
+    usageError("--repeat needs a positive integer");
+    return;
+  }
 
   if (values.class === undefined && values.case === undefined && !verifyDiscriminatingFlag) {
     usageError("one of --class or --case is required");
@@ -531,9 +550,10 @@ async function main(argv) {
   const run = async () => {
     const outcomes = [];
     for (const entry of loaded) {
-      outcomes.push(caseKindOf(entry.spec) === "command"
-        ? await runPlanCase(entry, { assertNoModel })
-        : await runCase(entry, { assertNoModel }));
+      const once = () => (caseKindOf(entry.spec) === "command"
+        ? runPlanCase(entry, { assertNoModel })
+        : runCase(entry, { assertNoModel }));
+      outcomes.push(await repeatCase(once, repeat));
     }
     return outcomes;
   };
@@ -544,7 +564,8 @@ async function main(argv) {
     process.stdout.write(`${JSON.stringify({ schemaVersion: 1, ok, cases: results }, null, 2)}\n`);
   } else {
     for (const result of results) {
-      process.stdout.write(`[${result.ok ? "ok" : "fail"}] ${result.id} · ${result.title}\n`);
+      const repeats = result.repeats > 1 ? ` (${result.passes}/${result.repeats} runs)` : "";
+      process.stdout.write(`[${result.ok ? "ok" : "fail"}] ${result.id} · ${result.title}${repeats}\n`);
       for (const failure of result.failures) process.stdout.write(`      ${failure}\n`);
     }
     const passed = results.filter((result) => result.ok).length;
@@ -576,4 +597,56 @@ if (isEvalsRunMain(process.argv[1])) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   });
+}
+
+/**
+ * Run one case `n` times, sequentially (cases share process-global state),
+ * and fold the outcomes: ok only when every run is, each failing run's
+ * failures prefixed with its ordinal, and `repeats` and `passes` recorded so
+ * a flaky case reads as "3 of 5", never as one lucky green.
+ *
+ * @param {() => Promise<CaseOutcome>} once
+ * @param {number} n
+ * @returns {Promise<CaseOutcome & {repeats: number, passes: number}>}
+ */
+export async function repeatCase(once, n) {
+  /** @type {CaseOutcome[]} */
+  const runs = [];
+  for (let index = 0; index < n; index += 1) runs.push(await once());
+  const passes = runs.filter((run) => run.ok).length;
+  return {
+    ...runs[0],
+    ok: passes === n,
+    failures: runs.flatMap((run, index) => run.failures.map((failure) => (n > 1 ? `[run ${index + 1}/${n}] ${failure}` : failure))),
+    repeats: n,
+    passes,
+  };
+}
+
+/**
+ * `evals/run.mjs --band <report.json> <report.json>... [--json]`: the noise
+ * band per indicator across repeated reports of the same setup (see
+ * `noiseBandOf`), to hand to `--compare ... --band <band.json>` so a delta
+ * inside it prints as not measured instead of as a number.
+ *
+ * @param {string[]} rest
+ * @returns {void}
+ */
+function runBand(rest) {
+  const asJson = rest.includes("--json");
+  const paths = rest.filter((arg) => arg !== "--json");
+  if (paths.length < 2) {
+    usageError("--band needs at least two report paths from repeated runs of the same setup");
+    return;
+  }
+  const indicators = noiseBandOf(paths.map((path) => JSON.parse(readFileSync(resolve(path), "utf8"))));
+  if (asJson) {
+    process.stdout.write(`${JSON.stringify({ schemaVersion: 1, repetitions: paths.length, indicators }, null, 2)}\n`);
+    return;
+  }
+  for (const [name, entry] of Object.entries(indicators)) {
+    process.stdout.write(`${name}\n`);
+    process.stdout.write(`  band:   ${entry.band === null ? "not measured (fewer than two readings)" : `±${entry.band}`}\n`);
+    process.stdout.write(`  median: ${entry.median ?? "no data"} (n=${entry.n})\n`);
+  }
 }
