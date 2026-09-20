@@ -217,6 +217,17 @@ failures never trigger failover. See
 [contract.md](../skills/faberun/references/contract.md) and
 [operations.md](../skills/faberun/references/operations.md).
 
+## Concurrency per runtime
+
+`maxParallel` bounds the run; a runtime's `maxConcurrent` bounds that runtime
+below it, and a runtime some node is waiting out a provider exhaustion on (a
+reset wait back to the same runtime) accepts no new dispatch until the wait
+elapses. The invariant: a tick never starts more attempts on a runtime than
+its `maxConcurrent`, counting what the same tick already started, and never
+spends a fresh quota window on a refusal a sibling already received. Both
+decisions live in `src/engine/capacity.mjs`, pure over the running set and
+the node snapshots.
+
 ## Attempt worktree
 
 The isolated checkout one worker attempt runs in:

@@ -64,7 +64,7 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 
 /** @typedef {{mode: "execution"|"discovery"|"autonomous", objective: string, instructions: string[], readFiles: string[], writeFiles?: string[], writeRoots?: string[], symbols: string[], scopeAcknowledged?: string[], decisions: string[], nonGoals: string[], verification: VerificationCommand[]}} TaskPacket */
 
-/** @typedef {{harness: "claude"|"codex"|"agy"|"dsh"|"zcode"|"exec-jsonl"|"replay", model: string, reasoning?: string, sandbox?: "read-only"|"workspace-write"|"danger-full-access", permissionMode?: string, config?: Record<string, unknown>, printTimeout?: string, tools?: string[], executable?: string, args?: string[], versionArgs?: string[], maxArgvPromptBytes?: number, requiredCapabilities?: CapabilityRequirements, costRank?: number, fallback?: string, vendor: string, tier?: number|string, stallTimeoutSec?: number}} ValidatedRuntime */
+/** @typedef {{harness: "claude"|"codex"|"agy"|"dsh"|"zcode"|"exec-jsonl"|"replay", model: string, reasoning?: string, sandbox?: "read-only"|"workspace-write"|"danger-full-access", permissionMode?: string, config?: Record<string, unknown>, printTimeout?: string, tools?: string[], executable?: string, args?: string[], versionArgs?: string[], maxArgvPromptBytes?: number, requiredCapabilities?: CapabilityRequirements, costRank?: number, fallback?: string, vendor: string, tier?: number|string, stallTimeoutSec?: number, maxConcurrent?: number}} ValidatedRuntime */
 
 /** @typedef {{enabled: boolean, review?: ("none"|"advisory"|"blocking"), runtime?: string, failOn?: ("minor"|"major"|"critical")[], maxRevisions?: number, requiredCapabilities?: CapabilityRequirements, skipWhen?: {verificationGreen: true, maxChangedPaths: number}}} ValidatedGate */
 

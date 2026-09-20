@@ -22,7 +22,7 @@ import { stableJson } from "../util.mjs";
 const RUNTIME_FIELDS = new Set([
   "harness", "model", "reasoning", "sandbox", "permissionMode", "config", "printTimeout", "tools",
   "executable", "args", "versionArgs", "maxArgvPromptBytes", "requiredCapabilities", "costRank",
-  "fallback", "vendor", "tier", "pricing", "stallTimeoutSec",
+  "fallback", "vendor", "tier", "pricing", "stallTimeoutSec", "maxConcurrent",
 ]);
 const RUNTIME_HARNESSES = new Set(["claude", "codex", "agy", "dsh", "zcode", "exec-jsonl", "replay"]);
 
@@ -98,6 +98,9 @@ function validateRuntimeValues(runtime, label, executableRequired) {
     throw new TypeError(`${label}.sandbox is invalid`);
   }
   if (runtime.permissionMode !== undefined) requireString(runtime.permissionMode, `${label}.permissionMode`);
+  // How many attempts this runtime may run at once, below the run's
+  // maxParallel; absent leaves only maxParallel to bound it.
+  if (runtime.maxConcurrent !== undefined) positiveInteger(runtime.maxConcurrent, `${label}.maxConcurrent`);
   if (runtime.config !== undefined && (!runtime.config || typeof runtime.config !== "object" || Array.isArray(runtime.config))) {
     throw new TypeError(`${label}.config must be an object`);
   }

@@ -7,7 +7,8 @@ import {
   applyJudgeRound,
 } from "./review.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
-import { routingBackoffActive } from "./failover.mjs";
+import { routeRuntimeForState, routingBackoffActive } from "./failover.mjs";
+import { quotaHeldRuntimes, runningPerRuntime, runtimeHasCapacity } from "./capacity.mjs";
 
 import {
   bootstrapAttemptPath,
@@ -614,9 +615,20 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
           return state?.status === "pending" && !pendingSettlements.has(node.id)
             && node.dependsOn.every((id) => states.get(id)?.status === "done");
         });
-        for (const node of ready.slice(0, slots)) {
+        // Per-runtime capacity is judged per dispatch, not per tick: the
+        // counts include what this tick has already started, and a runtime a
+        // sibling is waiting out a quota reset on accepts nothing new.
+        const counts = runningPerRuntime(running.values());
+        const held = quotaHeldRuntimes(states.values(), Date.now());
+        let dispatched = 0;
+        for (const node of ready) {
+          if (dispatched >= slots) break;
           const state = states.get(node.id);
           if (!state || routingBackoffActive(state, state.phase)) continue;
+          const routed = routeRuntimeForState(contract, node, state, state.phase === "judge" ? "judge" : "worker");
+          if (!runtimeHasCapacity(routed.id, contract, counts, held)) continue;
+          counts.set(routed.id, (counts.get(routed.id) ?? 0) + 1);
+          dispatched += 1;
           // A node recovered pending a re-ask judge (its own worker attempt
           // already accepted, `state.result` durable) reaches `settleDone` /
           // `integrateAttempt` exactly like a closed job's own settlement
