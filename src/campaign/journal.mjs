@@ -8,7 +8,7 @@
  * the journal's own `eventId` so two sessions cannot consume each other's place.
  */
 import { JOURNAL_FILE, JOURNAL_TEXT_BYTES, JOURNAL_WATCH_CURSOR_DIR, JOURNAL_WATCH_CURSOR_SCHEMA_VERSION } from "./layout.mjs";
-import { boundedText, collapseLines } from "../util.mjs";
+import { collapseLines } from "../util.mjs";
 import { campaignIdOf } from "./record.mjs";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -382,6 +382,11 @@ function normalizeEntry(entry) {
   return /** @type {JournalEntry} */ (normalized);
 }
 /**
+ * Collapse to one line and enforce the byte cap by refusing, not truncating:
+ * the journal is the record of what was written, so a note that does not fit
+ * is the author's to cut -- a silently shortened entry lies about its own
+ * write. Readers of already-stored text never pass through here.
+ *
  * @param {unknown} value
  * @param {string} label
  * @param {number} maxBytes
@@ -391,5 +396,9 @@ export function normalizeText(value, label, maxBytes = JOURNAL_TEXT_BYTES) {
   requireText(value, label);
   const collapsed = collapseLines(value);
   if (!collapsed) throw new TypeError(`${label} must not be blank`);
-  return boundedText(collapsed, maxBytes);
+  const bytes = Buffer.byteLength(collapsed, "utf8");
+  if (bytes > maxBytes) {
+    throw new TypeError(`${label} is ${bytes} bytes, over the ${maxBytes}-byte cap; cut ${bytes - maxBytes} bytes and retry`);
+  }
+  return collapsed;
 }

@@ -54,10 +54,10 @@ test("semantic budget keeps critical sections and evicts oldest low-priority his
   registerRun(created.path, "attention-run");
 
   for (let index = 0; index < 4; index += 1) {
-    appendJournal(created.path, { type: "intent", eventId: `i-${index}`, at, sessionId, text: `intent-${String(index).padStart(3, "0")} ${"B".repeat(2040)}` });
+    appendJournal(created.path, { type: "intent", eventId: `i-${index}`, at, sessionId, text: `intent-${String(index).padStart(3, "0")} ${"B".repeat(2000)}` });
   }
   for (let index = 0; index < 10; index += 1) {
-    appendJournal(created.path, { type: "outcome", eventId: `o-${index}`, at, sessionId, text: `outcome-${String(index).padStart(3, "0")} ${"A".repeat(2040)}` });
+    appendJournal(created.path, { type: "outcome", eventId: `o-${index}`, at, sessionId, text: `outcome-${String(index).padStart(3, "0")} ${"A".repeat(2000)}` });
   }
 
   const handoff = renderHandoff(created.path, runsDir);
@@ -197,7 +197,7 @@ test("a critical section larger than the whole budget keeps its latest entries",
   for (let index = 0; index < 20; index += 1) {
     appendJournal(created.path, {
       type: "decision", eventId: `d-${index}`, at, sessionId,
-      decisionId: `d-${index}`, text: `decision-${String(index).padStart(3, "0")} ${"C".repeat(2040)}`,
+      decisionId: `d-${index}`, text: `decision-${String(index).padStart(3, "0")} ${"C".repeat(2000)}`,
     });
   }
 
@@ -225,7 +225,7 @@ test("fitHandoff shrinks entry text until every critical entry survives", () => 
   for (let index = 0; index < 20; index += 1) {
     appendJournal(created.path, {
       type: "decision", eventId: `d-${index}`, at, sessionId,
-      decisionId: `d-${index}`, text: `decision-${String(index).padStart(3, "0")} ${"C".repeat(2040)}`,
+      decisionId: `d-${index}`, text: `decision-${String(index).padStart(3, "0")} ${"C".repeat(2000)}`,
     });
   }
   appendJournal(created.path, { type: "constraint", eventId: "c1", at, sessionId, text: "Never drop active decisions" });
@@ -246,7 +246,7 @@ test("oldest low-priority history is evicted first with a bounded omission summa
   for (let index = 0; index < 25; index += 1) {
     appendJournal(created.path, {
       type: "outcome", eventId: `out-${index}`, at, sessionId: "codex-1",
-      text: `outcome-${String(index).padStart(3, "0")} ${"A".repeat(2040)}`,
+      text: `outcome-${String(index).padStart(3, "0")} ${"A".repeat(2000)}`,
     });
   }
   const handoff = renderHandoff(created.path, runsDir);
@@ -416,18 +416,22 @@ test("handoff projection recovers from deletion and corruption", () => {
   assert.equal(renderHandoff(created.path, runsDir), second);
 });
 
-test("journal text is normalized and bounded so entries cannot inject headings", () => {
+test("journal text is normalized and an oversized entry is refused so entries cannot inject headings", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-normalize-"));
   const runsDir = runsRoot(directory);
   const created = initializeCampaign(runsDir, { campaignId: "normalize", goal: "Prove normalization" });
   const at = new Date().toISOString();
   appendJournal(created.path, { type: "intent", eventId: "i1", at, sessionId: "codex-1", text: "## Fake heading\nline two" });
-  appendJournal(created.path, { type: "constraint", eventId: "c1", at, sessionId: "codex-1", text: "X".repeat(10000) });
-  const journal = readJournal(created.path);
-  const constraint = journal.find((entry) => entry.type === "constraint");
-  assert.ok(constraint, "constraint entry present");
-  assert.ok(constraint.text !== undefined, "constraint entry has text");
-  assert.ok(Buffer.byteLength(constraint.text, "utf8") <= JOURNAL_TEXT_BYTES);
+  assert.throws(
+    () => appendJournal(created.path, { type: "constraint", eventId: "c1", at, sessionId: "codex-1", text: "X".repeat(10000) }),
+    new RegExp(`entry\\.text is 10000 bytes, over the ${JOURNAL_TEXT_BYTES}-byte cap`, "u"),
+    "an over-long note is refused, naming the received size and the cap",
+  );
+  assert.equal(
+    readJournal(created.path).some((entry) => entry.eventId === "c1"),
+    false,
+    "the refused entry is not written",
+  );
   const handoff = renderHandoff(created.path, runsDir);
   assert.doesNotMatch(handoff, /^## Fake/mu);
   assert.match(handoff, /Fake heading line two/u);
@@ -446,11 +450,11 @@ test("attention-needed linked-run states survive when critical sections exhaust 
   });
   appendJournal(created.path, { type: "next", eventId: "n1", at, sessionId, text: "Render the next handoff" });
   for (let index = 0; index < 100; index += 1) {
-    appendJournal(created.path, { type: "decision", eventId: `d-${index}`, at, sessionId, decisionId: `d-${index}`, text: `decision-${index} ${"C".repeat(2040)}` });
-    appendJournal(created.path, { type: "open-question", eventId: `q-${index}`, at, sessionId, questionId: `q-${index}`, text: `question-${index} ${"D".repeat(2040)}` });
+    appendJournal(created.path, { type: "decision", eventId: `d-${index}`, at, sessionId, decisionId: `d-${index}`, text: `decision-${index} ${"C".repeat(2000)}` });
+    appendJournal(created.path, { type: "open-question", eventId: `q-${index}`, at, sessionId, questionId: `q-${index}`, text: `question-${index} ${"D".repeat(2000)}` });
   }
   for (let index = 0; index < 60; index += 1) {
-    appendJournal(created.path, { type: "constraint", eventId: `c-${index}`, at, sessionId, text: `constraint-${index} ${"E".repeat(2040)}` });
+    appendJournal(created.path, { type: "constraint", eventId: `c-${index}`, at, sessionId, text: `constraint-${index} ${"E".repeat(2000)}` });
   }
   mkdirSync(join(runsDir, "attention-run", "nodes"), { recursive: true });
   writeFileSync(join(runsDir, "attention-run", "nodes", "a.json"), JSON.stringify({ id: "a", status: "failed", error: { message: "boom" } }));
