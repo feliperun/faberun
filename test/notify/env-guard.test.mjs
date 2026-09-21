@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -25,8 +25,15 @@ const setupPath = join(root, "test", "setup.mjs");
 
 test("every notify variable src/notify exports is named by test/setup.mjs, so a third transport cannot slip past the suite", () => {
   const setup = readFileSync(setupPath, "utf8");
-  assert.ok(NOTIFY_ENV_NAMES.length >= 2, "both transports are listed");
   assert.ok(NOTIFY_ENV_NAMES.includes(NOTIFY_BIN_ENV) && NOTIFY_ENV_NAMES.includes(NOTIFY_SESSION_ENV));
+  // Every `*_ENV` constant src/notify exports with a FABERUN_NOTIFY_ value
+  // must be in the list -- a third transport added without joining it would
+  // be this defect one generation on.
+  const notifyDir = join(root, "src", "notify");
+  const exported = readdirSync(notifyDir).filter((name) => name.endsWith(".mjs"))
+    .flatMap((name) => [...readFileSync(join(notifyDir, name), "utf8").matchAll(/^export const \w+_ENV = "(FABERUN_NOTIFY_[A-Z_]+)";/gmu)].map((match) => match[1]));
+  assert.ok(exported.length >= 2, "the scan finds the exported transport variables");
+  for (const name of exported) assert.ok(NOTIFY_ENV_NAMES.includes(name), `${name} is exported by src/notify but missing from NOTIFY_ENV_NAMES`);
   for (const name of NOTIFY_ENV_NAMES) {
     assert.match(setup, new RegExp(`(delete process\\.env\\.${name}|process\\.env\\.${name} = )`, "u"), `test/setup.mjs neutralises ${name} unconditionally`);
   }
@@ -42,7 +49,9 @@ test("after the setup module loads, no notify variable of the outer environment 
 
 test("npm test preloads the setup module into every test process, and the preload reaches a child test file that imports nothing", () => {
   const manifest = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-  assert.match(manifest.scripts.test, /--import \.\/test\/setup\.mjs --test /u, "the preload is the suite-wide boundary; helpers.mjs only covers files that import it");
+  assert.match(manifest.scripts.test, /^node --test /u);
+  assert.match(manifest.scripts.test, /--import \.\/test\/setup\.mjs /u, "the preload is the suite-wide boundary; helpers.mjs only covers files that import it");
+  assert.match(manifest.scripts.test, /--import \.\/test\/scoped-home\.mjs /u, "the home scope keeps its own preload beside this one: each owns its variables and each ratchet names its file");
 
   // A probe test file with no import of helpers.mjs at all, run the way npm
   // test runs a file, with both variables set in the outer environment.
