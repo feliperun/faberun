@@ -649,8 +649,10 @@ const SESSION_LEDGER_FIELDS = new Set(["turns", "toolCalls", "requests", "contex
 
 /**
  * The per-request ledger an invocation carries (`session-metrics.mjs`'s
- * SessionLedger): counts are non-negative integers, the context fields are
- * non-negative integers or null when no request reported usage.
+ * SessionLedger): turns and tool calls are non-negative integers; requests
+ * and the context fields are non-negative integers, or null when the stream
+ * carried no usage per request (codex reports per turn, zcode emits one
+ * document), which is unknown, not zero.
  *
  * @param {unknown} value
  * @param {string} label
@@ -659,8 +661,8 @@ function validateSessionLedger(value, label) {
   assertObject(value, label);
   const record = /** @type {Record<string, unknown>} */ (value);
   rejectUnknown(record, SESSION_LEDGER_FIELDS, label);
-  for (const key of ["turns", "toolCalls", "requests"]) nonNegativeInteger(record[key], `${label}.${key}`);
-  for (const key of ["contextFirst", "contextMax", "contextLast", "contextSum"]) {
+  for (const key of ["turns", "toolCalls"]) nonNegativeInteger(record[key], `${label}.${key}`);
+  for (const key of ["requests", "contextFirst", "contextMax", "contextLast", "contextSum"]) {
     if (record[key] !== null) nonNegativeInteger(record[key], `${label}.${key}`);
   }
   if (typeof record.completed !== "boolean") throw new TypeError(`${label}.completed must be a boolean`);

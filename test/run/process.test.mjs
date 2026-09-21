@@ -344,8 +344,9 @@ test("stall supervision kills a runtime whose harness declares streamed output o
     // 800 ms sleep was not enough under three concurrent workers and a
     // typecheck, and the assertion that followed it bounded a duration from
     // above, which this repository's rules forbid. A lower bound is fine: the
-    // stall clock below only starts once the line is there.
-    const lineDeadline = Date.now() + 10_000;
+    // stall clock below only starts once the line is there. The cap is a
+    // hang guard, not a bet on the machine, so it sits at a minute.
+    const lineDeadline = Date.now() + 60_000;
     while (!(existsSync(job.paths.stdout) && statSync(job.paths.stdout).size > 0) && Date.now() < lineDeadline) {
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
