@@ -60,9 +60,12 @@ was created. `RM-030` fixes the leak at its cause.
 The goal is not features. It is reaching the point of thinking: *I trust faberun
 enough to leave a campaign running without watching it.*
 
+"Campaigns in progress" means the campaign that is actually running, not the
+parked runs of closed ones — see decision D1.
+
 | id | item | evidence | state |
 | --- | --- | --- | --- |
-| RM-001 | Finish or formally close the parked runs from earlier campaigns | 8 runs parked across `adversarial-planner` (4), `become-faberun` (1), `chain-ergonomics-and-fairness` (2), plus `harden-chain-and-verification-2` flagged `verification_failed` | idea |
+| RM-001 | Resume the parked runs from earlier campaigns | 8 runs parked across `adversarial-planner` (4), `become-faberun` (1), `chain-ergonomics-and-fairness` (2) | dropped — D1 |
 | RM-002 | Close the active `durable-state-integrity` campaign | cancel orphans integrated work; `npm test` writes into the operator's home; the journal truncates silently; an old record has no repair path | running |
 | RM-003 | `cancel` against a genuinely live invocation is unverified | `a-cancelled-run-releases-what-it-will-never-reuse` was verified only against an already-terminal run; worked around by giving the contract a fresh id rather than relaunching | idea |
 | RM-004 | `faberun plan` has never run end to end against a live harness | every planning stage landed so far went through the replay harness in tests; `validateContract`'s containment check runs before any worktree exists | measured |
@@ -124,8 +127,9 @@ satisfied*. Three levels:
 | RM-013 | Judge calibration canary | judges returned zero findings on 34 judged nodes while costing 24–45% of the bill | measured |
 | RM-014 | Acceptance suite external to the writer, run against the sealed artefact | — | idea |
 
-**See open question Q5.** `RM-013` is arguably a prerequisite for `RM-011`: an
-intent eval resting on an uncalibrated judge produces confidence, not assurance.
+`RM-011` and `RM-013` are built in parallel — see decision D3. The consequence is
+explicit: until the canary reports, an intent eval's confidence number is an
+exploratory signal, not assurance, and must be read as one.
 
 ---
 
@@ -204,8 +208,11 @@ stops being optional.
 | RM-028 | Level 2: container + restricted filesystem + controlled secrets | — | idea |
 | RM-029 | Levels 3–4: ephemeral microVM; policy-based capabilities (network allowlist, filesystem scope, docker/cloud denied, no secrets) | — | idea |
 
-**See open question Q4.** This sits at P6 while P5 promises autonomy. Autonomy
-without isolation raises the blast radius of exactly the thing being automated.
+This stays at P6, after autonomy — see decision D2. The levels above are a sketch
+to be argued properly when the work starts, not a settled design. Until then the
+honest statement of the risk is the one at the top of this section: a worker runs
+arbitrary commands with the operator's own credentials, and nothing but the
+worker's own restraint keeps it in the repository.
 
 ---
 
@@ -239,12 +246,17 @@ independent layer between human intent and computational intelligence.
 
 ### North Star
 
-> **Validated work produced without human intervention** — e.g. `autonomous
-> validated work: 82%`, or `human interventions per campaign: 1.4`.
+> **Intent → verified outcome**: the elapsed time from stating an intent to a
+> proven result.
 
-A second one worth tracking: **intent → verified outcome**, the elapsed time
-from stating the intent to a proven result. **See open question Q7** — this
-metric and P7 pull in opposite directions at the limit.
+Chosen over "validated work produced without human intervention" — see decision
+D4. The rejected metric rewards removing the human, which at the limit erodes
+precisely the judgment P7 exists to protect; this one does not, and it also
+rewards cutting rework and waiting, which are where the time actually goes.
+
+`human interventions per campaign` stays worth watching as a diagnostic, but it
+is not the target: a campaign that asks about a destructive migration is behaving
+correctly, and a number that punishes it would be measuring the wrong thing.
 
 ---
 
@@ -273,48 +285,50 @@ vendor. Prove the core first.
 
 ---
 
+## Decisions
+
+Owner decisions, 2026-09-21. Recorded here because each one closed a real
+conflict between the stated direction and the repository, and a decision without
+its reason gets relitigated.
+
+**D1 — "Campaigns in progress" means the running campaign, not the parked runs.**
+The eight parked runs of earlier campaigns are historical record, not a backlog;
+nothing is resumed on their account. `RM-001` is dropped.
+
+**D2 — Sandboxing stays at P6, after autonomy.** The level sketch is not a design
+and will be argued when the work starts. The risk is recorded rather than
+mitigated: today a worker runs arbitrary commands with the operator's own
+credentials.
+
+**D3 — Intent evals and judge calibration are built in parallel.** The cost is
+accepted and named: until the canary reports, an intent eval's confidence figure
+is exploratory signal, not assurance.
+
+**D4 — The North Star is intent → verified outcome.** "Validated work without
+human intervention" was rejected because, optimised literally, it erodes the
+human judgment P7 exists to protect.
+
 ## Open questions for the owner
 
-These are conflicts or ambiguities between the stated priorities and what the
-repository actually contains. Each changes what gets built, so none is decided
-here.
-
-**Q1 — What does "finish the campaigns in progress" mean for the parked ones?**
-Eight runs are parked across three campaigns, two of which are already closed.
-Resuming all of them is real work on old branches; declaring them bankrupt loses
-whatever is half-done. The cheap middle is to resume only those whose work is
-not already superseded — but that judgement is per run.
+Still open. Each changes what gets built, so none is decided here.
 
 **Q2 — Two artefacts are both called a brief.** `operator-brief.md` exists and is
 a continuity capsule: 4 KiB, no model, rebuilt from the journal, for a fresh
 seat taking over a *running* campaign. The Campaign Brief in P1 is a
 *pre-execution* approval surface, richer, and probably model-written. Rename one,
-or make the approval surface a different artefact entirely?
+or make the approval surface a different artefact entirely? *Recommendation: two
+names for two artefacts — merging them would spoil the continuity capsule, which
+is deliberately small and model-free so it can be rebuilt after the seat that
+would have written it died.*
 
 **Q3 — mdhtml with the Herz theme in a public repository.** P1 proposes rendering
 the brief with `mdhtml`. The canonical theme is the employer's design system, and
 this repository's own rule is that nothing from a private or employer repository
 lands here without an explicit decision. Ship the brief with a neutral theme, or
-make the theme a local, unversioned choice?
-
-**Q4 — P5 before P6?** Invisible faberun promises autonomy; sandboxing sits two
-priorities later. A packet is explicitly not a container today. Should isolation
-move up to gate the autonomy, or is the risk acceptable while the factory runs
-only against your own repositories?
-
-**Q5 — Intent evals rest on the judge.** Judges produced zero findings on 34
-judged nodes while costing a quarter to a half of the bill. An intent eval on top
-of that judge reports confidence that has not been shown to track correctness.
-Does judge calibration (`RM-013`) gate intent evals (`RM-011`)?
+make the theme a local, unversioned choice? *Recommendation: neutral theme in the
+repository, any house theme kept as a local unversioned override.*
 
 **Q6 — When may empirical routing decide on its own?** The proposed floor is
 deliberately conservative (≥60 nodes, ≥5 campaigns, 60 days, pass@1 ≥95%). A
 lower floor starts saving sooner and risks learning from noise. Where is the
 line?
-
-**Q7 — The North Star and P7 pull against each other.** "Validated work without
-human intervention" rewards removing the human, while P7 says the human must
-judge irreversible decisions, product trade-offs and real ambiguity. Optimised
-literally, the metric erodes exactly the interventions P7 wants to keep. Should
-the metric exclude the intervention classes P7 protects, so that asking you about
-a destructive migration never counts against the score?
