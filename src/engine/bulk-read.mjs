@@ -16,6 +16,7 @@ import { DECLARED_MODEL_CATALOGUES, stableJsonDocument } from "../harnesses/cata
 import { READ_LINE_LIMIT, normalizeProviderResult, providerCommand } from "../harnesses/index.mjs";
 import { appendUsageRecord, emptyUsage, priceUsage } from "../run/usage.mjs";
 import { errorMessage, fail } from "../util.mjs";
+import { spawnInvocation } from "../host/platform.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS } from "./runtime-discovery.mjs";
 
 /** Fixed-size copy buffer: the pack is built through this, never through a corpus-sized string. */
@@ -178,10 +179,15 @@ function invokeDelegation(runtime, prompt, cwd) {
     /** @type {import("node:child_process").ChildProcess} */
     let child;
     try {
-      child = spawn(command.executable, command.args, {
+      // The provider binary, reached the way this platform reaches one: a
+      // delegation that spawns it raw is ENOENT on Windows against the very
+      // CLI the run is configured to use.
+      const invocation = spawnInvocation(command.executable, command.args, { cwd });
+      child = spawn(invocation.command, invocation.args, {
         cwd,
         env: environmentWith(command.env),
         stdio: ["pipe", "pipe", "pipe"],
+        ...invocation.options,
       });
     } catch (error) {
       observation.spawnError = errorMessage(error);
