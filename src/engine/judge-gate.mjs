@@ -14,8 +14,10 @@ import { stat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { reviewMode, UNCITED_REJECTION_REASON } from "../contract/review-modes.mjs";
 import { JUDGE_LIMITS } from "../contract/judge-envelope.mjs";
+import { sharedVerificationCommands } from "../contract/final-verification.mjs";
 
 /** @typedef {import("../contract/definition-of-done.mjs").DefinitionOfDoneItem} DefinitionOfDoneItem */
+/** @typedef {import("../contract/verification.mjs").VerificationCommand} VerificationCommand */
 /** @typedef {import("../contract/definition-of-done.mjs").DefinitionOfDoneProof} DefinitionOfDoneProof */
 /** @typedef {import("../contract/index.mjs").ExecutionOverride} ExecutionOverride */
 /** @typedef {import("../contract/index.mjs").NodeSnapshot} NodeSnapshot */
@@ -350,6 +352,42 @@ function declaredWriteCoverage(state) {
 }
 
 /**
+ * Whether a path named by verification output belongs to the contract's own
+ * `sharedVerification` suite -- the repository ratchets the operator appends to
+ * every node -- rather than to the node's own work. An argv entry names either
+ * the file the runner was given or a directory it walked.
+ *
+ * @param {{sharedVerification?: VerificationCommand[]}} contract
+ * @returns {(path: string) => boolean}
+ */
+function sharedVerificationCoverage(contract) {
+  const argv = sharedVerificationCommands(contract).flatMap((command) => command.argv);
+  return (path) => argv.some((token) => token === path || path.startsWith(`${token}/`));
+}
+
+/**
+ * The operator-facing description for a failing ratchet: a check the contract
+ * itself declared, that runs on every node, and that this node's change broke.
+ *
+ * It says nothing about the write scope on purpose. Telling the operator to
+ * hand the node the ratchet licenses the next worker to edit the rule it just
+ * violated -- observed 2026-09-21, when a node that pushed
+ * `src/report/render.mjs` to 801 lines was advised to add the 800-line ratchet
+ * to its `writeFiles`. The remedy is already inside the node's scope: its own
+ * code.
+ *
+ * @param {string[]} paths
+ * @returns {string}
+ */
+function ratchetFailureDescription(paths) {
+  const files = paths.join(", ");
+  return boundedText(
+    `deterministic verification failed in ${files}, which the contract runs on every node as sharedVerification: this node's change broke a repository-wide rule. The remedy is in the node's own code -- bring the change back within the rule the check enforces. The check itself is not the node's to change, and relaxing it is not a fix`,
+    JUDGE_LIMITS.descriptionBytes,
+  );
+}
+
+/**
  * The operator-facing description for a failure that named a test outside the
  * declared write scope. The defect is not in the worker's code: the worker is
  * forbidden from touching the test, so the contract that withheld it is what
@@ -372,24 +410,38 @@ function undeclaredTestDescription(paths) {
  * The deterministic controller-verification failure verdict, kept next to the
  * Definition of Done gate so every deterministic failure settles identically.
  *
+ * The contract is a parameter because an undeclared test file has two opposite
+ * remedies and only the contract tells them apart: a ratchet it declared in
+ * `sharedVerification` is the node's code to fix, while any other withheld test
+ * is the contract's scope to widen.
+ *
+ * @param {{sharedVerification?: VerificationCommand[]}} contract
  * @param {{verification?: {commands?: Array<{argv: string[], passed?: boolean, attempts?: Array<{stdout?: string, stderr?: string, exitCode?: number|null, timedOut?: boolean}>}>, error?: unknown}|null, scope?: {boundary?: {files?: string[], roots?: string[], fileRoots?: string[]}}|null}} state
  * @returns {import("./prompts.mjs").JudgeVerdict}
  */
-export function verificationFailureVerdict(state) {
+export function verificationFailureVerdict(contract, state) {
   const failedCommands = (state.verification?.commands ?? []).filter((command) => !command.passed);
   const evidence = failedCommands.length
     ? failedCommands.map((command) => `${command.argv.join(" ")}: ${(command.attempts ?? []).map((attempt) => `exit=${attempt.exitCode ?? "-"}${attempt.timedOut ? " timeout" : ""}`).join(", ")}`).join("; ")
     : state.verification?.error ?? "verification controller failed to execute a command";
-  const undeclared = namedTestFiles(failedCommands).filter((path) => !declaredWriteCoverage(state)(path));
+  const declared = declaredWriteCoverage(state);
+  const undeclared = namedTestFiles(failedCommands).filter((path) => !declared(path));
+  const isRatchet = sharedVerificationCoverage(contract);
+  const ratchets = undeclared.filter(isRatchet);
+  const withheld = undeclared.filter((path) => !isRatchet(path));
+  const descriptions = [
+    ...(ratchets.length ? [ratchetFailureDescription(ratchets)] : []),
+    ...(withheld.length ? [undeclaredTestDescription(withheld)] : []),
+  ];
   return {
     verdict: "fail",
     maxSeverity: "critical",
     summary: "deterministic verification failed",
-    findings: [{
+    findings: (descriptions.length ? descriptions : ["deterministic verification failed"]).map((description) => ({
       severity: "critical",
-      description: undeclared.length ? undeclaredTestDescription(undeclared) : "deterministic verification failed",
+      description,
       evidence: boundedText(evidence),
-    }],
+    })),
   };
 }
 

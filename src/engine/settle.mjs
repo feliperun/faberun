@@ -91,7 +91,7 @@ export function applyRejection(contract, node, state, runDir, running, lock, sta
   }, lock);
 }
 /** Deterministic verification failure settles through the shared rejection path. The verdict carries this attempt's unexpected paths, so a red attempt reports them whether it stops here or starts its revision (TECH-SPEC lean, rule 1). @param {ValidatedContract} contract @param {ValidatedNode} node @param {NodeSnapshot} state @param {string} runDir @param {Map<string, Job>|null} running @param {LockHandle} lock @param {Map<string, NodeSnapshot>} states @param {string} campaignPath @param {JudgeVerdict} [verdict] */
-export function applyVerificationFailure(contract, node, state, runDir, running, lock, states, campaignPath, verdict = verificationFailureWithScope(verificationFailureVerdict(state), state.scope)) {
+export function applyVerificationFailure(contract, node, state, runDir, running, lock, states, campaignPath, verdict = verificationFailureWithScope(verificationFailureVerdict(contract, state), state.scope)) {
   applyRejection(contract, node, state, runDir, running, lock, states, campaignPath, verdict, { code: "verification_failed", label: "verification" });
 }
 
@@ -193,7 +193,7 @@ export async function settleDone(contract, node, state, runDir, lock, states, ca
       removeWorktree(contract.cwd, acceptedPath);
     },
     onVerificationFailure: async (transaction) => {
-      const verdict = verificationFailureWithScope(verificationFailureVerdict(state), state.scope);
+      const verdict = verificationFailureWithScope(verificationFailureVerdict(contract, state), state.scope);
       verdict.summary = "integrated candidate verification failed";
       const divergent = candidateOnlyFailures(state.verification, transaction.candidateEvidence);
       verdict.findings = [...(verdict.findings ?? []), {
