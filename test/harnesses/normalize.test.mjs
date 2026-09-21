@@ -525,11 +525,7 @@ test("the zcode adapter installs its CLI onto the PATH when the app is bundled",
 
   ensureZcodeAvailable({ pathDirs, home, bundle });
 
-  // The exec bit is a POSIX fact and Windows has none: `chmod` there moves
-  // the read-only flag and nothing else. What makes the shim runnable on a
-  // host like that is the shebang the next assertion reads.
-  // guard-exempt: host-layout only a POSIX host carries an exec bit
-  if (process.platform !== "win32") assert.equal(statSync(shim).mode & 0o777, 0o755, "a shim nothing can execute is not on the PATH in any useful sense");
+  if (process.platform !== "win32") assert.equal(statSync(shim).mode & 0o777, 0o755, "a shim nothing can execute is not on the PATH in any useful sense"); // guard-exempt: host-layout Windows carries no exec bit; the shebang below is what runs the shim there
   const body = readFileSync(shim, "utf8");
   assert.match(body, /^#!\/usr\/bin\/env bash\n/u);
   assert.ok(body.includes(`ELECTRON_RUN_AS_NODE=1 exec ${bundle.electron}`), "the app's own Electron runs the bundle");

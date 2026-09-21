@@ -33,12 +33,7 @@ test("fails deterministic verification before the judge", async () => {
   assert.ok(state.verification.attempts, "verification attempts persisted");
   assert.equal(state.verification.attempts.length, 1);
   assert.equal(new Set(state.verification.attempts.map((attempt) => attempt.invocationId)).size, 1);
-  // A process group is a POSIX fact: on Windows the attempt carries none and
-  // the kill path reaches the tree through the pid instead, so the identity
-  // asserted here is the one this host actually publishes.
-  // guard-exempt: host-layout which identity a verification attempt publishes is the platform's
-  const groupOf = (/** @type {{processGroupId: unknown}} */ attempt) => (process.platform === "win32" ? attempt.processGroupId === null : Number.isInteger(attempt.processGroupId));
-  assert.ok(state.verification.attempts.every((attempt) => attempt.status === "failed" && Number.isInteger(attempt.pid) && groupOf(attempt)));
+  assert.ok(state.verification.attempts.every((attempt) => attempt.status === "failed" && Number.isInteger(attempt.pid) && (process.platform === "win32" ? attempt.processGroupId === null : Number.isInteger(attempt.processGroupId)))); // guard-exempt: host-layout a process group is POSIX; Windows publishes none and kills by pid
   assert.equal(state.attempt, 2);
   assert.equal(state.revisions, 1);
   assert.ok(state.gate, "verification failure still records a gate");
