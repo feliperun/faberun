@@ -8,12 +8,12 @@
 #
 # No gate actually runs on the release PR. release-please-action opens and
 # updates it with the default `secrets.GITHUB_TOKEN`, and GitHub Actions never
-# triggers a new workflow run (ci.yml's or pr-policy.yml's `pull_request:`)
-# from an event caused by that token, to stop recursive runs. Verified
-# 2026-09-21: `gh pr checks` on three release PRs (#19, #20, the open #22) each
-# reported "no checks reported" -- the branch merges with no CI or commitlint
-# status of its own, on the strength of the commits already being checked on
-# their own PRs before they landed on `main`.
+# triggers a new workflow run -- not ci.yml's pull_request trigger, not
+# pr-policy.yml's -- from an event caused by that token, to stop recursive
+# runs. Verified 2026-09-21: `gh pr checks` on three release PRs (#19, #20,
+# the open #22) each reported "no checks reported" -- the branch merges with
+# no CI or commitlint status of its own, on the strength of the commits
+# already being checked on their own PRs before they landed on `main`.
 name: release-please
 
 on:
