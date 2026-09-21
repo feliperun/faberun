@@ -212,12 +212,55 @@ stops being optional.
 | RM-027 | Level 1: isolated container | — | idea |
 | RM-028 | Level 2: container + restricted filesystem + controlled secrets | — | idea |
 | RM-029 | Levels 3–4: ephemeral microVM; policy-based capabilities (network allowlist, filesystem scope, docker/cloud denied, no secrets) | — | idea |
+| RM-048 | Evaluate `akitaonrails/ai-jail` as the isolation layer | it wraps a command, and a harness binary already resolves through `FABERUN_<HARNESS>_BIN` or `runtime.executable`, so it is testable without a code change | idea |
 
 This stays at P6, after autonomy — see decision D2. The levels above are a sketch
 to be argued properly when the work starts, not a settled design. Until then the
 honest statement of the risk is the one at the top of this section: a worker runs
 arbitrary commands with the operator's own credentials, and nothing but the
 worker's own restraint keeps it in the repository.
+
+### `ai-jail` as a candidate
+
+OS-level isolation rather than a container: bubblewrap plus Landlock, seccomp and
+limits on Linux, `sandbox-exec` on macOS. Network off by default, private
+ephemeral home, agent state not mounted unless asked, and GPU, display, Docker,
+SSH and host IPC denied by default. Configured in TOML at three levels — an
+untrusted project file, a trusted global one, and CLI flags.
+
+Three things make it a good fit here:
+
+- **The integration seam already exists.** `ai-jail` wraps a command, and
+  `src/harnesses/claude/index.mjs` resolves its binary as
+  `FABERUN_CLAUDE_BIN ?? runtime.executable ?? "claude"`. A wrapper script, or a
+  contract declaring `executable`, tests the whole idea before a line of faberun
+  changes.
+- **The threat models agree.** Its README says it is "a useful layer, not a
+  replacement for a disposable VM when running hostile code"; this repository
+  already says scope "keeps an honest worker inside its lane" and "does not
+  contain an adversarial one". Both target the honest worker that errs, not the
+  attacker.
+- **It is cheaper than the route sketched above.** Levels 1 and 2 assumed
+  containers; this reaches a comparable restriction with no Docker, which
+  matters for an install whose `dependencies` are `{}`.
+
+Four questions to settle before adopting, each of which changes the answer:
+
+1. **Network.** A worker must reach its vendor's API, so it cannot run with the
+   default network-off. Does `--network` allow a per-host allowlist, or is it
+   all-or-nothing? Half the value rides on this.
+2. **Worktrees and git.** Attempt worktrees live under
+   `~/.faberun/projects/<id>/runs/worktrees/…` while the repository lives
+   elsewhere, and a worktree's `.git` is a *file* pointing back at the main
+   repository. A jail that mounts only the worktree breaks git. The mapping has
+   to cover both, which widens the very boundary being drawn.
+3. **macOS.** The strong backend is Linux; the macOS path uses Apple's
+   deprecated `sandbox-exec`. On the machine this factory runs on today, the
+   protection is the weaker of the two and rests on a deprecated interface.
+4. **Credentials.** Agent state is not mounted unless `--agent-state` is passed,
+   but a worker must authenticate. Passing it mounts the credentials the jail was
+   meant to keep away. The jail protects the rest of the host from the agent; it
+   does not protect the agent's own credentials from the agent.
 
 ---
 
