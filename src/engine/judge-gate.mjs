@@ -136,6 +136,74 @@ function proveVerification(id, proof, recorded) {
 }
 
 /**
+ * A command proof that declares a node:test filter (`--test-name-pattern`,
+ * `--test-skip-pattern`) is judged on more than its exit code, because the
+ * runner exits 0 whether its filter selected anything or not. The proof runs
+ * with the TAP reporter selected through `NODE_OPTIONS` and is refused when the
+ * output carries TAP's zero-plan line. Measured 2026-09-21 on node v26.8.1: a
+ * filter that matches emits `1..0` zero times, a filter that matches nothing
+ * emits it exactly once, a run with no filter emits it zero times, and an empty
+ * suite under a matching filter emits no nested zero plan. The default reporter
+ * cannot make the distinction -- both cases print identical counters, because
+ * the tick is the file rather than a test. The reporter goes through the
+ * environment because appending `--test-reporter=tap` to the command string is
+ * a no-op whenever a test file precedes it: node reads its own options
+ * left to right, so the flag lands among the script's arguments and the runner
+ * never sees it.
+ */
+const TEST_FILTER_FLAGS = ["--test-name-pattern", "--test-skip-pattern"];
+const TAP_ZERO_PLAN = /^1\.\.0$/mu;
+
+/**
+ * The environment a filtered proof runs under: the ambient environment with
+ * the TAP reporter selected through `NODE_OPTIONS`, minus `NODE_TEST_CONTEXT`.
+ * That marker belongs to whichever test runner spawned this process; a nested
+ * `node --test` that inherits it stays a runner child and emits no TAP at all
+ * (measured 2026-09-21: with the marker the zero-plan line never appears,
+ * without it exactly once) -- and a proof is judged as its own top-level run,
+ * not as the suite's child.
+ *
+ * @returns {NodeJS.ProcessEnv}
+ */
+function envForFilteredProof() {
+  const { NODE_TEST_CONTEXT: _outer, NODE_OPTIONS: existing, ...ambient } = process.env;
+  return { ...ambient, NODE_OPTIONS: existing ? `${existing} --test-reporter=tap` : "--test-reporter=tap" };
+}
+
+/**
+ * The node:test filters a command string declares, in argv order, as flag and
+ * value. Presence alone changes behaviour (the appended reporter and the
+ * zero-plan look-up); the value is read for the refusal detail alone, which is
+ * why a whitespace split is close enough even though the command runs through
+ * a shell.
+ *
+ * @param {string} ref
+ * @returns {Array<{flag: string, value: string}>}
+ */
+function declaredTestFilters(ref) {
+  const tokens = ref.split(/\s+/u).filter(Boolean);
+  /** @type {Array<{flag: string, value: string}>} */
+  const filters = [];
+  for (const [index, token] of tokens.entries()) {
+    for (const flag of TEST_FILTER_FLAGS) {
+      if (token.startsWith(`${flag}=`)) filters.push({ flag, value: unquote(token.slice(flag.length + 1)) });
+      else if (token === flag) filters.push({ flag, value: unquote(tokens[index + 1] ?? "") });
+    }
+  }
+  return filters;
+}
+
+/** @param {string} value @returns {string} */
+function unquote(value) {
+  return value.replace(/^['"]|['"]$/gu, "");
+}
+
+/** @param {Array<{flag: string, value: string}>} filters @returns {string} */
+function filterNames(filters) {
+  return filters.map(({ flag, value }) => `${flag} "${value}"`).join(", ");
+}
+
+/**
  * @param {string} id
  * @param {DefinitionOfDoneProof} proof
  * @param {string} cwd
@@ -144,11 +212,18 @@ function proveVerification(id, proof, recorded) {
  */
 async function proveCommand(id, proof, cwd, timeoutMs) {
   const ref = proof.ref;
+  const filters = declaredTestFilters(ref);
   return new Promise((settle) => {
     // Detached on POSIX so the shell leads its own process group: `shell: true`
     // means the timeout must kill the group, not the shell, or the command the
     // shell started keeps running and keeps the result pending forever.
-    const child = spawn(ref, { cwd, shell: true, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn(ref, {
+      cwd,
+      shell: true,
+      detached: process.platform !== "win32",
+      stdio: ["ignore", "pipe", "pipe"],
+      ...(filters.length ? { env: envForFilteredProof() } : {}),
+    });
     let stdout = "";
     let stderr = "";
     let settled = false;
@@ -178,6 +253,18 @@ async function proveCommand(id, proof, cwd, timeoutMs) {
       finish({ id, kind: "command", ref, pass: false, detail: boundedText(error.message) });
     });
     child.on("close", (code, signal) => {
+      // Its own detail, not an ordinary command failure: the command succeeded,
+      // so what failed is that the declared filter selected nothing to prove.
+      if (code === 0 && signal === null && filters.length > 0 && TAP_ZERO_PLAN.test(stdout)) {
+        finish({
+          id,
+          kind: "command",
+          ref,
+          pass: false,
+          detail: boundedText(`${filterNames(filters)} selected no test: exit 0 over a TAP plan of 1..0, so the proof measured nothing`),
+        });
+        return;
+      }
       const detail = signal !== null ? `killed by ${signal}` : `exit ${code ?? "?"}`;
       const pass = code === 0 && signal === null;
       finish({ id, kind: "command", ref, pass, detail: pass ? detail : boundedText(`${detail}: ${(stderr || stdout).trim()}`) });
