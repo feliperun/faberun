@@ -41,7 +41,12 @@ they lived was not.
   node. This file is the missing step above that chain, not a replacement for
   it.
 - **Dropped items keep their reason.** Without it the same bad idea returns
-  every few months and is re-evaluated from zero.
+  every few months and is re-evaluated from zero. The evidence on a dropped item
+  has to survive the same scrutiny as a live one: if it returns carrying a wrong
+  count, whoever picks it up looks for the wrong thing.
+- **The managed signal block in `AGENTS.md` is a summary, not a source.** It
+  truncates, and it can attribute an orphan attention record to the wrong
+  campaign. Count runs by listing the run directories.
 
 ### Why this file exists
 
@@ -65,7 +70,7 @@ parked runs of closed ones — see decision D1.
 
 | id | item | evidence | state |
 | --- | --- | --- | --- |
-| RM-001 | Resume the parked runs from earlier campaigns | 8 runs parked across `adversarial-planner` (4), `become-faberun` (1), `chain-ergonomics-and-fairness` (2) | dropped — D1 |
+| RM-001 | Resume the parked runs from earlier campaigns | 8 runs parked across four campaigns: `adversarial-planner` (4), `chain-ergonomics-and-fairness` (2), `become-faberun` (1), `env-independence-and-generated-docs` (1) | dropped — D1 |
 | RM-002 | Close the active `durable-state-integrity` campaign | 9 requirements; R1–R2 landed 2026-09-21 (`d362a10`, `15e1e24`), R3–R4 in the planner, R5–R9 specified for phase 3 | running |
 | RM-003 | `cancel` against a genuinely live invocation is unverified | the cancel tests drive `runContract` to completion and then force the state, so they cancel a terminal run, never a live invocation | specified |
 | RM-004 | `faberun plan` has never run end to end against a live harness | falsified 2026-09-21: two plans, four stages each, real workers on GLM-5.3-Flash and gpt-5.6-sol reading real worktrees, no replay | dropped — falsified |
