@@ -156,6 +156,19 @@ test("pr-policy.yml is scoped to main pull requests and merge groups", () => {
   assert.doesNotMatch(policy, /push:/);
 });
 
+test("pr-policy.yml revalidates when the body it reads changes", () => {
+  const policy = read(".github/workflows/pr-policy.yml");
+  // The squash-message job reads github.event.pull_request.body, and that body
+  // becomes the squash commit message. The default pull_request types --
+  // opened, synchronize, reopened -- omit `edited`, so a body approved once
+  // could be rewritten afterwards and the check stayed green on the old
+  // verdict: a gate reading a mutable value once is a photograph, not a gate.
+  // Measured 2026-09-21: the assertion above this one matches with or without
+  // the fix, which is exactly why it did not catch the defect.
+  const trigger = policy.slice(policy.indexOf("pull_request:"), policy.indexOf("merge_group:"));
+  assert.match(trigger, /types:\s*\[[^\]]*\bedited\b/u, "the pull_request trigger must list `edited`");
+});
+
 test("pr-policy.yml rejects a blank PR body", () => {
   const policy = read(".github/workflows/pr-policy.yml");
   assert.match(policy, /PR body is blank/);
