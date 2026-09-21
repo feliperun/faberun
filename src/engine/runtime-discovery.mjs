@@ -9,7 +9,14 @@ export { exhaustedUntilOf, normalizeProviderAvailability } from "../harnesses/in
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {{harness?: string, model?: string, vendor: string, tier?: number|string, costRank?: number, [key: string]: unknown}} RuntimeLike */
 /** @typedef {{runtimes: Record<string, RuntimeLike>, runtimeDefaults?: {worker?: string, judge?: string}, nodes?: {id: string, runtime?: string, gate: {enabled: boolean, runtime?: string}}[]}} RuntimeContract */
-/** @typedef {{available: boolean, exhaustedUntil: string|null, reason: string}} RuntimeAvailability */
+/**
+ * One runtime's catalogue record: what the harness de facto reported, and
+ * when. An unobservable datum is null -- never zero and never full allowance,
+ * so a runtime that reports nothing cannot look rested -- and an absent key on
+ * a record that predates the field reads as null at every reader. An
+ * observation older than its own window reads as unknown (`isRuntimeAvailable`).
+ * @typedef {{available: boolean, exhaustedUntil: string|null, reason: string, observedAt?: string|null, window?: string|null, remaining?: number|null}} RuntimeAvailability
+ */
 /** @typedef {{harness: string, model: string, vendor: string, tier: number, costRank: number, config?: Record<string, unknown>}} DiscoveryRuntime */
 /** @typedef {{id: string, runtime: RuntimeLike, order: number}} RuntimeCandidate */
 /** @typedef {import("../host/config.mjs").UserConfig} UserConfig */
@@ -89,7 +96,7 @@ export async function discoverRuntimes(runtimes, options = {}) {
  */
 export function availableCandidates(runtimes, availability = {}) {
   return Object.entries(runtimes)
-    .filter(([id]) => isAvailable(availability[id]))
+    .filter(([id]) => isRuntimeAvailable(availability[id]))
     .map(([id, runtime], order) => ({ id, runtime, order }));
 }
 
@@ -172,7 +179,7 @@ export function nextSameTierRuntime(contract, stateRouting, role, current, attem
   const used = new Set(attempted);
   return Object.entries(contract.runtimes)
     .filter(([id, runtime]) => id !== current && !used.has(id) && sameTier(runtime, currentRuntime))
-    .filter(([id]) => isAvailable(stateRouting.availability?.[id]))
+    .filter(([id]) => isRuntimeAvailable(stateRouting.availability?.[id]))
     .filter(([, runtime]) => role !== "judge" || runtime.vendor !== workerVendor)
     .sort((left, right) => runtimeOrder(left[1]) - runtimeOrder(right[1]))
     .map(([id]) => id)
@@ -226,10 +233,40 @@ function tierOrder(runtime) {
   return typeof runtime.tier === "number" ? runtime.tier : runtime.costRank ?? Number.MAX_SAFE_INTEGER;
 }
 
-/** @param {RuntimeAvailability|undefined} availability @returns {boolean} */
-function isAvailable(availability) {
+/**
+ * Span in seconds of every rate-limit window label a harness reports. The
+ * labels are claude's `rateLimitType` values (measured 2026-09-17, the
+ * `rate_limit_event` line recorded in `src/harnesses/protocol.mjs`); a label
+ * missing here cannot prove staleness, so its observation never self-expires.
+ *
+ * @type {Readonly<Record<string, number>>}
+ */
+const AVAILABILITY_WINDOW_SEC = Object.freeze({ five_hour: 5 * 3600, seven_day: 7 * 86400 });
+
+/**
+ * May a runtime be admitted on this catalogue record? Exhaustion is waited
+ * out on `exhaustedUntil`; an observation older than its own window reads as
+ * unknown and admits nothing, because unknown must not look rested. This is
+ * the one home of the rule: plan routing and engine composition both read it,
+ * so the null and staleness semantics cannot drift between readers. The
+ * parameter is typed on the fields the rule reads, not on the full record --
+ * the plan's table copy names no `reason`.
+ *
+ * @param {{available: boolean, exhaustedUntil: string|null, observedAt?: string|null, window?: string|null, [key: string]: unknown}|undefined} availability
+ * @param {number} [now] epoch milliseconds; defaults to the current clock
+ * @returns {boolean}
+ */
+export function isRuntimeAvailable(availability, now = Date.now()) {
   if (!availability) return false;
-  if (availability.available === true) return !availability.exhaustedUntil || Date.parse(availability.exhaustedUntil) <= Date.now();
-  return Boolean(availability.exhaustedUntil && Date.parse(availability.exhaustedUntil) <= Date.now());
+  const rested = availability.available === true
+    ? !availability.exhaustedUntil || Date.parse(availability.exhaustedUntil) <= now
+    : Boolean(availability.exhaustedUntil && Date.parse(availability.exhaustedUntil) <= now);
+  if (!rested) return false;
+  const windowSec = availability.window === undefined || availability.window === null
+    ? undefined
+    : AVAILABILITY_WINDOW_SEC[availability.window];
+  if (windowSec === undefined || availability.observedAt === undefined || availability.observedAt === null) return true;
+  const observedAt = Date.parse(availability.observedAt);
+  return !Number.isNaN(observedAt) && observedAt + windowSec * 1000 >= now;
 }
 

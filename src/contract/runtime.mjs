@@ -1,13 +1,15 @@
 /**
  * A declared runtime: its fields, the harness names it may name, whether its
- * permission mode can execute a command, and how a role resolves to one.
+ * permission mode can execute a command, and how a role resolves to one -- the
+ * latter including the strategies a routing rule may name, which are authored
+ * protocol surface a reader can reject by name just like a harness name.
  *
  * Split out because both the contract validator and the snapshot validator need
  * it -- a persisted `runtime` on a node snapshot is the shape the contract
  * declared -- and the snapshot validator should not import the contract
  * validator to reach it.
  */
-import { assertObject, nonNegativeNumber, positiveInteger, positiveNumber, rejectUnknown, requireId, requireString, requireStringArray } from "./assert.mjs";
+import { assertObject, nonNegativeNumber, positiveInteger, positiveNumber, rejectUnknown, requireId, requireString, requireStringArray, requireTimestamp } from "./assert.mjs";
 import { composeAssignments } from "../engine/runtime-discovery.mjs";
 import { harnessCapabilities, resolvePermissionExecution, resolveVendor, validateCapabilityRequirements } from "../harnesses/index.mjs";
 import { stableJson } from "../util.mjs";
@@ -25,6 +27,19 @@ const RUNTIME_FIELDS = new Set([
   "fallback", "vendor", "tier", "pricing", "stallTimeoutSec", "maxConcurrent",
 ]);
 const RUNTIME_HARNESSES = new Set(["claude", "codex", "agy", "dsh", "zcode", "exec-jsonl", "replay"]);
+
+/**
+ * The strategies a routing rule may name: how a rule consumes its `prefer`
+ * list. `priority` takes the first admissible candidate; `cost` the lowest
+ * declared `costRank`; `reset-proximity` the least observed `remaining`
+ * allowance -- the window nearest its reset is spent first; `attempt-affinity`
+ * the previous attempt's runtime for the same node. A strategy whose datum a
+ * given runtime does not expose is inert for that runtime -- never a failure.
+ * An assignment records `declared` instead of any of these when an operator's
+ * runtime instruction prevailed over the table and every strategy.
+ * @typedef {"priority" | "cost" | "reset-proximity" | "attempt-affinity"} RoutingStrategy
+ */
+export const ROUTING_STRATEGIES = Object.freeze(new Set(["priority", "cost", "reset-proximity", "attempt-affinity"]));
 
 /**
  * Harness-specific stall thresholds where the contract's single default is
@@ -54,6 +69,14 @@ const CAPABILITY_FIELDS = new Set([
  */
 export function routeRuntime(contract, node, role = "worker", event = {}) {
   if (role !== "worker" && role !== "judge") throw new TypeError("route role must be worker or judge");
+  // Catalogue records entering a routing decision are validated here, the one
+  // boundary every runtime-routing reader shares; the copies persisted on node
+  // snapshots are validated where they are written.
+  if (event.availability) {
+    for (const [id, availability] of Object.entries(event.availability)) {
+      validateRuntimeAvailability(availability, `routing availability ${id}`);
+    }
+  }
   const initialRuntimeId = role === "judge"
     ? node.gate.runtime ?? contract.runtimeDefaults?.judge
     : node.runtime ?? contract.runtimeDefaults?.worker;
@@ -149,6 +172,31 @@ function validatePricing(value, label) {
     if (rate < 0) throw new TypeError(`${label}.${key} must not be negative`);
   }
 }
+/** The fields of one runtime-catalogue record (`RuntimeAvailability`). */
+const AVAILABILITY_FIELDS = new Set(["available", "exhaustedUntil", "reason", "observedAt", "window", "remaining"]);
+
+/**
+ * One runtime-catalogue record: what the harness de facto reported, and when.
+ * The three classified fields are required; the observables may be absent (a
+ * record that predates the field) or null (the harness exposes nothing -- never
+ * zero and never full allowance), but a present one must be typed: a record is
+ * persisted or read into a routing decision only through validators that can
+ * say what each datum means.
+ *
+ * @param {unknown} value
+ * @param {string} label
+ */
+export function validateRuntimeAvailability(value, label) {
+  assertObject(value, label);
+  rejectUnknown(value, AVAILABILITY_FIELDS, label);
+  if (typeof value.available !== "boolean") throw new TypeError(`${label}.available must be boolean`);
+  if (value.exhaustedUntil !== undefined && value.exhaustedUntil !== null) requireTimestamp(value.exhaustedUntil, `${label}.exhaustedUntil`);
+  requireString(value.reason, `${label}.reason`);
+  if (value.observedAt !== undefined && value.observedAt !== null) requireTimestamp(value.observedAt, `${label}.observedAt`);
+  if (value.window !== undefined && value.window !== null) requireString(value.window, `${label}.window`);
+  if (value.remaining !== undefined && value.remaining !== null) nonNegativeNumber(value.remaining, `${label}.remaining`);
+}
+
 /**
  * @param {Record<string, ValidatedRuntime>} runtimes
  * @param {string} runtimeId

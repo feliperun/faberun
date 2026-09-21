@@ -10,6 +10,7 @@ import { compactCost, compactTokens, finite, truncateChars } from "../util.mjs";
 import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
 import { readHeartbeat } from "../engine/supervise.mjs";
 import { SETTLED, SUCCESS } from "../engine/prompts.mjs";
+import { packetRepetitionByNode, packetRepetitionNote } from "./packet-repetition.mjs";
 
 /** Advisory ceiling for status.json (TECH-SPEC lean, rule 5); never enforced destructively. */
 const STATUS_JSON_MAX_BYTES = 200 * 1024;
@@ -396,17 +397,16 @@ export function renderReport(runDir) {
   for (const [index, node] of nodes.entries()) {
     const usage = node.usage ?? { inputTokens: null, outputTokens: null, cacheReadInputTokens: null };
     for (const key of /** @type {("inputTokens"|"outputTokens"|"cacheReadInputTokens")[]} */ (Object.keys(totals).filter((key) => key !== "costUsd"))) totals[key] = (totals[key] ?? 0) + (usage[key] ?? 0);
-    const cost = costs[index];
     const runtime = workerRuntimeLabel(node) ?? "-";
     const planNode = contract.nodes.find((candidate) => candidate.id === node.id);
     const note = scopeFindingsNote(node.scopeFindings)
       ? nodeNote(node)
       : `phase ${planNode?.phase ?? "-"} · ${continuationMode(node)} · ${nodeNote(node)}`;
-    lines.push(row([MARK[node.status] ?? "[?]", node.id, node.status, node.attempt ?? 0, node.revisions ?? 0, runtime, compactTokens(usage.inputTokens), compactTokens(usage.outputTokens), compactTokens(usage.cacheReadInputTokens), formatCost(cost), note]));
+    lines.push(row([MARK[node.status] ?? "[?]", node.id, node.status, node.attempt ?? 0, node.revisions ?? 0, runtime, compactTokens(usage.inputTokens), compactTokens(usage.outputTokens), compactTokens(usage.cacheReadInputTokens), formatCost(costs[index]), note]));
   }
   totals.costUsd = aggregateCost.costUsd;
   const roles = roleUsage(nodes);
-  lines.push("```", "", `totals · in ${compactTokens(totals.inputTokens)} · out ${compactTokens(totals.outputTokens)} · cache ${compactTokens(totals.cacheReadInputTokens)} · worker ${formatRole(roles.worker)} · judge ${formatRole(roles.judge)} · cost ${formatCost(aggregateCost)}`);
+  lines.push("```", "", `totals · in ${compactTokens(totals.inputTokens)} · out ${compactTokens(totals.outputTokens)} · cache ${compactTokens(totals.cacheReadInputTokens)} · worker ${formatRole(roles.worker)} · judge ${formatRole(roles.judge)} · cost ${formatCost(aggregateCost)}${packetRepetitionNote(packetRepetitionByNode(runDir, nodes))}`);
   return `${lines.join("\n")}\n`;
 }
 

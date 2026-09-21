@@ -8,9 +8,14 @@
  * runtime a role started on, and (if declared) the runtime its `fallback`
  * names. contract.mjs validates the field is never a self-loop; because a
  * hop is bounded at one, a multi-runtime cycle is structurally impossible.
+ *
+ * Per-attempt resolution (`routeRuntimeForState`) lives here too, because
+ * attempt affinity is read against the same failover facts: the runtime the
+ * previous attempt ran is preferred until the hop, the catalogue, or the
+ * judge's vendor rule disqualifies it.
  */
 import { harnessCapabilities } from "../harnesses/index.mjs";
-import { nextSameTierRuntime } from "./runtime-discovery.mjs";
+import { isRuntimeAvailable, nextSameTierRuntime } from "./runtime-discovery.mjs";
 import { routeRuntime } from "../contract/runtime.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedNode} ValidatedNode */
@@ -171,6 +176,50 @@ export function routingBackoffActive(state, phase) {
 }
 
 /**
+ * The runtime id this role's previous attempt on this node ran on, read off
+ * the durable invocation record. The invocations are the one record that
+ * survives both a routed hop and the revision boundary: `resetPhaseRouting`
+ * clears the routing override between revisions, but never the invocations.
+ *
+ * @param {NodeSnapshot} state
+ * @param {"worker"|"judge"} role
+ * @returns {string|undefined}
+ */
+function previousAttemptRuntimeId(state, role) {
+  const found = [...(state.invocations ?? [])].reverse().find((invocation) => invocation.phase === role)?.runtimeId;
+  return typeof found === "string" ? found : undefined;
+}
+
+/**
+ * May attempt affinity keep this role on `candidate` -- the runtime its
+ * previous attempt on this node ran? Affinity yields to a known exhaustion
+ * only: a catalogue record that `isRuntimeAvailable` -- the one home of the
+ * exhaustion and staleness rule -- refuses to admit. An absent record is not
+ * that: the snapshot's catalogue copy is the classified fields at best and
+ * often empty outright, and the strongest evidence of health here is the
+ * attempt that just ran on this runtime, so absence of a record must not read
+ * as exhaustion any more than R12 lets it read as rested. A judge candidate
+ * stays bound by the cross-vendor rule its assignment was composed under,
+ * compared against the worker that actually ran the node, exactly as
+ * `nextSameTierRuntime` compares its own candidates.
+ *
+ * @param {ValidatedContract} contract
+ * @param {NodeSnapshot} state
+ * @param {"worker"|"judge"} role
+ * @param {string} candidate
+ * @returns {boolean}
+ */
+function admitsAffinity(contract, state, role, candidate) {
+  const runtime = contract.runtimes[candidate];
+  if (!runtime) return false;
+  const availability = state.routing?.availability?.[candidate];
+  if (availability && !isRuntimeAvailable(availability)) return false;
+  if (role !== "judge") return true;
+  const workerId = previousAttemptRuntimeId(state, "worker") ?? state.routing?.assignments?.worker;
+  return runtime.vendor !== (workerId ? contract.runtimes[workerId]?.vendor : null);
+}
+
+/**
  * @param {ValidatedContract} contract
  * @param {ValidatedNode} node
  * @param {NodeSnapshot} state
@@ -182,6 +231,18 @@ export function routeRuntimeForState(contract, node, state, role) {
   if (override?.role === role && contract.runtimes[override.runtime]) {
     const runtime = contract.runtimes[override.runtime];
     return { id: override.runtime, ...runtime, capabilities: harnessCapabilities(runtime) };
+  }
+  // Attempt affinity: successive attempts and revisions of this node prefer
+  // the runtime the previous attempt ran, because it is the one holding the
+  // node's context. It ranks ahead of the frozen assignment -- the assignment
+  // decided the first attempt, the attempt that ran since decides the next --
+  // and below the role-matched override above, which is itself already an
+  // affinity outcome: a reset hold on the warm runtime, or the failover edge
+  // affinity yielded to.
+  const previous = previousAttemptRuntimeId(state, role);
+  if (previous !== undefined && admitsAffinity(contract, state, role, previous)) {
+    const runtime = contract.runtimes[previous];
+    return { id: previous, ...runtime, capabilities: harnessCapabilities(runtime) };
   }
   const assigned = state.routing?.assignments?.[role];
   if (assigned && contract.runtimes[assigned]) {

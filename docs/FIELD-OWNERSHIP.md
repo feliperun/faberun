@@ -132,6 +132,56 @@ the mutator writes. The section grows by declaration.
 | --- | --- | --- |
 | `requirements` | `closeCampaign` | at close: one entry per requirement id the linked runs' contracts declared, correlated only by the identifiers the runs carried (a done node snapshot's stamped `requirementIds`, never requirement text), each covering node named with its run and its verification evidence; a requirement no done node carries is recorded with status `open` instead of being omitted |
 
+## The runtime catalogue record
+
+Availability is state, rewritten whole by each discovery pass rather than
+appended to, so like `campaign.json` it has no per-field ratchet: a declared
+field names the one writer that sets it and the one moment it is set. One
+record per runtime id. The shape is declared by `RuntimeAvailability`
+(`src/engine/runtime-discovery.mjs`), `validateRuntimeAvailability`
+(`src/contract/runtime.mjs`) is what a copy must pass before it enters a
+routing decision, and `isRuntimeAvailable`
+(`src/engine/runtime-discovery.mjs`) is the one reader that decides admission
+from it — plan routing and engine composition share that reader, so the null
+and staleness rules cannot drift between them.
+
+The observability contract the readers and the validator enforce: an
+unobservable datum is null — never zero, which would read as spent, and never
+full allowance, which would read as rested — and an observation older than its
+own window reads as unknown.
+
+| field | writer(s) | written when |
+| --- | --- | --- |
+| `available` | `normalizeProviderAvailability` (`src/harnesses/index.mjs`) | when a probe envelope or a failed attempt's envelope is classified |
+| `exhaustedUntil` | `normalizeProviderAvailability` (`src/harnesses/index.mjs`) | at that classification: the reset instant the provider wording carries, else null — an exhaustion that names no reset reads as unknown, not as rested |
+| `reason` | `normalizeProviderAvailability` (`src/harnesses/index.mjs`) | at that classification |
+| `observedAt`, `window`, `remaining` | the one harness that exposes each, at its own classification moment | no writer in `src/` fills them yet, so every record carries them as null today; the measured precedent is claude's `rate_limit_event` allowance extractor (`extractClaudeAllowance`, `src/harnesses/protocol.mjs`), which already writes `window` (`rateLimitType`) and `remaining` (`1 - utilization`) at envelope level, and discovery's pass is where `observedAt` lands when a producer first stamps it — the run-state field set that `contract/snapshot.mjs` accepts carries the three classified fields only until that producer exists |
+
+## Routing assignment records
+
+Routing produces two assignment records, and both are state rewritten whole by
+their one producer rather than appended to, so like `campaign.json` they have
+no per-field ratchet. Each records, per role, the strategy that was applied and
+the reason for the choice — `declared` with the declaring field when an
+operator instruction prevailed over the table and every strategy, the named
+strategy's own rationale otherwise, and the inert fallback when a strategy
+stood aside for want of an observable datum. The strategy vocabulary itself is
+`ROUTING_STRATEGIES` (`src/contract/runtime.mjs`), validated protocol surface
+like the harness names.
+
+| record | field | writer | written when |
+| --- | --- | --- | --- |
+| plan routing (`RoutingAssignment`, `src/plan/routing.mjs`) | `strategy`, `reason` | `resolveRuntimes` | at plan routing resolution: the strategy the matching rule named (or the `priority` default), why the chosen candidate won or which datum left the strategy inert, and `declared` with the operator source for roles an override or `runtimeDefaults` named |
+| engine composition (`decisions`, `runtimeAssignments`, `src/engine/assignment.mjs`) | `strategy`, `reason` | `runtimeAssignments` | at run creation and resume composition: `declared` with `node runtime`, `gate runtime` or `runtimeDefaults.<role>` for roles the contract named; `cost`/`priority` with the discovery ranking for roles it left open; null where no judge is required |
+
+The engine record lives on `runtimeAssignments`' `decisions` return, not on
+the assignment entries the scheduler persists: the snapshot's
+`routing.assignments` field set (`validateRoutingState`,
+`src/contract/snapshot.mjs`) still carries only `worker`, `judge`,
+`composedWorker`, `composedJudge` — the same declared lag as the catalogue
+observables below, and it widens the same way, when a reader needs the record
+durably.
+
 ## The ratchet, measured
 
 Measured 2026-09-16: **15 entries have more than one writer.** They are a

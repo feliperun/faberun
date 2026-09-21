@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runContract } from "../../src/engine/scheduler.mjs";
@@ -389,4 +389,117 @@ test("spends the wall-clock budget per phase, not per node", async () => {
   assert.equal(state.status, "done", state.error?.message);
   assert.ok(state.gate, "judge gate recorded");
   assert.equal(state.gate.summary, "minor advisory");
+});
+
+// R14 across the review path: the revision boundary clears the routing
+// override, so the next attempt's runtime is decided by attempt affinity --
+// the previous attempt's runtime while it stays healthy -- not by bouncing
+// back to the assignment the failover hop left.
+
+/**
+ * A judge provider whose first review rejects with a cited finding and whose
+ * second passes, counting reviews in a file kept outside the workspace so the
+ * unexpected-write gate never sees the counter.
+ *
+ * @param {string} path @param {string} counter @returns {void}
+ */
+function writeReReviewJudge(path, counter) {
+  writeFileSync(path, `#!${process.execPath}
+import { appendFileSync, readFileSync } from "node:fs";
+if (process.argv.includes("--version")) { console.log("re-review-judge 1.0.0"); process.exit(0); }
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => { input += chunk; });
+process.stdin.on("end", () => {
+  const prompt = input || process.argv.at(-1) || "";
+  console.log(JSON.stringify({ type: "thread.started", thread_id: "re-review-judge" }));
+  if (!prompt.startsWith("Review node")) {
+    const text = JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
+    console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text } }));
+    console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, output_tokens: 2 } }));
+    return;
+  }
+  appendFileSync(${JSON.stringify(counter)}, "review\\n");
+  const seen = readFileSync(${JSON.stringify(counter)}, "utf8").trim().split("\\n").length;
+  const verdict = seen === 1
+    ? { verdict: "fail", maxSeverity: "major", summary: "defect", findings: [{ severity: "major", description: "broken [works]", evidence: "test failed" }] }
+    : { verdict: "pass", maxSeverity: "none", summary: "clean re-review", findings: [] };
+  console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify(verdict) } }));
+  console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, output_tokens: 2 } }));
+});
+`);
+  chmodSync(path, 0o755);
+}
+
+const RE_REVIEW_NODE = {
+  id: "build",
+  type: "backend",
+  taskPacket: packet(),
+  definitionOfDone: [{ id: "works", text: "It works", judgment: true }],
+  gate: { review: "blocking", failOn: ["major", "critical"] },
+};
+
+test("attempt affinity holds the failover runtime across the review path's next revision", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-affinity-review-"));
+  const outside = mkdtempSync(join(tmpdir(), "runner-affinity-reviews-"));
+  const judge = join(outside, "affinity-judge.mjs");
+  writeReReviewJudge(judge, join(outside, "reviews.txt"));
+  const path = writeContract(directory, fixture({
+    id: "affinity-review-run",
+    pollIntervalMs: 10,
+    timeoutSec: 60,
+    runtimeDefaults: { worker: "primary", judge: "arbiter" },
+    runtimes: {
+      primary: { harness: "codex", model: "primary", executable: fakeCodex(directory, "quota-429"), fallback: "backup" },
+      backup: { harness: "codex", model: "backup", executable: fakeCodex(directory, "pass") },
+      arbiter: { harness: "codex", model: "arbiter", vendor: "arbiter-vendor", executable: judge },
+    },
+    nodes: [RE_REVIEW_NODE],
+  }));
+  const result = await runContract(path);
+  const state = nodeState(result);
+  assert.equal(state.status, "done", state.error?.message);
+  assert.equal(state.gate?.summary, "clean re-review", "the node settled on the second review, not the first");
+  assert.deepEqual(
+    (state.invocations ?? []).filter((invocation) => invocation.phase === "worker").map((invocation) => invocation.runtimeId),
+    ["primary", "backup", "backup"],
+    "revision 1 reuses the runtime that finished revision 0, not the assignment the hop left",
+  );
+  assert.deepEqual(
+    (state.routing?.history ?? []).map((entry) => entry.nextRuntime),
+    ["backup"],
+    "the only route the failure earned was the declared edge",
+  );
+});
+
+test("attempt affinity holds the judge's failover runtime across the revision it rejected", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-affinity-judge-"));
+  const outside = mkdtempSync(join(tmpdir(), "runner-affinity-judge-reviews-"));
+  const reserve = join(outside, "reserve-judge.mjs");
+  writeReReviewJudge(reserve, join(outside, "judge-reviews.txt"));
+  const path = writeContract(directory, fixture({
+    id: "affinity-judge-run",
+    pollIntervalMs: 10,
+    timeoutSec: 60,
+    runtimeDefaults: { worker: "primary", judge: "first" },
+    runtimes: {
+      primary: { harness: "codex", model: "primary", executable: fakeCodex(directory, "pass") },
+      first: { harness: "codex", model: "first", vendor: "first-judge-vendor", executable: fakeCodex(directory, "quota-429"), fallback: "second" },
+      second: { harness: "codex", model: "second", vendor: "second-judge-vendor", executable: reserve },
+    },
+    nodes: [RE_REVIEW_NODE],
+  }));
+  const result = await runContract(path);
+  const state = nodeState(result);
+  assert.equal(state.status, "done", state.error?.message);
+  assert.equal(state.gate?.summary, "clean re-review", "the node settled on the second review, not the first");
+  assert.deepEqual(
+    (state.invocations ?? []).filter((invocation) => invocation.phase === "judge").map((invocation) => invocation.runtimeId),
+    ["first", "second", "second"],
+    "the re-review reuses the judge runtime that holds the review's context, not the assignment the hop left",
+  );
+  assert.deepEqual(
+    (state.invocations ?? []).filter((invocation) => invocation.phase === "worker").map((invocation) => invocation.runtimeId),
+    ["primary", "primary"],
+  );
 });

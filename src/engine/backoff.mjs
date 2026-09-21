@@ -476,6 +476,12 @@ const MAX_ROUTING_HISTORY = 64;
 /**
  * The override reason recorded on the node, in the operator's words.
  *
+ * The reason also names the attempt-affinity outcome, because the override is
+ * the role's working assignment and the record of why it names the runtime it
+ * names: a reset holds affinity (the previous attempt's runtime stays warm
+ * for the retry), an edge yields it (the previous runtime is the one that
+ * just failed, and the reason quotes its code).
+ *
  * @param {Transition} schedule
  * @param {"worker"|"judge"} role
  * @param {string} current
@@ -484,10 +490,10 @@ const MAX_ROUTING_HISTORY = 64;
  */
 function routeReason(schedule, role, current, error) {
   if (schedule.kind === "reset" && schedule.reason === "quota_reset") {
-    return `${role} provider ${current} quota resets at ${schedule.at}: ${error.message}`;
+    return `${role} provider ${current} quota resets at ${schedule.at}: ${error.message}; attempt-affinity held: ${current} keeps the node's context for the retry`;
   }
-  if (schedule.kind === "reset") return `${role} provider ${current} hit a transient network failure, retrying at ${schedule.at}: ${error.message}`;
-  if (schedule.reason === "network_backoff") return `${role} provider ${current} kept failing on the network: ${error.message}`;
-  if (schedule.reason === "protocol_failure") return `${role} provider ${current} could not hold the result protocol: ${error.message}`;
-  return `${role} provider ${current} exhausted: ${error.message}`;
+  if (schedule.kind === "reset") return `${role} provider ${current} hit a transient network failure, retrying at ${schedule.at}: ${error.message}; attempt-affinity held: ${current} keeps the node's context for the retry`;
+  if (schedule.reason === "network_backoff") return `${role} provider ${current} kept failing on the network: ${error.message}; attempt-affinity yielded: ${current} reported ${error.code}`;
+  if (schedule.reason === "protocol_failure") return `${role} provider ${current} could not hold the result protocol: ${error.message}; attempt-affinity yielded: ${current} reported ${error.code}`;
+  return `${role} provider ${current} exhausted: ${error.message}; attempt-affinity yielded: ${current} reported ${error.code}`;
 }

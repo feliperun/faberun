@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fixture } from "../helpers.mjs";
+import { fixture, packet } from "../helpers.mjs";
 import { freezePlan, verifyFrozenPlan } from "../../src/plan/freeze.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 
@@ -117,6 +117,28 @@ test("malformed phase declarations write nothing, like any other freeze failure"
   assert.throws(() => freezePlan(plan, { outDir: dir, provenance: provenance(), phases: /** @type {any} */ ("protocol") }), /plan\.phases/);
   assert.equal(existsSync(join(dir, "contract.json")), false);
   assert.equal(existsSync(join(dir, "plan.json")), false);
+});
+
+test("the frozen contract keeps the runtime the operator declared", () => {
+  // R15: an operator-declared runtime persists through the freeze verbatim --
+  // routing strategies are plan-time economics and never rewrite a
+  // declaration; the frozen artifact must read as the operator wrote it.
+  const dir = outDir();
+  const plan = fixture({
+    id: "plan-fixture-operator-runtime",
+    campaignId: "plan-fixture-operator-runtime-campaign",
+    runtimeDefaults: { worker: "luna", judge: "sol" },
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), runtime: "luna", gate: false }],
+  });
+
+  freezePlan(plan, { outDir: dir, provenance: provenance() });
+
+  assert.equal(verifyFrozenPlan(dir).ok, true);
+  const contractPath = join(dir, "contract.json");
+  const raw = JSON.parse(readFileSync(contractPath, "utf8"));
+  assert.equal(raw.nodes[0].runtime, "luna");
+  assert.deepEqual(raw.runtimeDefaults, { worker: "luna", judge: "sol" });
+  assert.doesNotThrow(() => validateContract(raw, contractPath));
 });
 
 test("flipping one byte of contract.json makes verifyFrozenPlan report a mismatch", () => {

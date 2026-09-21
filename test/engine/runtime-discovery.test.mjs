@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { composeAssignments, nextSameTierRuntime, normalizeProviderAvailability } from "../../src/engine/runtime-discovery.mjs";
+import { composeAssignments, isRuntimeAvailable, nextSameTierRuntime, normalizeProviderAvailability } from "../../src/engine/runtime-discovery.mjs";
 import { normalizeProviderResult, probeRuntime } from "../../src/harnesses/index.mjs";
 
 const ready = { available: true, exhaustedUntil: null, reason: "ready" };
@@ -44,6 +44,25 @@ test("an absent CLI is unavailable with a named not_found reason", async () => {
   const result = await probeRuntime({ harness: "codex", model: "m", executable: join(mkdtempSync(join(tmpdir(), "runtime-discovery-")), "missing") });
   assert.equal(result.ok, false);
   assert.equal(result.availability?.reason, "not_found");
+});
+
+const NOW = Date.parse("2026-09-21T12:00:00.000Z");
+
+test("a catalogue record older than its own window reads as unknown", () => {
+  assert.equal(isRuntimeAvailable(undefined), false);
+  assert.equal(isRuntimeAvailable(ready), true, "a record that predates the observables admits as it always has");
+  // Eight days inside a seven_day window: the observation describes a window
+  // that has rolled over, so it must not look rested.
+  const stale = { ...ready, observedAt: new Date(NOW - 8 * 24 * 3600 * 1000).toISOString(), window: "seven_day" };
+  assert.equal(isRuntimeAvailable(stale, NOW), false);
+  assert.equal(isRuntimeAvailable(stale, NOW - 24 * 3600 * 1000), true, "seven days after the observation the window still governs");
+  // A window label the catalogue cannot span never proves staleness.
+  assert.equal(isRuntimeAvailable({ ...stale, window: "fortnight" }, NOW), true);
+  assert.equal(isRuntimeAvailable({ ...stale, window: null }, NOW), true);
+  // An exposed allowance of zero is a genuinely spent window, not an absent
+  // one -- recording is not deciding, so admission is unchanged.
+  assert.equal(isRuntimeAvailable({ ...ready, remaining: 0 }, NOW), true);
+  assert.equal(isRuntimeAvailable({ ...ready, remaining: null }, NOW), true);
 });
 
 test("composes the cheapest worker and strongest cross-vendor judge only for omitted roles", () => {

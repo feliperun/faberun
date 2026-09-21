@@ -5,9 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { livenessState } from "../../src/engine/lifecycle.mjs";
-import { NON_FAILOVER_CODES, classifyTransition } from "../../src/engine/backoff.mjs";
+import { NON_FAILOVER_CODES, buildRouting, classifyTransition, planRoute } from "../../src/engine/backoff.mjs";
+import { routeRuntimeForState } from "../../src/engine/failover.mjs";
+import { validateContract } from "../../src/contract/index.mjs";
 import { getHarness } from "../../src/harnesses/index.mjs";
 import { fakeCodex, fixture, packet, withFakeCodex, writeContract } from "../helpers.mjs";
+import { fixture as contractFixture } from "../contract/helpers.mjs";
 import { nodeState, fakeClaudeLike, flagValue } from "../runner-helpers.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
@@ -489,4 +492,145 @@ else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; });
   assert.deepEqual(result.states.get("second")?.invocations?.map((invocation) => invocation.continuationMode), ["rotate"]);
   assert.match(String(requests[1].prompt), /Continue phase implementation as the worker agent in a fresh provider session/u);
   assert.match(String(requests[1].prompt), /first: phase complete/u, "the prior node's structured summary travels in the prompt, not its transcript");
+});
+
+// R14: successive attempts and revisions of the same node prefer the previous
+// attempt's runtime while it stays healthy, and yield to the remaining rules
+// when it does not.
+
+/** @param {string} prefix @returns {import("../../src/contract/index.mjs").ValidatedContract} */
+function affinityContract(prefix) {
+  const directory = mkdtempSync(join(tmpdir(), `${prefix}-contract-`));
+  writeFileSync(join(directory, "README.md"), "read me\n");
+  return validateContract(contractFixture({
+    id: `${prefix}-contract`,
+    cwd: directory,
+    pollIntervalMs: 10,
+    timeoutSec: 60,
+    runtimeDefaults: { worker: "alpha", judge: "gamma" },
+    runtimes: {
+      alpha: { harness: "codex", model: "alpha", vendor: "alpha-vendor", fallback: "beta" },
+      beta: { harness: "codex", model: "beta", vendor: "beta-vendor" },
+      gamma: { harness: "codex", model: "gamma", vendor: "gamma-vendor" },
+      delta: { harness: "codex", model: "delta", vendor: "beta-vendor" },
+    },
+    nodes: [{ id: "build", type: "backend", taskPacket: packet({ readFiles: ["README.md"] }), gate: false }],
+  }), join(directory, "contract.json"));
+}
+
+/**
+ * @param {{assignments?: {worker: string, judge: string}, availability?: Record<string, {available: boolean, exhaustedUntil: string|null, reason: string}>, invocations?: {phase: string, runtimeId: string}[], override?: {role: string, runtime: string, reason: string}|null}} [overrides]
+ * @returns {any}
+ */
+function affinityState(overrides = {}) {
+  const { assignments = { worker: "alpha", judge: "gamma" }, availability = {}, invocations = [], override = null } = overrides;
+  return {
+    id: "build",
+    status: "running",
+    phase: "worker",
+    revisions: 0,
+    invocations,
+    routing: { history: [], currentOverride: override, assignments, availability },
+  };
+}
+
+test("attempt affinity yields to correctness", () => {
+  const contract = affinityContract("affinity-yields");
+  const node = contract.nodes[0];
+  const ready = { available: true, exhaustedUntil: null, reason: "ready" };
+  const later = { available: false, exhaustedUntil: new Date(Date.now() + 60_000).toISOString(), reason: "quota" };
+  const spent = { available: false, exhaustedUntil: new Date(Date.now() - 1_000).toISOString(), reason: "quota" };
+
+  // The previous attempt's runtime outranks the frozen assignment while the
+  // catalogue calls it healthy: it is the one holding the node's context.
+  const held = affinityState({
+    availability: { alpha: ready, beta: ready },
+    invocations: [{ phase: "worker", runtimeId: "alpha" }, { phase: "worker", runtimeId: "beta" }],
+  });
+  assert.equal(routeRuntimeForState(contract, node, held, "worker").id, "beta");
+
+  // An exhausted previous runtime yields: availability outranks affinity and
+  // the assignment decides.
+  const exhausted = affinityState({
+    availability: { alpha: ready, beta: later },
+    invocations: [{ phase: "worker", runtimeId: "beta" }],
+  });
+  assert.equal(routeRuntimeForState(contract, node, exhausted, "worker").id, "alpha");
+
+  // Exhaustion that has already been waited out holds no longer: the runtime
+  // is healthy again, and unknown must not look rested works the other way —
+  // a spent exhaustion must not look active.
+  const rested = affinityState({
+    availability: { alpha: ready, beta: spent },
+    invocations: [{ phase: "worker", runtimeId: "beta" }],
+  });
+  assert.equal(routeRuntimeForState(contract, node, rested, "worker").id, "beta");
+
+  // No catalogue record at all is not evidence of exhaustion: the snapshot's
+  // catalogue copy is often empty outright, and the runtime demonstrably just
+  // ran. Only a record that refuses admission yields.
+  const unrecorded = affinityState({
+    availability: { alpha: ready },
+    invocations: [{ phase: "worker", runtimeId: "beta" }],
+  });
+  assert.equal(routeRuntimeForState(contract, node, unrecorded, "worker").id, "beta");
+
+  // A judge whose previous runtime shares the vendor of the worker that ran
+  // the node yields to the assignment: vendor distinction outranks affinity.
+  const collided = affinityState({
+    availability: { delta: ready },
+    invocations: [
+      { phase: "worker", runtimeId: "beta" },
+      { phase: "judge", runtimeId: "delta" },
+    ],
+  });
+  assert.equal(routeRuntimeForState(contract, node, collided, "judge").id, "gamma");
+
+  // A vendor-distinct previous judge runtime holds.
+  const distinct = affinityState({
+    availability: { delta: ready },
+    invocations: [
+      { phase: "worker", runtimeId: "alpha" },
+      { phase: "judge", runtimeId: "delta" },
+    ],
+  });
+  assert.equal(routeRuntimeForState(contract, node, distinct, "judge").id, "delta");
+
+  // The role-matched override is already an affinity outcome — a reset hold
+  // or the failover edge — and outranks the invocation record.
+  const overridden = affinityState({
+    availability: { alpha: ready, beta: ready },
+    invocations: [{ phase: "worker", runtimeId: "beta" }],
+    override: { role: "worker", runtime: "alpha", reason: "quota resets" },
+  });
+  assert.equal(routeRuntimeForState(contract, node, overridden, "worker").id, "alpha");
+
+  // A first attempt has no previous runtime and resolves exactly as before.
+  const first = affinityState({ availability: { alpha: ready } });
+  assert.equal(routeRuntimeForState(contract, node, first, "worker").id, "alpha");
+});
+
+test("the routing override records whether attempt affinity held or yielded", () => {
+  const contract = affinityContract("affinity-reason");
+  const node = contract.nodes[0];
+  const error = { code: "quota_exhausted", message: "usage limit" };
+  const state = affinityState({ invocations: [{ phase: "worker", runtimeId: "alpha" }] });
+  const now = Date.parse("2026-09-04T06:00:00.000Z");
+
+  const reset = /** @type {const} */ ({ kind: "reset", at: "2026-09-04T12:00:00.000Z", reason: "quota_reset" });
+  const resetRoute = buildRouting(state, {
+    role: "worker", error, current: "alpha",
+    plan: planRoute(contract, node, state, "worker", error, "alpha", reset),
+    schedule: reset, status: "failed", now,
+  });
+  assert.match(/** @type {any} */ (resetRoute.override).reason, /attempt-affinity held: alpha keeps the node's context for the retry/u);
+
+  const failover = /** @type {const} */ ({ kind: "failover", reason: "provider" });
+  const failoverRoute = buildRouting(state, {
+    role: "worker", error, current: "alpha",
+    plan: planRoute(contract, node, state, "worker", error, "alpha", failover),
+    schedule: failover, status: "failed", now,
+  });
+  assert.match(/** @type {any} */ (failoverRoute.override).reason, /attempt-affinity yielded: alpha reported quota_exhausted/u);
+  assert.equal(/** @type {any} */ (failoverRoute.override).runtime, "beta", "the edge still goes to the declared fallback");
 });

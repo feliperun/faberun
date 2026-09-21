@@ -8,6 +8,7 @@ import { runContract } from "../../src/engine/scheduler.mjs";
 import { failoverEdges, nextHop, nextSynthesizedRuntime } from "../../src/engine/failover.mjs";
 import { NETWORK_BACKOFF_CAP_MS, NETWORK_MAX_ATTEMPTS, backoffDelayMs, buildRouting, classifyTransition, isRepairable, isTimeoutOrStall, networkBackoffAttempts, quotaResetSchedule } from "../../src/engine/backoff.mjs";
 import { recoverOrphan } from "../../src/engine/recover.mjs";
+import { runtimeAssignments } from "../../src/engine/assignment.mjs";
 import { recoveryExhaustionEnvelope, resumeRun } from "../../src/engine/resume.mjs";
 import { validateContract } from "../../src/contract/index.mjs";
 import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
@@ -534,6 +535,60 @@ test("done-when 5: both routing allowlists round-trip costProvenance priced and 
   for (const [value, expected] of rejected) {
     assert.throws(() => validateNodeSnapshot(/** @type {any} */ (value)), expected);
   }
+});
+
+test("runtimeAssignments records the applied strategy and reason on every assignment", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-assignment-strategy-"));
+  writeFileSync(join(directory, "README.md"), "read me\n");
+  const declaredValue = contractFixture({
+    id: "assignment-strategy-declared",
+    cwd: directory,
+    runtimeDefaults: { worker: "luna", judge: "sol" },
+    runtimes: {
+      luna: { harness: "codex", model: "gpt-5.6-luna" },
+      sol: { harness: "codex", model: "gpt-5.6-sol", vendor: "openai-sol" },
+    },
+    nodes: [
+      { id: "plain", type: "backend", taskPacket: packet(), runtime: "luna", gate: false },
+      { id: "gated", type: "backend", taskPacket: packet(), gate: { failOn: ["critical"], runtime: "sol" } },
+    ],
+  });
+  // The packet helper's read files name the contract itself, so the fixture
+  // is written into the cwd it declares, like writeContract does.
+  writeFileSync(join(directory, "contract.json"), JSON.stringify(declaredValue, null, 2));
+  const declared = validateContract(declaredValue, join(directory, "contract.json"));
+  const { decisions } = await runtimeAssignments(declared);
+  // Declared roles record `declared` and the field that named the runtime: an
+  // operator instruction prevails over every strategy, and the record must
+  // read as a declaration, not as a strategy outcome.
+  assert.equal(decisions.plain.worker.strategy, "declared");
+  assert.equal(decisions.plain.worker.reason, "node runtime");
+  assert.equal(decisions.plain.judge.strategy, "declared");
+  assert.equal(decisions.plain.judge.reason, "runtimeDefaults.judge");
+  assert.equal(decisions.gated.judge.strategy, "declared");
+  assert.equal(decisions.gated.judge.reason, "gate runtime");
+
+  // Roles the contract left open are composed by discovery's own ranking,
+  // and the record names it: cheapest for a worker, strongest for a judge.
+  const openValue = contractFixture({
+    id: "assignment-strategy-composed",
+    cwd: directory,
+    runtimeDefaults: {},
+    runtimes: {
+      luna: { harness: "codex", model: "gpt-5.6-luna", executable: fakeCodex(directory, "pass"), costRank: 1, tier: 1 },
+      spare: { harness: "exec-jsonl", model: "spare", vendor: "spare-vendor", executable: fakeExecJsonl(directory, "pass"), costRank: 3, tier: 2 },
+    },
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: { failOn: ["critical"] } }],
+  });
+  writeFileSync(join(directory, "open-contract.json"), JSON.stringify(openValue, null, 2));
+  const open = validateContract(openValue, join(directory, "open-contract.json"));
+  const composed = await withFakeCodex(directory, "pass", () => runtimeAssignments(open));
+  assert.equal(composed.decisions.build.worker.strategy, "cost");
+  assert.equal(composed.decisions.build.worker.reason, "discovery: cheapest available runtime");
+  assert.equal(composed.assignments.build.worker, "luna");
+  assert.equal(composed.assignments.build.judge, "spare");
+  assert.equal(composed.decisions.build.judge.strategy, "priority");
+  assert.equal(composed.decisions.build.judge.reason, "discovery: strongest available runtime");
 });
 
 const RECOVERED_UNTIL = "2026-09-04T12:00:00.000Z";

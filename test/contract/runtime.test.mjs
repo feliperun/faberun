@@ -10,7 +10,7 @@ import {
   validateContract,
 } from "../../src/contract/index.mjs";
 import * as helpers from "../helpers.mjs";
-import { routeRuntime } from "../../src/contract/runtime.mjs";
+import { ROUTING_STRATEGIES, routeRuntime, validateRuntimeAvailability } from "../../src/contract/runtime.mjs";
 import { validateNodeSnapshot, validateRunMetadata } from "../../src/contract/snapshot.mjs";
 import { packet, snapshot, writeFixture } from "./helpers.mjs";
 
@@ -346,6 +346,59 @@ test("a node snapshot accepts a bounded previousAttempt section and rejects an o
   assert.throws(
     () => validateNodeSnapshot(snapshot({ previousAttempt: "   " })),
     /previousAttempt must be a non-empty string/u,
+  );
+});
+
+test("the runtime catalogue record validates observables as nullable and rejects junk", () => {
+  const observed = {
+    available: false,
+    exhaustedUntil: "2026-09-21T00:00:00.000Z",
+    reason: "quota_exhausted",
+    observedAt: "2026-09-21T09:00:00.000Z",
+    window: "seven_day",
+    remaining: 0.23,
+  };
+  validateRuntimeAvailability(observed, "catalogue.zcode-glm");
+  // A record that predates the observables, and one whose harness exposes
+  // nothing: absent reads as null, never as zero and never as full allowance.
+  validateRuntimeAvailability({ available: true, exhaustedUntil: null, reason: "ready" }, "catalogue.legacy");
+  validateRuntimeAvailability({ ...observed, observedAt: null, window: null, remaining: null }, "catalogue.null");
+  // remaining 0 is a genuinely spent window when the harness exposed it.
+  validateRuntimeAvailability({ ...observed, remaining: 0 }, "catalogue.spent");
+
+  for (const [value, fragment] of [
+    [{ ...observed, observedAt: 0 }, /catalogue\.bad\.observedAt must be a valid timestamp/u],
+    [{ ...observed, exhaustedUntil: "tomorrow" }, /exhaustedUntil must be a valid timestamp/u],
+    [{ ...observed, remaining: "full" }, /remaining must be a non-negative number/u],
+    [{ ...observed, window: 7 }, /window must be a non-empty string/u],
+    [{ ...observed, spent: true }, /unexpected field spent/u],
+    [{ available: "yes", exhaustedUntil: null, reason: "ready" }, /available must be boolean/u],
+    [{ available: true, exhaustedUntil: null }, /reason/u],
+  ]) {
+    assert.throws(() => validateRuntimeAvailability(value, "catalogue.bad"), fragment);
+  }
+});
+
+test("the routing strategy vocabulary is protocol surface, exactly the four named strategies", () => {
+  assert.deepEqual([...ROUTING_STRATEGIES].sort(), ["attempt-affinity", "cost", "priority", "reset-proximity"]);
+  assert.equal(Object.isFrozen(ROUTING_STRATEGIES), true);
+});
+
+test("routeRuntime validates the availability records a routing event carries", () => {
+  const { path } = writeFixture({
+    runtimeDefaults: { worker: "worker", judge: "worker" },
+    runtimes: { worker: { harness: "codex", model: "worker", executable: "/nonexistent/codex" } },
+  });
+  const contract = validateContract(JSON.parse(readFileSync(path, "utf8")), path);
+  const admitted = routeRuntime(contract, contract.nodes[0], "worker", {
+    availability: { worker: { available: true, exhaustedUntil: null, reason: "ready", observedAt: new Date().toISOString(), window: "five_hour", remaining: 0.4 } },
+  });
+  assert.equal(admitted.id, "worker");
+  assert.throws(
+    () => routeRuntime(contract, contract.nodes[0], "worker", {
+      availability: { worker: /** @type {any} */ ({ available: true, exhaustedUntil: null, reason: "ready", observedAt: 42 }) },
+    }),
+    /routing availability worker.observedAt must be a valid timestamp/u,
   );
 });
 
