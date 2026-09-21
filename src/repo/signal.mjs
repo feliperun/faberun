@@ -14,8 +14,12 @@
  * about the work that most needs it. The block now renders the phase-2
  * `runOutcome` per linked run: `parked` with its nodes, their error codes and
  * the exact `resume` command; `succeeded` as one line; plus the most recent
- * campaign-level `attention` entry from `.runs/inbox.jsonl`. It is bounded,
- * because every session pays for it in its first tokens.
+ * `attention` entry from `.runs/inbox.jsonl`. An attention belongs to one
+ * campaign or none: an explicit `campaignId` decides, a null one is resolved
+ * from the entry's `runId` (a run belongs to at most one campaign), and an
+ * entry whose run no active campaign owns is shown once at run level instead
+ * of under every campaign at once. It is bounded, because every session pays
+ * for it in its first tokens.
  */
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -47,19 +51,43 @@ export function renderAgentSignalBlock(runsDir) {
   const lines = [];
   /** @type {Set<string>} */
   const linked = new Set();
-  const { campaigns } = discoverCampaigns(runsDir);
-  for (const { campaign } of campaigns.filter(({ campaign }) => campaign.status !== "closed")) {
+  const active = discoverCampaigns(runsDir).campaigns.filter(({ campaign }) => campaign.status !== "closed");
+  const ownerByRun = runOwnerIndex(active);
+  for (const { campaign } of active) {
     lines.push(`- faberun campaign \`${campaign.id}\`: active — read \`.runs/campaigns/${campaign.id}/${HANDOFF_FILE}\``);
     for (const runId of campaign.linkedRunIds) {
       linked.add(runId);
       lines.push(...runSignalLines(runsDir, runId));
     }
-    const attention = campaignAttentionLine(runsDir, campaign);
+    const attention = campaignAttentionLine(runsDir, campaign, ownerByRun);
     if (attention) lines.push(attention);
   }
   for (const line of activeRunLines(runsDir, linked)) lines.push(line);
+  const orphan = orphanAttentionLine(runsDir, ownerByRun);
+  if (orphan) lines.push(orphan);
   if (!lines.length) return "";
   return `${SIGNAL_START}\n${HEADER}\n\n${boundLines(lines).join("\n")}\n${SIGNAL_END}`;
+}
+
+/**
+ * Which active campaign owns each run, read from the campaigns' own
+ * `linkedRunIds`. A run belongs to at most one campaign, so the first
+ * campaign naming a run wins; a run no active campaign names is absent from
+ * the map, and that absence — never a guess — is what makes an inbox entry
+ * unattributable.
+ *
+ * @param {{campaign: import("../campaign/index.mjs").Campaign}[]} active
+ * @returns {Map<string, string>}
+ */
+function runOwnerIndex(active) {
+  /** @type {Map<string, string>} */
+  const ownerByRun = new Map();
+  for (const { campaign } of active) {
+    for (const runId of campaign.linkedRunIds) {
+      if (!ownerByRun.has(runId)) ownerByRun.set(runId, campaign.id);
+    }
+  }
+  return ownerByRun;
 }
 
 /**
@@ -132,16 +160,17 @@ function activeRunLines(runsDir, linked) {
 }
 
 /**
- * The most recent campaign-level attention: an inbox entry when one exists,
- * otherwise the durable record on the campaign itself.
+ * The most recent attention this campaign owns: an inbox entry when one
+ * exists, otherwise the durable record on the campaign itself.
  *
  * @param {string} runsDir
  * @param {import("../campaign/index.mjs").Campaign} campaign
+ * @param {Map<string, string>} ownerByRun
  * @returns {string|null}
  */
-function campaignAttentionLine(runsDir, campaign) {
+function campaignAttentionLine(runsDir, campaign, ownerByRun) {
   const latest = readInbox(runsDir)
-    .filter((entry) => entry.type === "attention" && (entry.campaignId === campaign.id || entry.campaignId === null))
+    .filter((entry) => entry.type === "attention" && attentionBelongsTo(entry, campaign.id, ownerByRun))
     .at(-1);
   if (latest) return `  - attention: ${boundedAttention(latest.summary)}`;
   if (campaign.attention && typeof campaign.attention.message === "string") {
@@ -149,6 +178,44 @@ function campaignAttentionLine(runsDir, campaign) {
     return `  - attention: ${boundedAttention(`${campaign.attention.message}${code}`)}`;
   }
   return null;
+}
+
+/**
+ * An attention belongs to one campaign or none. An explicit `campaignId` is
+ * authoritative; a null one is resolved from the entry's `runId` through the
+ * run-owner index. Measured 2026-09-21: all 12 attention entries in the live
+ * inbox carry null, so the old `campaignId === null` fallback attributed an
+ * orphan to every campaign at once, permanently. An entry whose run resolves
+ * to no active campaign belongs to none and is surfaced once at run level by
+ * `orphanAttentionLine`, not dropped.
+ *
+ * @param {import("../notify/index.mjs").InboxEntry} entry
+ * @param {string} campaignId
+ * @param {Map<string, string>} ownerByRun
+ * @returns {boolean}
+ */
+function attentionBelongsTo(entry, campaignId, ownerByRun) {
+  if (entry.campaignId !== null) return entry.campaignId === campaignId;
+  return entry.runId !== null && ownerByRun.get(entry.runId) === campaignId;
+}
+
+/**
+ * The most recent attention no campaign owns, as one run-level line. Dropping
+ * it would trade the old wrong report (every campaign) for a missing one, and
+ * the run-level section of the block is where campaign-less work already
+ * lives.
+ *
+ * @param {string} runsDir
+ * @param {Map<string, string>} ownerByRun
+ * @returns {string|null}
+ */
+function orphanAttentionLine(runsDir, ownerByRun) {
+  const latest = readInbox(runsDir)
+    .filter((entry) => entry.type === "attention" && entry.campaignId === null && (entry.runId === null || !ownerByRun.has(entry.runId)))
+    .at(-1);
+  if (!latest) return null;
+  const subject = latest.runId ? `run \`${latest.runId}\`` : "an entry with no run";
+  return `- attention: ${subject} resolves to no campaign — ${boundedAttention(latest.summary)}`;
 }
 
 /**
