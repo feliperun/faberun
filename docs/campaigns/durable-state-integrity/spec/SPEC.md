@@ -30,12 +30,26 @@ mão antes da poda.
 
 **O que a suíte escreve na home de quem a roda.** `test/helpers.mjs` já aponta
 `FABERUN_HOME` para um diretório descartável, e o comentário em cima explica
-exatamente por quê. Só que o mecanismo é opt-in por import: 68 dos 135 arquivos
-de teste não importam o helper. Rodar um único deles grava um registro
-permanente em `~/.faberun/projects` do operador. O diretório tem 389 registros;
-33 nasceram hoje. A regra certa já existe, escrita e comentada — falta ela valer
-para a suíte inteira e virar ratchet, do jeito que este repositório trata regra
-que não pode ser reintroduzida.
+exatamente por quê. O mecanismo é opt-in: 54 dos 135 arquivos de teste não
+resolvem o helper da raiz nem declaram `FABERUN_HOME` por conta própria, e
+rodar um deles grava um registro permanente em `~/.faberun/projects` do
+operador.
+
+O argumento mais forte não é a contagem, é o histórico. Este vazamento já foi
+consertado **duas vezes, um arquivo por vez**, e cada conserto deixou o
+próximo arquivo vazando. Medido em 2026-09-21 sobre os 392 registros
+acumulados, por origem e por dia: em 19/09 as fixtures de eval gravaram 222
+registros e `test/integrations/statusline.test.mjs` gravou 72; as primeiras
+pararam quando `evals/case.mjs` ganhou `withScopedFaberunHome`, o segundo
+parou quando `e85a9e6` lhe deu um `FABERUN_HOME` próprio. Nenhum dos dois
+gravou nada depois disso. Sobrou `test/contract/derived-fields.test.mjs`, que
+nunca recebeu nem um nem outro e segue gravando um registro por execução: 27
+em 19/09, 29 em 20/09, 36 em 21/09.
+
+Uma convenção aplicada arquivo a arquivo é exatamente o que vem falhando
+aqui. A regra certa já existe, escrita e comentada — falta ela valer para a
+suíte inteira de uma vez e virar ratchet que mede o **efeito** sobre a home,
+não a presença de um import.
 
 **O que o journal descarta calado.** `campaign note` corta qualquer nota em 2048
 bytes (`JOURNAL_TEXT_BYTES`), anexa reticências e devolve sucesso. Duas
@@ -58,9 +72,10 @@ permanentemente ilegível e não há verbo que o conserte. Quatro diretórios
 | Indicador | Hoje | Alvo |
 | --- | --- | --- |
 | Refs apontando para `integratedHead` após `cancel` | 0 | 1 por nó integrado |
-| Arquivos de teste que escopam `FABERUN_HOME` | 67 de 135 por import, 24 por conta própria | todos, pelo runner |
-| Registros gravados em `~/.faberun` por um `npm test` | ≥ 1 por arquivo não escopado | 0 |
-| Registros vazados em `~/.faberun/projects` | 389, 33 escritos hoje | 1, o próprio repositório |
+| Arquivos de teste que escopam a home | 81 de 135 | 135, pelo runner |
+| Registros gravados em `~/.faberun` por uma execução dos 54 não escopados | 1 | 0 |
+| Registros vazados em `~/.faberun/projects` | 392, dos quais 92 por `derived-fields.test.mjs` | 1, o próprio repositório |
+| Vezes que este vazamento foi consertado arquivo a arquivo | 2, e um arquivo segue vazando | 0, a regra passa a ser do runner |
 | Diagnóstico ao gravar nota acima do teto | nenhum | recusa nomeando o excesso |
 | Registros de campanha ilegíveis por `campaign list` | 1 | 0 |
 | Diretórios `controller-snapshots` bloqueando limpeza | 4 | 0 |
@@ -162,8 +177,8 @@ idempotência, `deleteRef`/`runRefName` em `src/repo/worktree.mjs`, e o campo
 | --- | --- | --- | --- |
 | Commits integrados perdidos por cancelamento | recuperados à mão em 2026-09-21 | 0, sem intervenção | testes |
 | Passos manuais para achar trabalho de run cancelada | 4 | 0 | saída de `cancel` |
-| Registros escritos em `~/.faberun` por `npm test` | ≥ 33 por dia de uso | 0 | testes |
-| Arquivos de teste que podem vazar | 68 | 0 | ratchet |
+| Registros escritos em `~/.faberun` por `npm test` | 1 por execução, 36 em 21/09 | 0 | testes |
+| Arquivos de teste que podem vazar | 54 | 0 | ratchet |
 | Notas de journal truncadas sem aviso | 2 nesta campanha | 0 | testes |
 | Registros de campanha reportados `corrupt` | 1 | 0 | `campaign list` |
 | Diretórios bloqueando limpeza | 4 | 0 | `migrate` |
