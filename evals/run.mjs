@@ -42,6 +42,21 @@ const CLI_OPTIONS = {
 };
 
 /**
+ * The eval classes and the case kind each one names, matched against
+ * `caseKindOf`. A class is a case *kind*, not a per-case field — the kind is
+ * already on every spec, so scoping needs no case-file change. `deterministic`
+ * keeps meaning the contract-driven cases it always named; `planner` names the
+ * command-driven ones, the expensive class this runner used to execute
+ * unfiltered under `--class deterministic` on every pull request.
+ *
+ * @type {Record<string, "contract" | "command">}
+ */
+const CLASS_KINDS = {
+  deterministic: "contract",
+  planner: "command",
+};
+
+/**
  * @param {Record<string, unknown>} step
  * @param {{workDir: string, contractPath: string, runDir: string}} context
  * @returns {Promise<void>}
@@ -512,8 +527,12 @@ async function main(argv) {
     usageError("one of --class or --case is required");
     return;
   }
-  if (values.class !== undefined && values.class !== "deterministic") {
-    usageError(`unknown --class: ${values.class}`);
+  if (values.class !== undefined && values.case !== undefined) {
+    usageError("use --class or --case, not both");
+    return;
+  }
+  if (values.class !== undefined && CLASS_KINDS[/** @type {string} */ (values.class)] === undefined) {
+    usageError(`unknown --class: ${values.class} (known: ${Object.keys(CLASS_KINDS).join(", ")})`);
     return;
   }
 
@@ -526,7 +545,11 @@ async function main(argv) {
     caseIds = [/** @type {string} */ (values.case)];
   }
 
-  const loaded = caseIds.map((id) => loadCase(id));
+  let loaded = caseIds.map((id) => loadCase(id));
+  // `--class` scopes everything a run selects: the pass run and
+  // `--verify-discriminating` alike, so the nightly workflow can carry the
+  // planner class without it leaking back into an unscoped call.
+  if (values.class !== undefined) loaded = casesOfClass(loaded, /** @type {string} */ (values.class));
   // Cases run one at a time: a step's env overlay and a synthesized
   // controller.lock both mutate process-global state, which parallel cases
   // would otherwise race on and corrupt.
@@ -597,6 +620,26 @@ if (isEvalsRunMain(process.argv[1])) {
     process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     process.exitCode = 1;
   });
+}
+
+/**
+ * The cases of one eval class: the entries whose `caseKindOf` kind is the one
+ * `CLASS_KINDS` names for the class. A class that selects zero cases throws:
+ * a scheduled job that ran nothing and exited green is exactly the silent
+ * failure class scoping exists to keep off the nightly schedule.
+ *
+ * @template {{spec: Record<string, unknown>}} T
+ * @param {T[]} loaded
+ * @param {string} className
+ * @returns {T[]}
+ */
+export function casesOfClass(loaded, className) {
+  const kind = CLASS_KINDS[className];
+  const selected = kind === undefined ? [] : loaded.filter((entry) => caseKindOf(entry.spec) === kind);
+  if (selected.length === 0) {
+    throw new Error(`--class ${className} selected no cases (from ${loaded.length} discovered)`);
+  }
+  return selected;
 }
 
 /**

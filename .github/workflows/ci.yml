@@ -28,7 +28,7 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: node evals/run.mjs --class deterministic --assert-no-model
-      - run: node evals/run.mjs --verify-discriminating
+      - run: node evals/run.mjs --class deterministic --verify-discriminating
 
   # Windows carries the install surface only: install.ps1, the platform
   # primitives it shares with `faberun update` and `skills register`, and the
