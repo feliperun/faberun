@@ -124,12 +124,13 @@ judgment and those delegable**; only the relevant risks; an execution estimate
 | RM-007 | Requirement Coverage Matrix in the brief | requirement ids already travel from phase to node; [spec](campaigns/campaign-brief/spec/SPEC.md) R3 | specified |
 | RM-008 | Render the graph, the risks, the human decisions and the planned evals | frozen nodes carry `dependsOn`; [spec](campaigns/campaign-brief/spec/SPEC.md) R4 | specified |
 | RM-009 | Cost and duration estimate as a range | `usage.jsonl` records priced costs and sizing records measured node overhead; [spec](campaigns/campaign-brief/spec/SPEC.md) R5 | specified |
-| RM-010 | Publish the brief as a shareable artefact (e.g. a PR comment linking to it) | no sharing surface at `d9eae18`; [spec](campaigns/campaign-brief/spec/SPEC.md) R7 starts with a portable local artefact | specified |
+| RM-010 | Publish the brief as a shareable artefact (e.g. a PR comment linking to it) | no sharing surface at `d9eae18`; [spec](campaigns/campaign-brief/spec/SPEC.md) R7–R8 specify portable `mdhtml` plus local browser server | specified |
 | RM-045 | An `mdhtml` theme built from `DESIGN.md`, so the rendered brief looks like Faberun | `DESIGN.md` defines the palette and `mdhtml` accepts a local `.theme.css`; [spec](campaigns/campaign-brief/spec/SPEC.md) R6 | specified |
 
 The brief is authored in Markdown and rendered with `mdhtml` into a portable,
 self-contained document, keeping Markdown as the source. The theme is Faberun's
-own — see decision D5.
+own — see decision D5. A minimal loopback server opens the local file in a
+browser — see decision D8.
 
 **Two briefs, see decision D7.** `src/campaign/brief.mjs` already writes
 `operator-brief.md`: a 4 KiB capsule of durable facts so a *fresh seat can take
@@ -453,6 +454,12 @@ seat taking over a running campaign. `campaign-brief.md` is the pre-execution
 approval artefact. Merging them would make the continuity capsule depend on the
 richer approval workflow and obscure which document an operator should review
 before pressing Play.
+
+**D8 — Share the first Campaign Brief as portable HTML with local browser
+access.** Owner decision 2026-09-21: `mdhtml` produces a self-contained file
+that opens offline; Faberun also offers a minimal server bound to loopback so
+the operator can open that document through a local browser URL. External
+publication and automatic PR comments are not part of the first release.
 
 ## Open questions for the owner
 

@@ -1,7 +1,7 @@
 ---
 id: campaign-brief
 title: "Campaign Brief before execution"
-version: 1.0.0
+version: 1.1.0
 status: draft
 date: 2026-09-21
 owner: Felipe Broering
@@ -79,7 +79,8 @@ campaign and must retain that purpose.
 ### R6. Markdown renders as a portable Faberun document
 
 - **statement:** Markdown is the source and `mdhtml` builds a self-contained
-  HTML copy that can be opened without Faberun or a network request. The theme
+  `campaign-brief.md.html` copy that can be opened without Faberun, a server, or
+  a network request. The theme
   uses the meanings, palette, contrast and typography in `DESIGN.md`; source
   and rendered copy contain the same review facts. A failed build or check is
   reported rather than publishing a partial copy.
@@ -87,18 +88,29 @@ campaign and must retain that purpose.
 
 ### R7. The brief is shareable without changing the plan
 
-- **statement:** Faberun exposes the source and portable HTML as durable
+- **statement:** Faberun exposes `campaign-brief.md` and its portable
+  `campaign-brief.md.html` copy as durable
   campaign artefacts with an unambiguous path or link that an operator can
   share. Rebuilding the brief updates the artefacts from the frozen plan and
   never edits the plan, contract, `operator-brief.md`, or an external service.
 - **proof:** command: node --test test/cli/campaign-brief.test.mjs
+
+### R8. A minimal local server opens the brief in a browser
+
+- **statement:** the operator can start a local HTTP server for a generated
+  Campaign Brief and receive a browser URL. It binds only to loopback, serves
+  the current `campaign-brief.md.html` with the correct content type, refuses
+  unrelated paths and missing briefs, and stops cleanly. The file remains
+  portable and usable without this server.
+- **proof:** command: node --test test/web/campaign-brief-server.test.mjs
 
 ## Non-goals
 
 - Executing or approving the frozen contract when the brief is generated.
 - Replacing the technical plan, changing contract semantics, or changing the
   existing `operator-brief.md` continuity capsule.
-- A hosted dashboard, automatic PR comments, or a new publication service.
+- A remotely accessible dashboard, automatic PR comments, or a publication
+  service.
 - Intent evaluation of the finished campaign (P2 on the roadmap).
 - Editing historical campaign records or golden fixtures.
 
@@ -118,6 +130,8 @@ campaign and must retain that purpose.
   unpinned `--test-name-pattern` as proof. Run the full suite separately.
 - No external publication or execution begins as a side effect of generating
   or viewing a brief.
+- The local server binds to `127.0.0.1` or `::1` only and exposes no directory
+  listing, arbitrary file path, or write route.
 
 ## Success criteria
 
@@ -128,6 +142,7 @@ campaign and must retain that purpose.
 | Execution graph and human decisions on one review surface | separate spec and plan | accurate graph and separated decisions | R4 |
 | Cost and duration uncertainty exposed | usage and sizing facts exist, no brief range | sourced ranges or explicit insufficient-data state | R5 |
 | External writes caused by viewing the brief | no brief exists | zero | R1, R7 |
+| Local browser access | no Campaign Brief route at `d9eae18` | one loopback URL opens the generated HTML | R8 |
 
 ## Risks
 
@@ -138,13 +153,16 @@ campaign and must retain that purpose.
 | Styled HTML hides missing coverage or inaccessible colors | gaps are missed | keep semantic labels in text, test source/rendered content, follow `DESIGN.md` contrast roles |
 | New approval brief is confused with the continuity capsule | a fresh seat loses operational facts | keep distinct names and paths; leave `operator-brief.md` unchanged |
 
+## Settled owner decisions
+
+- `operator-brief.md` remains the running-campaign continuity capsule;
+  `campaign-brief.md` is the pre-execution approval source.
+- The first sharing surface is a portable `mdhtml` file plus a minimal local
+  web server that opens it in the browser. Remote publication and PR comments
+  are outside this campaign.
+
 ## Human decisions
 
-- Confirm the name of the approval artefact. The proposed answer to roadmap
-  Q2 is `campaign-brief.md`, distinct from `operator-brief.md`.
-- Choose the first sharing surface. The proposed first release exposes a local,
-  portable HTML file and its Markdown source; a public URL or PR comment needs
-  a separate, explicit publication action.
 - Review the generated brief and its technical plan before executing the
   contract. A frozen plan is not approval to execute.
 
@@ -168,6 +186,8 @@ campaign and must retain that purpose.
   yield a bounded range with its sample count and assumptions.
 - `mdhtml build`, `mdhtml check`, and `mdhtml audit` must pass on the generated
   example, and the rendered file must work from disk with the network disabled.
+- The local server must accept loopback requests for the brief and refuse
+  unrelated paths; its response must contain the same document built on disk.
 
 ## Campaign execution outline
 
@@ -175,10 +195,6 @@ campaign and must retain that purpose.
    matrix and accurate execution graph. This is already useful without HTML.
 2. Add decisions, risks, evals and a measured estimate, then render and check
    a portable Faberun-themed HTML copy with `mdhtml`.
-3. Expose both artefacts through the CLI and existing read-only campaign
-   surface. Review the generated brief and contract together before any
+3. Expose both artefacts through the CLI and a minimal local server. Review the
+   generated brief and contract together before any
    execution contract is registered for supervision.
-
-The roadmap's Q2 naming choice and the first sharing surface remain owner
-decisions until recorded in the campaign journal. The proposed names are
-`operator-brief.md` for continuity and `campaign-brief.md` for approval.
