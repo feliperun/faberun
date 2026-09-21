@@ -71,6 +71,26 @@ that every deterministic item passed. Node has no flag that fails on an empty
 match, so the only defence at authoring time is to pin the name or point the
 proof at the whole file.
 
+A fourth rule, same family. **Never read "no checks reported" on a pull request
+as a verdict.** It has two causes and GitHub renders them identically. A release
+pull request opened by `GITHUB_TOKEN` gets no workflow run, deliberately, to
+avoid recursion — benign and expected. A *conflicted* pull request also gets
+none, because the merge ref is never built — which means the branch is both
+conflicted and untested. Before merging, ask separately:
+
+    gh pr view <n> --json mergeable,mergeStateStatus
+
+`MERGEABLE` alongside no checks is the first case. `CONFLICTING` is the second.
+`UNKNOWN` is not an answer: GitHub computes mergeability on demand, so re-ask
+until it resolves rather than treating the first reply as final.
+
+The three rules above share one shape, and it is worth naming because it will
+appear again in new forms: **an absence that looks like an approval.** A proof
+whose filter matches nothing exits `0`; a gate killed for memory reports a
+failure indistinguishable from a red test; a check that never ran renders the
+same as one that passed. A gate that did not run and a gate that passed have to
+be distinguishable from the outside, or whoever reads it trusts the silence.
+
 **Continuity beats restart.** Before starting new work, check `.runs/` and the
 managed signal block at the bottom of this file: an active campaign or a
 non-terminal run is work to continue — read its `HANDOFF.md`/`STATUS.md`,

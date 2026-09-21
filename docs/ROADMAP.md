@@ -304,7 +304,9 @@ judgment; they do not transport information.
 | RM-030 | `campaign close` preserves `proposals/` in the ledger | 16 proposals lived only in gitignored `.runs/`; the close copies journal, record and usage, not these | measured |
 | RM-031 | Emit `judgment` proofs only where no `command`/`path` proof covers the item, and support `gate.skipWhen` | `judgeRequired` already skips the judge when no `judgment` item exists, so the saving is available today | idea |
 | RM-032 | Detect unproductive loops and stop them | 23 turns with no result accounted for 25% of one campaign's spend; `process.mjs` restarts the stall clock on any event | measured |
+| RM-051 | Refuse a merge when `mergeStateStatus` is not `MERGEABLE`, instead of relying on the operator to ask | the written rule is in `AGENTS.md`; whether it also needs a mechanical guard is undecided | idea |
 | RM-033 | Ask the owner asynchronously (WhatsApp → `campaign resolve`) instead of keeping a session alive to be present when a question appears | — | idea |
+| RM-050 | Make an absence that looks like an approval fail loudly instead of quietly | three instances found in one week, all rendering as success: a DoD proof whose filter matched no test exits `0`; a gate killed for memory reports what looks like a red test; a check that never ran renders as "no checks reported", exactly like one that passed | measured |
 
 ---
 
