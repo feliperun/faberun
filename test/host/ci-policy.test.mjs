@@ -86,20 +86,25 @@ test("ci.yml runs the required matrix on push to main and pull_request", () => {
   ]);
 });
 
-test("ci.yml carries a Windows job scoped to the install surface", () => {
-  // Windows runs the install surface and says so: the layout install.ps1
-  // builds, the primitives `faberun update` and `skills register` share with
-  // it, and nothing else, because the rest of the suite is not green there
-  // (docs/adr/0007-windows-install-and-directory-links.md). A job that grew to
-  // `npm test` would be red for reasons this one does not cover.
-  const windows = block(read(".github/workflows/ci.yml"), "windows-install");
+test("ci.yml carries a Windows job running the same commands as the required matrix", () => {
+  // Windows runs the whole suite, the same steps in the same order as the
+  // matrix above, because it is green there (docs/adr/0010). A job that
+  // narrowed back to a subset would quietly stop proving the thing ADR 0010
+  // claims, so the step list is pinned rather than merely present.
+  const windows = block(read(".github/workflows/ci.yml"), "windows");
   assert.match(windows, /runs-on:\s*windows-latest/);
   assert.deepEqual(matrixList(windows, "node"), ["22", "24"]);
   assert.deepEqual(runSteps(windows), [
     "npm ci",
+    "npm run check",
     "npm run typecheck",
-    "node --test test/host/platform.test.mjs test/host/install-ps1.test.mjs test/cli/update.test.mjs test/cli/skills-register.test.mjs",
+    "npm test",
+    "node evals/run.mjs --class deterministic --assert-no-model",
+    "node evals/run.mjs --verify-discriminating",
   ]);
+  // The suite resolves each spec's baseline commit, which a shallow checkout
+  // does not carry — the same reason the matrix above asks for full history.
+  assert.match(windows, /fetch-depth:\s*0/);
 });
 
 test("ci.yml keeps the deterministic class as the only eval suite on the merge path", () => {

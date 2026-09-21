@@ -43,13 +43,12 @@ jobs:
       - run: node evals/run.mjs --class deterministic --assert-no-model
       - run: node evals/run.mjs --class deterministic --verify-discriminating
 
-  # Windows carries the install surface only: install.ps1, the platform
-  # primitives it shares with `faberun update` and `skills register`, and the
-  # commands that read them. The rest of the suite is not green on Windows —
-  # the engine's process control and the `seat` command are POSIX-shaped — and
-  # a job that ran it would be red for reasons this job does not cover. See
-  # docs/adr/0007-windows-install-and-directory-links.md.
-  windows-install:
+  # Windows runs the same commands as the matrix above, because the suite is
+  # green there now. What closing it found — a detached controller that died
+  # with its launcher, a controller that never terminated its own provider, a
+  # notification that never arrived — and the limits that remain are recorded
+  # in docs/adr/0010-the-suite-runs-on-windows.md.
+  windows:
     strategy:
       fail-fast: false
       matrix:
@@ -57,9 +56,17 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history, for the same reason the matrix above needs it:
+          # test/plan/existing-specs.test.mjs resolves each spec's baseline
+          # commit under --strict-traceability.
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
       - run: npm ci
+      - run: npm run check
       - run: npm run typecheck
-      - run: node --test test/host/platform.test.mjs test/host/install-ps1.test.mjs test/cli/update.test.mjs test/cli/skills-register.test.mjs
+      - run: npm test
+      - run: node evals/run.mjs --class deterministic --assert-no-model
+      - run: node evals/run.mjs --verify-discriminating
