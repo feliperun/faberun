@@ -62,6 +62,22 @@ function checkout() {
   return cwd;
 }
 
+/** @returns {import("../../src/plan/template.mjs").PlanOutputNode} a minimal valid plan node */
+function planNode() {
+  return {
+    id: "build",
+    objective: "Implement it",
+    taskKind: "implement",
+    riskTier: "standard",
+    dependsOn: [],
+    readFiles: ["README.md"],
+    writeFiles: ["README.md"],
+    scopeAcknowledged: [],
+    definitionOfDone: [],
+    verification: [],
+  };
+}
+
 test("every built contract passes validateContract against a temp checkout that holds the named input files", () => {
   const cwd = checkout();
   const contractPath = join(cwd, "contract.json");
@@ -154,7 +170,7 @@ test("draft and revise instructions spell the nested definitionOfDone and verifi
     // The id charset is requireId's (contract/assert.mjs) verbatim: an id that
     // is present but invalid fails validatePlanOutput just as late as an
     // absent one — after the run already succeeded.
-    assert.match(instructions, /every id in it \(node and definitionOfDone item\) must match \[A-Za-z0-9\._-\]\+ and never be exactly "\." or "\.\."/);
+    assert.match(instructions, /every id in it \(node, phase, and definitionOfDone item\) must match \[A-Za-z0-9\._-\]\+ and never be exactly "\." or "\.\."/);
   }
 });
 
@@ -267,13 +283,88 @@ test("the shapes a worker plausibly guesses are rejected, with the plan path nam
 test("the spelled shapes keep every planning prompt inside renderWorkerPrompt's guard", () => {
   const cwd = checkout();
   const contractPath = join(cwd, "contract.json");
-  // Measured 2026-09-20: the draft prompt is 2.8 KiB and the revise prompt
-  // 2.8 KiB with both shapes spelled, against renderWorkerPrompt's 64 KiB
+  // Measured 2026-09-20: the draft prompt is 3.6 KiB and the revise prompt
+  // 3.4 KiB with every shape spelled, against renderWorkerPrompt's 64 KiB
   // ceiling.
   for (const kind of /** @type {const} */ (["draft", "revise", "review", "spec-author", "spec-review"])) {
     const contract = validateContract(buildPlanningContract(kind, baseInputs()), contractPath);
     const prompt = renderWorkerPrompt(contract.nodes[0].taskPacket, kind);
     assert.ok(Buffer.byteLength(prompt, "utf8") <= 64 * 1024, `${kind} prompt fits the 64 KiB guard`);
+  }
+});
+
+test("a plan phase with no associated requirement is reported as a finding, not refused", () => {
+  const validated = validatePlanOutput({
+    nodes: [planNode()],
+    phases: [
+      { id: "protocol", requirementIds: ["R1", "R2"], deliverable: "The packet schema closes over its imports." },
+      { id: "chore", requirementIds: [], deliverable: "Dependencies are bumped." },
+      { id: "mystery", deliverable: "No ids declared at all." },
+    ],
+  });
+  assert.deepEqual(validated.phases, [
+    { id: "protocol", requirementIds: ["R1", "R2"], deliverable: "The packet schema closes over its imports." },
+    { id: "chore", requirementIds: [], deliverable: "Dependencies are bumped." },
+    { id: "mystery", requirementIds: [], deliverable: "No ids declared at all." },
+  ]);
+  assert.deepEqual(validated.findings, [
+    {
+      id: "no-requirement-chore",
+      severity: "minor",
+      nodeId: "chore",
+      text: "Phase chore is associated with no requirement: fill requirementIds with the R<n> ids from the spec that it satisfies, or fold it into a phase that does.",
+    },
+    {
+      id: "no-requirement-mystery",
+      severity: "minor",
+      nodeId: "mystery",
+      text: "Phase mystery is associated with no requirement: fill requirementIds with the R<n> ids from the spec that it satisfies, or fold it into a phase that does.",
+    },
+  ]);
+});
+
+test("a plan whose phases all name requirements carries no findings, and the phases-less shape stays legal", () => {
+  const validated = validatePlanOutput({
+    nodes: [planNode()],
+    phases: [{ id: "protocol", requirementIds: ["R1"], deliverable: "One sentence." }],
+  });
+  assert.deepEqual(validated.phases, [{ id: "protocol", requirementIds: ["R1"], deliverable: "One sentence." }]);
+  assert.equal(validated.findings, undefined);
+
+  const bare = validatePlanOutput({ nodes: [planNode()] });
+  assert.equal(bare.phases, undefined);
+  assert.equal(bare.findings, undefined);
+});
+
+test("a malformed phase declaration is still a hard refusal", () => {
+  assert.throws(() => validatePlanOutput({ nodes: [planNode()], phases: "protocol" }), /plan\.phases must be an array/);
+  assert.throws(
+    () => validatePlanOutput({ nodes: [planNode()], phases: [{ id: "p1", requirementIds: "R1", deliverable: "x" }] }),
+    /plan\.phases\[0\]\.requirementIds/,
+  );
+  assert.throws(
+    () => validatePlanOutput({ nodes: [planNode()], phases: [{ id: "p1", requirementIds: ["R1"] }] }),
+    /plan\.phases\[0\]\.deliverable/,
+  );
+  assert.throws(
+    () => validatePlanOutput({ nodes: [planNode()], phases: [{ requirementIds: ["R1"], deliverable: "x" }] }),
+    /plan\.phases\[0\]\.id/,
+  );
+  assert.throws(
+    () => validatePlanOutput({ nodes: [planNode()], phases: [{ id: "p1", requirementIds: ["R1"], deliverable: "x", runtime: "anthropic-sonnet" }] }),
+    /unexpected field runtime/,
+  );
+});
+
+test("draft and revise instructions spell the per-phase requirement declaration", () => {
+  const cwd = checkout();
+  const contractPath = join(cwd, "contract.json");
+  for (const kind of /** @type {const} */ (["draft", "revise"])) {
+    const contract = validateContract(buildPlanningContract(kind, baseInputs()), contractPath);
+    const instructions = contract.nodes[0].taskPacket.instructions.join("\n");
+    assert.match(instructions, /phases\?: \[\{id, requirementIds\?: \[string\], deliverable\}\]/);
+    assert.match(instructions, /the requirement ids \(R<n> from the spec\) the phase satisfies and the deliverable it produces in one sentence/);
+    assert.match(instructions, /reported as a finding, not refused/);
   }
 });
 

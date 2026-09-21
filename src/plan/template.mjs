@@ -8,6 +8,12 @@
  * accepts, from exactly the inputs each role may see. The reviewer's packet
  * is the enforced case: it carries the spec, the repository facts and the
  * artefact under review, never the author's packet, transcript or summary.
+ *
+ * The plan output validator also owns requirement traceability: a plan
+ * declares, per phase, the requirement ids it satisfies and its one-sentence
+ * deliverable, and a phase associated with no requirement is reported as a
+ * finding — never a silent pass, never a refusal. freeze.mjs imports the same
+ * phase check for the frozen plan record.
  */
 import { assertObject, rejectUnknown, requireId, requireString, requireStringArray } from "../contract/assert.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../contract/index.mjs";
@@ -19,7 +25,8 @@ import { validateVerificationCommands } from "../contract/verification.mjs";
 /** @typedef {"low"|"standard"|"high"} RiskTier */
 /** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, specPath?: string, repoFactsPath?: string, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
 /** @typedef {{id: string, objective: string, taskKind: string, riskTier: RiskTier, dependsOn: string[], readFiles: string[], writeFiles: string[], scopeAcknowledged: string[], definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], verification: import("../contract/verification.mjs").VerificationCommand[]}} PlanOutputNode */
-/** @typedef {{nodes: PlanOutputNode[], justification?: string}} PlanOutput */
+/** @typedef {{nodes: PlanOutputNode[], phases?: PlanPhase[], findings?: PlanFindingOutput[], justification?: string}} PlanOutput */
+/** @typedef {{id: string, requirementIds: string[], deliverable: string}} PlanPhase */
 /** @typedef {{id: string, severity: "critical"|"major"|"minor", nodeId: string, text: string}} PlanFindingOutput */
 
 /**
@@ -70,7 +77,7 @@ const REQUIRED_INPUTS = Object.freeze({
 // run had already succeeded. The id charset is requireId's
 // (contract/assert.mjs) verbatim, because an id that is present but invalid
 // fails that same validator just as late.
-const PLAN_OUTPUT_SHAPE = '{nodes: [{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: [{id, text, proof?: {kind: "command"|"path"|"verification", ref}, judgment?: true}], verification: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}]}], justification?}; every id in it (node and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly "." or ".."';
+const PLAN_OUTPUT_SHAPE = '{nodes: [{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: [{id, text, proof?: {kind: "command"|"path"|"verification", ref}, judgment?: true}], verification: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}]}], phases?: [{id, requirementIds?: [string], deliverable}], justification?}; every id in it (node, phase, and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly "." or ".."';
 const FINDINGS_SHAPE = "[{id, severity, nodeId, text}]";
 
 // The rule every planned packet is held to at freeze time, worded from
@@ -96,12 +103,14 @@ const OBJECTIVES = Object.freeze({
 const INSTRUCTIONS = Object.freeze({
   draft: [
     `Consult ${TASK_KIND_CATALOGUE_PATH}'s exported TASK_KINDS before classifying any node; taskKind must be one of that catalogue and riskTier must be one of ${RISK_TIERS.join(", ")}.`,
+    "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies and the deliverable it produces in one sentence. A phase associated with no requirement is reported as a finding, not refused.",
     ...SCOPE_CLOSURE_RULE,
     `Return exactly one worker-result JSON object. Put the plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan. taskKind and riskTier are the only classification a draft makes; a routing table assigns a runtime afterward, from those two fields alone.",
   ],
   revise: [
     "Read the findings and resolve every one; do not leave a critical or major finding unaddressed.",
+    "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies and the deliverable it produces in one sentence. A phase associated with no requirement is reported as a finding, not refused.",
     ...SCOPE_CLOSURE_RULE,
     `Return exactly one worker-result JSON object. Put the revised plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan.",
@@ -206,13 +215,15 @@ export function buildPlanningContract(kind, inputs) {
   };
 }
 
-const PLAN_FIELDS = new Set(["nodes", "justification"]);
+const PLAN_FIELDS = new Set(["nodes", "phases", "justification"]);
 const PLAN_NODE_FIELDS = new Set(["id", "objective", "taskKind", "riskTier", "dependsOn", "readFiles", "writeFiles", "scopeAcknowledged", "definitionOfDone", "verification"]);
 
 /**
  * Validate a draft or revise worker's `output.plan`. Rejects a node naming a
  * runtime, harness, model, or vendor (an unknown field, since a plan node's
- * shape never includes one) and a node missing taskKind or riskTier.
+ * shape never includes one) and a node missing taskKind or riskTier. A
+ * declared phase associated with no requirement is reported as a finding on
+ * the result, never a silent pass and never a refusal.
  *
  * @param {unknown} plan
  * @returns {PlanOutput}
@@ -267,10 +278,61 @@ export function validatePlanOutput(plan) {
     });
   });
   if (record.justification !== undefined) requireString(record.justification, "plan.justification");
+  const phases = validatePlanPhases(record.phases);
+  const findings = (phases ?? [])
+    .filter((phase) => phase.requirementIds.length === 0)
+    .map((phase) => /** @type {PlanFindingOutput} */ ({
+      id: `no-requirement-${phase.id}`,
+      // minor, not major: a support phase with no direct requirement is a
+      // question for review, not a defect — the finding exists so the gap is
+      // never silent.
+      severity: "minor",
+      nodeId: phase.id,
+      text: `Phase ${phase.id} is associated with no requirement: fill requirementIds with the R<n> ids from the spec that it satisfies, or fold it into a phase that does.`,
+    }));
   return {
     nodes,
+    ...(phases === undefined ? {} : { phases }),
+    ...(findings.length > 0 ? { findings } : {}),
     ...(record.justification === undefined ? {} : { justification: /** @type {string} */ (record.justification) }),
   };
+}
+
+// The fields a phase declaration carries beyond its id: requirementIds|deliverable —
+// which spec requirements the phase satisfies, and the one sentence naming its result.
+const PLAN_PHASE_FIELDS = new Set(["id", "requirementIds", "deliverable"]);
+
+/**
+ * Validate a plan's `phases` — the per-phase requirement declarations: the
+ * requirement ids (R<n> from the spec) each phase satisfies and the
+ * deliverable it produces in one sentence. Absent, empty, and requirement-less
+ * are legal here: a support phase with no requirement is the caller's finding
+ * to report (validatePlanOutput does), so the gap stays visible without a
+ * malformed-but-honest plan being refused. Shared with freeze.mjs, which holds
+ * the same declarations on the frozen plan record.
+ *
+ * @param {unknown} phases
+ * @returns {PlanPhase[]|undefined} the normalized declarations, or undefined when none were given
+ */
+export function validatePlanPhases(phases) {
+  if (phases === undefined) return undefined;
+  if (!Array.isArray(phases)) throw new TypeError("plan.phases must be an array of phase declarations");
+  if (phases.length === 0) return undefined;
+  return phases.map((phase, index) => {
+    const label = `plan.phases[${index}]`;
+    assertObject(phase, label);
+    const record = /** @type {Record<string, unknown>} */ (phase);
+    rejectUnknown(record, PLAN_PHASE_FIELDS, label);
+    requireId(record.id, `${label}.id`);
+    requireString(record.deliverable, `${label}.deliverable`);
+    const requirementIds = record.requirementIds ?? [];
+    requireStringArray(requirementIds, `${label}.requirementIds`);
+    return {
+      id: /** @type {string} */ (record.id),
+      requirementIds: /** @type {string[]} */ (requirementIds),
+      deliverable: /** @type {string} */ (record.deliverable),
+    };
+  });
 }
 
 const FINDING_FIELDS = new Set(["id", "severity", "nodeId", "text"]);

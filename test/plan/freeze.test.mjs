@@ -58,6 +58,44 @@ test("the emitted contract.json validates", () => {
   assert.doesNotThrow(() => validateContract(raw, contractPath));
 });
 
+test("a frozen plan phase declares requirements it satisfies and its one-sentence deliverable", () => {
+  const dir = outDir();
+  const plan = fixture({ id: "plan-fixture-phases", campaignId: "plan-fixture-campaign-phases" });
+  const phases = [
+    { id: "protocol", requirementIds: ["R1", "R2"], deliverable: "The packet schema closes over every file the change forces to change." },
+    { id: "reporting", requirementIds: [], deliverable: "The run page shows node verdicts." },
+  ];
+
+  const frozen = freezePlan(plan, { outDir: dir, provenance: provenance(), phases });
+
+  assert.deepEqual(frozen.phases, phases);
+  const onDisk = JSON.parse(readFileSync(join(dir, "plan.json"), "utf8"));
+  assert.deepEqual(onDisk, frozen);
+  assert.equal(verifyFrozenPlan(dir).ok, true);
+
+  // The requirement gap is not a refusal here either: a phase that names no
+  // requirement still freezes, and validatePlanOutput is the check that
+  // reports the gap as a finding.
+  const sparseDir = outDir();
+  assert.doesNotThrow(() =>
+    freezePlan(fixture({ id: "plan-fixture-sparse-phase", campaignId: "plan-fixture-campaign-sparse-phase" }), {
+      outDir: sparseDir,
+      provenance: provenance(),
+      phases: [{ id: "reporting", requirementIds: [], deliverable: "The run page shows node verdicts." }],
+    }),
+  );
+  assert.equal(verifyFrozenPlan(sparseDir).ok, true);
+});
+
+test("malformed phase declarations write nothing, like any other freeze failure", () => {
+  const dir = outDir();
+  const plan = fixture({ id: "plan-fixture-bad-phases", campaignId: "plan-fixture-campaign-bad-phases" });
+
+  assert.throws(() => freezePlan(plan, { outDir: dir, provenance: provenance(), phases: /** @type {any} */ ("protocol") }), /plan\.phases/);
+  assert.equal(existsSync(join(dir, "contract.json")), false);
+  assert.equal(existsSync(join(dir, "plan.json")), false);
+});
+
 test("flipping one byte of contract.json makes verifyFrozenPlan report a mismatch", () => {
   const dir = outDir();
   const plan = fixture({ id: "plan-fixture-3", campaignId: "plan-fixture-campaign-3" });
