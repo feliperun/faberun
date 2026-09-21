@@ -280,22 +280,35 @@ export function clearTierExhaustion(state) {
 }
 
 /**
+ * Settle what a closed invocation produced, and start whatever the outcome
+ * earns next.
+ *
+ * The two maps are two different things, and conflating them is what let a run
+ * exceed its own `maxParallel` (measured 2026-09-21, run
+ * state-location-and-routing-economics-13): `closed` is the job this call owns
+ * -- the scheduler hands one node's job at a time so two settlements never
+ * interleave -- while `running` is the run's live dispatch authority, the very
+ * map the scheduler's `maxParallel - running.size` counts. Anything started
+ * here lands in `running` and is accounted from that instant; nothing started
+ * here may be settled by this call.
+ *
  * @param {ValidatedContract} contract
  * @param {string} runDir
  * @param {Map<string, NodeSnapshot>} states
- * @param {Map<string, Job>} running
+ * @param {Map<string, Job>} closed
  * @param {LockHandle} lock
  * @param {string} campaignPath
+ * @param {Map<string, Job>} running
  * @returns {Promise<void>}
  */
-export async function finalizeClosedJobs(contract, runDir, states, running, lock, campaignPath) {
+export async function finalizeClosedJobs(contract, runDir, states, closed, lock, campaignPath, running) {
   // Advisory spend lines are checked every tick, before outcome handling: a
   // crossing must be visible while the spend is happening, not only when the
   // run is already over. The check never stops or transitions a node.
   await emitNodeAdvisories(contract, runDir, states);
-  for (const [nodeId, job] of running) {
+  for (const [nodeId, job] of closed) {
     if (!job.closed || invocationAlive(job.invocation)) continue;
-    running.delete(nodeId);
+    closed.delete(nodeId);
     const state = states.get(nodeId);
     if (!state) continue;
     // Usage is extracted and persisted BEFORE any outcome-specific handling:
