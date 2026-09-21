@@ -411,6 +411,30 @@ test("a revision that drops a write the previous plan declared is a critical fin
   assert.deepEqual(droppedWriteFindings({ nodes: [nodeWriting("build", ["README.md"])] }, { nodes: [nodeWriting("build", ["README.md", "src/new.mjs"])] }), []);
 });
 
+test("a revise that hands a write to a new sibling node has moved it, not dropped it", () => {
+  // Measured 2026-09-21 on durable-state-integrity phase 1: the draft's only
+  // node wrote both src/repo/worktree.mjs and src/engine/cancel.mjs, and the
+  // revise layered them into two nodes along this repository's own boundary
+  // -- repo/ owns git, engine/ owns the control loop. A per-node membership
+  // test read the surviving node as having dropped worktree.mjs and emitted a
+  // critical, which contested a sound plan. The path is still declared, still
+  // reviewed, and the graph change is visible; that is a resolution.
+  const previous = { nodes: [nodeWriting("build", ["src/repo/worktree.mjs", "src/engine/cancel.mjs"])] };
+  const split = {
+    nodes: [nodeWriting("worktree-verb", ["src/repo/worktree.mjs"]), nodeWriting("build", ["src/engine/cancel.mjs"])],
+  };
+  assert.deepEqual(droppedWriteFindings(previous, split), []);
+
+  // A path that leaves the plan entirely is still critical, sibling or not.
+  const shrunk = {
+    nodes: [nodeWriting("worktree-verb", ["src/repo/worktree.mjs"]), nodeWriting("build", [])],
+  };
+  const findings = droppedWriteFindings(previous, shrunk);
+  assert.deepEqual(findings.map((finding) => finding.id), ["dropped-write-build-1"]);
+  assert.ok(findings[0].text.includes("src/engine/cancel.mjs"));
+  assert.ok(findings[0].text.includes("no other node in the revised plan declares it"));
+});
+
 test("a node the revision renamed or removed is out of scope for the write-drop check", () => {
   // Nodes are matched by id alone: identity across a rename is a judgement
   // about the graph this check does not make, and a removed node's writes

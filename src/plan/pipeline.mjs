@@ -607,6 +607,17 @@ export function unresolvedFindings(findings, previousPlan, revisedPlan) {
  * not make — a removed node's writes were reviewed as a removal, not as a
  * silent shrink.
  *
+ * Membership is judged against the whole revised plan, not against the node
+ * that used to hold the path. A revise that splits one node in two and hands
+ * a file to the new sibling has not dropped that file: it is still declared,
+ * still reviewable, and the graph change is visible in the plan. Measured
+ * 2026-09-21 on durable-state-integrity phase 1, where a per-node test made
+ * exactly that move a critical and contested a sound plan — the draft's only
+ * node wrote src/repo/worktree.mjs and src/engine/cancel.mjs, and the revise
+ * layered them into worktree-preserve-ref-verb and
+ * cancel-preserves-integrated-heads, which is the decomposition this
+ * repository's own layering asks for.
+ *
  * @param {PlanOutput|null} previousPlan the plan the revise revised, null when the draft never validated
  * @param {PlanOutput|null} revisedPlan the plan the revise produced, null when its output was refused
  * @returns {PlanFindingOutput[]}
@@ -614,6 +625,7 @@ export function unresolvedFindings(findings, previousPlan, revisedPlan) {
 export function droppedWriteFindings(previousPlan, revisedPlan) {
   if (!previousPlan || !revisedPlan) return [];
   const before = new Map(previousPlan.nodes.map((node) => [node.id, new Set(node.writeFiles)]));
+  const stillDeclared = new Set(revisedPlan.nodes.flatMap((node) => node.writeFiles));
   /** @type {PlanFindingOutput[]} */
   const findings = [];
   for (const node of revisedPlan.nodes) {
@@ -621,13 +633,13 @@ export function droppedWriteFindings(previousPlan, revisedPlan) {
     if (!previousWrites) continue;
     let dropped = 0;
     for (const path of previousWrites) {
-      if (node.writeFiles.includes(path)) continue;
+      if (stillDeclared.has(path)) continue;
       dropped += 1;
       findings.push({
         id: `dropped-write-${node.id}-${dropped}`,
         severity: "critical",
         nodeId: node.id,
-        text: `Node ${node.id} no longer declares ${path} in writeFiles, which the plan this revise revised did declare. Declare it again: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work.`,
+        text: `Node ${node.id} no longer declares ${path} in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not.`,
       });
     }
   }
