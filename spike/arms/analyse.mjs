@@ -10,6 +10,7 @@
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { compareEvalReports, noiseBandOf, renderEvalComparisonReport } from "../../evals/metrics.mjs";
+import { deliveredOf } from "./corpus.mjs";
 import { LEDGER, REPORTS, RESULTS, isMeasuredRun, median, readJsonl, writeJson } from "./lib.mjs";
 
 /** @typedef {{value: number|null, direction: "down"|"up"|"informative", count: number}} Indicator */
@@ -39,7 +40,9 @@ const COMPARISONS = [["A", "B"], ["A", "C"], ["B", "C"], ["D", "B"], ["D", "C"],
  */
 export function runIndicators(run) {
   const cost = typeof run.costUsd === "number" ? run.costUsd : null;
-  const delivered = typeof run.proofsPassed === "number" ? run.proofsPassed : null;
+  // Delivery is recomputed from the per-check results, so a line written
+  // before checks carried a kind is scored the same way as one written after.
+  const delivered = Array.isArray(run.acceptance) ? deliveredOf(run.acceptance).delivered : (typeof run.proofsPassed === "number" ? run.proofsPassed : null);
   const one = (/** @type {number|null} */ value, /** @type {Indicator["direction"]} */ direction) => ({ value: value === null || !Number.isFinite(value) ? null : Number(value.toFixed(4)), direction, count: value === null ? 0 : 1 });
   return {
     costPerDeliveredRequirementUsd: one(cost !== null && delivered ? cost / delivered : null, "down"),
@@ -77,7 +80,7 @@ export function analyse(label) {
   const byArm = /** @type {Record<string, any[]>} */ ({});
   for (const run of runs) (byArm[run.arm] ??= []).push(run);
   const lines = [`# orchestration-arms · ${label}`, ""];
-  lines.push(`Runs in the ledger: ${runs.length}${Object.keys(byArm).map((arm) => ` · ${arm} ${byArm[arm].length}`).join("")}. Requirements per run: ${runs[0]?.requirementIds?.length ?? "?"}; acceptance checks per run: ${runs[0]?.acceptanceTotal ?? runs[0]?.requirementIds?.length ?? "?"}${runs[0]?.corpus ? ` (corpus ${runs[0].corpus})` : ""}.`, "");
+  lines.push(`Runs in the ledger: ${runs.length}${Object.keys(byArm).map((arm) => ` · ${arm} ${byArm[arm].length}`).join("")}. Requirements per run: ${runs[0]?.requirementIds?.length ?? "?"}; proofs per run: ${Array.isArray(runs[0]?.acceptance) ? deliveredOf(runs[0].acceptance).proofs : runs[0]?.requirementIds?.length ?? "?"} (a run delivers its passing proofs only while every guard passes)${runs[0]?.corpus ? ` (corpus ${runs[0].corpus})` : ""}.`, "");
 
   /** @type {Record<string, Record<string, Indicator>>} */
   const medians = {};
@@ -91,9 +94,10 @@ export function analyse(label) {
   lines.push("## Per run", "", "| arm | rep | proofs | cost USD | USD per delivered | wall min | requests | max context k | out of scope | notes |", "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
   for (const run of [...runs].sort((left, right) => left.arm.localeCompare(right.arm) || left.repetition - right.repetition)) {
     const ind = runIndicators(run);
-    const notes = [run.arm === "C" ? `${run.agentCalls} Agent calls` : null, run.workerModel && run.workerModel !== "claude-sonnet-5" ? `writer ${run.workerModel}` : null, run.unpricedInvocations ? `unpriced: ${run.unpricedInvocations}` : null, run.resultSubtype && run.resultSubtype !== "success" ? run.resultSubtype : null, run.exitCode ? `exit ${run.exitCode}` : null, run.scope?.proofsEdited?.length ? `proofs edited: ${run.scope.proofsEdited.length}` : null].filter(Boolean).join("; ");
+    const notes = [run.arm === "C" ? `${run.agentCalls} Agent calls` : null, run.workerModel && run.workerModel !== "claude-sonnet-5" ? `writer ${run.workerModel}` : null, run.unpricedInvocations ? `unpriced: ${run.unpricedInvocations}` : null, run.nodes?.some((node) => node.error === "context_missing") ? "worker refused the packet (context_missing)" : null, run.resultSubtype && run.resultSubtype !== "success" ? run.resultSubtype : null, run.exitCode ? `exit ${run.exitCode}` : null, run.scope?.proofsEdited?.length ? `proofs edited: ${run.scope.proofsEdited.length}` : null].filter(Boolean).join("; ");
     const judge = typeof run.judgeCostUsd === "number" && run.judgeCostUsd > 0 ? `judge ${fmt(run.judgeCostUsd)}` : null;
-    lines.push(`| ${run.arm} | ${run.repetition} | ${run.proofsPassed}/${run.acceptanceTotal ?? run.requirementIds.length} | ${fmt(ind.costUsd.value)} | ${fmt(ind.costPerDeliveredRequirementUsd.value)} | ${fmt(ind.wallClockMinutes.value, 1)} | ${run.requests ?? "-"} | ${fmt(ind.contextMaxKTokens.value, 0)} | ${ind.outOfScopeFiles.value ?? "?"} | ${[judge, notes].filter(Boolean).join("; ")} |`);
+    const delivery = Array.isArray(run.acceptance) ? deliveredOf(run.acceptance) : { delivered: run.proofsPassed, proofs: run.requirementIds.length, guardsPassed: true };
+    lines.push(`| ${run.arm} | ${run.repetition} | ${delivery.delivered}/${delivery.proofs}${delivery.guardsPassed ? "" : " (guard failed)"} | ${fmt(ind.costUsd.value)} | ${fmt(ind.costPerDeliveredRequirementUsd.value)} | ${fmt(ind.wallClockMinutes.value, 1)} | ${run.requests ?? "-"} | ${fmt(ind.contextMaxKTokens.value, 0)} | ${ind.outOfScopeFiles.value ?? "?"} | ${[judge, notes].filter(Boolean).join("; ")} |`);
   }
   lines.push("");
 

@@ -11,6 +11,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FABERUN_ARMS, faberunContract } from "./contract.mjs";
+import { deliveredOf } from "./corpus.mjs";
 import { auditScope, commitAll, git, keepFinalTree, prepareCheckout, removeCheckout, runAcceptance } from "./fork.mjs";
 import { EXPERIMENT_HOME, FABERUN_CLI, LOGS, RESULTS, providerEnv, readJsonl, writeJson } from "./lib.mjs";
 
@@ -112,6 +113,7 @@ export async function runFaberunArm({ label, repetition, corpus, arm = "A" }) {
   const finalCheckout = finalSha ? prepareCheckout(`${name}-final`, { ...corpus, visibleProofs: false }, { sha: finalSha }) : { dir, baseSha };
   const scope = auditScope({ dir: finalCheckout.dir, baseSha, corpus });
   const acceptance = runAcceptance({ dir: finalCheckout.dir, corpus });
+  const delivery = deliveredOf(acceptance);
   const keptSha = keepFinalTree(finalCheckout.dir, `refs/arms/${label}/${arm}-r${repetition}`);
   removeCheckout(finalCheckout.dir);
   if (finalCheckout.dir !== dir) removeCheckout(dir);
@@ -144,8 +146,9 @@ export async function runFaberunArm({ label, repetition, corpus, arm = "A" }) {
     invocations: usage.length,
     nodes: nodes.map((node) => ({ id: node.id, status: node.status, attempt: node.attempt, revisions: node.revisions, error: node.error?.code ?? null })),
     acceptance,
-    acceptanceTotal: acceptance.length,
-    proofsPassed: acceptance.filter((check) => check.passed).length,
+    acceptanceTotal: delivery.proofs,
+    proofsPassed: delivery.delivered,
+    guardsPassed: delivery.guardsPassed,
     scope,
   };
 }

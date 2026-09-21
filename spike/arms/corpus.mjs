@@ -20,7 +20,7 @@ import { ROOT } from "./lib.mjs";
 
 /** @typedef {{argv: string[], timeoutSec: number}} Command */
 /** @typedef {{id: string, title: string, objective: string, instructions: string[], readFiles: string[], writeFiles: string[], symbols: string[], dependsOn: string[], decisions: string[], nonGoals: string[], scopeAcknowledged: string[], verification: Command[]}} Requirement */
-/** @typedef {{id: string, argv: string[], timeoutSec: number, restore?: boolean}} Acceptance a check with `restore` runs after the corpus's acceptance files are written over the arm's tree; the others run on the tree exactly as the arm left it */
+/** @typedef {{id: string, argv: string[], timeoutSec: number, kind: "proof"|"guard", restore?: boolean}} Acceptance a proof fails at the base and passes when the work is done; a guard passes at the base and must still pass. A check with `restore` runs after the corpus's acceptance files are written over the arm's tree; the others run on the tree exactly as the arm left it */
 /** @typedef {{path: string, sha?: string, file?: string}} RestoreFile */
 /** @typedef {{kind: "simple"|"complex", fork: string, npmCi: boolean, visibleProofs: boolean, restore: RestoreFile[], requirements: Requirement[], acceptance: Acceptance[], hash: string}} CorpusSet */
 
@@ -76,7 +76,7 @@ function simpleCorpus(selection) {
       scopeAcknowledged: [],
       verification: [{ argv: [NODE, "--test", requirement.prova], timeoutSec: 180 }],
     })),
-    acceptance: chosen.map((requirement) => ({ id: requirement.id, argv: [NODE, "--test", requirement.prova], timeoutSec: 180, restore: true })),
+    acceptance: chosen.map((requirement) => ({ id: requirement.id, argv: [NODE, "--test", requirement.prova], timeoutSec: 180, kind: /** @type {const} */ ("proof"), restore: true })),
     hash: String(key.hash),
   };
 }
@@ -139,14 +139,37 @@ function complexCorpus() {
     // test/ and the landed paths test, written over the arm's own before the
     // suites ran, moved the count by three and failed a check the arm had
     // passed. Only the landed test itself runs after the restore.
+    // Two proofs fail at the base and pass at the landing; two guards pass at
+    // the base and must still pass. Measured 2026-09-20: a writer that refused
+    // the packet and changed nothing passed both guards, so counting guards
+    // as delivery would have credited a run that delivered nothing.
     acceptance: [
-      { id: "src-centralization", argv: [NODE, CENTRALIZATION_CHECK, "."], timeoutSec: 60 },
-      { id: "typecheck", argv: TSC, timeoutSec: 300 },
-      { id: "regression", argv: [NODE, "--test", "test/run/", "test/repo/", "test/cli/", "test/campaign/"], timeoutSec: 1500 },
-      { id: "resolver-api", argv: [NODE, "--test", "test/run/paths.test.mjs"], timeoutSec: 180, restore: true },
+      { id: "src-centralization", argv: [NODE, CENTRALIZATION_CHECK, "."], timeoutSec: 60, kind: /** @type {const} */ ("proof") },
+      { id: "typecheck", argv: TSC, timeoutSec: 300, kind: /** @type {const} */ ("guard") },
+      { id: "regression", argv: [NODE, "--test", "test/run/", "test/repo/", "test/cli/", "test/campaign/"], timeoutSec: 1500, kind: /** @type {const} */ ("guard") },
+      { id: "resolver-api", argv: [NODE, "--test", "test/run/paths.test.mjs"], timeoutSec: 180, kind: /** @type {const} */ ("proof"), restore: true },
     ],
     hash: createHash("sha256").update(text).digest("hex"),
   };
+}
+
+/** The kind of each complex-corpus check, for ledger lines written before checks carried one. */
+const KIND_BY_ID = { "src-centralization": "proof", typecheck: "guard", regression: "guard", "resolver-api": "proof" };
+
+/**
+ * What a run delivered: the proofs that pass, provided every guard passes. A
+ * change that breaks the typecheck or a regression suite delivers nothing,
+ * whatever else it got right; a run that changed nothing passes every guard
+ * and no proof, and delivers nothing too. A simple-corpus check is a proof.
+ *
+ * @param {{id: string, passed: boolean, kind?: string}[]} acceptance
+ * @returns {{delivered: number, proofs: number, guardsPassed: boolean}}
+ */
+export function deliveredOf(acceptance) {
+  const kindOf = (/** @type {{id: string, kind?: string}} */ check) => check.kind ?? KIND_BY_ID[/** @type {keyof typeof KIND_BY_ID} */ (check.id)] ?? "proof";
+  const proofs = acceptance.filter((check) => kindOf(check) === "proof");
+  const guardsPassed = acceptance.filter((check) => kindOf(check) === "guard").every((check) => check.passed);
+  return { delivered: guardsPassed ? proofs.filter((check) => check.passed).length : 0, proofs: proofs.length, guardsPassed };
 }
 
 /**

@@ -154,7 +154,7 @@ export function auditScope({ dir, baseSha, corpus }) {
  * any failure.
  *
  * @param {{dir: string, corpus: CorpusSet}} input
- * @returns {{id: string, passed: boolean, ms: number, tail: string}[]}
+ * @returns {{id: string, kind: "proof"|"guard", passed: boolean, ms: number, tail: string}[]}
  */
 export function runAcceptance({ dir, corpus }) {
   const ordered = [...corpus.acceptance.filter((check) => !check.restore), ...corpus.acceptance.filter((check) => check.restore)];
@@ -173,6 +173,6 @@ export function runAcceptance({ dir, corpus }) {
       env: { ...process.env, NO_COLOR: "1" },
     });
     const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-    return { id: check.id, passed: result.status === 0, ms: Date.now() - started, tail: output.slice(-1500) };
+    return { id: check.id, kind: check.kind, passed: result.status === 0, ms: Date.now() - started, tail: output.slice(-1500) };
   });
 }

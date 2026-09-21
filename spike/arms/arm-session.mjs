@@ -14,6 +14,7 @@ import { DEFAULT_CLAUDE_TOOLS } from "../../src/harnesses/claude/index.mjs";
 import { providerCommand } from "../../src/harnesses/index.mjs";
 import { SessionMetricsParser } from "../../src/harnesses/session-metrics.mjs";
 import { WORKER_MODEL } from "./contract.mjs";
+import { deliveredOf } from "./corpus.mjs";
 import { auditScope, keepFinalTree, prepareCheckout, removeCheckout, runAcceptance } from "./fork.mjs";
 import { LOGS, providerEnv } from "./lib.mjs";
 import { sessionPrompt } from "./prompt.mjs";
@@ -74,6 +75,7 @@ export async function runSessionArm({ arm, label, repetition, corpus }) {
 
   const scope = auditScope({ dir, baseSha, corpus });
   const acceptance = runAcceptance({ dir, corpus });
+  const delivery = deliveredOf(acceptance);
   const finalSha = keepFinalTree(dir, `refs/arms/${label}/${arm}-r${repetition}`);
   removeCheckout(dir);
 
@@ -107,8 +109,9 @@ export async function runSessionArm({ arm, label, repetition, corpus }) {
     agentCalls,
     finalMessage: typeof result?.result === "string" ? result.result.slice(0, 4000) : null,
     acceptance,
-    acceptanceTotal: acceptance.length,
-    proofsPassed: acceptance.filter((check) => check.passed).length,
+    acceptanceTotal: delivery.proofs,
+    proofsPassed: delivery.delivered,
+    guardsPassed: delivery.guardsPassed,
     scope,
     logPath,
   };
