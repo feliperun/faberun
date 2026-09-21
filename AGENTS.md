@@ -200,7 +200,21 @@ Splitting a module is mechanical and should be scripted, not retyped — but:
   Assert the envelope, the token count, the wire. One such assertion failed
   twice in a day on wording alone.
 - **A verification duration is a measurement.** Before putting a command in a
-  packet or a `verification` array, run it and know how long it takes.
+  packet or a `verification` array, run it and know how long it takes. Measure
+  it with `--test-concurrency=1` if that is how it will run: the parallel
+  default spawns one process per file, and on 2026-09-21 that killed
+  `node --test test/engine/` twice with no exit code on a machine at 91%
+  swap, exhausting a node whose work was sound.
+- **Two `node --test` traps, both measured 2026-09-21 on v26.8.1, both of
+  which make a check silently stop checking.** A `--test-reporter=` that
+  appears *after* a test file on the command line is ignored — node reads its
+  own options left to right, so the flag lands among the script's arguments;
+  pass it before the files or through `NODE_OPTIONS`. And a nested
+  `node --test` that inherits `NODE_TEST_CONTEXT` from the runner that spawned
+  it stays a runner child and emits no TAP at all, so anything parsing its
+  output sees nothing and concludes nothing is wrong. Both were found by the
+  node implementing the empty-filter refusal, and either one would have made
+  that refusal a gate that never fires.
 
 ## Production note
 
@@ -224,12 +238,15 @@ Before starting new work here, check `.runs/`: if a campaign is active or a run 
   - run `durable-state-integrity-plan-cancel-keeps-integrated-work-review-2`: succeeded (1/1 nodes)
   - run `durable-state-integrity-plan-cancel-keeps-integrated-work-revise-3`: succeeded (1/1 nodes)
   - run `durable-state-integrity-plan-cancel-keeps-integrated-work-review-4`: succeeded (1/1 nodes)
+  - run `durable-state-integrity-1-cancel-keeps-integrated-work`: succeeded (2/2 nodes)
+  - run `durable-state-integrity-plan-a-suite-run-leaves-no-trace-draft-1`: succeeded (1/1 nodes)
+  - run `durable-state-integrity-plan-a-suite-run-leaves-no-trace-review-2`: succeeded (1/1 nodes)
+  - run `durable-state-integrity-plan-a-suite-run-leaves-no-trace-revise-3`: succeeded (1/1 nodes)
+  - run `durable-state-integrity-plan-a-suite-run-leaves-no-trace-revise-4`: succeeded (1/1 nodes)
+  - run `durable-state-integrity-2-a-suite-run-leaves-no-trace`: parked — `no-test-file-can-reach-the-real-home:exhausted verification_failed` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/durable-state-integrity-2-a-suite-run-leaves-no-trace`
+  - run `durable-state-integrity-3-a-report-that-says-it-did-it`: parked — `a-note-that-does-not-fit-is-refused:pending`, `a-proof-that-selected-no-test-is-refused:pending`, `an-attention-belongs-to-one-campaign-or-none:pending` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/durable-state-integrity-3-a-report-that-says-it-did-it`
   - attention: run harden-chain-and-verification-2-verification-fairness needs you · verification_failed
 - faberun run `adversarial-planner-1-planning-pipeline`: parked — `discovery-result-output:blocked context_missing`, `planning-contract-template:blocked dependency_failed`, `plan-verb:blocked dependency_failed`, `plan-eval-cases:blocked dependency_failed` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/adversarial-planner-1-planning-pipeline`
 - faberun run `adversarial-planner-1b-discovery-result-output`: parked — `plan-eval-cases:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/adversarial-planner-1b-discovery-result-output`
-- faberun run `adversarial-planner-2-evidence`: parked — `seat-allowance-delta:exhausted revision_cap`, `planner-comparative-arm:exhausted verification_failed` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/adversarial-planner-2-evidence`
-- faberun run `adversarial-planner-2b-allowance-window`: parked — `allowance-window-pinned:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/adversarial-planner-2b-allowance-window`
-- faberun run `become-faberun-2b-install-and-shape-fix`: parked — `install-script:exhausted revision_cap` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/become-faberun-2b-install-and-shape-fix`
-- faberun run `chain-ergonomics-and-fairness-1-launch-and-refusals`: parked — `base-ref-validation:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/chain-ergonomics-and-fairness-1-launch-and-refusals`
 - … signal truncated; read the campaign HANDOFF.md for the rest
 <!-- faberun-active:end -->
