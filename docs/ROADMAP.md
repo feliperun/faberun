@@ -131,11 +131,10 @@ The brief is authored in Markdown and rendered with `mdhtml` into a portable,
 self-contained document, keeping Markdown as the source. The theme is Faberun's
 own — see decision D5.
 
-**Name collision, see open question Q2.** `src/campaign/brief.mjs` already
-writes `operator-brief.md`: a 4 KiB capsule of durable facts so a *fresh seat can
-take over a running campaign*, a pure function of recorded facts with no model
-involved. That is continuity, not approval. Two different artefacts currently
-compete for one name.
+**Two briefs, see decision D7.** `src/campaign/brief.mjs` already writes
+`operator-brief.md`: a 4 KiB capsule of durable facts so a *fresh seat can take
+over a running campaign*, a pure function of recorded facts with no model
+involved. The pre-execution approval artefact is `campaign-brief.md`.
 
 ---
 
@@ -448,18 +447,16 @@ its own worth unaided, so there is a baseline. Only then adopt the memory layer,
 and quantify it with a before/after paired benchmark. A layer adopted before the
 baseline exists can never be shown to have helped.
 
+**D7 — Keep two briefs with different names.** Owner decision 2026-09-21:
+`operator-brief.md` remains the small, model-free continuity capsule for a fresh
+seat taking over a running campaign. `campaign-brief.md` is the pre-execution
+approval artefact. Merging them would make the continuity capsule depend on the
+richer approval workflow and obscure which document an operator should review
+before pressing Play.
+
 ## Open questions for the owner
 
 Still open. Each changes what gets built, so none is decided here.
-
-**Q2 — Two artefacts are both called a brief.** `operator-brief.md` exists and is
-a continuity capsule: 4 KiB, no model, rebuilt from the journal, for a fresh
-seat taking over a *running* campaign. The Campaign Brief in P1 is a
-*pre-execution* approval surface, richer, and probably model-written. Rename one,
-or make the approval surface a different artefact entirely? *Recommendation: two
-names for two artefacts — merging them would spoil the continuity capsule, which
-is deliberately small and model-free so it can be rebuilt after the seat that
-would have written it died.*
 
 **Q6 — When may empirical routing decide on its own?** The proposed floor is
 deliberately conservative (≥60 nodes, ≥5 campaigns, 60 days, pass@1 ≥95%). A
