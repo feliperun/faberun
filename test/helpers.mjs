@@ -7,17 +7,12 @@ import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../src/contract/index
 import { createAttemptWorktree } from "../src/repo/worktree.mjs";
 import { RUNS_DIR_NAME, campaignTree, runsRoot } from "../src/run/paths.mjs";
 
-// The suite must never pop a macOS desktop notification: when
-// FABERUN_NOTIFY_BIN is unset the outbox records a no_transport
-// receipt. Give every test a no-op transport by default; tests that need a
-// failing or absent transport set FABERUN_NOTIFY_BIN explicitly and
-// restore it afterward.
-if (!process.env.FABERUN_NOTIFY_BIN) {
-  const path = join(mkdtempSync(join(tmpdir(), "runner-noop-notify-")), "noop-notify.mjs");
-  writeFileSync(path, `#!${process.execPath}\nprocess.stdin.resume();\nprocess.stdin.on("end", () => process.exit(0));\n`);
-  chmodSync(path, 0o755);
-  process.env.FABERUN_NOTIFY_BIN = path;
-}
+// The suite must never notify a person or wake a session; `./setup.mjs` is
+// the one place that neutralises every notify variable, and `npm test`
+// preloads it into every test process. Importing it here covers a file run
+// on its own. Tests that need a failing or absent transport set the variable
+// explicitly inside the test and restore it afterward.
+import "./setup.mjs";
 
 // runsRoot registers every path it resolves as a project under $FABERUN_HOME.
 // Every fixture this suite builds resolves through it, so an unset variable

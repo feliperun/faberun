@@ -6,6 +6,7 @@ import { dshHarness } from "./dsh/index.mjs";
 import { zcodeHarness } from "./zcode/index.mjs";
 import { execJsonlHarness } from "./exec-jsonl/index.mjs";
 import { replayHarness } from "./replay/index.mjs";
+import { withoutNotifyEnv } from "../notify/index.mjs";
 
 /** Current wire-contract version for runner protocol artifacts. */
 export const PROTOCOL_SCHEMA_VERSION = 3;
@@ -451,7 +452,10 @@ export function probeRuntime(runtime, options = {}) {
     try {
       child = spawn(executable, args, {
         cwd: options.cwd,
-        env: process.env,
+        // A worker or judge never delivers a notification; the controller does.
+        // In this repository a worker runs the test suite, whose fixture
+        // controllers would otherwise inherit a live transport and deliver.
+        env: withoutNotifyEnv(process.env),
         stdio: ["ignore", "pipe", "pipe"],
       });
     } catch (error) {

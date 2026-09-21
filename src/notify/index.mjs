@@ -50,7 +50,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { createMacosNotifier } from "./os-macos.mjs";
-import { deliverToSessions, resolveSessionTargets, sessionWakeNotice } from "./session.mjs";
+import { NOTIFY_SESSION_ENV, deliverToSessions, resolveSessionTargets, sessionWakeNotice } from "./session.mjs";
 import { errorMessage } from "../util.mjs";
 
 /**
@@ -74,6 +74,29 @@ function loadProgressModule() {
 
 export const NOTIFY_BIN_ENV = "FABERUN_NOTIFY_BIN";
 const MACOS_TRANSPORT = "os-macos";
+
+/**
+ * Every variable that binds a notification transport. The controller is the
+ * only process that delivers: a worker, a judge or a verification command
+ * that inherits these would notify on the controller's behalf -- and in this
+ * repository, whose workers run its own test suite, every fixture controller
+ * the suite spawns would deliver its terminal events for real. Measured
+ * 2026-09-21: a run launched with `FABERUN_NOTIFY_SESSION=auto` woke the
+ * operator's session seven times in minutes from `test/repo/base-ref.test.mjs`
+ * fixtures its worker ran. `withoutNotifyEnv` is the boundary every child
+ * crosses; `test/setup.mjs` neutralises the same names inside the suite.
+ */
+export const NOTIFY_ENV_NAMES = Object.freeze([NOTIFY_BIN_ENV, NOTIFY_SESSION_ENV]);
+
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {NodeJS.ProcessEnv} a copy with every notify transport unbound
+ */
+export function withoutNotifyEnv(env) {
+  const copy = { ...env };
+  for (const name of NOTIFY_ENV_NAMES) delete copy[name];
+  return copy;
+}
 export const NOTIFY_LOG_FILE = "notify.jsonl";
 /**
  * The bounded retry budget the dispatcher used to spend before giving up.
