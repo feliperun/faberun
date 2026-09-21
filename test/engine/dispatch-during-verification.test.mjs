@@ -87,7 +87,7 @@ test("a sibling is dispatched while a resumed judge re-ask is still blocked on i
         type: "backend",
         taskPacket: packet(),
         definitionOfDone: [
-          { id: "gate-proof", text: "a mechanical proof that blocks once armed", proof: { kind: "command", ref: `${process.execPath} -e ${JSON.stringify(pollScript)}` } },
+          { id: "gate-proof", text: "a mechanical proof that blocks once armed", proof: { kind: "command", ref: `"${process.execPath}" -e ${JSON.stringify(pollScript)}` } },
           { id: "works", text: "the result is high quality", judgment: true },
         ],
         gate: { review: "blocking", failOn: ["major", "critical"] },
