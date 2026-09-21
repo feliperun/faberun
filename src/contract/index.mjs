@@ -468,8 +468,16 @@ function validateGate(gate, runtimes, index, nodeId) {
   assertObject(gate, `nodes[${index}].gate`);
   rejectUnknown(gate, GATE_FIELDS, `nodes[${index}].gate`);
   if (gate.enabled === false) {
-    if (Object.keys(gate).length !== 1) throw new TypeError(`nodes[${index}].gate disabled shape only allows enabled`);
-    return { enabled: false };
+    // A disabled gate reviews nothing, but the node keeps its revision budget
+    // for a red verification (default 1, as with a gate); that budget is the
+    // one field the disabled shape may carry.
+    if (Object.keys(gate).some((key) => key !== "enabled" && key !== "maxRevisions")) {
+      throw new TypeError(`nodes[${index}].gate disabled shape only allows enabled and maxRevisions`);
+    }
+    return {
+      enabled: false,
+      ...(gate.maxRevisions === undefined ? {} : { maxRevisions: nonNegativeInteger(gate.maxRevisions, `nodes[${index}].gate.maxRevisions`) }),
+    };
   }
   if (gate.enabled !== undefined && gate.enabled !== true) {
     throw new TypeError(`nodes[${index}].gate.enabled must be true or false`);

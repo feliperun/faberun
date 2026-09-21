@@ -297,9 +297,12 @@ offered to a second node, so one session runs one turn.
 
 ## Gates
 
-`gate: false` skips review (`none`). A gate object accepts `runtime`
-(judge override), `review` (`none`/`advisory`/`blocking`, default
-`advisory`), `failOn` (default `["critical"]`), `maxRevisions` (default 1).
+`gate: false` skips review (`none`); the node still gets `maxRevisions`
+(default 1) fresh attempts after a red deterministic verification, and
+`{ enabled: false, maxRevisions: 0 }` makes the first red verification final.
+A gate object accepts `runtime` (judge override), `review`
+(`none`/`advisory`/`blocking`, default `advisory`), `failOn` (default
+`["critical"]`), `maxRevisions` (default 1).
 `advisory` records the verdict, findings and `maxSeverity` and still settles
 `done` on deterministic verification alone — it never consumes a revision or
 re-dispatches. `blocking` re-dispatches within `maxRevisions` when findings

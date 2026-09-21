@@ -26,7 +26,7 @@ import { finite } from "../util.mjs";
  */
 
 /** The harnesses whose streams carry usage per provider request; the others meter turns and tool calls only. */
-const PER_REQUEST_USAGE = new Set(["claude", "dsh", "agy"]);
+const PER_REQUEST_USAGE = new Set(["claude", "dsh", "agy", "exec-jsonl", "replay"]);
 
 /**
  * Best-effort input-token meter over a still-growing transcript. The
@@ -273,8 +273,8 @@ export class SessionMetricsParser {
   }
 
   /**
-   * The per-request ledger folded so far. Only the claude, dsh and agy
-   * streams carry usage per provider request; codex reports it cumulatively
+   * The per-request ledger folded so far. The claude, dsh, agy, exec-jsonl and
+   * replay streams carry usage per provider request; codex reports it cumulatively
    * per turn and zcode emits one document per invocation, so for those the
    * request count and the context sizes are unknown, not zero. Measured
    * 2026-09-20 in the orchestration-arms campaign: four writer arms on codex

@@ -140,7 +140,9 @@ test("a scope violation on failed verification keeps the failure and appends the
       id: "build",
       type: "backend",
       taskPacket: packet({ verification: [{ argv: [process.execPath, "-e", "process.exit(1)"] }] }),
-      gate: false,
+      // No revision: the message under test is the first attempt's, and the
+      // fake worker changes behaviour once a retry prompt mentions findings.
+      gate: { enabled: false, maxRevisions: 0 },
     }],
   }));
   const result = await withFakeCodex(directory, "write-unexpected", () => runContract(path));
