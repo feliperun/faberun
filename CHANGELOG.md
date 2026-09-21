@@ -2,6 +2,19 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.13.0](https://github.com/feliperun/faberun/compare/v0.12.1...v0.13.0) (2026-09-21)
+
+
+### Features
+
+* measure where a turn's cost goes and stop paying the avoidable parts ([#16](https://github.com/feliperun/faberun/issues/16)) ([f3bd129](https://github.com/feliperun/faberun/commit/f3bd129639d1b1054ebf6aa2cca55d9640c6299d))
+* **plan:** a frozen plan declares which requirements each phase satisfies ([83c7c47](https://github.com/feliperun/faberun/commit/83c7c4704624e0ba8d436994f26813eb4223de49))
+
+
+### Bug Fixes
+
+* **plan:** a plan is checked as the contract it becomes, while a round remains ([d4ad4db](https://github.com/feliperun/faberun/commit/d4ad4db12606b94b8cd770792bd808da0542bf80))
+
 ## [0.12.1](https://github.com/feliperun/faberun/compare/v0.12.0...v0.12.1) (2026-09-20)
 
 
