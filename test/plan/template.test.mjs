@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { validateContract } from "../../src/contract/index.mjs";
 import { renderWorkerPrompt } from "../../src/contract/task-packet.mjs";
+import { droppedWriteFindings } from "../../src/plan/pipeline.mjs";
 import {
   RISK_TIERS,
   TASK_KINDS,
@@ -387,4 +388,38 @@ test("a plan node may declare expectedTurns, a positive integer, and the drafter
   assert.equal(validatePlanOutput({ nodes: [node] }).nodes[0].expectedTurns, undefined);
   assert.throws(() => validatePlanOutput({ nodes: [{ ...node, expectedTurns: 0 }] }), /expectedTurns/u);
   assert.throws(() => validatePlanOutput({ nodes: [{ ...node, expectedTurns: "many" }] }), /expectedTurns/u);
+});
+
+/** @param {string} id @param {string[]} writeFiles @returns {any} a plan node differing only where a test says so */
+function nodeWriting(id, writeFiles) {
+  return { ...planNode(), id, objective: `Do ${id}`, writeFiles };
+}
+
+test("a revision that drops a write the previous plan declared is a critical finding naming the node and the path", () => {
+  const previous = { nodes: [nodeWriting("build", ["README.md", "src/extra.mjs", "src/gone.mjs"]), nodeWriting("docs", ["docs/spec.md"])] };
+  const revised = { nodes: [nodeWriting("build", ["README.md"]), nodeWriting("docs", ["docs/spec.md"])] };
+
+  const findings = droppedWriteFindings(previous, revised);
+  assert.deepEqual(findings.map((finding) => finding.id), ["dropped-write-build-1", "dropped-write-build-2"]);
+  assert.ok(findings.every((finding) => finding.severity === "critical" && finding.nodeId === "build"));
+  assert.ok(findings.some((finding) => finding.text.includes("src/extra.mjs")));
+  assert.ok(findings.some((finding) => finding.text.includes("src/gone.mjs")));
+  assert.ok(findings.every((finding) => finding.text.includes("never to drop a write the node needs")));
+
+  // A node that keeps its write set, or only gains writes, is never flagged.
+  assert.deepEqual(droppedWriteFindings(previous, previous), []);
+  assert.deepEqual(droppedWriteFindings({ nodes: [nodeWriting("build", ["README.md"])] }, { nodes: [nodeWriting("build", ["README.md", "src/new.mjs"])] }), []);
+});
+
+test("a node the revision renamed or removed is out of scope for the write-drop check", () => {
+  // Nodes are matched by id alone: identity across a rename is a judgement
+  // about the graph this check does not make, and a removed node's writes
+  // were reviewed as a removal, not as a silent shrink.
+  const previous = { nodes: [nodeWriting("build", ["README.md"])] };
+  assert.deepEqual(droppedWriteFindings(previous, { nodes: [nodeWriting("build-2", ["README.md"])] }), []);
+});
+
+test("the write-drop check needs both plans: a draft that never validated or a revise refused leaves nothing to compare", () => {
+  assert.deepEqual(droppedWriteFindings(null, { nodes: [nodeWriting("build", ["README.md"])] }), []);
+  assert.deepEqual(droppedWriteFindings({ nodes: [nodeWriting("build", ["README.md"])] }, null), []);
 });

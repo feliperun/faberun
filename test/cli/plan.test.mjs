@@ -344,11 +344,53 @@ test("a plan that cannot freeze is caught while a revise round remains, and the 
   assert.ok(round1, "round 1 recorded a review stage line");
   assert.match(String(round1.freezeFailed), /task packet scope does not close/);
   assert.match(String(round1.freezeFailed), /test\/cli\/cli\.test\.mjs/);
+  // The sentence the validator cannot know rides after its verbatim message:
+  // removing the write clears that same text more cheaply than declaring the
+  // dragged-along file, which is the move that cost two workers their packets
+  // on 2026-09-20.
+  assert.match(String(round1.freezeFailed), /never by dropping a write the node needs/);
   assert.ok(stages.some((entry) => entry.stage === "revise"), "the freeze finding drove a revise round");
 
   const contract = JSON.parse(readFileSync(result.contractPath, "utf8"));
   const thing = contract.nodes.find((/** @type {any} */ node) => node.id === "thing");
   assert.ok(thing.taskPacket.writeFiles.includes("test/cli/cli.test.mjs"), "the revise declared the dragged-along test");
+});
+
+test("a revise that clears a finding by shrinking the write set is contested, the drop named", async () => {
+  // The cheap move, replayed: the draft writes two files, the revise answers
+  // the reviewer's critical finding by declaring one — a smaller write set
+  // clears scope closure without judging any importer, but it leaves the node
+  // without a file the work needs (measured 2026-09-20: two context_missing
+  // refusals from exactly this). The revision is contested, never frozen.
+  const draft = /** @type {any} */ (twoNodePlan());
+  draft.nodes[0].writeFiles = ["src/index.mjs", "src/other.mjs"];
+  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("shrink-demo", {
+    reviewMode: "critical",
+    plans: [draft, twoNodePlan()],
+  });
+  const result = await runPlanningPipeline({
+    specPath: join(cwd, "docs/spec.md"),
+    campaignId,
+    phase: "build",
+    cwd,
+    runtimes,
+    runtimeDefaults,
+    launch,
+    wait,
+  });
+  assert.equal(result.status, "contested");
+  assert.equal(result.round, 2);
+  const dropped = result.findings.find((finding) => finding.id === "dropped-write-build-1");
+  assert.ok(dropped, "the dropped write is recorded as a critical finding");
+  assert.equal(dropped.severity, "critical");
+  assert.equal(dropped.nodeId, "build");
+  assert.match(dropped.text, /src\/other\.mjs/);
+  assert.match(dropped.text, /never to drop a write the node needs/);
+
+  const reviseLine = readPipelineStages(result.plansDir).find((entry) => entry.stage === "revise" && entry.round === 1);
+  assert.equal(reviseLine?.droppedWrites, 1);
+  const contestedPlan = JSON.parse(readFileSync(join(result.plansDir, "plan.json"), "utf8"));
+  assert.ok(contestedPlan.findings.some((/** @type {any} */ finding) => finding.id === "dropped-write-build-1"), "the contested record carries the drop");
 });
 
 test("a deterministic stage that fails after the rounds ends contested with its stage line", async () => {

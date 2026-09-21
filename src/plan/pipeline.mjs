@@ -6,10 +6,11 @@
  * `freeze.mjs` (which only turns a plan into a validated contract on disk):
  * this module is the one place that sequences those runs, checks each round's
  * plan against the contract it would freeze into while a revise can still
- * act on the failure, and decides when a plan is contested instead of
- * frozen. `launch` and `wait` are the only two seams that touch a
- * process or the wall clock, so a test drives the whole pipeline through
- * `runContract` in-process, deterministically.
+ * act on the failure, compares a revision's write set against the plan it
+ * revised so scope closure cannot be satisfied by shrinking the work, and
+ * decides when a plan is contested instead of frozen. `launch` and `wait`
+ * are the only two seams that touch a process or the wall clock, so a test
+ * drives the whole pipeline through `runContract` in-process, deterministically.
  */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
@@ -173,6 +174,12 @@ export async function runPlanningPipeline(options) {
   let plan = null;
   /** @type {PlanFindingOutput[]} */
   let findings = [];
+  // The writes the most recent revise dropped, computed where the revise's
+  // output is validated and held for the next round: appended there, after the
+  // review has replaced `findings`, so a drop is never cleaned away by a fresh
+  // review passing over a plan that no longer declares the write.
+  /** @type {PlanFindingOutput[]} */
+  let droppedWrites = [];
   try {
     plan = validatePlanOutput(draft.output.plan);
   } catch (error) {
@@ -315,6 +322,10 @@ export async function runPlanningPipeline(options) {
         ...(invalidFindings === null ? {} : { invalid: invalidFindings.text }),
       });
     }
+    // The revise's write-drops land here — after the review above replaced
+    // `findings`, before the critical check below — so a drop survives into
+    // the same revise-or-contest decision a review finding reaches.
+    findings = [...findings, ...droppedWrites];
     const criticalFindings = findings.filter((finding) => finding.severity === "critical");
     if (criticalFindings.length === 0) break;
     if (round === reviewRounds) return await contest(round);
@@ -323,6 +334,9 @@ export async function runPlanningPipeline(options) {
     const revise = await runStage("revise", {
       specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, findingsPath: relative(cwd, findingsPath),
     });
+    // Kept for the write-drop comparison: the plan the revise revised, against
+    // the plan it produced.
+    const planBeforeRevise = plan;
     /** @type {PlanFindingOutput|null} */
     let invalid = null;
     try {
@@ -334,7 +348,10 @@ export async function runPlanningPipeline(options) {
       plan = null;
       findings = [...findings, invalid];
     }
-    logStage("revise", { round, runId: revise.contract.id, ...(invalid === null ? {} : { invalid: invalid.text }) });
+    // Null when the revise output was refused: there is no revised write set
+    // to compare, and the refused-output finding already drives the round.
+    droppedWrites = droppedWriteFindings(planBeforeRevise, plan);
+    logStage("revise", { round, runId: revise.contract.id, droppedWrites: droppedWrites.length, ...(invalid === null ? {} : { invalid: invalid.text }) });
   }
   // Reached only when no review round is configured (reviewRounds <= 0) and
   // the draft never validated: no revise exists to reach, so contested is the
@@ -436,13 +453,34 @@ function repoRelativePath(cwd, path, label) {
 }
 
 /**
+ * The prefix `validateContract` throws its scope-closure refusal with
+ * (src/contract/index.mjs owns the wording). Matched here because the only
+ * channel the validator has is its message text, and that text is carried
+ * verbatim — the finding below appends to it, never rewrites it.
+ */
+const SCOPE_CLOSURE_MESSAGE_PREFIX = "task packet scope does not close";
+
+/**
+ * The one sentence about scope closure the validator cannot know: the raw
+ * message reads as "declare or acknowledge", and removing a write clears it
+ * just as well — more cheaply, in fact, since fewer writes drag in fewer
+ * importers and no judgement about which importer breaks. Measured
+ * 2026-09-20 across three plans for one node: a revise took exactly that
+ * cheap move, twice, and two workers then refused their packets with
+ * context_missing for a file the shrink had taken away.
+ */
+const SCOPE_CLOSURE_RESOLUTION = "Resolve it by declaring each named file in writeFiles — or acknowledging it in scopeAcknowledged when the node must not change it — never by dropping a write the node needs: removing a file from writeFiles clears this failure too, and leaves the worker without a file the work requires.";
+
+/**
  * A validatePlanOutput, validateFindings or in-round validateContract
  * rejection, shaped as the finding a review round already carries to revise,
  * so a structurally invalid plan, a review whose findings are not findings —
  * or a plan that would not survive freeze — reaches the stage that can act on
  * it instead of killing the pipeline between the run finishing and its stage
  * line. `nodeId` is "plan" because the validator's message names a path into
- * the plan, not one of its nodes.
+ * the plan, not one of its nodes. A scope-closure failure carries
+ * `SCOPE_CLOSURE_RESOLUTION` after the validator's verbatim message, which
+ * stays intact because it names the exact paths the reviser must act on.
  *
  * @param {string} label
  * @param {unknown} error
@@ -450,7 +488,49 @@ function repoRelativePath(cwd, path, label) {
  */
 function invalidPlanFinding(label, error) {
   const text = error instanceof Error ? error.message : String(error);
-  return { id: `plan-shape-${label}`, severity: "critical", nodeId: "plan", text };
+  const guided = text.startsWith(SCOPE_CLOSURE_MESSAGE_PREFIX) ? `${text} ${SCOPE_CLOSURE_RESOLUTION}` : text;
+  return { id: `plan-shape-${label}`, severity: "critical", nodeId: "plan", text: guided };
+}
+
+/**
+ * The write files the plan going into a revise declared that the revised plan
+ * no longer declares, one finding per (node id, path). This is the check the
+ * scope-closure validator cannot make: a shrink satisfies closure without a
+ * judgement about any importer, so the cheap move needs a comparator of its
+ * own. Severity is critical — a drop is not automatically wrong, but it is
+ * always worth a second look, and only a critical finding reaches the round
+ * loop's revise-or-contest decision; major would ride along in the findings
+ * file while the plan froze. Nodes are matched by id alone: a node the
+ * revision renamed or removed entirely is out of scope, because tracking
+ * identity across a rename is a judgement about the graph this check does
+ * not make — a removed node's writes were reviewed as a removal, not as a
+ * silent shrink.
+ *
+ * @param {PlanOutput|null} previousPlan the plan the revise revised, null when the draft never validated
+ * @param {PlanOutput|null} revisedPlan the plan the revise produced, null when its output was refused
+ * @returns {PlanFindingOutput[]}
+ */
+export function droppedWriteFindings(previousPlan, revisedPlan) {
+  if (!previousPlan || !revisedPlan) return [];
+  const before = new Map(previousPlan.nodes.map((node) => [node.id, new Set(node.writeFiles)]));
+  /** @type {PlanFindingOutput[]} */
+  const findings = [];
+  for (const node of revisedPlan.nodes) {
+    const previousWrites = before.get(node.id);
+    if (!previousWrites) continue;
+    let dropped = 0;
+    for (const path of previousWrites) {
+      if (node.writeFiles.includes(path)) continue;
+      dropped += 1;
+      findings.push({
+        id: `dropped-write-${node.id}-${dropped}`,
+        severity: "critical",
+        nodeId: node.id,
+        text: `Node ${node.id} no longer declares ${path} in writeFiles, which the plan this revise revised did declare. Declare it again: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work.`,
+      });
+    }
+  }
+  return findings;
 }
 
 /**
