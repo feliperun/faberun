@@ -1,0 +1,14 @@
+{
+  "sharedVerification": [
+    {
+      "argv": ["npm", "run", "typecheck"],
+      "timeoutSec": 30
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": ["npm", "run", "check"],
+      "timeoutSec": 45
+    }
+  ]
+}
