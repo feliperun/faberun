@@ -98,6 +98,11 @@ judgment and those delegable**; only the relevant risks; an execution estimate
 | RM-008 | Render the graph, the risks, the human decisions and the planned evals | — | idea |
 | RM-009 | Cost and duration estimate as a range | `usage.jsonl` already records `costUsd` with `costProvenance` per invocation | idea |
 | RM-010 | Publish the brief as a shareable artefact (e.g. a PR comment linking to it) | — | idea |
+| RM-045 | An `mdhtml` theme built from `DESIGN.md`, so the rendered brief looks like Faberun | the design system is already specified: Terra, Argila, Areia, Folha, Carvão, each with one meaning and one job | idea |
+
+The brief is authored in Markdown and rendered with `mdhtml` into a portable,
+self-contained document, keeping Markdown as the source. The theme is Faberun's
+own — see decision D5.
 
 **Name collision, see open question Q2.** `src/campaign/brief.mjs` already
 writes `operator-brief.md`: a 4 KiB capsule of durable facts so a *fresh seat can
@@ -308,6 +313,13 @@ is exploratory signal, not assurance.
 human intervention" was rejected because, optimised literally, it erodes the
 human judgment P7 exists to protect.
 
+**D5 — The brief renders with `mdhtml`, themed from Faberun's own design
+system.** `DESIGN.md` is the source of truth for the identity and already
+specifies the palette, the glyphs and the documentation rules, so the theme is
+derived from it rather than invented. No third-party or employer design system
+is used here, for the reason the repository already states: nothing from a
+private or employer repository lands in this one.
+
 ## Open questions for the owner
 
 Still open. Each changes what gets built, so none is decided here.
@@ -320,13 +332,6 @@ or make the approval surface a different artefact entirely? *Recommendation: two
 names for two artefacts — merging them would spoil the continuity capsule, which
 is deliberately small and model-free so it can be rebuilt after the seat that
 would have written it died.*
-
-**Q3 — mdhtml with the Herz theme in a public repository.** P1 proposes rendering
-the brief with `mdhtml`. The canonical theme is the employer's design system, and
-this repository's own rule is that nothing from a private or employer repository
-lands here without an explicit decision. Ship the brief with a neutral theme, or
-make the theme a local, unversioned choice? *Recommendation: neutral theme in the
-repository, any house theme kept as a local unversioned override.*
 
 **Q6 — When may empirical routing decide on its own?** The proposed floor is
 deliberately conservative (≥60 nodes, ≥5 campaigns, 60 days, pass@1 ≥95%). A
