@@ -1,6 +1,6 @@
 {
   "name": "faberun",
-  "version": "0.12.1",
+  "version": "0.13.0",
   "description": "Faberun is a development orchestration system that turns intent into verified software: harness- and model-agnostic, it keeps the intent, coordinates the work, verifies the result and decides what happens next.",
   "type": "module",
   "bin": {
