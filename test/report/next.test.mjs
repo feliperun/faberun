@@ -254,12 +254,17 @@ test("a corrupt campaign.json is its own rank-4 line, not skipped", () => {
   assert.equal(items[0].runnable, false);
 });
 
-test("arguments containing spaces are single-quoted in the rendered command", () => {
+test("arguments containing spaces are quoted in the rendered command", () => {
   // A run id can never carry a space (requireId in src/contract/assert.mjs
   // rejects it), and since R2 runDir no longer inherits the repository's own
   // path either — it hangs off $FABERUN_HOME instead. The one path segment
   // that can still legitimately carry a space is the home itself, the way an
   // operator's own home directory can.
+  //
+  // Which quote holds the path together is the reading shell's, not this
+  // suite's: a POSIX shell takes the single one, cmd.exe reads it as a literal
+  // character in the path and needs the double one.
+  const quote = process.platform === "win32" ? '"' : "'";
   const previousHome = process.env.FABERUN_HOME;
   process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home space-"));
   try {
@@ -271,7 +276,7 @@ test("arguments containing spaces are single-quoted in the rendered command", ()
     const runDir = join(runsDir, "run-spaced");
     const item = computeNextItems(runsDir, dir)[0];
     assert.equal(item.rank, 1);
-    assert.equal(item.command, `resume '${runDir}'`);
+    assert.equal(item.command, `resume ${quote}${runDir}${quote}`);
   } finally {
     process.env.FABERUN_HOME = previousHome;
   }
