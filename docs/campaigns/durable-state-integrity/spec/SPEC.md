@@ -58,6 +58,25 @@ e é por isso que `proposals/queue.md` existe como arquivo solto em vez de estar
 no journal. Uma camada de registro durável que aceita e joga fora é pior que uma
 que recusa.
 
+**O que um portão determinístico certifica sem medir.** Uma prova de DoD por
+comando que usa `--test-name-pattern` passa quando o padrão não casa com nada,
+e nada na saída denuncia isso. Medido em 2026-09-21 contra a árvore integrada
+da fase 1: um padrão inexistente imprime um tique para o *arquivo*, reporta
+`tests 1 pass 1 fail 0` e sai com `0` — idêntico em forma a um padrão que casa
+de verdade. Aconteceu nesta campanha: três dos seis itens de DoD da fase 1
+nomeavam padrões que nenhum teste carregava, e o portão reportou que todo item
+determinístico passou. O trabalho estava certo por sorte; a certificação não
+mediu metade do que dizia medir.
+
+**O que o bloco de sinal atribui à campanha errada.** `src/repo/signal.mjs:144`
+seleciona uma entrada de inbox quando `entry.campaignId === campaign.id` **ou**
+`entry.campaignId === null`. Todas as 12 entradas de atenção do inbox carregam
+`null`, então uma atenção órfã é atribuída a toda campanha ao mesmo tempo, para
+sempre. Medido em 2026-09-21: o `AGENTS.md` anunciava, sob esta campanha criada
+minutos antes, uma atenção de uma run da `harden-chain-and-verification`,
+fechada em 17/09. O `AGENTS.md` é a primeira coisa que qualquer agente lê, e o
+bloco existe justamente para dizer o que continuar.
+
 **O que a migração não cura.** `faberun campaign list` reporta
 `run-harness-audit-20260818 · corrupt · campaign.status must be active or
 closed`. O `campaign.json` foi escrito em 2026-08-18, antes do campo `status`
@@ -141,6 +160,21 @@ idempotência, `deleteRef`/`runRefName` em `src/repo/worktree.mjs`, e o campo
   reportando em uma linha o que precisa de intervenção, em vez de abortar a
   passagem inteira.
 - **proof:** `command: node --test --test-name-pattern="cleanup finishes against a read-only snapshot directory"`
+
+### R8. Prova que não rodou teste nenhum não é prova
+
+- **statement:** um comando de verificação ou de prova de DoD que restringe
+  quais testes rodam e não casa com nenhum é recusado em vez de aprovado; o
+  resultado nomeia o filtro e diz que ele não selecionou teste algum.
+- **proof:** `command: node --test --test-name-pattern="a proof that selected no test is refused"`
+
+### R9. Atenção sem campanha aparece em nenhuma, não em todas
+
+- **statement:** uma entrada de atenção que não pode ser atribuída a uma
+  campanha não é exibida sob todas elas; a atribuição sai do identificador de
+  run que a entrada já carrega, e o que continuar sem dono é exibido fora de
+  qualquer campanha.
+- **proof:** `command: node --test --test-name-pattern="an unattributable attention belongs to no campaign"`
 
 ## Não-objetivos
 
