@@ -17,7 +17,7 @@ import { terminateInvocation } from "./process.mjs";
 import { join, resolve } from "node:path";
 import { readFileSync } from "node:fs";
 import { readRunNodes } from "./scheduler.mjs";
-import { deleteRef, releaseAttemptWorktree, runRefName } from "../repo/worktree.mjs";
+import { createPreservedRef, deleteRef, releaseAttemptWorktree, runRefName } from "../repo/worktree.mjs";
 import { syncAgentSignal } from "../repo/signal.mjs";
 import { transition, writeNode } from "./state.mjs";
 import { validateContract } from "../contract/index.mjs";
@@ -26,10 +26,11 @@ import { writeJsonAtomic } from "../run/store.mjs";
 /** @typedef {import("./process.mjs").InvocationProbe} InvocationProbe */
 /** @typedef {import("../cli.mjs").LockHandle} LockHandle */
 /** @typedef {import("../run/lock.mjs").LockRecord} LockRecord */
+/** @typedef {{preservedRefs: string[], released: string[]}} CancelResult */
 
 /**
  * @param {string} runDirPath
- * @returns {Promise<boolean>}
+ * @returns {Promise<CancelResult>}
  */
 export async function cancelRun(runDirPath) {
   const runDir = resolve(runDirPath);
@@ -108,20 +109,33 @@ export async function cancelRun(runDirPath) {
       throw error;
     }
     if (!await waitForTerminal(runDir, 1_000)) throw new Error("cancel could not confirm a terminal run state");
+    // Preserved refs come first, before anything is released: a cancel that
+    // dies part-way must leave more work reachable, never less. If a creation
+    // fails here, nothing below has run and every integrated commit is as
+    // reachable as cancel found it. A node whose integratedHead is null was
+    // never integrated and gets none.
+    const preservedRefs = states
+      .filter((state) => state.integratedHead)
+      .map((state) => createPreservedRef(contract.cwd, contract.id, state.id, state.integratedHead));
     // The run directory is evidence a campaign ledger may still want, so it
     // stays; the run ref and every node's attempt branch are just git names
     // the next launch of this same contract id needs back, and cancel is the
     // operator saying this run is over. Releasing a name is not destroying a
-    // record -- each state's `worktree.branch`/`commit` fields, and the sha
-    // this ref pointed at, remain in the persisted snapshot regardless.
+    // record: the sha remains in the persisted snapshot, and the commit it
+    // names stays reachable through the preserved ref created above.
     // Idempotent both ways: `removeWorktree` and `deleteRef` already tolerate
     // an artefact a previous cancel (or the run itself) already released.
+    const released = [];
     for (const state of states) {
-      if (state.worktree?.branch) releaseAttemptWorktree(contract.cwd, state.worktree.path, state.worktree.branch);
+      if (!state.worktree?.branch) continue;
+      releaseAttemptWorktree(contract.cwd, state.worktree.path, state.worktree.branch);
+      released.push(`refs/heads/${state.worktree.branch}`);
+      if (state.worktree.path) released.push(state.worktree.path);
     }
     deleteRef(contract.cwd, runRefName(contract.id));
+    released.push(runRefName(contract.id));
     syncAgentSignal(join(runDir, ".."));
-    return true;
+    return { preservedRefs, released };
   } finally {
     controllerLock.release();
   }

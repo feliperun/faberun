@@ -6,7 +6,7 @@ import { basename, dirname, join } from "node:path";
 
 import { cancelRun } from "../../src/engine/cancel.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
-import { gitHead, runRefName } from "../../src/repo/worktree.mjs";
+import { gitHead, preservedRefName, runRefName } from "../../src/repo/worktree.mjs";
 
 import { fixture, orphan, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState } from "../runner-helpers.mjs";
@@ -16,7 +16,8 @@ test("a cancelled run's contract relaunches with no manual cleanup", async () =>
   const path = writeContract(directory, fixture({ id: "cancel-relaunch-run", pollIntervalMs: 10 }));
   const runDir = await withFakeCodex(directory, "pass", async () => (await runContract(path)).runDir);
   orphan(runDir, "build");
-  assert.equal(await cancelRun(runDir), true);
+  const canceled = await cancelRun(runDir);
+  assert.deepEqual(canceled.preservedRefs, [preservedRefName("cancel-relaunch-run", "build")], "the integrated head survives cancel behind its preserved ref");
   assert.equal(JSON.parse(readFileSync(join(runDir, "nodes", "build.json"), "utf8")).status, "canceled");
 
   const relaunched = await withFakeCodex(directory, "pass", () => runContract(path));
@@ -45,8 +46,10 @@ test("cancelling a run twice is not an error", async () => {
   const path = writeContract(directory, fixture({ id: "cancel-twice-run", pollIntervalMs: 10 }));
   const runDir = await withFakeCodex(directory, "pass", async () => (await runContract(path)).runDir);
   orphan(runDir, "build");
-  assert.equal(await cancelRun(runDir), true);
-  await assert.doesNotReject(() => cancelRun(runDir), "an operator unsure whether the first cancel landed must be able to repeat it");
+  const first = await cancelRun(runDir);
+  assert.deepEqual(first.preservedRefs, [preservedRefName("cancel-twice-run", "build")]);
+  const repeated = await cancelRun(runDir);
+  assert.deepEqual(repeated.preservedRefs, first.preservedRefs, "the second cancel neither moves nor duplicates the preserved ref");
   assert.equal(JSON.parse(readFileSync(join(runDir, "nodes", "build.json"), "utf8")).status, "canceled");
 });
 
@@ -64,4 +67,36 @@ test("cancel releases the run ref and the node's attempt branch, keeping the run
   assert.equal(gitHead(directory, runRefName("cancel-release-run")), null, "the run ref is released");
   assert.equal(gitHead(directory, branch), null, "the node's attempt branch is released");
   assert.equal(existsSync(runDir), true, "the run directory itself stays as evidence");
+});
+
+test("cancel preserves every integrated head before releasing the run's git names", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-cancel-preserve-"));
+  const path = writeContract(directory, fixture({ id: "cancel-preserve-run", pollIntervalMs: 10 }));
+  const runDir = await withFakeCodex(directory, "pass", async () => (await runContract(path)).runDir);
+  const state = JSON.parse(readFileSync(join(runDir, "nodes", "build.json"), "utf8"));
+  assert.ok(state.integratedHead, "the fixture node integrated before cancel");
+  const branch = state.worktree.branch;
+
+  const result = await cancelRun(runDir);
+
+  const preserved = preservedRefName("cancel-preserve-run", "build");
+  assert.equal(gitHead(directory, preserved), state.integratedHead, "the preserved ref names the node's integrated commit");
+  assert.deepEqual(result.preservedRefs, [preserved], "the result names the preserved ref without opening a node snapshot");
+  assert.deepEqual(result.released, [`refs/heads/${branch}`, state.worktree.path, runRefName("cancel-preserve-run")], "the result names every artifact released");
+  assert.equal(gitHead(directory, branch), null, "the attempt branch is still released");
+  assert.equal(gitHead(directory, runRefName("cancel-preserve-run")), null, "the run ref is still released");
+
+  const repeated = await cancelRun(runDir);
+  assert.deepEqual(repeated.preservedRefs, [preserved], "a second cancel neither moves nor duplicates the preserved ref");
+  assert.equal(gitHead(directory, preserved), state.integratedHead, "the preserved ref survives a second cancel untouched");
+});
+
+test("a node whose integrated head is null gets no preserved ref", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-cancel-null-head-"));
+  const path = writeContract(directory, fixture({ id: "cancel-null-head-run", pollIntervalMs: 10 }));
+  const runDir = await withFakeCodex(directory, "pass", async () => (await runContract(path)).runDir);
+  orphan(runDir, "build", { integratedHead: null });
+  const result = await cancelRun(runDir);
+  assert.deepEqual(result.preservedRefs, [], "an integrated head of null is nothing to preserve");
+  assert.equal(gitHead(directory, preservedRefName("cancel-null-head-run", "build")), null);
 });
