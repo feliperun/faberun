@@ -10,6 +10,7 @@ import {
   normalizeProviderAvailability,
   normalizeProviderResult,
   providerCommand,
+  exhaustedUntilOf,
 } from "../../src/harnesses/index.mjs";
 import { TOOL_OUTPUT_LIMIT_BYTES, truncateToolOutput } from "../../src/harnesses/exec-jsonl/index.mjs";
 import { ensureZcodeAvailable } from "../../src/harnesses/zcode/index.mjs";
@@ -706,4 +707,28 @@ test("a Claude turn stopped by --max-turns is turn_limit, the controller's own c
   assert.equal(envelope.error?.code, "turn_limit");
   assert.equal(envelope.continuationId, "s-1", "the session id survives for the retry's own decision");
   assert.deepEqual(envelope.usage, { inputTokens: 9, outputTokens: null, cacheReadInputTokens: 30 }, "the spend of the capped attempt is kept");
+});
+
+// Measured 2026-09-20 in the orchestration-arms campaign: the Claude
+// subscription's five-hour window answered "You've hit your session limit ·
+// resets 6:40pm (America/Sao_Paulo)", the stream settled as provider_error,
+// and two faberun nodes burnt both attempts inside a minute instead of holding
+// until the reset. The sentence names a wall-clock time and a zone, no date.
+test("the Claude subscription's session limit is exhaustion, and its wall-clock reset becomes an instant", () => {
+  const text = "You've hit your session limit · resets 6:40pm (America/Sao_Paulo)";
+  const stream = JSON.stringify({ type: "result", subtype: "success", is_error: true, result: text, session_id: "s", usage: { input_tokens: 1, output_tokens: 1 } });
+  const envelope = normalizeProviderResult("claude", stream, 1, null);
+  assert.equal(envelope.status, "exhausted");
+  assert.equal(envelope.error?.code, "quota_exhausted");
+  // 17:00 in São Paulo (UTC-3): the reset is later the same day.
+  assert.equal(exhaustedUntilOf(envelope, Date.parse("2026-09-20T20:00:00Z")), "2026-09-20T21:40:00.000Z");
+  // 19:00 in São Paulo: the named time has passed, so it is tomorrow's.
+  assert.equal(exhaustedUntilOf(envelope, Date.parse("2026-09-20T22:00:00Z")), "2026-09-21T21:40:00.000Z");
+  const availability = normalizeProviderAvailability("claude", envelope);
+  assert.equal(availability.available, false);
+  assert.equal(availability.reason, "quota_exhausted");
+  assert.match(String(availability.exhaustedUntil), /^\d{4}-\d{2}-\d{2}T\d{2}:40:00\.000Z$/u, "a reset instant is derived even when read against the real clock");
+  // A time in the morning and an unknown zone.
+  assert.equal(exhaustedUntilOf({ error: { code: "quota_exhausted", message: "usage limit reached, resets 12:05am (UTC)" } }, Date.parse("2026-09-20T20:00:00Z")), "2026-09-21T00:05:00.000Z");
+  assert.equal(exhaustedUntilOf({ error: { code: "quota_exhausted", message: "usage limit reached, resets 6:40pm (Mars/Olympus_Mons)" } }, Date.parse("2026-09-20T20:00:00Z")), null, "an unknown zone names no instant, and the failover edge is taken instead");
 });

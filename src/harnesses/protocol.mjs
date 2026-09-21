@@ -301,8 +301,14 @@ export function eventItem(event) {
   return item && typeof item === "object" && !Array.isArray(item) ? /** @type {Record<string, unknown>} */ (item) : null;
 }
 
-/** Provider-reported quota and rate-limit text: exhaustion, never an ordinary provider failure. */
-const QUOTA_TEXT_PATTERN = /429|1310|rate.?limit|usage limit|limit exhausted|quota|too many requests/iu;
+/**
+ * Provider-reported quota and rate-limit text: exhaustion, never an ordinary
+ * provider failure. "session limit" is the Claude subscription's five-hour
+ * window: measured 2026-09-20, "You've hit your session limit · resets 6:40pm
+ * (America/Sao_Paulo)" settled as provider_error and two faberun nodes burnt
+ * both attempts inside a minute instead of holding until the reset.
+ */
+const QUOTA_TEXT_PATTERN = /429|1310|rate.?limit|usage limit|session limit|limit exhausted|quota|too many requests/iu;
 
 /**
  * @param {string|null|undefined} text

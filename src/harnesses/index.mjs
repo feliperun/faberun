@@ -272,15 +272,16 @@ export function normalizeProviderAvailability(runtimeOrHarness, response, exitCo
  * of waiting on the same runtime.
  *
  * @param {unknown} envelope
+ * @param {number} [now] the instant a wall-clock reset sentence is read against (tests inject it)
  * @returns {string|null}
  */
-export function exhaustedUntilOf(envelope) {
+export function exhaustedUntilOf(envelope, now = Date.now()) {
   if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)) return null;
   const record = /** @type {Record<string, unknown>} */ (envelope);
   const error = record.error && typeof record.error === "object"
     ? /** @type {Record<string, unknown>} */ (record.error)
     : null;
-  return resetTimestamp(record.exhaustedUntil ?? error?.resetAt ?? (typeof error?.message === "string" ? error.message : null));
+  return resetTimestamp(record.exhaustedUntil ?? error?.resetAt ?? (typeof error?.message === "string" ? error.message : null), now);
 }
 
 /**
@@ -297,7 +298,7 @@ function classifyAvailabilityText(text) {
   if (/insufficient balance/iu.test(text) || /\b402\b/u.test(text)) {
     return { available: false, exhaustedUntil: null, reason: "insufficient_balance" };
   }
-  if (/quota|rate.?limit|usage limit|limit exhausted|1310/iu.test(text)) {
+  if (/quota|rate.?limit|usage limit|session limit|limit exhausted|1310/iu.test(text)) {
     return { available: false, exhaustedUntil: resetTimestamp(text), reason: "quota_exhausted" };
   }
   if (/auth|credential|unauthori[sz]ed|forbidden|invalid.*(?:key|token)|(?:api|access) key|login/iu.test(text)) {
@@ -306,8 +307,8 @@ function classifyAvailabilityText(text) {
   return null;
 }
 
-/** @param {unknown} value @returns {string|null} */
-function resetTimestamp(value) {
+/** @param {unknown} value @param {number} [now] @returns {string|null} */
+function resetTimestamp(value, now = Date.now()) {
   if (typeof value === "number" && Number.isFinite(value)) return new Date(value).toISOString();
   if (value instanceof Date && Number.isFinite(value.getTime())) return value.toISOString();
   if (typeof value !== "string") return null;
@@ -315,7 +316,43 @@ function resetTimestamp(value) {
   const input = match?.[1] ?? value;
   const normalized = input.includes("T") || /(?:Z|[+-]\d{2}:?\d{2})$/u.test(input) ? input : `${input.replace(" ", "T")}Z`;
   const parsed = Date.parse(normalized);
-  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+  if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  return wallClockReset(value, now);
+}
+
+/**
+ * A reset sentence that names a wall-clock time and a zone but no date --
+ * the Claude subscription's "resets 6:40pm (America/Sao_Paulo)", measured
+ * 2026-09-20 -- means the next occurrence of that time in that zone. The
+ * zone's offset is read at `now`; a daylight-saving change between now and
+ * the reset moves the answer by an hour, which is accepted and unmeasured.
+ */
+const WALL_CLOCK_RESET = /resets?(?:\s+at)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*\(([A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)+|UTC|GMT)\)/iu;
+
+/** @param {string} text @param {number} now @returns {string|null} */
+function wallClockReset(text, now) {
+  const match = WALL_CLOCK_RESET.exec(text);
+  if (!match) return null;
+  let hour = Number(match[1]);
+  const minute = Number(match[2] ?? "0");
+  const meridiem = match[3]?.toLowerCase();
+  if (meridiem === "pm" && hour < 12) hour += 12;
+  if (meridiem === "am" && hour === 12) hour = 0;
+  if (hour > 23 || minute > 59) return null;
+  /** @type {Intl.DateTimeFormatPart[]} */
+  let parts;
+  try {
+    parts = new Intl.DateTimeFormat("en-US", { timeZone: match[4], hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(new Date(now));
+  } catch {
+    // An unknown zone name is not a reset time; the caller falls back to the failover edge.
+    return null;
+  }
+  const part = (/** @type {Intl.DateTimeFormatPartTypes} */ type) => Number(parts.find((candidate) => candidate.type === type)?.value);
+  const zoneWallClock = Date.UTC(part("year"), part("month") - 1, part("day"), part("hour") % 24, part("minute"), part("second"));
+  const offset = zoneWallClock - Math.floor(now / 1000) * 1000;
+  let target = Date.UTC(part("year"), part("month") - 1, part("day"), hour, minute, 0) - offset;
+  if (target <= now) target += 24 * 60 * 60 * 1000;
+  return new Date(target).toISOString();
 }
 
 /**
