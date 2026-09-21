@@ -20,8 +20,13 @@ import { finite } from "../util.mjs";
  * measured 2026-09-20 over 149 stored claude worker turns: median 49
  * requests, context growing 1.9x within a turn, 3.3M tokens re-sent per
  * turn; the two 600-request turns re-sent 190M and 167M.
- * @typedef {{turns: number, toolCalls: number, requests: number, contextFirst: number|null, contextMax: number|null, contextLast: number|null, contextSum: number|null, completed: boolean}} SessionLedger
+ * Null request fields mean the stream carried no usage per request (codex
+ * reports per turn, zcode emits one document), never that none were made.
+ * @typedef {{turns: number, toolCalls: number, requests: number|null, contextFirst: number|null, contextMax: number|null, contextLast: number|null, contextSum: number|null, completed: boolean}} SessionLedger
  */
+
+/** The harnesses whose streams carry usage per provider request; the others meter turns and tool calls only. */
+const PER_REQUEST_USAGE = new Set(["claude", "dsh", "agy"]);
 
 /**
  * Best-effort input-token meter over a still-growing transcript. The
@@ -268,21 +273,26 @@ export class SessionMetricsParser {
   }
 
   /**
-   * The per-request ledger folded so far. Codex reports usage cumulatively
-   * per turn rather than per request, so its request fields stay null.
+   * The per-request ledger folded so far. Only the claude, dsh and agy
+   * streams carry usage per provider request; codex reports it cumulatively
+   * per turn and zcode emits one document per invocation, so for those the
+   * request count and the context sizes are unknown, not zero. Measured
+   * 2026-09-20 in the orchestration-arms campaign: four writer arms on codex
+   * and zcode were reported at zero requests until this distinction was made.
    *
    * @returns {SessionLedger}
    */
   session() {
     const totals = this.totals;
+    const metered = PER_REQUEST_USAGE.has(this.harness);
     return {
       turns: totals.turns,
       toolCalls: totals.toolCalls,
-      requests: totals.requests,
-      contextFirst: totals.contextFirst,
-      contextMax: totals.contextMax,
-      contextLast: totals.contextLast,
-      contextSum: totals.requests > 0 ? totals.contextSum : null,
+      requests: metered ? totals.requests : null,
+      contextFirst: metered ? totals.contextFirst : null,
+      contextMax: metered ? totals.contextMax : null,
+      contextLast: metered ? totals.contextLast : null,
+      contextSum: metered && totals.requests > 0 ? totals.contextSum : null,
       completed: totals.completed === true,
     };
   }

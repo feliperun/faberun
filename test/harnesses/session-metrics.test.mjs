@@ -169,7 +169,7 @@ test("the per-request ledger records how many requests a turn made and how its c
   codex.flush();
   assert.deepEqual(
     codex.session(),
-    { turns: 1, toolCalls: 0, requests: 0, contextFirst: null, contextMax: null, contextLast: null, contextSum: null, completed: false },
+    { turns: 1, toolCalls: 0, requests: null, contextFirst: null, contextMax: null, contextLast: null, contextSum: null, completed: false },
     "codex usage is cumulative per turn, not per request, so the request fields stay null rather than inventing a shape",
   );
   const dsh = new SessionMetricsParser("dsh");
