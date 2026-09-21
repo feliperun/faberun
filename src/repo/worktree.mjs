@@ -104,6 +104,11 @@ export function candidateRefName(runId) {
   return `refs/faberun/${runId}/candidate`;
 }
 
+/** @param {string} runId @param {string} nodeId @returns {string} */
+export function preservedRefName(runId, nodeId) {
+  return `refs/faberun/${runId}/preserved/${nodeId}`;
+}
+
 /** @param {string} runId @param {string} nodeId @param {number} attempt @returns {string} */
 function attemptBranchName(runId, nodeId, attempt) {
   return `faberun/${runId}/${nodeId}/${attempt}`;
@@ -165,6 +170,29 @@ export function createRunRef(repo, runId, head) {
   const ref = runRefName(runId);
   if (gitHead(repo, ref)) throw new Error(`run ref already exists: ${ref}`);
   runGit(["-C", repo, "update-ref", ref, head]);
+  return ref;
+}
+
+/**
+ * Keep one node's integrated commit reachable after cancel releases the run
+ * ref and the attempt branches: without a ref of its own the commit is
+ * garbage the next `git gc` collects, and the persisted snapshot alone cannot
+ * bring a pruned object back.
+ *
+ * Idempotent by the same contract `deleteRef` and `removeWorktree` honour:
+ * cancel can legitimately run twice (a retry after a partial first pass, or
+ * the operator repeating it), so a preserved ref that already names this
+ * exact commit is done, not a conflict — the second creation neither fails
+ * nor moves the target. A ref left at a different sha moves to the commit
+ * handed in now.
+ *
+ * @param {string} repo @param {string} runId @param {string} nodeId @param {string|null|undefined} sha @returns {string}
+ */
+export function createPreservedRef(repo, runId, nodeId, sha) {
+  if (!sha) throw Object.assign(new Error("a preserved ref needs an integrated commit"), { code: "git_head_required" });
+  const ref = preservedRefName(runId, nodeId);
+  if (gitHead(repo, ref) === sha) return ref;
+  runGit(["-C", repo, "update-ref", ref, sha]);
   return ref;
 }
 
