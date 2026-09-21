@@ -1,16 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { readUserConfig, writeUserConfig } from "../../src/host/config.mjs";
 import { configPath, faberunHome } from "../../src/host/home.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS } from "../../src/engine/runtime-discovery.mjs";
 import { mergeExistingConfig, setupCommand } from "../../src/cli/setup.mjs";
-import { withEmptyPath } from "../helpers.mjs";
+import { homeEnv, withEmptyPath, writeExecutable } from "../helpers.mjs";
 
 const BIN = fileURLToPath(new URL("../../bin/faberun.mjs", import.meta.url));
 
@@ -219,12 +219,13 @@ function registerableHome() {
   const home = mkdtempSync(join(tmpdir(), "setup-register-"));
   const bin = mkdtempSync(join(tmpdir(), "setup-register-bin-"));
   for (const dir of [".claude/skills", ".codex/skills"]) mkdirSync(join(home, dir), { recursive: true });
+  // Stand-ins the host can actually spawn, on the PATH spelled the way this
+  // host spells one: a fixture written with a shebang and joined with ":" is
+  // two assumptions no Windows machine holds.
   for (const harness of ["claude", "codex"]) {
-    const path = join(bin, harness);
-    writeFileSync(path, `#!${process.execPath}\nconsole.log("fake ${harness} 1.0.0");\n`);
-    chmodSync(path, 0o755);
+    writeExecutable(join(bin, harness), `console.log("fake ${harness} 1.0.0");\n`);
   }
-  return { home, env: { ...process.env, HOME: home, PATH: `${bin}:/usr/bin:/bin` } };
+  return { home, env: { ...process.env, ...homeEnv(home), PATH: [bin, ...(process.env.PATH ?? "").split(delimiter)].join(delimiter) } };
 }
 
 test("mergeExistingConfig keeps only what discovery still reports available", () => {
