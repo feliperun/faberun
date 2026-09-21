@@ -2,6 +2,26 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.15.0](https://github.com/feliperun/faberun/compare/v0.14.0...v0.15.0) (2026-09-21)
+
+
+### Features
+
+* **evals:** resilience is exercised by the deterministic driver, not documented ([3a467ff](https://github.com/feliperun/faberun/commit/3a467ff7228569b0199cf138ee98749623111970))
+* **plan:** a planned contract carries the repository's own ratchets ([29f8349](https://github.com/feliperun/faberun/commit/29f8349d6b278b5ead5708de4dabfc316fd8b8d1))
+* **plan:** declare the parallelism sizing proved, and stop forgetting open findings ([#25](https://github.com/feliperun/faberun/issues/25)) ([ed0baa2](https://github.com/feliperun/faberun/commit/ed0baa2cd937c9d6df92ef23d1700400e33a8672))
+* routing decides on observable data, and packet repetition is measured ([1747772](https://github.com/feliperun/faberun/commit/1747772dbf9547ecf6324b78af59533e72f251ee))
+* the expensive suites run on their own schedule, and mutation has a budget ([4da9f0d](https://github.com/feliperun/faberun/commit/4da9f0d84928f3239eacfeb63dec3fc4d74f9309))
+
+
+### Bug Fixes
+
+* **ci:** the squash-message gate revalidates when the body it reads changes ([#30](https://github.com/feliperun/faberun/issues/30)) ([2d84906](https://github.com/feliperun/faberun/commit/2d84906e65241daceede94ade9c85281d1ed5124))
+* **engine:** a declared parallelism limit counts every process the run started ([#29](https://github.com/feliperun/faberun/issues/29)) ([1a981d4](https://github.com/feliperun/faberun/commit/1a981d400df9a87b795e5f5e9c42a70d8dc0d6b6))
+* **engine:** a failing ratchet is not an invitation to edit the ratchet ([#23](https://github.com/feliperun/faberun/issues/23)) ([2c9dd69](https://github.com/feliperun/faberun/commit/2c9dd69e10f2318985ccddf71494930b8575d0eb))
+* **engine:** a write onto the file that proves the work is not an advisory ([#26](https://github.com/feliperun/faberun/issues/26)) ([982846a](https://github.com/feliperun/faberun/commit/982846a23004c9c4d745f3d8fad9803461496ba5))
+* **plan:** a scope-closure finding never invites the reviser to write less ([2a3c73c](https://github.com/feliperun/faberun/commit/2a3c73ca4cd8e98cc6fed989834cffc2223024e7))
+
 ## [0.14.0](https://github.com/feliperun/faberun/compare/v0.13.0...v0.14.0) (2026-09-21)
 
 
