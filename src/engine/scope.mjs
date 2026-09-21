@@ -3,15 +3,19 @@
  * touched, and what to do when those differ.
  *
  * Scope is advisory by design -- an unexpected write is recorded as a finding
- * and shown to the judge, not treated as a crime -- with one exception:
+ * and shown to the judge, not treated as a crime -- with two exceptions:
  * `resolveUnknownEffect` decides whether an invocation whose effect is unproven
- * may be replayed at all, and a dirty scope there is a refusal.
+ * may be replayed at all, and a dirty scope there is a refusal; and a write
+ * that lands on a file the node's own proof names is never deferred, because a
+ * verification that passes over an edited prover has proven nothing.
  */
+import { relative, resolve } from "node:path";
+
 import { SETTLED } from "./prompts.mjs";
 import { appendTransitionEvent, recordExecutionOverride, transition, writeNode } from "./state.mjs";
 import { attemptWorkspace } from "../repo/worktree.mjs";
 
-import { errorCode, errorMessage, excerpt } from "../util.mjs";
+import { errorCode, errorMessage, excerpt, isContained } from "../util.mjs";
 import { executeControllerVerification } from "./verify.mjs";
 import { providerReceiptsFromInvocationTail, settleInvocation } from "../run/operations.mjs";
 import { readJson } from "../run/store.mjs";
@@ -99,6 +103,94 @@ export function workerScope(taskPacket) {
   };
 }
 /**
+ * @typedef {{tokens: string[], cwd: string, literal: boolean, citation: string}} ProofCitation
+ */
+
+/**
+ * Everything a node's own proofs name: a Definition of Done `path` proof's
+ * path, the words of a `command` proof (a command proof carries a display
+ * string, not an argv, so a quoted path holding a space is not recovered), the
+ * argv of the verification entry a `verification` proof references, and the
+ * argv of every verification command the packet declares.
+ *
+ * @param {ValidatedNode} node
+ * @returns {ProofCitation[]}
+ */
+function proofCitations(node) {
+  const commands = node.taskPacket.verification ?? [];
+  /** @type {ProofCitation[]} */
+  const citations = [];
+  // Definition of Done items come first so that a path both a checklist item
+  // and a verification command name is reported under the checklist item, the
+  // name a human reading the failure can act on.
+  for (const item of node.definitionOfDone ?? []) {
+    const proof = item.proof;
+    if (!proof) continue;
+    if (proof.kind === "path") {
+      citations.push({ tokens: [proof.ref], cwd: ".", literal: true, citation: `${item.id} path proof` });
+    } else if (proof.kind === "command") {
+      citations.push({ tokens: proof.ref.split(/\s+/u), cwd: ".", literal: false, citation: `${item.id} command proof` });
+    } else {
+      const command = commands[Number.parseInt(proof.ref, 10)];
+      if (command) citations.push({ tokens: command.argv, cwd: command.cwd ?? ".", literal: false, citation: `${item.id} verification[${proof.ref}] proof` });
+    }
+  }
+  for (const [index, command] of commands.entries()) {
+    citations.push({ tokens: command.argv, cwd: command.cwd ?? ".", literal: false, citation: `verification[${index}]` });
+  }
+  return citations;
+}
+const PATH_SEPARATOR = /[\\/]/u;
+
+/**
+ * The unexpected writes that landed on a file the node's own proof names.
+ * Matching a command's argv against files is inherently approximate, so this is
+ * lexical and deliberately narrow. A word is read as a path only when it is not
+ * an option, is shaped like one (a `path` proof's ref, or a word carrying a
+ * separator or an extension), and resolves inside the workspace; it then claims
+ * an unexpected path it equals, or -- when it carries a separator or is a `path`
+ * proof's ref, so a directory really was named -- one it is the directory
+ * prefix of.
+ *
+ * What it deliberately does not catch: a file a proof reaches through a script
+ * (`npm test`), a shell string, or a glob the tool expands itself. The bare
+ * words of a command are never paths, which is what keeps the ordinary case
+ * advisory -- measured against the real node `requirement-ids-reach-the-node`
+ * (run `state-location-and-routing-economics-10-requirement-ids-and-closure`),
+ * whose legitimate out-of-scope write to `src/plan/freeze.mjs` is claimed by
+ * none of its proofs: not by `npm run typecheck`, not by the two test files its
+ * `command` proofs name, and not by the loose words of a quoted
+ * `--test-name-pattern`.
+ *
+ * @param {ValidatedNode} node
+ * @param {string[]} unexpectedPaths
+ * @param {string} workspace
+ * @returns {{path: string, citation: string}[]}
+ */
+function proofCitedWrites(node, unexpectedPaths, workspace) {
+  /** @type {Map<string, string>} */
+  const cited = new Map();
+  for (const citation of proofCitations(node)) {
+    const base = resolve(workspace, citation.cwd);
+    for (const token of citation.tokens) {
+      if (!token || token.startsWith("-")) continue;
+      const directory = citation.literal || PATH_SEPARATOR.test(token);
+      if (!directory && !/\.[A-Za-z0-9]+$/u.test(token)) continue;
+      const target = resolve(base, token);
+      if (!isContained(workspace, target)) continue;
+      const named = relative(workspace, target).replaceAll("\\", "/");
+      // The workspace root itself names no file in particular: a proof run from
+      // the root must not make every unexpected write a proof-citing one.
+      if (!named) continue;
+      for (const path of unexpectedPaths) {
+        if (cited.has(path)) continue;
+        if (path === named || (directory && path.startsWith(`${named}/`))) cited.set(path, citation.citation);
+      }
+    }
+  }
+  return [...cited].map(([path, citation]) => ({ path, citation }));
+}
+/**
  * @param {ValidatedContract} contract
  * @param {string} runDir
  * @param {Job} job
@@ -122,9 +214,19 @@ export function checkWorkerScope(contract, runDir, job, lock, options = {}) {
     // A completed attempt whose controller verification passes never fails
     // on scope alone (TECH-SPEC lean, rule 1): the caller defers the verdict
     // until verification has run and records an advisory finding instead.
-    if (options.deferViolation) return true;
-    const shown = bounded.unexpectedPaths.slice(0, 8).join(", ");
-    const message = `unexpected paths changed (${scope.unexpectedPaths.length}): ${shown}`;
+    // The single exception is a write onto a file the node's own proof names:
+    // verification then passes because the attempt edited the thing doing the
+    // proving, and an advisory nobody must read before the gate is too weak a
+    // signal for that. Scanned over the bounded path list -- the same first 64
+    // paths every other surface reports.
+    const cited = proofCitedWrites(job.node, bounded.unexpectedPaths, job.cwd);
+    if (options.deferViolation && !cited.length) return true;
+    const message = cited.length
+      // Kept short on purpose: an error message is capped at 120 characters,
+      // and the proof that names the path is the part a reader cannot recover
+      // from `state.scope` afterwards.
+      ? `proof-cited unexpected write (${cited.length}): ${cited.slice(0, 8).map(({ path, citation }) => `${path} (${citation})`).join(", ")}`
+      : `unexpected paths changed (${scope.unexpectedPaths.length}): ${bounded.unexpectedPaths.slice(0, 8).join(", ")}`;
     if (!SETTLED.has(state.status)) {
       transition(runDir, state, "failed", { phase: "worker", error: { code: "unexpected_write", message: excerpt(message) } }, lock);
       appendTransitionEvent(runDir, state, "failed", "failed", {

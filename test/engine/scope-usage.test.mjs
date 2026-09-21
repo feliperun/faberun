@@ -589,3 +589,72 @@ test("a wall-clock kill persists usage backfilled from the transcript", async ()
   assert.equal(state.error?.code, "wall_clock_timeout");
   assert.ok((state.usage?.inputTokens ?? 0) > 0, "killed worker reports its observed input tokens");
 });
+
+test("an out-of-scope write onto a file the node's own proof cites fails instead of deferring", async () => {
+  // Every case below is the same completed attempt, with the same green
+  // controller verification, writing the same single out-of-scope path. Only
+  // the proofs the node declares differ, so the verdict is attributable to
+  // nothing else.
+  /**
+   * @param {string} label
+   * @param {Record<string, unknown>} node
+   * @returns {Promise<import("../../src/contract/index.mjs").NodeSnapshot>}
+   */
+  const attempt = async (label, node) => {
+    const directory = mkdtempSync(join(tmpdir(), `runner-scope-proof-${label}-`));
+    const path = writeContract(directory, fixture({
+      id: `scope-proof-${label}-run`,
+      pollIntervalMs: 10,
+      nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false, ...node }],
+    }));
+    return nodeState(await withFakeCodex(directory, "write-unexpected", () => runContract(path)));
+  };
+
+  for (const [label, node] of /** @type {[string, Record<string, unknown>][]} */ ([
+    ["path-proof", {
+      definitionOfDone: [{ id: "file-exists", text: "The file exists", proof: { kind: "path", ref: "unexpected.txt" } }],
+    }],
+    ["command-proof", {
+      definitionOfDone: [{ id: "suite-green", text: "The suite is green", proof: { kind: "command", ref: "node --test unexpected.txt" } }],
+    }],
+    ["verification-argv", {
+      taskPacket: packet({
+        verification: [{
+          argv: process.platform === "win32"
+            ? [process.execPath, "-e", "process.exit(0)", "unexpected.txt"]
+            : ["true", "unexpected.txt"],
+        }],
+      }),
+    }],
+  ])) {
+    const state = await attempt(label, node);
+    assert.equal(state.status, "failed", `${label}: a proof-citing write is terminal`);
+    assert.equal(state.error?.code, "unexpected_write", `${label}: it fails as an undeferred violation does`);
+    assert.match(/** @type {string} */ (state.error?.message), /unexpected\.txt/u, `${label}: the message names the path`);
+    assert.equal(state.scopeFindings, undefined, `${label}: a terminal violation is not recorded as an advisory finding`);
+    assert.deepEqual(state.scope?.unexpectedPaths, ["unexpected.txt"], `${label}: the scope comparison is still recorded`);
+  }
+
+  // Which proof the write compromised is in the message, so a reader is never
+  // left to guess why this one violation was not deferred.
+  const cited = await attempt("named-proof", {
+    definitionOfDone: [{ id: "file-exists", text: "The file exists", proof: { kind: "path", ref: "unexpected.txt" } }],
+  });
+  assert.match(/** @type {string} */ (cited.error?.message), /file-exists/u, "the message names the proof the write compromised");
+
+  // The exception is exactly that narrow. This is the shape of a real node
+  // (`requirement-ids-reach-the-node`) whose legitimate out-of-scope write was
+  // an implementation file none of its proofs name: the bare words of
+  // `npm run typecheck` and the test files its command proofs run claim
+  // nothing, so the advisory path keeps working as it does today.
+  const uncited = await attempt("uncited-proof", {
+    definitionOfDone: [
+      { id: "suite-green", text: "The suite is green", proof: { kind: "command", ref: "node --test test/engine/worker-result.test.mjs" } },
+      { id: "types-clean", text: "The types are clean", proof: { kind: "command", ref: "npm run typecheck" } },
+      { id: "readme-exists", text: "The README exists", proof: { kind: "path", ref: "README.md" } },
+    ],
+  });
+  assert.equal(uncited.status, "done", uncited.error?.message);
+  assert.equal(uncited.error, null, "an ordinary out-of-scope write still records no terminal error");
+  assert.deepEqual(uncited.scopeFindings?.unexpectedPaths, ["unexpected.txt"], "it still defers to an advisory finding");
+});
