@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { test } from "node:test";
 import {
   CLAUDE_SOCKET_ENV,
@@ -20,16 +20,23 @@ import { NotifyQueue, noTransportWarning, wakeCapabilityNotice } from "../../src
 import { notifyTransportCheck } from "../../src/host/preflight.mjs";
 
 /**
- * A stand-in for a harness session's inbox: a Unix socket that records every
+ * A stand-in for a harness session's inbox: a local socket that records every
  * line each connection sends and resolves once that connection closes. The
  * path is kept short on purpose -- macOS caps a Unix socket path near 104
  * bytes, and `tmpdir()` alone is already half of that.
+ *
+ * On Windows the local socket is a named pipe: `listen` on a filesystem path
+ * there is EACCES. The product does not choose either shape -- it connects to
+ * whatever path the harness put in the environment -- so a pipe is the same
+ * test of the same code, spelled the way that platform spells a socket.
  *
  * @returns {Promise<{socketPath: string, next(): Promise<string[]>, close(): Promise<void>}>}
  */
 function inboxServer() {
   const directory = mkdtempSync(join(tmpdir(), "fbs-"));
-  const socketPath = join(directory, "s.sock");
+  const socketPath = process.platform === "win32"
+    ? `\\\\.\\pipe\\faberun-test-${basename(directory)}`
+    : join(directory, "s.sock");
   /** @type {((lines: string[]) => void)[]} */
   const waiters = [];
   /** @type {string[][]} */

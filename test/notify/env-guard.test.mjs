@@ -44,7 +44,10 @@ test("every notify variable src/notify exports is named by test/setup.mjs, so a 
 
 test("after the setup module loads, no notify variable of the outer environment survives into a test process", () => {
   assert.equal(process.env[NOTIFY_SESSION_ENV], undefined);
-  assert.ok(process.env[NOTIFY_BIN_ENV]?.endsWith("noop-notify.mjs"), `the transport is the no-op, got ${process.env[NOTIFY_BIN_ENV]}`);
+  // The module on POSIX, the `.cmd` shim beside it on Windows — `setup.mjs`
+  // writes whichever this host can spawn, and the guard is that the variable
+  // names the no-op, not which of the two shapes it took.
+  assert.match(process.env[NOTIFY_BIN_ENV] ?? "", /noop-notify\.(?:mjs|cmd)$/u, `the transport is the no-op, got ${process.env[NOTIFY_BIN_ENV]}`);
 });
 
 test("npm test preloads the setup module into every test process, and the preload reaches a child test file that imports nothing", () => {
