@@ -2,6 +2,18 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.14.0](https://github.com/feliperun/faberun/compare/v0.13.0...v0.14.0) (2026-09-21)
+
+
+### Features
+
+* a requirement id travels from the phase to the node and into closure ([d0083a8](https://github.com/feliperun/faberun/commit/d0083a858c16242412362af1d34a1ff88926b3ed))
+
+
+### Bug Fixes
+
+* **plan:** a folded node keeps the acknowledged importers and the expected turns of both nodes ([#21](https://github.com/feliperun/faberun/issues/21)) ([d081b0e](https://github.com/feliperun/faberun/commit/d081b0e16880a979d55c337008f4310c03027597))
+
 ## [0.13.0](https://github.com/feliperun/faberun/compare/v0.12.1...v0.13.0) (2026-09-21)
 
 
