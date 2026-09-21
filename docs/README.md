@@ -11,6 +11,7 @@ with `docs/campaigns/` preserve dated records that are never rewritten.
 | --- | --- | --- |
 | [README.md](README.md) (this map) | Where is every document, and which question does it answer? | newcomer, operator, contributor, orchestrating agent |
 | [VISION.md](VISION.md) | Why does Faberun exist, and what does it refuse to become? | newcomer |
+| [ROADMAP.md](ROADMAP.md) | What is being built next, in what order, on what evidence — and which decisions and open questions shape it? | owner, contributor, orchestrating agent |
 | [GETTING-STARTED.md](GETTING-STARTED.md) | How do I install `faberun` and take one campaign from install to a verified node? | newcomer |
 | [CONCEPTS.md](CONCEPTS.md) | What does each Faberun term mean, where does it live, and what invariant holds? | newcomer, contributor |
 | [COMMANDS.md](COMMANDS.md) | What is every verb's synopsis, flags, exit codes and one example? | operator |
