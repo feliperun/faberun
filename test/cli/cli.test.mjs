@@ -12,7 +12,7 @@ import { resumeRun } from "../../src/engine/resume.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 
 import { bootstrapAckPath, bootstrapAttemptPath, bootstrapPath, cleanupBootstrapAttempts, writeJsonAtomic } from "../../src/run/store.mjs";
-import { delay, fakeCodex, fixture, orphan, packet, readStatus, waitForValue, withFakeCodex, writeContract } from "../helpers.mjs";
+import { SPAWN_WAIT_FACTOR, delay, fakeCodex, fixture, orphan, packet, readStatus, waitForValue, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState, notifications, withAdvisoryGateCodex, withBrokenGateCodex, RUNNER_CLI } from "../runner-helpers.mjs";
 import { invocationAlive } from "../../src/engine/process.mjs";
 import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
@@ -190,7 +190,7 @@ test("run --detach leaves a controller that outlives the invoker and completes t
       }
     }, 10_000);
     assert.ok(alive === "alive" || alive === "done", `detached controller died while the run was in flight: ${alive}`);
-    assert.equal(await waitForValue(() => (readStatus(nodePath) === "done" ? "done" : null), 20_000), "done");
+    assert.equal(await waitForValue(() => (readStatus(nodePath) === "done" ? "done" : null), 20_000 * SPAWN_WAIT_FACTOR), "done");
     assert.equal(JSON.parse(readFileSync(join(runDir, "run.json"), "utf8")).pid, pid);
   } finally {
     cleanupBootstrapAttempts(runDir);
@@ -220,7 +220,7 @@ test("resume --detach restarts a failed node through a detached controller", asy
   );
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /\[resume\] detached · pid \d+ · .*/u);
-  assert.equal(await waitForValue(() => (readStatus(nodePath) === "done" ? "done" : null), 20_000), "done");
+  assert.equal(await waitForValue(() => (readStatus(nodePath) === "done" ? "done" : null), 20_000 * SPAWN_WAIT_FACTOR), "done");
 });
 
 test("status separates a live running node from an orphaned one", async () => {

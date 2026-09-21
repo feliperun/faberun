@@ -71,6 +71,18 @@ if (!process.env.FABERUN_HOME) {
 export const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 /**
+ * How much longer a wait has to be on this host before it means the same
+ * thing. Every deadline here is waiting on a spawned process to reach some
+ * state, and a spawn on Windows is not one exec: a fixture binary is a `.cmd`
+ * shim, so the command interpreter starts first and node after it. Measured
+ * 2026-09-21 on Windows 11 with the suite at its default parallelism, a
+ * provider took 0.3-0.6s to reach its first line against ~60ms on Linux, and
+ * five deadlines that hold anywhere else expired. The factor is the honest
+ * translation of "long enough that only a real hang trips this".
+ */
+export const SPAWN_WAIT_FACTOR = process.platform === "win32" ? 3 : 1;
+
+/**
  * Poll `read` until it returns a non-null value or the deadline passes.
  *
  * @param {() => unknown} read
@@ -78,7 +90,7 @@ export const delay = (milliseconds) => new Promise((resolve) => setTimeout(resol
  * @param {number} [intervalMs]
  * @returns {Promise<unknown>}
  */
-export async function waitForValue(read, timeoutMs = 5_000, intervalMs = 25) {
+export async function waitForValue(read, timeoutMs = 5_000 * SPAWN_WAIT_FACTOR, intervalMs = 25) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const value = await read();

@@ -18,7 +18,7 @@ import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/contract/in
 import { runVerification } from "../../src/engine/run-command.mjs";
 import { enforceRunningInvariant } from "../../src/engine/scheduler.mjs";
 import { boundedGitSync, git } from "../../src/repo/worktree.mjs";
-import { initializeGit, waitForValue } from "../helpers.mjs";
+import { SPAWN_WAIT_FACTOR, initializeGit, waitForValue } from "../helpers.mjs";
 
 const SKILL_DIR = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -125,7 +125,7 @@ test("done-when 2: an aborted command settles immediately instead of waiting for
   let escapedPid = null;
   try {
     const pending = runVerification([{ argv: [process.execPath, "escape.mjs"], timeoutSec: 60 }], directory, { signal: controller.signal });
-    await waitForValue(() => (existsSync(join(directory, "escape.pid")) ? true : null), 5_000, 10);
+    await waitForValue(() => (existsSync(join(directory, "escape.pid")) ? true : null), 5_000 * SPAWN_WAIT_FACTOR, 10);
     controller.abort();
     const result = await pending;
     const attempt = result.commands[0].attempts[0];

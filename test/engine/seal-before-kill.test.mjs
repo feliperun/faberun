@@ -13,7 +13,7 @@ import { runContract } from "../../src/engine/scheduler.mjs";
 import { TIER_EXHAUSTION_CAP_REASON, TIER_EXHAUSTION_HOLD_CAP_MS, planResumeRetry } from "../../src/engine/retry.mjs";
 import { createAttemptWorktree, createRunRef, git, removeWorktree } from "../../src/repo/worktree.mjs";
 import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
-import { fixture, packet, waitForValue, writeContract } from "../helpers.mjs";
+import { SPAWN_WAIT_FACTOR, fixture, packet, waitForValue, writeContract } from "../helpers.mjs";
 import { nodeState } from "../runner-helpers.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
@@ -198,7 +198,12 @@ test("done-when 1 and 4: a wall-clock timeout seals, auto-retries on the same ru
   const contractPath = writeContract(directory, fixture({
     id: "seal-e2e-run",
     pollIntervalMs: 10,
-    timeoutSec: 0.7,
+    // The budget one healthy attempt has to fit inside, so it has to cover a
+    // provider spawn on this host — an extra command-interpreter process on
+    // Windows. Measured 2026-09-21: the retry that must succeed took longer
+    // than the POSIX number under the suite's own parallelism and was killed
+    // as a timeout, turning the proof inside out.
+    timeoutSec: 0.7 * SPAWN_WAIT_FACTOR,
     runtimeDefaults: { worker: "luna", judge: "luna" },
     runtimes: { luna: { harness: "codex", model: "gpt-5.6-luna", reasoning: "xhigh" } },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
@@ -231,7 +236,7 @@ test("done-when 1 and 4: a stall_timeout seals and auto-retries on the same runt
     id: "seal-stall-run",
     pollIntervalMs: 10,
     timeoutSec: 60,
-    stallTimeoutSec: 0.4,
+    stallTimeoutSec: 0.4 * SPAWN_WAIT_FACTOR,
     runtimeDefaults: { worker: "luna", judge: "luna" },
     runtimes: { luna: { harness: "codex", model: "gpt-5.6-luna", reasoning: "xhigh" } },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
