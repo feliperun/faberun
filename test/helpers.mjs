@@ -1,4 +1,4 @@
-import { accessSync, constants, existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { accessSync, chmodSync, constants, existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -536,6 +536,15 @@ case "$request" in
 esac
 printf '%s\\n' '{"schemaVersion":1,"type":"run.completed","result":'"$(printf '%s' "$result" | sed 's/"/\\\\"/g; s/^/"/; s/$/"/')"',"continuationId":"fake-thread","usage":{"inputTokens":5,"outputTokens":2,"cacheReadInputTokens":1},"costUsd":0.01}'
 `;
+  // The POSIX half carries its own `#!/bin/sh`, so it needs the exec bit and
+  // nothing else: `writeExecutable` would put node in front of a shell
+  // script. The Windows half is node, and reaches this host through the
+  // `.cmd` shim that writes.
+  if (process.platform !== "win32") {
+    writeFileSync(path, script);
+    chmodSync(path, 0o755);
+    return path;
+  }
   return writeExecutable(path, script);
 }
 

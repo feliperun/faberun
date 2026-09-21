@@ -446,8 +446,12 @@ function quoteArg(value) {
   // literal character and would look for a directory named with one. There the
   // separator is ordinary, and only a space (or a character the shell reads)
   // needs the quotes that platform does understand.
+  // `~` is in the set because a Windows temporary directory is routinely an
+  // 8.3 short name — `C:\Users\RUNNER~1\AppData\Local\Temp` on a CI runner —
+  // and nothing reads a tilde inside a path: cmd.exe has no expansion for it,
+  // and PowerShell expands one only at the start of a path.
   if (process.platform === "win32") {
-    return /^[A-Za-z0-9_@%+=:,.\\/-]+$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
+    return /^[A-Za-z0-9_@%+=:,.~\\/-]+$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
   }
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
