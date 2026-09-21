@@ -24,7 +24,12 @@ if (!process.env.FABERUN_NOTIFY_BIN) {
 // would write real project entries into the operator's own ~/.faberun as a
 // side effect of running the tests. Always a throwaway home, never the
 // operator's, even when one is configured: no suite run should depend on it.
-process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home-"));
+// The runner owns the scope now — package.json preloads test/scoped-home.mjs
+// into every test process — so this only fills in for a file executed
+// without it, and an already-set home wins.
+if (!process.env.FABERUN_HOME) {
+  process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home-"));
+}
 
 /**
  * @param {number} milliseconds
