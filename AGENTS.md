@@ -60,6 +60,17 @@ to touch. Keep a packet's `verification` to the few commands the node actually
 needs; every command's output is serialized into the judge prompt, and a packet
 with seven of them has exceeded the 64 KiB guard and killed its own node.
 
+A third rule, paid for by a gate that certified nothing. **Never prove a
+Definition of Done item with `--test-name-pattern` unless the packet names the
+exact test string and requires the worker to use it.** Measured 2026-09-21:
+`node --test --test-name-pattern="<anything that matches nothing>" <file>`
+prints a tick for the *file*, reports `tests 1 pass 1 fail 0`, and exits `0` —
+indistinguishable from a pattern that matched a real test. Three of one
+phase's six DoD proofs named patterns no test carried, and the gate reported
+that every deterministic item passed. Node has no flag that fails on an empty
+match, so the only defence at authoring time is to pin the name or point the
+proof at the whole file.
+
 **Continuity beats restart.** Before starting new work, check `.runs/` and the
 managed signal block at the bottom of this file: an active campaign or a
 non-terminal run is work to continue — read its `HANDOFF.md`/`STATUS.md`,
