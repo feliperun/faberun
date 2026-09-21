@@ -2,6 +2,20 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.16.0](https://github.com/feliperun/faberun/compare/v0.15.0...v0.16.0) (2026-09-21)
+
+
+### Features
+
+* **notify:** wake the launching harness session with the message the phone gets ([#31](https://github.com/feliperun/faberun/issues/31)) ([4843be2](https://github.com/feliperun/faberun/commit/4843be230a23d3e4eaccc180dee990fb1bfaa3b4))
+* **repo:** a preserved ref keeps one node's integrated commit reachable ([d362a10](https://github.com/feliperun/faberun/commit/d362a103fff1cb7b10fc36a933cf4e36e3d601fb))
+
+
+### Bug Fixes
+
+* **engine:** cancelling a run no longer orphans the work its nodes integrated ([15e1e24](https://github.com/feliperun/faberun/commit/15e1e24375232b39a8f13902db45e0bf44d045d4))
+* **plan:** a write handed to a new sibling node moved, it was not dropped ([6fd3ba7](https://github.com/feliperun/faberun/commit/6fd3ba7b12316f18f3dd717b19ed489a95bdaf0d))
+
 ## [0.15.0](https://github.com/feliperun/faberun/compare/v0.14.0...v0.15.0) (2026-09-21)
 
 
