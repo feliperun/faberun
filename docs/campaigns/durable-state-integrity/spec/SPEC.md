@@ -97,7 +97,7 @@ permanentemente ilegível e não há verbo que o conserte. Quatro diretórios
 | Vezes que este vazamento foi consertado arquivo a arquivo | 2, e um arquivo segue vazando | 0, a regra passa a ser do runner |
 | Diagnóstico ao gravar nota acima do teto | nenhum | recusa nomeando o excesso |
 | Registros de campanha ilegíveis por `campaign list` | 1 | 0 |
-| Diretórios `controller-snapshots` bloqueando limpeza | 4 | 0 |
+| `migrate` conclui ou diz como concluir | recusa, sem saída | conclui ou instrui |
 
 Peças existentes que o trabalho reusa em vez de reimplementar: o comentário e o
 `mkdtempSync` de `test/helpers.mjs`, o ratchet de `test/repo/source-shape.test.mjs`,
@@ -153,12 +153,20 @@ idempotência, `deleteRef`/`runRefName` em `src/repo/worktree.mjs`, e o campo
   ausente; um registro corrompido por outro motivo continua sendo reportado.
 - **proof:** `command: node --test --test-name-pattern="migrate heals a campaign record written before a field existed"`
 
-### R7. A limpeza não trava em diretório read-only que ela mesma criou
+### R7. A migração conclui, ou diz o que fazer para concluir
 
-- **statement:** `migrate` e o expurgo concluem contra diretório
-  `controller-snapshots` sem permissão de escrita, restaurando permissão ou
-  reportando em uma linha o que precisa de intervenção, em vez de abortar a
-  passagem inteira.
+- **statement:** `migrate` não fica indefinidamente recusando a passagem
+  inteira: ou completa a cópia, ou nomeia em uma linha o que o operador precisa
+  fazer para que ela complete. Enquanto recusa, o estado não fica dividido
+  entre o repositório e a home sem caminho de saída.
+
+  Medido em 2026-09-21, corrigindo a premissa herdada: os quatro diretórios
+  `controller-snapshots` são `drwxr-xr-x`, graváveis pelo dono — **não são
+  read-only e não são o bloqueio**. O bloqueio real é
+  `migration copy does not verify: .runs/control/second-opinions is missing or
+  different at <home>/runs/control/second-opinions; nothing was published or
+  removed`. A origem tem 7 arquivos comuns com permissões comuns; o destino não
+  existe; e o repositório ainda carrega 13 MB em `.runs/`.
 - **proof:** `command: node --test --test-name-pattern="cleanup finishes against a read-only snapshot directory"`
 
 ### R8. Prova que não rodou teste nenhum não é prova
