@@ -1,15 +1,19 @@
 /**
  * Direct notification dispatcher (TECH-SPEC lean, rule 6). On `node.terminal`,
  * `run.terminal` and `attention` the controller renders the message through
- * `renderRunProgress` (`report/progress.mjs`) from the run's own persisted
- * state, calls `FABERUN_NOTIFY_BIN` with the event as JSON on stdin, and
- * appends a receipt (`delivered`, `failed` or
- * `no_transport`, with the timestamp) to `<run-dir>/notify.jsonl`. Delivery is
- * lossy: an event is attempted once, a failure schedules no further attempt and
- * is never requeued, and the controller never waits on a retry it will not
- * make. The next read of the run's own artefacts carries the full state. With
- * no transport bound (`FABERUN_NOTIFY_BIN` unset) nothing is spawned and
- * a `no_transport` receipt is recorded instead — there is no implicit desktop
+ * `renderRunProgress` (`report/message.mjs`) from the run's own persisted
+ * state, delivers that one text to every bound transport at once, and appends
+ * one receipt (`delivered`, `failed` or `no_transport`, with the timestamp
+ * and one entry per transport) to `<run-dir>/notify.jsonl`. Two transports
+ * exist, additive and independently opted in: `FABERUN_NOTIFY_BIN`, an
+ * executable called with the event as JSON on stdin (a phone, a chat), and
+ * `FABERUN_NOTIFY_SESSION`, the harness session the controller was launched
+ * from (`session.mjs`), which is what wakes the operator's seat. Delivery is
+ * lossy: an event is attempted once per transport, a failure schedules no
+ * further attempt and is never requeued, and the controller never waits on a
+ * retry it will not make. The next read of the run's own artefacts carries
+ * the full state. With no transport bound nothing is spawned and a
+ * `no_transport` receipt is recorded instead — there is no implicit desktop
  * fallback. The macOS notifier is reachable only by setting
  * `FABERUN_NOTIFY_BIN=os-macos`, an explicit opt-in, never a default.
  *
@@ -46,24 +50,25 @@ import { createHash } from "node:crypto";
 import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { createMacosNotifier } from "./os-macos.mjs";
+import { deliverToSessions, resolveSessionTargets, sessionWakeNotice } from "./session.mjs";
 import { errorMessage } from "../util.mjs";
 
 /**
- * `report/progress.mjs` reaches back to this module (through
+ * `report/message.mjs` reaches back to this module (through
  * `run/node-store.mjs` -> `run/disk-gc.mjs` -> `host/preflight.mjs`, which
  * reads `NOTIFY_BIN_ENV`), so a static top-level import of it here would be a
  * real cycle: `host/preflight.mjs` would read `NOTIFY_BIN_ENV` while this
  * module's own top level was still mid-evaluation, before the `const` is
  * assigned. A dynamic import resolves this module first and defers loading
- * `report/progress.mjs` until the first call, by which point this module has
+ * `report/message.mjs` until the first call, by which point this module has
  * already finished initializing -- so the cycle is real but harmless. Cached
  * after the first call so every subsequent render reuses the same module.
- * @type {Promise<typeof import("../report/progress.mjs")>|null}
+ * @type {Promise<typeof import("../report/message.mjs")>|null}
  */
 let progressModule = null;
-/** @returns {Promise<typeof import("../report/progress.mjs")>} */
+/** @returns {Promise<typeof import("../report/message.mjs")>} */
 function loadProgressModule() {
-  progressModule ??= import("../report/progress.mjs");
+  progressModule ??= import("../report/message.mjs");
   return progressModule;
 }
 
@@ -129,7 +134,8 @@ export const NOTIFY_NO_TRANSPORT_WARNING = "no human notification transport is c
 /** @typedef {{schemaVersion: number, eventId: string, at: string, type: string, campaignId: string|null, runId: string|null, nodeId: string|null, status: string|null, errorCode: string|null, dedupeKey: string, summary: string}} InboxEntry */
 /** @typedef {{type: string, dedupeKey: string, summary: string, at?: string, campaignId?: string|null, runId?: string|null, nodeId?: string|null, status?: string|null, errorCode?: string|null}} InboxEvent */
 /** @typedef {{type: "node.terminal"|"run.terminal"|"attention", runId: string|null, campaignId?: string|null, nodeId?: string|null, status?: string|null, attempt?: number|null, errorCode?: string|null, done?: number|null, total?: number|null, dedupeKey?: string|null, runDir?: string|null, costUsd?: number|null, summary?: string|null, eventId?: string}} NotifyEvent */
-/** @typedef {{ok: boolean, error?: string, noTransport?: boolean}} DeliveryResult */
+/** @typedef {{id: string, ok: boolean, error?: string}} TransportOutcome one transport's own outcome, named so the receipt says which took the message */
+/** @typedef {{ok: boolean, error?: string, noTransport?: boolean, transports?: TransportOutcome[]}} DeliveryResult */
 
 /**
  * Render the message for an event. For `node.terminal`, `run.terminal` and
@@ -250,25 +256,31 @@ function truncate(value) {
  * @returns {string|null}
  */
 export function noTransportWarning(env = process.env) {
-  return env[NOTIFY_BIN_ENV] ? null : NOTIFY_NO_TRANSPORT_WARNING;
+  if (env[NOTIFY_BIN_ENV]) return null;
+  if (resolveSessionTargets(env).length) return null;
+  return NOTIFY_NO_TRANSPORT_WARNING;
 }
 
 /**
- * What `campaign watch --wake` must say about waking. No adapter declares
- * `canWake: true` (`os-macos` is `canWake: false`), so the wake verb records
- * to the inbox and the managed block and never implies a session was woken.
+ * What `campaign watch --wake` must say about waking. The external transport
+ * never wakes anything (`os-macos` and every `FABERUN_NOTIFY_BIN` executable
+ * are `canWake: false`: they push to a person); the session transports are
+ * the only `canWake: true`, and the notice says which of them the environment
+ * resolves to, so the verb never implies a session was woken when none will be.
  *
  * @param {string|undefined} [bin]
+ * @param {NodeJS.ProcessEnv} [env]
  * @returns {string}
  */
-export function wakeCapabilityNotice(bin = process.env[NOTIFY_BIN_ENV]) {
+export function wakeCapabilityNotice(bin = process.env[NOTIFY_BIN_ENV], env = process.env) {
+  const session = sessionWakeNotice(env);
   if (!bin) {
-    return "no notify transport is configured; --wake records to .runs/inbox.jsonl and the AGENTS.md managed block; no session is woken";
+    return `no external notify transport is configured; --wake records to .runs/inbox.jsonl and the AGENTS.md managed block; ${session}`;
   }
   if (bin === MACOS_TRANSPORT) {
-    return "os-macos cannot wake a session (canWake: false); --wake records to .runs/inbox.jsonl and the AGENTS.md managed block";
+    return `os-macos cannot wake a session (canWake: false); --wake records to .runs/inbox.jsonl and the AGENTS.md managed block; ${session}`;
   }
-  return `notify transport ${bin} declares canWake: false; --wake records to .runs/inbox.jsonl and the AGENTS.md managed block; no session is woken`;
+  return `notify transport ${bin} declares canWake: false; --wake records to .runs/inbox.jsonl and the AGENTS.md managed block; ${session}`;
 }
 
 /** @param {string} runsDir @returns {string} */
@@ -345,20 +357,39 @@ export function appendInbox(runsDir, event) {
 }
 
 /**
- * Deliver one event through the bound transport. No transport bound resolves
- * `{ok: false, noTransport: true}` without spawning anything.
+ * Deliver one event through every bound transport at once: the external
+ * executable and each resolved harness session, all given the same rendered
+ * text. The result is `ok` when any one of them took the message, carries
+ * every transport's own outcome for the receipt, and is
+ * `{ok: false, noTransport: true}` when nothing at all is bound -- without
+ * spawning or connecting anything.
  *
  * @param {{type: string, summary: string, campaignId?: string|null, [key: string]: unknown}} event
- * @param {{bin?: string, spawn?: typeof defaultSpawn, timeoutMs?: number}} [options]
+ * @param {{bin?: string, env?: NodeJS.ProcessEnv, spawn?: typeof defaultSpawn, timeoutMs?: number}} [options]
  * @returns {Promise<DeliveryResult>}
  */
-function deliverNotification(event, options = {}) {
-  const bin = options.bin ?? process.env[NOTIFY_BIN_ENV];
-  if (!bin) return Promise.resolve({ ok: false, noTransport: true });
-  if (bin === MACOS_TRANSPORT) {
-    return createMacosNotifier({ spawn: options.spawn }).deliver(/** @type {any} */ (event));
+async function deliverNotification(event, options = {}) {
+  const env = options.env ?? process.env;
+  const bin = options.bin ?? env[NOTIFY_BIN_ENV];
+  const targets = resolveSessionTargets(env);
+  /** @type {Promise<TransportOutcome>[]} */
+  const attempts = [];
+  if (bin) {
+    const external = bin === MACOS_TRANSPORT
+      ? createMacosNotifier({ spawn: options.spawn }).deliver(/** @type {any} */ (event))
+      : spawnDeliver(bin, event, options);
+    attempts.push(external.then((result) => ({ id: bin === MACOS_TRANSPORT ? MACOS_TRANSPORT : "bin", ...result })));
   }
-  return spawnDeliver(bin, event, options);
+  /** @type {Promise<TransportOutcome[]>} */
+  const sessions = targets.length ? deliverToSessions(event, targets, { timeoutMs: options.timeoutMs, env }) : Promise.resolve([]);
+  if (!attempts.length && !targets.length) return { ok: false, noTransport: true, transports: [] };
+  const transports = [...(await Promise.all(attempts)), ...(await sessions)];
+  const failures = transports.filter((outcome) => !outcome.ok).map((outcome) => `${outcome.id}: ${outcome.error ?? "failed"}`);
+  return {
+    ok: transports.some((outcome) => outcome.ok),
+    ...(failures.length ? { error: failures.join("; ") } : {}),
+    transports,
+  };
 }
 
 /**
@@ -472,6 +503,9 @@ export class NotifyQueue {
       summary,
       attempt: 1,
       status: result.ok ? "delivered" : result.noTransport ? "no_transport" : "failed",
+      // One entry per bound transport, so a receipt that says `delivered`
+      // also says whether the phone, the session, or both took the message.
+      transports: result.transports ?? [],
       at: new Date(this.now()).toISOString(),
     };
     if (!result.ok && !result.noTransport) receipt.error = result.error ?? null;

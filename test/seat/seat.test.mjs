@@ -178,4 +178,5 @@ test("seat switch preserves controller lease", () => {
   assert.match(calls, /-k/u, "respawn kills the pane's process");
   assert.match(calls, /codex/u, "the new harness is launched");
   assert.match(calls, /operator-brief\.md/u, "the new harness is told to read the brief");
+  assert.match(calls, /-e FABERUN_NOTIFY_SESSION=auto/u, "the seat window is the opt-in: every controller launched under it wakes this session");
 });

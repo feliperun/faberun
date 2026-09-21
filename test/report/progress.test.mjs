@@ -9,7 +9,8 @@ import { campaignDir, CAMPAIGN_FILE } from "../../src/campaign/layout.mjs";
 import { appendJournal } from "../../src/campaign/journal.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 import { harnessCapabilities } from "../../src/harnesses/index.mjs";
-import { PROGRESS_MESSAGE_MAX_BYTES, renderCampaignProgress, renderRunProgress } from "../../src/report/progress.mjs";
+import { PROGRESS_MESSAGE_MAX_BYTES, renderRunProgress } from "../../src/report/message.mjs";
+import { renderCampaignProgress } from "../../src/report/progress.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
 import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
@@ -78,12 +79,12 @@ test("a three-node run with two settled nodes renders the percentages, the count
   ]);
   try {
     const message = renderRunProgress(runDir, { type: "node.terminal", runId: "report-progress", nodeId: "two", status: "done", attempt: 1 });
-    assert.match(message, /\[\+\] campaign test-campaign · phase p · node two/u);
-    assert.match(message, /2\/3 nodes done · 67% done · 33% left/u);
-    assert.match(message, /this node: 2m00s/u);
-    assert.match(message, /phase estimate: ~1m30s remaining \(from 2 settled nodes\)/u);
-    assert.match(message, /next: three/u);
-    assert.match(message, /worker says: second node shipped the migration/u);
+    assert.match(message, /^🐦 Faberun · node two ✅ done · phase 2\/3 · campaign - · \$- · needs you: 0$/mu);
+    assert.match(message, /^📦 phase p · 2\/3 nodes · 67% · ~1m30s remaining \(from 2 settled nodes\) · next three$/mu);
+    assert.match(message, /^⏱️ node 2m00s · attempt 1$/mu);
+    assert.match(message, /^🧭 campaign test-campaign · record unavailable$/mu, "a run outside any readable campaign says so instead of 0% of nothing");
+    assert.match(message, /^💸 run \$-/mu);
+    assert.match(message, /^💬 second node shipped the migration$/mu);
   } finally {
     rmSync(runDir, { recursive: true, force: true });
   }
@@ -99,7 +100,7 @@ test("the estimate ignores a running node's partial span", () => {
   ]);
   try {
     const message = renderRunProgress(runDir, { type: "node.terminal", runId: "report-progress", nodeId: "one", status: "done", attempt: 1 });
-    assert.match(message, /phase estimate: ~2m00s remaining \(from 1 settled node\)/u);
+    assert.match(message, /~2m00s remaining \(from 1 settled node\) · next two/u);
     assert.doesNotMatch(message, /h\d/u, "no hour-scale estimate leaked in from the running node's partial span");
   } finally {
     rmSync(runDir, { recursive: true, force: true });
@@ -137,7 +138,7 @@ test("an unpriced judge renders as unpriced with its tokens", () => {
   ]);
   try {
     const message = renderRunProgress(runDir, { type: "node.terminal", runId: "report-progress", nodeId: "one", status: "done", attempt: 1 });
-    assert.match(message, /judge unpriced \(in 1k · out 300 · cache -\)/u);
+    assert.match(message, /💸 run \$- · worker \$0\.01 · judge unpriced · 2k in · 400 out/u);
   } finally {
     rmSync(runDir, { recursive: true, force: true });
   }
@@ -180,7 +181,8 @@ test("the campaign total sums cost across every linked run, not just this phase'
 
   try {
     const message = renderRunProgress(runDir, { type: "node.terminal", runId: "report-progress", nodeId: "one", status: "done", attempt: 1 });
-    assert.match(message, /campaign total \$0\.070000/u);
+    assert.match(message, /campaign 100% · \$0\.07 · needs you: 0/u, "the headline carries the campaign's cumulative cost, two decimals");
+    assert.match(message, /^🧭 campaign test-campaign · 1\/2 phases · 100% of 1 nodes/mu);
   } finally {
     rmSync(runDir, { recursive: true, force: true });
   }
@@ -195,10 +197,10 @@ test("a message whose worker summary is enormous stays under the ceiling with th
   try {
     const message = renderRunProgress(runDir, { type: "node.terminal", runId: "report-progress", nodeId: "one", status: "done", attempt: 1 });
     assert.ok(Buffer.byteLength(message, "utf8") <= PROGRESS_MESSAGE_MAX_BYTES);
-    assert.match(message, /1\/2 nodes done · 50% done · 50% left/u);
-    assert.match(message, /this node: 1m00s/u);
-    assert.match(message, /next: two/u);
-    assert.match(message, /worker says: x+…/u);
+    assert.match(message, /^📦 phase p · 1\/2 nodes · 50% · ~1m00s remaining \(from 1 settled node\) · next two$/mu);
+    assert.match(message, /^⏱️ node 1m00s · attempt 1$/mu);
+    assert.match(message, /needs you: 0/u);
+    assert.match(message, /^💬 x+…$/mu);
   } finally {
     rmSync(runDir, { recursive: true, force: true });
   }

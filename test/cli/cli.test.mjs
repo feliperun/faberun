@@ -345,14 +345,15 @@ test("runner notifies node.terminal and run.terminal only, never a running node"
   // The summary is `renderRunProgress`'s own rendering of the run's persisted
   // state -- the same string the inbox and the transport both receive -- so
   // it now carries the worker's own words too, not counters and identifiers
-  // alone. What stays true for both receipts: the campaign and node it names,
-  // that the node settled `done`, and (unlike the span, which is wall-clock
-  // and not worth pinning) the worker's own summary line.
+  // alone. What stays true for both receipts: the subject it names on line
+  // one (the node for `node.terminal`, the run for `run.terminal`), that it
+  // settled `done`, the phase count, and (unlike the span, which is
+  // wall-clock and not worth pinning) the worker's own summary line.
   for (const receipt of receipts) {
     const summary = /** @type {string} */ (receipt.summary);
-    assert.match(summary, /campaign test-campaign · phase fixture-phase-0 · node build/u);
-    assert.match(summary, /1\/1 nodes done · 100% done · 0% left/u);
-    assert.match(summary, /worker says: worker complete/u);
+    assert.match(summary, /^🐦 Faberun · (node build|run progress-emission-run) ✅ done · phase 1\/1 · campaign 100% · /mu);
+    assert.match(summary, /^📦 phase fixture-phase-0 · 1\/1 nodes · 100% · complete$/mu);
+    assert.match(summary, /^💬 worker complete$/mu);
   }
   assert.equal(receipts[0].nodeId, "build");
   assert.equal(receipts[0].nodeStatus, "done");

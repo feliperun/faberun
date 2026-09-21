@@ -89,7 +89,7 @@ test("renderNotification: delegates to renderRunProgress for a real run, and bot
   const result = await withResultFileCodex(directory, "file-first", path);
   assert.equal(nodeState(result).status, "done");
 
-  const { renderRunProgress } = await import("../../src/report/progress.mjs");
+  const { renderRunProgress } = await import("../../src/report/message.mjs");
   const event = { type: /** @type {const} */ ("run.terminal"), runId: "delegates-run", runDir: result.runDir, done: 1, total: 1 };
   const [fromNotify, fromProgress] = await Promise.all([
     renderNotification(event),

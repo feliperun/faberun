@@ -109,18 +109,24 @@ the contract is frozen with a digest, and the phone's middle ground is a note.
 
 ## Notify
 
-On `node.terminal`, `run.terminal` and `attention` the controller renders a
-one-line message from counters and identifiers only (node id, run id, state,
-attempt, error code, done/total — never model text), calls the executable named
-by `FABERUN_NOTIFY_BIN` with that event as JSON on stdin, and appends a
-timestamped receipt (`delivered`, `failed`, `no_transport`) to
+On `node.terminal`, `run.terminal` and `attention` the controller renders one
+message from persisted state (line one: `🐦 Faberun · node <id> ✅ done · phase
+2/3 · campaign 61% · $132.21 · needs you: 0`; then phase, campaign, cost,
+time and one sentence of the worker's own words, ≤2 KiB) and delivers that
+same text to every bound transport at once, appending one receipt
+(`delivered`, `failed`, `no_transport`, one entry per transport) to
 `<run-dir>/notify.jsonl`. Delivery is lossy: **exactly one attempt**, no retry,
-no backoff. Unset, nothing is spawned and the receipt is `no_transport`.
-`FABERUN_NOTIFY_BIN=os-macos` selects the bundled `osascript` adapter
-(`canWake: false`); any other value is an executable path. A resume never
-re-sends a notification already recorded for the same node, attempt and outcome.
-No transport is a default: `doctor`, `preflight` and the foreground launch warn
-when the variable is empty, and `--wake` reports no adapter can wake a session.
+no backoff. `FABERUN_NOTIFY_BIN` names an executable called with the event as
+JSON on stdin (`os-macos` selects the bundled `osascript` adapter); it pushes to
+a person, `canWake: false`. `FABERUN_NOTIFY_SESSION=auto` wakes the harness
+session the controller was launched from, `canWake: true`: the Claude Code
+inbox socket and the Codex thread the environment names. A seat window sets it;
+nothing else does, so a test suite never wakes a session. **On an inbound
+`🐦 Faberun` message**: informational (`needs you: 0`), answer in one line and
+keep waiting; `👀` or a terminal run, act on the `decide:` command it names. A
+resume never re-sends a notification already recorded for the same node, attempt
+and outcome. No transport is a default: `doctor`, `preflight` and the foreground
+launch warn when both variables are empty, and `--wake` names what will wake.
 Campaign-level lines are queued in `.runs/inbox.jsonl`, the managed block's
 append-only record — one object per line `{schemaVersion, eventId, at, type,
 campaignId, runId, nodeId, status, errorCode, dedupeKey, summary}`, deduped on

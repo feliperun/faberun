@@ -19,6 +19,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { timeVerificationCommands } from "../host/preflight.mjs";
 import { NOTIFY_BIN_ENV } from "../notify/index.mjs";
+import { NOTIFY_SESSION_ENV } from "../notify/session.mjs";
 import { boundedGitSync, gitHead } from "../repo/worktree.mjs";
 
 /** @typedef {import("./spec.mjs").SpecRequirement} SpecRequirement */
@@ -45,6 +46,7 @@ const MEASURE_OUTPUT_CAP_BYTES = 4096;
  */
 const MEASURE_SIDE_EFFECT_ENV_KEYS = [
   NOTIFY_BIN_ENV,
+  NOTIFY_SESSION_ENV,
   "FABERUN_CODEX_BIN",
   "FABERUN_CLAUDE_BIN",
   "FABERUN_AGY_BIN",
