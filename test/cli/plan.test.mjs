@@ -206,6 +206,49 @@ test("the pipeline runs draft and review from recordings and freezes", async () 
   assert.equal(existsSync(runDirectory(cwd, contract.id)), false);
 });
 
+test("the frozen contract declares the parallelism sizing proved, and a plan sizing proved nothing about stays serial", async () => {
+  // Both nodes of the default plan are dependency-free with disjoint write
+  // sets, so sizing marks both parallelisable — a conclusion the contract had
+  // no field for until it landed in maxParallel. The value is bounded, not
+  // the node count: see provenParallelism in src/plan/sizing.mjs.
+  const independent = setup("parallel-demo");
+  const parallel = await runPlanningPipeline({
+    specPath: join(independent.cwd, "docs/spec.md"),
+    campaignId: independent.campaignId,
+    phase: "build",
+    cwd: independent.cwd,
+    runtimes: independent.runtimes,
+    runtimeDefaults: independent.runtimeDefaults,
+    launch,
+    wait,
+  });
+  assert.equal(parallel.status, "frozen");
+  const parallelContract = JSON.parse(readFileSync(parallel.contractPath, "utf8"));
+  assert.equal(parallelContract.maxParallel, 2);
+  const frozenPlan = JSON.parse(readFileSync(parallel.planPath, "utf8"));
+  assert.equal(frozenPlan.provenance.sizing.filter((/** @type {any} */ entry) => entry.rule === "parallelisable").length, 2);
+
+  // The same two nodes, chained: nothing is marked, so the contract declares
+  // the serial default rather than a concurrency nobody proved.
+  const chainedPlan = /** @type {any} */ (twoNodePlan());
+  chainedPlan.nodes[1].dependsOn = ["build"];
+  const chained = setup("serial-demo", { plans: [chainedPlan] });
+  const serial = await runPlanningPipeline({
+    specPath: join(chained.cwd, "docs/spec.md"),
+    campaignId: chained.campaignId,
+    phase: "build",
+    cwd: chained.cwd,
+    runtimes: chained.runtimes,
+    runtimeDefaults: chained.runtimeDefaults,
+    launch,
+    wait,
+  });
+  assert.equal(serial.status, "frozen");
+  const serialContract = JSON.parse(readFileSync(serial.contractPath, "utf8"));
+  assert.equal(serialContract.maxParallel, 1);
+  assert.deepEqual(JSON.parse(readFileSync(serial.planPath, "utf8")).provenance.sizing.filter((/** @type {any} */ entry) => entry.rule === "parallelisable"), []);
+});
+
 test("operator override wins: --runtime-defaults appears in the frozen contract's runtimeDefaults over the table", async () => {
   const { cwd, campaignId, runtimes, runtimeDefaults } = setup("override-demo");
   const result = await runPlanningPipeline({

@@ -26,7 +26,7 @@ import { allowanceDelta, allowanceEventFields, sampleAllowance } from "../seat/a
 import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
 import { RISK_TIERS, buildPlanningContract, validateFindings, validatePlanOutput } from "./template.mjs";
-import { MIN_WRITE_FILES, applySizingRules } from "./sizing.mjs";
+import { MIN_WRITE_FILES, applySizingRules, provenParallelism } from "./sizing.mjs";
 import { resolveRuntimes } from "./routing.mjs";
 import { freezePlan } from "./freeze.mjs";
 import { campaignTree, runDirectory } from "../run/paths.mjs";
@@ -38,6 +38,7 @@ import { campaignTree, runDirectory } from "../run/paths.mjs";
 /** @typedef {import("./template.mjs").PlanOutput} PlanOutput */
 /** @typedef {import("./template.mjs").PlanFindingOutput} PlanFindingOutput */
 /** @typedef {import("./sizing.mjs").PlanNode & {objective: string}} SizedPlanNode */
+/** @typedef {{sizing: import("./sizing.mjs").SizingResult, routing: import("./routing.mjs").RoutingResult, nodes: JsonObject[]}} AssembledPlan */
 /** @typedef {"standard"|"high"|"none"} ApproveBelow */
 /** @typedef {(contractPath: string, contract: ValidatedContract) => Promise<void>|void} LaunchFn */
 /** @typedef {(runDir: string) => Promise<import("../engine/supervise.mjs").RunProgress>|import("../engine/supervise.mjs").RunProgress} WaitFn */
@@ -231,7 +232,7 @@ export async function runPlanningPipeline(options) {
    * `stage` as it goes; see the declaration above.
    *
    * @param {PlanOutput} currentPlan
-   * @returns {{sizing: import("./sizing.mjs").SizingResult, routing: import("./routing.mjs").RoutingResult, nodes: JsonObject[]}}
+   * @returns {AssembledPlan}
    */
   const assembleFrozenNodes = (currentPlan) => {
     stage = "sizing";
@@ -256,16 +257,19 @@ export async function runPlanningPipeline(options) {
 
   /**
    * The raw contract exactly as `freezePlan` will assemble and validate it,
-   * schemaVersion and contractVersion included. `validateContract` never
+   * schemaVersion and contractVersion included. It takes the whole assembly
+   * rather than its nodes because the contract carries a run-level conclusion
+   * of sizing's too (`maxParallel`), and the in-round pre-flight must validate
+   * the same bytes the freeze writes. `validateContract` never
    * reads the path it is given — only `dirname(resolve(contractPath))` to
    * resolve `raw.cwd` — so the pre-flight passes the path the contract will
    * occupy, `contract.json` inside `plansDir`, and validates in memory
    * without writing or deleting anything.
    *
-   * @param {JsonObject[]} nodes
+   * @param {AssembledPlan} assembly
    * @returns {JsonObject}
    */
-  const frozenContractRaw = (nodes) => ({
+  const frozenContractRaw = ({ sizing, nodes }) => ({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
     contractVersion: CONTRACT_VERSION,
     id: `${campaignId}-${phase}`,
@@ -275,6 +279,12 @@ export async function runPlanningPipeline(options) {
     // `cwd` has to point back at the repo root from there, exactly like
     // `runStage` computes it for the nodes it writes under `plansDir/nodes/`.
     cwd: relative(plansDir, cwd) || ".",
+    // Sizing's `parallelisable` conclusion, which nothing else carries: a
+    // contract node has no `parallel` field, so a plan that says nothing here
+    // freezes at the validator's default of 1 and every independent node it
+    // proved waits for its turn. What the engine does with the number is the
+    // scheduler's business; declaring it is this stage's.
+    maxParallel: provenParallelism(sizing.plan),
     runtimes,
     runtimeDefaults,
     // The operator's ratchets, carried verbatim: which suites a repository
@@ -316,7 +326,7 @@ export async function runPlanningPipeline(options) {
       /** @type {PlanFindingOutput|null} */
       let freezeFailure = null;
       try {
-        validateContract(frozenContractRaw(assembleFrozenNodes(plan).nodes), join(plansDir, "contract.json"));
+        validateContract(frozenContractRaw(assembleFrozenNodes(plan)), join(plansDir, "contract.json"));
       } catch (error) {
         freezeFailure = invalidPlanFinding(`freeze-r${round}`, error);
         findings = [...findings, freezeFailure];
@@ -371,7 +381,7 @@ export async function runPlanningPipeline(options) {
   // `nearly` is what this whole phase is about: an unanticipated failure
   // writes its stage line and takes the contested exit instead of leaving
   // pipeline.jsonl stopping between stages.
-  /** @type {{sizing: import("./sizing.mjs").SizingResult, routing: import("./routing.mjs").RoutingResult, nodes: JsonObject[]}|undefined} */
+  /** @type {AssembledPlan|undefined} */
   let assembled;
   /** @type {import("./freeze.mjs").FrozenPlan|undefined} */
   let frozen;
@@ -390,7 +400,7 @@ export async function runPlanningPipeline(options) {
     logStage("sizing", { transformations: assembled.sizing.transformations.length, nodeCount: assembled.sizing.plan.nodes.length, overheadMinutes: assembled.sizing.estimate.overheadMinutes });
     logStage("routing", { assignments: Object.keys(assembled.routing.assignments).length });
     highestRiskTier = highestOf(assembled.sizing.plan.nodes.map((node) => node.riskTier ?? RISK_TIERS[0]));
-    frozen = freezePlan(frozenContractRaw(assembled.nodes), {
+    frozen = freezePlan(frozenContractRaw(assembled), {
       outDir: plansDir,
       provenance: {
         targetGitHead: repoFacts.gitHead,

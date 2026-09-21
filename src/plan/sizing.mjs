@@ -433,6 +433,39 @@ function markParallelisable(nodes, transformations) {
 }
 
 /**
+ * Ceiling on the concurrency a frozen plan may declare. Not a measurement: no
+ * one has measured how many concurrent workers this or any host survives, and
+ * the only evidence on hand is the wrong direction — three OOM kills on the
+ * planning host on 2026-09-21. So the ceiling is the largest value a contract
+ * in this repository's own record has ever run with: of the 58 stored
+ * contracts, 44 ran at 1 and 14 at 2, none higher. Raise it when someone
+ * measures a host surviving more, not before.
+ */
+const MAX_PROVEN_PARALLELISM = 2;
+
+/**
+ * How many nodes a sized plan may have in flight at once: the nodes
+ * `markParallelisable` marked, floored at 1 and capped at
+ * `MAX_PROVEN_PARALLELISM`. The mark is transitive by construction — a marked
+ * node depends on nothing, nothing depends on it, and its writeFiles is
+ * disjoint from *every* other node's, so any two marked nodes are independent
+ * of each other too and can all run together. The count is therefore the
+ * concurrency sizing proved the plan has work for: above it a slot only ever
+ * idles, and a plan with one marked node, or none, is 1 — the serial number a
+ * contract carries when it says nothing.
+ *
+ * `parallel` is a node-level mark and no contract node accepts it, so this
+ * number is the only way sizing's conclusion survives into a frozen contract
+ * (as `maxParallel`).
+ *
+ * @param {Plan} plan
+ * @returns {number}
+ */
+export function provenParallelism(plan) {
+  return Math.min(MAX_PROVEN_PARALLELISM, Math.max(1, plan.nodes.filter((node) => node.parallel === true).length));
+}
+
+/**
  * The longest dependsOn chain in the graph, counted in nodes. Sizing runs on
  * a model-drafted, not-yet-validated plan, so a dependsOn cycle is possible
  * here; it is refused by name rather than left to overflow the stack.
