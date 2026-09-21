@@ -69,18 +69,29 @@ export function applyRejection(contract, node, state, runDir, running, lock, sta
     // dispatch below and a later scheduler dispatch (the `running` is null
     // path) carry it.
     state.previousAttempt = renderPreviousAttemptSection(state) ?? state.previousAttempt;
-    if (running) {
+    // A revision is a new attempt, and a new attempt is a dispatch: it starts
+    // here only against a slot the run actually has free. `running` is the
+    // scheduler's own map, with this node's own closed job already out of it,
+    // so `running.size` is exactly what the dispatch loop's own
+    // `maxParallel - running.size` will read. A settlement that dispatched
+    // regardless is how run state-location-and-routing-economics-13 ran two
+    // workers under `maxParallel: 1` on 2026-09-21, and two of that day's
+    // three OOM kills happened with more running than the contract declared.
+    if (running && running.size < contract.maxParallel) {
       // Dispatching here owns the increment, because `startWorker` expects the
       // attempt number it is about to run under.
       state.attempt += 1;
       startWorker(contract, node, state, runDir, running, retryPrompt(node, verdict), lock, states, campaignPath, { forceFresh });
       return;
     }
-    // Handing the node back to the scheduler instead: its dispatch increments
-    // on the way out, so incrementing here too spent two attempt numbers on one
-    // retry. Observed 2026-09-13 on a resume after a killed controller — a node
-    // that ran twice reported attempt 3, with no `…2.*` logs and a
-    // `worktree.previousAttempt` naming an attempt that never existed.
+    // Handing the node back to the scheduler instead -- because there is no
+    // loop to hand it to (recovery, resume), or because the run is full and
+    // the scheduler is the one place that knows when it stops being full. Its
+    // dispatch increments on the way out, so incrementing here too spent two
+    // attempt numbers on one retry. Observed 2026-09-13 on a resume after a
+    // killed controller — a node that ran twice reported attempt 3, with no
+    // `…2.*` logs and a `worktree.previousAttempt` naming an attempt that
+    // never existed.
     transition(runDir, state, "pending", { phase: "worker", error: null }, lock);
     return;
   }
