@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applySizingRules } from "../../src/plan/sizing.mjs";
+import { applySizingRules, provenParallelism } from "../../src/plan/sizing.mjs";
 
 const BUDGET = 600_000;
 
@@ -152,6 +152,41 @@ test("parallelisable marking: dependency-free nodes with disjoint writeFiles are
   assert.equal(sized.nodes.find((node) => node.id === "m1")?.parallel, true);
   assert.equal(sized.nodes.find((node) => node.id === "m2")?.parallel, true);
   assert.equal(transformations.filter((entry) => entry.rule === "parallelisable").length, 2);
+});
+
+/**
+ * A node nothing depends on, depending on nothing, writing only its own file:
+ * the exact shape `markParallelisable` marks.
+ *
+ * @param {string} id
+ * @returns {import("../../src/plan/sizing.mjs").PlanNode}
+ */
+function independentNode(id) {
+  return {
+    id,
+    taskPacket: { writeFiles: [`src/${id}.mjs`], verification: [{ argv: ["node", "--test", `test/${id}.test.mjs`], measuredMs: 100 }] },
+    definitionOfDone: [{ id: `${id}-done`, text: `implements ${id}`, proof: { kind: "command", ref: "0" } }],
+  };
+}
+
+test("proven parallelism: the marked nodes are the concurrency a plan may declare, floored at 1 and capped", () => {
+  const two = applySizingRules({ nodes: [independentNode("m1"), independentNode("m2")] }, { nodeBudgetMs: BUDGET });
+  assert.equal(provenParallelism(two.plan), 2);
+
+  // Every node here is marked, and the count is still capped: the ceiling is
+  // a judgement about what a host survives, not a measurement, so a wider
+  // plan does not license wider concurrency.
+  const four = applySizingRules({ nodes: ["w1", "w2", "w3", "w4"].map(independentNode) }, { nodeBudgetMs: BUDGET });
+  assert.equal(four.plan.nodes.filter((node) => node.parallel === true).length, 4);
+  assert.equal(provenParallelism(four.plan), 2);
+
+  // A chain marks nothing, and a plan sizing proved nothing about is serial.
+  const chained = applySizingRules(
+    { nodes: [independentNode("c1"), { ...independentNode("c2"), dependsOn: ["c1"] }] },
+    { nodeBudgetMs: BUDGET },
+  );
+  assert.equal(chained.plan.nodes.filter((node) => node.parallel === true).length, 0);
+  assert.equal(provenParallelism(chained.plan), 1);
 });
 
 test("single-node refusal unless targetedFix", () => {

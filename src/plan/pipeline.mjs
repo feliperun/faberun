@@ -22,11 +22,12 @@ import { appendSeatAllowanceEvent, readJournal } from "../campaign/journal.mjs";
 import { readCampaign } from "../campaign/record.mjs";
 import { campaignCli } from "../cli/campaign.mjs";
 import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
+import { stableJson } from "../util.mjs";
 import { allowanceDelta, allowanceEventFields, sampleAllowance } from "../seat/allowance.mjs";
 import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
 import { RISK_TIERS, buildPlanningContract, validateFindings, validatePlanOutput } from "./template.mjs";
-import { MIN_WRITE_FILES, applySizingRules } from "./sizing.mjs";
+import { MIN_WRITE_FILES, applySizingRules, provenParallelism } from "./sizing.mjs";
 import { resolveRuntimes } from "./routing.mjs";
 import { freezePlan } from "./freeze.mjs";
 import { campaignTree, runDirectory } from "../run/paths.mjs";
@@ -38,6 +39,7 @@ import { campaignTree, runDirectory } from "../run/paths.mjs";
 /** @typedef {import("./template.mjs").PlanOutput} PlanOutput */
 /** @typedef {import("./template.mjs").PlanFindingOutput} PlanFindingOutput */
 /** @typedef {import("./sizing.mjs").PlanNode & {objective: string}} SizedPlanNode */
+/** @typedef {{sizing: import("./sizing.mjs").SizingResult, routing: import("./routing.mjs").RoutingResult, nodes: JsonObject[]}} AssembledPlan */
 /** @typedef {"standard"|"high"|"none"} ApproveBelow */
 /** @typedef {(contractPath: string, contract: ValidatedContract) => Promise<void>|void} LaunchFn */
 /** @typedef {(runDir: string) => Promise<import("../engine/supervise.mjs").RunProgress>|import("../engine/supervise.mjs").RunProgress} WaitFn */
@@ -174,11 +176,15 @@ export async function runPlanningPipeline(options) {
   const draft = await runStage("draft", { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath });
   /** @type {PlanOutput|null} */
   let plan = null;
+  // Everything still open against the plan in hand, accumulated across rounds
+  // rather than replaced by each one: a reviewer who does not repeat the last
+  // round's objection has not answered it. `unresolvedFindings` is what takes
+  // a finding back out once the plan moved under it.
   /** @type {PlanFindingOutput[]} */
   let findings = [];
   // The writes the most recent revise dropped, computed where the revise's
-  // output is validated and held for the next round: appended there, after the
-  // review has replaced `findings`, so a drop is never cleaned away by a fresh
+  // output is validated and held for the next round: merged in there, after
+  // the review's own findings, so a drop is never cleaned away by a fresh
   // review passing over a plan that no longer declares the write.
   /** @type {PlanFindingOutput[]} */
   let droppedWrites = [];
@@ -231,7 +237,7 @@ export async function runPlanningPipeline(options) {
    * `stage` as it goes; see the declaration above.
    *
    * @param {PlanOutput} currentPlan
-   * @returns {{sizing: import("./sizing.mjs").SizingResult, routing: import("./routing.mjs").RoutingResult, nodes: JsonObject[]}}
+   * @returns {AssembledPlan}
    */
   const assembleFrozenNodes = (currentPlan) => {
     stage = "sizing";
@@ -256,16 +262,19 @@ export async function runPlanningPipeline(options) {
 
   /**
    * The raw contract exactly as `freezePlan` will assemble and validate it,
-   * schemaVersion and contractVersion included. `validateContract` never
+   * schemaVersion and contractVersion included. It takes the whole assembly
+   * rather than its nodes because the contract carries a run-level conclusion
+   * of sizing's too (`maxParallel`), and the in-round pre-flight must validate
+   * the same bytes the freeze writes. `validateContract` never
    * reads the path it is given — only `dirname(resolve(contractPath))` to
    * resolve `raw.cwd` — so the pre-flight passes the path the contract will
    * occupy, `contract.json` inside `plansDir`, and validates in memory
    * without writing or deleting anything.
    *
-   * @param {JsonObject[]} nodes
+   * @param {AssembledPlan} assembly
    * @returns {JsonObject}
    */
-  const frozenContractRaw = (nodes) => ({
+  const frozenContractRaw = ({ sizing, nodes }) => ({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
     contractVersion: CONTRACT_VERSION,
     id: `${campaignId}-${phase}`,
@@ -275,6 +284,12 @@ export async function runPlanningPipeline(options) {
     // `cwd` has to point back at the repo root from there, exactly like
     // `runStage` computes it for the nodes it writes under `plansDir/nodes/`.
     cwd: relative(plansDir, cwd) || ".",
+    // Sizing's `parallelisable` conclusion, which nothing else carries: a
+    // contract node has no `parallel` field, so a plan that says nothing here
+    // freezes at the validator's default of 1 and every independent node it
+    // proved waits for its turn. What the engine does with the number is the
+    // scheduler's business; declaring it is this stage's.
+    maxParallel: provenParallelism(sizing.plan),
     runtimes,
     runtimeDefaults,
     // The operator's ratchets, carried verbatim: which suites a repository
@@ -296,7 +311,11 @@ export async function runPlanningPipeline(options) {
       /** @type {PlanFindingOutput|null} */
       let invalidFindings = null;
       try {
-        findings = validateFindings(review.output.findings);
+        // Merged over what is still open, never substituted for it: a round's
+        // reviewer grades the plan in front of it and may simply not mention
+        // an objection the last round raised, which a plain assignment here
+        // threw away.
+        findings = mergeFindings(findings, validateFindings(review.output.findings));
       } catch (error) {
         // The review said nothing usable about the plan, so the plan cannot be
         // treated as clean: the malformed-output finding is critical and
@@ -306,7 +325,7 @@ export async function runPlanningPipeline(options) {
         findings = [...findings, invalidFindings];
       }
       // The contract this plan would freeze into is checked here, inside the
-      // round and after the review's findings replaced the previous round's,
+      // round and after the review's findings merged into the open ones,
       // because freeze runs after the last one: caught here, a plan that
       // cannot freeze still has a revise left to fix it. The failure is a
       // critical finding, never an auto-filled acknowledgement — scope
@@ -316,7 +335,7 @@ export async function runPlanningPipeline(options) {
       /** @type {PlanFindingOutput|null} */
       let freezeFailure = null;
       try {
-        validateContract(frozenContractRaw(assembleFrozenNodes(plan).nodes), join(plansDir, "contract.json"));
+        validateContract(frozenContractRaw(assembleFrozenNodes(plan)), join(plansDir, "contract.json"));
       } catch (error) {
         freezeFailure = invalidPlanFinding(`freeze-r${round}`, error);
         findings = [...findings, freezeFailure];
@@ -330,10 +349,12 @@ export async function runPlanningPipeline(options) {
         ...(invalidFindings === null ? {} : { invalid: invalidFindings.text }),
       });
     }
-    // The revise's write-drops land here — after the review above replaced
-    // `findings`, before the critical check below — so a drop survives into
-    // the same revise-or-contest decision a review finding reaches.
-    findings = [...findings, ...droppedWrites];
+    // The revise's write-drops land here — after the review above, before the
+    // critical check below — so a drop survives into the same
+    // revise-or-contest decision a review finding reaches. Merged by id: a
+    // drop the last round already carried and this revise made again is one
+    // finding, not two.
+    findings = mergeFindings(findings, droppedWrites);
     const criticalFindings = findings.filter((finding) => finding.severity === "critical");
     if (criticalFindings.length === 0) break;
     if (round === reviewRounds) return await contest(round);
@@ -359,7 +380,18 @@ export async function runPlanningPipeline(options) {
     // Null when the revise output was refused: there is no revised write set
     // to compare, and the refused-output finding already drives the round.
     droppedWrites = droppedWriteFindings(planBeforeRevise, plan);
-    logStage("revise", { round, runId: revise.contract.id, droppedWrites: droppedWrites.length, ...(invalid === null ? {} : { invalid: invalid.text }) });
+    // What the next round starts from: the findings this revise did not move
+    // the plan under. Everything else — a node it changed, a node it removed,
+    // and the pipeline's own shape findings, which the next round re-derives
+    // — is dropped here rather than carried forever.
+    findings = unresolvedFindings(findings, planBeforeRevise, plan);
+    logStage("revise", {
+      round,
+      runId: revise.contract.id,
+      droppedWrites: droppedWrites.length,
+      carriedFindings: findings.length,
+      ...(invalid === null ? {} : { invalid: invalid.text }),
+    });
   }
   // Reached only when no review round is configured (reviewRounds <= 0) and
   // the draft never validated: no revise exists to reach, so contested is the
@@ -371,7 +403,7 @@ export async function runPlanningPipeline(options) {
   // `nearly` is what this whole phase is about: an unanticipated failure
   // writes its stage line and takes the contested exit instead of leaving
   // pipeline.jsonl stopping between stages.
-  /** @type {{sizing: import("./sizing.mjs").SizingResult, routing: import("./routing.mjs").RoutingResult, nodes: JsonObject[]}|undefined} */
+  /** @type {AssembledPlan|undefined} */
   let assembled;
   /** @type {import("./freeze.mjs").FrozenPlan|undefined} */
   let frozen;
@@ -390,7 +422,7 @@ export async function runPlanningPipeline(options) {
     logStage("sizing", { transformations: assembled.sizing.transformations.length, nodeCount: assembled.sizing.plan.nodes.length, overheadMinutes: assembled.sizing.estimate.overheadMinutes });
     logStage("routing", { assignments: Object.keys(assembled.routing.assignments).length });
     highestRiskTier = highestOf(assembled.sizing.plan.nodes.map((node) => node.riskTier ?? RISK_TIERS[0]));
-    frozen = freezePlan(frozenContractRaw(assembled.nodes), {
+    frozen = freezePlan(frozenContractRaw(assembled), {
       outDir: plansDir,
       provenance: {
         targetGitHead: repoFacts.gitHead,
@@ -506,6 +538,59 @@ function invalidPlanFinding(label, error) {
   const text = error instanceof Error ? error.message : String(error);
   const guided = text.startsWith(SCOPE_CLOSURE_MESSAGE_PREFIX) ? `${text} ${SCOPE_CLOSURE_RESOLUTION}` : text;
   return { id: `plan-shape-${label}`, severity: "critical", nodeId: "plan", text: guided };
+}
+
+/**
+ * `incoming` merged over `carried`, keyed by finding id. A finding both
+ * rounds raise is the newer reviewer's own re-judgement of the same
+ * objection, severity included, so it replaces the carried copy instead of
+ * duplicating it — this merge never rewrites a severity of its own. Carried
+ * findings keep their order and come first, so the oldest outstanding
+ * objection is at the top of the file the reviser reads.
+ *
+ * @param {PlanFindingOutput[]} carried
+ * @param {PlanFindingOutput[]} incoming
+ * @returns {PlanFindingOutput[]}
+ */
+function mergeFindings(carried, incoming) {
+  const merged = new Map(carried.map((finding) => [finding.id, finding]));
+  for (const finding of incoming) merged.set(finding.id, finding);
+  return [...merged.values()];
+}
+
+/**
+ * The findings still open against the plan a revise produced. A review round
+ * is under no obligation to repeat what the last one found, so replacing the
+ * finding set each round silently drops any objection the new reviewer is
+ * quiet about: a spike run froze a plan carrying a defect round 1 had named
+ * and round 2 did not repeat, and the worker refused the packet with
+ * context_missing.
+ *
+ * What counts as resolved is read off the two plans, never off the reviewer's
+ * silence. A finding whose node the revise removed is moot. A finding whose
+ * node the revise changed at all was acted on — the next review grades the
+ * changed node and can object again in its own words. A finding against a
+ * node the revise left identical was not addressed, and stays open. That rule
+ * is also what keeps a carried finding from making convergence impossible:
+ * every one of them clears the moment the reviser touches the node it names,
+ * so a plan that answers its objections still freezes inside the round
+ * budget, and a plan that does not still ends contested at it. A finding
+ * naming no node of the plan — the pipeline's own `nodeId: "plan"` shape and
+ * freeze failures — is re-derived from scratch by the next round's pre-flight,
+ * so carrying it would double it.
+ *
+ * @param {PlanFindingOutput[]} findings everything open at the end of the round
+ * @param {PlanOutput|null} previousPlan the plan the revise revised
+ * @param {PlanOutput|null} revisedPlan the plan the revise produced, null when its output was refused
+ * @returns {PlanFindingOutput[]}
+ */
+export function unresolvedFindings(findings, previousPlan, revisedPlan) {
+  // No revised plan to measure against: the refused-output finding drives the
+  // next round and everything raised so far is still outstanding.
+  if (!revisedPlan) return findings;
+  const before = new Map((previousPlan?.nodes ?? []).map((node) => [node.id, stableJson(node)]));
+  const after = new Map(revisedPlan.nodes.map((node) => [node.id, stableJson(node)]));
+  return findings.filter((finding) => after.has(finding.nodeId) && before.get(finding.nodeId) === after.get(finding.nodeId));
 }
 
 /**
