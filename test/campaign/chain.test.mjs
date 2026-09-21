@@ -381,8 +381,14 @@ test("done-when 10c: a stale heartbeat is taken over through the CLI, terminatin
     const done = closeResult(child);
     try {
       assert.equal(await waitForCoordinatorLock(campaignPath, childPid), childPid, "the invocation acquired the previous holder's lock");
-      await holderDone;
-      assert.equal(readFileSync(marker, "utf8"), "SIGTERM\n", "exactly one SIGTERM terminated the previous group");
+      const ended = await holderDone;
+      // How the previous group ends is what the platform offers. POSIX
+      // delivers SIGTERM and the holder records it; Windows has only
+      // `taskkill /F`, which gives a console process no chance to run a
+      // handler, so there the proof is that the holder ended at all.
+      // guard-exempt: host-layout only a POSIX holder can record its own signal
+      if (process.platform === "win32") assert.notEqual(ended.code ?? ended.signal, null, "the previous group was terminated");
+      else assert.equal(readFileSync(marker, "utf8"), "SIGTERM\n", "exactly one SIGTERM terminated the previous group");
     } finally {
       child.kill("SIGTERM");
       await done;
