@@ -23,6 +23,7 @@ import { runValidateGolden, runVerifyFixtures } from "./golden.mjs";
 import { EVALS_ROOT, UsageError, usageError } from "./paths.mjs";
 import { applyPlanDiscriminator, runPlanCase } from "./plan-case.mjs";
 import { plannerArm, qualifyingSessionCampaigns, sessionArm } from "./planner/arm.mjs";
+import { resilienceCases } from "./resilience.mjs";
 
 /** The repository root, one level above `evals/`, that the comparative arm reads every campaign record under. */
 const REPO_ROOT = resolve(EVALS_ROOT, "..");
@@ -48,6 +49,10 @@ const CLI_OPTIONS = {
  * keeps meaning the contract-driven cases it always named; `planner` names the
  * command-driven ones, the expensive class this runner used to execute
  * unfiltered under `--class deterministic` on every pull request.
+ *
+ * `resilience` is deliberately absent: its cases are generated from the
+ * engine's failure-policy declarations (`evals/resilience.mjs`) rather than
+ * discovered from disk, so it has no case kind to match here.
  *
  * @type {Record<string, "contract" | "command">}
  */
@@ -523,33 +528,43 @@ async function main(argv) {
     return;
   }
 
-  if (values.class === undefined && values.case === undefined && !verifyDiscriminatingFlag) {
+  const className = /** @type {string|undefined} */ (values.class);
+  if (className === undefined && values.case === undefined && !verifyDiscriminatingFlag) {
     usageError("one of --class or --case is required");
     return;
   }
-  if (values.class !== undefined && values.case !== undefined) {
+  if (className !== undefined && values.case !== undefined) {
     usageError("use --class or --case, not both");
     return;
   }
-  if (values.class !== undefined && CLASS_KINDS[/** @type {string} */ (values.class)] === undefined) {
-    usageError(`unknown --class: ${values.class} (known: ${Object.keys(CLASS_KINDS).join(", ")})`);
+  if (className !== undefined && className !== "resilience" && CLASS_KINDS[className] === undefined) {
+    usageError(`unknown --class: ${className} (known: ${Object.keys(CLASS_KINDS).join(", ")}, resilience)`);
     return;
   }
 
-  let caseIds = discoverCaseIds();
-  if (values.case !== undefined) {
-    if (!caseIds.includes(/** @type {string} */ (values.case))) {
-      usageError(`unknown --case: ${values.case}`);
-      return;
+  // The resilience class is generated, not discovered: evals/resilience.mjs
+  // enumerates one case per failure class the engine's own policy tables
+  // declare, so the class tracks those declarations instead of a checked-in
+  // copy of them. There is no case.json on disk for discoverCaseIds to find.
+  /** @type {{caseDir: string, spec: Record<string, unknown>, expected: Record<string, unknown>}[]} */
+  let loaded;
+  if (className === "resilience") {
+    loaded = resilienceCases();
+  } else {
+    let caseIds = discoverCaseIds();
+    if (values.case !== undefined) {
+      if (!caseIds.includes(/** @type {string} */ (values.case))) {
+        usageError(`unknown --case: ${values.case}`);
+        return;
+      }
+      caseIds = [/** @type {string} */ (values.case)];
     }
-    caseIds = [/** @type {string} */ (values.case)];
+    loaded = caseIds.map((id) => loadCase(id));
+    // `--class` scopes everything a run selects: the pass run and
+    // `--verify-discriminating` alike, so the nightly workflow can carry the
+    // planner class without it leaking back into an unscoped call.
+    if (className !== undefined) loaded = casesOfClass(loaded, className);
   }
-
-  let loaded = caseIds.map((id) => loadCase(id));
-  // `--class` scopes everything a run selects: the pass run and
-  // `--verify-discriminating` alike, so the nightly workflow can carry the
-  // planner class without it leaking back into an unscoped call.
-  if (values.class !== undefined) loaded = casesOfClass(loaded, /** @type {string} */ (values.class));
   // Cases run one at a time: a step's env overlay and a synthesized
   // controller.lock both mutate process-global state, which parallel cases
   // would otherwise race on and corrupt.

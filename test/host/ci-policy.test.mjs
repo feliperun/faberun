@@ -109,19 +109,33 @@ test("ci.yml keeps the deterministic class as the only eval suite on the merge p
   for (const step of evalSteps) assert.match(step, /--class deterministic/);
 });
 
-test("nightly.yml runs the expensive class on a schedule and nothing else triggers it", () => {
+test("nightly.yml runs the expensive classes on a schedule and nothing else triggers it", () => {
   const nightly = read(".github/workflows/nightly.yml");
   assert.match(nightly, /schedule:/);
   assert.match(nightly, /cron:/);
   // Only schedule and manual dispatch: a nightly workflow that also ran on
-  // push or PR events would put the expensive class right back on the merge
-  // path, which is exactly what the schedule exists to keep it off.
+  // push or PR events would put the expensive classes right back on the merge
+  // path, which is exactly what the schedule exists to keep them off.
   assert.doesNotMatch(nightly, /push:|pull_request:|merge_group:/);
   const evalSteps = runSteps(nightly).filter((step) => step.startsWith("node evals/run.mjs"));
-  assert.ok(evalSteps.length >= 2, `expected the two eval steps, got ${evalSteps.length}`);
+  assert.ok(evalSteps.length >= 3, `expected the three eval steps, got ${evalSteps.length}`);
   for (const step of evalSteps) {
-    assert.match(step, /--class planner/);
     assert.doesNotMatch(step, /--class deterministic/);
+    assert.match(step, /--class (planner|resilience)/);
+  }
+  // Both expensive classes are named on the schedule: naming them is what
+  // keeps an expensive class from drifting back onto the merge path inside
+  // an unscoped call.
+  for (const className of ["planner", "resilience"]) {
+    assert.ok(
+      evalSteps.some((step) => step.includes(`--class ${className}`)),
+      `no nightly eval step runs --class ${className}`,
+    );
+  }
+  // The resilience class's whole point is that no recovery path reaches a
+  // provider, so its scheduled step carries the runner's assertion.
+  for (const step of evalSteps.filter((step) => step.includes("--class resilience"))) {
+    assert.match(step, /--assert-no-model/);
   }
 });
 
