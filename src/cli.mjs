@@ -122,6 +122,7 @@ export const COMMAND_OPTIONS = {
     "approve-below": { type: "string" },
     "runtime-defaults": { type: "string" },
     runtimes: { type: "string" },
+    verification: { type: "string" },
     detach: { type: "boolean" },
     json: { type: "boolean" },
   },

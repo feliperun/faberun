@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { initializeCampaign } from "../../src/campaign/index.mjs";
 import { readJournal } from "../../src/campaign/journal.mjs";
-import { loadRuntimesCatalogue } from "../../src/cli/plan.mjs";
+import { loadRuntimesCatalogue, loadVerificationSuites } from "../../src/cli/plan.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { runProgress } from "../../src/engine/supervise.mjs";
 import { runPlanningPipeline } from "../../src/plan/pipeline.mjs";
@@ -298,6 +298,83 @@ test("--runtimes rejects a catalogue entry that fails runtime validation", () =>
   const runtimesPath = join(cwd, "runtimes.json");
   writeFileSync(runtimesPath, JSON.stringify({ "planner-worker": { harness: "not-a-real-harness" } }));
   assert.throws(() => loadRuntimesCatalogue(runtimesPath));
+});
+
+test("--verification loads a suites file, which the frozen contract carries end to end", async () => {
+  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("verification-demo");
+  const verificationPath = join(cwd, "verification.json");
+  writeFileSync(verificationPath, JSON.stringify({
+    sharedVerification: [{ argv: ["node", "--eval", "process.exit(0)"], timeoutSec: 10 }],
+    finalVerification: [{ argv: ["git", "diff", "--quiet"] }],
+  }, null, 2));
+
+  // The loader returns the normalized command shape validateContract applies,
+  // so the suites land in the contract exactly as a hand-authored one carries
+  // them.
+  const loaded = loadVerificationSuites(verificationPath);
+  assert.deepEqual(loaded, {
+    sharedVerification: [{ argv: ["node", "--eval", "process.exit(0)"], timeoutSec: 10, repeat: 1, env: [] }],
+    finalVerification: [{ argv: ["git", "diff", "--quiet"], timeoutSec: 120, repeat: 1, env: [] }],
+  });
+
+  const result = await runPlanningPipeline({
+    specPath: join(cwd, "docs/spec.md"),
+    campaignId,
+    phase: "build",
+    cwd,
+    runtimes,
+    runtimeDefaults,
+    verification: loaded,
+    launch,
+    wait,
+  });
+  assert.equal(result.status, "frozen");
+  assert.deepEqual(result.warnings, []);
+  const contract = JSON.parse(readFileSync(result.contractPath, "utf8"));
+  assert.deepEqual(contract.sharedVerification, loaded.sharedVerification);
+  assert.deepEqual(contract.finalVerification, loaded.finalVerification);
+});
+
+test("freezing without either verification suite warns, and the contract carries no ratchet", async () => {
+  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("unratcheted-demo");
+  const result = await runPlanningPipeline({
+    specPath: join(cwd, "docs/spec.md"),
+    campaignId,
+    phase: "build",
+    cwd,
+    runtimes,
+    runtimeDefaults,
+    launch,
+    wait,
+  });
+  assert.equal(result.status, "frozen");
+  assert.equal(result.warnings.length, 1);
+  assert.match(result.warnings[0], /neither sharedVerification nor finalVerification/);
+  assert.match(result.warnings[0], /--verification/);
+  const contract = JSON.parse(readFileSync(result.contractPath, "utf8"));
+  assert.equal(contract.sharedVerification, undefined);
+  assert.equal(contract.finalVerification, undefined);
+});
+
+test("--verification rejects a suites file that is not valid JSON", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "plan-pipeline-bad-verification-"));
+  const verificationPath = join(cwd, "verification.json");
+  writeFileSync(verificationPath, "not json");
+  assert.throws(() => loadVerificationSuites(verificationPath), /not valid JSON/);
+});
+
+test("--verification rejects a suite entry that fails command validation", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "plan-pipeline-bad-verification-entry-"));
+  const verificationPath = join(cwd, "verification.json");
+  writeFileSync(verificationPath, JSON.stringify({ sharedVerification: [{ argv: [] }] }));
+  assert.throws(() => loadVerificationSuites(verificationPath), /sharedVerification/);
+});
+
+test("--verification rejects a key that is not a contract suite", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "plan-pipeline-bad-verification-key-"));
+  const verificationPath = join(cwd, "verification.json");
+  writeFileSync(verificationPath, JSON.stringify({ sharedVerifcation: [{ argv: ["true"] }] }));
+  assert.throws(() => loadVerificationSuites(verificationPath), /must carry only sharedVerification and finalVerification/);
 });
 
 test("contested plan writes no contract", async () => {

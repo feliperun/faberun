@@ -33,13 +33,15 @@ import { campaignTree, runDirectory } from "../run/paths.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
+/** @typedef {import("../contract/index.mjs").VerificationCommand} VerificationCommand */
+/** @typedef {{sharedVerification?: VerificationCommand[], finalVerification?: VerificationCommand[]}} VerificationSuites */
 /** @typedef {import("./template.mjs").PlanOutput} PlanOutput */
 /** @typedef {import("./template.mjs").PlanFindingOutput} PlanFindingOutput */
 /** @typedef {import("./sizing.mjs").PlanNode & {objective: string}} SizedPlanNode */
 /** @typedef {"standard"|"high"|"none"} ApproveBelow */
 /** @typedef {(contractPath: string, contract: ValidatedContract) => Promise<void>|void} LaunchFn */
 /** @typedef {(runDir: string) => Promise<import("../engine/supervise.mjs").RunProgress>|import("../engine/supervise.mjs").RunProgress} WaitFn */
-/** @typedef {{status: "frozen", plansDir: string, planPath: string, contractPath: string, approved: boolean, findings: PlanFindingOutput[]}} FrozenPipelineResult */
+/** @typedef {{status: "frozen", plansDir: string, planPath: string, contractPath: string, approved: boolean, findings: PlanFindingOutput[], warnings: string[]}} FrozenPipelineResult */
 /** @typedef {{status: "contested", plansDir: string, planPath: string, findings: PlanFindingOutput[], round: number}} ContestedPipelineResult */
 
 /**
@@ -76,13 +78,13 @@ export const DEFAULT_NODE_BUDGET_MS = 600_000;
 const APPROVE_BELOW_VALUES = new Set(["standard", "high", "none"]);
 
 /**
- * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, runtimes: Record<string, JsonObject>, launch: LaunchFn, wait: WaitFn}} options
+ * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, runtimes: Record<string, JsonObject>, verification?: VerificationSuites, launch: LaunchFn, wait: WaitFn}} options
  * @returns {Promise<FrozenPipelineResult|ContestedPipelineResult>}
  */
 export async function runPlanningPipeline(options) {
   const {
     specPath, campaignId, phase, runtimes, launch, wait,
-    reviewRounds = 2, runtimeDefaults = {},
+    reviewRounds = 2, runtimeDefaults = {}, verification = {},
   } = options;
   const approveBelow = /** @type {ApproveBelow} */ (options.approveBelow ?? "standard");
   if (!APPROVE_BELOW_VALUES.has(approveBelow)) throw new TypeError(`approveBelow must be one of ${[...APPROVE_BELOW_VALUES].join(", ")}`);
@@ -275,6 +277,12 @@ export async function runPlanningPipeline(options) {
     cwd: relative(plansDir, cwd) || ".",
     runtimes,
     runtimeDefaults,
+    // The operator's ratchets, carried verbatim: which suites a repository
+    // runs on every node is the operator's policy, supplied through
+    // `--verification`, never derived from repository facts. Validated at the
+    // flag boundary, so freeze neither re-derives nor edits them.
+    ...(verification.sharedVerification ? { sharedVerification: verification.sharedVerification } : {}),
+    ...(verification.finalVerification ? { finalVerification: verification.finalVerification } : {}),
     nodes,
   });
 
@@ -369,6 +377,14 @@ export async function runPlanningPipeline(options) {
   let frozen;
   /** @type {string|undefined} */
   let highestRiskTier;
+  // Warned at freeze, never refused: a plan for a repository with no ratchets
+  // is legitimate, an unnoticed one is not. Observed 2026-09-20 on the first
+  // contract this planner ever froze: it carried neither suite while the same
+  // ratchets, on hand-authored contracts, were catching copied helpers
+  // mid-run — and nothing said so.
+  const freezeWarnings = verification.sharedVerification || verification.finalVerification
+    ? []
+    : ["the frozen contract carries neither sharedVerification nor finalVerification, so no repository ratchet runs on its nodes and no final check closes the phase; pass --verification <file> if the target repository has ratchets every node must run"];
   try {
     assembled = assembleFrozenNodes(plan);
     logStage("sizing", { transformations: assembled.sizing.transformations.length, nodeCount: assembled.sizing.plan.nodes.length, overheadMinutes: assembled.sizing.estimate.overheadMinutes });
@@ -384,7 +400,7 @@ export async function runPlanningPipeline(options) {
         findings,
       },
     });
-    logStage("freeze", { contractId: `${campaignId}-${phase}`, highestRiskTier });
+    logStage("freeze", { contractId: `${campaignId}-${phase}`, highestRiskTier, ...(freezeWarnings.length ? { warnings: freezeWarnings } : {}) });
   } catch (error) {
     // The stage line the pipeline would otherwise have stopped short of, the
     // failure carried as the critical finding that names it, and the
@@ -433,7 +449,7 @@ export async function runPlanningPipeline(options) {
   }
   logStage("approval", { approved, approveBelow, highestRiskTier });
 
-  return { status: "frozen", plansDir, planPath, contractPath: join(plansDir, "contract.json"), approved, findings };
+  return { status: "frozen", plansDir, planPath, contractPath: join(plansDir, "contract.json"), approved, findings, warnings: freezeWarnings };
 }
 
 /**

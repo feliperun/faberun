@@ -58,6 +58,29 @@ test("the emitted contract.json validates", () => {
   assert.doesNotThrow(() => validateContract(raw, contractPath));
 });
 
+test("a frozen contract carries operator-supplied shared and final verification, digest included", () => {
+  const dir = outDir();
+  const plan = fixture({ id: "plan-fixture-ratchets", campaignId: "plan-fixture-campaign-ratchets" });
+  plan.sharedVerification = [{ argv: ["npm", "test"] }];
+  plan.finalVerification = [{ argv: ["git", "diff", "--quiet"] }];
+
+  freezePlan(plan, { outDir: dir, provenance: provenance() });
+
+  assert.equal(verifyFrozenPlan(dir).ok, true);
+  const contractPath = join(dir, "contract.json");
+  const raw = JSON.parse(readFileSync(contractPath, "utf8"));
+  assert.deepEqual(raw.sharedVerification, plan.sharedVerification);
+  assert.deepEqual(raw.finalVerification, plan.finalVerification);
+  assert.doesNotThrow(() => validateContract(raw, contractPath));
+
+  // The suites are contract content, not authoring-attention text: a suite
+  // edited after the freeze is a digest mismatch, like any other byte.
+  const tampered = JSON.parse(readFileSync(contractPath, "utf8"));
+  tampered.sharedVerification[0].argv = ["npm", "run", "test"];
+  writeFileSync(contractPath, JSON.stringify(tampered, null, 2));
+  assert.equal(verifyFrozenPlan(dir).ok, false);
+});
+
 test("a frozen plan phase declares requirements it satisfies and its one-sentence deliverable", () => {
   const dir = outDir();
   const plan = fixture({ id: "plan-fixture-phases", campaignId: "plan-fixture-campaign-phases" });

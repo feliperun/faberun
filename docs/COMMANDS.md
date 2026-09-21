@@ -546,7 +546,7 @@ Related: `faberun spec validate`.
 
 ## faberun plan
 ```text
-faberun plan <spec.md> [--campaign <value>] [--phase <value>] [--review-rounds <value>] [--approve-below <value>] [--runtime-defaults <value>] [--runtimes <value>] [--detach] [--json]
+faberun plan <spec.md> [--campaign <value>] [--phase <value>] [--review-rounds <value>] [--approve-below <value>] [--runtime-defaults <value>] [--runtimes <value>] [--verification <value>] [--detach] [--json]
 ```
 Run the planning pipeline outside the control session: draft, then review, then
 revise up to `--review-rounds` (default 2) whenever the reviewer's findings
@@ -567,6 +567,7 @@ approves everything, `none` approves nothing); an unapproved plan gets its own
 | `--approve-below` | `standard`, `high`, or `none` | The `riskTier` threshold below which a frozen plan is auto-approved. | `standard` |
 | `--runtime-defaults` | `worker=<id>,judge=<id>` | The operator's runtime instruction; wins over the routing table. | discovery |
 | `--runtimes` | path to a JSON file | A runtime catalogue in the contract's `runtimes` shape, validated the same way; replaces built-in discovery for every stage and the frozen contract. `--runtime-defaults` ids then resolve against it. | built-in discovery |
+| `--verification` | path to a JSON file | Verification suites in the contract's own shape — `sharedVerification`, `finalVerification`, either or both keys — validated the same way and carried verbatim into the frozen contract. A key that is not a contract suite is refused. | none — freezing with neither suite warns |
 | `--detach` | none | Spawn the whole pipeline detached and return once it starts. | off |
 | `--json` | none | Emit the pipeline's result object as one JSON line. | off |
 Reads `<spec.md>` and the target campaign's record; writes
