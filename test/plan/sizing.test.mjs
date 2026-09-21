@@ -290,9 +290,13 @@ function provenNode(id, writeFiles, extra = {}) {
 }
 
 test("underfilled-sibling merge: two small nodes in the same directory with no dependency between them become one; a different directory or a dependency keeps them apart", () => {
+  const a = provenNode("a", ["src/engine/a.mjs"], { expectedTurns: 30 });
+  a.taskPacket.scopeAcknowledged = ["test/engine/a.test.mjs"];
+  const b = provenNode("b", ["src/engine/b.mjs", "test/engine/b.test.mjs"], { expectedTurns: 45 });
+  b.taskPacket.scopeAcknowledged = ["test/engine/b.test.mjs", "test/engine/a.test.mjs"];
   const plan = { nodes: [
-    provenNode("a", ["src/engine/a.mjs"]),
-    provenNode("b", ["src/engine/b.mjs", "test/engine/b.test.mjs"]),
+    a,
+    b,
     provenNode("c", ["src/plan/c.mjs"]),
     provenNode("d", ["src/engine/d.mjs"], { dependsOn: ["a"] }),
   ] };
@@ -301,6 +305,9 @@ test("underfilled-sibling merge: two small nodes in the same directory with no d
   const merged = /** @type {import("../../src/plan/sizing.mjs").PlanNode} */ (sized.nodes.find((node) => node.id === "a"));
   assert.deepEqual(merged.taskPacket.writeFiles, ["src/engine/a.mjs", "src/engine/b.mjs", "test/engine/b.test.mjs"]);
   assert.deepEqual(merged.taskPacket.readFiles, ["docs/a.md", "docs/b.md"], "the merged node may read what either read");
+  assert.deepEqual(merged.taskPacket.scopeAcknowledged, ["test/engine/a.test.mjs", "test/engine/b.test.mjs"], "the merged node keeps the importers either node had acknowledged, so it does not fail scope closure for the fold");
+  assert.equal(merged.expectedTurns, 75, "the merged node expects both nodes' turns, so the over-cap flag reads two nodes' worth of work");
+  assert.equal(sized.nodes.find((node) => node.id === "c")?.taskPacket.scopeAcknowledged, undefined, "a node that was not folded gains no acknowledgement field");
   assert.equal(merged.objective, "Implement a Also: Implement b");
   assert.deepEqual(merged.definitionOfDone?.map((item) => item.id), ["a-done", "b-done"]);
   assert.ok(transformations.some((entry) => entry.rule === "underfilled-sibling-merge" && entry.nodes[0] === "b" && entry.nodes[1] === "a"));

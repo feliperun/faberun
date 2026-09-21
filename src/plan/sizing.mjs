@@ -145,6 +145,18 @@ function foldNodeInto(nodes, child, parent) {
   const parentReads = Array.isArray(parent.taskPacket.readFiles) ? /** @type {string[]} */ (parent.taskPacket.readFiles) : null;
   const childReads = Array.isArray(child.taskPacket.readFiles) ? /** @type {string[]} */ (child.taskPacket.readFiles) : [];
   if (parentReads !== null || childReads.length > 0) parent.taskPacket.readFiles = dedupe([...(parentReads ?? []), ...childReads]);
+  // The merged node inherits the importers either node had acknowledged and
+  // the turns both expected. Found 2026-09-21 in review with the
+  // state-location session: a fold that kept only the parent's
+  // acknowledgements sent the merged node to scope closure without the
+  // child's, so it failed for the fold rather than for the work, and the
+  // over-cap flag read one node's expectation for two nodes' worth of work.
+  const parentAcks = Array.isArray(parent.taskPacket.scopeAcknowledged) ? /** @type {string[]} */ (parent.taskPacket.scopeAcknowledged) : [];
+  const childAcks = Array.isArray(child.taskPacket.scopeAcknowledged) ? /** @type {string[]} */ (child.taskPacket.scopeAcknowledged) : [];
+  if (parentAcks.length > 0 || childAcks.length > 0) parent.taskPacket.scopeAcknowledged = dedupe([...parentAcks, ...childAcks]);
+  const parentTurns = typeof parent.expectedTurns === "number" ? parent.expectedTurns : null;
+  const childTurns = typeof child.expectedTurns === "number" ? child.expectedTurns : null;
+  if (parentTurns !== null || childTurns !== null) parent.expectedTurns = (parentTurns ?? 0) + (childTurns ?? 0);
   if (typeof parent.objective === "string" && typeof child.objective === "string" && child.objective !== parent.objective) {
     parent.objective = `${parent.objective} Also: ${child.objective}`;
   }
