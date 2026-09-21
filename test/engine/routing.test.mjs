@@ -54,7 +54,10 @@ test("preflight reports a missing credential by variable name only", async () =>
     assert.deepEqual(checks.map((check) => check.id), ["flash"]);
     assert.equal(checks[0].ok, false);
     assert.equal(checks[0].harness, "codex");
-    assert.match(checks[0].executable, /fake-codex-pass\.mjs$/u);
+    // The fixture is spawned by the file this host can run: the module on
+    // POSIX, the `.cmd` beside it on Windows — the shape npm installs a Node
+    // CLI as, and what `writeExecutable` hands back there.
+    assert.match(checks[0].executable, /fake-codex-pass\.(?:mjs|cmd)$/u);
     assert.equal(checks[0].model, "deepseek-v4-flash");
     assert.equal(checks[0].version, "fake-codex 1.0.0");
     assert.match(checks[0].detail ?? "", /missing environment variable DEEPSEEK_API_KEY/u);

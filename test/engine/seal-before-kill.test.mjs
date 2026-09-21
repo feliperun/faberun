@@ -344,7 +344,12 @@ setInterval(() => {}, 60_000);
     const sealedSha = state.worktree?.sealedSha;
     assert.ok(sealedSha, "the timeout sealed a non-empty attempt");
     assert.equal(git(repo, ["show", `${sealedSha}:README.md`]), "ordered-seal", "the seal holds the work as it was before the kill");
-    assert.equal(existsSync(join(worktree.path, "README.md")), false, "the provider's SIGTERM handler deleted the live file after the seal, proving the seal landed first");
+    // The deletion is the provider running its own SIGTERM handler, which is
+    // a POSIX proof: `taskkill /F` is the only ending Windows offers a
+    // console process, so nothing runs there on the way out. The sealed
+    // content asserted above is the ordering proof that holds on both.
+    // guard-exempt: host-layout only a POSIX provider runs a dying handler
+    if (process.platform !== "win32") assert.equal(existsSync(join(worktree.path, "README.md")), false, "the provider's SIGTERM handler deleted the live file after the seal, proving the seal landed first");
   } finally {
     if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
     else process.env.FABERUN_CODEX_BIN = previous;

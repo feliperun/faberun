@@ -11,7 +11,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runVerification } from "../../src/engine/run-command.mjs";
 
-test("a signal death is retried once and passes when the retry passes", async () => {
+/**
+ * A signal death is a POSIX outcome. Windows reports a process it terminated
+ * as an ordinary non-zero exit with no signal attached -- indistinguishable
+ * from a command that simply failed -- so there is nothing for the retry to
+ * recognize, and a retry that fired on the exit code alone would re-run
+ * genuinely failing verifications.
+ */
+const SIGNAL_DEATH_IS_POSIX = "a terminated process is an ordinary non-zero exit on Windows, with no signal to recognize";
+
+test("a signal death is retried once and passes when the retry passes", { skip: process.platform === "win32" ? SIGNAL_DEATH_IS_POSIX : false }, async () => {
   const cwd = mkdtempSync(join(tmpdir(), "runner-signal-death-"));
   const marker = join(cwd, "marker");
   const script = join(cwd, "once-killed.mjs");
@@ -33,7 +42,7 @@ process.kill(process.pid, "SIGKILL");
   assert.ok(existsSync(marker));
 });
 
-test("a second signal death fails the command", async () => {
+test("a second signal death fails the command", { skip: process.platform === "win32" ? SIGNAL_DEATH_IS_POSIX : false }, async () => {
   const cwd = mkdtempSync(join(tmpdir(), "runner-signal-death-twice-"));
   const script = join(cwd, "always-killed.mjs");
   writeFileSync(script, `process.kill(process.pid, "SIGKILL");\n`);

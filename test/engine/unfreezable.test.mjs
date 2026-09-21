@@ -177,7 +177,14 @@ test("done-when 3: a timed-out command leaves no surviving member of its process
 // done-when 4: bounded synchronous git returns by its timeout, both paths.
 // ---------------------------------------------------------------------------
 
-test("done-when 4: a synchronous git blocked on a held index lock returns by its timeout with a named error", { timeout: 15_000 }, () => {
+// The blocking git this fixture needs is a script on PATH, and no Windows
+// host can hold one: node refuses to spawn a `.cmd` (EINVAL, the
+// argument-injection fix) and an extensionless shell script is not an
+// executable there at all, so nothing stands in for a git that hangs. The
+// bound itself is the spawnSync timeout and is not platform-shaped.
+const BLOCKING_GIT_IS_POSIX = "no name on a Windows PATH can stand in for a git that blocks";
+
+test("done-when 4: a synchronous git blocked on a held index lock returns by its timeout with a named error", { timeout: 15_000, skip: process.platform === "win32" ? BLOCKING_GIT_IS_POSIX : false }, () => {
   const directory = tempDir("git");
   writeFileSync(join(directory, "seed.txt"), "seed\n");
   initializeGit(directory);

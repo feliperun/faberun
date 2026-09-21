@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { initializeCampaign, registerRun } from "../../src/campaign/index.mjs";
 import { BRIEF_FILE } from "../../src/campaign/layout.mjs";
 import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
+import { writeExecutable } from "../helpers.mjs";
 
 // runsRoot registers every resolved path under $FABERUN_HOME; these fixtures
 // resolve through it without the shared helpers, so the home is always a
@@ -39,7 +40,6 @@ function fakeTmux(directory, options = {}) {
   const log = options.log ?? join(directory, "tmux.log");
   const windows = (options.windows ?? []).map((row) => row.join("\t")).join("\n");
   const script = [
-    `#!${process.execPath}`,
     'import { appendFileSync } from "node:fs";',
     "const args = process.argv.slice(2);",
     `appendFileSync(${JSON.stringify(log)}, args.join(" ") + "\\n");`,
@@ -47,9 +47,10 @@ function fakeTmux(directory, options = {}) {
     `if (args[0] === "list-windows") process.stdout.write(${JSON.stringify(windows ? `${windows}\n` : "")});`,
     "process.exit(0);",
   ].join("\n");
-  writeFileSync(path, `${script}\n`);
-  chmodSync(path, 0o755);
-  return { path, log };
+  // Written as the file this host can run and find by name: the module with a
+  // shebang on POSIX, a `.cmd` beside it on Windows — the same shape the seat
+  // resolves off PATH there.
+  return { path: writeExecutable(path, `${script}\n`), log };
 }
 
 /**
