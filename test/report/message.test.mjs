@@ -42,7 +42,7 @@ test("the estimate ignores a running node's partial span", () => {
   ]);
   try {
     const message = renderRunProgress(runDir, { type: "node.terminal", runId: "report-progress", nodeId: "one", status: "done", attempt: 1 });
-    assert.match(message, /next two ~2m$/mu);
+    assert.match(message, /running two ~2m$/mu, "the unsettled node is running, so it is named running, with the estimate beside it");
     assert.doesNotMatch(message, /h\d/u, "no hour-scale estimate leaked in from the running node's partial span");
   } finally {
     rmSync(runDir, { recursive: true, force: true });
@@ -216,7 +216,7 @@ test("a run message lists what each node delivered in one sentence each, totals 
     assert.match(message, /^   • one — First node shipped the schema\.$/mu, "one sentence per node, the first, never the whole summary");
     assert.match(message, /^   • two — Second node shipped the migration\.$/mu);
     assert.match(message, /^   proof  2 checks green · 1 judge passes · 1 revisions$/mu);
-    assert.match(message, /^💸 /mu, "tokens appear on the milestone, not on every node");
+    assert.doesNotMatch(message, /^💸 /mu, "no role metered a token in this fixture, so the tokens line is left out rather than printed as dashes");
     assert.match(message, /^──────────────────────────────$/mu);
     assert.match(message, /^🐦 faberun · /mu);
   } finally {
@@ -243,6 +243,28 @@ test("a node that passed its checks and its judge says so in the proof line, in 
     assert.match(message, /^✅ one · done in 8m · \$-$/mu);
     assert.match(message, /^   proof  3 checks green · judge pass · 1 revisions$/mu);
     assert.match(message, /^▰▰▰▰▰▰▰▰▰▰ 1\/1 nodes · complete$/mu);
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("a run that delivered nothing says so, meters no tokens, and a node still running is named running, not next", () => {
+  const { runDir } = makeRun([
+    { id: "one", phase: "p", status: "blocked", startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", error: { code: "context_missing", message: "the worker asked for schema.sql" }, result: { status: "blocked_context", summary: "need the schema", verification: [], artifacts: [], missingContext: ["schema.sql"] } },
+    { id: "two", phase: "p", status: "running", startedAt: "2026-01-01T00:01:00.000Z", updatedAt: "2026-01-01T00:02:00.000Z" },
+  ]);
+  try {
+    const run = renderRunProgress(runDir, { type: "run.terminal", runId: "report-progress" });
+    assert.match(run, /^🏁 run report-progress · 0\/2 done · 2m · \$- · 1 needs you$/mu);
+    assert.match(run, /^📦 delivered\n   nothing delivered$/mu);
+    assert.doesNotMatch(run, /^💸 /mu, "no metered token, no tokens line");
+
+    const node = renderRunProgress(runDir, { type: "node.terminal", runId: "report-progress", nodeId: "one", status: "blocked" });
+    assert.match(node, /^⛔ one · blocked after 1m · \$- · context_missing$/mu);
+    assert.match(node, /^▱▱▱▱▱▱▱▱▱▱ 0\/2 nodes · running two ~1m$/mu, "the unsettled node is running, so it is not 'next'; the estimate still comes from the settled span");
+
+    const forced = renderRunProgress(runDir, { type: "node.terminal", runId: "report-progress", nodeId: "two", status: "running" });
+    assert.match(forced, /^▶️ two · running · \$-$/mu, "an event forced on a running node never claims it is done");
   } finally {
     rmSync(runDir, { recursive: true, force: true });
   }

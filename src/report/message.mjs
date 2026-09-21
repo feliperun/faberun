@@ -127,7 +127,10 @@ function nodeTerminal(view) {
   const snapshot = snapshots.get(subject.id) ?? {};
   const model = subject.workerRuntime ? ` · ${modelName(subject.workerRuntime)}` : "";
   const error = subject.errorCode && !SUCCESS.has(subject.status) ? ` · ${subject.errorCode}` : "";
-  const headline = `${OUTCOME[subject.status] ?? "❔"} ${subject.id} · ${label(OUTCOME_LABEL[subject.status] ?? "doneIn")} ${shortSpan(subject)} · ${formatUsd(subject.costUsd)}${model}${error}`;
+  const ending = QUIET_STATES.has(subject.status) && !SUCCESS.has(subject.status)
+    ? label(subject.status === "running" ? "running" : "pending")
+    : `${label(OUTCOME_LABEL[subject.status] ?? "doneIn")} ${shortSpan(subject)}`;
+  const headline = `${OUTCOME[subject.status] ?? "❔"} ${subject.id} · ${ending} · ${formatUsd(subject.costUsd)}${model}${error}`;
   const pad = padder(label, ["asked", "did", "proof"]);
   return [
     headline,
@@ -158,6 +161,7 @@ function runTerminal(view) {
   const delivered = nodes.filter((node) => SUCCESS.has(node.status));
   const bullets = delivered.slice(0, DELIVERED_MAX_NODES).map((node) => `   • ${node.id} — ${firstSentence(workerSummary(snapshots.get(node.id) ?? {}) ?? label("noSummary"))}`);
   if (delivered.length > DELIVERED_MAX_NODES) bullets.push(`   • +${delivered.length - DELIVERED_MAX_NODES} ${label("more")}`);
+  if (!bullets.length) bullets.push(`   ${label("nothingDelivered")}`);
 
   let checks = 0;
   let judgePasses = 0;
@@ -180,7 +184,8 @@ function runTerminal(view) {
   if (campaign) {
     lines.push(`${bar(campaign.percentDone / 100)} ${campaign.id} ${campaign.percentDone}% · ${campaign.phasesDone}/${campaign.phasesTotal} ${label("phases")} · ${formatUsdCompact(campaign.costTotalUsd)} · ${shortDuration(campaign.elapsedMs)}`);
   }
-  lines.push(tokensLine(view));
+  const tokens = tokensLine(view);
+  if (tokens) lines.push(tokens);
   return lines;
 }
 
@@ -224,7 +229,7 @@ function phaseLine(view) {
   let tail = "";
   if (next) {
     const eta = remainingEstimateMs(phaseNodes, phaseNodes);
-    tail = ` · ${label("next")} ${next.id}${eta ? ` ~${shortDuration(eta)}` : ""}`;
+    tail = ` · ${label(next.status === "running" ? "running" : "next")} ${next.id}${eta ? ` ~${shortDuration(eta)}` : ""}`;
   } else {
     const waiting = phaseNodes.filter((node) => !QUIET_STATES.has(node.status)).length;
     tail = waiting ? ` · ${waiting} ${label("waitingOnYou")}` : done === phaseNodes.length ? ` · ${label("complete")}` : "";
@@ -237,7 +242,7 @@ function phaseLine(view) {
  * cache share beside them: the number that says where a turn's money goes.
  *
  * @param {View} view
- * @returns {string}
+ * @returns {string|null} null when no role metered a token
  */
 function tokensLine(view) {
   const { roles } = view.payload;
@@ -247,8 +252,8 @@ function tokensLine(view) {
   const output = sum("outputTokens");
   const cache = sum("cacheReadInputTokens");
   const total = input + output + cache;
-  const share = total ? ` (${Math.round((cache / total) * 100)}%)` : "";
-  return `💸 ${compactTokens(input)} ${label("in")} · ${compactTokens(output)} ${label("out")} · ${compactTokens(cache)} ${label("cache")}${share}`;
+  if (!total) return null;
+  return `💸 ${compactTokens(input)} ${label("in")} · ${compactTokens(output)} ${label("out")} · ${compactTokens(cache)} ${label("cache")} (${Math.round((cache / total) * 100)}%)`;
 }
 
 /**
@@ -334,7 +339,7 @@ function whyLine(view, node, snapshot) {
   if (gate && gate.verdict !== "pass" && typeof findingText === "string") return `${label("judge")}: "${firstSentence(findingText)}"`;
   const error = /** @type {{message?: unknown}|null} */ (snapshot.error && typeof snapshot.error === "object" ? snapshot.error : null);
   const message = typeof error?.message === "string" && error.message.trim() ? ` — ${firstSentence(error.message)}` : "";
-  return `${label("error")}: ${node.errorCode ?? node.status}${message}`;
+  return node.errorCode ? `${label("error")}: ${node.errorCode}${message}` : `${label("state")}: ${node.status}${message}`;
 }
 
 /**

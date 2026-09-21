@@ -60,6 +60,10 @@ export function detectLanguage(...groups) {
 const LABELS = {
   en: {
     doneIn: "done in",
+    running: "running",
+    pending: "pending",
+    state: "state",
+    nothingDelivered: "nothing delivered",
     "no-op": "no-op after",
     failedAfter: "failed after",
     blockedAfter: "blocked after",
@@ -103,6 +107,10 @@ const LABELS = {
   },
   pt: {
     doneIn: "concluído em",
+    running: "rodando",
+    pending: "pendente",
+    state: "estado",
+    nothingDelivered: "nada entregue",
     "no-op": "sem mudança após",
     failedAfter: "falhou após",
     blockedAfter: "bloqueado após",
