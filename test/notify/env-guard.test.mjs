@@ -1,20 +1,24 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import "../setup.mjs";
+import { fixture, initializeGit, packet, writeContract } from "../helpers.mjs";
+import { nodeState } from "../runner-helpers.mjs";
+import { runContract } from "../../src/engine/scheduler.mjs";
 import { NOTIFY_BIN_ENV, NOTIFY_ENV_NAMES, withoutNotifyEnv } from "../../src/notify/index.mjs";
-import { NOTIFY_SESSION_ENV } from "../../src/notify/session.mjs";
+import { CLAUDE_SOCKET_ENV, CODEX_THREAD_ENV, NOTIFY_SESSION_ENV } from "../../src/notify/session.mjs";
 
 // The ratchet behind a defect that has now happened twice, once per variable:
 // a fixture controller inherited a live notify transport and delivered for
 // real -- FABERUN_NOTIFY_BIN to a phone (2026-09-16), FABERUN_NOTIFY_SESSION
 // to a live Claude Code session (2026-09-21, from the operator's own run,
 // whose worker ran test/repo/). Every name src/notify exports must be
-// neutralised at the suite boundary and stripped at the child boundary.
+// stripped at the child boundary (the gate that launches every provider) and
+// neutralised at the suite boundary.
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const setupPath = join(root, "test", "setup.mjs");
@@ -66,8 +70,65 @@ test("withoutNotifyEnv strips exactly the notify transports and copies everythin
   assert.deepEqual(stripped, { PATH: "/bin", FABERUN_HOME: "/h" });
 });
 
-test("the harness spawn passes its child an environment with no notify transport", () => {
-  const source = readFileSync(join(root, "src", "harnesses", "index.mjs"), "utf8");
-  assert.match(source, /env: withoutNotifyEnv\(process\.env\)/u, "a worker or judge never inherits a transport; the controller alone delivers");
-  assert.doesNotMatch(source, /env: process\.env,/u);
+test("the gate and the availability probe both strip from the one list, and neither names a variable on its own", () => {
+  const gate = readFileSync(join(root, "src", "engine", "gate.mjs"), "utf8");
+  assert.match(gate, /for \(const name of NOTIFY_ENV_NAMES\) delete merged\[name\];/u, "the gate strips the list, not a literal");
+  assert.doesNotMatch(gate, /delete merged\.FABERUN_NOTIFY_/u, "a literal here is the shape of the defect: one name guarded, the next one through");
+  const probe = readFileSync(join(root, "src", "harnesses", "index.mjs"), "utf8");
+  assert.match(probe, /env: withoutNotifyEnv\(process\.env\)/u);
+  assert.doesNotMatch(probe, /env: process\.env,/u);
+});
+
+test("a provider launched by the real gate sees no notify variable, even when the controller carries both: the path that flooded a live session", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "notify-gate-env-"));
+  writeFileSync(join(directory, "seed.txt"), "seed\n");
+  initializeGit(directory);
+  // An exec-jsonl provider that records which FABERUN_NOTIFY_* names reached
+  // it, then completes the node like the fixtures do. It records outside the
+  // repository so the run's own tree stays clean.
+  const providerDir = mkdtempSync(join(tmpdir(), "notify-gate-provider-"));
+  const seen = join(providerDir, "provider-env.json");
+  const provider = join(providerDir, "provider.mjs");
+  writeFileSync(provider, `#!${process.execPath}
+import { writeFileSync } from "node:fs";
+if (process.argv.includes("--version")) {
+  console.log("fake-jsonl 1.0.0");
+} else {
+  let input = "";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk) => { input += chunk; });
+  process.stdin.on("end", () => {
+    writeFileSync(${JSON.stringify(seen)}, JSON.stringify(Object.keys(process.env).filter((key) => key.startsWith("FABERUN_NOTIFY_")).sort()));
+    const result = JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
+    console.log(JSON.stringify({ schemaVersion: 1, type: "run.completed", result, continuationId: "fake-thread", usage: { inputTokens: 5, outputTokens: 2, cacheReadInputTokens: 0 } }));
+  });
+}
+`);
+  chmodSync(provider, 0o755);
+  const path = writeContract(directory, fixture({
+    id: "notify-gate-env-run",
+    pollIntervalMs: 10,
+    runtimeDefaults: { worker: "jsonl", judge: "jsonl" },
+    runtimes: { jsonl: { harness: "exec-jsonl", model: "fake", vendor: "exec-jsonl-worker", executable: provider } },
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
+  }));
+
+  // The controller runs in this process with the session transport bound, as
+  // the operator's run had it. Its own session addresses are removed so the
+  // controller resolves no session and wakes nobody while the test runs; the
+  // variable it must not hand down is what the provider records.
+  const saved = Object.fromEntries([NOTIFY_SESSION_ENV, CLAUDE_SOCKET_ENV, CODEX_THREAD_ENV].map((name) => [name, process.env[name]]));
+  process.env[NOTIFY_SESSION_ENV] = "auto";
+  delete process.env[CLAUDE_SOCKET_ENV];
+  delete process.env[CODEX_THREAD_ENV];
+  try {
+    const result = await runContract(path);
+    assert.equal(nodeState(result).status, "done");
+    assert.deepEqual(JSON.parse(readFileSync(seen, "utf8")), [], "the provider must see no FABERUN_NOTIFY_* name at all");
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  }
 });

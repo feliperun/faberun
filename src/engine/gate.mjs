@@ -30,6 +30,7 @@
 import { existsSync, readFileSync, statSync, openSync, closeSync, readSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import { spawn } from "node:child_process";
+import { NOTIFY_ENV_NAMES } from "../notify/index.mjs";
 
 /** @typedef {{executable: string, args: string[], cwd: string, promptTransport: "stdin"|"argv", harness: string, env: Record<string, string|null>|null, stdoutPath: string, stderrPath: string}} GateConfig */
 
@@ -155,9 +156,13 @@ function childEnv() {
     if (value === null) delete merged[key];
     else merged[key] = value;
   }
-  // Worker providers are not a notification surface: strip the controller-only
-  // transport after the harness overlay so no harness can reintroduce it.
-  delete merged.FABERUN_NOTIFY_BIN;
+  // Worker providers are not a notification surface: strip every controller-only
+  // transport after the harness overlay so no harness can reintroduce one. The
+  // list lives in `notify/index.mjs`, not here: this line once named
+  // FABERUN_NOTIFY_BIN alone, and on 2026-09-21 a worker that inherited
+  // FABERUN_NOTIFY_SESSION ran this repository's suite, whose fixture
+  // controllers woke the operator's live session seven times in minutes.
+  for (const name of NOTIFY_ENV_NAMES) delete merged[name];
   return merged;
 }
 
