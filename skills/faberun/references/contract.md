@@ -297,22 +297,19 @@ offered to a second node, so one session runs one turn.
 
 ## Gates
 
-`gate: false` skips review (`none`); the node still gets `maxRevisions`
-(default 1) fresh attempts after a red deterministic verification, and
-`{ enabled: false, maxRevisions: 0 }` makes the first red verification final.
-A gate object accepts `runtime` (judge override), `review`
-(`none`/`advisory`/`blocking`, default `advisory`), `failOn` (default
-`["critical"]`), `maxRevisions` (default 1).
-`advisory` records the verdict, findings and `maxSeverity` and still settles
-`done` on deterministic verification alone — it never consumes a revision or
-re-dispatches. `blocking` re-dispatches within `maxRevisions` when findings
+`gate: false` skips review; the node keeps `maxRevisions` (default 1) fresh
+attempts after a red verification, and `{ enabled: false, maxRevisions: 0 }`
+makes the first red one final. A gate object accepts `runtime` (the judge),
+`review` (`none`/`advisory`/`blocking`, default `advisory`), `failOn`
+(default `["critical"]`) and `maxRevisions`. `advisory` records the verdict
+and still settles `done` on deterministic verification alone, never
+re-dispatching; `blocking` re-dispatches within `maxRevisions` when findings
 reach `failOn`. Validation requires `critical` whenever `major` is in
 `failOn`, and `major` in `failOn` for a `blocking` gate: `["critical"]` alone
-passes every major finding, which is close to no gate.
+passes every major finding.
 
-The revision budget counts gate rejections, not worker starts; a resume or a
-crash-restart never consumes one (tracked separately as `attempt` vs.
-`revisions`). Deterministic `verification` commands run once by default
+The revision budget counts rejections, not worker starts; a resume or a
+crash-restart never consumes one. Deterministic `verification` commands run once by default
 before any judge and the judge reviews the recorded results, never
 re-running them (`repeat` opts into re-running a flaky check). A judge
 output is `pass` only with empty `findings` and `maxSeverity: none`; for
