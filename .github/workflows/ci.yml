@@ -64,9 +64,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+      # bash, not the pwsh a Windows runner defaults to: the steps below are
+      # the same strings the matrix above runs, and `test ! -e` is one of
+      # them. Git Bash is on every windows-latest image, and its $HOME is
+      # the same directory `os.homedir()` answers there.
       - run: npm ci
+        shell: bash
       - run: npm run check
+        shell: bash
       - run: npm run typecheck
+        shell: bash
       - run: npm test
+          && test ! -e "$HOME/.faberun"
+        shell: bash
       - run: node evals/run.mjs --class deterministic --assert-no-model
-      - run: node evals/run.mjs --verify-discriminating
+        shell: bash
+      - run: node evals/run.mjs --class deterministic --verify-discriminating
+        shell: bash

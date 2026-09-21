@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { initializeCampaign, registerRun } from "../../src/campaign/index.mjs";
 import { BRIEF_FILE } from "../../src/campaign/layout.mjs";
 import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
-import { writeExecutable } from "../helpers.mjs";
+import { writeExecutable } from "../write-executable.mjs";
 
 // runsRoot registers every resolved path under $FABERUN_HOME; these fixtures
 // resolve through it without the shared helpers, so the home is always a

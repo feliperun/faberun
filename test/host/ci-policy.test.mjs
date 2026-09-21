@@ -94,14 +94,10 @@ test("ci.yml carries a Windows job running the same commands as the required mat
   const windows = block(read(".github/workflows/ci.yml"), "windows");
   assert.match(windows, /runs-on:\s*windows-latest/);
   assert.deepEqual(matrixList(windows, "node"), ["22", "24"]);
-  assert.deepEqual(runSteps(windows), [
-    "npm ci",
-    "npm run check",
-    "npm run typecheck",
-    "npm test",
-    "node evals/run.mjs --class deterministic --assert-no-model",
-    "node evals/run.mjs --verify-discriminating",
-  ]);
+  // The same six steps as the required matrix, including the home-leak
+  // postcondition folded into `npm test`: a suite that escaped its scoped
+  // home would escape it on either platform.
+  assert.deepEqual(runSteps(windows), runSteps(block(read(".github/workflows/ci.yml"), "ci")));
   // The suite resolves each spec's baseline commit, which a shallow checkout
   // does not carry — the same reason the matrix above asks for full history.
   assert.match(windows, /fetch-depth:\s*0/);

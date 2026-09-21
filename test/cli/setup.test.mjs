@@ -10,7 +10,8 @@ import { readUserConfig, writeUserConfig } from "../../src/host/config.mjs";
 import { configPath, faberunHome } from "../../src/host/home.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS } from "../../src/engine/runtime-discovery.mjs";
 import { mergeExistingConfig, setupCommand } from "../../src/cli/setup.mjs";
-import { homeEnv, withEmptyPath, writeExecutable } from "../helpers.mjs";
+import { homeEnv, withEmptyPath } from "../helpers.mjs";
+import { writeExecutable } from "../write-executable.mjs";
 
 const BIN = fileURLToPath(new URL("../../bin/faberun.mjs", import.meta.url));
 

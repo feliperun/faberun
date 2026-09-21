@@ -15,7 +15,8 @@
  * file run on its own. `test/notify/env-guard.test.mjs` pins both, and pins
  * that every `FABERUN_NOTIFY_*` name `src/notify` exports is named here.
  */
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { writeExecutable } from "./write-executable.mjs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -28,7 +29,10 @@ delete process.env.FABERUN_NOTIFY_LANG;
 // A no-op transport rather than none: with the variable unset the outbox
 // records `no_transport`, and tests that assert a `delivered` receipt need a
 // transport that exists and exits 0 without doing anything.
+// Written the way this host runs one: a `.cmd` shim on Windows, where a
+// shebang is not a kernel feature and the transport would fail to spawn on
+// every delivery.
 const noop = join(mkdtempSync(join(tmpdir(), "runner-noop-notify-")), "noop-notify.mjs");
-writeFileSync(noop, `#!${process.execPath}\nprocess.stdin.resume();\nprocess.stdin.on("end", () => process.exit(0));\n`);
-chmodSync(noop, 0o755);
-process.env.FABERUN_NOTIFY_BIN = noop;
+process.env.FABERUN_NOTIFY_BIN = writeExecutable(noop, `process.stdin.resume();
+process.stdin.on("end", () => process.exit(0));
+`);

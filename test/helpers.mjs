@@ -1,4 +1,4 @@
-import { accessSync, chmodSync, constants, existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -6,34 +6,8 @@ import { initializeCampaign } from "../src/campaign/index.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../src/contract/index.mjs";
 import { createAttemptWorktree } from "../src/repo/worktree.mjs";
 import { RUNS_DIR_NAME, campaignTree, runsRoot } from "../src/run/paths.mjs";
+import { writeExecutable } from "./write-executable.mjs";
 import { gitArguments } from "../src/host/platform.mjs";
-
-/**
- * Write a stand-in binary the host can actually run, and answer with the path
- * to spawn it by.
- *
- * A shebang is a POSIX kernel feature. On Windows the same file spawns as
- * EFTYPE, which is why every fixture runtime here used to report "no version"
- * there — a `.cmd` beside the module is what that platform runs, and it is the
- * same shape npm installs a Node CLI as, so the suite exercises the spawn path
- * a real Windows machine takes.
- *
- * @param {string} path the module's path, ending in `.mjs` or bare
- * @param {string} body the program, without a shebang line
- * @returns {string} the path to spawn
- */
-export function writeExecutable(path, body) {
-  if (process.platform !== "win32") {
-    writeFileSync(path, `#!${process.execPath}\n${body}`);
-    chmodSync(path, 0o755);
-    return path;
-  }
-  const script = path.endsWith(".mjs") ? path : `${path}.mjs`;
-  writeFileSync(script, body);
-  const shim = `${path.replace(/\.mjs$/u, "")}.cmd`;
-  writeFileSync(shim, `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`);
-  return shim;
-}
 
 // The suite must never notify a person or wake a session; `./setup.mjs` is
 // the one place that neutralises every notify variable, and `npm test`
