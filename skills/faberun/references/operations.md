@@ -110,9 +110,14 @@ the contract is frozen with a digest, and the phone's middle ground is a note.
 ## Notify
 
 On `node.terminal`, `run.terminal` and `attention` the controller renders one
-message from persisted state (line one: `🐦 Faberun · node <id> ✅ done · phase
-2/3 · campaign 61% · $132.21 · needs you: 0`; then phase, campaign, cost,
-time and one sentence of the worker's own words, ≤2 KiB) and delivers that
+message from persisted state, in the operator's own language (detected from
+the campaign goal, journal notes and node objectives; English otherwise):
+line one is the outcome (`✅ <node> · done in 8m · $0.09`, `🏁 run 15 · <name>
+· 2/2 done`, or `👀 <node> needs you · <error>`), then asked / done / proof
+for a node, what every node delivered for a run, or why / asked / do for
+attention, then a progress bar, a rule and the `🐦 faberun` signature with
+campaign percent, cost and elapsed; an `⬆️` line names a newer release when
+the cached update check has one. ≤2 KiB. It delivers that
 same text to every bound transport at once, appending one receipt
 (`delivered`, `failed`, `no_transport`, one entry per transport) to
 `<run-dir>/notify.jsonl`. Delivery is lossy: **exactly one attempt**, no retry,
@@ -122,8 +127,8 @@ a person, `canWake: false`. `FABERUN_NOTIFY_SESSION=auto` wakes the harness
 session the controller was launched from, `canWake: true`: the Claude Code
 inbox socket and the Codex thread the environment names. A seat window sets it;
 nothing else does, so a test suite never wakes a session. **On an inbound
-`🐦 Faberun` message**: informational (`needs you: 0`), answer in one line and
-keep waiting; `👀` or a terminal run, act on the `decide:` command it names. A
+`🐦 faberun` message**: `✅` or `🏁` with nothing waiting, answer in one line
+and keep waiting; `👀`, act on the `do` command it names. A
 resume never re-sends a notification already recorded for the same node, attempt
 and outcome. No transport is a default: `doctor`, `preflight` and the foreground
 launch warn when both variables are empty, and `--wake` names what will wake.

@@ -56,11 +56,13 @@ const CONTRACT_BYTE_CEILING = 22075;
 // Raising it again needs the same argument.
 // Raised 2026-09-21 for the session-wake transport (`FABERUN_NOTIFY_SESSION`)
 // and the shape of the message it delivers: the new notification paragraph
-// costs 1,384 bytes and replaces 895 bytes of the previous one (the same
-// receipt, lossy-delivery and os-macos facts, restated once instead of
-// twice), so the ceiling moves by the net 489 bytes to the file's exact size
-// and nothing else. Raising it again needs the same argument.
-const OPERATIONS_BYTE_CEILING = 11432;
+// costs 1,733 bytes (the three message shapes, the operator-language rule,
+// the update line and how a session reacts to an inbound message) and
+// replaces 895 bytes of the previous one (the same receipt, lossy-delivery
+// and os-macos facts, restated once instead of twice), so the ceiling moves
+// by the net 838 bytes to the file's exact size and nothing else. Raising it
+// again needs the same argument.
+const OPERATIONS_BYTE_CEILING = 11781;
 const RULES_BYTE_CEILING = 2048;
 const ENGINEERING_BYTE_CEILING = 2048;
 const WORKFLOW_BYTE_CEILING = 2048;

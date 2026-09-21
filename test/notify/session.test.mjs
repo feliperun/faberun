@@ -181,7 +181,7 @@ test("the codex adapter queues the rendered text on the named thread through `co
 
   const unrendered = fakeCodexSpawn({ code: 0 });
   await createCodexSessionNotifier({ spawn: unrendered.spawn, env: {} }).deliver({ type: "attention", campaignId: "c", runId: "r", nodeId: "n" }, { kind: "codex", id: "codex-session", thread: "t" });
-  assert.equal(unrendered.calls[0].args.at(-1), "🐦 Faberun · attention · c · r · n", "an event that arrives unrendered still names itself");
+  assert.equal(unrendered.calls[0].args.at(-1), "🐦 faberun · attention · c · r · n", "an event that arrives unrendered still names itself");
 });
 
 test("deliverToSessions reports one outcome per target, each under its own id", async () => {

@@ -96,7 +96,8 @@ test("renderNotification: delegates to renderRunProgress for a real run, and bot
     renderRunProgress(result.runDir, event),
   ]);
   assert.equal(fromNotify, fromProgress, "renderNotification must render exactly what renderRunProgress renders, not a template of its own");
-  assert.match(fromNotify, /campaign test-campaign/u, "the primary path renders the rich, multi-line progress message, not the degraded template");
+  assert.match(fromNotify, /^🏁 run delegates-run · 1\/1 done · /mu, "the primary path renders the rich, multi-line progress message, not the degraded template");
+  assert.match(fromNotify, /^🐦 faberun · /mu);
 });
 
 test("NotifyQueue.enqueue reads the run's own status.json for the resume path and cost", async () => {

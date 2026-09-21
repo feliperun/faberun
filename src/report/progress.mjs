@@ -53,9 +53,27 @@ function spanMs(node) {
 }
 
 /** @param {{startedAt: string|null, updatedAt: string|null}} node @returns {string|null} */
-export function spanOf(node) {
+function spanOf(node) {
   const ms = spanMs(node);
   return ms === null ? null : formatDuration(ms);
+}
+
+/**
+ * The remaining-time estimate as a number, for a renderer that formats it its
+ * own way: `0` when nothing is left, `null` when nothing has settled to base
+ * it on, else the mean settled span times the unsettled count.
+ *
+ * @param {{status: string}[]} nodes
+ * @param {{status: string, startedAt: string|null, updatedAt: string|null}[]} spans
+ * @returns {number|null}
+ */
+export function remainingEstimateMs(nodes, spans) {
+  const unsettled = nodes.filter((node) => !SETTLED.has(node.status)).length;
+  if (!unsettled) return 0;
+  const settledSpans = spans.filter((node) => SETTLED.has(node.status)).map(spanMs).filter((ms) => ms !== null);
+  if (!settledSpans.length) return null;
+  const meanMs = settledSpans.reduce((total, ms) => total + /** @type {number} */ (ms), 0) / settledSpans.length;
+  return meanMs * unsettled;
 }
 
 /**
@@ -73,12 +91,11 @@ export function spanOf(node) {
  * @returns {string|null}
  */
 export function remainingEstimate(nodes, spans) {
-  const unsettled = nodes.filter((node) => !SETTLED.has(node.status)).length;
-  if (!unsettled) return "complete";
-  const settledSpans = spans.filter((node) => SETTLED.has(node.status)).map(spanMs).filter((ms) => ms !== null);
-  if (!settledSpans.length) return null;
-  const meanMs = settledSpans.reduce((total, ms) => total + /** @type {number} */ (ms), 0) / settledSpans.length;
-  return `~${formatDuration(meanMs * unsettled)} remaining (from ${settledSpans.length} settled node${settledSpans.length === 1 ? "" : "s"})`;
+  const ms = remainingEstimateMs(nodes, spans);
+  if (ms === 0) return "complete";
+  if (ms === null) return null;
+  const settled = spans.filter((node) => SETTLED.has(node.status) && spanMs(node) !== null).length;
+  return `~${formatDuration(ms)} remaining (from ${settled} settled node${settled === 1 ? "" : "s"})`;
 }
 
 /**

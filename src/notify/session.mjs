@@ -131,7 +131,7 @@ export function sessionWakeNotice(env = process.env) {
  */
 function messageText(event) {
   if (typeof event.summary === "string" && event.summary.trim()) return event.summary;
-  return ["🐦 Faberun", event.type, event.campaignId, event.runId, event.nodeId].filter((part) => typeof part === "string" && part).join(" · ");
+  return ["🐦 faberun", event.type, event.campaignId, event.runId, event.nodeId].filter((part) => typeof part === "string" && part).join(" · ");
 }
 
 /**

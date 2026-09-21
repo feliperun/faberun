@@ -351,9 +351,9 @@ test("runner notifies node.terminal and run.terminal only, never a running node"
   // wall-clock and not worth pinning) the worker's own summary line.
   for (const receipt of receipts) {
     const summary = /** @type {string} */ (receipt.summary);
-    assert.match(summary, /^🐦 Faberun · (node build|run progress-emission-run) ✅ done · phase 1\/1 · campaign 100% · /mu);
-    assert.match(summary, /^📦 phase fixture-phase-0 · 1\/1 nodes · 100% · complete$/mu);
-    assert.match(summary, /^💬 worker complete$/mu);
+    assert.match(summary, /^(✅ build · done in \d+s · |🏁 run progress-emission-run · 1\/1 done · )/mu);
+    assert.match(summary, /^▰▰▰▰▰▰▰▰▰▰ (1\/1 nodes · complete|test-campaign 100% · 1\/1 phases · )/mu);
+    assert.match(summary, /(^   done   worker complete$|^   • build — worker complete$)/mu);
   }
   assert.equal(receipts[0].nodeId, "build");
   assert.equal(receipts[0].nodeStatus, "done");
