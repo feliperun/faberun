@@ -441,6 +441,9 @@ test("run warns when a node id is already done in another run", async () => {
   const result = await withFakeCodex(directory, "pass", () =>
     spawnSync(process.execPath, [fileURLToPath(new URL("../../src/cli.mjs", import.meta.url)), "run", secondPath], {
       encoding: "utf8",
+      // The assertion below reads the literal `[warn]` token; force color off
+      // so an ambient FORCE_COLOR does not split it with escape codes.
+      env: { ...process.env, FORCE_COLOR: "0" },
     }),
   );
   assert.match(result.stdout, /\[warn\] node build is already done in run first-run/u);

@@ -68,14 +68,16 @@ test("ci.yml runs the required matrix on push to main and pull_request", () => {
   assert.deepEqual(matrixList(required, "node"), ["22", "24"]);
   // The deterministic eval class and its discriminator check are part of the
   // required matrix: a suite that only proves the cases pass, without proving
-  // they can fail, is half a proof (TECH-SPEC-2026-09-09 C1.1, c1.7).
+  // they can fail, is half a proof (TECH-SPEC-2026-09-09 C1.1, c1.7). Both
+  // eval steps name the deterministic class — the expensive planner class ran
+  // inside the unscoped calls until the nightly schedule took it.
   assert.deepEqual(runSteps(required), [
     "npm ci",
     "npm run check",
     "npm run typecheck",
     "npm test",
     "node evals/run.mjs --class deterministic --assert-no-model",
-    "node evals/run.mjs --verify-discriminating",
+    "node evals/run.mjs --class deterministic --verify-discriminating",
   ]);
 });
 
@@ -95,11 +97,76 @@ test("ci.yml carries a Windows job scoped to the install surface", () => {
   ]);
 });
 
+test("ci.yml keeps the deterministic class as the only eval suite on the merge path", () => {
+  const ci = read(".github/workflows/ci.yml");
+  // No nightly trigger on the merge-path workflow: the deterministic class
+  // blocks pull requests, and a scheduled run here would execute it twice.
+  assert.doesNotMatch(ci, /schedule:|cron:/);
+  // Both eval steps name the deterministic class: an unscoped eval run would
+  // silently pull the expensive planner class back onto every pull request.
+  const evalSteps = runSteps(block(ci, "ci")).filter((step) => step.startsWith("node evals/run.mjs"));
+  assert.ok(evalSteps.length >= 2, `expected the two eval steps, got ${evalSteps.length}`);
+  for (const step of evalSteps) assert.match(step, /--class deterministic/);
+});
+
+test("nightly.yml runs the expensive classes on a schedule and nothing else triggers it", () => {
+  const nightly = read(".github/workflows/nightly.yml");
+  assert.match(nightly, /schedule:/);
+  assert.match(nightly, /cron:/);
+  // Only schedule and manual dispatch: a nightly workflow that also ran on
+  // push or PR events would put the expensive classes right back on the merge
+  // path, which is exactly what the schedule exists to keep them off.
+  assert.doesNotMatch(nightly, /push:|pull_request:|merge_group:/);
+  const evalSteps = runSteps(nightly).filter((step) => step.startsWith("node evals/run.mjs"));
+  assert.ok(evalSteps.length >= 3, `expected the three eval steps, got ${evalSteps.length}`);
+  for (const step of evalSteps) {
+    assert.doesNotMatch(step, /--class deterministic/);
+    assert.match(step, /--class (planner|resilience)/);
+  }
+  // Both expensive classes are named on the schedule: naming them is what
+  // keeps an expensive class from drifting back onto the merge path inside
+  // an unscoped call.
+  for (const className of ["planner", "resilience"]) {
+    assert.ok(
+      evalSteps.some((step) => step.includes(`--class ${className}`)),
+      `no nightly eval step runs --class ${className}`,
+    );
+  }
+  // The resilience class's whole point is that no recovery path reaches a
+  // provider, so its scheduled step carries the runner's assertion.
+  for (const step of evalSteps.filter((step) => step.includes("--class resilience"))) {
+    assert.match(step, /--assert-no-model/);
+  }
+});
+
+test("nightly.yml answers a regression with an issue owned by name, blocking nothing", () => {
+  const nightly = read(".github/workflows/nightly.yml");
+  // An alert nobody owns is the failure mode, not a missing alert: the issue
+  // step declares its assignee in the workflow file itself.
+  assert.match(nightly, /issues:\s*write/);
+  assert.match(nightly, /if:\s*failure\(\)/);
+  assert.match(nightly, /gh issue create/);
+  assert.match(nightly, /--assignee feliperun/);
+});
+
 test("pr-policy.yml is scoped to main pull requests and merge groups", () => {
   const policy = read(".github/workflows/pr-policy.yml");
   assert.match(policy, /pull_request:\s*\n\s*branches:\s*\[main\]/);
   assert.match(policy, /merge_group:\s*\n\s*branches:\s*\[main\]/);
   assert.doesNotMatch(policy, /push:/);
+});
+
+test("pr-policy.yml revalidates when the body it reads changes", () => {
+  const policy = read(".github/workflows/pr-policy.yml");
+  // The squash-message job reads github.event.pull_request.body, and that body
+  // becomes the squash commit message. The default pull_request types --
+  // opened, synchronize, reopened -- omit `edited`, so a body approved once
+  // could be rewritten afterwards and the check stayed green on the old
+  // verdict: a gate reading a mutable value once is a photograph, not a gate.
+  // Measured 2026-09-21: the assertion above this one matches with or without
+  // the fix, which is exactly why it did not catch the defect.
+  const trigger = policy.slice(policy.indexOf("pull_request:"), policy.indexOf("merge_group:"));
+  assert.match(trigger, /types:\s*\[[^\]]*\bedited\b/u, "the pull_request trigger must list `edited`");
 });
 
 test("pr-policy.yml rejects a blank PR body", () => {

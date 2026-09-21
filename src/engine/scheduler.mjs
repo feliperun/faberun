@@ -463,23 +463,23 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
   // batched call it used to be, but the chain still runs them one at a time.
   // A settlement may itself dispatch the node's next phase (a judge, a
   // revision) through the same `startJudge`/`startWorker` calls dispatch below
-  // uses; those land in `slot`, not the real `running`, so they are copied
-  // back into `running` in a `finally` -- unconditionally, win or lose, so a
-  // job a settlement started before failing (a lost lock, a programmer error)
-  // is still visible to the cleanup sweeps below rather than leaked. The
-  // node's own steps stay ordered by never starting a second settlement for a
-  // node whose first has not yet cleared `pendingSettlements`.
+  // uses, so it is handed the real `running` to dispatch into: a job it starts
+  // is counted against `maxParallel` from the instant the process exists, and
+  // `applyRejection` reads that same map to decide whether the run has a slot
+  // for the revision at all. It used to dispatch into the throwaway one-entry
+  // map instead, copied back only once the settlement returned, which is how
+  // run state-location-and-routing-economics-13 came to hold two workers under
+  // `maxParallel: 1` on 2026-09-21. What it may *settle* is still only its own
+  // node: the one-entry map below is the job, not the run. The node's own
+  // steps stay ordered by never starting a second settlement for a node whose
+  // first has not yet cleared `pendingSettlements`.
   const settleClosedJobsInBackground = () => {
     for (const [nodeId, job] of [...running]) {
       if (pendingSettlements.has(nodeId) || !job.closed || invocationAlive(job.invocation)) continue;
       running.delete(nodeId);
-      const slot = new Map([[nodeId, job]]);
       const settlement = settlementQueue
-        .then(() => finalizeClosedJobs(contract, runDir, states, slot, lock, campaign.path))
-        .finally(() => {
-          for (const [settledId, settledJob] of slot) running.set(settledId, settledJob);
-          pendingSettlements.delete(nodeId);
-        });
+        .then(() => finalizeClosedJobs(contract, runDir, states, new Map([[nodeId, job]]), lock, campaign.path, running))
+        .finally(() => pendingSettlements.delete(nodeId));
       // The queue itself must never reject -- a rejected settlement (a lost
       // lock, a programmer error) would otherwise wedge every node queued
       // behind it. The rejection still reaches whoever awaits the real
@@ -635,20 +635,16 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
           // does, on the same per-run candidate ref and worktree
           // `settlementQueue` exists to serialize -- so it is dispatched the
           // same way: chained onto the queue rather than awaited here, using
-          // its own one-entry `slot` merged back into `running` in a
-          // `finally`. The node's own order is untouched (still one entry at
-          // a time, gated by `pendingSettlements`); only the tick stops
-          // waiting behind it.
+          // `running` itself as its dispatch map, so the judge it starts is
+          // counted the instant it exists. The node's own order is untouched
+          // (still one entry at a time, gated by `pendingSettlements`); only
+          // the tick stops waiting behind it.
           if (state.phase === "judge" && state.result) {
             const workerResult = state.result;
-            const slot = new Map();
             const settlement = settlementQueue
-              .then(() => startJudge(contract, node, state, runDir, slot, workerResult, lock, states, campaign.path))
-              .then((round) => applyJudgeRound(round, contract, node, state, runDir, slot, lock, states, campaign.path, workerResult))
-              .finally(() => {
-                for (const [settledId, settledJob] of slot) running.set(settledId, settledJob);
-                pendingSettlements.delete(node.id);
-              });
+              .then(() => startJudge(contract, node, state, runDir, running, workerResult, lock, states, campaign.path))
+              .then((round) => applyJudgeRound(round, contract, node, state, runDir, running, lock, states, campaign.path, workerResult))
+              .finally(() => pendingSettlements.delete(node.id));
             settlementQueue = settlement.catch(() => {});
             settlement.catch((error) => {
               if (!(error instanceof LockLostError) && backgroundSettlementFailure === null) backgroundSettlementFailure = error;

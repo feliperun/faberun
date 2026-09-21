@@ -1,0 +1,40 @@
+# The nightly schedule carries the expensive eval classes off the merge path:
+# ci.yml keeps the deterministic class blocking every pull request, and this
+# workflow runs the expensive classes once a day instead. A scheduled run blocks
+# nothing, so a regression here answers with an issue assigned to the declared
+# owner instead of trusting anyone to watch a dashboard.
+name: nightly
+
+on:
+  schedule:
+    # 03:30 UTC daily: off the windows where ci.yml runs cluster.
+    - cron: "30 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: node evals/run.mjs --class planner --assert-no-model
+      - run: node evals/run.mjs --class planner --verify-discriminating
+      # The resilience class exercises the failure-policy table; the assertion
+      # flag is what makes "no recovery path reaches a provider" a proof.
+      - run: node evals/run.mjs --class resilience --assert-no-model
+      - name: open an owned issue for the regression
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "nightly evals regressed ($(date -u +%Y-%m-%d))" \
+            --body "The nightly eval run failed: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. This blocks no pull request; the deterministic class still gates ci.yml." \
+            --assignee feliperun

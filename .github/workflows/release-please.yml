@@ -6,11 +6,14 @@
 # repository faberun, workflow release-please.yml. The package was first
 # created by an orchestrator reservation publish of 0.3.0.
 #
-# The release PR passes the existing gates untouched: the title
-# `chore(main): release X.Y.Z` is a Conventional Commit (type chore, scope
-# main) and release-please always writes a non-blank changelog body, so
-# pr-policy.yml's blank-body and commitlint checks both accept it. ci.yml
-# runs every commit in the release PR the same as any other PR.
+# No gate actually runs on the release PR. release-please-action opens and
+# updates it with the default `secrets.GITHUB_TOKEN`, and GitHub Actions never
+# triggers a new workflow run -- not ci.yml's pull_request trigger, not
+# pr-policy.yml's -- from an event caused by that token, to stop recursive
+# runs. Verified 2026-09-21: `gh pr checks` on three release PRs (#19, #20,
+# the open #22) each reported "no checks reported" -- the branch merges with
+# no CI or commitlint status of its own, on the strength of the commits
+# already being checked on their own PRs before they landed on `main`.
 name: release-please
 
 on:

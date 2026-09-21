@@ -8,19 +8,29 @@ import { judgePrompt } from "../../src/engine/prompts.mjs";
  * Node's test runner names the file it ran; when that file is outside the
  * node's declared write scope, the description must say so and say what to fix,
  * because no amount of worker code can change a test the packet withholds.
+ *
+ * Which fix depends on whose file it is, so every case below runs against a
+ * contract that declares one ratchet: a failure in the ratchet is the node's
+ * code to fix, and a failure anywhere else is the contract's scope to widen.
  */
+
+const RATCHET = "test/repo/source-shape.test.mjs";
+
+/** @type {Parameters<typeof verificationFailureVerdict>[0]} */
+const contract = { sharedVerification: [{ argv: ["node", "--test", RATCHET] }] };
 
 /**
  * @param {{files?: string[], roots?: string[], fileRoots?: string[]}} boundary
  * @param {string} stderr
- * @returns {Parameters<typeof verificationFailureVerdict>[0]}
+ * @param {string[]} [argv]
+ * @returns {Parameters<typeof verificationFailureVerdict>[1]}
  */
-function failedState(boundary, stderr) {
+function failedState(boundary, stderr, argv = ["node", "--test", "test/cli/cli.test.mjs"]) {
   return {
     scope: { boundary },
     verification: {
       commands: [{
-        argv: ["node", "--test", "test/cli/cli.test.mjs"],
+        argv,
         passed: false,
         attempts: [{ exitCode: 1, stdout: "", stderr }],
       }],
@@ -29,7 +39,7 @@ function failedState(boundary, stderr) {
 }
 
 test("verification failure names the undeclared test file", () => {
-  const verdict = verificationFailureVerdict(failedState(
+  const verdict = verificationFailureVerdict(contract, failedState(
     { files: ["src/cli.mjs"], roots: [], fileRoots: [] },
     "test at test/cli/cli.test.mjs:3:1\n",
   ));
@@ -47,8 +57,48 @@ test("verification failure names the undeclared test file", () => {
   assert.match(finding.evidence, /exit=1/u);
 });
 
+test("a failing ratchet is the node's code to fix, never the ratchet to hand the node", () => {
+  // The 2026-09-21 case: a node pushed a source file past the repository's
+  // 800-line ceiling, so the contract's own shared ratchet went red in a file
+  // the node never declared.
+  const verdict = verificationFailureVerdict(contract, failedState(
+    { files: ["src/report/render.mjs"], roots: [], fileRoots: [] },
+    `test at ${RATCHET}:12:1\n`,
+    ["node", "--test", RATCHET],
+  ));
+  assert.equal(verdict.verdict, "fail");
+  assert.equal(verdict.findings.length, 1);
+  const [finding] = verdict.findings;
+  // The broken check is named, as the repository-wide rule it is.
+  assert.match(finding.description, /test\/repo\/source-shape\.test\.mjs/u);
+  assert.match(finding.description, /sharedVerification/u);
+  // The remedy is the node's own code, and the advice that would license a
+  // worker to edit the rule it just broke is absent.
+  assert.match(finding.description, /the node's own code/u);
+  assert.doesNotMatch(finding.description, /writeFiles/u);
+  assert.doesNotMatch(finding.description, /scopeAcknowledged/u);
+  assert.ok(Buffer.byteLength(finding.description, "utf8") <= 2 * 1024);
+  assert.match(finding.evidence, /exit=1/u);
+});
+
+test("a ratchet and a withheld test in one failure get one finding each", () => {
+  const verdict = verificationFailureVerdict(contract, failedState(
+    { files: ["src/report/render.mjs"], roots: [], fileRoots: [] },
+    `test at ${RATCHET}:12:1\ntest at test/cli/cli.test.mjs:3:1\n`,
+  ));
+  assert.equal(verdict.findings.length, 2);
+  const [ratchet, withheld] = verdict.findings;
+  assert.match(ratchet.description, /test\/repo\/source-shape\.test\.mjs/u);
+  assert.doesNotMatch(ratchet.description, /writeFiles/u);
+  // The withheld test keeps the advice that is right for it, and carries only
+  // its own path: the ratchet is not something to add to writeFiles.
+  assert.match(withheld.description, /test\/cli\/cli\.test\.mjs/u);
+  assert.match(withheld.description, /writeFiles/u);
+  assert.doesNotMatch(withheld.description, /source-shape/u);
+});
+
 test("verification failure keeps the plain message for a declared test file", () => {
-  const verdict = verificationFailureVerdict(failedState(
+  const verdict = verificationFailureVerdict(contract, failedState(
     { files: ["test/cli/cli.test.mjs"], roots: [], fileRoots: [] },
     "test at test/cli/cli.test.mjs:3:1\n",
   ));
@@ -56,11 +106,21 @@ test("verification failure keeps the plain message for a declared test file", ()
 });
 
 test("verification failure keeps the plain message when no path is recognized", () => {
-  const verdict = verificationFailureVerdict(failedState(
+  const verdict = verificationFailureVerdict(contract, failedState(
     { files: [], roots: [], fileRoots: [] },
     "not a node test location\n",
   ));
   assert.equal(verdict.findings[0].description, "deterministic verification failed");
+});
+
+test("with no sharedVerification declared, every undeclared test keeps the contract-defect advice", () => {
+  const verdict = verificationFailureVerdict({}, failedState(
+    { files: ["src/report/render.mjs"], roots: [], fileRoots: [] },
+    `test at ${RATCHET}:12:1\n`,
+    ["node", "--test", RATCHET],
+  ));
+  assert.equal(verdict.findings.length, 1);
+  assert.match(verdict.findings[0].description, /writeFiles/u);
 });
 
 /**

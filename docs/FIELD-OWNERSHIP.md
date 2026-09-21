@@ -182,6 +182,16 @@ the assignment entries the scheduler persists: the snapshot's
 observables below, and it widens the same way, when a reader needs the record
 durably.
 
+## The verification mutation tier
+
+The `mutation` field on a task-packet verification command (`VerificationCommand`,
+`src/contract/verification.mjs`) is authored in the packet's `verification`
+array and never rewritten afterwards: `validateVerificationCommand`
+(`src/contract/verification.mjs`) normalizes it once, at contract validation,
+and `runMutation` (`src/engine/mutation.mjs`) only reads the declared tier,
+resolving the kill fraction from `MUTATION_TIERS` — a reader, not a second
+writer. One writer (the packet's authoring), one moment.
+
 ## The ratchet, measured
 
 Measured 2026-09-16: **15 entries have more than one writer.** They are a

@@ -1,8 +1,19 @@
 name: pr-policy
 
 on:
+  # squash-message reads github.event.pull_request.body below, and that body
+  # becomes the squash commit message on main. The default pull_request types
+  # (opened, synchronize, reopened) do not include `edited`, so a body edited
+  # after the check ran was never revalidated: a rejected body stayed red
+  # after being fixed, and an accepted body could be edited to anything —
+  # including a message commitlint would reject — and the check stayed green.
+  # `edited` is listed explicitly so the gate reruns against the live body.
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, edited]
+  # merge_group also has no `types:`, left as the GitHub default. Checked:
+  # this repository has no merge queue configured, so there is no observed
+  # behavior to fix here. Revisit if a merge queue is ever adopted.
   merge_group:
     branches: [main]
 

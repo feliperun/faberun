@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { validateContract } from "../../src/contract/index.mjs";
 import { renderWorkerPrompt } from "../../src/contract/task-packet.mjs";
-import { droppedWriteFindings } from "../../src/plan/pipeline.mjs";
+import { droppedWriteFindings, unresolvedFindings } from "../../src/plan/pipeline.mjs";
 import {
   RISK_TIERS,
   TASK_KINDS,
@@ -411,6 +411,30 @@ test("a revision that drops a write the previous plan declared is a critical fin
   assert.deepEqual(droppedWriteFindings({ nodes: [nodeWriting("build", ["README.md"])] }, { nodes: [nodeWriting("build", ["README.md", "src/new.mjs"])] }), []);
 });
 
+test("a revise that hands a write to a new sibling node has moved it, not dropped it", () => {
+  // Measured 2026-09-21 on durable-state-integrity phase 1: the draft's only
+  // node wrote both src/repo/worktree.mjs and src/engine/cancel.mjs, and the
+  // revise layered them into two nodes along this repository's own boundary
+  // -- repo/ owns git, engine/ owns the control loop. A per-node membership
+  // test read the surviving node as having dropped worktree.mjs and emitted a
+  // critical, which contested a sound plan. The path is still declared, still
+  // reviewed, and the graph change is visible; that is a resolution.
+  const previous = { nodes: [nodeWriting("build", ["src/repo/worktree.mjs", "src/engine/cancel.mjs"])] };
+  const split = {
+    nodes: [nodeWriting("worktree-verb", ["src/repo/worktree.mjs"]), nodeWriting("build", ["src/engine/cancel.mjs"])],
+  };
+  assert.deepEqual(droppedWriteFindings(previous, split), []);
+
+  // A path that leaves the plan entirely is still critical, sibling or not.
+  const shrunk = {
+    nodes: [nodeWriting("worktree-verb", ["src/repo/worktree.mjs"]), nodeWriting("build", [])],
+  };
+  const findings = droppedWriteFindings(previous, shrunk);
+  assert.deepEqual(findings.map((finding) => finding.id), ["dropped-write-build-1"]);
+  assert.ok(findings[0].text.includes("src/engine/cancel.mjs"));
+  assert.ok(findings[0].text.includes("no other node in the revised plan declares it"));
+});
+
 test("a node the revision renamed or removed is out of scope for the write-drop check", () => {
   // Nodes are matched by id alone: identity across a rename is a judgement
   // about the graph this check does not make, and a removed node's writes
@@ -422,4 +446,33 @@ test("a node the revision renamed or removed is out of scope for the write-drop 
 test("the write-drop check needs both plans: a draft that never validated or a revise refused leaves nothing to compare", () => {
   assert.deepEqual(droppedWriteFindings(null, { nodes: [nodeWriting("build", ["README.md"])] }), []);
   assert.deepEqual(droppedWriteFindings({ nodes: [nodeWriting("build", ["README.md"])] }, null), []);
+});
+
+/** @param {string} id @param {string} nodeId @returns {import("../../src/plan/template.mjs").PlanFindingOutput} */
+function findingAgainst(id, nodeId) {
+  return { id, severity: "critical", nodeId, text: `${id} objects to ${nodeId}` };
+}
+
+test("a finding survives a revise that left its node alone, and is resolved once the plan moves under it", () => {
+  const previous = { nodes: [nodeWriting("build", ["README.md"]), nodeWriting("docs", ["docs/spec.md"])] };
+  const findings = [findingAgainst("F1", "build"), findingAgainst("F2", "docs"), findingAgainst("F3", "plan")];
+
+  // Nothing moved: both findings against a node of the plan are still open.
+  // The third names no node — it is the pipeline's own shape finding, which
+  // the next round's pre-flight re-derives — so it is not carried.
+  const untouched = { nodes: [nodeWriting("build", ["README.md"]), nodeWriting("docs", ["docs/spec.md"])] };
+  assert.deepEqual(unresolvedFindings(findings, previous, untouched).map((finding) => finding.id), ["F1", "F2"]);
+
+  // build changed, docs is gone: one was acted on, the other is moot.
+  const revised = { nodes: [nodeWriting("build", ["README.md", "src/new.mjs"])] };
+  assert.deepEqual(unresolvedFindings(findings, previous, revised), []);
+
+  // A node the revise introduced answers nothing raised against its id.
+  assert.deepEqual(unresolvedFindings([findingAgainst("F4", "added")], previous, { nodes: [nodeWriting("added", ["src/added.mjs"])] }), []);
+});
+
+test("a refused revise output leaves every finding outstanding: there is no revised plan to measure against", () => {
+  const previous = { nodes: [nodeWriting("build", ["README.md"])] };
+  const findings = [findingAgainst("F1", "build")];
+  assert.deepEqual(unresolvedFindings(findings, previous, null), findings);
 });

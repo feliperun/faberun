@@ -239,7 +239,7 @@ test("no src/ module is a barrel", () => {
  * and is not what any of the three tests below hold.
  *
  * `src/` already held this shape at zero exceptions beyond its resolver,
- * `src/run/paths.mjs`. `test/` cannot hold the same shape honestly: five
+ * `src/run/paths.mjs`. `test/` cannot hold the same shape honestly: four
  * files beyond its own resolver test still spell the literal, each for a
  * reason measured 2026-09-18, and hiding that behind a single number (a
  * ceiling) is what this phase's four migration nodes leave behind and this
@@ -251,9 +251,12 @@ test("no src/ module is a barrel", () => {
  * - `test/run/paths.test.mjs` (11): the resolver's own test. It pins what
  *   `src/run/paths.mjs` produces, so it cannot call that resolver to build
  *   its own expectation -- that would only assert the function equals itself.
- * - `test/contract/verification.test.mjs` (1) and `test/repo/brand.test.mjs`
- *   (1): a skip-path or directory-name list -- a name being iterated or
- *   excluded, never a path some code joined together.
+ * - `test/contract/verification.test.mjs` (1): a skip-path or directory-name
+ *   list -- a name being iterated or excluded, never a path some code joined
+ *   together. (`test/repo/brand.test.mjs` held this exception too, for its
+ *   `SKIPPED_NAMES` list, until it moved to `git ls-files` and stopped
+ *   spelling the literal at all -- the entry was deleted rather than lowered,
+ *   per the drift rule below.)
  * - `test/cli/init.test.mjs` (1): the text of a `.gitignore` line, matched to
  *   confirm the runs directory is ignored -- text comparison, not a path
  *   composition.
@@ -309,7 +312,6 @@ const TEST_RUNS_LITERAL_ALLOWED = [
   { file: "test/harnesses/replay-run.test.mjs", count: 3, reason: "the attempt-local result sidecar R3 keeps inside the attempt worktree; it must not migrate with the rest" },
   { file: "test/cli/init.test.mjs", count: 1, reason: "matches the text of a .gitignore line, not a filesystem path" },
   { file: "test/repo/integration.test.mjs", count: 2, reason: "the attempt-local result sidecar again, in a fixture where `repo` stands in for the attempt worktree" },
-  { file: "test/repo/brand.test.mjs", count: 1, reason: "a skip-path/directory-name list (SKIPPED_NAMES), a name rather than a path" },
 ];
 
 test("only test/run/paths.test.mjs and a named, reasoned allowlist spell the runs directory literal in test/", () => {

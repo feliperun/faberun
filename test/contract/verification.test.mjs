@@ -82,6 +82,17 @@ test("verification rejects legacy shell strings", () => {
   assert.throws(() => validateContract(contract, path), /argv command object/u);
 });
 
+test("a mutation entry declares a risk tier and nothing else", () => {
+  // The kill fraction is `MUTATION_TIERS`' property, not the entry author's
+  // number: a hand-picked `threshold` is exactly the field the tier replaced.
+  const [entry] = validateVerificationCommands([{ argv: [process.execPath], mutation: { tier: "high" } }]);
+  assert.equal(entry.mutation?.tier, "high");
+  for (const bad of [{}, { tier: "extreme" }, { tier: 1 }, { threshold: 0.5 }, { tier: "high", threshold: 0.5 }]) {
+    assert.throws(() => validateVerificationCommands([{ argv: [process.execPath], mutation: bad }]), /verification\[0\]\.mutation/u);
+  }
+  assert.throws(() => validateVerificationCommands([{ argv: [process.execPath], mutation: true }]), /verification\[0\]\.mutation must be an object/u);
+});
+
 test("writeFiles close to the line ceiling warns, one with room does not, and both still validate", () => {
   const cwd = mkdtempSync(join(tmpdir(), "runner-verification-line-budget-"));
   writeFileSync(join(cwd, "README.md"), "read\n");

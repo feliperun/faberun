@@ -21,12 +21,28 @@ export const VERIFICATION_LIMITS = Object.freeze({
   snapshotPathBytes: 1024,
 });
 
+/**
+ * The declared risk tiers and the fraction of sampled mutants a suite must kill
+ * for a `mutation` verification entry to pass. The tier is what the entry
+ * declares; the fraction is not re-picked per entry, so two nodes at the same
+ * tier sit the same bar. The wall-clock budget that bounds how many mutants run
+ * at all is a measurement, not policy, and lives with the runner that enforces
+ * it (`MUTATION_TIME_BUDGET_MS`, `src/engine/mutation.mjs`).
+ */
+export const MUTATION_TIERS = Object.freeze({
+  high: 1,
+  medium: 0.75,
+  low: 0.5,
+});
+
+/** @typedef {keyof typeof MUTATION_TIERS} MutationTier */
+
 /** @typedef {"active"|"closed"|"failed"|"crashed"|"canceled"} VerificationAttemptStatus */
 
 /**
  * One declared deterministic check: an argv command run by the controller.
  *
- * @typedef {{argv: string[], cwd?: string, timeoutSec?: number, repeat?: number, env?: string[], mutation?: {threshold: number}}} VerificationCommand
+ * @typedef {{argv: string[], cwd?: string, timeoutSec?: number, repeat?: number, env?: string[], mutation?: {tier: MutationTier}}} VerificationCommand
  */
 
 /**
@@ -126,20 +142,20 @@ function validateVerificationCommand(command, label = "verification command") {
   const envBytes = env.reduce((sum, name) => sum + Buffer.byteLength(/** @type {string} */ (name), "utf8"), 0);
   if (envBytes > VERIFICATION_LIMITS.maxEnvBytes) throw new TypeError(`${label}.env exceeds aggregate byte limit`);
   // Mutation testing is opt-in per entry: it re-runs the same argv against
-  // deliberately broken copies of the node's written files. `threshold` is the
-  // fraction of mutants the suite must kill, so 0 accepts any suite and 1
-  // demands every sampled mutant fail it.
-  /** @type {{threshold: number}|undefined} */
+  // deliberately broken copies of the node's written files. The entry declares
+  // its risk tier; `MUTATION_TIERS` fixes the kill fraction each tier demands,
+  // so the bar is a property of the tier, not of the author's caution.
+  /** @type {{tier: MutationTier}|undefined} */
   let mutation;
   if (record.mutation !== undefined) {
     const rawMutation = record.mutation;
-    if (!rawMutation || typeof rawMutation !== "object" || Array.isArray(rawMutation)) throw new TypeError(`${label}.mutation must be an object with a threshold between 0 and 1`);
+    if (!rawMutation || typeof rawMutation !== "object" || Array.isArray(rawMutation)) throw new TypeError(`${label}.mutation must be an object with a declared risk tier`);
     const mutationRecord = /** @type {Record<string, unknown>} */ (rawMutation);
-    for (const key of Object.keys(mutationRecord)) if (key !== "threshold") throw new TypeError(`${label}.mutation has unexpected field ${key}`);
-    if (typeof mutationRecord.threshold !== "number" || !Number.isFinite(mutationRecord.threshold) || mutationRecord.threshold < 0 || mutationRecord.threshold > 1) {
-      throw new TypeError(`${label}.mutation.threshold must be a number between 0 and 1`);
+    for (const key of Object.keys(mutationRecord)) if (key !== "tier") throw new TypeError(`${label}.mutation has unexpected field ${key}`);
+    if (typeof mutationRecord.tier !== "string" || !Object.hasOwn(MUTATION_TIERS, mutationRecord.tier)) {
+      throw new TypeError(`${label}.mutation.tier must be one of ${Object.keys(MUTATION_TIERS).join(", ")}`);
     }
-    mutation = { threshold: mutationRecord.threshold };
+    mutation = { tier: /** @type {MutationTier} */ (mutationRecord.tier) };
   }
   /** @type {VerificationCommand} */
   const normalized = { argv: [.../** @type {string[]} */ (record.argv)], timeoutSec, repeat, env: [.../** @type {string[]} */ (env)] };
