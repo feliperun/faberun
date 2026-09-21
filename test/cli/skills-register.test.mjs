@@ -32,7 +32,9 @@ function fixture(options = {}) {
   // a PATH joined with `:` on Windows is one entry that names nothing, which
   // reports every harness uninstalled rather than testing the registration.
   const path = [bin, ...(process.platform === "win32" ? [] : ["/usr/bin", "/bin"])].join(delimiter);
-  return { home, env: { ...process.env, HOME: home, PATH: path } };
+  // Force color off: several tests below assert the literal `[ok]`/`[warn]`
+  // tokens, and an ambient FORCE_COLOR would split them with escape codes.
+  return { home, env: { ...process.env, HOME: home, PATH: path, FORCE_COLOR: "0" } };
 }
 
 /**

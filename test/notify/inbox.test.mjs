@@ -217,7 +217,9 @@ test("done-when 6: unset transport warns and resolves to noTransport; --wake rep
   await withEmptyPath(() => {
     const result = spawnSync(process.execPath, [RUNNER_CLI, "preflight", contractPath, "--static"], {
       encoding: "utf8",
-      env: { ...process.env, FABERUN_NOTIFY_BIN: "" },
+      // Force color off: the assertion below reads the literal `[warn]`
+      // token, and an ambient FORCE_COLOR would split it with escape codes.
+      env: { ...process.env, FABERUN_NOTIFY_BIN: "", FORCE_COLOR: "0" },
     });
     assert.match(result.stdout, /\[warn\] notify transport · no human notification transport/u);
   });
