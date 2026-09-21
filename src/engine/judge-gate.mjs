@@ -357,6 +357,12 @@ function declaredWriteCoverage(state) {
  * every node -- rather than to the node's own work. An argv entry names either
  * the file the runner was given or a directory it walked.
  *
+ * Deliberately not caught: a `sharedVerification` that reaches the ratchet
+ * without naming it in argv (`npm test`, or any script that picks the files
+ * itself). No token matches, the file is not recognized as a ratchet, and the
+ * contract-defect advice applies to it as it did before. Widening the match to
+ * guess what a script runs would be worse than the gap it closes.
+ *
  * @param {{sharedVerification?: VerificationCommand[]}} contract
  * @returns {(path: string) => boolean}
  */
