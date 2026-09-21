@@ -208,19 +208,13 @@ When this file governs anything in production:
 <!-- faberun-active:start (managed by faberun — read, never edit) -->
 Before starting new work here, check `.runs/`: if a campaign is active or a run is not terminal, continue it instead of starting over — read its `HANDOFF.md`/`STATUS.md`, attach to the campaign, and `resume` or `supervise` the run. Active runs are supervised by a deterministic detached process: do not poll `status` in a loop — on resume, check status once and act only on terminal states.
 
-- faberun campaign `state-location-and-routing-economics`: active — read `.runs/campaigns/state-location-and-routing-economics/HANDOFF.md`
-  - run `state-location-and-routing-economics-plan-r1-run-path-resolver-draft-1`: parked — `draft:blocked protocol_failure` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/state-location-and-routing-economics-plan-r1-run-path-resolver-draft-1`
-  - run `state-location-and-routing-economics-0-protocol-and-transport-isolation`: succeeded (3/3 nodes)
-  - run `state-location-and-routing-economics-0b-judge-cannot-write`: parked — `a-judge-that-writes-is-a-protocol-defect:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/state-location-and-routing-economics-0b-judge-cannot-write`
-  - run `state-location-and-routing-economics-0b2-judge-cannot-write`: parked — `a-judge-that-writes-is-a-protocol-defect:blocked judge_unavailable` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/state-location-and-routing-economics-0b2-judge-cannot-write`
-  - run `state-location-and-routing-economics-0b3-verdict-and-write-check`: parked — `the-judge-write-check-fails-closed:blocked judge_unavailable` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/state-location-and-routing-economics-0b3-verdict-and-write-check`
-  - run `state-location-and-routing-economics-0c-progress-and-page`: missing — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/state-location-and-routing-economics-0c-progress-and-page`
-  - run `state-location-and-routing-economics-0c2-graph-and-progress`: missing — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/state-location-and-routing-economics-0c2-graph-and-progress`
-  - run `state-location-and-routing-economics-0c3-map-and-graph`: canceled
-  - run `state-location-and-routing-economics-0c4-graph-and-page`: canceled
-  - run `state-location-and-routing-economics-0c5-page-and-delivery`: canceled
-  - run `state-location-and-routing-economics-0c6-legibility-and-delivery`: canceled
-  - run `state-location-and-routing-economics-0c7-honest-attribution`: canceled
-  - run `state-location-and-routing-economics-1-run-path-resolver`: canceled
+- faberun run `adversarial-planner-1-planning-pipeline`: parked — `discovery-result-output:blocked context_missing`, `planning-contract-template:blocked dependency_failed`, `plan-verb:blocked dependency_failed`, `plan-eval-cases:blocked dependency_failed` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/adversarial-planner-1-planning-pipeline`
+- faberun run `adversarial-planner-1b-discovery-result-output`: parked — `plan-eval-cases:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/adversarial-planner-1b-discovery-result-output`
+- faberun run `adversarial-planner-2-evidence`: parked — `seat-allowance-delta:exhausted revision_cap`, `planner-comparative-arm:exhausted verification_failed` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/adversarial-planner-2-evidence`
+- faberun run `adversarial-planner-2b-allowance-window`: parked — `allowance-window-pinned:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/adversarial-planner-2b-allowance-window`
+- faberun run `become-faberun-2b-install-and-shape-fix`: parked — `install-script:exhausted revision_cap` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/become-faberun-2b-install-and-shape-fix`
+- faberun run `chain-ergonomics-and-fairness-1-launch-and-refusals`: parked — `base-ref-validation:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/chain-ergonomics-and-fairness-1-launch-and-refusals`
+- faberun run `chain-ergonomics-and-fairness-2-throughput-and-truth`: parked — `dispatch-during-verification:exhausted revision_cap`, `final-verification-once-per-phase:exhausted verification_failed`, `status-tells-the-truth:exhausted revision_cap` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/chain-ergonomics-and-fairness-2-throughput-and-truth`
+- faberun run `env-independence-and-generated-docs-3-reference-load`: parked — `declared-read-bytes:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/env-independence-and-generated-docs-3-reference-load`
 - … signal truncated; read the campaign HANDOFF.md for the rest
 <!-- faberun-active:end -->
