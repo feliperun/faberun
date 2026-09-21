@@ -121,13 +121,15 @@ function twoNodePlan({ highRisk = false } = {}) {
  * campaign. `reviewMode` picks the review recording: "clean" never finds a
  * critical, "critical" always does. `plans` lists the plan each worker
  * invocation emits, in order (the draft, then one revise output per later
- * invocation); the default repeats the same valid two-node plan.
+ * invocation); the default repeats the same valid two-node plan. `reviews`
+ * does the same for the reviewer, one findings array per round, for a test
+ * about what one round remembers of another.
  *
  * @param {string} campaignId
- * @param {{reviewMode?: "clean"|"critical", highRisk?: boolean, plans?: unknown[]}} [options]
+ * @param {{reviewMode?: "clean"|"critical", highRisk?: boolean, plans?: unknown[], reviews?: unknown[][]}} [options]
  * @returns {{cwd: string, campaignId: string, runtimes: Record<string, Record<string, unknown>>, runtimeDefaults: {worker: string, judge: string}}}
  */
-function setup(campaignId, { reviewMode = "clean", highRisk = false, plans } = {}) {
+function setup(campaignId, { reviewMode = "clean", highRisk = false, plans, reviews } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), "plan-pipeline-"));
   writeFixtureFile(cwd, TASK_KIND_CATALOGUE_PATH, "export const TASK_KINDS = [];\n");
   writeFixtureFile(cwd, "src/index.mjs", "export default 1;\n");
@@ -152,16 +154,16 @@ function setup(campaignId, { reviewMode = "clean", highRisk = false, plans } = {
   const reviewFindings = reviewMode === "critical"
     ? [{ id: "F1", severity: "critical", nodeId: "build", text: "the plan is missing a rollback path" }]
     : [];
-  const reviewLine = { envelope: envelope({ result: JSON.stringify({
-    status: "done", summary: "reviewed", verification: [], artifacts: [], missingContext: [],
-    output: { findings: reviewFindings },
-  }) }) };
+  const reviewRounds = reviews ?? Array(invocationBudget).fill(reviewFindings);
   const recordingDir = mkdtempSync(join(tmpdir(), "plan-pipeline-rec-"));
   const draftRecording = writeRecording(recordingDir, workerPlans.map((plan) => ({ envelope: envelope({ result: JSON.stringify({
     status: "done", summary: "drafted", verification: [], artifacts: [], missingContext: [],
     output: { plan },
   }) }) })), "draft.jsonl");
-  const reviewRecording = writeRecording(recordingDir, Array(invocationBudget).fill(reviewLine), "review.jsonl");
+  const reviewRecording = writeRecording(recordingDir, reviewRounds.map((findings) => ({ envelope: envelope({ result: JSON.stringify({
+    status: "done", summary: "reviewed", verification: [], artifacts: [], missingContext: [],
+    output: { findings },
+  }) }) })), "review.jsonl");
 
   const runtimes = {
     "planner-worker": { harness: "replay", model: "replay-worker-model", vendor: "vendor-worker", config: { "replay.recording": draftRecording } },
@@ -511,6 +513,69 @@ test("a revise that clears a finding by shrinking the write set is contested, th
   assert.equal(reviseLine?.droppedWrites, 1);
   const contestedPlan = JSON.parse(readFileSync(join(result.plansDir, "plan.json"), "utf8"));
   assert.ok(contestedPlan.findings.some((/** @type {any} */ finding) => finding.id === "dropped-write-build-1"), "the contested record carries the drop");
+});
+
+test("a finding the next round's reviewer does not repeat is still open, and reaches the reviser", async () => {
+  // Round 1 objects; rounds 2 and 3 say nothing at all. Every revise re-emits
+  // the same plan, so nothing was done about the objection — and a reviewer's
+  // silence is not an answer. Replacing the findings each round dropped it,
+  // and a plan froze that way with a defect a worker later refused.
+  const rollback = [{ id: "F1", severity: "critical", nodeId: "build", text: "the plan is missing a rollback path" }];
+  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("carry-demo", { reviews: [rollback, [], []] });
+  const result = await runPlanningPipeline({
+    specPath: join(cwd, "docs/spec.md"),
+    campaignId,
+    phase: "build",
+    cwd,
+    runtimes,
+    runtimeDefaults,
+    reviewRounds: 3,
+    launch,
+    wait,
+  });
+  assert.equal(result.status, "contested");
+  assert.equal(result.round, 3);
+  assert.deepEqual(result.findings.map((finding) => finding.id), ["F1"]);
+
+  // Round 2's reviser was handed the round-1 objection, not the empty file
+  // its own reviewer produced.
+  const secondRoundFindings = JSON.parse(readFileSync(join(cwd, ".faberun-plan", campaignId, "build", "findings-round-2.json"), "utf8"));
+  assert.deepEqual(secondRoundFindings.map((/** @type {any} */ finding) => finding.id), ["F1"]);
+  const stages = readPipelineStages(result.plansDir);
+  assert.equal(stages.find((entry) => entry.stage === "revise" && entry.round === 1)?.carriedFindings, 1);
+  assert.equal(stages.find((entry) => entry.stage === "review" && entry.round === 2)?.criticalCount, 1);
+});
+
+test("a finding the revise answered is not carried, and a plan that answers every objection freezes", async () => {
+  // The other half of the rule: the round-1 objection names a node the revise
+  // changed, so it is cleared by the plan moving under it rather than by the
+  // next reviewer's silence — which is what keeps a carried finding from
+  // making convergence impossible.
+  const answered = /** @type {any} */ (twoNodePlan());
+  answered.nodes[0].objective = "Implement the feature behind a rollback path";
+  const rollback = [{ id: "F1", severity: "critical", nodeId: "build", text: "the plan is missing a rollback path" }];
+  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("answered-demo", {
+    plans: [twoNodePlan(), answered],
+    reviews: [rollback, []],
+  });
+  const result = await runPlanningPipeline({
+    specPath: join(cwd, "docs/spec.md"),
+    campaignId,
+    phase: "build",
+    cwd,
+    runtimes,
+    runtimeDefaults,
+    reviewRounds: 2,
+    launch,
+    wait,
+  });
+  assert.equal(result.status, "frozen");
+  assert.deepEqual(result.findings, []);
+  const stages = readPipelineStages(result.plansDir);
+  assert.equal(stages.find((entry) => entry.stage === "revise" && entry.round === 1)?.carriedFindings, 0);
+  const contract = JSON.parse(readFileSync(result.contractPath, "utf8"));
+  const build = contract.nodes.find((/** @type {any} */ node) => node.id === "build");
+  assert.equal(build.taskPacket.objective, "Implement the feature behind a rollback path");
 });
 
 test("a deterministic stage that fails after the rounds ends contested with its stage line", async () => {
