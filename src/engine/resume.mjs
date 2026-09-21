@@ -609,7 +609,7 @@ export async function recoverIntegrationTransactions(contract, runDir, states, l
       const node = contract.nodes.find((candidate) => candidate.id === transaction.node);
       const state = states.get(transaction.node);
       if (!node || !state || SETTLED.has(state.status)) return;
-      const verdict = verificationFailureWithScope(verificationFailureVerdict(state), state.scope);
+      const verdict = verificationFailureWithScope(verificationFailureVerdict(contract, state), state.scope);
       verdict.summary = "integrated candidate verification failed during recovery";
       applyRejection(contract, node, state, runDir, null, lock, states, campaignPath, verdict, {
         code: "verification_failed",
