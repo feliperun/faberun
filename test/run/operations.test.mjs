@@ -347,9 +347,13 @@ test("reconcile surfaces a durable blocked finding when deterministic verificati
   const findingNode = /** @type {{id: string, error?: {code?: string}}|undefined} */ (/** @type {{nodes: {id: string}[]}} */ (findings).nodes.find((entry) => entry.id === "build"));
   assert.equal(findingNode?.error?.code, "unknown_effect_reconciled");
 
+  // The count before the second resume, not a literal: a gateless node now
+  // retries a red verification once, so the first run may hold two
+  // invocations; what must hold is that the later resume adds none.
+  const invocationsBefore = state.invocations?.length ?? 0;
   const resumedAgain = await withFakeCodex(directory, "worker-fail", async () => resumeRun(runDir));
   assert.equal(nodeState(resumedAgain).status, "blocked");
-  assert.equal(nodeState(resumedAgain).invocations?.length, 1, "reconciled effects must not be replayed on a later resume");
+  assert.equal(nodeState(resumedAgain).invocations?.length, invocationsBefore, "reconciled effects must not be replayed on a later resume");
 });
 
 test("replayPolicy never forces the reconcile outcome without an automatic retry", async () => {
