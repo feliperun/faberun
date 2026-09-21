@@ -543,3 +543,77 @@ test(`tests blocking on wall-clock time never exceed ${BLOCKING_WAIT_CEILING}`, 
     `the count fell to ${waits.length}; lower BLOCKING_WAIT_CEILING to match so it cannot drift back up.`,
   );
 });
+
+/**
+ * FABERUN_HOME writes under test/, ratcheted to temp-scoped shapes only.
+ *
+ * The node that authored this rule expected one owner file; its first run
+ * measured 26 write sites across 19 test files besides test/scoped-home.mjs,
+ * all the same two idioms: point the home at a fresh mkdtemp under tmpdir(),
+ * or restore a value previously saved from FABERUN_HOME itself. Migrating
+ * those files is a campaign of its own, so the rule holds the tree to the
+ * effect the scoped home exists for: no test file can point a process's
+ * state at the operator's real home. Every assignment must bind FABERUN_HOME
+ * to an expression rooted at tmpdir(), directly or through a variable so
+ * bound (or saved from FABERUN_HOME) earlier in the same file; every delete
+ * must be the guarded restore (`if (previous === undefined) delete ...`). A
+ * bare delete -- which silently drops a test back onto the real home -- or
+ * any homedir-rooted or literal path fails here. The whole-suite effect is
+ * measured where the suite runs, in .github/workflows/ci.yml: a CI runner
+ * starts with no ~/.faberun, so if one exists after npm test, a test escaped
+ * these shapes. Measured 2026-09-21: ~/.faberun/projects held 394 records,
+ * of which test/contract/derived-fields.test.mjs alone wrote 27, 29 and 36
+ * on three consecutive days, after the same leak had already been fixed
+ * twice one file at a time -- both fixes import-shaped, which is how a file
+ * imports a helper literally named helpers.mjs and scopes nothing. And the
+ * rule is worthless if the runner stops loading the scope at all, so the
+ * last assertion pins the `--import` in package.json's test script.
+ */
+const FABERUN_HOME_WRITE = /process\s*\.\s*env\s*(?:(?:\?\.\s*|\.\s*)FABERUN_HOME\s*(?:[-+*\/%&|^]|\?\??)?=(?!=)|(?:\?\.\s*)?\[\s*["'`]FABERUN_HOME["'`]\s*\]\s*(?:[-+*\/%&|^]|\?\??)?=(?!=))|\bdelete\s+process\s*\.\s*env\s*(?:(?:\?\.\s*|\.\s*)FABERUN_HOME|(?:\?\.\s*)?\[\s*["'`]FABERUN_HOME["'`]\s*\])/u;
+
+/** A variable binding whose right-hand side makes the variable safe to point FABERUN_HOME at. */
+const FABERUN_HOME_SAVE = /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(.+?);?$/u;
+
+test("every FABERUN_HOME write under test/ is temp-scoped or a restore", () => {
+  const offenders = TEST_FILES.flatMap((file) => {
+    const numbered = file.text
+      .split("\n")
+      .map((line, index) => ({ text: line.trim(), line: index + 1 }))
+      .filter((entry) => !entry.text.startsWith("*") && !entry.text.startsWith("//"));
+    // variables bound to a temp dir or to a saved copy of the home itself
+    /** @type {Set<string>} */
+    const saved = new Set();
+    for (const entry of numbered) {
+      const save = FABERUN_HOME_SAVE.exec(entry.text);
+      if (save && (save[2].includes("tmpdir()") || save[2] === "process.env.FABERUN_HOME")) {
+        saved.add(save[1]);
+      }
+    }
+    return numbered.flatMap(({ text, line }) => {
+      if (!FABERUN_HOME_WRITE.test(text)) return [];
+      if (/\bdelete\s+process/u.test(text)) {
+        // dropping the variable sends state resolution to the real home, so
+        // only the restore guard (`previous === undefined`) may carry it
+        return /===\s*undefined/u.test(text) ? [] : [`${file.label}:${line}  ${text}`];
+      }
+      const rhs = text.slice(text.lastIndexOf("=") + 1).trim().replace(/;$/u, "").trim();
+      const safe = rhs.includes("tmpdir()") || rhs === "process.env.FABERUN_HOME" || saved.has(rhs);
+      return safe ? [] : [`${file.label}:${line}  ${text}`];
+    });
+  });
+  assert.deepEqual(
+    offenders,
+    [],
+    `points FABERUN_HOME at the real home, at a bare delete, or at an untracked value:\n${offenders.join("\n")}\n` +
+      "Point it at mkdtempSync(join(tmpdir(), ...)) or restore a saved copy; the runner's --import (test/scoped-home.mjs) is the suite's owner.",
+  );
+});
+
+test("package.json's test script still preloads test/scoped-home.mjs", () => {
+  const pkg = JSON.parse(readFileSync(join(REPO_DIR, "package.json"), "utf8"));
+  assert.match(
+    pkg.scripts.test,
+    /--import\s+\.\/test\/scoped-home\.mjs/u,
+    "the static rule above is worthless if the runner stops loading the scope: node --test preloads nothing on its own",
+  );
+});

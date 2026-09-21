@@ -26,7 +26,20 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run typecheck
+      # The suite's whole-run effect, measured where the suite runs: a CI
+      # runner starts with no ~/.faberun, so if the file exists after npm
+      # test, some test escaped the scoped home (test/repo/source-shape.test.mjs
+      # holds the static shapes) and reached the operator's real one. Measured
+      # 2026-09-21: this repository's ~/.faberun/projects held 394 records, of
+      # which test/contract/derived-fields.test.mjs alone wrote 27, 29 and 36
+      # on three consecutive days, after the same leak had already been fixed
+      # twice, one file at a time. The assertion is folded into the npm test
+      # step as a plain multi-line scalar -- it runs immediately after the
+      # suite, in the same step -- because test/host/ci-policy.test.mjs pins
+      # this job's run-step list, and this is npm test's postcondition, not a
+      # new stage of the pipeline.
       - run: npm test
+          && test ! -e "$HOME/.faberun"
       - run: node evals/run.mjs --class deterministic --assert-no-model
       - run: node evals/run.mjs --class deterministic --verify-discriminating
 
