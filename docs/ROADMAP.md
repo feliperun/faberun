@@ -167,10 +167,36 @@ repository and this class of task, pick on cost-adjusted success rate.
 | RM-019 | Cheap writer as the per-class default (taskKind × acceptance kind; high risk excluded), as a static policy first | a cheap writer moved cost 16–50x in `orchestration-arms` | measured |
 | RM-020 | Ledger scorecard in "recommend" mode, promoted to auto-select only above a floor | proposed floor: ≥60 distinct nodes, ≥5 campaigns, 60 days, ≥20 random, pass@1 ≥95% with lower bound ≥90%, 10% exploration | idea |
 | RM-021 | `DEFAULT_ROUTING_TABLE` is empty; routing is taskKind + riskTier only | verified in `src/plan/pipeline.mjs` | measured |
+| RM-046 | Portable cross-harness memory, evaluated against `akitaonrails/ai-memory` | operator knowledge lives in `~/.claude/projects/…/memory/`, which a codex, dsh, agy or zcode worker cannot read — the thesis is vendor-neutral, the memory is not | idea |
 | RM-022 | Price every invocation from tokens × the vendored `models.dev` rate rather than recording `unknown` | owner decision 2026-09-18: vendor the seed, do not chase exactness | landed |
 
 **See open question Q6.** The floor in `RM-020` is what separates evidence from
 anecdote, and it is not yet agreed.
+
+`RM-046` is the prose half of this priority. P4 as written learns from *numbers*;
+half of what this factory has learned is written in *sentences* — 16 proposals,
+21 campaign ledgers, every journal — and nothing indexes them. `ai-memory` is a
+credible candidate: git-backed markdown as the source of truth, a derived SQLite
+index (FTS5, entities, optional vectors), zero-LLM by default, one Rust binary,
+and a stated philosophy of files you own rather than a hosted API.
+
+Two constraints decide the shape, and both are load-bearing here:
+
+- **It attaches to the orchestrator and the planner, never to a worker or a
+  judge.** A memory surface inside a worker is an undeclared read source: it
+  breaks reproducibility and makes `declaredReadBytes` a fiction. The planner
+  should consult memory and *materialise* what matters into the packet, so
+  recalled knowledge arrives as declared `readFiles` like any other fact.
+  `src/plan/repo-facts.mjs` is the natural seam — it already collects measured
+  facts the draft reads.
+- **Worker and judge must not share a memory they both write.** `template.mjs`
+  enforces that a reviewer's packet carries the spec, the repository facts and
+  the artefact under review — never the author's packet, transcript or summary.
+  A shared write surface would let the judge see the author's reasoning, which
+  does not weaken adversarial review, it dissolves it.
+
+It also has to stay optional, the way `FABERUN_NOTIFY_BIN` is: `dependencies` is
+`{}` today and that is a deliberate, tested property of the install.
 
 ---
 
