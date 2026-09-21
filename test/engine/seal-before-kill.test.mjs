@@ -8,6 +8,7 @@ import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../
 import { HARNESS_STALL_TIMEOUT_SEC, validateRuntime } from "../../src/contract/runtime.mjs";
 import { NON_FAILOVER_CODES, isTimeoutOrStall } from "../../src/engine/backoff.mjs";
 import { detectStalls, sealBeforeTerminate, stallTimeoutSecFor, startProcess, terminateInvocation } from "../../src/engine/process.mjs";
+import { AUTO_RETRY_CODES } from "../../src/engine/lifecycle.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { TIER_EXHAUSTION_CAP_REASON, TIER_EXHAUSTION_HOLD_CAP_MS, planResumeRetry } from "../../src/engine/retry.mjs";
 import { createAttemptWorktree, createRunRef, git, removeWorktree } from "../../src/repo/worktree.mjs";
@@ -441,4 +442,29 @@ test("done-when 9: stall_timeout and progress_stalled are unified and both leave
     assert.equal(NON_FAILOVER_CODES.has(code), false, `${code} must be eligible for the failover that follows its one auto_retry`);
   }
   assert.equal(NON_FAILOVER_CODES.has("wall_clock_timeout"), false, "the wall-clock deadline left NON_FAILOVER_CODES too");
+});
+
+// ---------------------------------------------------------------------------
+// maxTurns: a turn still making requests past the cap ends like a timeout.
+// ---------------------------------------------------------------------------
+
+test("a turn cap ends the attempt the way a timeout does: seal path, code turn_limit, exhausted, one automatic retry", async () => {
+  const transcript = `${[1, 2, 3].map(() => JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0 } })).join("\n")}\n`;
+  const job = stallJob(transcript, { id: "luna", harness: "codex", model: "test" });
+  job.observedOnce = true;
+  /** @type {{code: string, message: string}|undefined} */
+  let limit;
+  /** @type {string|undefined} */
+  let status;
+  await detectStalls(/** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300, maxTurns: 2 }), new Map([["build", job]]), async (_job, outcome, error) => { status = outcome; limit = error; });
+  assert.equal(limit?.code, "turn_limit");
+  assert.equal(status, "exhausted", "the same outcome a wall-clock timeout gets, so the same recovery applies");
+  assert.match(String(limit?.message), /3 provider requests/u);
+  assert.equal(AUTO_RETRY_CODES.has("turn_limit"), true, "the cap earns the one automatic retry a timeout earns");
+  const under = stallJob(transcript, { id: "luna", harness: "codex", model: "test" });
+  under.observedOnce = true;
+  /** @type {unknown} */
+  let none;
+  await detectStalls(/** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300, maxTurns: 10 }), new Map([["build", under]]), async (_job, _outcome, error) => { none = error; });
+  assert.equal(none, undefined, "under the cap the observed requests are progress, nothing more");
 });

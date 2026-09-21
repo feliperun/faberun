@@ -75,6 +75,15 @@ test(`no file in the repository exceeds ${LINE_CEILING} lines`, () => {
   );
 });
 
+test("no file in the repository contains a NUL byte", () => {
+  // measured 2026-09-20: src/util.mjs carried one since 2026-09-11, a control
+  // byte typed literally inside excerpt()'s regex class. `file` called the
+  // module `data`, grep skipped it as binary, and an agent's Read tool refused
+  // it -- a central module unreadable to every tool but node itself.
+  const binary = FILES.filter((file) => file.text.includes("\u0000")).map((file) => file.label);
+  assert.deepEqual(binary, [], `NUL byte in:\n${binary.map((label) => `  ${label}`).join("\n")}\nWrite control characters as escapes.`);
+});
+
 test("src/ has no runtime import cycle beyond the ones allowed by name", () => {
   const graph = runtimeImportGraph(SRC_DIR);
   /** @type {Set<string>} */

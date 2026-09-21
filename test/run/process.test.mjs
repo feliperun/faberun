@@ -15,7 +15,8 @@ import {
   readLock,
 } from "../../src/run/lock.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
-import { detectStalls, invocationAlive, monitorInvocation, startProcess, terminateInvocation } from "../../src/engine/process.mjs";
+import { detectStalls, invocationAlive, startProcess, terminateInvocation } from "../../src/engine/process.mjs";
+import { monitorInvocation } from "../../src/engine/transcript.mjs";
 
 import { fixture, writeContract } from "../helpers.mjs";
 import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
@@ -338,8 +339,18 @@ test("stall supervision kills a runtime whose harness declares streamed output o
     onInvocation: () => {},
   });
   try {
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    assert.ok(statSync(job.paths.stdout).size > 0, "the provider must have written its one line by now");
+    // Wait for the provider's one line instead of assuming how fast it
+    // writes: measured 2026-09-20 in the orchestration-arms campaign, a fixed
+    // 800 ms sleep was not enough under three concurrent workers and a
+    // typecheck, and the assertion that followed it bounded a duration from
+    // above, which this repository's rules forbid. A lower bound is fine: the
+    // stall clock below only starts once the line is there. The cap is a
+    // hang guard, not a bet on the machine, so it sits at a minute.
+    const lineDeadline = Date.now() + 60_000;
+    while (!(existsSync(job.paths.stdout) && statSync(job.paths.stdout).size > 0) && Date.now() < lineDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    assert.ok(statSync(job.paths.stdout).size > 0, "the provider wrote its one line");
     // A poll loop calls detectStalls repeatedly; the first call after output
     // appears only records it as progress; a stall is only real once a later
     // poll finds nothing new.

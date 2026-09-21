@@ -357,7 +357,11 @@ test("an unspent repair keeps the worker result on its provider and a spent one 
   assert.equal(isRepairable({ gate: { enabled: true, maxRevisions: 1 } }, { revisions: 1 }), false);
   assert.equal(isRepairable({ gate: { enabled: true, maxRevisions: 0 } }, { revisions: 0 }), false);
   assert.equal(isRepairable({ gate: { enabled: true } }, { revisions: 0 }), true, "one repair by default");
-  assert.equal(isRepairable({ gate: { enabled: false, maxRevisions: 3 } }, { revisions: 0 }), false, "a gateless node has no repair to spend");
+  // The budget is the node's, gate or not (measured 2026-09-20: a gateless node
+  // died on one flaky verification while its judged twin got its retry).
+  assert.equal(isRepairable({ gate: { enabled: false, maxRevisions: 3 } }, { revisions: 0 }), true, "a gateless node spends its own revision budget");
+  assert.equal(isRepairable({ gate: { enabled: false } }, { revisions: 0 }), true, "one repair by default, gate or not");
+  assert.equal(isRepairable({ gate: { enabled: false, maxRevisions: 0 } }, { revisions: 0 }), false, "zero makes the first red verification final");
 });
 
 test("a transient network failure retries on the warm runtime before it spends a failover hop", async () => {

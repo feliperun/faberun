@@ -736,3 +736,11 @@ test("bounded codex diagnostics never exceed 512 UTF-8 bytes", () => {
   assert.ok(Buffer.byteLength(quotaEnvelope.error?.message ?? "", "utf8") <= 512, `quota message is ${Buffer.byteLength(quotaEnvelope.error?.message ?? "", "utf8")} UTF-8 bytes`);
   assert.ok(!/[\uFFFD]/u.test(quotaEnvelope.error?.message ?? ""), "the truncation never leaves a dangling multibyte sequence");
 });
+
+test("a Claude command carries the attempt's turn cap as --max-turns, and no flag when none was given", () => {
+  const capped = providerCommand({ harness: "claude", model: "m" }, "work", { maxTurns: 7 }).args;
+  const at = capped.indexOf("--max-turns");
+  assert.ok(at >= 0, "the flag is present");
+  assert.equal(capped[at + 1], "7");
+  assert.equal(providerCommand({ harness: "claude", model: "m" }, "work").args.includes("--max-turns"), false);
+});

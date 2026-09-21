@@ -292,7 +292,10 @@ test("resume retries a failed node as attempt 2 with a bounded previous attempt 
       id: "build",
       type: "backend",
       taskPacket: packet({ verification: [{ argv: ["false"] }] }),
-      gate: false,
+      // What is measured is the resume's own retry (attempt plus one, no
+      // revision spent); with the budget a gateless node now has, the red
+      // verification on that retry would spend it and add an attempt.
+      gate: { enabled: false, maxRevisions: 0 },
     }],
   }));
   const failed = await withFakeCodex(directory, "worker-fail", () => runContract(path));

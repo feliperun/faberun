@@ -165,8 +165,14 @@ The review policy attached to a node. A gate object accepts `runtime`, `review`
 `["critical"]`) and `maxRevisions` (default 1); `gate: false` skips review.
 `advisory` records the verdict and still settles `done` on deterministic
 verification alone; `blocking` re-dispatches within `maxRevisions` when findings
-reach `failOn`. The invariant: the revision budget counts gate rejections, not
-worker starts, so a resume or a crash-restart never consumes one; validation
+reach `failOn`. The revision budget is the node's, gate or not: a red
+deterministic verification re-dispatches a fresh attempt within `maxRevisions`
+under `gate: false` too (`{ enabled: false, maxRevisions: 0 }` makes the first
+red verification final), because the gate governs review and the budget governs
+retry (measured 2026-09-20: a node without a gate died on one flaky test while
+its judged twin got its retry). The invariant: the revision budget counts
+rejections, not worker starts, so a resume or a crash-restart never consumes
+one; validation
 requires `critical` whenever `major` is in `failOn`, and `major` in `failOn` for
 a `blocking` gate. See [rules.md](../skills/faberun/references/rules.md) and
 [contract.md](../skills/faberun/references/contract.md).
@@ -216,6 +222,17 @@ worker that actually ran the attempt, and budget, scope, permission or authority
 failures never trigger failover. See
 [contract.md](../skills/faberun/references/contract.md) and
 [operations.md](../skills/faberun/references/operations.md).
+
+## Concurrency per runtime
+
+`maxParallel` bounds the run; a runtime's `maxConcurrent` bounds that runtime
+below it, and a runtime some node is waiting out a provider exhaustion on (a
+reset wait back to the same runtime) accepts no new dispatch until the wait
+elapses. The invariant: a tick never starts more attempts on a runtime than
+its `maxConcurrent`, counting what the same tick already started, and never
+spends a fresh quota window on a refusal a sibling already received. Both
+decisions live in `src/engine/capacity.mjs`, pure over the running set and
+the node snapshots.
 
 ## Attempt worktree
 

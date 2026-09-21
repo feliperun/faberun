@@ -179,6 +179,20 @@ export function normalizeClaudeResult(stdout, exitCode, signal, options = {}) {
       allowance,
     };
   }
+  // A turn the CLI stopped at `--max-turns` is the controller's own cap, not
+  // a provider failure: it keeps its own code so the retry policy can tell.
+  if (resultEvent.subtype === "error_max_turns") {
+    return {
+      ...failed(
+        "turn_limit",
+        "Claude stopped at the attempt's maxTurns (--max-turns)",
+        "failed",
+        typeof resultEvent.session_id === "string" ? resultEvent.session_id : null,
+        canonicalUsage(resultEvent.usage),
+      ),
+      allowance,
+    };
+  }
   if (resultEvent.is_error || exitCode !== 0) {
     return { ...failed("provider_error", result ?? `Claude exited with code ${exitCode}`), allowance };
   }
@@ -287,8 +301,14 @@ export function eventItem(event) {
   return item && typeof item === "object" && !Array.isArray(item) ? /** @type {Record<string, unknown>} */ (item) : null;
 }
 
-/** Provider-reported quota and rate-limit text: exhaustion, never an ordinary provider failure. */
-const QUOTA_TEXT_PATTERN = /429|1310|rate.?limit|usage limit|limit exhausted|quota|too many requests/iu;
+/**
+ * Provider-reported quota and rate-limit text: exhaustion, never an ordinary
+ * provider failure. "session limit" is the Claude subscription's five-hour
+ * window: measured 2026-09-20, "You've hit your session limit · resets 6:40pm
+ * (America/Sao_Paulo)" settled as provider_error and two faberun nodes burnt
+ * both attempts inside a minute instead of holding until the reset.
+ */
+const QUOTA_TEXT_PATTERN = /429|1310|rate.?limit|usage limit|session limit|limit exhausted|quota|too many requests/iu;
 
 /**
  * @param {string|null|undefined} text

@@ -346,6 +346,8 @@ function evalComparableNumber(value) {
  *   direction: EvalDirection,
  *   delta: number|null,
  *   comparable: boolean,
+ *   band?: number|null,
+ *   significant?: boolean|null,
  * }} EvalIndicatorComparison
  */
 
@@ -358,19 +360,26 @@ function evalComparableNumber(value) {
  *
  * @param {JsonObject|undefined} before
  * @param {JsonObject|undefined} after
+ * @param {number|null} [band] the indicator's noise band, when a band report was given
  * @returns {EvalIndicatorComparison}
  */
-function compareEvalIndicator(before, after) {
+function compareEvalIndicator(before, after, band = undefined) {
   const beforeNumber = evalComparableNumber(before?.value);
   const afterNumber = evalComparableNumber(after?.value);
   const comparable = beforeNumber !== null && afterNumber !== null;
-  return {
+  const delta = comparable ? round4(/** @type {number} */ (afterNumber) - /** @type {number} */ (beforeNumber)) : null;
+  const entry = {
     before: { value: before?.value ?? null, count: typeof before?.count === "number" ? before.count : 0 },
     after: { value: after?.value ?? null, count: typeof after?.count === "number" ? after.count : 0 },
     direction: /** @type {EvalDirection} */ (after?.direction ?? before?.direction ?? "informative"),
-    delta: comparable ? round4(/** @type {number} */ (afterNumber) - /** @type {number} */ (beforeNumber)) : null,
+    delta,
     comparable,
   };
+  if (band === undefined) return entry;
+  // With a noise band the comparison says one more thing: whether the delta
+  // is larger than the spread repetition alone produces. Inside the band it
+  // is not a difference, and the report says "not measured", never "none".
+  return { ...entry, band, significant: comparable && band !== null && delta !== null ? Math.abs(delta) > band : null };
 }
 
 /**
@@ -381,16 +390,71 @@ function compareEvalIndicator(before, after) {
  *
  * @param {JsonObject} before
  * @param {JsonObject} after
+ * @param {JsonObject} [bands] a `--band` report's indicators, or a bare `{name: band}` map
  * @returns {Record<string, EvalIndicatorComparison>}
  */
-export function compareEvalReports(before, after) {
+export function compareEvalReports(before, after, bands = undefined) {
   const names = new Set([...Object.keys(before), ...Object.keys(after)]);
   /** @type {Record<string, EvalIndicatorComparison>} */
   const comparison = {};
   for (const name of [...names].sort()) {
-    comparison[name] = compareEvalIndicator(jsonObjectOf(before[name]) ?? undefined, jsonObjectOf(after[name]) ?? undefined);
+    comparison[name] = compareEvalIndicator(
+      jsonObjectOf(before[name]) ?? undefined,
+      jsonObjectOf(after[name]) ?? undefined,
+      bands === undefined ? undefined : bandValueOf(bands[name]),
+    );
   }
   return comparison;
+}
+
+/**
+ * The band a `--band` report (or a bare `{name: number}` map) states for one
+ * indicator; an indicator the band report never measured has none.
+ *
+ * @param {unknown} entry
+ * @returns {number|null}
+ */
+function bandValueOf(entry) {
+  if (typeof entry === "number" && Number.isFinite(entry)) return entry;
+  const value = jsonObjectOf(entry)?.band;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * The noise band per indicator across repeated projections of the same
+ * setup: half the range of the measured values, with their median and how
+ * many repetitions measured it. An indicator measured in fewer than two
+ * repetitions has no band -- one reading is not a spread. measured
+ * 2026-09-20: the same packet on the same model varied by a factor of 3.3
+ * across 10 repetitions in one campaign and 2.12 across 2 in another, so a
+ * comparison of one run per arm reports noise as a result.
+ *
+ * @param {JsonObject[]} reports bare indicator maps or `{indicators}` wrappers
+ * @returns {Record<string, {band: number|null, median: number|null, n: number}>}
+ */
+export function noiseBandOf(reports) {
+  const maps = reports.map((report) => {
+    const object = jsonObjectOf(report) ?? {};
+    return jsonObjectOf(object.indicators) ?? object;
+  });
+  const names = new Set(maps.flatMap((map) => Object.keys(map)));
+  /** @type {Record<string, {band: number|null, median: number|null, n: number}>} */
+  const result = {};
+  for (const name of [...names].sort()) {
+    const values = maps
+      .map((map) => evalComparableNumber(jsonObjectOf(map[name])?.value))
+      .filter((value) => value !== null)
+      .map((value) => /** @type {number} */ (value))
+      .sort((left, right) => left - right);
+    const n = values.length;
+    if (n < 2) {
+      result[name] = { band: null, median: n === 1 ? values[0] : null, n };
+      continue;
+    }
+    const median = n % 2 === 1 ? values[(n - 1) / 2] : (values[n / 2 - 1] + values[n / 2]) / 2;
+    result[name] = { band: round4((values[n - 1] - values[0]) / 2), median: round4(median), n };
+  }
+  return result;
 }
 
 /**
@@ -405,8 +469,17 @@ export function renderEvalComparisonReport(comparison) {
     lines.push(name);
     lines.push(`  before: ${JSON.stringify(entry.before.value)} (n=${entry.before.count})`);
     lines.push(`  after:  ${JSON.stringify(entry.after.value)} (n=${entry.after.count})`);
-    lines.push(`  delta:  ${entry.comparable ? entry.delta : "no data"}`);
+    lines.push(`  delta:  ${renderDelta(entry)}`);
     lines.push(`  melhora conta como: ${entry.direction}`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+/** @param {EvalIndicatorComparison} entry @returns {string} */
+function renderDelta(entry) {
+  if (!entry.comparable) return "no data";
+  if (entry.band === undefined || entry.band === null) return String(entry.delta);
+  return entry.significant
+    ? `${entry.delta} (outside the noise band ±${entry.band})`
+    : `not measured: |${entry.delta}| is within the noise band ±${entry.band}`;
 }

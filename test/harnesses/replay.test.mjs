@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { harnessCapabilities, normalizeProviderResult, probeRuntime, providerCommand } from "../../src/harnesses/index.mjs";
-import { liveInputTokens, liveSessionMetrics, liveUsage } from "../../src/harnesses/exec-jsonl/index.mjs";
+import { liveInputTokens, liveSessionMetrics, liveUsage } from "../../src/harnesses/session-metrics.mjs";
 import { replayHarness } from "../../src/harnesses/replay/index.mjs";
 import { JUDGE_SCHEMA } from "../../src/engine/prompts.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";

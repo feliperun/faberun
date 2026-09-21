@@ -547,7 +547,7 @@ console.log(JSON.stringify({event:"result",result:{
  * harness, a provider, or a network.
  *
  * @param {string} directory
- * @param {"pass"|"no-usage"|"quota"|"two-verdicts"|"silent"|"blocked"} mode
+ * @param {"pass"|"no-usage"|"quota"|"two-verdicts"|"silent"|"blocked"|"tool"} mode
  * @returns {string}
  */
 export function fakeDsh(directory, mode = "pass") {
@@ -584,6 +584,11 @@ if (process.argv.includes("--version")) {
         text("working", usage);
         text(JSON.stringify({ status: "done", summary: "ok", verification: [], artifacts: [], missingContext: [] }), usage);
         event({ type: "turn/end", data: { reason: { kind: "completed" } } });
+      } else if (mode === "tool") {
+        event({ type: "tool/call", data: { turn: 1, step: 1, callId: "call_1", name: "read", arguments: JSON.stringify({ file_path: "src/a.mjs" }) } });
+        event({ type: "tool/result", data: { message: { source: { callId: "call_1" }, content: [] } } });
+        text(JSON.stringify({ status: "done", summary: "ok", verification: [], artifacts: [], missingContext: [] }), usage);
+        event({ type: "turn/end", data: { reason: { kind: "completed" } } });
       } else if (mode === "no-usage") {
         text(JSON.stringify({ status: "done", summary: "ok", verification: [], artifacts: [], missingContext: [] }));
         event({ type: "turn/end", data: { reason: { kind: "completed" } } });
@@ -612,7 +617,7 @@ if (process.argv.includes("--version")) {
 /**
  * @template T
  * @param {string} directory
- * @param {"pass"|"no-usage"|"quota"|"two-verdicts"|"silent"|"blocked"} mode
+ * @param {"pass"|"no-usage"|"quota"|"two-verdicts"|"silent"|"blocked"|"tool"} mode
  * @param {() => T | Promise<T>} body
  * @returns {Promise<T>}
  */

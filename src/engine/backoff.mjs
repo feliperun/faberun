@@ -321,7 +321,8 @@ export function networkTransition(contract, node, state, role, envelope, exitCod
  * @returns {boolean}
  */
 export function isRepairable(node, state) {
-  return Boolean(node.gate.enabled) && (state.revisions ?? 0) < (node.gate.maxRevisions ?? 1);
+  // The budget is the node's, gate or not: see settle.mjs applyRejection.
+  return (state.revisions ?? 0) < (node.gate.maxRevisions ?? 1);
 }
 
 /**

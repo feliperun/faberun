@@ -142,8 +142,13 @@ export function terminalErrorCode(state) {
   return typeof error.code === "string" && error.code ? error.code : null;
 }
 
-/** Error codes that earn exactly one automatic retry before parking. */
-export const AUTO_RETRY_CODES = new Set(["judge_unavailable", "provider_error", "stall_timeout", "wall_clock_timeout"]);
+/**
+ * Error codes that earn exactly one automatic retry before parking.
+ * `turn_limit` is here and not among the timeout codes below: a turn the CLI
+ * stopped itself at `--max-turns` exits cleanly with no seal yet, and the
+ * next dispatch seals its worktree as it does for any previous attempt.
+ */
+export const AUTO_RETRY_CODES = new Set(["judge_unavailable", "provider_error", "stall_timeout", "wall_clock_timeout", "turn_limit"]);
 
 /**
  * Timeout codes earn their automatic retry only when phase 5b sealed work

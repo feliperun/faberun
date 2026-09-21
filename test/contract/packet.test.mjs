@@ -30,6 +30,7 @@ test("every worker prompt states the controller's verification is the proof", ()
     assert.match(prompt, /## Verification\nThe controller runs every command below after you report; its recorded results are the proof of this node\./u);
     assert.match(prompt, /Running a command yourself is optional and only for one that finishes in seconds and spawns no long-lived process\./u);
     assert.match(prompt, /never run tests that start and terminate other processes\./u);
+    assert.match(prompt, /Prefer a targeted edit over rewriting a whole file, and read with an offset and limit rather than whole files/u);
     assert.match(prompt, /## Required output/u, "the Required output section is untouched");
   }
 });

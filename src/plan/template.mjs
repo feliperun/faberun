@@ -15,7 +15,7 @@
  * finding — never a silent pass, never a refusal. freeze.mjs imports the same
  * phase check for the frozen plan record.
  */
-import { assertObject, rejectUnknown, requireId, requireString, requireStringArray } from "../contract/assert.mjs";
+import { assertObject, positiveInteger, rejectUnknown, requireId, requireString, requireStringArray } from "../contract/assert.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../contract/index.mjs";
 import { validateDefinitionOfDone } from "../contract/definition-of-done.mjs";
 import { validateVerificationCommands } from "../contract/verification.mjs";
@@ -24,7 +24,7 @@ import { validateVerificationCommands } from "../contract/verification.mjs";
 /** @typedef {"draft"|"review"|"revise"|"spec-author"|"spec-review"} PlanningKind */
 /** @typedef {"low"|"standard"|"high"} RiskTier */
 /** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, specPath?: string, repoFactsPath?: string, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
-/** @typedef {{id: string, objective: string, taskKind: string, riskTier: RiskTier, dependsOn: string[], readFiles: string[], writeFiles: string[], scopeAcknowledged: string[], definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], verification: import("../contract/verification.mjs").VerificationCommand[]}} PlanOutputNode */
+/** @typedef {{id: string, objective: string, taskKind: string, riskTier: RiskTier, dependsOn: string[], readFiles: string[], writeFiles: string[], scopeAcknowledged: string[], definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], verification: import("../contract/verification.mjs").VerificationCommand[], expectedTurns?: number}} PlanOutputNode */
 /** @typedef {{nodes: PlanOutputNode[], phases?: PlanPhase[], findings?: PlanFindingOutput[], justification?: string}} PlanOutput */
 /** @typedef {{id: string, requirementIds: string[], deliverable: string}} PlanPhase */
 /** @typedef {{id: string, severity: "critical"|"major"|"minor", nodeId: string, text: string}} PlanFindingOutput */
@@ -77,7 +77,15 @@ const REQUIRED_INPUTS = Object.freeze({
 // run had already succeeded. The id charset is requireId's
 // (contract/assert.mjs) verbatim, because an id that is present but invalid
 // fails that same validator just as late.
-const PLAN_OUTPUT_SHAPE = '{nodes: [{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: [{id, text, proof?: {kind: "command"|"path"|"verification", ref}, judgment?: true}], verification: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}]}], phases?: [{id, requirementIds?: [string], deliverable}], justification?}; every id in it (node, phase, and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly "." or ".."';
+const PLAN_OUTPUT_SHAPE = '{nodes: [{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: [{id, text, proof?: {kind: "command"|"path"|"verification", ref}, judgment?: true}], verification: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}], expectedTurns?}], phases?: [{id, requirementIds?: [string], deliverable}], justification?}; every id in it (node, phase, and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly "." or ".."';
+/**
+ * The size guidance every draft and revise carries. measured 2026-09-20 over
+ * stored runs: median 49 provider requests per worker turn; cost per turn
+ * nearly independent of the write set; 14.5 minutes of verification, judge
+ * and integration per node outside its worker turn; an attempt is cut at
+ * 150 requests.
+ */
+const SIZING_INSTRUCTION = "Size nodes to 4 to 6 write files where the work allows, and give every node an expectedTurns: the provider requests one worker needs to finish it end to end (measured median 49 for 4 to 6 files). A smaller node pays the same orientation and about 15 minutes of verification, judge and integration for less delivered work; a node you expect past 150 requests must be split, because a run cuts an attempt there.";
 const FINDINGS_SHAPE = "[{id, severity, nodeId, text}]";
 
 // The rule every planned packet is held to at freeze time, worded from
@@ -107,6 +115,7 @@ const INSTRUCTIONS = Object.freeze({
     ...SCOPE_CLOSURE_RULE,
     `Return exactly one worker-result JSON object. Put the plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan. taskKind and riskTier are the only classification a draft makes; a routing table assigns a runtime afterward, from those two fields alone.",
+    SIZING_INSTRUCTION,
   ],
   revise: [
     "Read the findings and resolve every one; do not leave a critical or major finding unaddressed.",
@@ -114,6 +123,7 @@ const INSTRUCTIONS = Object.freeze({
     ...SCOPE_CLOSURE_RULE,
     `Return exactly one worker-result JSON object. Put the revised plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan.",
+    SIZING_INSTRUCTION,
   ],
   review: [
     "You are given only the spec, the repository facts, and the plan under review; you have not seen how the plan was produced or any reasoning behind it. Review the artefact alone.",
@@ -216,7 +226,7 @@ export function buildPlanningContract(kind, inputs) {
 }
 
 const PLAN_FIELDS = new Set(["nodes", "phases", "justification"]);
-const PLAN_NODE_FIELDS = new Set(["id", "objective", "taskKind", "riskTier", "dependsOn", "readFiles", "writeFiles", "scopeAcknowledged", "definitionOfDone", "verification"]);
+const PLAN_NODE_FIELDS = new Set(["id", "objective", "taskKind", "riskTier", "dependsOn", "readFiles", "writeFiles", "scopeAcknowledged", "definitionOfDone", "verification", "expectedTurns"]);
 
 /**
  * Validate a draft or revise worker's `output.plan`. Rejects a node naming a
@@ -264,6 +274,7 @@ export function validatePlanOutput(plan) {
     requireStringArray(scopeAcknowledged, `${label}.scopeAcknowledged`);
     const definitionOfDone = validateDefinitionOfDone(nodeRecord.definitionOfDone ?? [], `${label}.definitionOfDone`);
     const verification = validateVerificationCommands(nodeRecord.verification ?? [], `${label}.verification`);
+    const expectedTurns = nodeRecord.expectedTurns === undefined ? undefined : positiveInteger(nodeRecord.expectedTurns, `${label}.expectedTurns`);
     return /** @type {PlanOutputNode} */ ({
       id: /** @type {string} */ (nodeRecord.id),
       objective: /** @type {string} */ (nodeRecord.objective),
@@ -275,6 +286,7 @@ export function validatePlanOutput(plan) {
       scopeAcknowledged: /** @type {string[]} */ (scopeAcknowledged),
       definitionOfDone,
       verification,
+      ...(expectedTurns === undefined ? {} : { expectedTurns }),
     });
   });
   if (record.justification !== undefined) requireString(record.justification, "plan.justification");

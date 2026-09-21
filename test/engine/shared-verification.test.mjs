@@ -95,8 +95,11 @@ test("a shared command that fails one workspace fails only the node whose attemp
       { envelope: envelope({ result: JSON.stringify(workerResult("clean")) }) },
     ],
     nodes: [
-      { id: "offender", type: "backend", taskPacket: packet({ writeFiles: ["offend.txt"], verification: [{ argv: packetArgv }] }), gate: false },
-      { id: "clean", type: "backend", taskPacket: packet({ objective: "Clean", verification: [{ argv: packetArgv }] }), gate: false },
+      // Two scripted worker envelopes, one per node: no revision, or the
+      // offender's retry would dispatch a third worker the script has no
+      // answer for. What is measured is the first attempt's shared result.
+      { id: "offender", type: "backend", taskPacket: packet({ writeFiles: ["offend.txt"], verification: [{ argv: packetArgv }] }), gate: { enabled: false, maxRevisions: 0 } },
+      { id: "clean", type: "backend", taskPacket: packet({ objective: "Clean", verification: [{ argv: packetArgv }] }), gate: { enabled: false, maxRevisions: 0 } },
     ],
   });
 

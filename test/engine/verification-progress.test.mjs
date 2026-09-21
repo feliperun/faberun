@@ -97,7 +97,10 @@ test("a failing verification command still leaves no stray progress on the termi
       "replay-worker": { harness: "replay", model: "replay-worker-model", vendor: "replay-worker-vendor", config: { "replay.recording": workerRecording } },
       "replay-judge": { harness: "replay", model: "replay-judge-model", vendor: "replay-judge-vendor" },
     },
-    nodes: [{ id: "build", type: "backend", taskPacket: packet({ verification: [{ argv: argv1 }, { argv: failingArgv }] }), gate: false }],
+    // One recorded worker envelope and a log read without filtering: no
+    // revision, or the retry a gateless node now gets would run the commands
+    // a second time.
+    nodes: [{ id: "build", type: "backend", taskPacket: packet({ verification: [{ argv: argv1 }, { argv: failingArgv }] }), gate: { enabled: false, maxRevisions: 0 } }],
   }));
 
   // A node that fails its own verification is never integrated, so this

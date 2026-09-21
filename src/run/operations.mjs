@@ -12,7 +12,7 @@ import { basename, join } from "node:path";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 
-import { readBoundedTail } from "../engine/process.mjs";
+import { readBoundedTail } from "../engine/transcript.mjs";
 import { readJson, writeJsonAtomic } from "./store.mjs";
 import { runtimeSnapshot } from "../engine/failover.mjs";
 import { normalizeProviderResult } from "../harnesses/index.mjs";

@@ -7,8 +7,8 @@
  * a judge decides, or when a run is done. That separation is the point: a stuck
  * provider is killed by the same code whatever it was asked to do.
  */
-import { SessionMetricsParser } from "../harnesses/exec-jsonl/index.mjs";
-import { closeSync, existsSync, fsyncSync, openSync, readFileSync, readSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { boundedRegion, monitorInvocation } from "./transcript.mjs";
+import { closeSync, existsSync, fsyncSync, openSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { errorCode, errorMessage } from "../util.mjs";
 import { fileURLToPath } from "node:url";
@@ -33,19 +33,14 @@ import { writeNodeSnapshot } from "../run/node-store.mjs";
 /** @typedef {ProviderEnvelope & {costProvenance?: "priced"}} PricedEnvelope */
 /** @typedef {import("node:child_process").ChildProcess} ChildProcess */
 /** @typedef {{prompt: string|null, stdout: string, stderr: string}} PathSet */
-/** @typedef {{id: string, pid: number, processGroupId: number|null, processStartToken: string|null, harness: string, runtimeId: string|null, runtimeFingerprint?: string, revision?: number, phase: string, promptPath: string|null, stdoutPath: string, stderrPath: string, startedAt: string, deadlineAt: string|null, updatedAt: string, closedAt: string|null, exitCode: number|null, signal: string|null, status: "active"|"closed"|"terminated", executable: string, snapshotPath?: string, usage?: Usage, usageEstimated?: boolean, costUsd?: number|null, costProvenance?: "priced", runId?: string, campaignId?: string, nodeId?: string, attempt?: number, workspace?: string, worktreeBranch?: string|null, worktreeBaseSha?: string|null, planPhase?: string, role?: "worker"|"judge", model?: string, reasoning?: string|null, sandbox?: string|null, continuationId?: string|null, continuationMode?: "fresh"|"reuse"|"rotate"}} Invocation */
+/** @typedef {{id: string, pid: number, processGroupId: number|null, processStartToken: string|null, harness: string, runtimeId: string|null, runtimeFingerprint?: string, revision?: number, phase: string, promptPath: string|null, stdoutPath: string, stderrPath: string, startedAt: string, deadlineAt: string|null, updatedAt: string, closedAt: string|null, exitCode: number|null, signal: string|null, status: "active"|"closed"|"terminated", executable: string, snapshotPath?: string, usage?: Usage, usageEstimated?: boolean, costUsd?: number|null, costProvenance?: "priced", runId?: string, campaignId?: string, nodeId?: string, attempt?: number, workspace?: string, worktreeBranch?: string|null, worktreeBaseSha?: string|null, planPhase?: string, role?: "worker"|"judge", model?: string, reasoning?: string|null, sandbox?: string|null, continuationId?: string|null, continuationMode?: "fresh"|"reuse"|"rotate", session?: import("../harnesses/session-metrics.mjs").SessionLedger|null}} Invocation */
 /** @typedef {{pid: number|null, processGroupId?: number|null, processStartToken?: string|null}} InvocationProbe */
-/** @typedef {{child: ChildProcess, contract: ValidatedContract, node: ValidatedNode, state: NodeSnapshot, runtime: HarnessRuntime & {id: string|null}, cwd: string, paths: PathSet, phase: string, invocation: Invocation, startedAt: string, startedTicks: bigint, progressTicks: bigint, lastOutputAt: number, closed: boolean, exitCode: number|null, signal: string|null, spawnError: Error|null, terminating: Promise<void>|null, gateConfigPath: string, gateReleasePath: string, scopeBaseline?: unknown, scopeChecked?: boolean, scopeViolation?: boolean, resultMaterialization?: boolean, recoveryBaseline?: unknown, observeTimer?: ReturnType<typeof setInterval>, monitorOffset?: number, monitorParser?: import("../harnesses/exec-jsonl/index.mjs").SessionMetricsParser, lastEventCount?: number, observedOnce?: boolean, onClose?: (invocation: Invocation) => void, onInvocationUpdate?: (invocation: Invocation) => void, onProgress?: (state: NodeSnapshot) => void}} Job */
+/** @typedef {{child: ChildProcess, contract: ValidatedContract, node: ValidatedNode, state: NodeSnapshot, runtime: HarnessRuntime & {id: string|null}, cwd: string, paths: PathSet, phase: string, invocation: Invocation, startedAt: string, startedTicks: bigint, progressTicks: bigint, lastOutputAt: number, closed: boolean, exitCode: number|null, signal: string|null, spawnError: Error|null, terminating: Promise<void>|null, gateConfigPath: string, gateReleasePath: string, scopeBaseline?: unknown, scopeChecked?: boolean, scopeViolation?: boolean, resultMaterialization?: boolean, recoveryBaseline?: unknown, observeTimer?: ReturnType<typeof setInterval>, monitorOffset?: number, monitorParser?: import("../harnesses/session-metrics.mjs").SessionMetricsParser, lastEventCount?: number, observedOnce?: boolean, onClose?: (invocation: Invocation) => void, onInvocationUpdate?: (invocation: Invocation) => void, onProgress?: (state: NodeSnapshot) => void}} Job */
 /** @typedef {{graceMs?: number, killGraceMs?: number, escalate?: boolean, runDir?: string, kill?: (pid: number, signal: string|number) => unknown, child?: ChildProcess|null}} TerminateOptions */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_GRACE_MS = 2_000;
 const GATE_PATH = join(HERE, "gate.mjs");
-const MAX_PROVIDER_LOG_BYTES = 512 * 1024;
-/** Fixed-size read for incremental transcript observation. */
-const MONITOR_CHUNK_BYTES = 64 * 1024;
-/** Per-observation read budget: one tick never blocks on a huge backlog. */
-const MONITOR_CALL_BUDGET_BYTES = 1024 * 1024;
 /**
  * @param {{contract: ValidatedContract, node: ValidatedNode, state: NodeSnapshot, runtime: HarnessRuntime & {id: string|null}, prompt: string, paths: PathSet, phase: string, workspace?: string, commandOptions?: import("../harnesses/index.mjs").CommandOptions, onInvocation: (invocation: Invocation, job: Job) => void, onInvocationUpdate?: (invocation: Invocation) => void, onProgress?: (state: NodeSnapshot) => void}} args
  * @returns {Job}
@@ -202,47 +197,6 @@ function observeInvocation(job) {
   }
 }
 /**
- * Observe the transcript incrementally: read only the bytes appended since
- * the last observation, in fixed-size chunks folded into a parser whose
- * retained state never scales with the unread length — so the metrics
- * survive both a transcript that outgrows any fixed window and an
- * already-large transcript on the first call after a controller restart.
- * The gate caps the log only at close, so byte offsets stay valid while the
- * provider is live. Only newline-terminated records are evidence; a
- * trailing partial record stays unconsumed for the next observation. The
- * generic metrics are zero for a provider that does not expose them.
- *
- * @param {Job} job
- * @returns {{continuationId: string|null, turns: number, cacheReadInputTokens: number, toolCalls: number, completed: boolean}}
- */
-export function monitorInvocation(job) {
-  try {
-    const parser = job.monitorParser ?? (job.monitorParser = new SessionMetricsParser(job.runtime.harness));
-    const size = statSync(job.paths.stdout).size;
-    let offset = job.monitorOffset ?? 0;
-    let budget = MONITOR_CALL_BUDGET_BYTES;
-    if (size > offset) {
-      const fd = openSync(job.paths.stdout, "r");
-      try {
-        const chunk = Buffer.alloc(MONITOR_CHUNK_BYTES);
-        while (offset < size && budget > 0) {
-          const read = readSync(fd, chunk, 0, Math.min(chunk.length, size - offset, budget), offset);
-          if (read <= 0) break;
-          parser.push(chunk.subarray(0, read));
-          offset += read;
-          budget -= read;
-        }
-      } finally {
-        closeSync(fd);
-      }
-      job.monitorOffset = offset;
-    }
-    return { continuationId: parser.continuationId, ...parser.metrics() };
-  } catch {
-    return { continuationId: null, turns: 0, cacheReadInputTokens: 0, toolCalls: 0, completed: false };
-  }
-}
-/**
  * @param {string} path
  */
 function signalGate(path) {
@@ -321,7 +275,7 @@ export async function terminateInvocation(invocation, options = {}) {
  * sealing here, a timeout parks with an empty seal and the recorded work is
  * abandoned in a worktree the next attempt never reads.
  */
-const SEAL_BEFORE_KILL_CODES = new Set(["wall_clock_timeout", "stall_timeout"]);
+const SEAL_BEFORE_KILL_CODES = new Set(["wall_clock_timeout", "stall_timeout", "turn_limit"]);
 
 /**
  * How long a `SIGSTOP`ped process group is given to actually stop before the
@@ -393,8 +347,8 @@ function resumeInvocation(invocation) {
 }
 
 /**
- * The pre-termination seam, filled: on `wall_clock_timeout` and `stall_timeout`
- * quiesce the provider, seal the attempt worktree, and only then let the caller
+ * The pre-termination seam, filled: on `wall_clock_timeout`, `stall_timeout`
+ * and `turn_limit` quiesce the provider, seal the attempt worktree, and only then let the caller
  * terminate it, so the next attempt is cut from the seal. The seal is bounded
  * by the same git timeout every synchronous git call uses
  * (`GIT_SYNC_TIMEOUT_MS`, overridable with `FABERUN_GIT_TIMEOUT_MS`);
@@ -486,6 +440,25 @@ export async function detectStalls(contract, running, onTimeout, onProgress, onB
         // signal (scheduler.mjs): keep it advancing for an event that counts
         // as liveness, not only for an mtime that no longer does.
         job.lastOutputAt = Date.now();
+      }
+      // The attempt's request ceiling: a turn still making requests past it
+      // is the runaway shape, not progress. measured 2026-09-20: two 600-request
+      // turns re-sent 190M and 167M tokens of context and produced no result;
+      // the 23 turns with no result held 25% of all context spend. Ends the
+      // attempt the way a timeout does: sealed, then one automatic retry.
+      // (`turns` counts provider requests for claude, dsh and agy; codex
+      // reports whole turns, so its cap is in effect a turn count.)
+      const turnCap = job.node?.maxTurns ?? contract.maxTurns;
+      if (typeof turnCap === "number" && monitored.turns >= turnCap) {
+        const limit = {
+          code: "turn_limit",
+          message: `${job.phase} made ${monitored.turns} provider requests, the attempt's maxTurns of ${turnCap}`,
+        };
+        await onBeforeTerminate(job, limit);
+        await terminateProcess(job);
+        running.delete(nodeId);
+        await onTimeout(job, "exhausted", limit);
+        continue;
       }
     } else if (job.observedOnce !== true) {
       job.progressTicks = now;
@@ -582,28 +555,6 @@ export function priceUsage(runtime, usage, reportedCostUsd) {
     total += counter * rate;
   }
   return { costUsd: total / 1_000_000, costProvenance: "priced" };
-}
-/**
- * @param {string} path
- * @param {number} maxBytes
- * @returns {string}
- */
-function boundedRegion(path, maxBytes = MAX_PROVIDER_LOG_BYTES) {
-  try {
-    return dropPartialLogLine(readFileSync(`${path}.tail`, "utf8"));
-  } catch (error) {
-    if (errorCode(error) !== "ENOENT") throw error;
-  }
-  const size = statSync(path).size;
-  if (size <= maxBytes) return readFileSync(path, "utf8");
-  const fd = openSync(path, "r");
-  try {
-    const bytes = Buffer.alloc(maxBytes);
-    readSync(fd, bytes, 0, maxBytes, size - maxBytes);
-    return dropPartialLogLine(bytes.toString("utf8"));
-  } finally {
-    closeSync(fd);
-  }
 }
 /**
  * Signal the invocation's process group only when ownership is proven. Never
@@ -745,37 +696,4 @@ export function logPaths(runDir, nodeId, phase, attempt) {
     stdout: join(runDir, "logs", `${stem}.jsonl`),
     stderr: join(runDir, "logs", `${stem}.err`),
   };
-}
-/**
- * @param {string} path
- * @param {number} [maxBytes]
- * @returns {string}
- */
-export function readBoundedTail(path, maxBytes = 512 * 1024) {
-  try {
-    try { return dropPartialLogLine(readFileSync(`${path}.tail`, "utf8")); } catch (tailError) {
-      if (errorCode(tailError) !== "ENOENT") throw tailError;
-    }
-    const size = statSync(path).size;
-    if (size <= maxBytes) return readFileSync(path, "utf8");
-    const fd = openSync(path, "r");
-    try {
-      const bytes = Buffer.alloc(maxBytes);
-      readSync(fd, bytes, 0, maxBytes, size - maxBytes);
-      return dropPartialLogLine(bytes.toString("utf8"));
-    } finally {
-      closeSync(fd);
-    }
-  } catch (error) {
-    if (errorCode(error) === "ENOENT") return "";
-    throw error;
-  }
-}
-/**
- * @param {unknown} value
- * @returns {string}
- */
-function dropPartialLogLine(value) {
-  const newline = String(value).indexOf("\n");
-  return newline < 0 ? "" : String(value).slice(newline + 1);
 }

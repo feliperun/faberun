@@ -84,6 +84,11 @@ export const claudeHarness = {
     ];
     if (options.toolPolicy) args.push("--settings", JSON.stringify(hookSettings(options.toolPolicy)));
     if (runtime.reasoning) args.push("--effort", runtime.reasoning);
+    // The attempt's request ceiling, enforced by the CLI itself; the
+    // controller's monitor enforces the same number for every streaming
+    // harness, so this only makes the stop cleaner (a result event instead of
+    // a kill) for the one harness that can take it as a flag.
+    if (typeof options.maxTurns === "number") args.push("--max-turns", String(options.maxTurns));
     if (options.schema) args.push("--json-schema", JSON.stringify(options.schema));
     return { executable: this.executable(runtime), args, promptTransport: "stdin", input: prompt };
   },

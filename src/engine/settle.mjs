@@ -40,11 +40,20 @@ import { verifyCandidateWorkspace } from "./verify.mjs";
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {import("../contract/index.mjs").ValidatedNode} ValidatedNode */
 
-/** Settle one worker-generation rejection: bounded revision when one remains, otherwise terminal exhausted/failed. @param {ValidatedContract} contract @param {ValidatedNode} node @param {NodeSnapshot} state @param {string} runDir @param {Map<string, Job>|null} running @param {LockHandle} lock @param {Map<string, NodeSnapshot>} states @param {string} campaignPath @param {JudgeVerdict} verdict @param {{code: string, label: string, phase?: "worker"|"judge", message?: string, forceFresh?: boolean}} options */
+/**
+ * Settle one worker-generation rejection: bounded revision when one remains,
+ * otherwise terminal exhausted/failed. The revision budget is the node's
+ * (`gate.maxRevisions`, default 1) whether or not the gate reviews: a red
+ * deterministic verification earns the same fresh attempt with the failure in
+ * front of the worker that a judge rejection does. Measured 2026-09-20 in the
+ * orchestration-arms campaign: with the budget behind `gate.enabled`, a node
+ * under `gate: false` died on one timing test that flaked under load, and its
+ * dependant with it, while the judged twin of the same node got its retry.
+ * @param {ValidatedContract} contract @param {ValidatedNode} node @param {NodeSnapshot} state @param {string} runDir @param {Map<string, Job>|null} running @param {LockHandle} lock @param {Map<string, NodeSnapshot>} states @param {string} campaignPath @param {JudgeVerdict} verdict @param {{code: string, label: string, phase?: "worker"|"judge", message?: string, forceFresh?: boolean}} options */
 export function applyRejection(contract, node, state, runDir, running, lock, states, campaignPath, verdict, options) {
   const { code, label, phase = "worker", message = verdict.summary, forceFresh = true } = options;
   state.gate = verdict;
-  if (node.gate.enabled && state.revisions < (node.gate.maxRevisions ?? 1)) {
+  if (state.revisions < (node.gate.maxRevisions ?? 1)) {
     resetPhaseRouting(state);
     state.revisions += 1;
     // The fresh-session decision travels with the node, not just this call:
