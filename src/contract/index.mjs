@@ -37,7 +37,7 @@ const CONTRACT_FIELDS = new Set([
 ]);
 const DEFAULTS_FIELDS = new Set(["worker", "judge"]);
 const NODE_FIELDS = new Set([
-  "id", "type", "phase", "runtime", "dependsOn", "taskPacket", "taskPacketFile", "prompt", "promptFile",
+  "id", "type", "phase", "requirementIds", "runtime", "dependsOn", "taskPacket", "taskPacketFile", "prompt", "promptFile",
   "definitionOfDone", "gate", "timeoutSec", "maxTurns",
   "requiredCapabilities", "packetHash", "sourceIdentity", "replayPolicy",
 ]);
@@ -68,7 +68,7 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 
 /** @typedef {{enabled: boolean, review?: ("none"|"advisory"|"blocking"), runtime?: string, failOn?: ("minor"|"major"|"critical")[], maxRevisions?: number, requiredCapabilities?: CapabilityRequirements, skipWhen?: {verificationGreen: true, maxChangedPaths: number}}} ValidatedGate */
 
-/** @typedef {{id: string, type: string, phase: string, runtime?: string, dependsOn: string[], taskPacket: TaskPacket, taskPacketFile?: string, prompt: string, definitionOfDone: import("./definition-of-done.mjs").DefinitionOfDoneItem[], gate: ValidatedGate, timeoutSec?: number, maxTurns?: number, requiredCapabilities: CapabilityRequirements, packetHash: string, sourceIdentity: SourceIdentity, replayPolicy: "safe"|"reconcile"|"never"}} ValidatedNode */
+/** @typedef {{id: string, type: string, phase: string, requirementIds?: string[], runtime?: string, dependsOn: string[], taskPacket: TaskPacket, taskPacketFile?: string, prompt: string, definitionOfDone: import("./definition-of-done.mjs").DefinitionOfDoneItem[], gate: ValidatedGate, timeoutSec?: number, maxTurns?: number, requiredCapabilities: CapabilityRequirements, packetHash: string, sourceIdentity: SourceIdentity, replayPolicy: "safe"|"reconcile"|"never"}} ValidatedNode */
 
 /** @typedef {{schemaVersion: number, contractVersion: string, id: string, campaignId: string, goal: string, cwd: string, sourceIdentity: SourceIdentity, runtimes: Record<string, ValidatedRuntime>, runtimeDefaults: {worker?: string, judge?: string}, nodes: ValidatedNode[], maxParallel: number, pollIntervalMs: number, stallTimeoutSec: number, timeoutSec: number, maxTurns: number, phaseSessionReuse: boolean, finalVerification?: VerificationCommand[], sharedVerification?: VerificationCommand[], nodeAdvisory?: NodeAdvisoryPolicy, warnings: string[]}} ValidatedContract */
 /** @typedef {{costUsd?: number, durationSec?: number}} NodeAdvisoryPolicy */
@@ -98,11 +98,11 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 /** @typedef {{history: RoutingHistoryEntry[], currentOverride: RoutingOverride|null, assignments?: RuntimeAssignments, availability?: Record<string, RuntimeAvailability>, tierExhaustion?: TierExhaustion, tierExhaustionCycle?: number}} RoutingState */
 /** @typedef {{revision?: number, heartbeatCount: number, dryHeartbeatCount: number, progressSignature?: string|null, lastHeartbeatAt: string|null, lastProgressAt: string|null, nextCheckAt?: string|null}} ProgressState */
 /** @typedef {{status: "unassigned"|"provisioning"|"ready"|"failed"|"removed", path: string|null, branch: string|null, commit: string|null, baseSha?: string|null, sealedSha?: string|null, sealError?: string|null, previousAttempt?: number|null}} WorktreeState */
-/** @typedef {{schemaVersion: number, contractVersion: string, id: string, type: string, sourceIdentity: SourceIdentity, packetHash: string, status: NodeStatus, phase: NodePhase, attempt: number, revisions: number, judgeFailures?: number, review?: ("none"|"advisory"|"blocking"), runtime: RuntimeSnapshot|null, blockedBy: string[], startedAt: string|null, updatedAt: string, result: unknown, gate: GateResult|null, error: SnapshotError|null, usage?: Usage, costUsd?: number, routing?: RoutingState|null, progress?: ProgressState|null, worktree?: WorktreeState|null, integratedHead?: string|null, invocations?: Invocation[], executionOverrides?: ExecutionOverride[], verification?: VerificationState|null, scope?: BoundedScope|null, scopeFindings?: ScopeFindings|null, previousAttempt?: string, sessionPolicy?: {forceFresh?: boolean}|null, declaredReadBytes?: number|null}} NodeSnapshot */
+/** @typedef {{schemaVersion: number, contractVersion: string, id: string, type: string, sourceIdentity: SourceIdentity, packetHash: string, requirementIds?: string[], status: NodeStatus, phase: NodePhase, attempt: number, revisions: number, judgeFailures?: number, review?: ("none"|"advisory"|"blocking"), runtime: RuntimeSnapshot|null, blockedBy: string[], startedAt: string|null, updatedAt: string, result: unknown, gate: GateResult|null, error: SnapshotError|null, usage?: Usage, costUsd?: number, routing?: RoutingState|null, progress?: ProgressState|null, worktree?: WorktreeState|null, integratedHead?: string|null, invocations?: Invocation[], executionOverrides?: ExecutionOverride[], verification?: VerificationState|null, scope?: BoundedScope|null, scopeFindings?: ScopeFindings|null, previousAttempt?: string, sessionPolicy?: {forceFresh?: boolean}|null, declaredReadBytes?: number|null}} NodeSnapshot */
 /** @typedef {{path: string, sha: string}} ControllerIdentity */
 /** @typedef {{schemaVersion: number, contractVersion: string, pid: number, processStartToken: string|null, startedAt: string, sourceIdentity: SourceIdentity, controllerIdentity?: ControllerIdentity, integrationRef?: string, identityWarnings?: string[], relaunchCount?: number, lastRelaunchProgressAt?: string|null, attention?: {code: string, message: string, at: string}|null, contractDigest?: string, scopeDecision?: ScopeDecision, autoRetries?: Record<string, {code: string, at: string}>}} RunMetadata */
 /** @typedef {{at: string, base: string|null, dirtyTreeFingerprint: string|null}} ScopeDecision */
-/** @typedef {{schemaVersion: number, contractVersion: string, at: string, node: string, from?: string, to: string, type?: string, phase?: string, attempt?: number, role?: "worker"|"judge", status?: NodeStatus, runtime?: string, currentRuntime?: string, errorCode?: string, error?: SnapshotError, verdict?: string, summary?: string, revisions?: number, sourceIdentity: SourceIdentity, packetHash: string, override?: unknown, recovery?: unknown, invocationId?: string, unexpectedPaths?: string[], unexpectedPathCount?: number}} EventRecord */
+/** @typedef {{schemaVersion: number, contractVersion: string, at: string, node: string, from?: string, to: string, type?: string, phase?: string, attempt?: number, role?: "worker"|"judge", status?: NodeStatus, runtime?: string, currentRuntime?: string, errorCode?: string, error?: SnapshotError, verdict?: string, summary?: string, revisions?: number, requirementIds?: string[], sourceIdentity: SourceIdentity, packetHash: string, override?: unknown, recovery?: unknown, invocationId?: string, unexpectedPaths?: string[], unexpectedPathCount?: number}} EventRecord */
 
 /**
  * Validate and canonicalize the versioned contract. Runtime JSON remains
@@ -179,6 +179,17 @@ export function validateContract(raw, contractPath, options = {}) {
     ids.add(node.id);
     requireString(node.type, `nodes[${index}].type`);
     boundedString(node.phase, `nodes[${index}].phase`, 128);
+    // A node's requirementIds are inherited from its phase at freeze time
+    // (src/plan/freeze.mjs stamps them) and are optional on read: a contract
+    // without the field loads unchanged, which is what keeps CONTRACT_VERSION
+    // at 0.3.0 while requirement ids reach the node.
+    const requirementIds = node.requirementIds;
+    if (requirementIds !== undefined) {
+      if (!Array.isArray(requirementIds) || requirementIds.length > 64) {
+        throw new TypeError(`nodes[${index}].requirementIds must be an array of at most 64 requirement ids`);
+      }
+      requirementIds.forEach((id, position) => boundedString(id, `nodes[${index}].requirementIds[${position}]`, 128));
+    }
     if (node.runtime !== undefined) requireRuntime(runtimes, node.runtime, `nodes[${index}].runtime`);
     const dependsOn = node.dependsOn ?? [];
     if (!Array.isArray(dependsOn) || dependsOn.some((id) => typeof id !== "string")) {

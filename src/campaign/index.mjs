@@ -21,7 +21,9 @@ import { handoffFromState, materializeHandoff } from "./handoff.mjs";
 /** @typedef {{path: string, digest: string}} CampaignContract */
 /** @typedef {{runId: string, contractPath?: string, branch: string, sha: string, previousSha: string|null, at: string}} PromotionRecord */
 /** @typedef {{code: string, message: string, at: string, contractPath?: string, contractId?: string, runId?: string, node?: string|null, status?: string|null, resume?: string}} CampaignAttention */
-/** @typedef {{id: string, goal: string, status: "active"|"closed", linkedRunIds: string[], contracts: CampaignContract[], landBranch: string, promotions: PromotionRecord[], attention?: CampaignAttention, createdAt: string, updatedAt: string, closedAt?: string}} Campaign */
+/** @typedef {{runId: string, node: string, passed: boolean|null, verdict: string|null}} RequirementNodeEvidence */
+/** @typedef {{requirementId: string, status: "covered"|"open", nodes: RequirementNodeEvidence[]}} RequirementClosure */
+/** @typedef {{id: string, goal: string, status: "active"|"closed", linkedRunIds: string[], contracts: CampaignContract[], landBranch: string, promotions: PromotionRecord[], attention?: CampaignAttention, requirements?: RequirementClosure[], createdAt: string, updatedAt: string, closedAt?: string}} Campaign */
 /** @typedef {{type: string, eventId: string, at: string, sessionId?: string, text?: string, tool?: string, transcript?: string|null, transcriptUnavailable?: boolean, format?: string|null, cursor?: string|null, decisionId?: string, supersedes?: string, runId?: string, questionId?: string, campaignId?: string, nodeId?: string|null, phase?: string, checkpointsDone?: number, checkpointsTotal?: number, runtime?: string|null, state?: string, lastProgressAt?: string, attention?: string|null}} JournalEntry */
 /** @typedef {{updatedAt: string|null, decisions: Record<string, JournalEntry>, questions: Record<string, JournalEntry>, constraints: JournalEntry[], intents: JournalEntry[], outcomes: JournalEntry[], sessions: JournalEntry[], next: JournalEntry|null, evicted: Record<string, number>}} Projection */
 /** @typedef {{cursor: number, byte: number, size: number, projection: Projection}} ProjectionRecord */
@@ -135,10 +137,80 @@ export function closeCampaign(campaignPath, { at = new Date().toISOString(), eve
   }
   const repoRoot = campaignRepoRoot(campaignPath);
   const ledgerFiles = preserveCampaignLedger(campaignPath, repoRoot);
-  const closed = /** @type {Campaign} */ ({ ...campaign, status: "closed", closedAt: at, updatedAt: at });
+  // The closure travels on the record itself, computed in one deterministic
+  // pass over the linked runs' own files before the close is written.
+  const requirements = buildRequirementClosure(campaignPath, campaign);
+  /** @type {Campaign} */
+  const closed = { ...campaign, status: "closed", closedAt: at, updatedAt: at, requirements };
   writeJsonAtomic(join(campaignPath, CAMPAIGN_FILE), closed);
   appendJournal(campaignPath, { type: "campaign.closed", at, eventId });
   return { path: campaignPath, campaign: closed, ledgerFiles };
+}
+
+/**
+ * The requirement closure a close records: one entry per requirement id the
+ * linked runs' contracts declared, correlated only by the identifiers the runs
+ * carried -- the contract node's declaration and the id the done node snapshot
+ * itself carries, stamped there by the engine -- never by requirement text. A
+ * requirement no done node carries is recorded as open rather than omitted.
+ * Deterministic and free of external calls: runs are visited in sorted id
+ * order, nodes in contract order, requirement ids sorted, and the only inputs
+ * are files already on disk. A run that never launched (or was pruned)
+ * contributes nothing.
+ *
+ * @param {string} campaignPath
+ * @param {Campaign} campaign
+ * @returns {RequirementClosure[]}
+ */
+function buildRequirementClosure(campaignPath, campaign) {
+  const runsDir = resolve(campaignPath, "..", "..");
+  /** @type {Map<string, RequirementNodeEvidence[]>} */
+  const covered = new Map();
+  /** @type {Set<string>} */
+  const declared = new Set();
+  for (const runId of [...campaign.linkedRunIds].sort()) {
+    const contract = readRunJson(join(runsDir, runId, "contract.json"));
+    const nodes = contract !== null && Array.isArray(contract.nodes) ? /** @type {JsonObject[]} */ (contract.nodes) : [];
+    for (const node of nodes) {
+      const nodeId = typeof node.id === "string" ? node.id : "";
+      const requirementIds = Array.isArray(node.requirementIds) ? node.requirementIds : [];
+      if (!nodeId || requirementIds.length === 0) continue;
+      const snapshot = readRunJson(join(runsDir, runId, "nodes", `${nodeId}.json`));
+      const done = snapshot !== null && snapshot.status === "done";
+      const carried = snapshot !== null && Array.isArray(snapshot.requirementIds) ? /** @type {unknown[]} */ (snapshot.requirementIds) : [];
+      const verification = snapshot !== null ? /** @type {JsonObject|null|undefined} */ (snapshot.verification) : undefined;
+      const gate = snapshot !== null ? /** @type {JsonObject|null|undefined} */ (snapshot.gate) : undefined;
+      const passed = verification && typeof verification.passed === "boolean" ? verification.passed : null;
+      const verdict = gate && typeof gate.verdict === "string" ? gate.verdict : null;
+      for (const requirementId of requirementIds) {
+        if (typeof requirementId !== "string") continue;
+        declared.add(requirementId);
+        if (!done || !carried.includes(requirementId)) continue;
+        const evidence = covered.get(requirementId) ?? [];
+        evidence.push({ runId, node: nodeId, passed, verdict });
+        covered.set(requirementId, evidence);
+      }
+    }
+  }
+  return [...declared].sort().map((requirementId) => {
+    const nodes = covered.get(requirementId) ?? [];
+    return { requirementId, status: nodes.length > 0 ? "covered" : "open", nodes };
+  });
+}
+
+/**
+ * @param {string} path
+ * @returns {JsonObject|null} null when the file is absent or not JSON: a run
+ * that never launched contributes nothing to the closure rather than failing
+ * the close, the same discipline `preserveCampaignLedger` applies to a run
+ * without a usage ledger.
+ */
+function readRunJson(path) {
+  try {
+    return /** @type {JsonObject} */ (JSON.parse(readFileSync(path, "utf8")));
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -181,6 +181,9 @@ export async function settleDone(contract, node, state, runDir, lock, states, ca
         const retryNote = candidateRetryNote(/** @type {{verificationEvidence?: {candidate?: unknown}}} */ (transaction).verificationEvidence?.candidate);
         transition(runDir, state, "done", {
           ...patch,
+          // The engine carries the node's inherited requirement ids back with
+          // the accepted result; the worker never declares them.
+          ...(node.requirementIds?.length ? { requirementIds: node.requirementIds } : {}),
           ...(retryNote ? { gate: withCandidateRetryNote(/** @type {import("../contract/index.mjs").GateResult|null|undefined} */ (patch.gate ?? state.gate), retryNote) } : {}),
           integratedHead: transaction.candidateSha,
           worktree: { ...(state.worktree ?? {}), status: "removed", commit: transaction.attemptSha, baseSha: transaction.previousRunRefTip },

@@ -37,7 +37,7 @@ const DOC_PATH = join(SKILL_DIR, "docs", "FIELD-OWNERSHIP.md");
 const DOUBLE_WRITER_CEILING = 15;
 
 /** @typedef {{writers: string[], fields?: string[]}} DeclaredEntry */
-/** @typedef {{journal?: Record<string, DeclaredEntry>, events?: Record<string, DeclaredEntry>}} OwnershipDoc */
+/** @typedef {{journal?: Record<string, DeclaredEntry>, events?: Record<string, DeclaredEntry>, campaign?: Record<string, DeclaredEntry>}} OwnershipDoc */
 /** @typedef {{path: string, label: string, text: string}} SourceFile */
 /** @typedef {{key: string, value: string}} ObjectEntry */
 
@@ -277,14 +277,19 @@ function journalFields() {
 }
 
 /**
- * Every writer of every field of the two records, grouped by the record.
- * @returns {{events: Map<string, Set<string>>, journal: Map<string, Set<string>>, journalFields: Map<string, string[]>}}
+ * Every writer of every field of the records, grouped by the record. The
+ * campaign record is written whole by each mutator, so only the fields its
+ * document section declares are derived and checked; the append-only records
+ * above are checked exhaustively.
+ * @returns {{events: Map<string, Set<string>>, journal: Map<string, Set<string>>, campaign: Map<string, Set<string>>, journalFields: Map<string, string[]>}}
  */
 function deriveOwnership() {
   /** @type {Map<string, Set<string>>} */
   const events = new Map();
   /** @type {Map<string, Set<string>>} */
   const journal = new Map();
+  /** @type {Map<string, Set<string>>} */
+  const campaign = new Map();
   const kinds = noteKinds();
   /** @param {Map<string, Set<string>>} map @param {string} key @param {string} owner */
   const record = (map, key, owner) => {
@@ -355,8 +360,18 @@ function deriveOwnership() {
       const types = literal ? [literal[1]] : typeValue === "kind" ? kinds : [];
       for (const type of types) record(journal, type, owner);
     }
+
+    // The campaign record: each mutator owns the fields the object it writes
+    // sets. Resolving the written identifier finds its object literal in the
+    // mutator's body, so a mutator that builds its record without a literal
+    // derives nothing and declares nothing.
+    for (const call of callArguments(text, "writeJsonAtomic")) {
+      if (!(call.args[0] ?? "").includes("CAMPAIGN_FILE")) continue;
+      const owner = ownerOfLine(ranges, lineOf(call.open));
+      for (const key of keysFromExpression(call.args[1] ?? "", bodyOf(owner))) record(campaign, key, owner);
+    }
   }
-  return { events, journal, journalFields: journalFields() };
+  return { events, journal, campaign, journalFields: journalFields() };
 }
 
 const DERIVED = deriveOwnership();
@@ -427,6 +442,26 @@ test("single writer per field", () => {
       [...declared.writers].sort(),
       [...(DERIVED.events.get(field) ?? new Set())].sort(),
       `events.jsonl ${field} writer(s) drift from src/`,
+    );
+  }
+
+  // --- campaign.json: written whole by each mutator, so only the fields the
+  // document's campaign section declares are owned here. The closure field
+  // must stay declared: it is the one place a reader learns which requirements
+  // a closed campaign left open, and the derivation must keep finding it on
+  // the record closeCampaign writes.
+  const declaredCampaign = document.campaign;
+  assert.ok(declaredCampaign, "the document declares no campaign record section");
+  assert.ok(declaredCampaign.requirements, "the campaign record does not declare the closure field");
+  assert.ok(
+    (DERIVED.campaign.get("requirements") ?? new Set()).size > 0,
+    "no mutator's written campaign record sets requirements",
+  );
+  for (const [field, declared] of Object.entries(declaredCampaign)) {
+    assert.deepEqual(
+      [...declared.writers].sort(),
+      [...(DERIVED.campaign.get(field) ?? new Set())].sort(),
+      `campaign.json ${field} writer(s) drift from src/`,
     );
   }
 

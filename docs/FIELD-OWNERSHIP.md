@@ -18,20 +18,29 @@ This tree has two append-only event records, and both are declared here:
   `appendJournal` in `src/campaign/journal.mjs` by the emitters that build each
   event type.
 
+Alongside them, the campaign record `campaign.json` is declared for the fields
+that carry persisted closure content. It is rewritten whole by each mutator
+rather than appended to, so it has no per-field ratchet: a declared field names
+the one mutator that sets it and the one moment it is set.
+
 The machine-readable block at the end of this file is the source of truth for
-both records. `test/campaign/field-ownership.test.mjs` — the test named `single
+these records. `test/campaign/field-ownership.test.mjs` — the test named `single
 writer per field` — re-derives every writer from `src/` and fails when the
 derivation disagrees with this document. The document is the declaration; the
 test is what keeps it from becoming fiction on the third change.
 
-**Measured 2026-09-17 against this tree:** 31 `events.jsonl` fields and 15
+**Measured 2026-09-20 against this tree:** 32 `events.jsonl` fields and 15
 `journal.jsonl` event types. Fifteen entries have more than one writer today.
 Those fifteen are the ratchet at the end of this file; they are declared, not
 fixed, because changing who writes a field is a behavior change and belongs to
 another node. The stale-group signal guard added the one new ratchet field,
 `invocationId`, on 2026-09-16. The seat-allowance-delta node added the one new
 event type, `seat.allowance`, on 2026-09-17, behind a single writer function
-so it does not grow the ratchet.
+so it does not grow the ratchet. The requirement-ids node added the one new
+single-writer field, `requirementIds`, on 2026-09-20 — the engine stamps the
+node's inherited phase requirement ids onto the snapshot when its result is
+accepted, and `appendTransitionEvent` copies them — so the ratchet stays at
+fifteen.
 
 A type or field nothing writes is not declared here. This document is a
 declaration of owners, and a field with no writer has no owner to declare.
@@ -61,6 +70,7 @@ marked **(ratchet)**.
 | `verdict` | `appendTransitionEvent`, `settleAdvisoryReview` **(ratchet)** | at append, `state.gate.verdict` when set; `settleAdvisoryReview` also passes it in `details`, and the spread wins |
 | `summary` | `appendTransitionEvent`, `settleAdvisoryReview` **(ratchet)** | at append, `state.gate.summary` when set; the advisory detail is spread over it |
 | `revisions` | `appendTransitionEvent` | at append, `state.revisions` when set |
+| `requirementIds` | `appendTransitionEvent` | at append, `state.requirementIds` when set — the phase requirement ids the engine stamped onto the node when its result was accepted |
 | `invocationId` | `appendTransitionEvent`, `recordIdentityUnverifiable` **(ratchet)** | at append, the last invocation's id when set; the identity guard records the invocation it declined to signal |
 | `pid` | `recordIdentityUnverifiable` | when a signal is withheld because the invocation's process identity cannot be proven |
 | `processGroupId` | `recordIdentityUnverifiable` | when a signal is withheld because the invocation's process identity cannot be proven |
@@ -107,6 +117,20 @@ document and the schema cannot drift apart.
 | `question.resolved` | `resolveQuestion` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when `campaign note --resolve` runs |
 | `retrospective` | `note` | `at`, `type`, `eventId`, `sessionId`, `text` | when a note of that kind is recorded |
 | `seat.allowance` | `appendSeatAllowanceEvent` | `at`, `type`, `eventId`, `sample`, `harness`, `remaining`, `limit`, `resetsAt`, `delta`, `window` | when `campaign init` samples the operator's own seat allowance at campaign start (`sample: "start"`, `harness` from env-marker detection, `delta: null`), and when `plan freeze` re-samples that exact same harness (not the plan's worker runtime) at plan freeze (`sample: "freeze"`, `delta` against the start sample, or `null` with no start entry to compare against); `window` names the rate-limit window the sample measured (claude's `rateLimitType`, e.g. `"seven_day"`), so a delta across two differently-governed windows can be told apart from a real one |
+
+## `campaign.json`
+
+The campaign record is rewritten whole by every mutator (`initializeCampaign`,
+`closeCampaign`, `registerRun`, `recordPromotion`, `parkCampaign`,
+`addContractToCampaign` and `replaceContractInCampaign` in
+`src/campaign/index.mjs`), so unlike the append-only records it has no
+derivation-backed field list: only the fields declared below are owned here,
+and the enforcing test checks each declared field's writer against the object
+the mutator writes. The section grows by declaration.
+
+| field | writer(s) | written when |
+| --- | --- | --- |
+| `requirements` | `closeCampaign` | at close: one entry per requirement id the linked runs' contracts declared, correlated only by the identifiers the runs carried (a done node snapshot's stamped `requirementIds`, never requirement text), each covering node named with its run and its verification evidence; a requirement no done node carries is recorded with status `open` instead of being omitted |
 
 ## The ratchet, measured
 
@@ -173,6 +197,7 @@ behavior, and a node that declares must not also move the thing it declares.
     "verdict": { "writers": ["appendTransitionEvent", "settleAdvisoryReview"] },
     "summary": { "writers": ["appendTransitionEvent", "settleAdvisoryReview"] },
     "revisions": { "writers": ["appendTransitionEvent"] },
+    "requirementIds": { "writers": ["appendTransitionEvent"] },
     "invocationId": { "writers": ["appendTransitionEvent", "recordIdentityUnverifiable"] },
     "pid": { "writers": ["recordIdentityUnverifiable"] },
     "processGroupId": { "writers": ["recordIdentityUnverifiable"] },
@@ -189,6 +214,9 @@ behavior, and a node that declares must not also move the thing it declares.
     "ok": { "writers": ["assertEnvironmentReady"] },
     "checks": { "writers": ["assertEnvironmentReady"] },
     "campaignId": { "writers": ["renderCampaignHandoffSafely"] }
+  },
+  "campaign": {
+    "requirements": { "writers": ["closeCampaign"] }
   }
 }
 ```

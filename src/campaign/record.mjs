@@ -99,4 +99,32 @@ function validateCampaign(campaign) {
       if (promotion.contractPath !== undefined) requireString(promotion.contractPath, `campaign.promotions[${index}].contractPath`);
     }
   }
+  // The requirement closure a close records: one entry per requirement id the
+  // linked runs' contracts declared, correlated by the identifiers the runs
+  // carried, with every uncovered requirement kept as open. Optional on read
+  // so a campaign closed before the field existed stays readable.
+  if (record.requirements !== undefined) {
+    if (!Array.isArray(record.requirements)) throw new TypeError("campaign.requirements must be an array");
+    for (const [index, entry] of record.requirements.entries()) {
+      assertObject(entry, `campaign.requirements[${index}]`);
+      const closure = /** @type {JsonObject} */ (entry);
+      requireId(closure.requirementId, `campaign.requirements[${index}].requirementId`);
+      if (closure.status !== "covered" && closure.status !== "open") {
+        throw new TypeError(`campaign.requirements[${index}].status must be covered or open`);
+      }
+      if (!Array.isArray(closure.nodes)) throw new TypeError(`campaign.requirements[${index}].nodes must be an array`);
+      for (const [position, evidence] of closure.nodes.entries()) {
+        assertObject(evidence, `campaign.requirements[${index}].nodes[${position}]`);
+        const node = /** @type {JsonObject} */ (evidence);
+        requireId(node.runId, `campaign.requirements[${index}].nodes[${position}].runId`);
+        requireId(node.node, `campaign.requirements[${index}].nodes[${position}].node`);
+        if (node.passed !== null && typeof node.passed !== "boolean") {
+          throw new TypeError(`campaign.requirements[${index}].nodes[${position}].passed must be a boolean or null`);
+        }
+        if (node.verdict !== null && typeof node.verdict !== "string") {
+          throw new TypeError(`campaign.requirements[${index}].nodes[${position}].verdict must be a string or null`);
+        }
+      }
+    }
+  }
 }

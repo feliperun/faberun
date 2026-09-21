@@ -127,7 +127,7 @@ export function validateNodeSnapshot(value, expectedNode = null) {
   assertObject(value, "node snapshot");
   rejectUnknown(value, new Set([
     "schemaVersion", "contractVersion", "id", "type", "sourceIdentity", "packetHash", "status", "phase",
-    "attempt", "revisions", "judgeFailures", "runtime", "blockedBy", "startedAt", "updatedAt", "result", "gate", "error", "usage",
+    "attempt", "revisions", "judgeFailures", "requirementIds", "runtime", "blockedBy", "startedAt", "updatedAt", "result", "gate", "error", "usage",
     "costUsd", "routing", "progress", "worktree", "invocations", "executionOverrides", "verification", "scope",
     "scopeFindings", "review", "previousAttempt", "sessionPolicy", "integratedHead", "declaredReadBytes",
   ]), "node snapshot");
@@ -139,6 +139,10 @@ export function validateNodeSnapshot(value, expectedNode = null) {
   nonNegativeInteger(value.attempt, "node snapshot.attempt");
   nonNegativeInteger(value.revisions, "node snapshot.revisions");
   if (value.judgeFailures !== undefined) nonNegativeInteger(value.judgeFailures, "node snapshot.judgeFailures");
+  // The phase requirement ids the engine stamped onto the node when its result
+  // was accepted; optional on read so snapshots written before the stamp load
+  // unchanged.
+  if (value.requirementIds !== undefined) validateRequirementIdList(value.requirementIds, "node snapshot.requirementIds");
   // The review mode that governed the attempt's gate, recorded so a status
   // surface can tell an advisory finding from a below-threshold blocking one.
   if (value.review !== undefined && !REVIEW_MODES.has(/** @type {string} */ (value.review))) {
@@ -206,7 +210,7 @@ export function validateEvent(value) {
   assertObject(value, "event");
   rejectUnknown(value, new Set([
     "schemaVersion", "contractVersion", "at", "node", "from", "to", "type", "phase", "attempt", "runtime",
-    "role", "status", "currentRuntime", "errorCode", "error", "verdict", "summary", "revisions", "sourceIdentity", "packetHash", "override", "recovery", "invocationId", "unexpectedPaths", "unexpectedPathCount",
+    "role", "status", "currentRuntime", "errorCode", "error", "verdict", "summary", "revisions", "requirementIds", "sourceIdentity", "packetHash", "override", "recovery", "invocationId", "unexpectedPaths", "unexpectedPathCount",
   ]), "event");
   validateMetadata(value, "event");
   requireString(value.at, "event.at");
@@ -230,7 +234,22 @@ export function validateEvent(value) {
     }
   }
   if (value.unexpectedPathCount !== undefined) nonNegativeInteger(value.unexpectedPathCount, "event.unexpectedPathCount");
+  if (value.requirementIds !== undefined) validateRequirementIdList(value.requirementIds, "event.requirementIds");
   return /** @type {EventRecord} */ (value);
+}
+/**
+ * The requirement ids a node inherited from its phase, stamped by the engine
+ * and carried beside the result on both the snapshot and the transition event.
+ * Bounded like every persisted list: at most 64 ids of at most 128 bytes.
+ *
+ * @param {unknown} value
+ * @param {string} label
+ */
+function validateRequirementIdList(value, label) {
+  if (!Array.isArray(value) || value.length > 64) {
+    throw new TypeError(`${label} must be an array of at most 64 requirement ids`);
+  }
+  for (const [index, id] of value.entries()) boundedString(id, `${label}[${index}]`, 128);
 }
 /**
  * @param {unknown} value

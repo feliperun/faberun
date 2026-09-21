@@ -121,6 +121,7 @@ export function appendTransitionEvent(runDir, state, from, to, details = {}, loc
   if (state.gate?.verdict) event.verdict = state.gate.verdict;
   if (state.gate?.summary) event.summary = state.gate.summary;
   if (state.revisions) event.revisions = state.revisions;
+  if (state.requirementIds?.length) event.requirementIds = state.requirementIds;
   const invocation = state.invocations?.at(-1);
   if (invocation?.id) event.invocationId = invocation.id;
   validateEvent(event);

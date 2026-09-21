@@ -37,6 +37,32 @@ function packageVersion() {
 }
 
 /**
+ * Nodes inherit the requirement ids of the phase they belong to: the frozen
+ * contract preserves them per node, so the engine can stamp them onto the
+ * node's accepted result without the worker packet or the worker ever
+ * declaring one. A node whose phase has no declaration, or declares none,
+ * carries none. Nodes are re-listed rather than mutated in place, so the
+ * caller's plan keeps the shape it was reviewed with.
+ *
+ * @param {unknown} nodes
+ * @param {PlanPhase[]} phases
+ * @returns {unknown} the node list with the inherited ids stamped on
+ */
+function stampPhaseRequirementIds(nodes, phases) {
+  if (!Array.isArray(nodes)) return nodes;
+  const byPhase = new Map(
+    phases
+      .filter((phase) => phase.requirementIds.length > 0)
+      .map((phase) => [phase.id, phase.requirementIds]),
+  );
+  return nodes.map((node) => {
+    const phase = typeof node?.phase === "string" ? node.phase : undefined;
+    const inherited = phase === undefined ? undefined : byPhase.get(phase);
+    return inherited ? { ...node, requirementIds: [...inherited] } : node;
+  });
+}
+
+/**
  * Validate `plan` as a contract and, only once it is valid, write it and a
  * sibling plan.json naming its digest and provenance. `plan` supplies
  * `schemaVersion`/`contractVersion` itself; when it does not, this fills in
@@ -69,6 +95,9 @@ export function freezePlan(plan, { outDir, provenance, phases }) {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
     contractVersion: CONTRACT_VERSION,
     ...plan,
+    // Listed again, not mutated in place, so the caller's plan object keeps
+    // the shape it was reviewed with.
+    ...(phaseDeclarations ? { nodes: stampPhaseRequirementIds(plan.nodes, phaseDeclarations) } : {}),
   });
   writeJsonAtomic(contractPath, raw);
   try {

@@ -473,3 +473,31 @@ test("a continuation attempt adopts an existing canonical worker result instead 
     "startWorker never cleared the valid canonical file",
   );
 });
+
+test("requirement ids reach the node", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-requirement-ids-"));
+  const path = writeContract(directory, fixture({
+    id: "requirement-ids-run",
+    pollIntervalMs: 10,
+    nodes: [{
+      id: "build",
+      type: "backend",
+      phase: "alpha",
+      requirementIds: ["req-1", "req-2"],
+      taskPacket: packet(),
+      gate: false,
+    }],
+  }));
+  const result = await withFakeCodex(directory, "pass", () => runContract(path));
+  const state = nodeState(result);
+  assert.equal(result.ok, true);
+  assert.equal(state.status, "done");
+  // The engine stamps the ids the phase declared onto the node; the worker
+  // packet and the worker result never mention them.
+  assert.deepEqual(state.requirementIds, ["req-1", "req-2"]);
+  const doneEvent = readFileSync(join(result.runDir, "events.jsonl"), "utf8")
+    .split("\n").filter(Boolean)
+    .map((line) => JSON.parse(line))
+    .find((event) => event.node === "build" && event.to === "done");
+  assert.deepEqual(doneEvent?.requirementIds, ["req-1", "req-2"], "the done event carries the ids back");
+});
