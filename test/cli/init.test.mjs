@@ -16,7 +16,9 @@ const BIN = fileURLToPath(new URL("../../bin/faberun.mjs", import.meta.url));
  * @returns {{status: number|null, stdout: string, stderr: string}}
  */
 function run(args, cwd) {
-  const result = spawnSync(process.execPath, [BIN, ...args], { cwd, encoding: "utf8" });
+  // Force color off: tests below assert the literal `[ok]`/`[fail]` tokens,
+  // and an ambient FORCE_COLOR would split them with escape codes.
+  const result = spawnSync(process.execPath, [BIN, ...args], { cwd, encoding: "utf8", env: { ...process.env, FORCE_COLOR: "0" } });
   return {
     status: /** @type {number|null} */ (result.status),
     stdout: /** @type {string} */ (result.stdout),
