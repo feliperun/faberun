@@ -66,15 +66,37 @@ parked runs of closed ones — see decision D1.
 | id | item | evidence | state |
 | --- | --- | --- | --- |
 | RM-001 | Resume the parked runs from earlier campaigns | 8 runs parked across `adversarial-planner` (4), `become-faberun` (1), `chain-ergonomics-and-fairness` (2) | dropped — D1 |
-| RM-002 | Close the active `durable-state-integrity` campaign | cancel orphans integrated work; `npm test` writes into the operator's home; the journal truncates silently; an old record has no repair path | running |
-| RM-003 | `cancel` against a genuinely live invocation is unverified | `a-cancelled-run-releases-what-it-will-never-reuse` was verified only against an already-terminal run; worked around by giving the contract a fresh id rather than relaunching | idea |
-| RM-004 | `faberun plan` has never run end to end against a live harness | every planning stage landed so far went through the replay harness in tests; `validateContract`'s containment check runs before any worktree exists | measured |
-| RM-005 | Make scope closure deterministic in the product | six packets were refused `context_missing` in one day, each naming the exact missing file; the orchestrator got phase 1e right only after getting nine earlier scopes wrong — that is memory, not a guarantee | measured |
+| RM-002 | Close the active `durable-state-integrity` campaign | 9 requirements; R1–R2 landed 2026-09-21 (`d362a10`, `15e1e24`), R3–R4 in the planner, R5–R9 specified for phase 3 | running |
+| RM-003 | `cancel` against a genuinely live invocation is unverified | the cancel tests drive `runContract` to completion and then force the state, so they cancel a terminal run, never a live invocation | specified |
+| RM-004 | `faberun plan` has never run end to end against a live harness | falsified 2026-09-21: two plans, four stages each, real workers on GLM-5.3-Flash and gpt-5.6-sol reading real worktrees, no replay | dropped — falsified |
+| RM-049 | `validateContract` checks containment against `contract.cwd` at authoring time, before any worktree exists | the surviving half of RM-004; unchanged by the live-harness evidence | idea |
+| RM-005 | The couplings that kill packets are not import edges | six packets refused `context_missing` **after passing `validate`** — so the gap is not the deterministic check, which already refuses | measured |
 
-`RM-005` is the load-bearing one. A lesson in a memory file is advice to one
-agent; the same lesson as a check in `faberun validate` and `faberun preflight`
-is a property of the tool, and runs regardless of harness, model, or whether the
-operator has ever seen the repository.
+**`RM-005` was rewritten after being checked against the tree, and the
+correction matters.** The deterministic half already exists: `validateContract`
+runs `scopeClosureFindings` and `crossNodeScopeFindings` and *refuses*
+(`src/contract/index.mjs:359-370`), naming the exact file and the reason,
+independent of harness and model. As first written, this item would have
+commissioned what is already built.
+
+What is missing is the class of coupling those detectors cannot see. All four —
+`imports`, `symbols`, `directory`, `cross-node` — follow **syntactic** edges. The
+six packets that died were coupled by convention, which has no edge to follow:
+
+- a new persisted field obliges its validator (`snapshot.mjs`,
+  `source-identity.mjs`) and its typedef;
+- a new `events.jsonl` type obliges `docs/FIELD-OWNERSHIP.md`;
+- a new CLI option obliges the option table.
+
+The proof the gap is real: those packets **passed** `validate` and the worker
+refused afterwards. Validate approved; execution declined.
+
+The original sentence still holds, and now points at work that does not exist: a
+lesson in a memory file is advice to one agent; the same lesson as a check is a
+property of the tool. This particular lesson is literally a memory file today.
+
+`RM-005` is large enough to be its own campaign, and its theme — authoring-time
+checking — is not the durable-state integrity the current one is about.
 
 ---
 
