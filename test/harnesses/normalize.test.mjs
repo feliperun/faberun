@@ -22,6 +22,7 @@ import { JUDGE_SCHEMA } from "../../src/engine/prompts.mjs";
 import { validateContract } from "../../src/contract/index.mjs";
 import { fixture, withEmptyPath, writeContract } from "../helpers.mjs";
 import { routeRuntime } from "../../src/contract/runtime.mjs";
+import { findExecutable } from "../../src/host/platform.mjs";
 
 // The other half of harnesses.test.mjs: turning provider output into an
 // envelope, and metering a transcript while it is still growing.
@@ -335,7 +336,9 @@ test("the repository hook behind the providerCommand settings mechanically rejec
   // per invocation, one JSON decision (or silence) on stdout.
   /** @param {Record<string, unknown>} payload @returns {Promise<Record<string, any>|null>} */
   const runHook = (payload) => new Promise((resolve, reject) => {
-    const child = spawn("/bin/sh", ["-c", hookCommand], { stdio: ["pipe", "pipe", "inherit"] });
+    const shell = findExecutable("sh");
+    assert.ok(shell, "a POSIX shell is required to run the hook under test");
+    const child = spawn(shell, ["-c", hookCommand], { stdio: ["pipe", "pipe", "inherit"] });
     let out = "";
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk) => { out += chunk; });

@@ -3,7 +3,7 @@
  * `replay.test.mjs` was cut into the adapter half and the whole-run half.
  */
 import assert from "node:assert/strict";
-import { existsSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
@@ -33,9 +33,10 @@ export function writeRecording(directory, lines, name = "recording.jsonl") {
 }
 
 /**
- * The runner spawns the replay executable directly (never through
- * process.execPath), so replay/bin.mjs must stay executable in git
- * (mode 0o755) for every replay test below to run.
+ * The runner spawns the replay executable by path, never through
+ * process.execPath, so it must stay runnable as a file: mode 0o755 in git on
+ * POSIX, and on Windows the shebang `spawnInvocation` reads to find the
+ * interpreter, since that platform has no exec bit to carry.
  */
 export const REPLAY_BIN = fileURLToPath(new URL("../../src/harnesses/replay/bin.mjs", import.meta.url));
 
@@ -44,5 +45,14 @@ export const REPLAY_BIN = fileURLToPath(new URL("../../src/harnesses/replay/bin.
  */
 export function assertExecutable() {
   assert.ok(existsSync(REPLAY_BIN), "replay/bin.mjs must exist");
+  // The exec bit is a POSIX fact and Windows has none. What makes the file
+  // runnable there is the shebang `spawnInvocation` reads, so assert whichever
+  // of the two this host actually runs it by — both are real, neither is the
+  // other's stand-in.
+  if (process.platform === "win32") {
+    const shebang = readFileSync(REPLAY_BIN, "utf8").split(/\r?\n/u, 1)[0];
+    assert.match(shebang, /^#!/u, "replay/bin.mjs must name the interpreter that runs it");
+    return;
+  }
   assert.notEqual(statSync(REPLAY_BIN).mode & 0o111, 0, "replay/bin.mjs must be executable (mode 0o755)");
 }

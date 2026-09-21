@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { accessSync, constants, mkdirSync, mkdtempSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
+import { accessSync, constants, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnInvocation } from "../../src/host/platform.mjs";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const COMMITLINT = join(ROOT, "node_modules", ".bin", "commitlint");
@@ -40,7 +41,11 @@ function block(yaml, name) {
 
 /** @param {string} command @param {string[]} args */
 function run(command, args) {
-  const result = spawnSync(command, args, { cwd: ROOT, encoding: "utf8" });
+  // Through the product's own resolution: what npm installs beside a `.cmd`
+  // and what husky writes into `.husky/` are POSIX scripts, and a bare spawn
+  // of either is EFTYPE on a host whose kernel has no shebang.
+  const invocation = spawnInvocation(command, args);
+  const result = spawnSync(invocation.command, invocation.args, { cwd: ROOT, encoding: "utf8", ...invocation.options });
   return {
     status: /** @type {number | null} */ (result.status),
     stderr: /** @type {string} */ (result.stderr),
@@ -296,9 +301,11 @@ test("package.json publishes publicly and packs the shipped trees", () => {
   mkdirSync(join(tmpdir(), "ci-policy-npm-cache"), { recursive: true });
   // npm writes the file listing to stderr, and the `prepare` hook would touch
   // the shared git config, so isolate the cache and skip lifecycle scripts.
-  const result = spawnSync("npm", ["pack", "--dry-run"], {
+  const packInvocation = spawnInvocation("npm", ["pack", "--dry-run"]);
+  const result = spawnSync(packInvocation.command, packInvocation.args, {
     cwd: ROOT,
     encoding: "utf8",
+    ...packInvocation.options,
     env: {
       ...process.env,
       npm_config_cache: join(tmpdir(), "ci-policy-npm-cache"),
@@ -330,7 +337,12 @@ test("AGENT.md, CLAUDE.md, CURSOR.md and GEMINI.md stay symlinks to AGENTS.md", 
     assert.match(line, /^120000 /);
   }
   for (const name of names) {
-    assert.equal(readlinkSync(join(ROOT, name)), "AGENTS.md");
+    // On a checkout with `core.symlinks=false` -- the Windows default
+    // without Developer Mode -- git writes the target path into a regular
+    // file instead. Same pointer, the only form that platform can hold.
+    const path = join(ROOT, name);
+    if (lstatSync(path).isSymbolicLink()) assert.equal(readlinkSync(path), "AGENTS.md");
+    else assert.equal(readFileSync(path, "utf8"), "AGENTS.md");
   }
 });
 

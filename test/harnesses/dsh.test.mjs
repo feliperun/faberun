@@ -10,6 +10,7 @@ import { dshHarness } from "../../src/harnesses/dsh/index.mjs";
 import { normalizeProviderAvailability, normalizeProviderResult, probeRuntime, providerCommand } from "../../src/harnesses/index.mjs";
 import { liveSessionMetrics } from "../../src/harnesses/session-metrics.mjs";
 import { closeResult, fakeDsh, fixture, withFakeDsh, writeContract } from "../helpers.mjs";
+import { spawnInvocation } from "../../src/host/platform.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PATCH = join(HERE, "..", "..", "src", "harnesses", "dsh", "closed-packet.patch.yml");
@@ -316,7 +317,8 @@ test("the closed-packet profile disables the rows a closed packet cannot use", (
 async function runClient(directory, mode, options = {}) {
   return withFakeDsh(directory, mode, async () => {
     const command = providerCommand(runtime(), "do the thing", options);
-    const child = spawn(command.executable, command.args, { cwd: directory, stdio: ["pipe", "pipe", "pipe"] });
+    const invocation = spawnInvocation(command.executable, command.args);
+    const child = spawn(invocation.command, invocation.args, { cwd: directory, stdio: ["pipe", "pipe", "pipe"], ...invocation.options });
     child.stdin.end(command.input);
     const result = await closeResult(child);
     return {
@@ -381,7 +383,8 @@ const CREDENTIAL = Boolean(process.env.DEEPSEEK_API_KEY);
 test("a real harness turns one prompt into a result with real tokens", { skip: HARNESS && CREDENTIAL ? false : "needs the dsh binary on PATH and DEEPSEEK_API_KEY" }, async () => {
   const directory = scratch("dsh-real-");
   const command = providerCommand(runtime({ sandbox: "danger-full-access" }), "Responda apenas OK e nada mais.", {});
-  const child = spawn(command.executable, command.args, { cwd: directory, stdio: ["pipe", "pipe", "pipe"] });
+  const invocation = spawnInvocation(command.executable, command.args);
+  const child = spawn(invocation.command, invocation.args, { cwd: directory, stdio: ["pipe", "pipe", "pipe"], ...invocation.options });
   child.stdin.end(command.input);
   const result = await closeResult(child);
   const envelope = normalizeProviderResult(runtime(), result.stdout, result.code, result.signal, {});

@@ -17,6 +17,7 @@ import { runRefName } from "../../src/repo/worktree.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
 import { assertExecutable, envelope, workerResult, writeRecording } from "./replay-helpers.mjs";
 import { runDirectory, RUNS_DIR_NAME } from "../../src/run/paths.mjs";
+import { spawnInvocation } from "../../src/host/platform.mjs";
 
 const bin = fileURLToPath(new URL("../../src/harnesses/replay/bin.mjs", import.meta.url));
 const zeroUsage = Object.freeze({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 });
@@ -39,7 +40,10 @@ function parseEnvelopeLine(stdout) {
  */
 function runBin({ args = [], input = "", cwd }) {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
+    // Through the product's own resolution, which is how the runner reaches
+    // it: by the interpreter its shebang names where the platform needs that.
+    const invocation = spawnInvocation(bin, args);
+    const child = spawn(invocation.command, invocation.args, { cwd, stdio: ["pipe", "pipe", "pipe"], ...invocation.options });
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8");

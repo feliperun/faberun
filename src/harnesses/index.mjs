@@ -472,7 +472,7 @@ export function probeRuntime(runtime, options = {}) {
   return new Promise((settle) => {
     let child;
     try {
-      const invocation = spawnInvocation(executable, args);
+      const invocation = spawnInvocation(executable, args, { cwd: options.cwd });
       child = spawn(invocation.command, invocation.args, {
         cwd: options.cwd,
         // A worker or judge never delivers a notification; the controller does.

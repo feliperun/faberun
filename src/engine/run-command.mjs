@@ -232,7 +232,7 @@ function runCommand(command, baseCwd, commandCwd, attempt, signal, options, comm
       // A verification command names a binary the same way a harness runtime
       // does, and on Windows `npm test` is `npm.cmd`: the invocation, not the
       // raw argv, is what can actually be spawned there.
-      const invocation = spawnInvocation(command.argv[0], command.argv.slice(1));
+      const invocation = spawnInvocation(command.argv[0], command.argv.slice(1), { cwd });
       child = spawn(invocation.command, invocation.args, { cwd, env, detached: process.platform !== "win32", stdio: ["ignore", "pipe", "pipe"], ...invocation.options });
       const pid = child.pid ?? null;
       let paused = false;

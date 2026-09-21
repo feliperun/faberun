@@ -135,13 +135,23 @@ const COMMAND_SCRIPT = /\.(?:cmd|bat)$/iu;
  * with one layer, an argument containing `&` is truncated at it; with two,
  * spaces, quotes, `&`, `|`, `%`, `^`, `()` and `!` all arrive intact.
  *
+ * A relative executable — `./my-worker.mjs`, the shape a contract names a
+ * wrapped harness by — is relative to the directory the child will run in, and
+ * the caller is the only one who knows it. Without `cwd` the shebang is looked
+ * for beside *this* process instead, found nowhere, and the spawn fails as
+ * EFTYPE with nothing said about why.
+ *
  * @param {string} executable
  * @param {string[]} args
+ * @param {{cwd?: string}} [options] the directory the child will run in
  * @returns {{command: string, args: string[], options: {windowsVerbatimArguments?: boolean}}}
  */
-export function spawnInvocation(executable, args) {
+export function spawnInvocation(executable, args, options = {}) {
   if (process.platform !== "win32") return { command: executable, args, options: {} };
-  const resolved = executable.includes("/") || executable.includes("\\") ? executable : (findExecutable(executable) ?? executable);
+  const named = executable.includes("/") || executable.includes("\\");
+  const resolved = named
+    ? (options.cwd === undefined ? executable : resolve(options.cwd, executable))
+    : (findExecutable(executable) ?? executable);
   if (COMMAND_SCRIPT.test(resolved)) {
     const line = [quoteArgument(resolved), ...args.map((argument) => escapeThroughShim(quoteArgument(argument)))].join(" ");
     return {
@@ -184,6 +194,11 @@ function interpreterOf(path) {
     // Windows that is `C:\Program Files\nodejs\node.exe`. Splitting it on
     // whitespace the POSIX way would ask for `C:\Program`.
     if (existsSync(line)) return [line];
+    // An interpreter named by a POSIX path that this host does not have:
+    // `#!/bin/sh` is not a file on Windows, but `sh` is a command there
+    // wherever Git for Windows is installed, which is wherever this tool runs.
+    const named = line.includes(" ") ? null : findExecutable(line.slice(line.lastIndexOf("/") + 1));
+    if (named) return [named];
     // `#!/usr/bin/env node` names the interpreter in its own argument.
     const parts = line.split(/\s+/u).filter(Boolean);
     if (!parts.length) return null;
@@ -248,9 +263,19 @@ export function killTarget(target, signal) {
 }
 
 /**
- * The `git` argument list this platform needs in front of `args`.
+ * The `git` argument list every invocation here carries.
  *
- * Windows caps a path at 260 characters unless the program opts out, and git's
+ * **`core.fsmonitor=false`, on every platform.** A repository with the file
+ * system monitor enabled starts `git fsmonitor--daemon --detach` on first use,
+ * and the daemon outlives the directory it watched. This tool creates a
+ * worktree per attempt and its suite creates a throwaway repository per
+ * fixture, so the daemons accumulate: measured 2026-09-20 on Windows 11, one
+ * afternoon of suite runs left **4810** of them holding 39 GB, until the
+ * machine could not start another test process. Nothing here benefits from a
+ * daemon watching a tree that is about to be deleted.
+ *
+ * **`core.longpaths=true`, on Windows.** It caps a path at 260 characters
+ * unless the program opts out, and git's
  * own `core.longpaths` is off by default even where the OS itself allows long
  * paths. The run layout is deep on purpose — `projects/<id>/runs/worktrees/
  * <run>/<node>.<attempt>` before the repository's own tree begins — so a file
@@ -271,5 +296,6 @@ export function killTarget(target, signal) {
  * @returns {string[]}
  */
 export function gitArguments(args) {
-  return process.platform === "win32" ? ["-c", "core.longpaths=true", ...args] : args;
+  const platformArgs = process.platform === "win32" ? ["-c", "core.longpaths=true"] : [];
+  return ["-c", "core.fsmonitor=false", ...platformArgs, ...args];
 }

@@ -23,6 +23,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { spawnInvocation } from "../../host/platform.mjs";
 import { writeSync } from "node:fs";
 
 const HANDSHAKE_ID = 1;
@@ -145,7 +146,11 @@ if (options.sandbox) env.DSH_PERMISSION_MODE = options.sandbox;
 
 const args = ["--profile", "sdk"];
 for (const patch of options.patches) args.push("--patch", patch);
-const child = spawn(options.dsh, args, { cwd: process.cwd(), env, stdio: ["pipe", "pipe", "pipe"] });
+// The harness binary, reached the way this platform reaches one: a name
+// through PATHEXT, a `.cmd` through the command interpreter, a POSIX script
+// through the interpreter its shebang names.
+const invocation = spawnInvocation(options.dsh, args);
+const child = spawn(invocation.command, invocation.args, { cwd: process.cwd(), env, stdio: ["pipe", "pipe", "pipe"], ...invocation.options });
 
 const usage = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 };
 let sawUsage = false;

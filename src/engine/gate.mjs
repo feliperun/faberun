@@ -193,7 +193,7 @@ const timer = setInterval(() => {
   clearInterval(timer);
   const stdoutFd = openSync(config.stdoutPath, "wx", 0o600);
   const stderrFd = openSync(config.stderrPath, "wx", 0o600);
-  const invocation = spawnInvocation(config.executable, config.args);
+  const invocation = spawnInvocation(config.executable, config.args, { cwd: config.cwd });
   provider = spawn(invocation.command, invocation.args, {
     cwd: config.cwd,
     env: childEnv(),

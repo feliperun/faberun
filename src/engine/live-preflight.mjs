@@ -157,7 +157,7 @@ function livePreflight(runtime, cwd, timeoutSec) {
         else env[key] = value;
       }
       delete env.FABERUN_NOTIFY_BIN;
-      const invocation = spawnInvocation(command.executable, command.args);
+      const invocation = spawnInvocation(command.executable, command.args, { cwd });
       child = /** @type {import("node:child_process").ChildProcessWithoutNullStreams} */ (spawn(invocation.command, invocation.args, {
         cwd,
         env,
