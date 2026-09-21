@@ -12,6 +12,7 @@
  */
 import { errorCode, exitStatus } from "../util.mjs";
 import { execFileSync } from "node:child_process";
+import { gitArguments } from "../host/platform.mjs";
 import { join, resolve } from "node:path";
 import { lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -70,7 +71,7 @@ function isUnobservableDeclaredPath(cwd, declaredPath, kind) {
 function gitDeclaredPathState(cwd, path, kind) {
   const literals = kind === "writeRoots" ? [path, `${path}/`] : [path];
   try {
-    execFileSync("git", ["-C", cwd, "ls-files", "--cached", "--error-unmatch", "--", path], {
+    execFileSync("git", gitArguments(["-C", cwd, "ls-files", "--cached", "--error-unmatch", "--", path]), {
       stdio: ["ignore", "ignore", "ignore"],
     });
     return "tracked";
@@ -118,7 +119,7 @@ function checkCombinedGitIgnore(cwd, path, extraExclude) {
     const args = ["-C", cwd, "ls-files", "--others", "--exclude-standard"];
     if (extraExclude) args.push(`--exclude-from=${extraExclude}`);
     args.push("-z", "--", path);
-    const output = execFileSync("git", args, { encoding: "buffer", stdio: ["ignore", "pipe", "ignore"] });
+    const output = execFileSync("git", gitArguments(args), { encoding: "buffer", stdio: ["ignore", "pipe", "ignore"] });
     return output.length === 0;
   } catch {
     return "unknown";
@@ -140,13 +141,13 @@ function checkMissingCombinedGitIgnore(cwd, path, extraExclude) {
   if (!extraExclude || standard === "unknown") return standard;
   const temporaryWorktree = mkdtempSync(join(tmpdir(), "faberun-ignore-check-"));
   try {
-    execFileSync("git", ["init", "-q", temporaryWorktree], { stdio: ["ignore", "ignore", "ignore"] });
+    execFileSync("git", gitArguments(["init", "-q", temporaryWorktree]), { stdio: ["ignore", "ignore", "ignore"] });
     const temporaryGit = resolve(temporaryWorktree, ".git");
     writeFileSync(resolve(temporaryGit, "info", "exclude"), readFileSync(extraExclude), { mode: 0o600 });
     const args = ["--git-dir", temporaryGit, "--work-tree", temporaryWorktree, "-c", `core.excludesFile=${process.platform === "win32" ? "NUL" : "/dev/null"}`, "check-ignore", "--no-index", "--verbose", "--", path];
     let customMatched;
     try {
-      execFileSync("git", args, { stdio: ["ignore", "ignore", "ignore"] });
+      execFileSync("git", gitArguments(args), { stdio: ["ignore", "ignore", "ignore"] });
       customMatched = true;
     } catch (error) {
       if (exitStatus(error) !== 1) return "unknown";
@@ -155,7 +156,7 @@ function checkMissingCombinedGitIgnore(cwd, path, extraExclude) {
 
     if (!customMatched) return standard;
     try {
-      execFileSync("git", args.toSpliced(-3, 1, "--quiet"), { stdio: ["ignore", "ignore", "ignore"] });
+      execFileSync("git", gitArguments(args.toSpliced(-3, 1, "--quiet")), { stdio: ["ignore", "ignore", "ignore"] });
       return true;
     } catch (error) {
       return exitStatus(error) === 1 ? false : "unknown";
@@ -181,7 +182,7 @@ function checkGitIgnore(cwd, path, extraExclude) {
   if (extraExclude) args.push("-c", `core.excludesFile=${extraExclude}`);
   args.push("check-ignore", "--no-index", "--quiet", "--", path);
   try {
-    execFileSync("git", args, { stdio: ["ignore", "ignore", "ignore"] });
+    execFileSync("git", gitArguments(args), { stdio: ["ignore", "ignore", "ignore"] });
     return true;
   } catch (error) {
     return exitStatus(error) === 1 ? false : "unknown";

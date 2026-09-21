@@ -236,7 +236,7 @@ function landBranchRef(repo, landBranch) {
  */
 function gitHead(repo, ref) {
   try {
-    return execFileSync("git", ["-C", repo, "rev-parse", ref], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || null;
+    return execFileSync("git", gitArguments(["-C", repo, "rev-parse", ref]), { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || null;
   } catch {
     return null;
   }
@@ -284,7 +284,7 @@ export function validateContractAgainstRef(raw, contractPath, context = {}) {
     return contract;
   } finally {
     try {
-      execFileSync("git", ["-C", repo, "worktree", "remove", "--force", worktree], { stdio: ["ignore", "pipe", "ignore"] });
+      execFileSync("git", gitArguments(["-C", repo, "worktree", "remove", "--force", worktree]), { stdio: ["ignore", "pipe", "ignore"] });
     } catch {
       // The ref-based validation is done; a cleanup failure must not mask it.
     }

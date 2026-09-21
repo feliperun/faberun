@@ -6,6 +6,7 @@ import { initializeCampaign } from "../src/campaign/index.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../src/contract/index.mjs";
 import { createAttemptWorktree } from "../src/repo/worktree.mjs";
 import { RUNS_DIR_NAME, campaignTree, runsRoot } from "../src/run/paths.mjs";
+import { gitArguments } from "../src/host/platform.mjs";
 
 /**
  * Write a stand-in binary the host can actually run, and answer with the path
@@ -46,6 +47,16 @@ import "./setup.mjs";
 // would write real project entries into the operator's own ~/.faberun as a
 // side effect of running the tests. Always a throwaway home, never the
 // operator's, even when one is configured: no suite run should depend on it.
+// Every git this suite spawns — directly, through the product, or through a
+// CLI the product spawns — inherits this. A repository with the file system
+// monitor enabled starts a detached `git fsmonitor--daemon` that outlives the
+// directory it watched, and this suite creates a throwaway repository per
+// fixture: measured 2026-09-20 on Windows 11, an afternoon of runs left 4810
+// of them holding 39 GB, until no further test process could start.
+process.env.GIT_CONFIG_COUNT = "1";
+process.env.GIT_CONFIG_KEY_0 = "core.fsmonitor";
+process.env.GIT_CONFIG_VALUE_0 = "false";
+
 // The runner owns the scope now — package.json preloads test/scoped-home.mjs
 // into every test process — so this only fills in for a file executed
 // without it, and an already-set home wins.
@@ -239,9 +250,13 @@ export function writeContract(directory, value) {
  * @returns {void}
  */
 export function initializeGit(directory) {
-  execFileSync("git", ["init", "-q", directory]);
-  execFileSync("git", ["-C", directory, "add", ".", `:!${RUNS_DIR_NAME}`]);
-  execFileSync("git", ["-C", directory, "-c", "user.email=runner@example.test", "-c", "user.name=runner", "-c", "commit.gpgSign=false", "commit", "-qm", "fixture"]);
+  // Without this, a machine with the file system monitor enabled starts a
+  // detached `git fsmonitor--daemon` for every fixture repository the suite
+  // creates, and each one outlives the directory it watched: measured
+  // 2026-09-20, an afternoon of runs left 4810 of them holding 39 GB.
+  execFileSync("git", gitArguments(["init", "-q", directory]));
+  execFileSync("git", gitArguments(["-C", directory, "add", ".", `:!${RUNS_DIR_NAME}`]));
+  execFileSync("git", gitArguments(["-C", directory, "-c", "user.email=runner@example.test", "-c", "user.name=runner", "-c", "commit.gpgSign=false", "commit", "-qm", "fixture"]));
 }
 
 /**
@@ -730,6 +745,23 @@ export async function withEmptyPath(body, options = {}) {
       else process.env[key] = value;
     }
   }
+}
+
+/**
+ * The environment that points a spawned CLI at `home` as the operator's own
+ * home directory.
+ *
+ * What the product asks is `os.homedir()`, and that reads a different variable
+ * per platform: `HOME` on POSIX, `USERPROFILE` on Windows. A fixture that sets
+ * only one of them relocates the home on one platform and is silently ignored
+ * on the other — where the test then writes into the real home, or fails
+ * looking for what it wrote.
+ *
+ * @param {string} home
+ * @returns {Record<string, string>}
+ */
+export function homeEnv(home) {
+  return process.platform === "win32" ? { HOME: home, USERPROFILE: home } : { HOME: home };
 }
 
 /**
