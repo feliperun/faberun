@@ -41,6 +41,7 @@ These are the variables `src/` reads that a user, not a test, would set.
 | `FABERUN_BIN_DIR` | directory | Where `install.sh` writes the `faberun` shim. Read by the installer, referenced by `src/host/home.mjs`. | `~/.local/bin` |
 | `FABERUN_RELEASES_URL` | URL | Releases API `update` fetches. | `https://api.github.com/repos/feliperun/faberun/releases/latest` |
 | `FABERUN_NOTIFY_BIN` | executable or `os-macos` | Executable the controller calls with one event as JSON on stdin; `os-macos` selects the bundled adapter. Unset is no transport. | unset |
+| `FABERUN_NOTIFY_SESSION` | `off`, `auto`, `claude`, `codex`, `codex:<thread>` | Wake the harness session the controller was launched from with the same rendered message: `auto` posts to the Claude Code inbox socket (`CLAUDE_CODE_MESSAGING_SOCKET`) and queues to the Codex thread (`CODEX_THREAD_ID`) when their variables are present. A seat window sets `auto`. Unset is no session wake. | unset |
 | `FABERUN_<HARNESS>_BIN` | executable | Override a harness binary: `FABERUN_CLAUDE_BIN`, `FABERUN_CODEX_BIN`, `FABERUN_AGY_BIN`, `FABERUN_DSH_BIN`, `FABERUN_ZCODE_BIN`, `FABERUN_EXEC_JSONL_BIN`, `FABERUN_REPLAY_BIN`. | the harness default |
 | `FABERUN_REQUIRE_CLEAN_WORKTREE` | `1` | Make any dirt in the launch base a fatal `git` check instead of an advisory. | unset (dirt is advisory) |
 | `FABERUN_MIN_FREE_DISK_BYTES` | non-negative integer | Free-disk threshold the `disk` check enforces. | `536870912` (512 MiB) |

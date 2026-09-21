@@ -8,6 +8,7 @@
  * command working on a host without tmux, where only reattaching is lost.
  */
 import { execFileSync } from "node:child_process";
+import { NOTIFY_SESSION_ENV } from "../notify/session.mjs";
 import { errorCode, exitStatus } from "../util.mjs";
 
 /** The single seat session every campaign window lives in. */
@@ -15,6 +16,14 @@ export const SEAT_SESSION = "faberun-seat";
 
 /** Window option recording which harness launched the window. */
 const HARNESS_OPTION = "@faberun-harness";
+
+/**
+ * The one variable a seat window sets for the harness it launches: every
+ * controller started from that harness inherits it and wakes the session on
+ * a terminal node (`notify/session.mjs`). The seat is the opt-in, so a test
+ * suite or a plain shell never wakes anything by accident.
+ */
+const SESSION_WAKE_ENV = `${NOTIFY_SESSION_ENV}=auto`;
 
 /** `list-windows` format: name, index, harness option, pane command, tab-separated. */
 const WINDOW_FORMAT = "#{window_name}\t#{window_index}\t#{@faberun-harness}\t#{pane_current_command}";
@@ -95,8 +104,8 @@ export function createSeatWindow(options) {
   }
   const command = shellCommand(options.argv);
   const args = existing.exists
-    ? ["new-window", "-t", options.session, "-n", options.window, "-c", options.cwd, command]
-    : ["new-session", "-d", "-s", options.session, "-n", options.window, "-c", options.cwd, command];
+    ? ["new-window", "-t", options.session, "-n", options.window, "-c", options.cwd, "-e", SESSION_WAKE_ENV, command]
+    : ["new-session", "-d", "-s", options.session, "-n", options.window, "-c", options.cwd, "-e", SESSION_WAKE_ENV, command];
   const result = runTmux(args);
   if (!result.ok) {
     return { available: result.available, ok: false, created: false, session: options.session, window: options.window, command, reason: result.reason, stderr: result.stderr };
@@ -123,7 +132,7 @@ function shellCommand(argv) {
  */
 export function respawnSeatWindow(options) {
   const command = shellCommand(options.argv);
-  const result = runTmux(["respawn-window", "-k", "-t", `${options.session}:${options.window}`, "-c", options.cwd, command]);
+  const result = runTmux(["respawn-window", "-k", "-t", `${options.session}:${options.window}`, "-c", options.cwd, "-e", SESSION_WAKE_ENV, command]);
   if (!result.ok) {
     return { available: result.available, ok: false, respawned: false, session: options.session, window: options.window, command, reason: result.reason, stderr: result.stderr };
   }

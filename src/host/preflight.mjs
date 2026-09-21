@@ -27,6 +27,7 @@ import { errorMessage } from "../util.mjs";
 import { boundedGitSync } from "../repo/worktree.mjs";
 import { routeRuntime } from "../contract/runtime.mjs";
 import { NOTIFY_BIN_ENV, noTransportWarning } from "../notify/index.mjs";
+import { NOTIFY_SESSION_ENV, sessionWakeNotice } from "../notify/session.mjs";
 import { findExecutable } from "./platform.mjs";
 import { colorLevel, statusToken } from "../cli/brand.mjs";
 import { RUNS_DIR_NAME } from "../run/paths.mjs";
@@ -209,9 +210,9 @@ export function environmentPreflight(options) {
  */
 export function notifyTransportCheck(env = process.env) {
   const warning = noTransportWarning(env);
-  return warning
-    ? fail("notify transport", warning, true)
-    : pass("notify transport", `${NOTIFY_BIN_ENV}=${env[NOTIFY_BIN_ENV]}`);
+  if (warning) return fail("notify transport", warning, true);
+  const external = env[NOTIFY_BIN_ENV] ? `${NOTIFY_BIN_ENV}=${env[NOTIFY_BIN_ENV]}` : `${NOTIFY_BIN_ENV} unset`;
+  return pass("notify transport", `${external} · ${sessionWakeNotice(env)}`);
 }
 
 /** @param {EnvReport} report @returns {EnvCheck[]} the checks that block a dispatch */
@@ -265,6 +266,7 @@ export function declaredVerificationCommands(contract) {
  */
 const SIDE_EFFECT_ENV_KEYS = [
   NOTIFY_BIN_ENV, // a measurement must not notify a human
+  NOTIFY_SESSION_ENV, // nor wake the harness session it was measured from
   "FABERUN_CODEX_BIN", // could redirect the timed command at a live, paid codex binary instead of this repository's own fixtures
   "FABERUN_CLAUDE_BIN", // same, for the claude harness
   "FABERUN_AGY_BIN", // same, for the agy harness

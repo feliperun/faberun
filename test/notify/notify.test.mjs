@@ -89,14 +89,15 @@ test("renderNotification: delegates to renderRunProgress for a real run, and bot
   const result = await withResultFileCodex(directory, "file-first", path);
   assert.equal(nodeState(result).status, "done");
 
-  const { renderRunProgress } = await import("../../src/report/progress.mjs");
+  const { renderRunProgress } = await import("../../src/report/message.mjs");
   const event = { type: /** @type {const} */ ("run.terminal"), runId: "delegates-run", runDir: result.runDir, done: 1, total: 1 };
   const [fromNotify, fromProgress] = await Promise.all([
     renderNotification(event),
     renderRunProgress(result.runDir, event),
   ]);
   assert.equal(fromNotify, fromProgress, "renderNotification must render exactly what renderRunProgress renders, not a template of its own");
-  assert.match(fromNotify, /campaign test-campaign/u, "the primary path renders the rich, multi-line progress message, not the degraded template");
+  assert.match(fromNotify, /^🏁 run delegates-run · 1\/1 done · /mu, "the primary path renders the rich, multi-line progress message, not the degraded template");
+  assert.match(fromNotify, /^🐦 faberun · /mu);
 });
 
 test("NotifyQueue.enqueue reads the run's own status.json for the resume path and cost", async () => {
