@@ -2,6 +2,21 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.17.0](https://github.com/feliperun/faberun/compare/v0.16.0...v0.17.0) (2026-09-21)
+
+
+### Features
+
+* **test:** the runner scopes FABERUN_HOME for every test process ([a617236](https://github.com/feliperun/faberun/commit/a61723665f9867b1cad3488b7a7f695b9cf47154))
+
+
+### Bug Fixes
+
+* **campaign:** a journal note that does not fit is refused, not shortened ([5903777](https://github.com/feliperun/faberun/commit/59037771018a4955f3c16502c4737861a8f698a9))
+* **engine:** a proof whose filter selected no test is not a proof ([afb4cd7](https://github.com/feliperun/faberun/commit/afb4cd7b82976a85e7e69961697abe37bcdb67b1))
+* **notify:** no child of the controller inherits a notify transport ([#35](https://github.com/feliperun/faberun/issues/35)) ([0cf0212](https://github.com/feliperun/faberun/commit/0cf021225b52bb68ac9d81f5b98faead532b87d2))
+* **repo:** an attention belongs to one campaign or none ([3b15947](https://github.com/feliperun/faberun/commit/3b15947a535f83fbd94238b56fbb892d114fc023))
+
 ## [0.16.0](https://github.com/feliperun/faberun/compare/v0.15.0...v0.16.0) (2026-09-21)
 
 
