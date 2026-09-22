@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.19.3](https://github.com/feliperun/faberun/compare/v0.19.2...v0.19.3) (2026-09-22)
+
+
+### Bug Fixes
+
+* the open findings, from a gate that stops watching to a closure that stays silent ([#59](https://github.com/feliperun/faberun/issues/59)) ([3534ac7](https://github.com/feliperun/faberun/commit/3534ac7b1bc0cd4d20f21157f566a049f3616cf4))
+
 ## [0.19.2](https://github.com/feliperun/faberun/compare/v0.19.1...v0.19.2) (2026-09-22)
 
 
