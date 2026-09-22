@@ -16,6 +16,8 @@
  * function there.
  */
 
+import { NOTIFY_LANG_ENV } from "../notify/index.mjs";
+
 /** @typedef {"en"|"pt"} Language */
 
 // `a`, `do` and `no` are left out on purpose: each is also an English word,
@@ -49,6 +51,24 @@ export function detectLanguage(...groups) {
     if (portuguese + english > 0) return portuguese > english ? "pt" : "en";
   }
   return "en";
+}
+
+/**
+ * The language the message is written in: `FABERUN_NOTIFY_LANG` when the
+ * operator set it to a language this module has (a campaign whose goal an
+ * orchestrator wrote in English still belongs to a person who reads
+ * Portuguese), else detection over the groups. The override moves the
+ * wording only; quoted text keeps the language it was written in, so a
+ * Portuguese label may sit beside an English objective -- honest, if uneven.
+ *
+ * @param {NodeJS.ProcessEnv} env
+ * @param {...readonly (string|null|undefined)[]} groups
+ * @returns {Language}
+ */
+export function chooseLanguage(env, ...groups) {
+  const forced = (env[NOTIFY_LANG_ENV] ?? "").trim();
+  if (forced === "pt" || forced === "en") return forced;
+  return detectLanguage(...groups);
 }
 
 /**

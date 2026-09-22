@@ -24,7 +24,7 @@
  */
 import { renderStatusJson } from "./render.mjs";
 import { buildCampaignProgress, remainingEstimateMs } from "./progress.mjs";
-import { detectLanguage, labelsFor } from "./locale.mjs";
+import { chooseLanguage, labelsFor } from "./locale.mjs";
 import { readNodeSnapshot } from "../run/node-store.mjs";
 import { campaignDir } from "../campaign/layout.mjs";
 import { readJournal } from "../campaign/journal.mjs";
@@ -106,7 +106,7 @@ export function renderRunProgress(runDir, event) {
   const objectives = readObjectives(runDir);
   const snapshots = new Map(payload.nodes.map((node) => [node.id, readSnapshotSafe(runDir, node.id)]));
   const campaign = campaignSummary(runsDir, payload.campaignId);
-  const label = labelsFor(detectLanguage([campaign?.goal], journalTexts(runsDir, payload.campaignId), [...objectives.values()]));
+  const label = labelsFor(chooseLanguage(process.env, [campaign?.goal], journalTexts(runsDir, payload.campaignId), [...objectives.values()]));
   const subject = subjectNode(payload.nodes, event.nodeId ?? null);
   /** @type {View} */
   const view = { runDir, runId: event.runId ?? basename(runDir), payload, objectives, snapshots, campaign, label, subject };

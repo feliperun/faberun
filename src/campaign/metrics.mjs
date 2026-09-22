@@ -46,7 +46,9 @@ const DONE_STATUSES = new Set(["done", "no-op"]);
 /** Gate review that blocks the node on a failing verdict (TECH-SPEC lean, rule 2). */
 const BLOCKING_REVIEW = "blocking";
 /** A receipt this settled: delivered, no transport bound, or the retry budget spent. */
-const SETTLED_NOTIFY_STATUSES = new Set(["delivered", "no_transport"]);
+// `filtered` is a decided outcome too: the event type was kept out of every
+// transport on purpose (`FABERUN_NOTIFY_EVENTS`), not lost.
+const SETTLED_NOTIFY_STATUSES = new Set(["delivered", "no_transport", "filtered"]);
 /** Target latency for a terminal/attention event to carry a settled receipt (TECH-SPEC section 6). */
 const NOTIFY_TARGET_SEC = 60;
 const SECONDS_PER_HOUR = 3600;

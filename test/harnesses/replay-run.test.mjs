@@ -554,7 +554,8 @@ test("D27: a complete replayed campaign notifies once per terminal node plus onc
   assert.equal(replayed.outcome.ok, true);
   const notifications = readJsonlRecords(join(replayed.outcome.runDir, "notify.jsonl"));
   assert.ok(notifications.length > 0, "the run recorded notify receipts");
-  assert.deepEqual(notifications.filter((record) => record.status !== "delivered"), [], "the suite's no-op transport delivers every receipt");
+  assert.deepEqual(notifications.filter((record) => record.status !== "delivered" && record.status !== "filtered"), [], "the suite's no-op transport delivers every receipt that leaves; a node settling is filtered by default");
+  assert.ok(notifications.some((record) => record.type === "run.terminal" && record.status === "delivered"), "the run's settling leaves");
   assert.deepEqual(new Set(notifications.map((record) => record.type)), new Set(["node.terminal", "run.terminal"]), "a clean run never raises attention");
   const metrics = campaignMetrics(replayed.campaignPath, replayed.runsDir);
   assert.deepEqual(
@@ -584,7 +585,8 @@ test("D32: notify.jsonl bounds retries against a failing transport, and sync/ack
   }
   const receipts = readJsonlRecords(join(replayed.outcome.runDir, "notify.jsonl"));
   assert.ok(receipts.length > 0, "the run appended notify receipts");
-  assert.deepEqual(receipts.filter((record) => record.status !== "failed"), [], "a failing transport never marks a receipt delivered");
+  assert.deepEqual(receipts.filter((record) => record.status !== "failed" && record.status !== "filtered"), [], "a failing transport never marks a receipt delivered; a node settling is filtered by default and never reaches it");
+  assert.ok(receipts.some((record) => record.type === "run.terminal" && record.status === "failed"), "the run's settling did reach the failing transport and was recorded failed");
   /** @type {Map<string, number>} */
   const attemptsByEvent = new Map();
   for (const receipt of receipts) {

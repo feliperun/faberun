@@ -111,7 +111,10 @@ the contract is frozen with a digest, and the phone's middle ground is a note.
 
 On `node.terminal`, `run.terminal` and `attention` the controller renders one
 message from persisted state, in the operator's own language (detected from
-the campaign goal, journal notes and node objectives; English otherwise):
+the campaign goal, journal notes and node objectives, or `FABERUN_NOTIFY_LANG`;
+English otherwise). Only `run.terminal`, `attention` and `advisory` leave by
+default -- a phase settling and a person being needed -- while a node settling
+gets a `filtered` receipt; `FABERUN_NOTIFY_EVENTS` widens or narrows the list:
 line one is the outcome (`✅ <node> · done in 8m · $0.09`, `🏁 run 15 · <name>
 · 2/2 done`, or `👀 <node> needs you · <error>`), then asked / done / proof
 for a node, what every node delivered for a run, or why / asked / do for

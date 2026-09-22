@@ -26,7 +26,7 @@ import { DISCOVERY_RUNTIME_DEFINITIONS, discoverRuntimes } from "../engine/runti
 import { errorMessage } from "../util.mjs";
 import { boundedGitSync } from "../repo/worktree.mjs";
 import { routeRuntime } from "../contract/runtime.mjs";
-import { NOTIFY_BIN_ENV, noTransportWarning } from "../notify/index.mjs";
+import { NOTIFY_BIN_ENV, deliverableEventTypes, noTransportWarning, notifySettingProblems } from "../notify/index.mjs";
 import { NOTIFY_SESSION_ENV, sessionWakeNotice } from "../notify/session.mjs";
 import { findExecutable } from "./platform.mjs";
 import { colorLevel, statusToken } from "../cli/brand.mjs";
@@ -209,10 +209,13 @@ export function environmentPreflight(options) {
  * @returns {EnvCheck}
  */
 export function notifyTransportCheck(env = process.env) {
+  const problems = notifySettingProblems(env);
+  if (problems.length) return fail("notify transport", problems.join("; "), true);
   const warning = noTransportWarning(env);
   if (warning) return fail("notify transport", warning, true);
   const external = env[NOTIFY_BIN_ENV] ? `${NOTIFY_BIN_ENV}=${env[NOTIFY_BIN_ENV]}` : `${NOTIFY_BIN_ENV} unset`;
-  return pass("notify transport", `${external} · ${sessionWakeNotice(env)}`);
+  const events = [...deliverableEventTypes(env)].join(",");
+  return pass("notify transport", `${external} · ${sessionWakeNotice(env)} · events: ${events}`);
 }
 
 /** @param {EnvReport} report @returns {EnvCheck[]} the checks that block a dispatch */

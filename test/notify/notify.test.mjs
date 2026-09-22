@@ -108,8 +108,17 @@ test("NotifyQueue.enqueue reads the run's own status.json for the resume path an
   const delivered = [];
   const queue = new NotifyQueue({ runDir, deliver: async (event) => { delivered.push(event); return { ok: true }; } });
 
-  await queue.enqueue({ type: "node.terminal", runId: "run-a", nodeId: "build", status: "failed", attempt: 1, errorCode: "verification_failed" });
-  await queue.enqueue({ type: "run.terminal", runId: "run-a", done: 1, total: 1 });
+  // A node settling is filtered by default; this test is about what the
+  // transport is handed, so it lets every event out for its own duration.
+  const previousEvents = process.env.FABERUN_NOTIFY_EVENTS;
+  process.env.FABERUN_NOTIFY_EVENTS = "node.terminal,run.terminal";
+  try {
+    await queue.enqueue({ type: "node.terminal", runId: "run-a", nodeId: "build", status: "failed", attempt: 1, errorCode: "verification_failed" });
+    await queue.enqueue({ type: "run.terminal", runId: "run-a", done: 1, total: 1 });
+  } finally {
+    if (previousEvents === undefined) delete process.env.FABERUN_NOTIFY_EVENTS;
+    else process.env.FABERUN_NOTIFY_EVENTS = previousEvents;
+  }
 
   assert.equal(/** @type {{summary: string}} */ (delivered[0]).summary, `node build failed · run run-a · attempt 1 · verification_failed · resume ${runDir}`);
   assert.equal(/** @type {{summary: string}} */ (delivered[1]).summary, "run run-a done · 1/1 nodes · $1.50");
@@ -140,12 +149,12 @@ test("notify is lossy", async () => {
   });
 
   await queue.enqueue({
-    type: "node.terminal",
+    type: "attention",
     runId: "run-a",
     nodeId: "build",
     status: "failed",
     attempt: 1,
-    dedupeKey: "node.terminal:run-a:build:failed:1:0",
+    dedupeKey: "attention:run-a:build:failed:1:0",
   });
 
   // One attempt: the failure is dropped, never requeued and never rescheduled.
@@ -156,7 +165,7 @@ test("notify is lossy", async () => {
   assert.equal(receipts[0].status, "failed");
   assert.equal(receipts[0].attempt, 1);
   assert.equal(receipts[0].error, "transport unavailable");
-  assert.equal(receipts[0].dedupeKey, "node.terminal:run-a:build:failed:1:0");
+  assert.equal(receipts[0].dedupeKey, "attention:run-a:build:failed:1:0");
 
   // A transport that rejects is not a special case: it is a failed delivery
   // too. The receipt is still written, the rejection never escapes enqueue,
@@ -173,12 +182,12 @@ test("notify is lossy", async () => {
   });
 
   await rejecting.enqueue({
-    type: "node.terminal",
+    type: "attention",
     runId: "run-a",
     nodeId: "build",
     status: "failed",
     attempt: 1,
-    dedupeKey: "node.terminal:run-a:build:failed:1:0",
+    dedupeKey: "attention:run-a:build:failed:1:0",
   });
 
   assert.equal(rejectingAttempts, 1, "a rejected delivery is attempted exactly once and never requeued");
@@ -299,8 +308,8 @@ process.stdin.on("end", () => {
   assert.equal(existsSync(poisonMarker), false, "the transport left bound in the environment must never run during a test");
   const events = readFileSync(join(runsRoot(directory), "notify-record.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
   assert.ok(
-    events.some((event) => event.type === "node.terminal" && event.nodeId === "build"),
-    "the recording fixture bound in place of the poisoned transport captured the terminal event",
+    events.some((event) => event.type === "run.terminal" && event.runId === "notify-isolation-run"),
+    "the recording fixture bound in place of the poisoned transport captured the run's settling (a node settling is filtered by default)",
   );
 });
 
