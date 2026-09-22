@@ -2,6 +2,14 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.17.1](https://github.com/feliperun/faberun/compare/v0.17.0...v0.17.1) (2026-09-22)
+
+
+### Bug Fixes
+
+* **campaign:** a record written before a field existed is repaired, not condemned ([e893a89](https://github.com/feliperun/faberun/commit/e893a899f957fbcee7371739fef1177e4399043a))
+* **run:** the migration refusal carries what would let it finish ([a74244d](https://github.com/feliperun/faberun/commit/a74244daa4c56f6034bd1badaa976670c28e6b5d))
+
 ## [0.17.0](https://github.com/feliperun/faberun/compare/v0.16.0...v0.17.0) (2026-09-21)
 
 
