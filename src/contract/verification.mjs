@@ -8,7 +8,18 @@ export const VERIFICATION_LIMITS = Object.freeze({
   stderrBytes: 16 * 1024,
   maxCommands: 32,
   maxRepeat: 8,
-  maxTimeoutSec: 600,
+  // A verification command may declare up to half an hour. It was 600s, which
+  // is below this repository's own suite: measured 2026-09-22, `npm test`
+  // takes 434-473s at the default parallelism on the author's machine and 650s
+  // on a Windows CI runner, and `node --test --test-concurrency=1 test/engine/`
+  // -- the way a packet's verification actually runs it -- takes 1035-1058s.
+  // So the one command that proves the engine could not be declared at all,
+  // and a packet author's way out was `--test-name-pattern`, which exits 0
+  // when it matches nothing (see AGENTS.md). A cap that pushes authors toward
+  // a proof that certifies nothing is worse than a longer runaway. The node's
+  // own wall clock (`contract.timeoutSec`, 2400s by default) still bounds the
+  // attempt above this.
+  maxTimeoutSec: 1_800,
   stateStdoutBytes: 2 * 1024,
   stateCommands: 16,
   stateAttempts: 4,
