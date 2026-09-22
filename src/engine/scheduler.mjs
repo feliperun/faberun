@@ -315,7 +315,7 @@ export async function runContract(contractPath, options = {}) {
  */
 export async function driveRun(contract, runDir, states, campaign, lock, sourceIdentity, resume = {}, options = {}) {
   lock.assert();
-  assertEnvironmentReady(contract, runDir, sourceIdentity);
+  await assertEnvironmentReady(contract, runDir, sourceIdentity);
   const runsDir = runsRoot(contract.cwd);
   const bootstrapNonce = bootstrapNonceForProcess();
   // Only the CLI entry can answer this: a nonce inherited by evals/run.mjs or

@@ -46,6 +46,17 @@ if (process.argv.includes("--version")) {
   process.stdin.setEncoding("utf8");
   process.stdin.on("data", (chunk) => { input += chunk; });
   process.stdin.on("end", () => {
+    // The dispatch gate's live preflight says hello with one trivial prompt
+    // before any dispatch: a real provider answers it even when this one is
+    // out of quota, and the hello is not a dispatched turn, so it is answered
+    // here and never reaches the evidence log the assertions read.
+    if (input.includes("FABERUN_PREFLIGHT_OK")) {
+      console.log(JSON.stringify({ type: "thread.started", thread_id: "preflight-hello" }));
+      const hello = JSON.stringify({ status: "done", summary: "preflight hello answered", verification: [], artifacts: [], missingContext: [] });
+      console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: hello } }));
+      console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));
+      return;
+    }
     const runDir = process.env.FABERUN_RUN_DIR;
     const nodeId = process.env.FABERUN_NODE_ID;
     let runtime = null;

@@ -106,14 +106,27 @@ function writeSealE2eProvider(directory) {
   writeProvider(provider, `#!${process.execPath}
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 if (process.argv.includes("--version")) { console.log("seal-e2e 1.0.0"); process.exit(0); }
-let call = 1;
-try { call = readFileSync(${JSON.stringify(counter)}, "utf8").trim().split("\\n").length + 1; } catch {}
-appendFileSync(${JSON.stringify(counter)}, "x\\n");
 let input = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => { input += chunk; });
 process.stdin.on("end", () => {
   const prompt = input || process.argv.at(-1) || "";
+  // The dispatch gate says hello before any dispatch. This fixture hangs on
+  // its first call by design, so an uncounted hello would become that hang
+  // and the gate would block a run the test expects to dispatch. The counter
+  // therefore moved inside the handler: it counts turns, and the hello is
+  // not one -- a real provider answers a liveness prompt before the turn
+  // that goes quiet.
+  if (prompt.includes("FABERUN_PREFLIGHT_OK")) {
+    console.log(JSON.stringify({ type: "thread.started", thread_id: "preflight-hello" }));
+    const hello = JSON.stringify({ status: "done", summary: "preflight hello answered", verification: [], artifacts: [], missingContext: [] });
+    console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: hello } }));
+    console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));
+    return;
+  }
+  let call = 1;
+  try { call = readFileSync(${JSON.stringify(counter)}, "utf8").trim().split("\\n").length + 1; } catch {}
+  appendFileSync(${JSON.stringify(counter)}, "x\\n");
   const judge = prompt.startsWith("Review node");
   const canonical = /canonical result file: (\\S+\\.json)/.exec(prompt)?.[1] ?? null;
   if (call === 1 && !judge) {

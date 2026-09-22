@@ -379,6 +379,17 @@ let input = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => { input += chunk; });
 process.stdin.on("end", () => {
+  // The dispatch gate says hello before any dispatch, and this fixture keys
+  // its network failures on the call count, so the hello must answer without
+  // being counted: a real provider answers a liveness prompt whether or not
+  // its next turn will fail.
+  if (input.includes("FABERUN_PREFLIGHT_OK")) {
+    console.log(JSON.stringify({ type: "thread.started", thread_id: "preflight-hello" }));
+    const hello = JSON.stringify({ status: "done", summary: "preflight hello answered", verification: [], artifacts: [], missingContext: [] });
+    console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: hello } }));
+    console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));
+    return;
+  }
   appendFileSync(${JSON.stringify(calls)}, "call\\n");
   const seen = readFileSync(${JSON.stringify(calls)}, "utf8").trim().split("\\n").length;
   console.log(JSON.stringify({ type: "thread.started", thread_id: "flaky" }));

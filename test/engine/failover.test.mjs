@@ -17,6 +17,20 @@ import { runsRoot } from "../../src/run/paths.mjs";
 // The other half of routing.test.mjs: what happens when a provider is spent --
 // the declared one-hop edge, the announced reset, and the refusals.
 
+/**
+ * Read a provider request log without the dispatch gate's live-preflight
+ * hello: the gate sends one real prompt to every routed runtime before any
+ * dispatch, and everything these tests assert about dispatch -- hop order,
+ * request counts, continuation ids -- starts after that hello.
+ *
+ * @param {string} log
+ * @returns {any[]}
+ */
+function dispatchedRequests(log) {
+  return readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line))
+    .filter((request) => !String(request.prompt ?? "").includes("FABERUN_PREFLIGHT_OK"));
+}
+
 test("the attempt deadlines left NON_FAILOVER_CODES, so a second failure takes the normal hop", () => {
   for (const code of ["wall_clock_timeout", "stall_timeout", "progress_stalled"]) {
     assert.equal(NON_FAILOVER_CODES.has(code), false, `${code} is eligible for the failover that follows its one auto_retry`);
@@ -164,7 +178,7 @@ else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; });
   }));
   const result = await runContract(path);
   assert.equal(result.ok, true);
-  const requests = readFileSync(requestLog, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  const requests = dispatchedRequests(requestLog);
   assert.deepEqual(requests.map((request) => request.continuationId), [null, "phase-thread"]);
   assert.deepEqual(result.states.get("second")?.invocations?.map((invocation) => invocation.continuationMode), ["reuse"]);
   const usageRecords = readFileSync(join(result.runDir, "usage.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
@@ -205,7 +219,7 @@ else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; });
   }));
   const result = await runContract(path);
   assert.equal(result.ok, true);
-  const requests = readFileSync(requestLog, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  const requests = dispatchedRequests(requestLog);
   assert.deepEqual(requests.map((request) => request.continuationId), [null, null]);
   // The runtime identity changed between the two nodes, so the second worker
   // carries the prior node's structured summary forward instead of reusing
@@ -224,6 +238,10 @@ test("two concurrent nodes of one phase never drive the same continuation", asyn
 import { appendFileSync } from "node:fs";
 if (process.argv.includes("--version")) console.log("concurrent-wrapper 1.0.0");
 else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; }); process.stdin.on("end", () => {
+  if (input.includes("FABERUN_PREFLIGHT_OK")) {
+    console.log(JSON.stringify({ schemaVersion: 1, type: "run.completed", result: JSON.stringify({ status: "done", summary: "done", verification: [], artifacts: [], missingContext: [] }), continuationId: null, usage: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0 }, costUsd: null }));
+    return;
+  }
   const request = JSON.parse(input); appendFileSync(${JSON.stringify(requestLog)}, JSON.stringify({ continuationId: request.continuationId }) + "\\n");
   console.log(JSON.stringify({ schemaVersion: 1, type: "run.completed", result: JSON.stringify({ status: "done", summary: "done", verification: [], artifacts: [], missingContext: [] }), continuationId: "shared-thread", usage: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0 }, costUsd: null }));
 }); }
@@ -245,7 +263,7 @@ else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; });
   const result = await runContract(path);
   assert.equal(result.ok, true);
   for (const id of ["alpha", "beta", "gamma"]) assert.equal(result.states.get(id)?.status, "done", id);
-  const requests = readFileSync(requestLog, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  const requests = dispatchedRequests(requestLog);
   assert.equal(requests.length, 3);
   const continued = requests.filter((request) => request.continuationId === "shared-thread");
   assert.ok(continued.length <= 1, `the shared session was handed to ${continued.length} turns; at most one may claim it`);
@@ -278,7 +296,7 @@ else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; });
   }));
   const result = await runContract(path);
   assert.equal(result.ok, true);
-  const requests = readFileSync(requestLog, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  const requests = dispatchedRequests(requestLog);
   assert.deepEqual(requests.map((request) => request.continuationId), [null, "phase-1", "phase-1-next"]);
 });
 
@@ -296,7 +314,7 @@ test("Claude phase reuse passes the first explicit session through --resume", as
     ],
   }));
   const result = await runContract(path);
-  const requests = readFileSync(fake.requestLog, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  const requests = dispatchedRequests(fake.requestLog);
   assert.deepEqual(requests.map((request) => flagValue(request.args, "--resume")), [null, "session-1"]);
   assert.equal(result.states.get("second")?.invocations?.[0]?.continuationMode, "reuse");
 });
@@ -314,7 +332,7 @@ test("a completed phase without a continuation ID remains a fresh invocation", a
     ],
   }));
   const result = await runContract(path);
-  const requests = readFileSync(fake.requestLog, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  const requests = dispatchedRequests(fake.requestLog);
   assert.deepEqual(requests.map((request) => flagValue(request.args, "--resume")), [null, null]);
   assert.equal(result.states.get("second")?.invocations?.[0]?.continuationMode, "fresh");
 });
@@ -336,7 +354,7 @@ test("a non-continuing runtime gets a deterministic fresh phase handoff", async 
       ],
     }));
     const result = await runContract(path);
-    const requests = readFileSync(fake.requestLog, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    const requests = dispatchedRequests(fake.requestLog);
     assert.deepEqual(requests.map((request) => flagValue(request.args, "--resume")), [null, null]);
     assert.equal(result.states.get("second")?.invocations?.[0]?.continuationMode, "rotate");
     assert.match(requests[1].prompt, /fresh provider session/u);
@@ -487,7 +505,7 @@ else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; });
   }));
   const result = await runContract(path);
   assert.equal(result.ok, true);
-  const requests = readFileSync(requestLog, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  const requests = dispatchedRequests(requestLog);
   assert.deepEqual(requests.map((request) => request.continuationId), [null, null], "the sibling's session id is not handed on");
   assert.deepEqual(result.states.get("second")?.invocations?.map((invocation) => invocation.continuationMode), ["rotate"]);
   assert.match(String(requests[1].prompt), /Continue phase implementation as the worker agent in a fresh provider session/u);
