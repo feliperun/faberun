@@ -48,7 +48,16 @@ const GATE_PATH = join(HERE, "gate.mjs");
  */
 export function startProcess({ contract, node, state, runtime, prompt, paths, phase, workspace = contract.cwd, commandOptions = {}, onInvocation, onInvocationUpdate, onProgress }) {
   const command = providerCommand(runtime, prompt, commandOptions);
-  const logDir = commandOptions.logDir ?? null;
+  // The engine offers a log dir to every non-streaming harness; only an
+  // adapter that wants one creates it (zcode does, inside `command()` above,
+  // which has already run). Taking the offer is therefore observable, and the
+  // stall detector must key on the adapter's answer rather than on the
+  // engine's offer: `exec-jsonl` and `replay` are non-streaming too, declare
+  // no `stallTimeoutSec`, and were deliberately not stall-tracked at all. A
+  // path they never write to would otherwise have made them tracked against a
+  // log that stays empty forever -- measured 2026-09-22 against the contract
+  // default of 300s, a healthy exec-jsonl worker was killed as stalled.
+  const logDir = commandOptions.logDir && existsSync(commandOptions.logDir) ? commandOptions.logDir : null;
   if (paths.prompt) writeFileSync(paths.prompt, prompt, { flag: "wx", mode: 0o600 });
   const gateConfigPath = `${paths.prompt}.gate.json`;
   const gateReleasePath = `${paths.prompt}.gate.release`;

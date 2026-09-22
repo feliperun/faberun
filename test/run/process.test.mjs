@@ -764,3 +764,55 @@ test("an injected EPERM from kill is swallowed by terminateInvocation", { skip: 
     }
   }
 });
+
+test("a log dir is a liveness source only for the adapter that took it", async () => {
+  // The engine offers `logDir` to every non-streaming harness, but only an
+  // adapter that wants one creates it. Keying the stall detector on the offer
+  // rather than on the answer made `exec-jsonl` and `replay` -- non-streaming,
+  // declaring no stallTimeoutSec, deliberately never stall-tracked -- tracked
+  // against a log nothing would ever write, and a healthy worker was then
+  // killed at the contract's 300s default.
+  const runDir = mkdtempSync(join(tmpdir(), "logdir-offer-"));
+  mkdirSync(join(runDir, "logs"));
+  const provider = join(runDir, "provider.mjs");
+  writeFileSync(provider, `#!${process.execPath}\nsetTimeout(() => {}, 50);\n`);
+  chmodSync(provider, 0o755);
+  const { contract, node } = validatedRun(runDir);
+  const logDir = join(runDir, "logs", "build.1.provider");
+
+  /** @param {Record<string, unknown>} runtime @returns {import("../../src/engine/process.mjs").Job} */
+  const start = (runtime) => startProcess({
+    contract,
+    node,
+    state: nodeSnapshot(node, []),
+    runtime: /** @type {any} */ (runtime),
+    prompt: "task",
+    paths: {
+      prompt: join(runDir, "logs", `${runtime.harness}.prompt`),
+      stdout: join(runDir, "logs", `${runtime.harness}.jsonl`),
+      stderr: join(runDir, "logs", `${runtime.harness}.err`),
+    },
+    phase: "worker",
+    commandOptions: { logDir },
+    onInvocation: () => {},
+  });
+
+  // exec-jsonl is non-streaming and ignores the offer: it never creates the
+  // dir, so the job carries none and keeps the wall clock as its only budget.
+  const ignoring = start({ id: "x", harness: "exec-jsonl", model: "m", executable: provider });
+  try {
+    assert.equal(existsSync(logDir), false, "the adapter that ignores the offer creates nothing");
+    assert.equal(ignoring.logDir, null, "and the job carries no log dir to watch");
+  } finally {
+    killGateGroup(ignoring.invocation);
+  }
+
+  // zcode takes it, in `command()`, before the job exists.
+  const taking = start({ id: "z", harness: "zcode", model: "glm-5.3" });
+  try {
+    assert.equal(existsSync(logDir), true, "the adapter that takes the offer creates the dir itself");
+    assert.equal(taking.logDir, logDir, "and the job carries it as its liveness source");
+  } finally {
+    killGateGroup(taking.invocation);
+  }
+});
