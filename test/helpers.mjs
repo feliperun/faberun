@@ -47,8 +47,17 @@ export const delay = (milliseconds) => new Promise((resolve) => setTimeout(resol
  * provider took 0.3-0.6s to reach its first line against ~60ms on Linux, and
  * five deadlines that hold anywhere else expired. The factor is the honest
  * translation of "long enough that only a real hang trips this".
+ *
+ * Raised from 3 to 6, measured 2026-09-22 over four Windows CI jobs on this
+ * repository: `run --detach leaves a controller that outlives the invoker`
+ * completed in 11.3s, 15.2s and 16.2s and then blew a 60s deadline on the
+ * fourth, and `done-when 7` did the same at 66.3s. The median was never the
+ * problem -- the runner's tail is over 4x its median, so a bound inside that
+ * tail turns contention into a red build. Six holds the worst observed run
+ * with room, and the cost of the larger factor is paid only by a test that
+ * genuinely hangs.
  */
-export const SPAWN_WAIT_FACTOR = process.platform === "win32" ? 3 : 1;
+export const SPAWN_WAIT_FACTOR = process.platform === "win32" ? 6 : 1;
 
 /**
  * Poll `read` until it returns a non-null value or the deadline passes.

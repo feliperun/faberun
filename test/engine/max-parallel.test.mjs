@@ -24,7 +24,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runContract } from "../../src/engine/scheduler.mjs";
-import { fixture, packet, waitForValue, writeContract } from "../helpers.mjs";
+import { SPAWN_WAIT_FACTOR, fixture, packet, waitForValue, writeContract } from "../helpers.mjs";
 import { runDirectory } from "../../src/run/paths.mjs";
 
 /**
@@ -138,7 +138,7 @@ process.exit(2);`;
   try {
     // `second` holds the run's only slot from here until the release file is
     // written, so anything that starts meanwhile is a second live worker.
-    await waitForValue(() => (readFileSync(ledger, "utf8").includes("start second") ? "running" : null), 30_000, 10);
+    await waitForValue(() => (readFileSync(ledger, "utf8").includes("start second") ? "running" : null), 30_000 * SPAWN_WAIT_FACTOR, 10);
     writeFileSync(verifyGate, "release\n");
     // Whichever way the run answers, it answers here: the ledger shows
     // `first`'s revision started on top of `second` (the defect), or `first`
