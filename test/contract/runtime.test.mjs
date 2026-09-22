@@ -299,7 +299,7 @@ test("finalVerification accepts the verification-command schema and rejects unkn
   for (const value of /** @type {unknown[]} */ ([
     { argv: ["npm", "test"] },
     [{ argv: [] }],
-    [{ argv: ["npm", "test"], timeoutSec: 601 }],
+    [{ argv: ["npm", "test"], timeoutSec: 1_801 }],
     [{ argv: ["npm", "test"], timeoutSec: 0 }],
     [{ argv: ["npm", "test"], repeat: 0 }],
     [{ argv: ["npm", "test"], env: ["not a name"] }],

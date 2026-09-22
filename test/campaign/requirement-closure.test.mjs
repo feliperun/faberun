@@ -7,6 +7,9 @@ import { randomUUID } from "node:crypto";
 import { closeCampaign, initializeCampaign, registerRun } from "../../src/campaign/index.mjs";
 import { readCampaign } from "../../src/campaign/record.mjs";
 import { appendJournal } from "../../src/campaign/journal.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 /**
  * A linked run as a close reads it: a contract whose nodes declare requirement
@@ -120,4 +123,46 @@ test("a rejected node's findings do not block a close: there they are the reject
   ]);
   appendJournal(campaignPath, { type: "retrospective", at: new Date().toISOString(), eventId: randomUUID(), sessionId: "session", text: "done" });
   assert.equal(closeCampaign(campaignPath).campaign.status, "closed");
+});
+
+test("close says what the closure measured, so an open requirement is not read as an undelivered one", () => {
+  // The record was written silently and only ever met by opening JSON, where
+  // `open` reads as "not delivered". It means "no node of this campaign
+  // proved it", which is a different claim: measured 2026-09-22 on
+  // availability-is-verified-not-assumed, R4 read open with an empty nodes
+  // array while the work was merged in a6a5d43, because the node carrying it
+  // blocked and the operator finished it by hand.
+  const directory = mkdtempSync(join(tmpdir(), "requirement-closure-cli-"));
+  const runsDir = runsRoot(directory);
+  const { path: campaignPath } = initializeCampaign(runsDir, { campaignId: "spoken-closure", goal: "say what was measured" });
+  registerRun(campaignPath, "run-a");
+  writeRun(runsDir, "run-a", [
+    { id: "build", requirementIds: ["req-1"], status: "done", carried: ["req-1"], verification: { passed: true }, gate: { verdict: "pass" } },
+    { id: "blocked", requirementIds: ["req-2"], status: "blocked" },
+  ]);
+  appendJournal(campaignPath, { type: "retrospective", at: new Date().toISOString(), eventId: randomUUID(), sessionId: "session", text: "done" });
+
+  const runner = fileURLToPath(new URL("../../src/cli.mjs", import.meta.url));
+  const closed = spawnSync(process.execPath, [runner, "campaign", "close", "spoken-closure", "--cwd", directory], { encoding: "utf8" });
+  assert.equal(closed.status, 0, closed.stderr);
+  assert.match(closed.stdout, /requirements · 1\/2 carried by a node that reached done/u);
+  assert.match(closed.stdout, /no done node carried req-2/u);
+  assert.match(closed.stdout, /never the branch/u, "the line names what closure cannot see");
+});
+
+test("a close with every requirement covered says so and adds no caveat", () => {
+  const directory = mkdtempSync(join(tmpdir(), "requirement-closure-cli-clean-"));
+  const runsDir = runsRoot(directory);
+  const { path: campaignPath } = initializeCampaign(runsDir, { campaignId: "clean-closure", goal: "cover everything" });
+  registerRun(campaignPath, "run-a");
+  writeRun(runsDir, "run-a", [
+    { id: "build", requirementIds: ["req-1"], status: "done", carried: ["req-1"], verification: { passed: true }, gate: { verdict: "pass" } },
+  ]);
+  appendJournal(campaignPath, { type: "retrospective", at: new Date().toISOString(), eventId: randomUUID(), sessionId: "session", text: "done" });
+
+  const runner = fileURLToPath(new URL("../../src/cli.mjs", import.meta.url));
+  const closed = spawnSync(process.execPath, [runner, "campaign", "close", "clean-closure", "--cwd", directory], { encoding: "utf8" });
+  assert.equal(closed.status, 0, closed.stderr);
+  assert.match(closed.stdout, /requirements · 1\/1 carried by a node that reached done/u);
+  assert.doesNotMatch(closed.stdout, /never the branch/u, "no caveat when there is nothing it could not see");
 });

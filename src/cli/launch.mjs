@@ -55,8 +55,14 @@ export function detachSelf(command, target, extraArgs = []) {
  * exactly as for every detached controller: a foreground launcher is the only
  * moment an operator is present.
  *
+ * `stdio` overrides the discarded default for a caller that has somewhere
+ * durable to put the child's output. A detached *run* wants the default: its
+ * bootstrap record is the channel, and a controller's real output belongs in
+ * the run directory. A detached *plan* has no bootstrap record, so discarding
+ * its stdio discarded the only account of why it died.
+ *
  * @param {string[]} argv
- * @param {{nonce?: string, env?: NodeJS.ProcessEnv}} [options]
+ * @param {{nonce?: string, env?: NodeJS.ProcessEnv, stdio?: import("node:child_process").StdioOptions}} [options]
  * @returns {DetachedChild}
  */
 export function detachArgv(argv, options = {}) {
@@ -74,7 +80,7 @@ export function detachArgv(argv, options = {}) {
     // pending forever. There it also means DETACHED_PROCESS: no console
     // window, which is what "ignore" stdio already implies.
     detached: true,
-    stdio: "ignore",
+    stdio: options.stdio ?? "ignore",
   }));
   child.unref();
   child.bootstrapNonce = nonce;

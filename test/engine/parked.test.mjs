@@ -351,6 +351,18 @@ test("done-when 8: judge_unavailable and provider_error retry once; timeout code
   assert.equal(AUTO_RETRY_CODES.has("provider_error"), true);
 });
 
+test("a stream that ended before its terminal envelope earns the same retry an error envelope earns", () => {
+  // The asymmetry this closes: a provider that answered with an error got a
+  // second attempt, and a provider whose transport died mid-turn -- the less
+  // informative failure -- parked on the first.
+  const runDir = makeRunDir();
+  const state = validSnapshot("build", { status: "failed", error: { code: "incomplete_stream", message: "Claude emitted no result event" } });
+  assert.equal(autoRetryNode(runDir, state, undefined, null), true, "incomplete_stream earns its one retry");
+  assert.equal(state.status, "pending");
+  assert.equal(state.error, null);
+  assert.equal(autoRetryNode(runDir, validSnapshot("build", { status: "failed", error: { code: "incomplete_stream", message: "again" } }), undefined, null), false, "and only one");
+});
+
 test("done-when 9 and 11: consumption survives a restart and touches neither revision nor hop counter", () => {
   const runDir = makeRunDir();
   const state = validSnapshot("build", { status: "failed", error: { code: "provider_error", message: "boom" }, revisions: 0, routing: { history: [], currentOverride: null } });
@@ -522,7 +534,7 @@ test("done-when 13: campaign-watch and web keep the pre-split union, accounted o
     assert.ok(match, `${relative} no longer declares ${name}`);
     return [...(match[1] ?? "").matchAll(/"([^"]+)"/gu)].map((entry) => String(entry[1])).sort();
   };
-  assert.deepEqual(readStatusSet("src/cli/campaign.mjs", "TERMINAL_NODE_STATUSES"), expected);
+  assert.deepEqual(readStatusSet("src/campaign/watch.mjs", "TERMINAL_NODE_STATUSES"), expected);
   assert.deepEqual(readStatusSet("src/web/api.mjs", "RUN_TERMINAL_STATUSES"), expected);
   assert.deepEqual(readStatusSet("src/web/server.mjs", "TERMINAL_STATUSES"), expected);
 });
