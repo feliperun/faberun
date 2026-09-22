@@ -292,10 +292,23 @@ export function killTarget(target, signal) {
  * big` once the repository's own `.git/worktrees/<name>` path passes about 160
  * characters, and that guard is a fixed buffer no configuration reaches.
  *
+ * **`core.autocrlf=false`, on Windows.** The default there is `true`, and it
+ * rewrites line endings on the way into the index and out of a checkout. This
+ * tool's gate is a byte comparison of what a worker changed, and a rewrite it
+ * did not make is indistinguishable from one it did: measured 2026-09-22 on a
+ * GitHub windows-latest runner, a declared read carried into an attempt
+ * worktree came back changed after passing through git, the scope gate called
+ * it an `unexpected_write`, and the adopted node failed for a file nobody had
+ * touched. The attempt worktree is this tool's own directory and its content
+ * is what the run commits; the operator's checkout keeps whatever they
+ * configured.
+ *
  * @param {string[]} args
  * @returns {string[]}
  */
 export function gitArguments(args) {
-  const platformArgs = process.platform === "win32" ? ["-c", "core.longpaths=true"] : [];
+  const platformArgs = process.platform === "win32"
+    ? ["-c", "core.longpaths=true", "-c", "core.autocrlf=false"]
+    : [];
   return ["-c", "core.fsmonitor=false", ...platformArgs, ...args];
 }
