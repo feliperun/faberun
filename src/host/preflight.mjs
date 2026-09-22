@@ -420,8 +420,8 @@ export function reachableRuntimes(contract) {
         // and is no more routed than the rest. They are reachable, so their
         // capabilities still have to hold, but none of them is a runtime this
         // run committed to: requiring a binary for each turned one absent
-        // harness into a refusal of a run that would never have used it.
-        addRuntimeRequirement(runtimes, runtime, requiredCapabilitySets, false);
+        // harness into a refusal of a run that would never have used it. The
+        // loop covers the stand-in as well -- it is one of the keys.
         for (const candidate of Object.keys(contract.runtimes)) {
           addRuntimeRequirement(runtimes, runtimeSnapshot(contract, candidate), requiredCapabilitySets, false);
         }

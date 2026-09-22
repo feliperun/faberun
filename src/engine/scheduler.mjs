@@ -37,13 +37,11 @@ import { delay, errorCode } from "../util.mjs";
 import { alreadyNotified, emitNodeAdvisories, notifyQueueFor, notifyQueuesByRun, renderCampaignHandoffSafely } from "./notify-queue.mjs";
 import { detectStalls, invocationAlive, terminateProcess } from "./process.mjs";
 import { transition, writeNode } from "./state.mjs";
-import { listNodeSnapshots, readNodeSnapshot } from "../run/node-store.mjs";
 import { render, renderFinalReport, writeFindingsArtifact } from "../report/final.mjs";
 import { operationNextState, providerReceipts, settleInvocation } from "../run/operations.mjs";
 import { appendUsageRecord, invocationCost, invocationUsage, recordInvocationUsage } from "../run/usage.mjs";
 import { captureNodeScopeBoundaries, checkWorkerScope, emptyScope } from "./scope.mjs";
 import { validateContractForLaunch } from "../campaign/chain.mjs";
-import { validateNodeSnapshot } from "../contract/snapshot.mjs";
 import { finalVerificationCommands, sharedVerificationCommands } from "../contract/final-verification.mjs";
 import { startJudge, startWorker } from "./dispatch.mjs";
 import { assertEnvironmentReady, captureRunIdentity, createRunMetadata, serializableContract, statesFingerprint } from "./run-identity.mjs";
@@ -765,36 +763,3 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
   }
   return { runDir, states, ok: failed.length === 0 };
 }
-
-/**
- * The persisted node snapshots of one run.
- *
- * `tolerateMissing` returns only the snapshots that exist instead of refusing
- * the run. For resume and supervise a node the contract declares and the run
- * never persisted is corruption and stays fatal; for `cancel` it is the
- * ordinary shape of what is being cancelled. A launch writes `contract.json`
- * first and can die before it writes any node -- probing providers, shelling
- * out to git, claiming the run ref -- and the directory then holds a
- * contract, an occupied ref and no node state at all. Such a node started
- * nothing, holds no invocation and no worktree, so there is nothing to
- * terminate and only the git names to release, which is what cancel is for.
- *
- * @param {string} runDir
- * @param {ValidatedContract} contract
- * @param {{tolerateMissing?: boolean}} [options]
- * @returns {NodeSnapshot[]}
- */
-export function readRunNodes(runDir, contract, options = {}) {
-  const names = listNodeSnapshots(runDir);
-  const expected = new Map(contract.nodes.map((node) => [`${node.id}.json`, node]));
-  for (const name of names) if (!expected.has(name)) throw new TypeError(`unexpected persisted node snapshot ${name}`);
-  return contract.nodes.flatMap((node) => {
-    const name = `${node.id}.json`;
-    if (!names.includes(name)) {
-      if (options.tolerateMissing === true) return [];
-      throw new TypeError(`missing persisted node snapshot ${name}`);
-    }
-    return [validateNodeSnapshot(readNodeSnapshot(runDir, node.id), node)];
-  });
-}
-

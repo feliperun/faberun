@@ -233,6 +233,17 @@ Splitting a module is mechanical and should be scripted, not retyped — but:
   environment, a path, or whether it is under test has stopped emulating a
   provider and started faking one.
 
+- **A polling deadline is scaled by `SPAWN_WAIT_FACTOR`, never written as a
+  raw number.** The rule above bans asserting how fast a machine is; a wait
+  deadline is the same hazard one step removed, because it fails when the
+  machine is slow rather than when the code is wrong. Measured 2026-09-22 over
+  four Windows CI jobs, `run --detach leaves a controller that outlives the
+  invoker` completed in 11.3s, 15.2s and 16.2s and then blew its 60s deadline
+  on the fourth; the runner's tail is over 4x its median, so a bound chosen
+  from the median turns contention into a red build. The factor is 6 on
+  Windows and 1 everywhere else. Two of eight checks flickering destroys the
+  signal more thoroughly than a slow suite does.
+
 - **Two `node --test` traps, both measured 2026-09-21 on v26.8.1, both of
   which make a check silently stop checking.** A `--test-reporter=` that
   appears *after* a test file on the command line is ignored — node reads its

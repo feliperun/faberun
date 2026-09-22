@@ -16,7 +16,7 @@ import { invocationOwned } from "./process-identity.mjs";
 import { terminateInvocation } from "./process.mjs";
 import { join, resolve } from "node:path";
 import { readFileSync } from "node:fs";
-import { readRunNodes } from "./scheduler.mjs";
+import { readRunNodes } from "../run/node-store.mjs";
 import { createPreservedRef, deleteRef, releaseAttemptWorktree, runRefName } from "../repo/worktree.mjs";
 import { syncAgentSignal } from "../repo/signal.mjs";
 import { transition, writeNode } from "./state.mjs";
