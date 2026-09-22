@@ -317,7 +317,10 @@ schema. ✅
   protocol (tool calling in GLM's format) and independence from the
   Anthropic-compatible shim.
 - Live metering mid-run is impossible by design (output only exists at the end);
-  usage is in the terminal envelope only. ✅
+  usage is in the terminal envelope only. ✅ Liveness is a separate question and
+  the answer changed: the log stream (section 8's `ZCODE_LOG_DIR`, and the
+  2026-09-22 note below) says *that* the session is still working without
+  saying what it has spent.
 
 ## 13. Known quirks (0.16.5)
 
