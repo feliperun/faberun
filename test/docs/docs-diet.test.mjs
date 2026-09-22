@@ -62,7 +62,12 @@ const CONTRACT_BYTE_CEILING = 22075;
 // and os-macos facts, restated once instead of twice), so the ceiling moves
 // by the net 838 bytes to the file's exact size and nothing else. Raising it
 // again needs the same argument.
-const OPERATIONS_BYTE_CEILING = 11781;
+// Raised again 2026-09-22 for `claude:<socket>` in the notify paragraph and
+// the rule that a session repeats an inbound message to the operator verbatim
+// (the message exists to inform the person, and reaches them only through the
+// session's reply): 258 bytes net, to the file's exact size and nothing else.
+// Raising it again needs the same argument.
+const OPERATIONS_BYTE_CEILING = 12039;
 const RULES_BYTE_CEILING = 2048;
 const ENGINEERING_BYTE_CEILING = 2048;
 const WORKFLOW_BYTE_CEILING = 2048;

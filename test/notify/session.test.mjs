@@ -196,7 +196,7 @@ test("deliverToSessions reports one outcome per target, each under its own id", 
       ],
       { spawn: codex.spawn, env: {} },
     );
-    assert.deepEqual(outcomes, [{ id: "claude-session", ok: true }, { id: "codex-session", ok: true }]);
+    assert.deepEqual(outcomes, [{ id: "claude-session", address: inbox.socketPath, ok: true }, { id: "codex-session", address: "th", ok: true }], "each outcome names the address it went to, so a receipt with two claude sessions is readable");
     assert.equal((await inbox.next()).length, 2);
     assert.equal(codex.calls.length, 1);
   } finally {
@@ -218,7 +218,7 @@ test("NotifyQueue fans out to the session transport with no external bin, and th
     await queue.enqueue({ type: "run.terminal", runId: "r", done: 2, total: 2, dedupeKey: "run.terminal:r:0" });
     const receipt = JSON.parse(readFileSync(join(runDir, "notify.jsonl"), "utf8").trim());
     assert.equal(receipt.status, "delivered", "a session that took the message is a delivery, with or without a phone");
-    assert.deepEqual(receipt.transports, [{ id: "claude-session", ok: true }]);
+    assert.deepEqual(receipt.transports, [{ id: "claude-session", address: inbox.socketPath, ok: true }]);
     const lines = await inbox.next();
     assert.deepEqual(JSON.parse(lines[0]), { type: "auth", token: "queue-token" });
     assert.equal(JSON.parse(lines[1]).message.content, receipt.summary, "the session reads the receipt's own summary, byte for byte");
@@ -265,5 +265,51 @@ test("a session transport that fails beside a phone that delivers is still a del
       else process.env[key] = value;
     }
     rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("the setting is a list: claude:<socket> adds the operator's own session, duplicates collapse, the token travels only to the inherited inbox, and off wins", () => {
+  const inherited = { [CLAUDE_SOCKET_ENV]: "/tmp/own.sock", [CLAUDE_TOKEN_ENV]: "tok", [CODEX_THREAD_ENV]: "t-1" };
+  assert.deepEqual(
+    resolveSessionTargets({ ...inherited, [NOTIFY_SESSION_ENV]: "auto, claude:/tmp/operator.sock" }),
+    [
+      { kind: "claude", id: "claude-session", socketPath: "/tmp/own.sock", token: "tok" },
+      { kind: "codex", id: "codex-session", thread: "t-1" },
+      { kind: "claude", id: "claude-session", socketPath: "/tmp/operator.sock", token: null },
+    ],
+    "the launching session keeps its token; a foreign inbox gets none, because the token belongs to one session",
+  );
+  assert.deepEqual(
+    resolveSessionTargets({ ...inherited, [NOTIFY_SESSION_ENV]: "auto,claude:/tmp/own.sock" }).map((target) => target.kind === "claude" ? target.socketPath : target.thread),
+    ["/tmp/own.sock", "t-1"],
+    "naming the inherited socket again is one target, not two messages",
+  );
+  assert.deepEqual(
+    resolveSessionTargets({ [NOTIFY_SESSION_ENV]: "claude:/tmp/operator.sock" }),
+    [{ kind: "claude", id: "claude-session", socketPath: "/tmp/operator.sock", token: null }],
+    "an explicit socket needs no inherited address at all: a plain shell can point a run at a session",
+  );
+  assert.deepEqual(resolveSessionTargets({ ...inherited, [NOTIFY_SESSION_ENV]: "auto,off" }), [], "off anywhere wins");
+  assert.deepEqual(resolveSessionTargets({ ...inherited, [NOTIFY_SESSION_ENV]: "claude:" }), [], "an empty address is nothing");
+
+  assert.equal(sessionSettingProblem({ ...inherited, [NOTIFY_SESSION_ENV]: "auto,claude:/tmp/operator.sock" }), null);
+  assert.match(sessionSettingProblem({ [NOTIFY_SESSION_ENV]: "auto,yes" }) ?? "", /item "yes" is not one of off, auto, claude, codex, codex:<thread>, claude:<socket>/u);
+  assert.match(sessionSettingProblem({ [NOTIFY_SESSION_ENV]: "claude:" }) ?? "", /item "claude:" is not one of/u);
+  assert.match(sessionWakeNotice({ [NOTIFY_SESSION_ENV]: "claude:/tmp/operator.sock" }), /claude-session wakes the launching harness session \(canWake: true\)/u);
+});
+
+test("a message addressed to another session's inbox by socket path arrives there without a token", async () => {
+  const inbox = await inboxServer();
+  try {
+    const outcomes = await deliverToSessions(
+      { type: "node.terminal", summary: "🐦 faberun · for the operator" },
+      resolveSessionTargets({ [NOTIFY_SESSION_ENV]: `claude:${inbox.socketPath}` }),
+    );
+    assert.deepEqual(outcomes, [{ id: "claude-session", address: inbox.socketPath, ok: true }]);
+    const lines = await inbox.next();
+    assert.equal(lines.length, 1, "no token for a session that is not the launching one, so no auth line");
+    assert.equal(JSON.parse(lines[0]).message.content, "🐦 faberun · for the operator");
+  } finally {
+    await inbox.close();
   }
 });

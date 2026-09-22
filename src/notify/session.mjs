@@ -44,7 +44,7 @@ export const CODEX_THREAD_ENV = "CODEX_THREAD_ID";
  */
 export const SESSION_DELIVERY_TIMEOUT_MS = 5_000;
 
-/** The values the variable accepts besides `codex:<thread>`. */
+/** The bare words an item of the setting may be; `codex:<thread>` and `claude:<socket>` carry an address. */
 const SETTINGS = new Set(["off", "auto", "claude", "codex"]);
 
 /** @typedef {Record<string, unknown>} JsonObject */
@@ -59,30 +59,64 @@ const SETTINGS = new Set(["off", "auto", "claude", "codex"]);
 /** @typedef {(path: string) => SessionSocket} ConnectFunction */
 
 /**
- * The sessions the variable and the environment together name. `auto` takes
- * every session whose address is present -- a Codex thread opened from a
- * Claude Code shell inherits both, and both are supervising. An explicit
- * `claude` or `codex` whose address is absent resolves to nothing; the
- * doctor reports why through `sessionSettingProblem`, this function never
- * throws, because it backs a lossy dispatcher.
+ * The sessions the variable and the environment together name. The value is
+ * a comma-separated list; each item is one of:
+ *
+ *   auto             every session whose address this process inherited --
+ *                    a Codex thread opened from a Claude Code shell inherits
+ *                    both, and both are supervising
+ *   claude           the inherited Claude Code inbox alone
+ *   codex            the inherited Codex thread alone
+ *   codex:<thread>   a Codex thread by id or name
+ *   claude:<socket>  a Claude Code inbox by socket path -- the operator's
+ *                    own interactive session, which did not launch the run
+ *                    and would otherwise never hear of it (the session that
+ *                    launches a campaign is often a background one nobody
+ *                    reads); the token travels only to the inherited inbox,
+ *                    since it belongs to that session and no other
+ *   off              nothing, whatever else the list says
+ *
+ * An item whose address is absent resolves to nothing; the doctor reports
+ * why through `sessionSettingProblem`. This function never throws, because it
+ * backs a lossy dispatcher. Duplicates collapse: `auto,claude:<own socket>`
+ * is one target.
  *
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {SessionTarget[]}
  */
 export function resolveSessionTargets(env = process.env) {
-  const setting = (env[NOTIFY_SESSION_ENV] ?? "").trim();
-  if (!setting || setting === "off") return [];
+  const items = settingItems(env);
+  if (!items.length || items.includes("off")) return [];
   /** @type {SessionTarget[]} */
   const targets = [];
-  const socketPath = env[CLAUDE_SOCKET_ENV];
-  if ((setting === "auto" || setting === "claude") && socketPath) {
-    targets.push({ kind: "claude", id: "claude-session", socketPath, token: env[CLAUDE_TOKEN_ENV] || null });
-  }
-  const thread = setting.startsWith("codex:") ? setting.slice("codex:".length).trim() : env[CODEX_THREAD_ENV];
-  if ((setting === "auto" || setting === "codex" || setting.startsWith("codex:")) && thread) {
-    targets.push({ kind: "codex", id: "codex-session", thread });
+  /** @param {SessionTarget} target */
+  const add = (target) => {
+    const address = target.kind === "claude" ? target.socketPath : target.thread;
+    if (!targets.some((known) => known.kind === target.kind && (known.kind === "claude" ? known.socketPath : known.thread) === address)) targets.push(target);
+  };
+  const inheritedSocket = env[CLAUDE_SOCKET_ENV];
+  const inheritedThread = env[CODEX_THREAD_ENV];
+  for (const item of items) {
+    if ((item === "auto" || item === "claude") && inheritedSocket) {
+      add({ kind: "claude", id: "claude-session", socketPath: inheritedSocket, token: env[CLAUDE_TOKEN_ENV] || null });
+    }
+    if ((item === "auto" || item === "codex") && inheritedThread) {
+      add({ kind: "codex", id: "codex-session", thread: inheritedThread });
+    }
+    if (item.startsWith("codex:") && item.slice("codex:".length).trim()) {
+      add({ kind: "codex", id: "codex-session", thread: item.slice("codex:".length).trim() });
+    }
+    if (item.startsWith("claude:") && item.slice("claude:".length).trim()) {
+      const socketPath = item.slice("claude:".length).trim();
+      add({ kind: "claude", id: "claude-session", socketPath, token: socketPath === inheritedSocket ? env[CLAUDE_TOKEN_ENV] || null : null });
+    }
   }
   return targets;
+}
+
+/** @param {NodeJS.ProcessEnv} env @returns {string[]} the non-empty items of the setting */
+function settingItems(env) {
+  return (env[NOTIFY_SESSION_ENV] ?? "").split(",").map((item) => item.trim()).filter((item) => item.length > 0);
 }
 
 /**
@@ -93,15 +127,16 @@ export function resolveSessionTargets(env = process.env) {
  * @returns {string|null}
  */
 export function sessionSettingProblem(env = process.env) {
-  const setting = (env[NOTIFY_SESSION_ENV] ?? "").trim();
-  if (!setting || setting === "off") return null;
-  if (!SETTINGS.has(setting) && !setting.startsWith("codex:")) {
-    return `${NOTIFY_SESSION_ENV}=${setting} is not one of off, auto, claude, codex, codex:<thread>`;
+  const items = settingItems(env);
+  if (!items.length || items.includes("off")) return null;
+  const unknown = items.find((item) => !SETTINGS.has(item) && !(item.startsWith("codex:") && item.length > "codex:".length) && !(item.startsWith("claude:") && item.length > "claude:".length));
+  if (unknown !== undefined) {
+    return `${NOTIFY_SESSION_ENV} item "${unknown}" is not one of off, auto, claude, codex, codex:<thread>, claude:<socket>`;
   }
   if (resolveSessionTargets(env).length) return null;
+  const [setting] = items;
   if (setting === "claude") return `${NOTIFY_SESSION_ENV}=claude but ${CLAUDE_SOCKET_ENV} is not set: this process was not started from inside a Claude Code session`;
   if (setting === "codex") return `${NOTIFY_SESSION_ENV}=codex but ${CODEX_THREAD_ENV} is not set: this process was not started from inside a Codex session`;
-  if (setting.startsWith("codex:")) return `${NOTIFY_SESSION_ENV}=codex: names an empty thread id`;
   return `${NOTIFY_SESSION_ENV}=auto found neither ${CLAUDE_SOCKET_ENV} nor ${CODEX_THREAD_ENV}: no harness session to wake`;
 }
 
@@ -228,13 +263,13 @@ export function createCodexSessionNotifier({ spawn = /** @type {SpawnFunction} *
  * @param {SessionEvent} event
  * @param {SessionTarget[]} targets
  * @param {{connect?: ConnectFunction, spawn?: SpawnFunction, timeoutMs?: number, env?: NodeJS.ProcessEnv}} [options]
- * @returns {Promise<{id: string, ok: boolean, error?: string}[]>}
+ * @returns {Promise<{id: string, address: string, ok: boolean, error?: string}[]>}
  */
 export function deliverToSessions(event, targets, options = {}) {
   return Promise.all(targets.map(async (target) => {
     const result = target.kind === "claude"
       ? await createClaudeSessionNotifier(options).deliver(event, target)
       : await createCodexSessionNotifier(options).deliver(event, target);
-    return { id: target.id, ...result };
+    return { id: target.id, address: target.kind === "claude" ? target.socketPath : target.thread, ...result };
   }));
 }
