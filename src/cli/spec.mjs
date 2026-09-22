@@ -14,7 +14,7 @@ import { validateSpec } from "../plan/spec.mjs";
 /** Flags are scoped to the operation that declares them; all others are rejected. */
 /** @type {Record<string, import("node:util").ParseArgsOptionsConfig>} */
 const OPERATION_OPTIONS = {
-  validate: { "strict-traceability": { type: "boolean" }, json: { type: "boolean" } },
+  validate: { "strict-traceability": { type: "boolean" }, "run-proofs": { type: "boolean" }, json: { type: "boolean" } },
   scaffold: { id: { type: "string" } },
 };
 
@@ -63,9 +63,13 @@ export function specCli(args) {
   }
   const target = parsed.positionals[0];
   if (!target || parsed.positionals.length > 1) return usage();
-  const values = /** @type {{"strict-traceability"?: boolean, json?: boolean, id?: string}} */ (parsed.values);
+  const values = /** @type {{"strict-traceability"?: boolean, "run-proofs"?: boolean, json?: boolean, id?: string}} */ (parsed.values);
   if (operation === "validate") {
-    validateSpecFile(resolve(target), { strict: values["strict-traceability"] === true, json: values.json === true });
+    validateSpecFile(resolve(target), {
+      strict: values["strict-traceability"] === true,
+      runProofs: values["run-proofs"] === true,
+      json: values.json === true,
+    });
     return;
   }
   try {
@@ -80,12 +84,18 @@ export function specCli(args) {
  * Validate a spec file and print its class, its overall verdict, and one
  * line per finding. Exits `1` when the verdict is not `ok`.
  *
+ * `runProofs` is the only operation here that spawns anything: it runs each
+ * requirement's declared proof instead of only checking that one is written
+ * down. It is opt-in because running a repository's proofs costs real time,
+ * and default-off keeps `spec validate` the deterministic, side-effect-free
+ * read it has always been.
+ *
  * @param {string} path
- * @param {{strict: boolean, json: boolean}} options
+ * @param {{strict: boolean, json: boolean, runProofs?: boolean}} options
  * @returns {SpecValidation}
  */
-export function validateSpecFile(path, { strict, json }) {
-  const result = validateSpec(readFileSync(path, "utf8"), { cwd: process.cwd(), strict });
+export function validateSpecFile(path, { strict, json, runProofs = false }) {
+  const result = validateSpec(readFileSync(path, "utf8"), { cwd: process.cwd(), strict, runProofs });
   if (json) {
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } else {
@@ -112,7 +122,7 @@ export function scaffoldSpec(path, id) {
 
 /** @returns {void} */
 function usage() {
-  process.stderr.write("usage: faberun spec <validate|scaffold> <path> [--strict-traceability] [--json] [--id <value>]\n");
+  process.stderr.write("usage: faberun spec <validate|scaffold> <path> [--strict-traceability] [--run-proofs] [--json] [--id <value>]\n");
   process.exitCode = 2;
 }
 

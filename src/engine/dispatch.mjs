@@ -25,6 +25,7 @@ import { attemptWorkspace, createAttemptWorktree, sealAttempt } from "../repo/wo
 import { attemptWorktreePath } from "../run/paths.mjs";
 import { basename, dirname, join } from "node:path";
 import { errorCode, errorMessage } from "../util.mjs";
+import { gateProofTimeoutMs } from "../contract/final-verification.mjs";
 import { captureWorkspaceScope, captureWorkspaceSnapshot } from "../repo/workspace.mjs";
 import { deterministicGate, judgeReaskReason, judgeRequired, judgeSkippedByScope } from "./judge-gate.mjs";
 import { emptyScope, persistedScopeBoundary, workerScope } from "./scope.mjs";
@@ -459,7 +460,7 @@ export async function startJudge(contract, node, state, runDir, running, workerR
     node,
     workspace,
     reask,
-    Math.max(1_000, Math.min((node.timeoutSec ?? contract.timeoutSec ?? 60) * 1000, 120_000)),
+    gateProofTimeoutMs(node, contract),
     /** @type {import("../contract/index.mjs").VerificationState|null} */ (state.verification),
   );
   state.review = reviewMode(node.gate);

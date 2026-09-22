@@ -61,6 +61,27 @@ export function sharedVerificationCommands(contract) {
 }
 
 /**
+ * The timeout a Definition of Done `command` proof is spawned with. It used
+ * to be capped at a hardcoded 120s regardless of what the node's own attempt
+ * was given, so a contract that raised `timeoutSec` to run a slow command as
+ * `taskPacket.verification` still had the identical command fail its DoD
+ * proof on the same run: measured 2026-09-22, six proofs rejected work whose
+ * argv had just passed with a `timeoutSec` well past 120s. A command proof
+ * gets the same budget the node's own attempt has, because that is the
+ * budget the author already reasoned about; nothing here invents a second
+ * number for the gate to disagree with. Shared by `dispatch.mjs` (the actual
+ * spawn) and `scheduler.mjs` (the freeze-detection budget that must not judge
+ * a node frozen before its own gate's timeout has had a chance to fire).
+ *
+ * @param {{timeoutSec?: number}} node
+ * @param {{timeoutSec?: number}} contract
+ * @returns {number}
+ */
+export function gateProofTimeoutMs(node, contract) {
+  return Math.max(1_000, (node.timeoutSec ?? contract.timeoutSec ?? 60) * 1_000);
+}
+
+/**
  * Whether no other node in the contract depends on this one. `finalVerification`
  * is a candidate to run on a phase-terminal node only; a node with a dependant
  * never carries it, no matter which of its siblings settles last.

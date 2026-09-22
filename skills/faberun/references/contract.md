@@ -46,8 +46,12 @@ typecheck`). Schema version is `3`.
 ```
 
 Every `definitionOfDone` item declares `id`, `text`, and how it is proven:
-`proof.kind` `command` (re-runs the command, capped at `min(timeoutSec, 120s)`)
-or `path` (a file must exist), or `judgment: true` for the judge. `proof: {
+`proof.kind` `command` (re-runs the command through a shell, bounded by the
+same `timeoutSec` the node's own attempt gets — so a command that passes as
+`verification` is never rejected by a smaller gate budget; quote a flag value
+containing spaces, since unlike `verification`'s argv a shell splits it, and
+`contract validate` warns when it sees an unquoted one) or `path` (a file must
+exist), or `judgment: true` for the judge. `proof: {
 kind: "verification", ref: <index> }` reuses a `verification` entry's already
 recorded result by position instead of re-running it — never by comparing argv
 strings, since a joined argv loses shell semantics. A schema-1 string item is
@@ -95,8 +99,12 @@ discovery packet has empty `writeFiles`; with an empty `readFiles` it may
 read the repository read-only to produce an execution packet — the one
 exception to closed scope — otherwise it is closed to the listed files. Each
 `verification` entry is `{argv, cwd?, timeoutSec? (default 120, max 600),
-repeat? (default 1, max 8), env?}` — at most 32 commands, 64 argv items, 32
-KiB argv bytes per command. `env` declares variable *names* only; values
+repeat? (default 1, max 8), env?, requirementId?}` — at most 32 commands, 64
+argv items, 32 KiB argv bytes per command. `requirementId` names the spec
+requirement this command proves; it changes nothing about how the command
+runs, and it is what lets `contract validate` report two copies of one
+requirement's proof that have stopped agreeing, or a command claiming a
+requirement its node does not carry. `env` declares variable *names* only; values
 never travel in the packet. `prompt`/`promptFile` are
 rejected; a node has `taskPacket` or `taskPacketFile`, never both. Measure a
 candidate command's real duration before naming it in `verification` or a

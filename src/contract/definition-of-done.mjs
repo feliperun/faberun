@@ -95,3 +95,53 @@ function validateVerificationRef(value, label, options) {
   return String(index);
 }
 
+/**
+ * A `kind: "command"` proof's `ref` runs through a shell (`judge-gate.mjs`'s
+ * `proveCommand`), while a task packet's `verification` entries run as argv
+ * arrays -- the opposite quoting convention for the same author intent.
+ * Measured 2026-09-22: six DoD refs on one campaign wrote
+ * `--test-name-pattern=a b c` the way an argv array would take it, the shell
+ * split it into three words, and the gate rejected work whose identical
+ * command had just passed as verification. Nothing warned the author, because
+ * a shell that receives extra bare words after an unquoted flag value does not
+ * itself know they were meant to be one argument.
+ *
+ * This flags the same shape rather than every proof: a node:test filter flag
+ * (the flags `declaredTestFilters` in judge-gate.mjs recognizes) whose
+ * unquoted value is immediately followed by bare words is the pattern the
+ * incident measured, and it is precise enough that a legitimate `ref` rarely
+ * has trailing bare words right after such a flag by accident.
+ *
+ * @param {DefinitionOfDoneItem[]} items
+ * @param {number} index
+ * @returns {string[]}
+ */
+export function unquotedFilterValueWarnings(items, index) {
+  /** @type {string[]} */
+  const warnings = [];
+  items.forEach((item, itemIndex) => {
+    if (item.proof?.kind !== "command") return;
+    const tokens = item.proof.ref.split(/\s+/u).filter(Boolean);
+    for (const flag of TEST_FILTER_FLAGS) {
+      for (let position = 0; position < tokens.length; position++) {
+        const prefix = `${flag}=`;
+        if (!tokens[position].startsWith(prefix)) continue;
+        const value = tokens[position].slice(prefix.length);
+        if (/^['"]/u.test(value)) continue;
+        let end = position + 1;
+        while (end < tokens.length && !tokens[end].startsWith("-")) end++;
+        if (end === position + 1) continue;
+        const spilled = [value, ...tokens.slice(position + 1, end)].join(" ");
+        warnings.push(
+          `nodes[${index}] (definitionOfDone[${itemIndex}]): proof.ref's ${flag} value "${spilled}" is unquoted; ` +
+          `kind: "command" runs through a shell, unlike taskPacket.verification's argv, so the space splits it into extra words -- quote it as ${flag}="${spilled}"`,
+        );
+      }
+    }
+  });
+  return warnings;
+}
+
+/** The node:test filter flags a `kind: "command"` proof's shell can split on an unquoted value. */
+const TEST_FILTER_FLAGS = ["--test-name-pattern", "--test-skip-pattern"];
+

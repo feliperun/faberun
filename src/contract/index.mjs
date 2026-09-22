@@ -3,9 +3,9 @@ import { readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { loadTaskPacket, renderWorkerPrompt } from "./task-packet.mjs";
 import { RESERVED_ARTICLES } from "./articles.mjs";
-import { validateDefinitionOfDone } from "./definition-of-done.mjs";
+import { unquotedFilterValueWarnings, validateDefinitionOfDone } from "./definition-of-done.mjs";
 import { validateFinalVerification, validateSharedVerification } from "./final-verification.mjs";
-import { VERIFICATION_LIMITS } from "./verification.mjs";
+import { VERIFICATION_LIMITS, requirementProofWarnings } from "./verification.mjs";
 import {
   validateCapabilityRequirements,
 } from "../harnesses/index.mjs";
@@ -374,12 +374,24 @@ export function validateContract(raw, contractPath, options = {}) {
   const sharedVerification = validateSharedVerification(raw.sharedVerification, "contract.sharedVerification");
   const contractCommands = [...finalVerification ?? [], ...sharedVerification ?? []].map((command) => command.argv.join(" "));
   const contractWrites = new Set(nodes.flatMap((node) => node.taskPacket.writeFiles ?? []));
-  const warnings = nodes.flatMap((node, index) => [
-    ...commandCoverageWarnings(node, index),
-    ...(persisted ? [] : mirrorCoverageWarnings(node, index, cwd, contractCommands, contractWrites)),
-    ...(persisted ? [] : unsnapshottedWriteWarnings(node, index, cwd)),
-    ...(persisted ? [] : writeFileLineBudgetWarnings(node, index, cwd)),
-  ]);
+  const warnings = [
+    ...nodes.flatMap((node, index) => [
+      ...commandCoverageWarnings(node, index),
+      ...unquotedFilterValueWarnings(node.definitionOfDone ?? [], index),
+      ...(persisted ? [] : mirrorCoverageWarnings(node, index, cwd, contractCommands, contractWrites)),
+      ...(persisted ? [] : unsnapshottedWriteWarnings(node, index, cwd)),
+      ...(persisted ? [] : writeFileLineBudgetWarnings(node, index, cwd)),
+    ]),
+    // Cross-node by construction: a requirement proven in two nodes is only
+    // visible when every node's commands are read together, which is the
+    // whole point -- one copy repaired and six left behind is what a per-node
+    // read cannot see.
+    ...requirementProofWarnings([
+      ...nodes.map((node, index) => ({ id: `nodes[${index}] (${node.id})`, requirementIds: node.requirementIds, commands: node.taskPacket.verification ?? [] })),
+      { id: "contract.sharedVerification", commands: sharedVerification ?? [] },
+      { id: "contract.finalVerification", commands: finalVerification ?? [] },
+    ]),
+  ];
   const contract = /** @type {ValidatedContract} */ ({
     ...raw,
     schemaVersion: /** @type {number} */ (raw.schemaVersion),
