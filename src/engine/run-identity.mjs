@@ -401,8 +401,20 @@ export function serializableContract(contract) {
     }),
   };
 }
-/** The live-preflight causes that mean no runtime said anything at all. */
-const LIVE_SILENCE_CAUSES = new Set(["preflight_timeout", "spawn_error", "command_invalid"]);
+/**
+ * The live-preflight causes that mean no runtime said anything at all: the
+ * provider was asked and did not answer, or could not be started to be asked.
+ *
+ * `command_invalid` is deliberately not one of them. A command that could not
+ * be constructed never reached a provider, so the gate learned nothing about
+ * availability and has no verdict to report -- that is a contract defect and
+ * belongs to validation, which already owns it. Measured 2026-09-22: three
+ * deterministic evals declare a fallback and a judge runtime they never
+ * invoke, so those carry no replay recording and the replay adapter throws
+ * when asked to build their command. Blocking there refuses a run over a
+ * runtime it would never have used, on a fault the provider never had.
+ */
+const LIVE_SILENCE_CAUSES = new Set(["preflight_timeout", "spawn_error"]);
 
 /**
  * The dispatch gate: no node starts until the host can carry the run and the
@@ -511,8 +523,9 @@ function launchMayDispatch(runDir) {
 /**
  * Whether a live probe is pipeline silence rather than a verdict, and which
  * cause. `preflightContract` embeds the provider envelope's error code in the
- * probe detail (`… · live failed · <code>: …`); the three codes in
- * `LIVE_SILENCE_CAUSES` are the ones where no runtime said anything, and the
+ * probe detail (`… · live failed · <code>: …`); the codes in
+ * `LIVE_SILENCE_CAUSES` are the ones where a provider was asked and said
+ * nothing, and the
  * repository-failure wording means no runtime was even asked. Everything else
  * — a quota refusal, an auth failure, unparsable output — is a provider that
  * answered, and an answer is hello enough.
