@@ -242,7 +242,11 @@ Splitting a module is mechanical and should be scripted, not retyped — but:
   on the fourth; the runner's tail is over 4x its median, so a bound chosen
   from the median turns contention into a red build. The factor is 6 on
   Windows and 1 everywhere else. Two of eight checks flickering destroys the
-  signal more thoroughly than a slow suite does.
+  signal more thoroughly than a slow suite does. Raising a bound separates
+  flake-by-slowness from flake-by-hang and cannot cure the second: on the same
+  runner `a gate exits once the directory holding its release file is gone`
+  either completes in under half a second or never completes, and no deadline
+  makes that test green.
 
 - **Two `node --test` traps, both measured 2026-09-21 on v26.8.1, both of
   which make a check silently stop checking.** A `--test-reporter=` that

@@ -48,14 +48,22 @@ export const delay = (milliseconds) => new Promise((resolve) => setTimeout(resol
  * five deadlines that hold anywhere else expired. The factor is the honest
  * translation of "long enough that only a real hang trips this".
  *
- * Raised from 3 to 6, measured 2026-09-22 over four Windows CI jobs on this
+ * Raised from 3 to 6, measured 2026-09-22 over six Windows CI jobs on this
  * repository: `run --detach leaves a controller that outlives the invoker`
- * completed in 11.3s, 15.2s and 16.2s and then blew a 60s deadline on the
- * fourth, and `done-when 7` did the same at 66.3s. The median was never the
- * problem -- the runner's tail is over 4x its median, so a bound inside that
- * tail turns contention into a red build. Six holds the worst observed run
- * with room, and the cost of the larger factor is paid only by a test that
- * genuinely hangs.
+ * completed in 11.3s, 15.2s and 16.2s and then blew a 60s deadline, and
+ * `done-when 7` did the same at 66.3s. The median was never the problem --
+ * the runner's tail is over 4x its median, so a bound inside that tail turns
+ * contention into a red build. At 120s both detach tests passed on a rerun of
+ * the same commit.
+ *
+ * What this factor does not fix, and must not be read as fixing: `a gate
+ * exits once the directory holding its release file is gone`
+ * (`test/run/process.test.mjs`) is bimodal on Windows -- it completes in
+ * 345-430ms or it never completes, and its 60s deadline is its own, not this
+ * factor's. It has failed on node 24 three times and node 22 twice across
+ * unrelated commits, so it is neither node-version-specific nor slowness.
+ * Raising a deadline separates flake-by-slowness from flake-by-hang; it
+ * cannot cure the second.
  */
 export const SPAWN_WAIT_FACTOR = process.platform === "win32" ? 6 : 1;
 
