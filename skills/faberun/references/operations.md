@@ -123,12 +123,16 @@ same text to every bound transport at once, appending one receipt
 `<run-dir>/notify.jsonl`. Delivery is lossy: **exactly one attempt**, no retry,
 no backoff. `FABERUN_NOTIFY_BIN` names an executable called with the event as
 JSON on stdin (`os-macos` selects the bundled `osascript` adapter); it pushes to
-a person, `canWake: false`. `FABERUN_NOTIFY_SESSION=auto` wakes the harness
-session the controller was launched from, `canWake: true`: the Claude Code
-inbox socket and the Codex thread the environment names. A seat window sets it;
-nothing else does, so a test suite never wakes a session. **On an inbound
-`🐦 faberun` message**: `✅` or `🏁` with nothing waiting, answer in one line
-and keep waiting; `👀`, act on the `do` command it names. A
+a person, `canWake: false`. `FABERUN_NOTIFY_SESSION` wakes harness sessions,
+`canWake: true`: `auto` is the Claude Code inbox and Codex thread the
+environment names; `claude:<socket>` adds another session's inbox, so the
+operator's own interactive session hears a run a background session launched
+(`echo $CLAUDE_CODE_MESSAGING_SOCKET` in that session gives the path). A seat
+window sets `auto`; nothing else does, so a test suite never wakes a session.
+**On an inbound `🐦 faberun` message**: repeat it to the operator verbatim,
+then one line on what you do next -- the message exists to inform the person,
+not you, and it reaches them only through your reply; `👀`, act on the `do`
+command it names. A
 resume never re-sends a notification already recorded for the same node, attempt
 and outcome. No transport is a default: `doctor`, `preflight` and the foreground
 launch warn when both variables are empty, and `--wake` names what will wake.
