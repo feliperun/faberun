@@ -15,7 +15,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { renderAgentSignalBlock } from "../../src/repo/signal.mjs";
-import { initializeCampaign, registerRun } from "../../src/campaign/index.mjs";
+import { closeCampaign, initializeCampaign, registerRun } from "../../src/campaign/index.mjs";
+import { appendJournal } from "../../src/campaign/journal.mjs";
 import { appendInbox } from "../../src/notify/index.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
@@ -94,4 +95,48 @@ test("an entry that already carries a campaignId keeps working", () => {
     "the explicit campaignId still decides",
   );
   assert.ok(!text.includes("resolves to no campaign"), "an attributed entry is not re-reported at run level");
+});
+
+// A closed campaign still owns its runs. Indexing only the active campaigns
+// made every attention from a closed one unattributable, so it was surfaced
+// at run level as an orphan and stayed there for good -- measured 2026-09-22
+// on the live block, one from harden-chain-and-verification, closed six days
+// earlier. Owned but under no active campaign is simply not shown.
+test("an attention from a closed campaign's run is owned, not orphaned", () => {
+  const { runsDir } = makeRunsDir();
+  const settled = initializeCampaign(runsDir, { campaignId: "settled", goal: "was settled" });
+  registerRun(settled.path, "run-settled");
+  appendJournal(settled.path, {
+    type: "retrospective",
+    eventId: "settled-retro",
+    at: new Date().toISOString(),
+    sessionId: "test",
+    text: "Retrospective: settled.",
+  });
+  closeCampaign(settled.path);
+  initializeCampaign(runsDir, { campaignId: "live", goal: "still going" });
+  appendInbox(runsDir, {
+    type: "attention",
+    runId: "run-settled",
+    dedupeKey: "attribution:run-settled",
+    summary: "a settled campaign's worker once needed you",
+  });
+  const text = renderAgentSignalBlock(runsDir);
+  assert.match(text, /campaign `live`: active/u);
+  assert.doesNotMatch(text, /resolves to no campaign/u, "a closed campaign owns its run");
+  assert.doesNotMatch(text, /a settled campaign's worker once needed you/u);
+});
+
+test("an attention whose run no campaign ever linked is still surfaced at run level", () => {
+  const { runsDir } = makeRunsDir();
+  initializeCampaign(runsDir, { campaignId: "live", goal: "still going" });
+  appendInbox(runsDir, {
+    type: "attention",
+    runId: "run-nobody",
+    dedupeKey: "attribution:run-nobody",
+    summary: "nobody owns this one",
+  });
+  const text = renderAgentSignalBlock(runsDir);
+  assert.match(text, /resolves to no campaign/u);
+  assert.match(text, /nobody owns this one/u);
 });

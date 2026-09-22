@@ -17,7 +17,7 @@
  * `attention` entry from `.runs/inbox.jsonl`. An attention belongs to one
  * campaign or none: an explicit `campaignId` decides, a null one is resolved
  * from the entry's `runId` (a run belongs to at most one campaign), and an
- * entry whose run no active campaign owns is shown once at run level instead
+ * entry whose run no campaign at all owns is shown once at run level instead
  * of under every campaign at once. It is bounded, because every session pays
  * for it in its first tokens.
  *
@@ -64,12 +64,15 @@ export function renderAgentSignalBlock(runsDir) {
   const lines = [];
   /** @type {Set<string>} */
   const linked = new Set();
-  const active = discoverCampaigns(runsDir).campaigns.filter(({ campaign }) => campaign.status !== "closed");
-  const ownerByRun = runOwnerIndex(active);
+  const discovered = discoverCampaigns(runsDir).campaigns;
+  // A run any campaign linked is that campaign's business, open or settled.
+  // Only a run no campaign ever named reaches the standalone list.
+  for (const { campaign } of discovered) for (const runId of campaign.linkedRunIds) linked.add(runId);
+  const active = discovered.filter(({ campaign }) => campaign.status !== "closed");
+  const ownerByRun = runOwnerIndex(discovered);
   for (const { campaign } of active) {
     lines.push(`- faberun campaign \`${campaign.id}\`: active — read \`.runs/campaigns/${campaign.id}/${HANDOFF_FILE}\``);
     for (const runId of campaign.linkedRunIds) {
-      linked.add(runId);
       lines.push(...runSignalLines(runsDir, runId));
     }
     const attention = campaignAttentionLine(runsDir, campaign, ownerByRun);
@@ -83,19 +86,26 @@ export function renderAgentSignalBlock(runsDir) {
 }
 
 /**
- * Which active campaign owns each run, read from the campaigns' own
- * `linkedRunIds`. A run belongs to at most one campaign, so the first
- * campaign naming a run wins; a run no active campaign names is absent from
- * the map, and that absence — never a guess — is what makes an inbox entry
- * unattributable.
+ * Which campaign owns each run, read from the campaigns' own `linkedRunIds`.
+ * A run belongs to at most one campaign, so the first campaign naming a run
+ * wins; a run no campaign names is absent from the map, and that absence —
+ * never a guess — is what makes an inbox entry unattributable.
  *
- * @param {{campaign: import("../campaign/index.mjs").Campaign}[]} active
+ * Closed campaigns are indexed too, and that is the point: an attention from
+ * a closed campaign's run is owned, not orphaned. Indexing only the active
+ * ones made every such attention unattributable, so it was surfaced at run
+ * level and stayed there for good. Measured 2026-09-22: the live block
+ * carried one from `harden-chain-and-verification`, a campaign closed on
+ * 2026-09-16. An owned attention under no active campaign is simply not
+ * shown, which is the correct answer for work its campaign already settled.
+ *
+ * @param {{campaign: import("../campaign/index.mjs").Campaign}[]} campaigns
  * @returns {Map<string, string>}
  */
-function runOwnerIndex(active) {
+function runOwnerIndex(campaigns) {
   /** @type {Map<string, string>} */
   const ownerByRun = new Map();
-  for (const { campaign } of active) {
+  for (const { campaign } of campaigns) {
     for (const runId of campaign.linkedRunIds) {
       if (!ownerByRun.has(runId)) ownerByRun.set(runId, campaign.id);
     }
@@ -140,8 +150,19 @@ function runSignalLines(runsDir, runId) {
 }
 
 /**
- * Standalone runs that no active campaign links. A parked run is included, so
+ * Standalone runs that no campaign links at all. A parked run is included, so
  * a run with no campaign at all still blocks a naive "start fresh".
+ *
+ * `linked` spans closed campaigns too. Closing a campaign is the operator
+ * saying its work is settled, but it used to *promote* that campaign's parked
+ * runs: they stopped being indented children of a campaign and became
+ * top-level standalone entries, then stayed there forever. Measured
+ * 2026-09-22: 26 closed campaigns in this project, and the block carried
+ * seven parked runs from three of them -- adversarial-planner,
+ * become-faberun, chain-ergonomics-and-fairness -- against one live run,
+ * each with a `resume` command for work a closed campaign had already
+ * settled. Every session in the repository paid for those lines in its first
+ * tokens and had to decide, one by one, not to act on them.
  *
  * @param {string} runsDir
  * @param {Set<string>} linked
