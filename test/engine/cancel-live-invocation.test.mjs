@@ -16,7 +16,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
@@ -96,10 +96,31 @@ function spawnFixture(script, options = {}) {
  * @returns {string}
  */
 function trapperScript(log) {
-  return `import { appendFileSync } from "node:fs";
+  // The empty file is written *after* the handler is installed, so its
+  // existence proves the handler is in place -- that is what `awaitTrapReady`
+  // waits for, and the order is the whole point: a file written first would
+  // prove only that the script started. Without that order the test
+  // can cancel while the fixture is still starting, SIGTERM takes its default
+  // action, nothing is ever appended, and the read fails with ENOENT --
+  // measured 2026-09-22 on three of four CI runners, green on the fourth and
+  // green on the author's machine, which is exactly how a startup race looks.
+  return `import { appendFileSync, writeFileSync } from "node:fs";
 process.on("SIGTERM", () => { appendFileSync(${JSON.stringify(log)}, "SIGTERM\\n"); });
+writeFileSync(${JSON.stringify(log)}, "");
 setInterval(() => {}, 60_000);
 `;
+}
+
+/**
+ * Wait until a trapper fixture has installed its SIGTERM handler. The file it
+ * writes at startup is the readiness signal; polling for it is a lower bound
+ * on elapsed time and never an assertion about how fast this machine is.
+ *
+ * @param {string} log
+ * @returns {Promise<void>}
+ */
+async function awaitTrapReady(log) {
+  await waitForValue(() => (existsSync(log) ? true : null), 10_000);
 }
 
 /**
@@ -377,6 +398,7 @@ test("an invocation that ignores SIGTERM is escalated to SIGKILL, deterministica
   orphan(runDir, "build");
   const received = join(mkdtempSync(join(tmpdir(), "cancel-live-trap-")), "signals.log");
   const child = spawnFixture(trapperScript(received));
+  await awaitTrapReady(received);
   await recordInvocation(runDir, "build", child);
 
   try {
@@ -447,6 +469,7 @@ test("preserved refs exist before the first attempt branch release, so an interr
   orphan(runDir, "build");
   const received = join(mkdtempSync(join(tmpdir(), "cancel-live-trap-")), "signals.log");
   const child = spawnFixture(trapperScript(received));
+  await awaitTrapReady(received);
   await recordInvocation(runDir, "build", child);
   const state = JSON.parse(readFileSync(join(runDir, "nodes", "build.json"), "utf8"));
   const branch = state.worktree.branch;
