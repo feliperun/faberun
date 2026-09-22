@@ -119,7 +119,10 @@ test("a published copy that predates a path the original gained refuses naming t
     const refusal = thrown(() => migrateRunState(repo));
     assert.ok(refusal, "migrate refuses");
     assert.match(refusal.message, /does not verify/u);
-    assert.match(refusal.message, /control\/second-opinions/u, "the refusal names the path that never reached the copy");
+    // The refusal names a real path on this host, and a real path on Windows
+    // is spelled with backslashes: the assertion is that the message names the
+    // missing directory, not which separator the platform writes it with.
+    assert.match(refusal.message, /control[\\/]second-opinions/u, "the refusal names the path that never reached the copy");
     assert.match(refusal.message, /run migrate again/u, "the refusal names the action that completes the migration");
     assert.equal(existsSync(legacy), true, "the original stays");
     assert.equal(existsSync(join(target, "control", "second-opinions")), false, "nothing is copied over behind the operator's back");
