@@ -653,10 +653,14 @@ function launchMayDispatch(runDir) {
  * — a quota refusal, an auth failure, unparsable output — is a provider that
  * answered, and an answer is hello enough.
  *
+ * Exported because the planning pipeline refuses on the same rule before its
+ * first stage: one classification of silence, never two that can drift into
+ * disagreeing about what an answer was.
+ *
  * @param {import("../harnesses/index.mjs").ProbeResult} probe
  * @returns {string|null}
  */
-function liveSilenceCause(probe) {
+export function liveSilenceCause(probe) {
   if (probe.ok) return null;
   if (/live preflight repository failed/u.test(probe.detail ?? "")) return "spawn_error";
   const match = / · live \S+ · ([a-z_]+):/u.exec(probe.detail ?? "");
