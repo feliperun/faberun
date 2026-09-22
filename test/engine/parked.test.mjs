@@ -534,7 +534,7 @@ test("done-when 13: campaign-watch and web keep the pre-split union, accounted o
     assert.ok(match, `${relative} no longer declares ${name}`);
     return [...(match[1] ?? "").matchAll(/"([^"]+)"/gu)].map((entry) => String(entry[1])).sort();
   };
-  assert.deepEqual(readStatusSet("src/cli/campaign.mjs", "TERMINAL_NODE_STATUSES"), expected);
+  assert.deepEqual(readStatusSet("src/campaign/watch.mjs", "TERMINAL_NODE_STATUSES"), expected);
   assert.deepEqual(readStatusSet("src/web/api.mjs", "RUN_TERMINAL_STATUSES"), expected);
   assert.deepEqual(readStatusSet("src/web/server.mjs", "TERMINAL_STATUSES"), expected);
 });
