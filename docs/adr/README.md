@@ -57,6 +57,8 @@ proposed → active → superseded
 | [0005](0005-repository-becomes-the-faberun-cli.md) | The repository becomes the Faberun CLI | active |
 | [0006](0006-github-releases-distribution-and-self-update.md) | GitHub Releases and npm distribution with install.sh and self-update | active |
 | [0007](0007-windows-install-and-directory-links.md) | Windows install: one layout, junctions for directory links | active |
+| [0009](0009-a-campaign-runs-on-windows.md) | A campaign runs on Windows: spawning, killing and seeing the tree | active |
+| [0010](0010-the-suite-runs-on-windows.md) | The suite runs on Windows: ownership, detachment, and what a platform can prove | active |
 
 This repository does not adopt Sentrux; its structural quality gate is
 [`test/repo/source-shape.test.mjs`](../../test/repo/source-shape.test.mjs),

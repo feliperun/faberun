@@ -14,9 +14,10 @@ import { runContract } from "../../src/engine/scheduler.mjs";
 import { readIntegrationJournal } from "../../src/repo/integrate.mjs";
 import { runRefName } from "../../src/repo/worktree.mjs";
 
-import { fixture, packet, writeContract } from "../helpers.mjs";
+import { SPAWN_WAIT_FACTOR, fixture, packet, writeContract } from "../helpers.mjs";
 import { assertExecutable, envelope, workerResult, writeRecording } from "./replay-helpers.mjs";
 import { runDirectory, RUNS_DIR_NAME } from "../../src/run/paths.mjs";
+import { spawnInvocation } from "../../src/host/platform.mjs";
 
 const bin = fileURLToPath(new URL("../../src/harnesses/replay/bin.mjs", import.meta.url));
 const zeroUsage = Object.freeze({ inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 });
@@ -39,7 +40,10 @@ function parseEnvelopeLine(stdout) {
  */
 function runBin({ args = [], input = "", cwd }) {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
+    // Through the product's own resolution, which is how the runner reaches
+    // it: by the interpreter its shebang names where the platform needs that.
+    const invocation = spawnInvocation(bin, args);
+    const child = spawn(invocation.command, invocation.args, { cwd, stdio: ["pipe", "pipe", "pipe"], ...invocation.options });
     let stdout = "";
     let stderr = "";
     child.stdout.setEncoding("utf8");
@@ -509,8 +513,11 @@ test("three independent replay nodes run concurrently under maxParallel and each
   // Long enough that dispatching all three worker processes sequentially
   // (rather than concurrently) would make the later starts land after the
   // earlier one's delay has elapsed, however slow this host's own per-node
-  // setup (worktree creation, snapshotting) happens to be.
-  const delayMs = 2_000;
+  // setup (worktree creation, snapshotting) happens to be. That setup is a
+  // handful of git spawns per node, and a spawn on Windows costs an extra
+  // process: measured 2026-09-21, two seconds was not enough there and three
+  // genuinely concurrent nodes read as sequential.
+  const delayMs = 2_000 * SPAWN_WAIT_FACTOR;
   /** @type {Record<string, unknown>} */
   const runtimes = {};
   /** @type {Record<string, unknown>[]} */

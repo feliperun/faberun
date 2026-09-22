@@ -42,6 +42,7 @@ import { readJson, writeJsonAtomic } from "../run/store.mjs";
 import { delay, errorCode, errorMessage } from "../util.mjs";
 import { loadPersistedContract } from "../contract/index.mjs";
 import { emitScheduledAttention } from "./notify-queue.mjs";
+import { killTarget } from "../host/platform.mjs";
 
 /** What `--interval` defaults to, in seconds: often enough that a dead controller costs a minute of wall clock, rare enough to be free. */
 export const DEFAULT_SUPERVISE_INTERVAL_SEC = 30;
@@ -532,7 +533,7 @@ export async function terminateControllerGroup(runDir, options = {}) {
           if (errorCode(groupError) !== "ESRCH" && errorCode(groupError) !== "EPERM") throw groupError;
         }
       }
-      process.kill(target, signal);
+      killTarget(target, signal);
     } catch (error) {
       if (errorCode(error) !== "ESRCH" && errorCode(error) !== "EPERM") throw error;
     }

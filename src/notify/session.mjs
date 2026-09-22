@@ -31,6 +31,7 @@
 import { spawn as defaultSpawn } from "node:child_process";
 import { createConnection as defaultConnect } from "node:net";
 import { errorMessage } from "../util.mjs";
+import { spawnInvocation } from "../host/platform.mjs";
 
 export const NOTIFY_SESSION_ENV = "FABERUN_NOTIFY_SESSION";
 export const CLAUDE_SOCKET_ENV = "CLAUDE_CODE_MESSAGING_SOCKET";
@@ -224,7 +225,11 @@ export function createCodexSessionNotifier({ spawn = /** @type {SpawnFunction} *
         const executable = env.FABERUN_CODEX_BIN ?? "codex";
         let child;
         try {
-          child = spawn(executable, ["queue", "--thread", target.thread, "--message", messageText(event)], { stdio: ["ignore", "ignore", "pipe"], env });
+          // The harness CLI, reached the way this platform reaches one: the
+          // `codex` a Windows machine has is `codex.cmd`, and a raw spawn of
+          // the bare name is ENOENT — a wake that silently never arrives.
+          const invocation = spawnInvocation(executable, ["queue", "--thread", target.thread, "--message", messageText(event)]);
+          child = spawn(invocation.command, invocation.args, { stdio: ["ignore", "ignore", "pipe"], env, ...invocation.options });
         } catch (error) {
           resolve({ ok: false, error: errorMessage(error) });
           return;

@@ -15,6 +15,7 @@ import { isAbsolute, resolve } from "node:path";
 import { reviewMode, UNCITED_REJECTION_REASON } from "../contract/review-modes.mjs";
 import { JUDGE_LIMITS } from "../contract/judge-envelope.mjs";
 import { sharedVerificationCommands } from "../contract/final-verification.mjs";
+import { killTarget } from "../host/platform.mjs";
 
 /** @typedef {import("../contract/definition-of-done.mjs").DefinitionOfDoneItem} DefinitionOfDoneItem */
 /** @typedef {import("../contract/verification.mjs").VerificationCommand} VerificationCommand */
@@ -284,8 +285,7 @@ function terminateProofGroup(child) {
   if (!pid) return;
   const signal = (/** @type {NodeJS.Signals} */ name) => {
     try {
-      if (process.platform !== "win32") process.kill(-pid, name);
-      else child.kill(name);
+      killTarget(process.platform === "win32" ? pid : -pid, name);
     } catch {
       try { child.kill(name); } catch {
         // ESRCH: the group and the leader are already gone.

@@ -19,6 +19,7 @@ import { detectStalls, invocationAlive, startProcess, terminateInvocation } from
 import { monitorInvocation } from "../../src/engine/transcript.mjs";
 
 import { fixture, writeContract } from "../helpers.mjs";
+import { killTarget } from "../../src/host/platform.mjs";
 import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
 import { errorCode } from "../../src/util.mjs";
 
@@ -91,9 +92,13 @@ function nodeSnapshot(node, executionOverrides) {
  * @param {{pid: number|null, processGroupId?: number|null}|undefined} invocation
  */
 function killGateGroup(invocation) {
-  const target = invocation?.processGroupId ?? invocation?.pid;
-  if (target === null || target === undefined) return;
-  try { process.kill(-target, "SIGKILL"); } catch (error) {
+  const pid = invocation?.processGroupId ?? invocation?.pid;
+  if (pid === null || pid === undefined) return;
+  // Through the product's own kill, because a negative pid is a POSIX process
+  // group and names nothing on Windows: `process.kill(-pid)` there reports
+  // ESRCH, this helper swallows it, and the gate — and the harness under it —
+  // outlives the test. Measured 2026-09-21: the runner then never exited.
+  try { killTarget(process.platform === "win32" ? pid : -pid, "SIGKILL"); } catch (error) {
     if (/** @type {{code?: string}} */ (error).code !== "ESRCH") throw error;
   }
 }

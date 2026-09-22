@@ -1,7 +1,17 @@
-# Shell scripts keep LF in the working tree on every platform. Git's default
-# on Windows is `core.autocrlf=true`, which checks them out with CRLF, and a
-# CRLF script run through `sh` fails on its own shebang — `install.sh` and
+# Every text file keeps LF in the working tree, on every platform. Git's
+# default on Windows is `core.autocrlf=true`, and a CRLF working tree breaks
+# this repository twice over: a shell script run through `sh` fails on its own
+# shebang, and the suite — which writes a file, lets git check it back out, and
+# compares the bytes — reads a line ending it never wrote. Measured 2026-09-21
+# on a GitHub windows-latest runner: 21 tests failed, every one of them `\r\n`
+# against `\n`, from a sealed attempt's file to the generated command manual.
+* text=auto eol=lf
+
+# Named for the reason, not just covered by the rule above: `install.sh` and
 # every husky hook, including the pre-commit gate, stop working on a machine
 # whose only fault was cloning with the default configuration.
 *.sh text eol=lf
 .husky/* text eol=lf
+
+# Binary, so no end-of-line conversion is ever attempted.
+*.png binary

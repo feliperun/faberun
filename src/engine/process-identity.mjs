@@ -86,6 +86,17 @@ export function processStartTokenMatches(invocation) {
  * -- a pid this user cannot signal is not the child this controller spawned --
  * and a null token with no handle is unverifiable, so it is never owned.
  *
+ * Except on Windows, which records no token at all: `wmic` is gone from
+ * Windows 11 26200 and the PowerShell that replaced it costs about 400 ms a
+ * probe (`run/lock.mjs`). Holding POSIX's answer there means every recorded
+ * invocation is unverifiable, so a controller never terminates the provider it
+ * started: measured 2026-09-20, a suite run left 105 node fixtures alive and
+ * then waited on one of them, and `cancel` reported providers it had not
+ * stopped. A live pid this controller recorded is the evidence that platform
+ * has, and it is the same evidence `killTarget` already acts on there. What is
+ * given up is the pid-reuse defence: a pid recycled into an unrelated process
+ * between the record and the kill reads as owned.
+ *
  * @param {InvocationProbe} invocation
  * @param {{child?: ChildProcess|null}} [options]
  * @returns {boolean}
@@ -106,6 +117,6 @@ export function invocationOwned(invocation, options = {}) {
   const child = options.child;
   if (child && child.exitCode === null && child.signalCode === null) return true;
   const token = invocation.processStartToken;
-  if (!token) return false;
+  if (!token) return process.platform === "win32";
   return processStartToken(invocation.pid) === token;
 }

@@ -64,7 +64,16 @@ export function detachArgv(argv, options = {}) {
   const child = /** @type {DetachedChild} */ (spawn(process.execPath, [CLI_ENTRY, ...argv], {
     cwd: process.cwd(),
     env: { ...process.env, ...options.env, FABERUN_BOOTSTRAP_NONCE: nonce },
-    detached: process.platform !== "win32",
+    // Detached on every platform, for a different reason on each. POSIX: a
+    // new session, so the controller survives the launcher's terminal and
+    // owns a process group its own children can be killed by. Windows: libuv
+    // puts every non-detached child in a job object that is killed when the
+    // parent exits, so without this the controller dies the instant the
+    // launcher returns -- measured 2026-09-21: `run --detach` bootstrapped to
+    // `ready` and then died with its launcher, every time, leaving the node
+    // pending forever. There it also means DETACHED_PROCESS: no console
+    // window, which is what "ignore" stdio already implies.
+    detached: true,
     stdio: "ignore",
   }));
   child.unref();

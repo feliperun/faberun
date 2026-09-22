@@ -23,6 +23,7 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
 import { writeNodeSnapshot } from "../run/node-store.mjs";
+import { killTarget } from "../host/platform.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {import("../contract/index.mjs").ValidatedNode} ValidatedNode */
@@ -572,7 +573,7 @@ function signalInvocation(invocation, signal, options = {}) {
   const pid = invocation.pid;
   if (pid === null || pid === undefined) return false;
   const target = process.platform === "win32" ? pid : -(invocation.processGroupId ?? pid);
-  const kill = options.kill ?? process.kill;
+  const kill = options.kill ?? killTarget;
   try {
     kill(target, signal);
     return true;

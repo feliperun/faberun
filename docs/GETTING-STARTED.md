@@ -83,9 +83,19 @@ things differ, each because Windows differs:
   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/feliperun/faberun/main/install.ps1))) -AddToPath
   ```
 
-Running a campaign end to end on Windows is not covered yet: the engine's
-process control and the `seat` command are POSIX-shaped, and the test suite is
-green on Linux and macOS only.
+A campaign runs on Windows: the engine resolves a harness through `PATHEXT`,
+runs one installed as a `.cmd` through the command interpreter, reads a `#!`
+line when handed a POSIX script, and ends a provider by its process tree. CI
+runs the whole suite there on every change, on node 22 and 24.
+
+Three things differ, and the tool says so rather than pretending otherwise.
+`faberun seat` is tmux, and therefore POSIX. A run directory lock cannot tell a
+recycled pid from the process that held it, because Windows has no cheap
+process start time to read — a stale lock is taken over by its heartbeat
+instead. And a repository's symlinks arrive in an attempt worktree as regular
+files holding the target path, which is what git does wherever `core.symlinks`
+is off; a scope declared through one is then the link's own path, not the
+target's.
 
 ### npm
 

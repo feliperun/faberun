@@ -14,12 +14,17 @@ import { parseDiscoveryResult, parseWorkerResult } from "../../src/contract/work
 import { runVerification } from "../../src/engine/run-command.mjs";
 import { captureWorkspaceScope, captureWorkspaceSnapshot, compareWorkspaceSnapshot, validateWorkspaceScopeBoundary } from "../../src/repo/workspace.mjs";
 import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
+import { gitArguments } from "../../src/host/platform.mjs";
 
 /** @param {string} directory */
 function initializeGit(directory) {
-  execFileSync("git", ["init", "-q", directory]);
-  execFileSync("git", ["-C", directory, "add", "."]);
-  execFileSync("git", ["-C", directory, "-c", "commit.gpgSign=false", "-c", "user.email=runner@example.test", "-c", "user.name=runner", "commit", "-qm", "fixture"]);
+  // Through the product's own argument list: one fixture here is deliberately
+  // deeper than 260 characters, and git refuses to open such a directory
+  // unless `core.longpaths` is on -- which is what gitArguments turns on for
+  // Windows, alongside the fsmonitor daemon it keeps off everywhere.
+  execFileSync("git", gitArguments(["init", "-q", directory]));
+  execFileSync("git", gitArguments(["-C", directory, "add", "."]));
+  execFileSync("git", gitArguments(["-C", directory, "-c", "commit.gpgSign=false", "-c", "user.email=runner@example.test", "-c", "user.name=runner", "commit", "-qm", "fixture"]));
 }
 
 test("worker result accepts done and blocked_context without prose", () => {
@@ -268,7 +273,11 @@ test("verification attempt identity is published before release and completes ex
   assert.equal(events[0].invocationId, events[1].invocationId);
   assert.equal(events[1].invocationId, events[2].invocationId);
   assert.ok(Number.isInteger(events[1].pid));
-  assert.equal(events[1].processGroupId, events[1].pid);
+  // A process group is a POSIX fact. On Windows the attempt carries none and
+  // the kill path reaches the tree through the pid instead, so assert the
+  // identity this host actually publishes rather than a stand-in for it.
+  // guard-exempt: host-layout which identity is published is the fact under test
+  assert.equal(events[1].processGroupId, process.platform === "win32" ? null : events[1].pid);
   assert.equal(typeof events[1].deadlineAt, "string");
   assert.equal(events[2].status, "closed");
 });

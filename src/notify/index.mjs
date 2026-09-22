@@ -51,6 +51,7 @@ import { appendFileSync, closeSync, mkdirSync, openSync, readFileSync, writeSync
 import { join } from "node:path";
 import { createMacosNotifier } from "./os-macos.mjs";
 import { NOTIFY_SESSION_ENV, deliverToSessions, resolveSessionTargets, sessionWakeNotice } from "./session.mjs";
+import { spawnInvocation } from "../host/platform.mjs";
 import { errorMessage } from "../util.mjs";
 
 /**
@@ -484,7 +485,12 @@ function spawnDeliver(bin, event, { spawn = defaultSpawn, timeoutMs = notificati
   return new Promise((resolveDelivery) => {
     let child;
     try {
-      child = spawn(bin, [], { stdio: ["pipe", "ignore", "pipe"], env: process.env });
+      // The transport is whatever the operator bound, and on Windows that is
+      // rarely an .exe: a `.cmd` shim npm wrote, or a script whose shebang
+      // names its interpreter. Either spawns as EFTYPE unhandled, which is a
+      // notification that silently never arrives.
+      const invocation = spawnInvocation(bin, []);
+      child = spawn(invocation.command, invocation.args, { stdio: ["pipe", "ignore", "pipe"], env: process.env, ...invocation.options });
     } catch (error) {
       resolveDelivery({ ok: false, error: errorMessage(error) });
       return;

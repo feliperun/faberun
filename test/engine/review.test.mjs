@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runContract } from "../../src/engine/scheduler.mjs";
-import { fakeCodex, fixture, packet, withFakeCodex, writeContract } from "../helpers.mjs";
+import { SPAWN_WAIT_FACTOR, fakeCodex, fixture, packet, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState, notifications, withAdvisoryGateCodex, withBrokenGateCodex, withJudgeDefectCodex, withStallingJudgeCodex } from "../runner-helpers.mjs";
 import { runDirectory } from "../../src/run/paths.mjs";
 
@@ -237,7 +237,11 @@ test("a judge timeout re-asks once then blocks as judge_unavailable", async () =
       id: "build",
       type: "backend",
       taskPacket: packet(),
-      timeoutSec: 1,
+      // The worker has to finish inside this for the judge to be reached at
+      // all, and a provider spawn on Windows costs an extra process: at the
+      // POSIX number the worker itself timed out and the test proved nothing
+      // about the judge. Measured 2026-09-21.
+      timeoutSec: 1 * SPAWN_WAIT_FACTOR,
       definitionOfDone: [{ id: "works", text: "It works", judgment: true }],
       gate: { review: "blocking", failOn: ["major", "critical"] },
     }],

@@ -5,6 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { homeEnv } from "../helpers.mjs";
 
 const BIN = fileURLToPath(new URL("../../bin/faberun.mjs", import.meta.url));
 
@@ -69,7 +70,7 @@ test("list names every catalogue skill", () => {
 
 test("--global installs into the home skills directory", () => {
   const home = mkdtempSync(join(tmpdir(), "skills-home-"));
-  const result = run(["install", "init-agentkit", "--global"], tmpdir(), { HOME: home });
+  const result = run(["install", "init-agentkit", "--global"], tmpdir(), homeEnv(home));
   assert.equal(result.status, 0, result.stderr);
   assert.ok(existsSync(join(home, ".claude", "skills", "init-agentkit", "SKILL.md")));
 });

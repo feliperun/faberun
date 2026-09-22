@@ -10,6 +10,7 @@
 import { execFileSync } from "node:child_process";
 import { NOTIFY_SESSION_ENV } from "../notify/session.mjs";
 import { errorCode, exitStatus } from "../util.mjs";
+import { spawnInvocation } from "../host/platform.mjs";
 
 /** The single seat session every campaign window lives in. */
 export const SEAT_SESSION = "faberun-seat";
@@ -43,8 +44,15 @@ const TMUX_TIMEOUT_MS = 10_000;
  */
 function runTmux(args, options = {}) {
   try {
-    const stdout = execFileSync("tmux", args, {
+    // The seat reaches tmux the way this platform reaches any command: a
+    // name through PATHEXT, a shim through the interpreter that runs it.
+    // Nothing here claims tmux exists on Windows -- ADR 0009 says it does
+    // not -- only that the probe answers `tmux_unavailable` for the right
+    // reason instead of failing to spell the name.
+    const invocation = spawnInvocation("tmux", args, { cwd: options.cwd });
+    const stdout = execFileSync(invocation.command, invocation.args, {
       cwd: options.cwd,
+      ...invocation.options,
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
       timeout: TMUX_TIMEOUT_MS,

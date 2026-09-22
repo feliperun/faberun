@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { lstatSync, readlinkSync } from "node:fs";
+import { lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,9 +16,19 @@ const REPO_DIR = fileURLToPath(new URL("../..", import.meta.url));
 const rootPointerNames = ["AGENT.md", "CLAUDE.md", "CURSOR.md", "GEMINI.md"];
 
 for (const name of rootPointerNames) {
-  test(`${name} is a symlink to AGENTS.md on disk`, () => {
+  test(`${name} points at AGENTS.md in the working tree`, () => {
     const path = join(REPO_DIR, name);
-    assert.ok(lstatSync(path).isSymbolicLink(), `${name} is not a symlink`);
+    // Git materializes a symlink as a regular file holding the target path
+    // where the platform has no symlink of its own -- `core.symlinks=false`,
+    // the default on a Windows checkout without Developer Mode. Both forms
+    // are the same pointer; assert whichever one this checkout carries, and
+    // let the index assertion below hold the invariant that travels.
+    if (!lstatSync(path).isSymbolicLink()) {
+      // guard-exempt: host-layout only a checkout without symlinks may carry the file form
+      assert.equal(process.platform, "win32", `${name} is not a symlink`);
+      assert.equal(readFileSync(path, "utf8"), "AGENTS.md");
+      return;
+    }
     assert.equal(readlinkSync(path), "AGENTS.md");
   });
 

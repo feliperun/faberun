@@ -1,13 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { RUNS_DIR_NAME, runsRoot } from "../../src/run/paths.mjs";
+import { findExecutable, spawnInvocation } from "../../src/host/platform.mjs";
 
 const scriptPath = fileURLToPath(new URL("../../integrations/claude-code/statusline.sh", import.meta.url));
+
+/** The MSYS libraries Git for Windows' sh, sed, grep, wc, head, tr and cat load. */
+const MSYS_RUNTIME = ["msys-2.0.dll", "msys-iconv-2.dll", "msys-intl-8.dll", "msys-pcre-1.dll"];
 
 /**
  * A fresh, empty directory standing in for a repository, realpath-resolved:
@@ -92,20 +96,28 @@ function withTemporaryHome(run) {
  */
 function restrictedEnv() {
   const binDir = mkdtempSync(join(tmpdir(), "if-statusline-bin-"));
-  /** @type {[string, string[]][]} */
-  const candidates = [
-    ["sh", ["/bin/sh"]],
-    ["sed", ["/usr/bin/sed", "/bin/sed"]],
-    ["grep", ["/usr/bin/grep", "/bin/grep"]],
-    ["wc", ["/usr/bin/wc", "/bin/wc"]],
-    ["head", ["/usr/bin/head", "/bin/head"]],
-    ["tr", ["/usr/bin/tr", "/bin/tr"]],
-    ["cat", ["/bin/cat", "/usr/bin/cat"]],
-  ];
-  for (const [name, sources] of candidates) {
-    const source = sources.find((path) => existsSync(path));
-    assert.ok(source !== undefined, `no ${name} binary found`);
-    symlinkSync(source, join(binDir, name));
+  for (const name of ["sh", "sed", "grep", "wc", "head", "tr", "cat"]) {
+    // Resolved the way the product resolves a command, so the fixture finds
+    // each tool wherever this host keeps it rather than at a POSIX path.
+    const source = findExecutable(name);
+    assert.ok(source !== null, `no ${name} binary found`);
+    if (process.platform !== "win32") {
+      symlinkSync(source, join(binDir, name));
+      continue;
+    }
+    // A copy, and the runtime beside it. These are Git for Windows' MSYS
+    // tools: the loader searches for their libraries from the directory of the
+    // binary it opened, so on a PATH holding nothing else a copy or a symlink
+    // alone exits 0xC0000135, DLL not found. Measured with `ldd` on 2026-09-21:
+    // the seven tools need exactly these four between them. Copying rather
+    // than widening the PATH is what keeps the fixture a directory holding
+    // only what the no-jq path may use — which is the whole point of it.
+    copyFileSync(source, join(binDir, basename(source)));
+    for (const library of MSYS_RUNTIME) {
+      const from = join(dirname(source), library);
+      const to = join(binDir, library);
+      if (existsSync(from) && !existsSync(to)) copyFileSync(from, to);
+    }
   }
   return { binDir, env: { ...process.env, PATH: binDir } };
 }
@@ -119,10 +131,15 @@ function restrictedEnv() {
  * @returns {string} stdout
  */
 function render(directory, env, session = {}) {
-  const result = spawnSync(scriptPath, [], {
+  // Through the product's own resolution: the script is POSIX `sh` by
+  // design, and Windows runs it the way spawnInvocation says to — by the
+  // interpreter its shebang names — rather than not at all.
+  const invocation = spawnInvocation(scriptPath, []);
+  const result = spawnSync(invocation.command, invocation.args, {
     input: JSON.stringify({ cwd: directory, workspace: { current_dir: directory }, ...session }),
     encoding: "utf8",
     env,
+    ...invocation.options,
   });
   assert.equal(result.error, undefined, result.error?.message);
   assert.equal(result.status, 0, result.stderr);

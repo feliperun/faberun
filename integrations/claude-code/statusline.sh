@@ -31,6 +31,15 @@ ALLOWANCE_WARN_PCT=85
 
 session=$(cat)
 repo=$(printf '%s' "$session" | sed -n 's/.*"cwd":"\([^"]*\)".*/\1/p;s/.*"current_dir":"\([^"]*\)".*/\1/p' | head -n 1)
+# A Windows session names its cwd with backslashes, and JSON doubles them.
+# Three forms of one path, because three readers want different ones:
+#   repo_json  as it appears in the file -- what a fixed-string grep matches
+#   repo       the path itself           -- what jq compares a parsed key to
+#   repo_path  with forward slashes      -- what a POSIX shell can stat
+# On a host with no backslashes in its paths all three are the same string.
+repo_json=$repo
+repo=$(printf '%s' "$repo_json" | sed 's|\\\\|\\|g')
+repo_path=$(printf '%s' "$repo" | tr '\\' '/')
 # The pointer follows the state (R2): the project registry under the faberun
 # home maps the repository's resolved path to an opaque id, and the pointer
 # sits in that project's runs directory. A repository whose runs never moved
@@ -40,6 +49,7 @@ repo=$(printf '%s' "$session" | sed -n 's/.*"cwd":"\([^"]*\)".*/\1/p;s/.*"curren
 # no glob, no newest-by-mtime. That is the half of R6 already true and to
 # keep; the one machine-wide pointer is a later phase, not this lookup.
 home=${FABERUN_HOME:-$HOME/.faberun}
+home=$(printf '%s' "$home" | tr '\\' '/')
 index="$home/projects/index.json"
 id=
 if [ -n "$repo" ] && [ -f "$index" ]; then
@@ -50,10 +60,10 @@ if [ -n "$repo" ] && [ -f "$index" ]; then
     # fixed-string grep for the quoted key picks exactly that one line and
     # the id follows its colon. Fixed-string on purpose: a repo path is
     # data, not a regex.
-    id=$(grep -F "\"$repo\"" "$index" 2>/dev/null | sed -n 's/^.*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    id=$(grep -F "\"$repo_json\"" "$index" 2>/dev/null | sed -n 's/^.*:[[:space:]]*"\([^"]*\)".*/\1/p')
   fi
 fi
-pointer="$repo/.runs/status.json"
+pointer="$repo_path/.runs/status.json"
 if [ -n "$id" ] && [ -d "$home/projects/$id/runs" ]; then
   pointer="$home/projects/$id/runs/status.json"
 fi
