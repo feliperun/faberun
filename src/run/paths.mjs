@@ -135,6 +135,19 @@ export function runDirectory(cwd, runId) {
 }
 
 /**
+ * The live-preflight verdict store, at the top of the home. Whether a
+ * provider answers is a fact about this machine and this operator -- the same
+ * binary, model and credential whatever repository or contract asks -- so the
+ * record outlives any one run and is shared by every project. This module
+ * owns every path under the home and is the only place that names this one.
+ *
+ * @returns {string}
+ */
+export function availabilityPath() {
+  return join(faberunHome(), "availability.json");
+}
+
+/**
  * The campaigns directory beneath a runs root: `<runs>/campaigns`.
  * Composes `campaign/layout.mjs`'s `campaignsDir`, which owns the shape given
  * a runs root.

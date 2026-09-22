@@ -46,7 +46,7 @@ import { cancelRun } from "./engine/cancel.mjs";
 
 import { errorMessage } from "./util.mjs";
 import { validateContract } from "./contract/index.mjs";
-import { setLaunchBaseRef } from "./engine/run-identity.mjs";
+import { setLaunchBaseRef, setFreshPreflight } from "./engine/run-identity.mjs";
 import { assertLaunchBaseClean } from "./repo/source-identity.mjs";
 import { detachSelf, waitForBootstrap, writeBootstrapFailure } from "./cli/launch.mjs";
 import { DEFAULT_SUPERVISE_INTERVAL_SEC, superviseRun } from "./engine/supervise.mjs";
@@ -96,8 +96,8 @@ export function hasDetachedBootstrapNonce() {
 
 /** @type {Record<string, import("node:util").ParseArgsOptionsConfig>} */
 export const COMMAND_OPTIONS = {
-  run: { detach: { type: "boolean" }, "base-ref": { type: "string" } },
-  resume: { detach: { type: "boolean" }, node: { type: "string" }, reconcile: { type: "string" }, answer: { type: "string" } },
+  run: { detach: { type: "boolean" }, "base-ref": { type: "string" }, "fresh-preflight": { type: "boolean" } },
+  resume: { detach: { type: "boolean" }, node: { type: "string" }, reconcile: { type: "string" }, answer: { type: "string" }, "fresh-preflight": { type: "boolean" } },
   supervise: { detach: { type: "boolean" }, interval: { type: "string" } },
   cancel: {},
   preflight: { static: { type: "boolean" }, json: { type: "boolean" }, "time-verification": { type: "boolean" } },
@@ -323,6 +323,7 @@ async function main(argv) {
     const contract = validateContractForLaunch(JSON.parse(readFileSync(absolute, "utf8")), absolute, { baseRef });
     const runDir = runDirectory(contract.cwd, contract.id);
     setLaunchBaseRef(baseRef);
+    setFreshPreflight(values["fresh-preflight"] === true);
     // The base is what every worktree is cut from; a dirty tree only blocks
     // when the cwd HEAD *is* that base. A `--base-ref` elsewhere leaves the
     // operator's checkout out of the run entirely. The contract file being
@@ -334,7 +335,10 @@ async function main(argv) {
     if (values.detach === true) {
       if (existsSync(runDir)) throw new Error(`run already exists: ${runDir}`);
       for (const warning of [...contract.warnings, ...reusedDoneWarnings(contract)]) process.stdout.write(`${advisoryToken()} ${warning}\n`);
-      const child = detachSelf("run", target, baseRef ? ["--base-ref", baseRef] : []);
+      const child = detachSelf("run", target, [
+        ...(baseRef ? ["--base-ref", baseRef] : []),
+        ...(values["fresh-preflight"] === true ? ["--fresh-preflight"] : []),
+      ]);
       const pid = child.pid;
       if (pid === undefined) throw new Error("detached child has no pid");
       await waitForBootstrap(runDir, pid, child);
@@ -348,6 +352,7 @@ async function main(argv) {
   }
   if (command === "resume") {
     const resumeOptions = resumeOptionsOf(values);
+    setFreshPreflight(values["fresh-preflight"] === true);
     if (values.detach === true) {
       const runDir = resolve(target);
       if (!existsSync(join(runDir, "contract.json"))) throw new Error(`not a run directory: ${runDir}`);
@@ -355,6 +360,7 @@ async function main(argv) {
         ...(resumeOptions.node ? ["--node", resumeOptions.node] : []),
         ...(resumeOptions.reconcile ? ["--reconcile", resumeOptions.reconcile] : []),
         ...(resumeOptions.answer ? ["--answer", `${resumeOptions.answer.node}=${resumeOptions.answer.path}`] : []),
+        ...(values["fresh-preflight"] === true ? ["--fresh-preflight"] : []),
       ];
       const child = detachSelf("resume", target, extraArgs);
       const pid = child.pid;
