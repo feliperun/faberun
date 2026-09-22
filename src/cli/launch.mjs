@@ -20,7 +20,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { readRunNodes } from "../engine/scheduler.mjs";
+import { readRunNodes } from "../run/node-store.mjs";
 import { spawn } from "node:child_process";
 import { validateContract } from "../contract/index.mjs";
 import { runDirectory } from "../run/paths.mjs";

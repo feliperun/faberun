@@ -27,7 +27,7 @@ import { allowanceDelta, allowanceEventFields, sampleAllowance } from "../seat/a
 import { askPlanningRuntimes, refusePlanningSilence } from "./preflight.mjs";
 import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
-import { RISK_TIERS, buildPlanningContract, validateFindings, validatePlanOutput } from "./template.mjs";
+import { RISK_TIERS, TASK_KIND_CATALOGUE_FILE, buildPlanningContract, renderTaskKindCatalogue, validateFindings, validatePlanOutput } from "./template.mjs";
 import { MIN_WRITE_FILES, applySizingRules, provenParallelism } from "./sizing.mjs";
 import { resolveRuntimes } from "./routing.mjs";
 import { freezePlan } from "./freeze.mjs";
@@ -135,6 +135,12 @@ export async function runPlanningPipeline(options) {
   const repoFactsPath = join(scratchDir, "repo-facts.json");
   writeFileSync(repoFactsPath, `${JSON.stringify(repoFacts, null, 2)}\n`);
   const relativeRepoFactsPath = relative(cwd, repoFactsPath);
+  // The taskKind catalogue is staged like every other planning input. It used
+  // to be handed over as faberun's own `src/plan/template.mjs`, which resolves
+  // against the target repository and therefore exists in exactly one of them.
+  const cataloguePath = join(scratchDir, TASK_KIND_CATALOGUE_FILE);
+  writeFileSync(cataloguePath, renderTaskKindCatalogue());
+  const relativeCataloguePath = relative(cwd, cataloguePath);
   logStage("repo-facts", { gitHead: repoFacts.gitHead });
 
   let n = 0;
@@ -177,7 +183,7 @@ export async function runPlanningPipeline(options) {
     return { contract: validated, output };
   };
 
-  const draft = await runStage("draft", { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath });
+  const draft = await runStage("draft", { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath });
   /** @type {PlanOutput|null} */
   let plan = null;
   // Everything still open against the plan in hand, accumulated across rounds
@@ -365,7 +371,7 @@ export async function runPlanningPipeline(options) {
     const findingsPath = join(scratchDir, `findings-round-${round}.json`);
     writeJsonAtomic(findingsPath, findings);
     const revise = await runStage("revise", {
-      specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, findingsPath: relative(cwd, findingsPath),
+      specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, findingsPath),
     });
     // Kept for the write-drop comparison: the plan the revise revised, against
     // the plan it produced.

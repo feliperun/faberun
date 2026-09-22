@@ -8,7 +8,7 @@ import { join } from "node:path";
 
 import { renderBanner } from "../../src/cli/brand.mjs";
 import { updateCommand } from "../../src/cli/update.mjs";
-import { readUpdateCheck, writeUpdateCheck } from "../../src/host/home.mjs";
+import { UPDATE_CHECK_MAX_AGE_MS, availableUpdate, readUpdateCheck, writeUpdateCheck } from "../../src/host/home.mjs";
 import { linkDirectory, tarExecutable } from "../../src/host/platform.mjs";
 import { packageVersion } from "../../src/host/package.mjs";
 
@@ -214,4 +214,24 @@ test("renderBanner shows the cached hint only when a newer version is known", ()
   };
   assert.doesNotMatch(banner("0.4.0"), /update available/u);
   assert.match(banner("0.5.0"), /update available: 0\.5\.0/u);
+});
+
+test("a cached check older than the window stops being repeated as a fact", () => {
+  const home = setupHome();
+  /** @param {number} ageMs @returns {string} */
+  const bannerAged = (ageMs) => {
+    writeUpdateCheck(home, { checkedAt: new Date(Date.now() - ageMs).toISOString(), current: "0.4.0", latest: "0.5.0" });
+    return renderBanner({ version: "0.4.0", nodeVersion: "22.0.0", harnessCount: 0, level: 0, env: process.env });
+  };
+  assert.match(bannerAged(UPDATE_CHECK_MAX_AGE_MS - 60_000), /update available: 0\.5\.0/u, "inside the window the hint still shows");
+  assert.doesNotMatch(bannerAged(UPDATE_CHECK_MAX_AGE_MS + 60_000), /update available/u, "past it the banner says nothing rather than something old");
+
+  // A record timestamped in the future would otherwise never age out.
+  writeUpdateCheck(home, { checkedAt: new Date(Date.now() + 60_000).toISOString(), current: "0.4.0", latest: "0.5.0" });
+  assert.equal(availableUpdate(home, "0.4.0"), null, "a check from the future is not evidence about now");
+
+  // The command that does reach the network is unaffected: it writes the cache
+  // and reads its own answer, never the age bound.
+  writeUpdateCheck(home, { checkedAt: new Date(0).toISOString(), current: "0.4.0", latest: "0.5.0" });
+  assert.equal(readUpdateCheck(home)?.latest, "0.5.0", "the file keeps what was checked, however old");
 });

@@ -23,25 +23,57 @@ import { validateVerificationCommands } from "../contract/verification.mjs";
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
 /** @typedef {"draft"|"review"|"revise"|"spec-author"|"spec-review"} PlanningKind */
 /** @typedef {"low"|"standard"|"high"} RiskTier */
-/** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, specPath?: string, repoFactsPath?: string, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
+/** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, specPath?: string, repoFactsPath?: string, cataloguePath?: string, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
 /** @typedef {{id: string, objective: string, taskKind: string, riskTier: RiskTier, dependsOn: string[], readFiles: string[], writeFiles: string[], scopeAcknowledged: string[], definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], verification: import("../contract/verification.mjs").VerificationCommand[], expectedTurns?: number}} PlanOutputNode */
 /** @typedef {{nodes: PlanOutputNode[], phases?: PlanPhase[], findings?: PlanFindingOutput[], justification?: string}} PlanOutput */
 /** @typedef {{id: string, requirementIds: string[], deliverable: string}} PlanPhase */
 /** @typedef {{id: string, severity: "critical"|"major"|"minor", nodeId: string, text: string}} PlanFindingOutput */
 
-/**
- * The taskKind catalogue a draft or revise classifies against. Exported here,
- * not read from a separate document, so `TASK_KIND_CATALOGUE_PATH` (this
- * module's own repo-relative path) is a real, always-present file a
- * closed-context worker can be told to read for the authoritative list.
- */
+/** The taskKind catalogue a draft or revise classifies against. */
 export const TASK_KINDS = Object.freeze(["docs", "implement", "test", "refactor", "infra", "judge"]);
 
 /** The risk tiers a draft or revise classifies against. */
 export const RISK_TIERS = Object.freeze(["low", "standard", "high"]);
 
-/** This module's own repo-relative path: the taskKind catalogue's home. */
-export const TASK_KIND_CATALOGUE_PATH = "src/plan/template.mjs";
+/**
+ * The file name the planner stages the catalogue under, beside the spec and
+ * the repository facts it already stages.
+ *
+ * This used to be `src/plan/template.mjs` -- this module's own repo-relative
+ * path -- so that a closed-context worker had a real, always-present file to
+ * read for the authoritative list. It is always present in *this* repository.
+ * A planning contract's `readFiles` resolve against the target repository, and
+ * every other repository refuses the contract with `readFiles[2] does not
+ * exist: src/plan/template.mjs`, which made `faberun plan` able to plan only
+ * faberun. The catalogue is data, so it is written out like the other inputs
+ * instead of being pointed at across repository boundaries.
+ */
+export const TASK_KIND_CATALOGUE_FILE = "task-kinds.md";
+
+/**
+ * The catalogue document itself, rendered from the two exported lists so the
+ * file a worker reads and the values `validatePlanOutput` accepts cannot
+ * drift apart.
+ *
+ * @returns {string}
+ */
+export function renderTaskKindCatalogue() {
+  return [
+    "# taskKind and riskTier catalogue",
+    "",
+    "Written by `faberun plan` for this stage. These are the only values a plan may use;",
+    "any other value is rejected when the plan is validated.",
+    "",
+    "## taskKind",
+    "",
+    ...TASK_KINDS.map((kind) => `- ${kind}`),
+    "",
+    "## riskTier",
+    "",
+    ...RISK_TIERS.map((tier) => `- ${tier}`),
+    "",
+  ].join("\n");
+}
 
 /**
  * Which of the caller's `runtimeDefaults` roles resolves this contract's
@@ -62,8 +94,8 @@ const KIND_ROLE = Object.freeze({
 
 /** @type {Record<PlanningKind, string[]>} */
 const REQUIRED_INPUTS = Object.freeze({
-  draft: ["specPath", "repoFactsPath"],
-  revise: ["specPath", "repoFactsPath", "findingsPath"],
+  draft: ["specPath", "repoFactsPath", "cataloguePath"],
+  revise: ["specPath", "repoFactsPath", "cataloguePath", "findingsPath"],
   review: ["specPath", "repoFactsPath", "planPath"],
   "spec-author": ["notesPath"],
   "spec-review": ["specPath"],
@@ -110,7 +142,7 @@ const OBJECTIVES = Object.freeze({
 /** @type {Record<PlanningKind, string[]>} */
 const INSTRUCTIONS = Object.freeze({
   draft: [
-    `Consult ${TASK_KIND_CATALOGUE_PATH}'s exported TASK_KINDS before classifying any node; taskKind must be one of that catalogue and riskTier must be one of ${RISK_TIERS.join(", ")}.`,
+    `Consult the ${TASK_KIND_CATALOGUE_FILE} in readFiles before classifying any node; taskKind must be one of that catalogue and riskTier must be one of ${RISK_TIERS.join(", ")}.`,
     "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies and the deliverable it produces in one sentence. A phase associated with no requirement is reported as a finding, not refused.",
     ...SCOPE_CLOSURE_RULE,
     `Return exactly one worker-result JSON object. Put the plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
@@ -156,9 +188,9 @@ const NON_GOALS = Object.freeze({
  * @returns {string[]}
  */
 function readFilesForKind(kind, inputs) {
-  if (kind === "draft") return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), TASK_KIND_CATALOGUE_PATH];
+  if (kind === "draft") return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.cataloguePath)];
   if (kind === "revise") {
-    return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), TASK_KIND_CATALOGUE_PATH, /** @type {string} */ (inputs.findingsPath)];
+    return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.cataloguePath), /** @type {string} */ (inputs.findingsPath)];
   }
   if (kind === "review") return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.planPath)];
   if (kind === "spec-author") return [/** @type {string} */ (inputs.notesPath)];

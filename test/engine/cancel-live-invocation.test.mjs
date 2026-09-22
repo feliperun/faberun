@@ -32,7 +32,7 @@ import { invocationOwned, processGroupAlive } from "../../src/engine/process-ide
 import { readLock, processStartToken } from "../../src/run/lock.mjs";
 import { gitHead, preservedRefName, runRefName } from "../../src/repo/worktree.mjs";
 
-import { binariesInPath, fixture, orphan, waitForValue, withFakeCodex, writeContract } from "../helpers.mjs";
+import { SPAWN_WAIT_FACTOR, binariesInPath, fixture, orphan, waitForValue, withFakeCodex, writeContract } from "../helpers.mjs";
 import { childPid } from "../runner-helpers.mjs";
 
 /** @typedef {import("node:child_process").ChildProcess} ChildProcess */
@@ -67,7 +67,7 @@ async function assertKilledByCancel(child, message) {
     assert.equal(child.signalCode, "SIGTERM", message);
     return;
   }
-  await waitForValue(() => (child.exitCode !== null || child.signalCode !== null ? true : null), 10_000);
+  await waitForValue(() => (child.exitCode !== null || child.signalCode !== null ? true : null), 10_000 * SPAWN_WAIT_FACTOR);
   assert.equal(child.signalCode, null, `${message}: Windows names no signal`);
 }
 
@@ -163,7 +163,7 @@ setInterval(() => {}, 60_000);
  * @returns {Promise<void>}
  */
 async function awaitTrapReady(log) {
-  await waitForValue(() => (existsSync(log) ? true : null), 10_000);
+  await waitForValue(() => (existsSync(log) ? true : null), 10_000 * SPAWN_WAIT_FACTOR);
 }
 
 /**
@@ -323,7 +323,7 @@ async function recordVerificationAttempt(runDir, nodeId, child) {
 async function aDeadGroupId() {
   const ephemeral = spawnFixture("process.exit(0);\n");
   const pid = childPid(ephemeral);
-  await waitForValue(() => (ephemeral.exitCode !== null ? pid : null), 5_000);
+  await waitForValue(() => (ephemeral.exitCode !== null ? pid : null), 5_000 * SPAWN_WAIT_FACTOR);
   assert.equal(processGroupAlive(pid), false, "the ephemeral fixture's group is gone");
   return pid;
 }
@@ -339,7 +339,7 @@ async function aDeadGroupId() {
  */
 async function awaitGone(child, options = {}) {
   const pid = childPid(child);
-  await waitForValue(() => (!pidAlive(pid) ? true : null), 10_000);
+  await waitForValue(() => (!pidAlive(pid) ? true : null), 10_000 * SPAWN_WAIT_FACTOR);
   if (options.group) assert.equal(processGroupAlive(pid), false, "the fixture's whole process group is gone");
 }
 
@@ -361,7 +361,7 @@ async function reap(child, options = {}) {
       if (/** @type {{code?: string}} */ (error).code !== "ESRCH") throw error;
     }
   }
-  await waitForValue(() => (child.exitCode !== null || child.signalCode !== null ? true : null), 5_000);
+  await waitForValue(() => (child.exitCode !== null || child.signalCode !== null ? true : null), 5_000 * SPAWN_WAIT_FACTOR);
   assert.equal(pidAlive(childPid(child)), false, "the fixture is gone before the test returns");
   if (options.group) assert.equal(processGroupAlive(childPid(child)), false, "the fixture's process group is gone before the test returns");
 }

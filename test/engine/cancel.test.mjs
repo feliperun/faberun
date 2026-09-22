@@ -1,10 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
 import { cancelRun } from "../../src/engine/cancel.mjs";
+import { createRunRef } from "../../src/repo/worktree.mjs";
+import { runDirectory } from "../../src/run/paths.mjs";
+import { serializableContract } from "../../src/engine/run-identity.mjs";
+import { validateContract } from "../../src/contract/index.mjs";
+import { writeJsonAtomic } from "../../src/run/store.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { gitHead, preservedRefName, runRefName } from "../../src/repo/worktree.mjs";
 
@@ -99,4 +104,32 @@ test("a node whose integrated head is null gets no preserved ref", async () => {
   const result = await cancelRun(runDir);
   assert.deepEqual(result.preservedRefs, [], "an integrated head of null is nothing to preserve");
   assert.equal(gitHead(directory, preservedRefName("cancel-null-head-run", "build")), null);
+});
+
+test("a launch that died before persisting any node is cancellable, and one verb releases both names", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-cancel-bare-"));
+  const path = writeContract(directory, fixture({ id: "cancel-bare-run", pollIntervalMs: 10 }));
+  const contract = validateContract(JSON.parse(readFileSync(path, "utf8")), path);
+  const runDir = runDirectory(contract.cwd, contract.id);
+  // Exactly what a launch leaves behind when it dies after claiming the run
+  // ref and before any node snapshot exists -- the same two writes the
+  // scheduler makes, in the same order, and nothing after them.
+  mkdirSync(join(runDir, "nodes"), { recursive: true });
+  writeJsonAtomic(join(runDir, "contract.json"), serializableContract(contract));
+  createRunRef(contract.cwd, contract.id, gitHead(contract.cwd, "HEAD"));
+
+  await assert.rejects(
+    () => withFakeCodex(directory, "pass", () => runContract(path)),
+    /run already exists/u,
+    "the occupied directory refuses the relaunch, as it should",
+  );
+
+  const canceled = await cancelRun(runDir);
+  assert.deepEqual(canceled.preservedRefs, [], "nothing was integrated, so nothing is preserved");
+  assert.ok(canceled.released.includes(runRefName("cancel-bare-run")), "cancel releases the ref the dead launch claimed");
+  assert.equal(gitHead(contract.cwd, runRefName("cancel-bare-run")), null, "the run ref is gone from the repository");
+
+  const relaunched = await withFakeCodex(directory, "pass", () => runContract(path));
+  assert.equal(relaunched.ok, true, "one cancel released the directory and the ref; no manual cleanup of either");
+  assert.equal(nodeState(relaunched).status, "done");
 });

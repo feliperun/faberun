@@ -10,7 +10,6 @@ import { loadRuntimesCatalogue, loadVerificationSuites } from "../../src/cli/pla
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { runProgress } from "../../src/engine/supervise.mjs";
 import { runPlanningPipeline } from "../../src/plan/pipeline.mjs";
-import { TASK_KIND_CATALOGUE_PATH } from "../../src/plan/template.mjs";
 import { envelope, writeRecording } from "../harnesses/replay-helpers.mjs";
 import { campaignTree, runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
@@ -131,7 +130,6 @@ function twoNodePlan({ highRisk = false } = {}) {
  */
 function setup(campaignId, { reviewMode = "clean", highRisk = false, plans, reviews } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), "plan-pipeline-"));
-  writeFixtureFile(cwd, TASK_KIND_CATALOGUE_PATH, "export const TASK_KINDS = [];\n");
   writeFixtureFile(cwd, "src/index.mjs", "export default 1;\n");
   writeFixtureFile(cwd, "docs/spec.md", "# Feature 42\n\nA legacy spec with no front matter, accepted outright.\n");
   // The scope-closure pair a planned write set is checked against: the entry

@@ -37,13 +37,11 @@ import { delay, errorCode } from "../util.mjs";
 import { alreadyNotified, emitNodeAdvisories, notifyQueueFor, notifyQueuesByRun, renderCampaignHandoffSafely } from "./notify-queue.mjs";
 import { detectStalls, invocationAlive, terminateProcess } from "./process.mjs";
 import { transition, writeNode } from "./state.mjs";
-import { listNodeSnapshots, readNodeSnapshot } from "../run/node-store.mjs";
 import { render, renderFinalReport, writeFindingsArtifact } from "../report/final.mjs";
 import { operationNextState, providerReceipts, settleInvocation } from "../run/operations.mjs";
 import { appendUsageRecord, invocationCost, invocationUsage, recordInvocationUsage } from "../run/usage.mjs";
 import { captureNodeScopeBoundaries, checkWorkerScope, emptyScope } from "./scope.mjs";
 import { validateContractForLaunch } from "../campaign/chain.mjs";
-import { validateNodeSnapshot } from "../contract/snapshot.mjs";
 import { finalVerificationCommands, sharedVerificationCommands } from "../contract/final-verification.mjs";
 import { startJudge, startWorker } from "./dispatch.mjs";
 import { assertEnvironmentReady, captureRunIdentity, createRunMetadata, serializableContract, statesFingerprint } from "./run-identity.mjs";
@@ -238,6 +236,19 @@ export async function runContract(contractPath, options = {}) {
   }
   const lock = acquireLock(runDir);
   try {
+    // `contract.json` is written before anything else claims a name outside
+    // this directory, because `cancel` is the only verb that releases those
+    // names and it reads the contract from here. Everything below can fail or
+    // be killed -- `runtimeAssignments` probes providers, `captureRunIdentity`
+    // shells out to git, `createRunRef` claims `refs/faberun/<id>/run` -- and a
+    // launch that died between the ref and this write used to leave an
+    // occupied ref plus a run directory `cancel` could not parse: the operator
+    // was refused the directory, deleted it, was then refused the ref, and had
+    // no single verb for either. Written first, the directory is always
+    // cancellable from the instant it exists.
+    mkdirSync(join(runDir, "nodes"), { recursive: true });
+    mkdirSync(join(runDir, "logs"), { recursive: true });
+    writeJsonAtomic(join(runDir, "contract.json"), serializableContract(contract));
     const runtimePlan = await runtimeAssignments(contract);
     const scopeBoundaries = captureNodeScopeBoundaries(contract);
     const sourceIdentity = await captureRunIdentity(contract, scopeBoundaries);
@@ -245,9 +256,6 @@ export async function runContract(contractPath, options = {}) {
     lock.assert();
     const runsDir = runsRoot(contract.cwd);
     const campaign = resolveCampaign(runsDir, contract.campaignId);
-    mkdirSync(join(runDir, "nodes"), { recursive: true });
-    mkdirSync(join(runDir, "logs"), { recursive: true });
-    writeJsonAtomic(join(runDir, "contract.json"), serializableContract(contract));
     writeJsonAtomic(join(runDir, "judge.schema.json"), JUDGE_SCHEMA);
     writeJsonAtomic(join(runDir, "run.json"), createRunMetadata(lock, sourceIdentity, {}, integrationRef));
     registerRun(campaign.path, contract.id);
@@ -755,20 +763,3 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
   }
   return { runDir, states, ok: failed.length === 0 };
 }
-
-/**
- * @param {string} runDir
- * @param {ValidatedContract} contract
- * @returns {NodeSnapshot[]}
- */
-export function readRunNodes(runDir, contract) {
-  const names = listNodeSnapshots(runDir);
-  const expected = new Map(contract.nodes.map((node) => [`${node.id}.json`, node]));
-  for (const name of names) if (!expected.has(name)) throw new TypeError(`unexpected persisted node snapshot ${name}`);
-  return contract.nodes.map((node) => {
-    const name = `${node.id}.json`;
-    if (!names.includes(name)) throw new TypeError(`missing persisted node snapshot ${name}`);
-    return validateNodeSnapshot(readNodeSnapshot(runDir, node.id), node);
-  });
-}
-

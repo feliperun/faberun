@@ -50,7 +50,7 @@ import { availabilityKey, readAvailability, recordAvailability } from "../run/av
 /** @typedef {import("../harnesses/index.mjs").CapabilityRequirements} CapabilityRequirements */
 /** @typedef {import("../harnesses/index.mjs").ProbeResult} ProbeResult */
 /** @typedef {import("../engine/runtime-discovery.mjs").RuntimeAvailability} RuntimeAvailability */
-/** @typedef {Map<string, {runtime: RuntimeSnapshot, requiredCapabilitySets: CapabilityRequirements[]}>} ReachableRuntimes */
+/** @typedef {Map<string, {runtime: RuntimeSnapshot, requiredCapabilitySets: CapabilityRequirements[], routed: boolean}>} ReachableRuntimes */
 /** @typedef {{name: string, ok: boolean, advisory: boolean, detail: string}} EnvCheck */
 /** @typedef {{schemaVersion: number, ok: boolean, checks: EnvCheck[]}} EnvReport */
 
@@ -169,9 +169,19 @@ export function checkWorktree(cwd, requireClean) {
 }
 
 /**
- * Every runtime the run can route to — initial and failover — must resolve to
- * a binary that exists and reports a version. A version-less runtime is fatal
- * up front because a resume refuses a runtime whose probe came back null.
+ * Every runtime the run committed to — a node's or a default's named runtime,
+ * and the failover target it declares — must resolve to a binary that exists
+ * and reports a version. A version-less runtime is fatal up front because a
+ * resume refuses a runtime whose probe came back null.
+ *
+ * A runtime that is merely a candidate is held to a weaker rule: at least one
+ * of them has to resolve. A role that names no runtime lets availability
+ * discovery choose at dispatch, so every catalogue entry is reachable without
+ * any of them being chosen, and demanding a binary for each of them refused a
+ * run over a harness it would never have started. Measured 2026-09-21 on the
+ * owner's machine: `codex reported no version` blocked a launch whose work was
+ * routed to `zcode`. What is still fatal is a catalogue where nothing resolves
+ * — then there is no route at all, and discovery has nothing to choose.
  *
  * @param {ReachableRuntimes} runtimes
  * @param {Record<string, string|null>} harnessVersions
@@ -182,20 +192,34 @@ export function checkRuntimeBinaries(runtimes, harnessVersions, cwd = ".") {
   /** @type {string[]} */
   const problems = [];
   /** @type {string[]} */
+  const unavailableCandidates = [];
+  /** @type {string[]} */
   const resolved = [];
-  for (const [id, { runtime }] of runtimes) {
+  let candidates = 0;
+  let candidatesResolved = 0;
+  for (const [id, { runtime, routed }] of runtimes) {
     // The harness owns the resolution: a per-runtime executable, an
     // FABERUN_*_BIN override, and each harness's default binary all
     // land here, and a relative path belongs to the run cwd, not to ours.
     const executable = getHarness(runtime.harness).executable(runtime);
     const found = findExecutable(executable.includes("/") || executable.includes("\\") ? resolve(cwd, executable) : executable);
     const version = harnessVersions[id] ?? null;
-    if (found === null) problems.push(`${id}: ${executable} not found on PATH`);
-    else if (version === null) problems.push(`${id}: ${executable} reported no version`);
-    else resolved.push(`${id} ${version}`);
+    if (!routed) candidates += 1;
+    const problem = found === null
+      ? `${id}: ${executable} not found on PATH`
+      : version === null ? `${id}: ${executable} reported no version` : null;
+    if (problem === null) {
+      resolved.push(`${id} ${version}`);
+      if (!routed) candidatesResolved += 1;
+    } else if (routed) problems.push(problem);
+    else unavailableCandidates.push(problem);
   }
   if (problems.length) return fail("runtime binaries", problems.join(" · "));
-  return pass("runtime binaries", resolved.length ? resolved.join(" · ") : "no routed runtime");
+  if (candidates > 0 && candidatesResolved === 0) {
+    return fail("runtime binaries", `no catalogue runtime resolves, so availability discovery has nothing to choose: ${unavailableCandidates.join(" · ")}`);
+  }
+  const aside = unavailableCandidates.length ? ` · not candidates: ${unavailableCandidates.join(" · ")}` : "";
+  return pass("runtime binaries", resolved.length ? `${resolved.join(" · ")}${aside}` : "no routed runtime");
 }
 
 /**
@@ -360,10 +384,10 @@ export function timeVerificationCommands(contract, probes = {}) {
  * can take only one hop, and its reachable set stops at B.
  *
  * @param {ValidatedContract} contract
- * @returns {Map<string, {runtime: RuntimeSnapshot, requiredCapabilitySets: import("../harnesses/index.mjs").CapabilityRequirements[]}>}
+ * @returns {ReachableRuntimes}
  */
 export function reachableRuntimes(contract) {
-  /** @type {Map<string, {runtime: RuntimeSnapshot, requiredCapabilitySets: import("../harnesses/index.mjs").CapabilityRequirements[]}>} */
+  /** @type {ReachableRuntimes} */
   const runtimes = new Map();
   for (const node of contract.nodes) {
     for (const role of /** @type {("worker"|"judge")[]} */ (["worker", ...(node.gate.enabled ? ["judge"] : [])])) {
@@ -384,14 +408,22 @@ export function reachableRuntimes(contract) {
         ? [runtime.requiredCapabilities, node.gate.requiredCapabilities]
         : [runtime.requiredCapabilities, node.requiredCapabilities];
       const requiredCapabilitySets = required.filter((item) => item !== undefined);
-      addRuntimeRequirement(runtimes, runtime, requiredCapabilitySets);
+      if (explicit) addRuntimeRequirement(runtimes, runtime, requiredCapabilitySets);
       const current = { node, role, runtimeId: /** @type {string} */ (runtime.id) };
       for (const fallbackRuntime of failoverTargets(contract, current)) {
-        addRuntimeRequirement(runtimes, fallbackRuntime, requiredCapabilitySets);
+        addRuntimeRequirement(runtimes, fallbackRuntime, requiredCapabilitySets, Boolean(explicit));
       }
       if (!explicit) {
+        // Nothing names a runtime for this role, so availability discovery
+        // picks one at dispatch and every catalogue entry is a candidate --
+        // including the stand-in above, which was chosen as "the first entry"
+        // and is no more routed than the rest. They are reachable, so their
+        // capabilities still have to hold, but none of them is a runtime this
+        // run committed to: requiring a binary for each turned one absent
+        // harness into a refusal of a run that would never have used it. The
+        // loop covers the stand-in as well -- it is one of the keys.
         for (const candidate of Object.keys(contract.runtimes)) {
-          addRuntimeRequirement(runtimes, runtimeSnapshot(contract, candidate), requiredCapabilitySets);
+          addRuntimeRequirement(runtimes, runtimeSnapshot(contract, candidate), requiredCapabilitySets, false);
         }
       }
     }
