@@ -2,6 +2,18 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.18.0](https://github.com/feliperun/faberun/compare/v0.17.2...v0.18.0) (2026-09-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **notify:** a node settling no longer leaves through the notify transports unless `FABERUN_NOTIFY_EVENTS` names `node.terminal`; it is recorded in `notify.jsonl` as `filtered`.
+
+### Features
+
+* **notify:** a run can wake the operator's own session, not only the one that launched it ([#41](https://github.com/feliperun/faberun/issues/41)) ([090fbfa](https://github.com/feliperun/faberun/commit/090fbfaf5960e16bea9fc43ca4002a1e39178be0))
+* **notify:** only a phase settling or a person being needed leaves by default ([#43](https://github.com/feliperun/faberun/issues/43)) ([0f51681](https://github.com/feliperun/faberun/commit/0f51681a32e118f604536161c2e0c283ce1bfeba))
+
 ## [0.17.2](https://github.com/feliperun/faberun/compare/v0.17.1...v0.17.2) (2026-09-22)
 
 
