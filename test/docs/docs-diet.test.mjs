@@ -35,7 +35,20 @@ const SKILL_BYTE_CEILING = 1100;
 // "one of that dependency's" prose already there pay part of it, so the
 // ceiling moves by the net 2 bytes to the file's exact size and nothing else.
 // Raising it again needs the same argument.
-const CONTRACT_BYTE_CEILING = 22075;
+// Raised from 22075 on 2026-09-22 for three pieces of real surface, and
+// nothing else. `maxTurns` is a field the product has had all along and this
+// reference never named: it appeared once in the whole documentation set,
+// outside references/, so the author of a long-running contract raised
+// `timeoutSec` and `stallTimeoutSec` -- everything they knew existed -- and
+// two attempts were then cut mid-turn at a ceiling they had never been shown.
+// `requirementId` is a new field on a verification entry. And the Definition
+// of Done `command` proof changed behaviour: it is bounded by the node's own
+// `timeoutSec` rather than a smaller hardcoded ceiling, and its shell quoting
+// now differs from `verification`'s argv in a way an author must be told
+// about. Each was written twice and cut both times before landing here; there
+// was no redundancy adjacent to them left to pay part of it with. Raising it
+// again needs the same argument.
+const CONTRACT_BYTE_CEILING = 22860;
 // Raised from 10240 on 2026-09-13, deliberately and only once: `supervise`
 // became a real command and an operator cannot run an undocumented one. The
 // ceiling is a ratchet against prose creep, not against surface the product

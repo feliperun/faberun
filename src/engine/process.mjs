@@ -36,7 +36,7 @@ import { killTarget } from "../host/platform.mjs";
 /** @typedef {{prompt: string|null, stdout: string, stderr: string}} PathSet */
 /** @typedef {{id: string, pid: number, processGroupId: number|null, processStartToken: string|null, harness: string, runtimeId: string|null, runtimeFingerprint?: string, revision?: number, phase: string, promptPath: string|null, stdoutPath: string, stderrPath: string, startedAt: string, deadlineAt: string|null, updatedAt: string, closedAt: string|null, exitCode: number|null, signal: string|null, status: "active"|"closed"|"terminated", executable: string, snapshotPath?: string, usage?: Usage, usageEstimated?: boolean, costUsd?: number|null, costProvenance?: "priced", runId?: string, campaignId?: string, nodeId?: string, attempt?: number, workspace?: string, worktreeBranch?: string|null, worktreeBaseSha?: string|null, planPhase?: string, role?: "worker"|"judge", model?: string, reasoning?: string|null, sandbox?: string|null, continuationId?: string|null, continuationMode?: "fresh"|"reuse"|"rotate", session?: import("../harnesses/session-metrics.mjs").SessionLedger|null}} Invocation */
 /** @typedef {{pid: number|null, processGroupId?: number|null, processStartToken?: string|null}} InvocationProbe */
-/** @typedef {{child: ChildProcess, contract: ValidatedContract, node: ValidatedNode, state: NodeSnapshot, runtime: HarnessRuntime & {id: string|null}, cwd: string, paths: PathSet, phase: string, invocation: Invocation, startedAt: string, startedTicks: bigint, progressTicks: bigint, lastOutputAt: number, closed: boolean, exitCode: number|null, signal: string|null, spawnError: Error|null, terminating: Promise<void>|null, gateConfigPath: string, gateReleasePath: string, scopeBaseline?: unknown, scopeChecked?: boolean, scopeViolation?: boolean, resultMaterialization?: boolean, recoveryBaseline?: unknown, observeTimer?: ReturnType<typeof setInterval>, monitorOffset?: number, monitorParser?: import("../harnesses/session-metrics.mjs").SessionMetricsParser, lastEventCount?: number, lastMonitorOffset?: number, observedOnce?: boolean, onClose?: (invocation: Invocation) => void, onInvocationUpdate?: (invocation: Invocation) => void, onProgress?: (state: NodeSnapshot) => void}} Job */
+/** @typedef {{child: ChildProcess, contract: ValidatedContract, node: ValidatedNode, state: NodeSnapshot, runtime: HarnessRuntime & {id: string|null}, cwd: string, paths: PathSet, phase: string, invocation: Invocation, startedAt: string, startedTicks: bigint, progressTicks: bigint, lastOutputAt: number, closed: boolean, exitCode: number|null, signal: string|null, spawnError: Error|null, terminating: Promise<void>|null, gateConfigPath: string, gateReleasePath: string, scopeBaseline?: unknown, scopeChecked?: boolean, scopeViolation?: boolean, resultMaterialization?: boolean, recoveryBaseline?: unknown, observeTimer?: ReturnType<typeof setInterval>, monitorOffset?: number, monitorParser?: import("../harnesses/session-metrics.mjs").SessionMetricsParser, lastEventCount?: number, lastMonitorOffset?: number, observedOnce?: boolean, turnCapWarned?: boolean, onClose?: (invocation: Invocation) => void, onInvocationUpdate?: (invocation: Invocation) => void, onProgress?: (state: NodeSnapshot) => void}} Job */
 /** @typedef {{graceMs?: number, killGraceMs?: number, escalate?: boolean, runDir?: string, kill?: (pid: number, signal: string|number) => unknown, child?: ChildProcess|null}} TerminateOptions */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -279,6 +279,14 @@ export async function terminateInvocation(invocation, options = {}) {
 const SEAL_BEFORE_KILL_CODES = new Set(["wall_clock_timeout", "stall_timeout", "turn_limit"]);
 
 /**
+ * How far into its request ceiling an attempt gets before it says so. Four
+ * fifths: late enough that an ordinary attempt never mentions it (measured
+ * 2026-09-20 over 200 completed claude worker turns, p90 was 83 of a 150
+ * default), early enough that the remaining fifth is still room to act in.
+ */
+const TURN_CAP_WARN_FRACTION = 0.8;
+
+/**
  * How long a `SIGSTOP`ped process group is given to actually stop before the
  * seal begins. The stop is asynchronous; this bounded settle keeps the seal
  * from racing a provider that has not yet been suspended. It is deliberately
@@ -468,6 +476,18 @@ export async function detectStalls(contract, running, onTimeout, onProgress, onB
       // (`turns` counts provider requests for claude, dsh and agy; codex
       // reports whole turns, so its cap is in effect a turn count.)
       const turnCap = job.node?.maxTurns ?? contract.maxTurns;
+      // The ceiling used to arrive only as the kill. `maxTurns` appeared once
+      // in the whole documentation set and not at all in the contract
+      // reference, so the author of a long-running contract raised
+      // `timeoutSec` and `stallTimeoutSec` -- everything they knew existed --
+      // and left this at its default; two Opus attempts at maximum effort
+      // were then cut mid-turn with `turn_limit`, after the cost was already
+      // paid. Said once per attempt as the ceiling comes into view, it is a
+      // decision the operator can still make.
+      if (typeof turnCap === "number" && job.turnCapWarned !== true && monitored.turns >= Math.floor(turnCap * TURN_CAP_WARN_FRACTION)) {
+        job.turnCapWarned = true;
+        process.stdout.write(`[node] ${nodeId} ${job.phase} · ${monitored.turns} of the attempt's maxTurns of ${turnCap} provider requests · raise maxTurns to give it more\n`);
+      }
       if (typeof turnCap === "number" && monitored.turns >= turnCap) {
         const limit = {
           code: "turn_limit",

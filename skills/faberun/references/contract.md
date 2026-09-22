@@ -47,10 +47,8 @@ typecheck`). Schema version is `3`.
 
 Every `definitionOfDone` item declares `id`, `text`, and how it is proven:
 `proof.kind` `command` (re-runs the command through a shell, bounded by the
-same `timeoutSec` the node's own attempt gets — so a command that passes as
-`verification` is never rejected by a smaller gate budget; quote a flag value
-containing spaces, since unlike `verification`'s argv a shell splits it, and
-`contract validate` warns when it sees an unquoted one) or `path` (a file must
+node's own `timeoutSec`; quote a flag value containing spaces, which
+`verification`'s argv does not need and a shell splits) or `path` (a file must
 exist), or `judgment: true` for the judge. `proof: {
 kind: "verification", ref: <index> }` reuses a `verification` entry's already
 recorded result by position instead of re-running it — never by comparing argv
@@ -101,10 +99,9 @@ exception to closed scope — otherwise it is closed to the listed files. Each
 `verification` entry is `{argv, cwd?, timeoutSec? (default 120, max 600),
 repeat? (default 1, max 8), env?, requirementId?}` — at most 32 commands, 64
 argv items, 32 KiB argv bytes per command. `requirementId` names the spec
-requirement this command proves; it changes nothing about how the command
-runs, and it is what lets `contract validate` report two copies of one
-requirement's proof that have stopped agreeing, or a command claiming a
-requirement its node does not carry. `env` declares variable *names* only; values
+requirement this command proves, changing nothing about how it runs: it is
+what lets `contract validate` report two copies of one proof that have stopped
+agreeing. `env` declares variable *names* only; values
 never travel in the packet. `prompt`/`promptFile` are
 rejected; a node has `taskPacket` or `taskPacketFile`, never both. Measure a
 candidate command's real duration before naming it in `verification` or a
@@ -297,7 +294,14 @@ only for a harness declaring `streamsOutput` (true for `codex`, `claude`,
 others fall back to `timeoutSec` alone.
 `timeoutSec` (default 2400s) caps one invocation and may be overridden per
 node; a node is bounded by `(1 + maxRevisions) × 2 × timeoutSec`. Both clocks
-are monotonic and pause with host suspend. `maxParallel` above 1 dispatches
+are monotonic and pause with host suspend.
+`maxTurns` (default 150) bounds something else: the *provider requests* one
+attempt may make, overridable per node. Reaching it ends the attempt with
+`errorCode: turn_limit`, sealed then retried once, the spend already spent. It
+bites the nodes that read much and write little — review, synthesis — so raise
+it there; raising `timeoutSec` does not help. The controller says so once at
+80%, and `usage.jsonl` records each invocation's `session.requests`.
+`maxParallel` above 1 dispatches
 every dependency-ready node concurrently, each into its own attempt
 worktree; integration stays serialized. Nodes of one phase need no edge
 between them: a continuation a live invocation already claims is never
