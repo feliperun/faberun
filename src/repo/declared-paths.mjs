@@ -224,3 +224,83 @@ function extractCommandTarget(line) {
   }
   return null;
 }
+
+/**
+ * The `src/` layers a node writes whose mirrored `test/` directory no
+ * verification command touches.
+ *
+ * `test/` mirrors `src/` by directory, and that is an enforced rule of this
+ * tree rather than a habit, so "this node writes the engine and nothing runs
+ * the engine's tests" is a mechanical question with a mechanical answer.
+ *
+ * Measured 2026-09-22, and this is why it exists: a node rewrote the dispatch
+ * gate in `src/engine/run-identity.mjs`, verified `test/engine/live-gate`,
+ * `test/host/preflight` and `test/harnesses/replay-run`, passed every one of
+ * them, passed its judge, and broke 56 of the 385 tests in `test/engine/` --
+ * the directory its own module lives in. No command it ran opened that
+ * directory. The whole contract is searched, not only the node's own
+ * commands, because a shared or final command covering the layer is coverage
+ * just the same.
+ *
+ * A test any node of the contract writes does not count, and that distinction
+ * is the whole detector. The node above *did* name
+ * `test/engine/live-gate.test.mjs` on a command line -- the file it had just
+ * created -- and the run's final verification added
+ * `test/engine/live-verdict.test.mjs`, which its sibling had just created.
+ * Running the tests the campaign is adding proves those tests run, never that
+ * the layer still works. Coverage means naming the directory, or a file in it
+ * that no node in this contract writes.
+ *
+ * A warning, never a refusal: a layer can be honestly verified from another
+ * directory, and only the author knows. But an author who meant it reads one
+ * line, and an author who forgot is handed back a day.
+ *
+ * @param {ValidatedNode} node
+ * @param {number} index
+ * @param {string} cwd
+ * @param {string[]} contractCommands shared and final verification, already joined
+ * @param {Set<string>} contractWrites every path any node of the contract writes
+ * @returns {string[]}
+ */
+export function mirrorCoverageWarnings(node, index, cwd, contractCommands = [], contractWrites = new Set()) {
+  const written = new Set(node.taskPacket.writeFiles ?? []);
+  const authored = new Set([...written, ...contractWrites]);
+  const tokens = [
+    ...node.taskPacket.verification.flatMap((command) => command.argv),
+    ...contractCommands.flatMap((line) => line.split(/\s+/u)),
+  ].filter((token) => !authored.has(token));
+  /** @type {Set<string>} */
+  const layers = new Set();
+  for (const path of written) {
+    const layer = mirroredLayer(path, cwd);
+    if (layer) layers.add(layer);
+  }
+  return [...layers].sort().flatMap((layer) => (
+    tokens.some((token) => token.includes(`test/${layer}/`))
+      ? []
+      : [`nodes[${index}] (${node.id}): writes src/${layer}/ but no verification command runs a test under test/${layer}/ that this contract does not itself write`]
+  ));
+}
+
+/**
+ * The `test/` directory mirroring a written `src/` path, or null when the path
+ * is not source or has no mirror. `src/cli.mjs` mirrors to `test/cli/` because
+ * the entry point is the layer; `src/util.mjs` has no mirror directory and by
+ * the tree's own rule owns no domain, so it names none.
+ *
+ * @param {string} path
+ * @param {string} cwd
+ * @returns {string|null}
+ */
+function mirroredLayer(path, cwd) {
+  const match = /^src\/(?:([^/]+)\/|cli\.mjs$)/u.exec(path);
+  if (!match) return null;
+  const layer = match[1] ?? "cli";
+  try {
+    return lstatSync(join(cwd, "test", layer)).isDirectory() ? layer : null;
+  } catch {
+    // ENOENT: a layer with no mirrored test directory cannot be uncovered by
+    // one, so there is nothing to warn about.
+    return null;
+  }
+}

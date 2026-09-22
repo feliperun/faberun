@@ -15,7 +15,7 @@ import { assertObject, boundedString, nonNegativeInteger, nonNegativeNumber, pos
 import { validateMetadata } from "./schema-version.mjs";
 import { assertRuntimeExecutesCommands, requireRuntime, validateRuntime } from "./runtime.mjs";
 import { validateSourceIdentity } from "../repo/source-identity.mjs";
-import { commandCoverageWarnings, unsnapshottedWriteWarnings } from "../repo/declared-paths.mjs";
+import { commandCoverageWarnings, mirrorCoverageWarnings, unsnapshottedWriteWarnings } from "../repo/declared-paths.mjs";
 import { crossNodeScopeFindings, scopeClosureFindings } from "../repo/scope-closure.mjs";
 
 export { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
@@ -368,8 +368,15 @@ export function validateContract(raw, contractPath, options = {}) {
     throw new TypeError(`task packet scope does not close; declare in readFiles or writeFiles, or acknowledge in scopeAcknowledged: ${scopeErrors.join("; ")}`);
   }
 
+  // Validated here rather than inline below, because the mirror warning reads
+  // them: a layer covered by a shared or final command is covered.
+  const finalVerification = validateFinalVerification(raw.finalVerification, "contract.finalVerification");
+  const sharedVerification = validateSharedVerification(raw.sharedVerification, "contract.sharedVerification");
+  const contractCommands = [...finalVerification ?? [], ...sharedVerification ?? []].map((command) => command.argv.join(" "));
+  const contractWrites = new Set(nodes.flatMap((node) => node.taskPacket.writeFiles ?? []));
   const warnings = nodes.flatMap((node, index) => [
     ...commandCoverageWarnings(node, index),
+    ...(persisted ? [] : mirrorCoverageWarnings(node, index, cwd, contractCommands, contractWrites)),
     ...(persisted ? [] : unsnapshottedWriteWarnings(node, index, cwd)),
     ...(persisted ? [] : writeFileLineBudgetWarnings(node, index, cwd)),
   ]);
@@ -394,8 +401,8 @@ export function validateContract(raw, contractPath, options = {}) {
     // count, because it began with 200k tokens of context instead of 45k and
     // re-read them on every request.
     phaseSessionReuse: booleanField(raw.phaseSessionReuse, false, "contract.phaseSessionReuse"),
-    finalVerification: validateFinalVerification(raw.finalVerification, "contract.finalVerification"),
-    sharedVerification: validateSharedVerification(raw.sharedVerification, "contract.sharedVerification"),
+    finalVerification,
+    sharedVerification,
     nodeAdvisory: validateNodeAdvisory(raw.nodeAdvisory),
     warnings,
   });
