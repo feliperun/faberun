@@ -231,7 +231,9 @@ export function normalizeProviderResult(runtimeOrHarness, stdout, exitCode, sign
 
 /**
  * Normalize a provider envelope or recorded response into the availability
- * shape used by doctor and runtime assignment.
+ * shape used by doctor and runtime assignment. The reason names the cause the
+ * provider actually gave; a probe that timed out naming nothing reports
+ * `unknown`, never a guessed cause.
  *
  * @param {string|{harness: string}} runtimeOrHarness
  * @param {unknown} response
@@ -261,7 +263,12 @@ export function normalizeProviderAvailability(runtimeOrHarness, response, exitCo
   if (envelope.status === "exhausted" || classified?.reason === "quota_exhausted") {
     return { available: false, exhaustedUntil: exhaustedUntilOf(envelope), reason: code || "quota_exhausted" };
   }
-  if (classified?.reason === "authentication_failed") return classified;
+  if (classified) return classified;
+  // A probe that timed out names no cause at all, so any of the four would be
+  // invented from a slow answer. measured 2026-09-22: agy reported
+  // preflight_timeout after 15s and the real cause -- no configuration
+  // directory -- was visible only when a human looked at the filesystem.
+  if (/timeout|timed.?out/iu.test(text)) return { available: false, exhaustedUntil: null, reason: "unknown" };
   return { available: false, exhaustedUntil: null, reason: code || "provider_unavailable" };
 }
 
@@ -288,9 +295,10 @@ export function exhaustedUntilOf(envelope, now = Date.now()) {
 /**
  * Classify raw provider-produced text (a structured envelope's `error.code
  * error.message`, or a probe's raw stderr on a non-zero exit) into the same
- * insufficient-balance/quota/authentication reasons `normalizeProviderAvailability`
- * recognizes. Shared so a CLI-missing exit and a raw stderr balance/quota
- * message are classified by one set of patterns, never two drifting copies.
+ * insufficient-balance/quota/credential/model reasons
+ * `normalizeProviderAvailability` recognizes. Shared so a CLI-missing exit
+ * and a raw stderr balance/quota message are classified by one set of
+ * patterns, never two drifting copies.
  *
  * @param {string} text
  * @returns {{available: false, exhaustedUntil: string|null, reason: string}|null} null when text names none of the known patterns
@@ -302,8 +310,21 @@ function classifyAvailabilityText(text) {
   if (/quota|rate.?limit|usage limit|session limit|limit exhausted|1310/iu.test(text)) {
     return { available: false, exhaustedUntil: resetTimestamp(text), reason: "quota_exhausted" };
   }
+  // measured 2026-09-22, a Codex account asked for a model it may not use:
+  // "The <model> model is not supported when using Codex with a ChatGPT
+  // account". The remedy is declaring another model, not a wait or a retry.
+  if (/model .*not supported|unsupported model/iu.test(text)) {
+    return { available: false, exhaustedUntil: null, reason: "model_not_supported" };
+  }
   if (/auth|credential|unauthori[sz]ed|forbidden|invalid.*(?:key|token)|(?:api|access) key|login/iu.test(text)) {
     return { available: false, exhaustedUntil: null, reason: "authentication_failed" };
+  }
+  // A harness whose configuration directory does not exist has no credential
+  // to even fail with (measured 2026-09-22: agy), so this sits last: only text
+  // no earlier pattern named reaches it, and no classification that used to
+  // land elsewhere changes.
+  if (/config(?:uration)? (?:directory|dir)\b/iu.test(text)) {
+    return { available: false, exhaustedUntil: null, reason: "credentials_missing" };
   }
   return null;
 }
@@ -485,7 +506,11 @@ export function probeRuntime(runtime, options = {}) {
       child.kill("SIGTERM");
       finish({
         ...base,
-        availability: { available: false, exhaustedUntil: null, reason: "provider_unavailable" },
+        // A probe that ran out of time said nothing about why: `unknown` is
+        // the honest verdict, not one of the four causes. measured 2026-09-22:
+        // agy timed out after 15s while the real cause -- no configuration
+        // directory -- was visible only on the filesystem.
+        availability: { available: false, exhaustedUntil: null, reason: "unknown" },
         detail: `${identity(null)} · ${[missingEnvironmentDetail, `no response within ${timeoutSec}s`].filter(Boolean).join(" · ")}`,
       });
     }, timeoutSec * 1_000);
