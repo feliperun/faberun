@@ -10,7 +10,7 @@ import { appendInbox, noTransportWarning, readInbox, wakeCapabilityNotice, NOTIF
 import { enqueueCampaignNotification } from "../../src/engine/notify-queue.mjs";
 import { environmentPreflight, notifyTransportCheck } from "../../src/host/preflight.mjs";
 import { renderAgentSignalBlock, syncAgentSignal } from "../../src/repo/signal.mjs";
-import { acquireWatchLock, watchCampaignWake } from "../../src/cli/campaign.mjs";
+import { acquireWatchLock, watchCampaignWake } from "../../src/campaign/watch.mjs";
 import { runProgress } from "../../src/engine/supervise.mjs";
 import { SPAWN_WAIT_FACTOR, fixture, packet, writeContract, withEmptyPath, withFakeCodex, readStatus, waitForValue } from "../helpers.mjs";
 import { RUNNER_CLI } from "../runner-helpers.mjs";
