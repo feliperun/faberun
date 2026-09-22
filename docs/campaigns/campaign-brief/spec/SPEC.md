@@ -1,7 +1,7 @@
 ---
 id: campaign-brief
 title: "Campaign Brief before execution"
-version: 1.3.0
+version: 1.4.0
 status: draft
 date: 2026-09-22
 owner: Felipe Broering
@@ -34,17 +34,19 @@ campaign and must retain that purpose.
 
 - **statement:** after a plan freezes, the operator can generate and read its
   Campaign Brief before execution. Freeze records the structured spec's path
-  and content digest in `plan.json` and writes `plan.json.sha256` beside it;
-  generation verifies the plan file against that independent digest, then
-  verifies the contract and spec digests before reading facts. The Markdown
-  names the campaign, spec baseline
-  and digest, target git head, frozen plan path and contract digest. Missing
+  and content digest in `plan.json`. The planning pipeline writes the final
+  `plan.json`, including its `status` and `approved` fields, before writing
+  `plan.json.sha256` over those exact final bytes; it never rewrites the plan
+  after the sidecar. Generation verifies the whole plan file against that
+  independent digest, then verifies the contract and spec digests before
+  reading facts. The Markdown names the campaign, spec baseline and digest,
+  target git head, frozen plan path and contract digest. Missing
   inputs or a mismatch are refused, never summarized. Plans frozen before
   these identity fields exist require refreezing. The Markdown records the
   journal cursor and usage sample cutoff; the same spec, plan, contract and
   recorded-data snapshots produce the same bytes. Neither freezing nor
   generation launches a run.
-- **proof:** command: node --test test/plan/freeze.test.mjs test/campaign/campaign-brief.test.mjs
+- **proof:** command: node --test test/plan/freeze.test.mjs test/plan/pipeline.test.mjs test/campaign/campaign-brief.test.mjs
 
 ### R2. The first screen answers whether to proceed
 
@@ -63,15 +65,22 @@ campaign and must retain that purpose.
 
 - **statement:** a matrix lists every stable requirement id from the structured
   spec, the frozen contract nodes carrying that id, and each node's declared
-  proof or verification. It cross-checks the frozen plan's phase declarations
-  against those node ids and links to the spec and plan. A declared requirement
-  with no responsible node is `uncovered`; absent phase declarations are a
+  proof or verification. The planner gives every planned node one internal
+  phase id and declares each phase's requirement ids and deliverable; these
+  internal ids are distinct from the CLI `--phase` name of the frozen artefact.
+  The planning pipeline passes both node phase ids and declarations to freeze,
+  which stamps the phase's requirement ids on its contract nodes and records
+  the declarations in `plan.json`. A missing or undeclared node phase is a
+  planning error, not a silently unattributed node. The brief cross-checks
+  the frozen declarations against the stamped node ids and links to the spec
+  and plan. A declared requirement with no responsible node is `uncovered`;
+  absent phase declarations are a
   distinct `traceability missing` gap, not evidence that every requirement was
   intentionally left uncovered. A phase declaration that maps to no frozen
   node is also `traceability missing`, so a real planner/freeze fixture must
   preserve the phase-to-node mapping. Unknown ids in either phases or nodes
   are named explicitly.
-- **proof:** command: node --test test/plan/freeze.test.mjs test/campaign/campaign-brief.test.mjs
+- **proof:** command: node --test test/plan/template.test.mjs test/plan/pipeline.test.mjs test/plan/freeze.test.mjs test/campaign/campaign-brief.test.mjs
 
 ### R4. The work and judgment are legible
 
@@ -233,7 +242,10 @@ campaign and must retain that purpose.
 - A missing or changed spec, missing phase declarations, a phase with no
   frozen node, an uncovered requirement, an unknown id, a changed `plan.json`
   and a stale contract digest produce their distinct refusal or gap states. A
-  real planner/freeze fixture links each requirement to a node and proof;
+  real planner/freeze fixture assigns internal phases to nodes, preserves the
+  phase declarations and links each requirement to a node and proof. It
+  rejects a node with no declared phase and a sidecar made before the pipeline
+  adds the plan's final status/approval fields;
   older frozen plans lacking spec identity are refused until refrozen.
 - Parallel siblings and a blocked successor retain their edges in Markdown
   and HTML. With `maxParallel: 1`, the siblings are not described as
