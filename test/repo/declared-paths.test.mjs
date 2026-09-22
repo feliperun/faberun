@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { unsnapshottedWriteWarnings } from "../../src/repo/declared-paths.mjs";
+import { mirrorCoverageWarnings, unsnapshottedWriteWarnings } from "../../src/repo/declared-paths.mjs";
 import { RUNS_DIR_NAME } from "../../src/run/paths.mjs";
 
 /** @param {string} root @param {...string} args */
@@ -61,4 +61,75 @@ test(`a declared write under ${RUNS_DIR_NAME} warns with no .gitignore rule invo
   // warns, the runs directory is unobservable by construction -- it warns
   // with no .gitignore in the repository at all.
   assert.deepEqual(warnings, [`nodes[0] (build): writeFiles under ${RUNS_DIR_NAME}/ are outside the workspace snapshot, so the closed-scope gate cannot observe them`]);
+});
+
+/**
+ * @param {string[]} writeFiles
+ * @param {string[][]} verification
+ * @returns {import("../../src/contract/index.mjs").ValidatedNode}
+ */
+function nodeWriting(writeFiles, verification) {
+  return /** @type {import("../../src/contract/index.mjs").ValidatedNode} */ (/** @type {unknown} */ ({
+    id: "n",
+    taskPacket: { writeFiles, verification: verification.map((argv) => ({ argv })) },
+  }));
+}
+
+// Measured 2026-09-22 and the reason this detector exists: a node rewrote the
+// dispatch gate in src/engine/run-identity.mjs, ran three suites, passed all
+// of them and its judge, and broke 56 of the 385 tests in test/engine/ -- the
+// directory its own module lives in.
+test("a node writing a src layer with no test from that layer is warned", () => {
+  const node = nodeWriting(
+    ["src/engine/run-identity.mjs"],
+    [["node", "--test", "test/host/preflight.test.mjs"]],
+  );
+  const warnings = mirrorCoverageWarnings(node, 0, process.cwd());
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0], /writes src\/engine\/ but no verification command runs a test under test\/engine\//u);
+});
+
+test("running a test this contract writes is not coverage of its layer", () => {
+  const node = nodeWriting(
+    ["src/engine/run-identity.mjs", "test/engine/live-gate.test.mjs"],
+    [["node", "--test", "test/engine/live-gate.test.mjs"]],
+  );
+  const own = mirrorCoverageWarnings(node, 0, process.cwd());
+  assert.equal(own.length, 1, "its own new test proves the test runs, not that the layer works");
+
+  // A sibling node's new test is no better: the campaign wrote that one too.
+  const sibling = mirrorCoverageWarnings(
+    node,
+    0,
+    process.cwd(),
+    ["node --test test/engine/live-verdict.test.mjs"],
+    new Set(["test/engine/live-verdict.test.mjs"]),
+  );
+  assert.equal(sibling.length, 1, "a sibling's new test is still the contract's own");
+});
+
+test("a pre-existing test from the layer is coverage, wherever the command is declared", () => {
+  const node = nodeWriting(
+    ["src/engine/run-identity.mjs", "test/engine/live-gate.test.mjs"],
+    [["node", "--test", "test/engine/live-gate.test.mjs", "test/engine/failover.test.mjs"]],
+  );
+  assert.deepEqual(mirrorCoverageWarnings(node, 0, process.cwd()), []);
+
+  const viaFinal = nodeWriting(["src/engine/run-identity.mjs"], [["npm", "run", "typecheck"]]);
+  assert.deepEqual(
+    mirrorCoverageWarnings(viaFinal, 0, process.cwd(), ["node --test --test-concurrency=1 test/engine/failover.test.mjs"]),
+    [],
+    "a shared or final command covering the layer is coverage just the same",
+  );
+});
+
+test("a src path with no mirrored test directory names no layer", () => {
+  const util = nodeWriting(["src/util.mjs"], [["npm", "run", "typecheck"]]);
+  assert.deepEqual(mirrorCoverageWarnings(util, 0, process.cwd()), [], "util.mjs owns no domain and has no mirror");
+
+  const docs = nodeWriting(["docs/COMMANDS.md"], [["npm", "run", "typecheck"]]);
+  assert.deepEqual(mirrorCoverageWarnings(docs, 0, process.cwd()), [], "a non-source write names no layer");
+
+  const entry = nodeWriting(["src/cli.mjs"], [["npm", "run", "typecheck"]]);
+  assert.match(mirrorCoverageWarnings(entry, 0, process.cwd())[0], /writes src\/cli\//u, "the entry point mirrors test/cli/");
 });
