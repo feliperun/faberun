@@ -617,3 +617,12 @@ test("package.json's test script still preloads test/scoped-home.mjs", () => {
     "the static rule above is worthless if the runner stops loading the scope: node --test preloads nothing on its own",
   );
 });
+
+test("package.json's test script still preloads test/git-env.mjs", () => {
+  const pkg = JSON.parse(readFileSync(join(REPO_DIR, "package.json"), "utf8"));
+  assert.match(
+    pkg.scripts.test,
+    /--import\s+\.\/test\/git-env\.mjs/u,
+    "a fixture repository takes the machine's global git config without it, and a file that imports no helper takes it unnoticed",
+  );
+});

@@ -16,34 +16,15 @@ import { gitArguments } from "../src/host/platform.mjs";
 // explicitly inside the test and restore it afterward.
 import "./setup.mjs";
 
+// The git every fixture repository is created and read through; the runner
+// preloads it too, so this covers a file executed on its own.
+import "./git-env.mjs";
+
 // runsRoot registers every path it resolves as a project under $FABERUN_HOME.
 // Every fixture this suite builds resolves through it, so an unset variable
 // would write real project entries into the operator's own ~/.faberun as a
 // side effect of running the tests. Always a throwaway home, never the
 // operator's, even when one is configured: no suite run should depend on it.
-// Every git this suite spawns — directly, through the product, or through a
-// CLI the product spawns — inherits these two settings, because a fixture
-// repository is created in a temporary directory with no `.gitattributes` and
-// no local config, and otherwise takes whatever the machine happens to hold.
-//
-// `core.fsmonitor=false`: a repository with the file system monitor enabled
-// starts a detached `git fsmonitor--daemon` that outlives the directory it
-// watched, and this suite creates a throwaway repository per fixture —
-// measured 2026-09-20 on Windows 11, an afternoon of runs left 4810 of them
-// holding 39 GB, until no further test process could start.
-//
-// `core.autocrlf=false`: the default on Windows is `true`, and git then hands
-// back `\r\n` for the bytes a fixture wrote as `\n`. Measured 2026-09-22 on a
-// GitHub windows-latest runner, where it is the global default: four tests
-// failed comparing a file they had just written to the one git checked out —
-// a sealed attempt, a recovered cost, a declared read. The repository under
-// test belongs to the suite, and the suite writes LF.
-process.env.GIT_CONFIG_COUNT = "2";
-process.env.GIT_CONFIG_KEY_0 = "core.fsmonitor";
-process.env.GIT_CONFIG_VALUE_0 = "false";
-process.env.GIT_CONFIG_KEY_1 = "core.autocrlf";
-process.env.GIT_CONFIG_VALUE_1 = "false";
-
 // The runner owns the scope now — package.json preloads test/scoped-home.mjs
 // into every test process — so this only fills in for a file executed
 // without it, and an already-set home wins.
