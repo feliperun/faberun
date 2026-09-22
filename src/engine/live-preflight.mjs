@@ -52,9 +52,31 @@ const LIVE_PREFLIGHT_OUTPUT_LIMIT_BYTES = 512 * 1024;
 export async function preflightContract(contractPath, options = {}) {
   const absoluteContractPath = resolve(contractPath);
   const contract = validateContract(JSON.parse(readFileSync(absoluteContractPath, "utf8")), absoluteContractPath, options.persisted === true ? { persisted: true } : {});
-  const runtimes = reachableRuntimes(contract);
-  const staticChecks = await Promise.all([...runtimes.values()].map(({ runtime, requiredCapabilitySets }) =>
-    probeRuntime(runtime, { cwd: contract.cwd, requiredCapabilitySets }),
+  return preflightRuntimes([...reachableRuntimes(contract).values()], { ...options, cwd: contract.cwd });
+}
+
+/**
+ * The same ask, entered from a set of runtimes rather than a contract.
+ *
+ * `faberun plan` needs this and a contract cannot give it. Planning contracts
+ * carry no gate (`plan/template.mjs`), and `reachableRuntimes` only counts the
+ * judge role when a node's gate is enabled -- so preflighting the draft
+ * stage's contract asks the planner and never the reviewer, which is reached
+ * only as the *worker* of a later stage's own contract. Asking both before the
+ * first stage therefore has to name the runtimes directly.
+ *
+ * One asking function with two entry points, never two: the live probe, the
+ * throwaway repository, the budget and the detail wording are decided here
+ * once, so a caller cannot accidentally ask a different question.
+ *
+ * @param {{runtime: RuntimeSnapshot, requiredCapabilitySets?: import("../harnesses/index.mjs").CapabilityRequirements[]}[]} entries
+ * @param {{static?: boolean, liveTimeoutSec?: number, cwd?: string}} [options]
+ * @returns {Promise<ProbeResult[]>}
+ */
+export async function preflightRuntimes(entries, options = {}) {
+  const runtimes = entries.map((entry) => entry.runtime);
+  const staticChecks = await Promise.all(entries.map(({ runtime, requiredCapabilitySets }) =>
+    probeRuntime(runtime, { cwd: options.cwd, requiredCapabilitySets }),
   ));
   if (options.static === true) return staticChecks;
 
@@ -73,8 +95,7 @@ export async function preflightContract(contractPath, options = {}) {
   }
   try {
     return await Promise.all(staticChecks.map(async (check, index) => {
-      const runtime = [...runtimes.values()][index].runtime;
-      const live = await livePreflight(runtime, liveRepo, timeoutSec);
+      const live = await livePreflight(runtimes[index], liveRepo, timeoutSec);
       const liveDetail = live.status === "done"
         ? `live done · usage ${formatUsage(live.usage)} · cost ${formatCost(live.costUsd)}`
         : `live ${live.status} · ${live.error?.code ?? "provider_error"}: ${redactProviderText(live.error?.message ?? "generation failed")} · usage ${formatUsage(live.usage)} · cost ${formatCost(live.costUsd)}`;

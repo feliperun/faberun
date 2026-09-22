@@ -24,6 +24,7 @@ import { campaignCli } from "../cli/campaign.mjs";
 import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
 import { stableJson } from "../util.mjs";
 import { allowanceDelta, allowanceEventFields, sampleAllowance } from "../seat/allowance.mjs";
+import { askPlanningRuntimes, refusePlanningSilence } from "./preflight.mjs";
 import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
 import { RISK_TIERS, buildPlanningContract, validateFindings, validatePlanOutput } from "./template.mjs";
@@ -42,6 +43,7 @@ import { campaignTree, runDirectory } from "../run/paths.mjs";
 /** @typedef {{sizing: import("./sizing.mjs").SizingResult, routing: import("./routing.mjs").RoutingResult, nodes: JsonObject[]}} AssembledPlan */
 /** @typedef {"standard"|"high"|"none"} ApproveBelow */
 /** @typedef {(contractPath: string, contract: ValidatedContract) => Promise<void>|void} LaunchFn */
+/** @typedef {(runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, cwd: string) => Promise<import("../harnesses/index.mjs").ProbeResult[]>} AskFn */
 /** @typedef {(runDir: string) => Promise<import("../engine/supervise.mjs").RunProgress>|import("../engine/supervise.mjs").RunProgress} WaitFn */
 /** @typedef {{status: "frozen", plansDir: string, planPath: string, contractPath: string, approved: boolean, findings: PlanFindingOutput[], warnings: string[]}} FrozenPipelineResult */
 /** @typedef {{status: "contested", plansDir: string, planPath: string, findings: PlanFindingOutput[], round: number}} ContestedPipelineResult */
@@ -80,7 +82,7 @@ export const DEFAULT_NODE_BUDGET_MS = 600_000;
 const APPROVE_BELOW_VALUES = new Set(["standard", "high", "none"]);
 
 /**
- * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, runtimes: Record<string, JsonObject>, verification?: VerificationSuites, launch: LaunchFn, wait: WaitFn}} options
+ * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, runtimes: Record<string, JsonObject>, verification?: VerificationSuites, launch: LaunchFn, wait: WaitFn, ask?: AskFn}} options
  * @returns {Promise<FrozenPipelineResult|ContestedPipelineResult>}
  */
 export async function runPlanningPipeline(options) {
@@ -88,6 +90,7 @@ export async function runPlanningPipeline(options) {
     specPath, campaignId, phase, runtimes, launch, wait,
     reviewRounds = 2, runtimeDefaults = {}, verification = {},
   } = options;
+  const ask = options.ask ?? askPlanningRuntimes;
   const approveBelow = /** @type {ApproveBelow} */ (options.approveBelow ?? "standard");
   if (!APPROVE_BELOW_VALUES.has(approveBelow)) throw new TypeError(`approveBelow must be one of ${[...APPROVE_BELOW_VALUES].join(", ")}`);
   if (typeof launch !== "function") throw new TypeError("runPlanningPipeline requires a launch seam");
@@ -97,6 +100,7 @@ export async function runPlanningPipeline(options) {
   const campaignPath = campaignTree(cwd, campaignId);
   const campaign = readCampaign(campaignPath);
   if (campaign.status !== "active") throw new Error(`campaign is closed: ${campaignId}`);
+  refusePlanningSilence(await ask(runtimes, runtimeDefaults, cwd), cwd);
 
   const relativeSpecPath = repoRelativePath(cwd, specPath, "specPath");
   const specText = readFileSync(resolve(cwd, relativeSpecPath), "utf8");

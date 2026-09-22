@@ -621,3 +621,52 @@ test("a deterministic stage that fails after the rounds ends contested with its 
   const journal = readJournal(campaignTree(cwd, campaignId));
   assert.ok(journal.some((entry) => entry.type === "open-question" && entry.questionId === "plan-build-contested"));
 });
+
+// R4: the refusal lands before the first stage, which is the whole point. The
+// planner is spent at `draft` and the reviewer not until `review`, so a
+// reviewer that never answers used to surface after the draft was bought.
+test("a mute runtime refuses planning before the first stage launches", async () => {
+  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("asks-first-demo");
+  /** @type {string[]} */
+  const launched = [];
+  await assert.rejects(
+    runPlanningPipeline({
+      specPath: join(cwd, "docs/spec.md"),
+      campaignId,
+      phase: "build",
+      cwd,
+      runtimes,
+      runtimeDefaults,
+      launch: async (contractPath) => { launched.push(contractPath); },
+      wait,
+      ask: async () => [/** @type {never} */ (/** @type {unknown} */ ({
+        id: runtimeDefaults.judge, harness: "replay", ok: false,
+        detail: "replay 1.0.0 · live failed · preflight_timeout: no answer",
+      }))],
+    }),
+    (error) => {
+      assert.equal(/** @type {{code?: string}} */ (error).code, "env_preflight_failed");
+      assert.match(String(error), /did not answer: preflight_timeout/u);
+      return true;
+    },
+  );
+  assert.deepEqual(launched, [], "no stage was launched, so nothing was spent");
+});
+
+test("planning whose runtimes all answer runs its stages unchanged", async () => {
+  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("asks-first-green");
+  let asked = 0;
+  const result = await runPlanningPipeline({
+    specPath: join(cwd, "docs/spec.md"),
+    campaignId,
+    phase: "build",
+    cwd,
+    runtimes,
+    runtimeDefaults,
+    launch,
+    wait,
+    ask: async () => { asked += 1; return []; },
+  });
+  assert.equal(result.status, "frozen");
+  assert.equal(asked, 1, "asked once, before the first stage, never once per stage");
+});
