@@ -24,6 +24,16 @@
  * redone, by the next run: it verifies the published copy still holds every
  * byte the original holds and removes the original.
  *
+ * A published copy that predates a path the original later gained can never
+ * pass that verification, and the branch that sees one runs no copy for the
+ * path to reach: measured 2026-09-21, `.runs/control/second-opinions` was
+ * written into this repository's original tree after the home side had
+ * become authoritative, and every migrate run refused on it identically.
+ * Repairing the copy in place would publish state nobody verified, so the
+ * refusal is made to carry the resolution instead — it names what to carry
+ * into the published copy by hand, and the run after that action completes
+ * the move.
+ *
  * Idempotent by the same shape. A second run after a completed migration
  * finds no legacy root and reports nothing to move — the normal case for an
  * operator rerunning the command to be sure. A re-run after an interrupted
@@ -109,7 +119,7 @@ export function migrateRunState(cwd, options = {}) {
   // became authoritative; this branch never writes to the copy, so nothing
   // of theirs is at risk.
   if (existsSync(target)) {
-    verifyCopy(legacy, target);
+    verifyCopy(legacy, target, "published");
     const runs = countRunDirs(legacy);
     const campaigns = countCampaigns(legacy);
     refuseLiveLeases(leasesOf(legacy));
@@ -125,7 +135,7 @@ export function migrateRunState(cwd, options = {}) {
   // moment the removal ran; verbatim keeps the literal target, so relative
   // links (the worktrees' dependency symlinks) survive the move.
   cpSync(legacy, staging, { recursive: true, verbatimSymlinks: true });
-  verifyCopy(legacy, staging);
+  verifyCopy(legacy, staging, "staging");
   verifyNothingExtra(legacy, staging);
   const runs = countRunDirs(legacy);
   const campaigns = countCampaigns(legacy);
@@ -251,22 +261,28 @@ function refuseLiveLeases(leases) {
  * of what must be true, and byte-for-byte equality is the strongest check
  * that proves it without trusting the copy step's own bookkeeping.
  *
+ * `role` is which copy this is, and it only chooses what a refusal tells the
+ * operator to do about it: a staging copy is discarded and recopied by the
+ * next run, while a published copy is the one every reader answers while
+ * both trees exist, so only the operator can carry the difference into it.
+ *
  * @param {string} source
  * @param {string} copy
+ * @param {"staging"|"published"} role
  * @returns {void}
  */
-function verifyCopy(source, copy) {
+function verifyCopy(source, copy, role) {
   for (const entry of readdirSync(source, { withFileTypes: true })) {
     const from = join(source, entry.name);
     const to = join(copy, entry.name);
     if (entry.isDirectory()) {
       // lstat, not stat: a copied symlink to a directory must not pass as
       // the directory it points at.
-      if (!lstatSync(to, { throwIfNoEntry: false })?.isDirectory()) throw verifyFailure(from, to);
-      verifyCopy(from, to);
+      if (!lstatSync(to, { throwIfNoEntry: false })?.isDirectory()) throw verifyFailure(from, to, role);
+      verifyCopy(from, to, role);
     } else if (entry.isSymbolicLink()) {
-      if (readLinkOrUndefined(to) !== readlinkSync(from)) throw verifyFailure(from, to);
-    } else if (readOrUndefined(to)?.equals(readFileSync(from)) !== true) throw verifyFailure(from, to);
+      if (readLinkOrUndefined(to) !== readlinkSync(from)) throw verifyFailure(from, to, role);
+    } else if (readOrUndefined(to)?.equals(readFileSync(from)) !== true) throw verifyFailure(from, to, role);
   }
 }
 
@@ -300,9 +316,23 @@ function verifyNothingExtra(source, copy) {
   }
 }
 
-/** @param {string} from @param {string} to @returns {Error} */
-function verifyFailure(from, to) {
-  return new Error(`migration copy does not verify: ${from} is missing or different at ${to}; nothing was published or removed`);
+/**
+ * The refusal is the only way out of a copy that does not verify, so it
+ * names the action that lets a later run finish, not just the mismatch. For
+ * a staging copy that action is nothing: the next run discards the staging
+ * and copies anew. For a published copy there is no next-run help — the
+ * branch runs no copy, and migrating must not repair a copy behind the
+ * operator's back — so the refusal carries the whole resolution: what to
+ * carry into the published copy, by hand, and that the run after that
+ * completes the move.
+ *
+ * @param {string} from @param {string} to @param {"staging"|"published"} role @returns {Error}
+ */
+function verifyFailure(from, to, role) {
+  const action = role === "published"
+    ? `${to} is the copy every reader answers while both trees exist: move what ${from} holds that it lacks into it and settle any differing bytes by hand, then run migrate again`
+    : "the staging copy is discarded and recopied by the next run, so run migrate again";
+  return new Error(`migration copy does not verify: ${from} is missing or different at ${to}; nothing was published or removed — ${action}`);
 }
 
 /** @param {string} path @returns {Error} */
