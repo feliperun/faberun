@@ -42,7 +42,7 @@ import { operationNextState, providerReceipts, settleInvocation } from "../run/o
 import { appendUsageRecord, invocationCost, invocationUsage, recordInvocationUsage } from "../run/usage.mjs";
 import { captureNodeScopeBoundaries, checkWorkerScope, emptyScope } from "./scope.mjs";
 import { validateContractForLaunch } from "../campaign/chain.mjs";
-import { finalVerificationCommands, sharedVerificationCommands } from "../contract/final-verification.mjs";
+import { finalVerificationCommands, gateProofTimeoutMs, sharedVerificationCommands } from "../contract/final-verification.mjs";
 import { startJudge, startWorker } from "./dispatch.mjs";
 import { assertEnvironmentReady, captureRunIdentity, createRunMetadata, serializableContract, statesFingerprint } from "./run-identity.mjs";
 import { blockDependents, runtimeAssignments } from "./assignment.mjs";
@@ -118,7 +118,7 @@ export function nodeBudgetBasisMs(contract, node) {
   // finalVerification set with each.
   const attemptMs = packetMs + sharedMs;
   const candidateMs = attemptMs + finalMs;
-  const gateTimeoutMs = Math.max(1_000, Math.min(defaultTimeoutMs, 120_000));
+  const gateTimeoutMs = gateProofTimeoutMs(node, contract);
   const commandProofs = (node.definitionOfDone ?? []).filter((item) => item.proof?.kind === "command").length;
   return defaultTimeoutMs + attemptMs + candidateMs + commandProofs * gateTimeoutMs + finalMs;
 }

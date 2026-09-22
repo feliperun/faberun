@@ -14,46 +14,23 @@
  * injected measurer's own numbers) is what makes two calls at the same HEAD
  * byte-identical.
  */
-import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { timeVerificationCommands } from "../host/preflight.mjs";
-import { NOTIFY_BIN_ENV } from "../notify/index.mjs";
-import { NOTIFY_SESSION_ENV } from "../notify/session.mjs";
 import { boundedGitSync, gitHead } from "../repo/worktree.mjs";
+import { runShellCapture } from "./proof-run.mjs";
 
 /** @typedef {import("./spec.mjs").SpecRequirement} SpecRequirement */
+/** @typedef {import("./proof-run.mjs").MeasureProbes} MeasureProbes */
 /** @typedef {{requirementId: string|null, command: string, output: string, exitCode: number|null, truncated: boolean}} RequirementMeasurement */
 /** @typedef {{argv: string[], measuredMs: number, eligible: boolean}} VerificationCandidate */
 /** @typedef {{path: string, covers: string|null}} TestFileEntry */
 /** @typedef {{formatVersion: number, gitHead: string|null, paths: string[], truncated: boolean, scripts: Record<string, string>, verificationCandidates: VerificationCandidate[], testFiles: TestFileEntry[], requirementMeasurements: RequirementMeasurement[]}} RepoFacts */
-/** @typedef {{now?: () => number, run?: typeof import("node:child_process").spawnSync}} MeasureProbes */
 
 const FORMAT_VERSION = 1;
 const DEFAULT_MAX_PATHS = 2000;
 const ELIGIBLE_MS_CEILING = 600_000;
 const CANDIDATE_TIMEOUT_SEC = ELIGIBLE_MS_CEILING / 1_000;
-const MEASURE_TIMEOUT_MS = 30_000;
-const MEASURE_OUTPUT_CAP_BYTES = 4096;
-
-/**
- * The same named few `timeVerificationCommands` subtracts before spawning a
- * measurement (SIDE_EFFECT_ENV_KEYS in src/host/preflight.mjs, which is
- * module-private and could not be edited by the node that added this): a
- * measure must not notify a human and must not be redirectable at a live,
- * paid harness binary. A subtraction of a named few, not an allowlist — PATH,
- * HOME and every ordinary variable still pass through unchanged.
- */
-const MEASURE_SIDE_EFFECT_ENV_KEYS = [
-  NOTIFY_BIN_ENV,
-  NOTIFY_SESSION_ENV,
-  "FABERUN_CODEX_BIN",
-  "FABERUN_CLAUDE_BIN",
-  "FABERUN_AGY_BIN",
-  "FABERUN_DSH_BIN",
-  "FABERUN_ZCODE_BIN",
-  "FABERUN_EXEC_JSONL_BIN",
-];
 
 /**
  * Every path git tracks at HEAD, sorted. The bounded spawn is the same
@@ -177,9 +154,6 @@ function measureCandidates(cwd, commands, probes) {
  */
 export function measureRequirements(cwd, requirements, probes = {}) {
   if (requirements.length === 0) return [];
-  const run = probes.run ?? spawnSync;
-  const env = { ...process.env };
-  for (const key of MEASURE_SIDE_EFFECT_ENV_KEYS) delete env[key];
   /** @type {RequirementMeasurement[]} */
   const measurements = [];
   for (const requirement of requirements) {
@@ -188,20 +162,12 @@ export function measureRequirements(cwd, requirements, probes = {}) {
     // rather than guessed at.
     if (requirement.measure?.kind !== "command" || !requirement.measure.ref) continue;
     const command = requirement.measure.ref;
-    const result = run(command, { shell: true, cwd, timeout: MEASURE_TIMEOUT_MS, encoding: "utf8", env });
-    const combined = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-    const bytes = Buffer.from(combined, "utf8");
-    const truncated = bytes.length > MEASURE_OUTPUT_CAP_BYTES;
-    measurements.push({
-      requirementId: requirement.id,
-      command,
-      output: truncated ? bytes.subarray(0, MEASURE_OUTPUT_CAP_BYTES).toString("utf8") : combined,
-      exitCode: result.status,
-      truncated,
-    });
+    const { output, exitCode, truncated } = runShellCapture(cwd, command, probes);
+    measurements.push({ requirementId: requirement.id, command, output, exitCode, truncated });
   }
   return measurements;
 }
+
 
 /**
  * @param {string} cwd

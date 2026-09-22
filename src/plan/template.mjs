@@ -23,7 +23,7 @@ import { validateVerificationCommands } from "../contract/verification.mjs";
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
 /** @typedef {"draft"|"review"|"revise"|"spec-author"|"spec-review"} PlanningKind */
 /** @typedef {"low"|"standard"|"high"} RiskTier */
-/** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, specPath?: string, repoFactsPath?: string, cataloguePath?: string, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
+/** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, specPath?: string, repoFactsPath?: string, cataloguePath?: string, packageMode?: import("./sizing.mjs").PackageMode, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
 /** @typedef {{id: string, objective: string, taskKind: string, riskTier: RiskTier, dependsOn: string[], readFiles: string[], writeFiles: string[], scopeAcknowledged: string[], definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], verification: import("../contract/verification.mjs").VerificationCommand[], expectedTurns?: number}} PlanOutputNode */
 /** @typedef {{nodes: PlanOutputNode[], phases?: PlanPhase[], findings?: PlanFindingOutput[], justification?: string}} PlanOutput */
 /** @typedef {{id: string, requirementIds: string[], deliverable: string}} PlanPhase */
@@ -118,7 +118,29 @@ const PLAN_OUTPUT_SHAPE = '{nodes: [{id, objective, taskKind, riskTier, dependsO
  * 150 requests.
  */
 const SIZING_INSTRUCTION = "Size nodes to 4 to 6 write files where the work allows, and give every node an expectedTurns: the provider requests one worker needs to finish it end to end (measured median 49 for 4 to 6 files). A smaller node pays the same orientation and about 15 minutes of verification, judge and integration for less delivered work; a node you expect past 150 requests must be split, because a run cuts an attempt there.";
+/**
+ * The exploratory counterpart to the sizing guidance above: sizing by what a
+ * node reads, because that is what exploratory work is paid for. An audit
+ * node writes one findings file whatever surface it covers, so the write-set
+ * sentence would size every node in such a package identically and wrongly --
+ * which is why the audit of 2026-09-22 was written by hand as 50 KB of JSON
+ * instead of planned.
+ */
+const EXPLORATORY_SIZING_INSTRUCTION = "Size nodes by what each must read and by risk, never by what it writes: one write file is the normal shape for a finding, a review or an audit. Give every node an expectedTurns (the provider requests one worker needs end to end), keep the read volume of the nodes within the same order of each other so one does not cost several times its siblings, and split a node you expect past 150 requests, because a run cuts an attempt there.";
 const FINDINGS_SHAPE = "[{id, severity, nodeId, text}]";
+
+/**
+ * The instruction list is a frozen table because it is the same for every
+ * campaign; only the sizing sentence depends on what kind of package this is.
+ *
+ * @param {PlanningKind} kind
+ * @param {PlanningContractInputs} inputs
+ * @returns {string[]}
+ */
+function instructionsFor(kind, inputs) {
+  if (inputs.packageMode !== "exploratory") return INSTRUCTIONS[kind];
+  return INSTRUCTIONS[kind].map((line) => (line === SIZING_INSTRUCTION ? EXPLORATORY_SIZING_INSTRUCTION : line));
+}
 
 // The rule every planned packet is held to at freeze time, worded from
 // AGENTS.md's Faberun protocol and src/repo/scope-closure.mjs ("reading it
@@ -225,7 +247,7 @@ export function buildPlanningContract(kind, inputs) {
   const taskPacket = {
     mode: "discovery",
     objective: OBJECTIVES[kind],
-    instructions: INSTRUCTIONS[kind],
+    instructions: instructionsFor(kind, inputs),
     readFiles,
     writeFiles: [],
     symbols: [],

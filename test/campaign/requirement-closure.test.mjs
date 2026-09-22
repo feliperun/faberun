@@ -79,3 +79,45 @@ test("closing a campaign with no linked runs records an empty closure", () => {
   assert.deepEqual(campaign.requirements, []);
   assert.deepEqual(readCampaign(campaignPath).requirements, []);
 });
+
+// The last moment an accepted-but-flagged node can still be read. Measured
+// 2026-09-21: a node's gate verdict was `fail` with a real finding under the
+// threshold, the gate accepted it correctly, and the campaign then closed
+// with a retrospective claiming every gate had passed first time.
+test("close refuses while an accepted node's judge findings are unanswered, and proceeds once a note names the node", () => {
+  const runsDir = mkdtempSync(join(tmpdir(), "requirement-advisory-"));
+  const { path: campaignPath } = initializeCampaign(runsDir, { campaignId: "advisory-campaign", goal: "close honestly" });
+  registerRun(campaignPath, "run-a");
+  writeRun(runsDir, "run-a", [
+    {
+      id: "synthesis",
+      requirementIds: ["req-1"],
+      status: "done",
+      carried: ["req-1"],
+      verification: { passed: true },
+      gate: { verdict: "fail", maxSeverity: "minor", summary: "reads well. However, the cost table does not reconcile.", findings: [{ severity: "minor", description: "cost table does not reconcile", evidence: "row 7" }] },
+    },
+  ]);
+  appendJournal(campaignPath, { type: "retrospective", at: new Date().toISOString(), eventId: randomUUID(), sessionId: "session", text: "every gate passed on the first attempt" });
+
+  assert.throws(() => closeCampaign(campaignPath), /judge findings no note has answered: run-a\/synthesis \(1 finding, minor\)/u);
+
+  appendJournal(campaignPath, { type: "outcome", at: new Date().toISOString(), eventId: randomUUID(), sessionId: "session", runId: "run-a", text: "synthesis carried a minor finding about the cost table; accepted, tracked separately" });
+  assert.equal(closeCampaign(campaignPath).campaign.status, "closed");
+});
+
+test("a rejected node's findings do not block a close: there they are the rejection, not an aside", () => {
+  const runsDir = mkdtempSync(join(tmpdir(), "requirement-rejected-"));
+  const { path: campaignPath } = initializeCampaign(runsDir, { campaignId: "rejected-campaign", goal: "close honestly" });
+  registerRun(campaignPath, "run-a");
+  writeRun(runsDir, "run-a", [
+    {
+      id: "build",
+      requirementIds: ["req-1"],
+      status: "exhausted",
+      gate: { verdict: "fail", maxSeverity: "critical", summary: "rejected", findings: [{ severity: "critical", description: "broken", evidence: "test" }] },
+    },
+  ]);
+  appendJournal(campaignPath, { type: "retrospective", at: new Date().toISOString(), eventId: randomUUID(), sessionId: "session", text: "done" });
+  assert.equal(closeCampaign(campaignPath).campaign.status, "closed");
+});

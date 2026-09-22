@@ -224,3 +224,82 @@ test("faberun spec validate and scaffold through the CLI", () => {
   assert.notEqual(refused.status, 0);
   assert.match(refused.stderr, /refusing to overwrite/u);
 });
+
+// `spec validate` checked that a requirement had a proof written down, never
+// that the proof passes, so a proof anchored to a form the artifact no longer
+// has read as covered. Measured 2026-09-22: two requirements of one campaign's
+// spec named a proof neither could satisfy, `--strict-traceability` reported
+// nothing, and `campaign.json` marked both `covered`.
+test("--run-proofs runs a requirement's proof, and its absence still only checks the proof exists", () => {
+  const { head, dir } = initFixtureRepo();
+  const failing = VALID_SPEC(head).replace(
+    "`command: node --test test/feature.test.mjs`",
+    "`command: node -e \"process.exit(3)\"`",
+  );
+
+  const unchecked = validateSpec(failing, { cwd: dir });
+  assert.equal(unchecked.ok, true, "a proof that is merely present still validates when nothing runs it");
+  assert.ok(!unchecked.findings.some((finding) => finding.rule === "requirement-proof-failed"));
+
+  const run = validateSpec(failing, { cwd: dir, runProofs: true });
+  assert.equal(run.ok, false, "a spec whose proof fails is not ok once the proof is run");
+  const failures = run.findings.filter((finding) => finding.rule === "requirement-proof-failed");
+  assert.equal(failures.length, 1, JSON.stringify(run.findings));
+  assert.equal(failures[0].severity, "blocking", "a proof that does not pass is never advisory");
+  assert.match(failures[0].message, /requirement R1's proof does not pass \(command: /u);
+  assert.match(failures[0].message, /exit 3/u);
+});
+
+test("--run-proofs passes a proof that passes, and reports a path proof by existence", () => {
+  const { head, dir } = initFixtureRepo();
+  const passing = VALID_SPEC(head).replace(
+    "`command: node --test test/feature.test.mjs`",
+    "`command: node -e \"\"`",
+  );
+  assert.equal(validateSpec(passing, { cwd: dir, runProofs: true }).ok, true);
+
+  const missingPath = VALID_SPEC(head).replace(
+    "`command: node --test test/feature.test.mjs`",
+    "`path: docs/never-written.md`",
+  );
+  const missing = validateSpec(missingPath, { cwd: dir, runProofs: true });
+  assert.equal(missing.ok, false);
+  assert.match(
+    missing.findings.find((finding) => finding.rule === "requirement-proof-failed")?.message ?? "",
+    /\(path: docs\/never-written\.md\): no such path/u,
+  );
+
+  writeFileSync(join(dir, "PRESENT.md"), "here\n");
+  const presentPath = VALID_SPEC(head).replace(
+    "`command: node --test test/feature.test.mjs`",
+    "`path: PRESENT.md`",
+  );
+  assert.equal(validateSpec(presentPath, { cwd: dir, runProofs: true }).ok, true);
+});
+
+test("a judgment proof is left unattempted rather than reported as passing", () => {
+  const { head, dir } = initFixtureRepo();
+  const judged = VALID_SPEC(head).replace(
+    "`command: node --test test/feature.test.mjs`",
+    "`judgment: a reviewer agrees the shape is right`",
+  );
+  const result = validateSpec(judged, { cwd: dir, runProofs: true });
+  assert.ok(!result.findings.some((finding) => finding.rule === "requirement-proof-failed"), JSON.stringify(result.findings));
+});
+
+test("faberun spec validate --run-proofs fails the command a proof-less check passes", () => {
+  const { head, dir } = initFixtureRepo();
+  const specPath = join(dir, "SPEC.md");
+  writeFileSync(specPath, VALID_SPEC(head).replace(
+    "`command: node --test test/feature.test.mjs`",
+    "`command: node -e \"process.exit(3)\"`",
+  ));
+
+  const quiet = spawnSync(process.execPath, [CLI_PATH, "spec", "validate", specPath, "--json"], { encoding: "utf8", cwd: dir });
+  assert.equal(quiet.status, 0, quiet.stderr);
+  assert.equal(JSON.parse(quiet.stdout).ok, true);
+
+  const run = spawnSync(process.execPath, [CLI_PATH, "spec", "validate", specPath, "--run-proofs"], { encoding: "utf8", cwd: dir });
+  assert.equal(run.status, 1, run.stdout + run.stderr);
+  assert.match(run.stdout, /\[blocking\] requirement-proof-failed: requirement R1's proof does not pass/u);
+});

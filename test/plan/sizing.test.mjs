@@ -377,3 +377,79 @@ test("over-turn-ceiling: a node expected past the attempt cap is flagged once, n
   assert.deepEqual(applySizingRules(first.plan, { nodeBudgetMs: BUDGET, turnCeiling: 150 }).transformations, [], "a flagged node is not re-flagged");
   assert.deepEqual(first.estimate, { nodes: 2, overheadMinutes: 29 }, "the plan states what its node count costs before any worker turn");
 });
+
+// The audit of 2026-09-22 was rejected by `plan` and written by hand as 50 KB
+// of JSON instead: its rules aim at implementation nodes, and an audit node
+// writes one findings file whatever surface it covers. Sizing by the write
+// set either merges audits that have nothing to do with each other or refuses
+// the plan. Exploratory work is paid for by what it reads.
+/** @param {string} id @param {string[]} readFiles @returns {import("../../src/plan/sizing.mjs").PlanNode} */
+function auditNode(id, readFiles) {
+  return {
+    id,
+    taskPacket: { readFiles, writeFiles: [`findings/${id}.md`], verification: [] },
+    definitionOfDone: [{ id: `${id}-d`, text: "findings recorded", judgment: true }],
+  };
+}
+
+test("exploratory mode leaves one-file audit nodes alone where implementation mode merges them away", () => {
+  /** @type {import("../../src/plan/sizing.mjs").Plan} */
+  const plan = { nodes: [auditNode("audit-a", ["src/a.mjs"]), auditNode("audit-b", ["src/b.mjs"]), auditNode("audit-c", ["src/c.mjs"])] };
+
+  // Implementation sizing merges all three into one -- none carries a
+  // mechanical proof and each writes a single file -- and then refuses the
+  // plan for having become a single node. This is the refusal that sent the
+  // audit to be written by hand.
+  assert.throws(
+    () => applySizingRules(structuredClone(plan), { nodeBudgetMs: BUDGET, minWriteFiles: 4 }),
+    /sizing_single_node_plan/u,
+  );
+
+  const exploratory = applySizingRules(structuredClone(plan), { nodeBudgetMs: BUDGET, minWriteFiles: 4, packageMode: "exploratory" });
+  assert.equal(exploratory.plan.nodes.length, 3, "a one-file write set is the normal shape of a finding, not an underfilled node");
+  assert.deepEqual(exploratory.plan.nodes.map((node) => node.id), ["audit-a", "audit-b", "audit-c"]);
+});
+
+test("exploratory mode reports the node whose read surface dwarfs its siblings'", () => {
+  /** @type {Record<string, number>} */
+  const lines = { "src/huge.mjs": 3_970, "src/small-a.mjs": 300, "src/small-b.mjs": 400, "src/small-c.mjs": 350 };
+  const readVolume = (/** @type {string} */ path) => lines[path] ?? null;
+  /** @type {import("../../src/plan/sizing.mjs").Plan} */
+  const plan = {
+    nodes: [
+      auditNode("wide", ["src/huge.mjs"]),
+      auditNode("narrow-a", ["src/small-a.mjs"]),
+      auditNode("narrow-b", ["src/small-b.mjs"]),
+      auditNode("narrow-c", ["src/small-c.mjs"]),
+    ],
+  };
+
+  const { transformations } = applySizingRules(plan, { nodeBudgetMs: BUDGET, packageMode: "exploratory", readVolume });
+  const imbalance = transformations.filter((entry) => entry.rule === "read-volume-imbalance");
+  assert.equal(imbalance.length, 1, JSON.stringify(transformations));
+  assert.deepEqual(imbalance[0].nodes, ["wide"]);
+  assert.match(imbalance[0].detail, /reads 3970 lines against a median of 375/u);
+
+  // Implementation mode asks a different question and stays silent on this one.
+  const { transformations: implementation } = applySizingRules(structuredClone(plan), { nodeBudgetMs: BUDGET, readVolume });
+  assert.deepEqual(implementation.filter((entry) => entry.rule === "read-volume-imbalance"), []);
+});
+
+test("a balanced exploratory package reports no imbalance at all", () => {
+  /** @type {Record<string, number>} */
+  const lines = { "src/a.mjs": 300, "src/b.mjs": 400, "src/c.mjs": 350 };
+  const readVolume = (/** @type {string} */ path) => lines[path] ?? null;
+  const { transformations } = applySizingRules(
+    { nodes: [auditNode("a", ["src/a.mjs"]), auditNode("b", ["src/b.mjs"]), auditNode("c", ["src/c.mjs"])] },
+    { nodeBudgetMs: BUDGET, packageMode: "exploratory", readVolume },
+  );
+  assert.deepEqual(transformations.filter((entry) => entry.rule === "read-volume-imbalance"), []);
+});
+
+test("an unmeasurable read volume is left out rather than counted as zero", () => {
+  const { transformations } = applySizingRules(
+    { nodes: [auditNode("a", ["src/gone.mjs"]), auditNode("b", ["src/also-gone.mjs"])] },
+    { nodeBudgetMs: BUDGET, packageMode: "exploratory", readVolume: () => null },
+  );
+  assert.deepEqual(transformations.filter((entry) => entry.rule === "read-volume-imbalance"), []);
+});

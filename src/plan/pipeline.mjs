@@ -82,7 +82,7 @@ export const DEFAULT_NODE_BUDGET_MS = 600_000;
 const APPROVE_BELOW_VALUES = new Set(["standard", "high", "none"]);
 
 /**
- * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, runtimes: Record<string, JsonObject>, verification?: VerificationSuites, launch: LaunchFn, wait: WaitFn, ask?: AskFn}} options
+ * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, runtimes: Record<string, JsonObject>, verification?: VerificationSuites, packageMode?: import("./sizing.mjs").PackageMode, launch: LaunchFn, wait: WaitFn, ask?: AskFn}} options
  * @returns {Promise<FrozenPipelineResult|ContestedPipelineResult>}
  */
 export async function runPlanningPipeline(options) {
@@ -91,6 +91,11 @@ export async function runPlanningPipeline(options) {
     reviewRounds = 2, runtimeDefaults = {}, verification = {},
   } = options;
   const ask = options.ask ?? askPlanningRuntimes;
+  // Implementation work is sized by what it writes; exploratory work -- an
+  // audit, a review, a survey -- by what it reads, because it writes one
+  // findings file whatever surface it covers.
+  const packageMode = /** @type {import("./sizing.mjs").PackageMode} */ (options.packageMode ?? "implementation");
+  if (packageMode !== "implementation" && packageMode !== "exploratory") throw new TypeError(`packageMode must be implementation or exploratory: ${String(packageMode)}`);
   const approveBelow = /** @type {ApproveBelow} */ (options.approveBelow ?? "standard");
   if (!APPROVE_BELOW_VALUES.has(approveBelow)) throw new TypeError(`approveBelow must be one of ${[...APPROVE_BELOW_VALUES].join(", ")}`);
   if (typeof launch !== "function") throw new TypeError("runPlanningPipeline requires a launch seam");
@@ -183,7 +188,7 @@ export async function runPlanningPipeline(options) {
     return { contract: validated, output };
   };
 
-  const draft = await runStage("draft", { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath });
+  const draft = await runStage("draft", { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, packageMode });
   /** @type {PlanOutput|null} */
   let plan = null;
   // Everything still open against the plan in hand, accumulated across rounds
@@ -253,7 +258,7 @@ export async function runPlanningPipeline(options) {
     stage = "sizing";
     const sizing = applySizingRules(
       { nodes: currentPlan.nodes.map(toSizingNode), justification: currentPlan.justification },
-      { nodeBudgetMs: DEFAULT_NODE_BUDGET_MS, facts: repoFacts, minWriteFiles: MIN_WRITE_FILES, turnCeiling: DEFAULT_MAX_TURNS },
+      { nodeBudgetMs: DEFAULT_NODE_BUDGET_MS, facts: repoFacts, minWriteFiles: MIN_WRITE_FILES, turnCeiling: DEFAULT_MAX_TURNS, packageMode, readVolume: (path) => fileLineCount(join(cwd, path)) },
     );
     stage = "routing";
     const routing = resolveRuntimes(sizing.plan.nodes, {
@@ -371,7 +376,7 @@ export async function runPlanningPipeline(options) {
     const findingsPath = join(scratchDir, `findings-round-${round}.json`);
     writeJsonAtomic(findingsPath, findings);
     const revise = await runStage("revise", {
-      specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, findingsPath),
+      specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, findingsPath), packageMode,
     });
     // Kept for the write-drop comparison: the plan the revise revised, against
     // the plan it produced.
@@ -759,4 +764,22 @@ function toContractNode(node, phase, assignment) {
     definitionOfDone: node.definitionOfDone ?? [],
     gate,
   };
+}
+
+/**
+ * Lines in a file the plan declares as a read, or null when it cannot be
+ * counted (absent, a directory, unreadable). Exploratory sizing is measured
+ * against this: what a node must read is what it is paid for.
+ *
+ * @param {string} path
+ * @returns {number|null}
+ */
+function fileLineCount(path) {
+  try {
+    const text = readFileSync(path, "utf8");
+    if (text === "") return 0;
+    return text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
+  } catch {
+    return null;
+  }
 }

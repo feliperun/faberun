@@ -20,7 +20,8 @@ import { dirname } from "node:path";
 /** @typedef {{nodes: PlanNode[], justification?: string, [key: string]: unknown}} Plan */
 /** @typedef {{path: string, covers: string|null}} SizingTestFileEntry */
 /** @typedef {{testFiles?: SizingTestFileEntry[]}} SizingFacts */
-/** @typedef {{nodeBudgetMs: number, targetedFix?: boolean, facts?: SizingFacts, minWriteFiles?: number, maxMergedWriteFiles?: number, turnCeiling?: number}} SizingOptions */
+/** @typedef {"implementation"|"exploratory"} PackageMode */
+/** @typedef {{nodeBudgetMs: number, targetedFix?: boolean, facts?: SizingFacts, minWriteFiles?: number, maxMergedWriteFiles?: number, turnCeiling?: number, packageMode?: PackageMode, readVolume?: (path: string) => number|null}} SizingOptions */
 /** @typedef {{rule: string, nodes: string[], detail: string}} SizingTransformation */
 /** @typedef {{plan: Plan, transformations: SizingTransformation[], estimate: {nodes: number, overheadMinutes: number}}} SizingResult */
 
@@ -56,12 +57,22 @@ export function applySizingRules(plan, options) {
 
   let nodes = structuredClone(plan.nodes);
 
-  nodes = mergeNoMechanicalProof(nodes, transformations);
-  nodes = mergeContainedWriteSet(nodes, transformations);
-  nodes = mergeUnderfilledSiblings(nodes, options.minWriteFiles ?? null, options.maxMergedWriteFiles ?? MAX_MERGED_WRITE_FILES, transformations);
+  // Every merge rule below reasons about the write set, which is the right
+  // question for implementation work and the wrong one for exploratory work:
+  // an audit or review node writes one findings file whatever surface it
+  // covers, so a floor of four write files either merges nodes that have
+  // nothing to do with each other or refuses the plan outright. That is why
+  // the audit of 2026-09-22 was written by hand as 50 KB of JSON instead of
+  // planned. In exploratory mode the write set says nothing, and what a node
+  // must read is what it is judged on.
+  const exploratory = options.packageMode === "exploratory";
+  nodes = exploratory ? nodes : mergeNoMechanicalProof(nodes, transformations);
+  nodes = exploratory ? nodes : mergeContainedWriteSet(nodes, transformations);
+  nodes = mergeUnderfilledSiblings(nodes, exploratory ? null : options.minWriteFiles ?? null, options.maxMergedWriteFiles ?? MAX_MERGED_WRITE_FILES, transformations);
   nodes = splitOverBudgetVerification(nodes, nodeBudgetMs, facts, transformations);
   nodes = markParallelisable(nodes, transformations);
   nodes = flagOverTurnCeiling(nodes, options.turnCeiling ?? null, transformations);
+  if (exploratory) nodes = flagReadVolumeImbalance(nodes, options.readVolume ?? null, transformations);
 
   if (nodes.length === 1 && !targetedFix) {
     throw new Error(`sizing_single_node_plan: node ${nodes[0].id} is the plan's only node; pass options.targetedFix to allow a single-node plan`);
@@ -494,4 +505,61 @@ function longestChainDepth(nodes) {
     return depth;
   };
   return nodes.length === 0 ? 0 : Math.max(...nodes.map((node) => depthOf(node.id)));
+}
+
+/**
+ * How far a node's read volume may sit from its siblings' median before the
+ * imbalance is worth naming. Three times: measured 2026-09-22 on an audit
+ * whose nodes were sized by write set (they each wrote one findings file, so
+ * nothing merged and nothing split), one node read about 3,970 lines and cost
+ * $2.00 for 2 findings while another cost $0.57 for 4. The ratio between them
+ * was close to four, and nothing in the plan said so before either ran.
+ */
+const READ_VOLUME_IMBALANCE_RATIO = 3;
+
+/**
+ * Exploratory work is sized by what a node must read, not by what it writes.
+ * An audit node writes one findings file whatever it covers, so every rule
+ * that reasons about the write set is silent here, and the surface a node
+ * carries is the thing that can be unbalanced.
+ *
+ * Advisory, never a transformation of the plan: which files a reviewer must
+ * read together is a judgment this cannot make, so it reports the imbalance
+ * and leaves the split to the author.
+ *
+ * @param {PlanNode[]} nodes
+ * @param {((path: string) => number|null)|null} readVolume lines in a declared read path, or null when it cannot be measured
+ * @param {SizingTransformation[]} transformations
+ * @returns {PlanNode[]}
+ */
+function flagReadVolumeImbalance(nodes, readVolume, transformations) {
+  if (!readVolume || nodes.length < 2) return nodes;
+  const volumes = nodes.map((node) => {
+    const paths = /** @type {string[]} */ (node.taskPacket.readFiles ?? []);
+    let total = 0;
+    let measured = false;
+    for (const path of paths) {
+      const lines = readVolume(path);
+      if (lines === null) continue;
+      measured = true;
+      total += lines;
+    }
+    return { id: node.id, total, measured };
+  }).filter((entry) => entry.measured);
+  if (volumes.length < 2) return nodes;
+
+  const sorted = [...volumes].sort((left, right) => left.total - right.total);
+  const middle = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 === 0 ? (sorted[middle - 1].total + sorted[middle].total) / 2 : sorted[middle].total;
+  if (median <= 0) return nodes;
+
+  for (const entry of volumes) {
+    if (entry.total <= median * READ_VOLUME_IMBALANCE_RATIO) continue;
+    transformations.push({
+      rule: "read-volume-imbalance",
+      nodes: [entry.id],
+      detail: `${entry.id} reads ${entry.total} lines against a median of ${median} across this plan; exploratory work is paid for by what it reads, so this node costs several times what its siblings do and is worth splitting`,
+    });
+  }
+  return nodes;
 }

@@ -105,7 +105,13 @@ Neither is allowed to be silent.**
   attempt worktree, so a scope declared through one resolves to a single
   spelling; a terminated process is an ordinary non-zero exit, so the
   signal-death retry cannot fire; `faberun seat` is still unclaimed, because
-  tmux is still POSIX.
+  tmux is still POSIX. [ADR 0009](0009-a-campaign-runs-on-windows.md) carries
+  the fifth, which belongs with these because an operator meets it the same
+  way: `git worktree add` fails with `'$GIT_DIR' too big` once the internal
+  `.git/worktrees/<name>` path passes about 160 characters, a fixed buffer in
+  Git for Windows that no configuration reaches. A repository a few
+  directories from the drive root is fine; one under a long temporary path is
+  not.
 
 ## References
 

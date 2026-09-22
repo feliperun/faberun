@@ -525,3 +525,55 @@ test("a turn cap ends the attempt the way a timeout does: seal path, code turn_l
   await detectStalls(/** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300, maxTurns: 10 }), new Map([["build", under]]), async (_job, _outcome, error) => { none = error; });
   assert.equal(none, undefined, "under the cap the observed requests are progress, nothing more");
 });
+
+// The ceiling used to arrive only as the kill. `maxTurns` was documented once
+// in the whole set and not in the contract reference, so the author of the
+// audit contract raised `timeoutSec` and `stallTimeoutSec` -- everything they
+// knew existed -- and left this at its default; two Opus attempts at maximum
+// effort were then cut mid-turn with `turn_limit`, after the cost was paid.
+test("an attempt says once that it is nearing its request ceiling, before the ceiling ends it", async () => {
+  /** @type {string[]} */
+  const written = [];
+  const write = process.stdout.write;
+  process.stdout.write = /** @type {any} */ ((/** @type {unknown} */ chunk) => { written.push(String(chunk)); return true; });
+  try {
+    // Four requests against a ceiling of five: past 80%, under the cap.
+    const transcript = `${[1, 2, 3, 4].map(() => JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0 } })).join("\n")}\n`;
+    const job = stallJob(transcript, { id: "luna", harness: "codex", model: "test" });
+    job.observedOnce = true;
+    /** @type {unknown} */
+    let ended;
+    const contract = /** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300, maxTurns: 5 });
+    await detectStalls(contract, new Map([["build", job]]), async (_job, _outcome, error) => { ended = error; });
+    assert.equal(ended, undefined, "the warning is not a kill: the attempt keeps running");
+
+    const warnings = written.filter((line) => line.includes("maxTurns"));
+    assert.equal(warnings.length, 1, `exactly one warning: ${JSON.stringify(written)}`);
+    assert.match(warnings[0], /4 of the attempt's maxTurns of 5 provider requests/u);
+    assert.match(warnings[0], /raise maxTurns/u);
+
+    // Said once per attempt, not once per tick: the operator reads it, and a
+    // line repeated every poll is a line nobody reads.
+    written.length = 0;
+    await detectStalls(contract, new Map([["build", job]]), async () => {});
+    assert.deepEqual(written.filter((line) => line.includes("maxTurns")), []);
+  } finally {
+    process.stdout.write = write;
+  }
+});
+
+test("an attempt well under its ceiling says nothing about it", async () => {
+  /** @type {string[]} */
+  const written = [];
+  const write = process.stdout.write;
+  process.stdout.write = /** @type {any} */ ((/** @type {unknown} */ chunk) => { written.push(String(chunk)); return true; });
+  try {
+    const transcript = `${JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0 } })}\n`;
+    const job = stallJob(transcript, { id: "luna", harness: "codex", model: "test" });
+    job.observedOnce = true;
+    await detectStalls(/** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300, maxTurns: 150 }), new Map([["build", job]]), async () => {});
+    assert.deepEqual(written.filter((line) => line.includes("maxTurns")), []);
+  } finally {
+    process.stdout.write = write;
+  }
+});
