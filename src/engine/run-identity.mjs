@@ -11,8 +11,9 @@
  * version on its first call, and a missing version is indistinguishable from a
  * changed one.
  */
-import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, probeRuntime } from "../harnesses/index.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, getHarness, harnessCapabilities, probeRuntime } from "../harnesses/index.mjs";
 import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
+import { availabilityKey, readAvailability, recordAvailability } from "../run/availability.mjs";
 import { blockingChecks, environmentPreflight, reachableRuntimes } from "../host/preflight.mjs";
 import { captureSourceIdentity } from "../repo/source-identity.mjs";
 import { boundedGitSync } from "../repo/worktree.mjs";
@@ -27,6 +28,8 @@ import { RUNS_DIR_NAME, runDirectory } from "../run/paths.mjs";
 import { preflightContract } from "./live-preflight.mjs";
 
 /** @typedef {import("../harnesses/index.mjs").HarnessRuntime} HarnessRuntime */
+/** @typedef {import("../harnesses/index.mjs").ProbeResult} ProbeResult */
+/** @typedef {import("../engine/runtime-discovery.mjs").RuntimeAvailability} RuntimeAvailability */
 /** @typedef {import("../cli.mjs").LockHandle} LockHandle */
 /** @typedef {import("../contract/index.mjs").NodeSnapshot} NodeSnapshot */
 /** @typedef {import("../contract/index.mjs").RunMetadata} RunMetadata */
@@ -181,6 +184,25 @@ let pendingLaunchBaseRef = null;
  */
 export function setLaunchBaseRef(baseRef) {
   pendingLaunchBaseRef = baseRef ?? null;
+}
+
+/**
+ * Whether this launch must ask every routed runtime again even where the
+ * verdict store holds a fresh answer (`--fresh-preflight`). A module rather
+ * than an option for the same reason `setLaunchBaseRef` is: the gate is
+ * reached through `runContract` and `resumeRun`, which thread no launch
+ * options of their own. A forced launch still records what it observes.
+ *
+ * @type {boolean}
+ */
+let pendingFreshPreflight = false;
+
+/**
+ * @param {boolean} force
+ * @returns {void}
+ */
+export function setFreshPreflight(force) {
+  pendingFreshPreflight = force === true;
 }
 
 /**
@@ -417,6 +439,33 @@ export function serializableContract(contract) {
 const LIVE_SILENCE_CAUSES = new Set(["preflight_timeout", "spawn_error"]);
 
 /**
+ * Live failure codes that name the pipeline rather than the provider, so they
+ * are verdicts of nothing and are never recorded: the two silences above, and
+ * `command_invalid`, which never reached a provider at all. The recordable
+ * set is the complement of this one, not of `LIVE_SILENCE_CAUSES` -- a
+ * command that could not be constructed passes the gate (validation owns
+ * that defect) but learned nothing about availability, so there is no verdict
+ * to persist.
+ */
+const LIVE_NO_VERDICT_CAUSES = new Set(["preflight_timeout", "spawn_error", "command_invalid"]);
+
+/**
+ * Whether an asked probe reached a provider and so carries a verdict worth
+ * recording. `done` reached it and completed; a failure whose detail names a
+ * live error code reached it too unless the code is one of the pipeline's own
+ * (see `LIVE_NO_VERDICT_CAUSES`). A refusal, an auth failure, unparsable
+ * output -- anything a provider itself produced -- is an answer.
+ *
+ * @param {ProbeResult} probe
+ * @returns {boolean}
+ */
+function liveVerdictRecorded(probe) {
+  if (probe.liveStatus === "done") return true;
+  const match = / · live \S+ · ([a-z_]+):/u.exec(probe.detail ?? "");
+  return match !== null && !LIVE_NO_VERDICT_CAUSES.has(match[1]);
+}
+
+/**
  * The dispatch gate: no node starts until the host can carry the run and the
  * runtimes it routes to have answered. The static half proves the host facts
  * — disk, git, worktree, a versioned binary per routed runtime. The live half
@@ -436,6 +485,13 @@ const LIVE_SILENCE_CAUSES = new Set(["preflight_timeout", "spawn_error"]);
  * leaves the materialized run untouched — the operator fixes the host and
  * resumes, so a run is never silently restarted and already-paid nodes are
  * not redone.
+ *
+ * A verdict is no longer single-launch property: before asking, the gate
+ * reads the verdict store under the operator's home (`run/availability.mjs`),
+ * and a provider answered inside its window is reused, the evidence naming
+ * the reuse and the instant the verdict was observed. Every ask that reached
+ * a provider is recorded there for the next launch. `--fresh-preflight`
+ * skips the read; it never skips the record.
  *
  * @param {ValidatedContract} contract
  * @param {string} runDir
@@ -470,7 +526,7 @@ export async function assertEnvironmentReady(contract, runDir, sourceIdentity) {
     // number is lifted here.
     const override = Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC);
     const timeoutSec = process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC !== undefined && Number.isFinite(override) && override > 0 ? override : 60;
-    const probes = await preflightContract(join(runDir, "contract.json"), { liveTimeoutSec: timeoutSec, persisted: true });
+    const probes = await livePreflightProbes(contract, runDir, sourceIdentity, timeoutSec);
     const silent = probes.filter((probe) => liveSilenceCause(probe) !== null);
     writeJsonAtomic(join(runDir, "env-preflight.json"), evidence(silent.length === 0, probes));
     if (silent.length > 0) {
@@ -492,6 +548,73 @@ export async function assertEnvironmentReady(contract, runDir, sourceIdentity) {
     checks: report.checks,
   });
   throw Object.assign(new Error(`env_preflight_failed: ${blocking} · the run stays resumable: fix the environment and resume ${runDir}`), { code: "env_preflight_failed" });
+}
+
+/**
+ * The live half of the gate for one launch. Every routed runtime either holds
+ * a verdict this machine recorded inside its freshness window -- reused, the
+ * evidence naming the instant it was observed -- or is asked now, and every
+ * ask that reached a provider is recorded for the next launch. Nothing here
+ * decides what an answer means: reuse changes only whether the provider is
+ * asked, never whether a pass is a pass.
+ *
+ * The read keys on what identifies the provider -- harness, model, the
+ * executable the harness adapter itself resolves -- the same resolution a
+ * probe reports, so a runtime re-labelled between contracts is still one
+ * provider and a provider pointing at another binary is a new question.
+ *
+ * @param {ValidatedContract} contract
+ * @param {string} runDir
+ * @param {SourceIdentity|undefined} sourceIdentity
+ * @param {number} timeoutSec
+ * @returns {Promise<ProbeResult[]>}
+ */
+async function livePreflightProbes(contract, runDir, sourceIdentity, timeoutSec) {
+  const routed = reachableRuntimes(contract);
+  /** @type {Map<string, RuntimeAvailability>} */
+  const fresh = new Map();
+  if (!pendingFreshPreflight) {
+    for (const [id, { runtime }] of routed) {
+      const verdict = readAvailability(availabilityKey({
+        harness: runtime.harness,
+        model: runtime.model,
+        executable: getHarness(runtime.harness).executable(runtime),
+      }));
+      if (verdict) fresh.set(id, verdict);
+    }
+  }
+  if (routed.size > 0 && fresh.size === routed.size) {
+    return [...routed.entries()].map(([id, { runtime }]) => {
+      const verdict = /** @type {RuntimeAvailability} */ (fresh.get(id));
+      return {
+        id,
+        harness: runtime.harness,
+        executable: getHarness(runtime.harness).executable(runtime),
+        model: runtime.model,
+        version: sourceIdentity?.harnessVersions?.[id] ?? null,
+        capabilities: harnessCapabilities(runtime),
+        requiredCapabilities: {},
+        requiredCapabilitySets: [],
+        ok: true,
+        live: true,
+        liveStatus: "reused",
+        detail: `live verdict reused · observed ${verdict.observedAt ?? "unknown instant"}`,
+      };
+    });
+  }
+  const probes = await preflightContract(join(runDir, "contract.json"), { liveTimeoutSec: timeoutSec, persisted: true });
+  // What this launch bought is durable from here on: every ask that reached a
+  // provider -- a refusal included, an answer being an answer -- is recorded
+  // under the provider's own identity. Silence and a command that never
+  // reached a provider are verdicts of nothing and are never recorded, so the
+  // operator who fixes the host is never told the fix "already answered".
+  recordAvailability(
+    probes
+      .filter((probe) => probe.live === true && probe.liveStatus !== "reused" && liveVerdictRecorded(probe))
+      .map((probe) => availabilityKey(probe)),
+    Date.now(),
+  );
+  return probes;
 }
 
 /**

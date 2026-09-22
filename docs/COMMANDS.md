@@ -52,7 +52,7 @@ These are the variables `src/` reads that a user, not a test, would set.
 
 ## faberun run
 ```text
-faberun run <contract.json> [--detach] [--base-ref <value>]
+faberun run <contract.json> [--detach] [--base-ref <value>] [--fresh-preflight]
 ```
 Validate a contract, refuse a launch when the base it would cut from is dirty,
 then drive the run's DAG. Use it to start a run; `--detach` is the normal shape
@@ -65,6 +65,7 @@ it.
 | --- | --- | --- | --- |
 | `--detach` | none | Spawn the controller detached and return once its bootstrap record exists. | off |
 | `--base-ref` | git ref | Cut every attempt worktree from this ref instead of the checkout's `HEAD`. | current `HEAD` |
+| `--fresh-preflight` | none | Ask every routed runtime the live preflight even when the verdict store under `FABERUN_HOME` (`availability.json`) holds an answer observed inside the freshness window (15 minutes); the fresh answers are recorded for later launches. | off |
 Reads `<contract.json>`. Writes `.runs/<contract.id>/` (frozen contract, run
 metadata, node snapshots, logs, `status.json`, `STATUS.md`), the attempt
 worktrees under `.runs/worktrees/<run-id>/`, and `refs/faberun/<run-id>/…`.
@@ -116,7 +117,7 @@ Related: `faberun doctor`, `faberun run`, `faberun validate`.
 
 ## faberun resume
 ```text
-faberun resume <run-dir> [--detach] [--node <value>] [--reconcile <value>] [--answer <value>]
+faberun resume <run-dir> [--detach] [--node <value>] [--reconcile <value>] [--answer <value>] [--fresh-preflight]
 ```
 Continue an interrupted run in place: the same run, node and frozen packet,
 attempt plus one. It adopts completed work first, then re-dispatches ordinary
@@ -129,6 +130,7 @@ against that same ref, from any checkout.
 | `--node` | node id | Limit the retry to that node and its dependents. | every eligible node |
 | `--reconcile` | node id | Re-dispatch a node blocked with `unknown_effect_reconciled`; refuses without it. | none |
 | `--answer` | `<node-id>=<path>` | Record an operator answer for a node blocked on context, then re-dispatch it and its dependents. The file is refused above 8 KiB. | none |
+| `--fresh-preflight` | none | Ask every routed runtime the live preflight again, ignoring any stored verdict inside its freshness window; the fresh answers are recorded for later launches. | off |
 Reads and writes `.runs/<run-id>/` (node snapshots, integration ledger,
 operations, logs) and the attempt worktrees. `--answer` is text only and is
 never written into a worktree.
