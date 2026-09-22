@@ -106,6 +106,16 @@ if (process.argv.includes("--version")) {
   process.stdin.on("data", (chunk) => { input += chunk; });
   process.stdin.on("end", () => {
     const prompt = input || process.argv.at(-1) || "";
+    // The dispatch gate says hello before any dispatch, and the worker counter
+    // below numbers the attempts this fixture reports. An uncounted hello is
+    // the difference between "worker attempt 2" and a number nobody wrote.
+    if (prompt.includes("FABERUN_PREFLIGHT_OK")) {
+      console.log(JSON.stringify({ type: "thread.started", thread_id: "preflight-hello" }));
+      const hello = JSON.stringify({ status: "done", summary: "preflight hello answered", verification: [], artifacts: [], missingContext: [] });
+      console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: hello } }));
+      console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));
+      return;
+    }
     const judge = prompt.startsWith("Review node");
     const materialization = prompt.startsWith("The implementation is already complete");
     const resultPath = /(?:file|to): (\\S+\\.json)/.exec(prompt)?.[1];

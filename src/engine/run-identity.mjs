@@ -24,6 +24,7 @@ import { stableJson } from "../util.mjs";
 import { validateRunMetadata } from "../contract/snapshot.mjs";
 import { contractDigest } from "../contract/index.mjs";
 import { RUNS_DIR_NAME, runDirectory } from "../run/paths.mjs";
+import { preflightContract } from "./live-preflight.mjs";
 
 /** @typedef {import("../harnesses/index.mjs").HarnessRuntime} HarnessRuntime */
 /** @typedef {import("../cli.mjs").LockHandle} LockHandle */
@@ -400,33 +401,128 @@ export function serializableContract(contract) {
     }),
   };
 }
+/** The live-preflight causes that mean no runtime said anything at all. */
+const LIVE_SILENCE_CAUSES = new Set(["preflight_timeout", "spawn_error", "command_invalid"]);
+
 /**
- * The dispatch gate: no node starts until the host can carry the run. The
- * report is written as run evidence either way, and a blocking failure leaves
- * the materialized run untouched — the operator fixes the host and resumes,
- * so a run is never silently restarted and already-paid nodes are not redone.
+ * The dispatch gate: no node starts until the host can carry the run and the
+ * runtimes it routes to have answered. The static half proves the host facts
+ * — disk, git, worktree, a versioned binary per routed runtime. The live half
+ * asks every routed runtime one trivial prompt through `preflightContract`,
+ * read-only in a throwaway repository, because a present, versioned binary
+ * can still hold a dead credential, a spent quota, or a model that no longer
+ * answers — and each of those fails a run minutes in, after a worktree and a
+ * campaign event already exist.
+ *
+ * Answered means answered, not healthy: any verdict a provider returns,
+ * a quota refusal included, counts as having answered, and the run proceeds
+ * onto whatever the contract declares. Only pipeline silence blocks, and a
+ * silent runtime is named with cause unknown — the verdict
+ * `normalizeProviderAvailability` reserves for a probe that named no cause.
+ *
+ * The report is written as run evidence either way, and a blocking failure
+ * leaves the materialized run untouched — the operator fixes the host and
+ * resumes, so a run is never silently restarted and already-paid nodes are
+ * not redone.
  *
  * @param {ValidatedContract} contract
  * @param {string} runDir
  * @param {SourceIdentity|undefined} sourceIdentity
  */
-export function assertEnvironmentReady(contract, runDir, sourceIdentity) {
+export async function assertEnvironmentReady(contract, runDir, sourceIdentity) {
+  const at = new Date().toISOString();
   const report = environmentPreflight({
     cwd: contract.cwd,
     runtimes: reachableRuntimes(contract),
     harnessVersions: sourceIdentity?.harnessVersions ?? {},
   });
-  const evidence = {
+  /** @param {boolean} ok @param {import("../harnesses/index.mjs").ProbeResult[]} [probes] @returns {Record<string, unknown>} */
+  const evidence = (ok, probes) => ({
     schemaVersion: report.schemaVersion,
     contractVersion: CONTRACT_VERSION,
-    at: new Date().toISOString(),
+    at,
     contractId: contract.id,
-    ok: report.ok,
+    ok,
     checks: report.checks,
-  };
-  writeJsonAtomic(join(runDir, "env-preflight.json"), evidence);
-  if (report.ok) return;
-  appendJsonl(join(runDir, "events.jsonl"), { type: "run.env-preflight-failed", ...evidence });
-  const blocking = blockingChecks(report).map((check) => `${check.name}: ${check.detail}`).join(" · ");
+    ...(probes === undefined ? {} : { runtimes: probes }),
+  });
+  writeJsonAtomic(join(runDir, "env-preflight.json"), evidence(report.ok));
+  let blocking = report.ok ? null : blockingChecks(report).map((check) => `${check.name}: ${check.detail}`).join(" · ");
+  // A launch with nothing left to dispatch asks nothing: when every persisted
+  // state reads done, this launch replays an accepted transaction, starts no
+  // worker and no judge, and can spend no availability.
+  if (blocking === null && launchMayDispatch(runDir)) {
+    // measured 2026-09-22: asking four routed runtimes in parallel took about
+    // 18s, so the default budget is 60s. FABERUN_PREFLIGHT_TIMEOUT_SEC stays
+    // the operator override; preflightContract validates it, so only a valid
+    // number is lifted here.
+    const override = Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC);
+    const timeoutSec = process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC !== undefined && Number.isFinite(override) && override > 0 ? override : 60;
+    const probes = await preflightContract(join(runDir, "contract.json"), { liveTimeoutSec: timeoutSec, persisted: true });
+    const silent = probes.filter((probe) => liveSilenceCause(probe) !== null);
+    writeJsonAtomic(join(runDir, "env-preflight.json"), evidence(silent.length === 0, probes));
+    if (silent.length > 0) {
+      blocking = `no runtime answered the live preflight: ${silent.map((probe) => `${probe.id ?? probe.harness} (cause unknown)`).join(" · ")}`;
+    }
+  }
+  if (blocking === null) return;
+  // The blocking failure is durable run evidence. The event carries exactly
+  // these seven fields — the live ProbeResults stay in env-preflight.json and
+  // never enter the event stream — and the append stays in this function: the
+  // field-ownership document names assertEnvironmentReady as the writer.
+  appendJsonl(join(runDir, "events.jsonl"), {
+    type: "run.env-preflight-failed",
+    schemaVersion: report.schemaVersion,
+    contractVersion: CONTRACT_VERSION,
+    at,
+    contractId: contract.id,
+    ok: false,
+    checks: report.checks,
+  });
   throw Object.assign(new Error(`env_preflight_failed: ${blocking} · the run stays resumable: fix the environment and resume ${runDir}`), { code: "env_preflight_failed" });
+}
+
+/**
+ * Whether this launch can dispatch anything. Read defensively: a missing
+ * nodes directory or an unparseable state means the launch may dispatch, so
+ * the runtimes are asked.
+ *
+ * @param {string} runDir
+ * @returns {boolean}
+ */
+function launchMayDispatch(runDir) {
+  let names;
+  try {
+    names = readdirSync(join(runDir, "nodes"));
+  } catch {
+    return true;
+  }
+  const states = names.filter((name) => name.endsWith(".json"));
+  if (states.length === 0) return true;
+  return states.some((name) => {
+    try {
+      return JSON.parse(readFileSync(join(runDir, "nodes", name), "utf8")).status !== "done";
+    } catch {
+      return true;
+    }
+  });
+}
+
+/**
+ * Whether a live probe is pipeline silence rather than a verdict, and which
+ * cause. `preflightContract` embeds the provider envelope's error code in the
+ * probe detail (`… · live failed · <code>: …`); the three codes in
+ * `LIVE_SILENCE_CAUSES` are the ones where no runtime said anything, and the
+ * repository-failure wording means no runtime was even asked. Everything else
+ * — a quota refusal, an auth failure, unparsable output — is a provider that
+ * answered, and an answer is hello enough.
+ *
+ * @param {import("../harnesses/index.mjs").ProbeResult} probe
+ * @returns {string|null}
+ */
+function liveSilenceCause(probe) {
+  if (probe.ok) return null;
+  if (/live preflight repository failed/u.test(probe.detail ?? "")) return "spawn_error";
+  const match = / · live \S+ · ([a-z_]+):/u.exec(probe.detail ?? "");
+  return match !== null && LIVE_SILENCE_CAUSES.has(match[1]) ? match[1] : null;
 }

@@ -216,6 +216,23 @@ Splitting a module is mechanical and should be scripted, not retyped — but:
   proves only that the script started; the file has to come after, or the
   wait proves nothing. Poll for it — polling is a lower bound on elapsed
   time, never an assertion about how fast this machine is.
+- **A provider fixture answers the liveness prompt without counting it.**
+  The dispatch gate says hello to every routed runtime before any dispatch,
+  so a provider is now invoked once per launch on top of every dispatched
+  turn. Any fixture that counts, sequences or logs invocations sees that
+  hello, and six of them did: `tier-exhaustion` asserts the evidence entries
+  exactly, `failover` asserts request counts and continuation ids, `routing`
+  keys its network failures on the call number, `seal-before-kill` hangs on
+  call 1 by design so the hello *became* the hang, `spend` logs every worker
+  prompt, and `runner-helpers`' result-file fixture numbers the attempt it
+  reports, so an uncounted hello is the difference between "worker attempt 2"
+  and a number nobody wrote. A fixture recognises the hello by `FABERUN_PREFLIGHT_OK` in
+  the prompt and answers it, exactly as it already recognises a judge prompt
+  by `Review node` — three kinds of prompt instead of two, same discipline.
+  Condition on the prompt text and nothing else: a fixture that checks the
+  environment, a path, or whether it is under test has stopped emulating a
+  provider and started faking one.
+
 - **Two `node --test` traps, both measured 2026-09-21 on v26.8.1, both of
   which make a check silently stop checking.** A `--test-reporter=` that
   appears *after* a test file on the command line is ignored — node reads its
@@ -245,5 +262,7 @@ When this file governs anything in production:
 Before starting new work here, check `.runs/`: if a campaign is active or a run is not terminal, continue it instead of starting over — read its `HANDOFF.md`/`STATUS.md`, attach to the campaign, and `resume` or `supervise` the run. Active runs are supervised by a deterministic detached process: do not poll `status` in a loop — on resume, check status once and act only on terminal states.
 
 - faberun campaign `availability-is-verified-not-assumed`: active — read `.runs/campaigns/availability-is-verified-not-assumed/HANDOFF.md`
-  - run `availability-is-verified-not-assumed-1-the-gate-asks`: active — read `.runs/availability-is-verified-not-assumed-1-the-gate-asks/STATUS.md`; `resume` or `supervise` it
+  - run `availability-is-verified-not-assumed-1-the-gate-asks`: succeeded (2/2 nodes)
+  - run `availability-is-verified-not-assumed-1b-refusing-only-what-has-no-answer`: parked — `the-gate-refuses-only-a-node-with-no-answer:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/availability-is-verified-not-assumed-1b-refusing-only-what-has-no-answer`
+  - run `availability-is-verified-not-assumed-1c-only-silence-blocks`: parked — `only-silence-blocks-the-run:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/availability-is-verified-not-assumed-1c-only-silence-blocks`
 <!-- faberun-active:end -->

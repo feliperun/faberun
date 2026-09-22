@@ -34,13 +34,23 @@ import { runsRoot } from "../run/paths.mjs";
 const LIVE_PREFLIGHT_PROMPT = "Respond with exactly FABERUN_PREFLIGHT_OK and do not use tools.";
 const LIVE_PREFLIGHT_OUTPUT_LIMIT_BYTES = 512 * 1024;
 /**
+ * `persisted` is for the dispatch gate, which hands over the run's own
+ * serialized contract: that one was validated when it was authored, and
+ * re-running the filesystem-dependent checks against the checkout reaches a
+ * different answer for a run launched with `--base-ref`, whose declared paths
+ * live in the ref and not in the working tree. Measured 2026-09-22: without
+ * it the gate refused a `--base-ref` run with "readFiles[0] does not exist".
+ * The CLI's own `preflight <contract>` leaves it off on purpose -- there the
+ * contract is an authored file the operator is asking about, so validating it
+ * whole is part of the answer.
+ *
  * @param {string} contractPath
- * @param {{static?: boolean, liveTimeoutSec?: number}} [options]
+ * @param {{static?: boolean, liveTimeoutSec?: number, persisted?: boolean}} [options]
  * @returns {Promise<ProbeResult[]>}
  */
 export async function preflightContract(contractPath, options = {}) {
   const absoluteContractPath = resolve(contractPath);
-  const contract = validateContract(JSON.parse(readFileSync(absoluteContractPath, "utf8")), absoluteContractPath);
+  const contract = validateContract(JSON.parse(readFileSync(absoluteContractPath, "utf8")), absoluteContractPath, options.persisted === true ? { persisted: true } : {});
   const runtimes = reachableRuntimes(contract);
   const staticChecks = await Promise.all([...runtimes.values()].map(({ runtime, requiredCapabilitySets }) =>
     probeRuntime(runtime, { cwd: contract.cwd, requiredCapabilitySets }),
