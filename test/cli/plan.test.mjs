@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { initializeCampaign } from "../../src/campaign/index.mjs";
 import { readJournal } from "../../src/campaign/journal.mjs";
@@ -667,4 +668,66 @@ test("planning whose runtimes all answer runs its stages unchanged", async () =>
   });
   assert.equal(result.status, "frozen");
   assert.equal(asked, 1, "asked once, before the first stage, never once per stage");
+});
+
+test("a single-node plan is refused by default and frozen under --targeted-fix", async () => {
+  // The finding this closes: sizing has always had `targetedFix`, and nothing
+  // could set it. A phase whose honest answer is one node -- a targeted fix --
+  // could not be planned at all, from any surface.
+  const onePlan = { nodes: [/** @type {Record<string, unknown>[]} */ (twoNodePlan().nodes)[0]] };
+  const refused = setup("single-node-refused", { plans: [onePlan, onePlan, onePlan] });
+  const contested = await runPlanningPipeline({
+    specPath: join(refused.cwd, "docs/spec.md"),
+    campaignId: refused.campaignId,
+    phase: "build",
+    cwd: refused.cwd,
+    runtimes: refused.runtimes,
+    runtimeDefaults: refused.runtimeDefaults,
+    launch,
+    wait,
+  });
+  assert.equal(contested.status, "contested", "one node is a plan that was never decomposed, until the operator says otherwise");
+  assert.ok(
+    JSON.stringify(contested.findings ?? []).includes("sizing_single_node_plan"),
+    "the contested result names the rule that refused it",
+  );
+
+  const allowed = setup("single-node-targeted", { plans: [onePlan, onePlan, onePlan] });
+  const result = await runPlanningPipeline({
+    specPath: join(allowed.cwd, "docs/spec.md"),
+    campaignId: allowed.campaignId,
+    phase: "build",
+    cwd: allowed.cwd,
+    runtimes: allowed.runtimes,
+    runtimeDefaults: allowed.runtimeDefaults,
+    targetedFix: true,
+    launch,
+    wait,
+  });
+  assert.equal(result.status, "frozen");
+  assert.equal(JSON.parse(readFileSync(result.contractPath, "utf8")).nodes.length, 1);
+});
+
+test("a detached plan that dies records why, and an unknown campaign is refused before anything is spawned", () => {
+  // `--detach` writes `bootstrap-failure.json` beside the phase's durable plan
+  // artifacts and the launcher reads it back; nothing exercised that path.
+  const { cwd, campaignId } = setup("detached-plan-dies");
+  const runner = fileURLToPath(new URL("../../src/cli.mjs", import.meta.url));
+  const dead = spawnSync(process.execPath, [
+    runner, "plan", "docs/no-such-spec.md", "--campaign", campaignId, "--phase", "build", "--detach",
+  ], { cwd, encoding: "utf8" });
+  assert.notEqual(dead.status, 0, "the launcher fails when the child it spawned did not start");
+  assert.match(dead.stderr, /bootstrap failed/u);
+  const failurePath = join(campaignTree(cwd, campaignId), "plans", "build", "bootstrap-failure.json");
+  assert.ok(existsSync(failurePath), "the reason has a durable home");
+  assert.match(String(JSON.parse(readFileSync(failurePath, "utf8")).error), /no-such-spec\.md/u);
+
+  // The failure record lives inside the campaign tree, so a typo in --campaign
+  // would otherwise leave a campaign directory with no record in it.
+  const unknown = spawnSync(process.execPath, [
+    runner, "plan", "docs/spec.md", "--campaign", "no-such-campaign", "--phase", "build", "--detach",
+  ], { cwd, encoding: "utf8" });
+  assert.notEqual(unknown.status, 0);
+  assert.match(unknown.stderr, /campaign not found/u);
+  assert.equal(existsSync(campaignTree(cwd, "no-such-campaign")), false, "a refused launch leaves no campaign directory behind");
 });

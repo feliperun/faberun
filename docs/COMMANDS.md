@@ -552,7 +552,7 @@ Related: `faberun spec validate`.
 
 ## faberun plan
 ```text
-faberun plan <spec.md> [--campaign <value>] [--phase <value>] [--review-rounds <value>] [--approve-below <value>] [--runtime-defaults <value>] [--runtimes <value>] [--verification <value>] [--package <value>] [--detach] [--json]
+faberun plan <spec.md> [--campaign <value>] [--phase <value>] [--review-rounds <value>] [--approve-below <value>] [--runtime-defaults <value>] [--runtimes <value>] [--verification <value>] [--package <value>] [--targeted-fix] [--detach] [--json]
 ```
 Run the planning pipeline outside the control session: draft, then review, then
 revise up to `--review-rounds` (default 2) whenever the reviewer's findings
@@ -575,6 +575,7 @@ approves everything, `none` approves nothing); an unapproved plan gets its own
 | `--runtimes` | path to a JSON file | A runtime catalogue in the contract's `runtimes` shape, validated the same way; replaces built-in discovery for every stage and the frozen contract. `--runtime-defaults` ids then resolve against it. | built-in discovery |
 | `--verification` | path to a JSON file | Verification suites in the contract's own shape — `sharedVerification`, `finalVerification`, either or both keys — validated the same way and carried verbatim into the frozen contract. A key that is not a contract suite is refused. | none — freezing with neither suite warns |
 | `--package` | `implementation` or `exploratory` | What kind of work this package is, which decides how nodes are sized. `implementation` sizes by the write set (4 to 6 files, merging what falls under it). `exploratory` — an audit, a review, a survey — sizes by what each node reads and by risk: a one-file write set is the normal shape of a finding, no node is merged for being underfilled, and a node whose read surface dwarfs its siblings' is reported. | `implementation` |
+| `--targeted-fix` | none | Accept a plan with a single node. Sizing refuses one by default, because a phase that decomposes into one node is usually a plan that was never decomposed; a targeted fix is the case where one node is the honest answer. | off |
 | `--detach` | none | Spawn the whole pipeline detached and return once it starts. | off |
 | `--json` | none | Emit the pipeline's result object as one JSON line. | off |
 Reads `<spec.md>` and the target campaign's record; writes

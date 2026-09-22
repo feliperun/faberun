@@ -16,6 +16,7 @@ import { colorLevel, statusToken } from "./brand.mjs";
 import { delay } from "../util.mjs";
 import { runPlanningPipeline } from "../plan/pipeline.mjs";
 import { campaignTree, runDirectory } from "../run/paths.mjs";
+import { readCampaign } from "../campaign/record.mjs";
 
 /** How often a foreground `plan` polls a launched stage's run directory. */
 const DEFAULT_POLL_MS = 1_000;
@@ -125,7 +126,7 @@ export function loadVerificationSuites(path) {
 
 /**
  * @param {string} target
- * @param {{campaign?: string, phase?: string, "review-rounds"?: string, "approve-below"?: string, "runtime-defaults"?: string, runtimes?: string, verification?: string, package?: string, detach?: boolean, json?: boolean}} values
+ * @param {{campaign?: string, phase?: string, "review-rounds"?: string, "approve-below"?: string, "runtime-defaults"?: string, runtimes?: string, verification?: string, package?: string, "targeted-fix"?: boolean, detach?: boolean, json?: boolean}} values
  * @returns {Promise<void>}
  */
 export async function planCli(target, values) {
@@ -151,7 +152,14 @@ export async function planCli(target, values) {
     if (typeof values.runtimes === "string" && values.runtimes) argv.push("--runtimes", resolve(values.runtimes));
     if (typeof values.verification === "string" && values.verification) argv.push("--verification", resolve(values.verification));
     if (packageMode !== "implementation") argv.push("--package", packageMode);
+    if (values["targeted-fix"] === true) argv.push("--targeted-fix");
     const failurePath = planBootstrapFailurePath(process.cwd(), campaignId, phase);
+    // Read the campaign before creating anything: the failure record lives
+    // inside the campaign tree, so a typo in --campaign would otherwise leave
+    // a campaign directory with no record in it for `discoverCampaigns` to
+    // find. The child reads it too; this is the launcher refusing what it can
+    // see for itself rather than detaching into a certain failure.
+    readCampaign(campaignTree(process.cwd(), campaignId));
     mkdirSync(dirname(failurePath), { recursive: true });
     rmSync(failurePath, { force: true });
     const child = detachArgv(argv);
@@ -188,6 +196,7 @@ export async function planCli(target, values) {
       runtimeDefaults,
       runtimes,
       verification,
+      targetedFix: values["targeted-fix"] === true,
       packageMode,
       launch: async (contractPath, contract) => {
         const child = detachSelf("run", contractPath);

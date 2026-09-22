@@ -124,6 +124,7 @@ export const COMMAND_OPTIONS = {
     runtimes: { type: "string" },
     verification: { type: "string" },
     package: { type: "string" },
+    "targeted-fix": { type: "boolean" },
     detach: { type: "boolean" },
     json: { type: "boolean" },
   },

@@ -82,13 +82,17 @@ export const DEFAULT_NODE_BUDGET_MS = 600_000;
 const APPROVE_BELOW_VALUES = new Set(["standard", "high", "none"]);
 
 /**
- * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, runtimes: Record<string, JsonObject>, verification?: VerificationSuites, packageMode?: import("./sizing.mjs").PackageMode, launch: LaunchFn, wait: WaitFn, ask?: AskFn}} options
+ * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, runtimes: Record<string, JsonObject>, verification?: VerificationSuites, packageMode?: import("./sizing.mjs").PackageMode, targetedFix?: boolean, launch: LaunchFn, wait: WaitFn, ask?: AskFn}} options
+ *   `targetedFix` allows a plan with a single node. Sizing refuses one by
+ *   default because a phase that decomposes into one node is usually a plan
+ *   that was never decomposed; a targeted fix is the case where one node is
+ *   the honest answer, and the operator says so.
  * @returns {Promise<FrozenPipelineResult|ContestedPipelineResult>}
  */
 export async function runPlanningPipeline(options) {
   const {
     specPath, campaignId, phase, runtimes, launch, wait,
-    reviewRounds = 2, runtimeDefaults = {}, verification = {},
+    reviewRounds = 2, runtimeDefaults = {}, verification = {}, targetedFix = false,
   } = options;
   const ask = options.ask ?? askPlanningRuntimes;
   // Implementation work is sized by what it writes; exploratory work -- an
@@ -258,7 +262,7 @@ export async function runPlanningPipeline(options) {
     stage = "sizing";
     const sizing = applySizingRules(
       { nodes: currentPlan.nodes.map(toSizingNode), justification: currentPlan.justification },
-      { nodeBudgetMs: DEFAULT_NODE_BUDGET_MS, facts: repoFacts, minWriteFiles: MIN_WRITE_FILES, turnCeiling: DEFAULT_MAX_TURNS, packageMode, readVolume: (path) => fileLineCount(join(cwd, path)) },
+      { nodeBudgetMs: DEFAULT_NODE_BUDGET_MS, facts: repoFacts, minWriteFiles: MIN_WRITE_FILES, turnCeiling: DEFAULT_MAX_TURNS, packageMode, readVolume: (path) => fileLineCount(join(cwd, path)), targetedFix },
     );
     stage = "routing";
     const routing = resolveRuntimes(sizing.plan.nodes, {
