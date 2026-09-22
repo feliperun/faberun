@@ -60,7 +60,18 @@ export const DISCOVERY_RUNTIME_DEFINITIONS = Object.freeze({
     costRank: 1,
   },
   "agy-gemini": { harness: "agy", model: "gemini-3.8-flash-low", vendor: "google", tier: 1, costRank: 1 },
+  // Three codex rows, because the harness declares three models and an
+  // account is entitled to only some of them: measured 2026-09-21 on the
+  // owner's ChatGPT account, plain `gpt-5.6` answers HTTP 400 while
+  // `gpt-5.6-sol` answers normally. One row meant `setup` could offer only the
+  // model that account cannot use, and the operator's only way out was to hand
+  // every contract its own catalogue through `--runtimes`. Declaration order is
+  // unchanged, so the composed default is still `codex-gpt`: which of the three
+  // an account can reach is not something this file can know, and the live
+  // preflight is what reports it per id.
   "codex-gpt": { harness: "codex", model: "gpt-5.6", vendor: "openai", tier: 2, costRank: 2 },
+  "codex-sol": { harness: "codex", model: "gpt-5.6-sol", vendor: "openai", tier: 2, costRank: 2 },
+  "codex-luna": { harness: "codex", model: "gpt-5.6-luna", vendor: "openai", tier: 2, costRank: 2 },
   "claude-sonnet": { harness: "claude", model: "claude-sonnet-5", vendor: "anthropic", tier: 2, costRank: 2 },
 });
 
