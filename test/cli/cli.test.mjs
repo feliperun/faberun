@@ -341,7 +341,7 @@ test("runner notifies node.terminal and run.terminal only, never a running node"
   assert.equal(result.ok, true);
   const receipts = notifications(result.runDir);
   assert.deepEqual(receipts.map((event) => event.type), ["node.terminal", "run.terminal"]);
-  assert.deepEqual(receipts.map((event) => event.status), ["delivered", "delivered"]);
+  assert.deepEqual(receipts.map((event) => event.status), ["filtered", "delivered"], "a node settling stays in the log by default; the run's settling leaves");
   // The summary is `renderRunProgress`'s own rendering of the run's persisted
   // state -- the same string the inbox and the transport both receive -- so
   // it now carries the worker's own words too, not counters and identifiers
@@ -418,7 +418,11 @@ test("ordinary runs deliver bounded node and run terminal notifications", async 
   writeFileSync(notifier, `#!${process.execPath}\nimport { appendFileSync } from "node:fs"; let input = ""; process.stdin.setEncoding("utf8"); process.stdin.on("data", chunk => { input += chunk; }); process.stdin.on("end", () => { appendFileSync(${JSON.stringify(delivered)}, input); });\n`);
   chmodSync(notifier, 0o755);
   const previous = process.env.FABERUN_NOTIFY_BIN;
+  const previousEvents = process.env.FABERUN_NOTIFY_EVENTS;
   process.env.FABERUN_NOTIFY_BIN = notifier;
+  // A node settling is filtered by default; this test is about the bounded
+  // text a transport receives for both kinds, so it lets the node's out too.
+  process.env.FABERUN_NOTIFY_EVENTS = "node.terminal,run.terminal";
   try {
     const result = await withFakeCodex(directory, "pass", () => runContract(path));
     const events = readFileSync(delivered, "utf8").trim().split("\n").map((line) => JSON.parse(line));
@@ -429,6 +433,8 @@ test("ordinary runs deliver bounded node and run terminal notifications", async 
   } finally {
     if (previous === undefined) delete process.env.FABERUN_NOTIFY_BIN;
     else process.env.FABERUN_NOTIFY_BIN = previous;
+    if (previousEvents === undefined) delete process.env.FABERUN_NOTIFY_EVENTS;
+    else process.env.FABERUN_NOTIFY_EVENTS = previousEvents;
   }
 });
 

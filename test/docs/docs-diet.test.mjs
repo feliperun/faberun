@@ -67,7 +67,11 @@ const CONTRACT_BYTE_CEILING = 22075;
 // (the message exists to inform the person, and reaches them only through the
 // session's reply): 258 bytes net, to the file's exact size and nothing else.
 // Raising it again needs the same argument.
-const OPERATIONS_BYTE_CEILING = 12039;
+// Raised again 2026-09-22 for the default event filter (a phase settling and a
+// person being needed leave; a node settling is a `filtered` receipt) and the
+// language override: 241 bytes net, to the file's exact size and nothing else.
+// Raising it again needs the same argument.
+const OPERATIONS_BYTE_CEILING = 12280;
 const RULES_BYTE_CEILING = 2048;
 const ENGINEERING_BYTE_CEILING = 2048;
 const WORKFLOW_BYTE_CEILING = 2048;

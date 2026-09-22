@@ -86,7 +86,59 @@ const MACOS_TRANSPORT = "os-macos";
  * fixtures its worker ran. `withoutNotifyEnv` is the boundary every child
  * crosses; `test/setup.mjs` neutralises the same names inside the suite.
  */
-export const NOTIFY_ENV_NAMES = Object.freeze([NOTIFY_BIN_ENV, NOTIFY_SESSION_ENV]);
+export const NOTIFY_EVENTS_ENV = "FABERUN_NOTIFY_EVENTS";
+export const NOTIFY_LANG_ENV = "FABERUN_NOTIFY_LANG";
+export const NOTIFY_ENV_NAMES = Object.freeze([NOTIFY_BIN_ENV, NOTIFY_SESSION_ENV, NOTIFY_EVENTS_ENV, NOTIFY_LANG_ENV]);
+
+/** Every event type the dispatcher can be asked to deliver. */
+export const NOTIFY_EVENT_TYPES = Object.freeze(["node.terminal", "run.terminal", "attention", "advisory"]);
+
+/**
+ * What leaves the controller when `FABERUN_NOTIFY_EVENTS` is unset: a phase
+ * settling, a node that waits on a person, and an advisory threshold the
+ * operator declared. A node settling stays in `notify.jsonl` as a `filtered`
+ * receipt. The operator's own words, 2026-09-22, after a run of two nodes
+ * produced four wake-ups: "só fechamento de fase e atenção acordam, nó
+ * individual fica no log" -- and before that, after the phone flood, "só
+ * milestones e fechamentos de fase". Measured on the campaign that prompted
+ * it: five phases of two or three nodes would be about 20 messages with every
+ * event, about 7 with these.
+ */
+export const DEFAULT_NOTIFY_EVENTS = Object.freeze(["run.terminal", "attention", "advisory"]);
+
+/** The two languages the message renders its wording in; `FABERUN_NOTIFY_LANG` may name either. */
+export const NOTIFY_LANGUAGES = Object.freeze(["en", "pt"]);
+
+/**
+ * The event types the environment lets out, as a set. Unknown items are left
+ * out here and reported by `notifySettingProblems`; an empty value is the
+ * default, never "nothing".
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {Set<string>}
+ */
+export function deliverableEventTypes(env = process.env) {
+  const items = (env[NOTIFY_EVENTS_ENV] ?? "").split(",").map((item) => item.trim()).filter((item) => item.length > 0);
+  return new Set(items.length ? items.filter((item) => NOTIFY_EVENT_TYPES.includes(item)) : DEFAULT_NOTIFY_EVENTS);
+}
+
+/**
+ * Every notify setting the environment gets wrong, one sentence each, for
+ * `doctor` and `preflight`. Empty when everything parses.
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string[]}
+ */
+export function notifySettingProblems(env = process.env) {
+  const problems = [];
+  const events = (env[NOTIFY_EVENTS_ENV] ?? "").split(",").map((item) => item.trim()).filter((item) => item.length > 0);
+  for (const item of events) {
+    if (!NOTIFY_EVENT_TYPES.includes(item)) problems.push(`${NOTIFY_EVENTS_ENV} item "${item}" is not one of ${NOTIFY_EVENT_TYPES.join(", ")}`);
+  }
+  const lang = (env[NOTIFY_LANG_ENV] ?? "").trim();
+  if (lang && !NOTIFY_LANGUAGES.includes(lang)) problems.push(`${NOTIFY_LANG_ENV}=${lang} is not one of ${NOTIFY_LANGUAGES.join(", ")}`);
+  return problems;
+}
 
 /**
  * @param {NodeJS.ProcessEnv} env
@@ -156,7 +208,7 @@ export const NOTIFY_NO_TRANSPORT_WARNING = "no human notification transport is c
 /** @typedef {Record<string, unknown>} JsonObject */
 /** @typedef {{schemaVersion: number, eventId: string, at: string, type: string, campaignId: string|null, runId: string|null, nodeId: string|null, status: string|null, errorCode: string|null, dedupeKey: string, summary: string}} InboxEntry */
 /** @typedef {{type: string, dedupeKey: string, summary: string, at?: string, campaignId?: string|null, runId?: string|null, nodeId?: string|null, status?: string|null, errorCode?: string|null}} InboxEvent */
-/** @typedef {{type: "node.terminal"|"run.terminal"|"attention", runId: string|null, campaignId?: string|null, nodeId?: string|null, status?: string|null, attempt?: number|null, errorCode?: string|null, done?: number|null, total?: number|null, dedupeKey?: string|null, runDir?: string|null, costUsd?: number|null, summary?: string|null, eventId?: string}} NotifyEvent */
+/** @typedef {{type: "node.terminal"|"run.terminal"|"attention"|"advisory", runId: string|null, campaignId?: string|null, nodeId?: string|null, status?: string|null, attempt?: number|null, errorCode?: string|null, done?: number|null, total?: number|null, dedupeKey?: string|null, runDir?: string|null, costUsd?: number|null, summary?: string|null, eventId?: string}} NotifyEvent */
 /** @typedef {{id: string, ok: boolean, error?: string}} TransportOutcome one transport's own outcome, named so the receipt says which took the message */
 /** @typedef {{ok: boolean, error?: string, noTransport?: boolean, transports?: TransportOutcome[]}} DeliveryResult */
 
@@ -503,14 +555,22 @@ export class NotifyQueue {
     // one), so every delivery carries a stable id derived from the dedupe key.
     const eventId = enriched.eventId
       ?? createHash("sha256").update(enriched.dedupeKey ?? JSON.stringify(enriched)).digest("hex");
+    // An event type the environment keeps out of every transport is still a
+    // receipt -- `filtered`, with the rendered summary -- so the log says what
+    // happened to it, and the resume's dedupe sees it as already handled.
+    const filtered = !deliverableEventTypes().has(enriched.type);
     /** @type {DeliveryResult} */
     let result;
-    try {
-      result = await this.deliver({ ...enriched, summary, eventId });
-    } catch (error) {
-      // A transport that rejects is a failed delivery, not a controller fault:
-      // the receipt is still appended and the failure is dropped like any other.
-      result = { ok: false, error: errorMessage(error) };
+    if (filtered) {
+      result = { ok: false, transports: [] };
+    } else {
+      try {
+        result = await this.deliver({ ...enriched, summary, eventId });
+      } catch (error) {
+        // A transport that rejects is a failed delivery, not a controller fault:
+        // the receipt is still appended and the failure is dropped like any other.
+        result = { ok: false, error: errorMessage(error) };
+      }
     }
     /** @type {JsonObject} */
     const receipt = {
@@ -525,13 +585,13 @@ export class NotifyQueue {
       dedupeKey: enriched.dedupeKey ?? null,
       summary,
       attempt: 1,
-      status: result.ok ? "delivered" : result.noTransport ? "no_transport" : "failed",
+      status: filtered ? "filtered" : result.ok ? "delivered" : result.noTransport ? "no_transport" : "failed",
       // One entry per bound transport, so a receipt that says `delivered`
       // also says whether the phone, the session, or both took the message.
       transports: result.transports ?? [],
       at: new Date(this.now()).toISOString(),
     };
-    if (!result.ok && !result.noTransport) receipt.error = result.error ?? null;
+    if (!filtered && !result.ok && !result.noTransport) receipt.error = result.error ?? null;
     appendFileSync(join(this.runDir, NOTIFY_LOG_FILE), `${JSON.stringify(receipt)}\n`);
   }
 }

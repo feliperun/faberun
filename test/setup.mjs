@@ -20,6 +20,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 delete process.env.FABERUN_NOTIFY_SESSION;
+// The event filter and the language override shape what a receipt records
+// and how a message reads; a test asserts both from the defaults.
+delete process.env.FABERUN_NOTIFY_EVENTS;
+delete process.env.FABERUN_NOTIFY_LANG;
 
 // A no-op transport rather than none: with the variable unset the outbox
 // records `no_transport`, and tests that assert a `delivered` receipt need a
