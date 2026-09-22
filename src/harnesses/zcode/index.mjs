@@ -1,4 +1,4 @@
-import { accessSync, chmodSync, constants, existsSync, lstatSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { accessSync, chmodSync, constants, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { normalizeZcodeResult, parseVersion } from "../protocol.mjs";
@@ -19,6 +19,20 @@ const ZCODE_MACOS_BUNDLE = Object.freeze({
   electron: "/Applications/ZCode.app/Contents/MacOS/ZCode",
   cli: "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs",
 });
+
+/**
+ * Linux install layouts: an Electron `.deb`/`.rpm` unpacks the app under
+ * `/opt/<App>` (some packagers use `/usr/lib/<app>`) with the same
+ * `resources/` shape the macOS bundle has. None of these is documented by the
+ * vendor — `docs/harnesses/zcode-cli.md` records only the macOS layout — so the
+ * list is a probe, and `FABERUN_ZCODE_APP_DIR` names an install this list
+ * does not know.
+ */
+const ZCODE_LINUX_BUNDLES = Object.freeze([
+  { electron: "/opt/ZCode/zcode", cli: "/opt/ZCode/resources/glm/zcode.cjs" },
+  { electron: "/opt/zcode/zcode", cli: "/opt/zcode/resources/glm/zcode.cjs" },
+  { electron: "/usr/lib/zcode/zcode", cli: "/usr/lib/zcode/resources/glm/zcode.cjs" },
+]);
 
 /** Provider id in the ZCODE_MODEL target; it also derives the auth env var name. */
 const ZCODE_DEFAULT_PROVIDER = "glm";
@@ -68,7 +82,9 @@ export const zcodeHarness = {
     // once at exit: a live worker node was killed at 420s stall_timeout with
     // its stdout/stderr at zero bytes, while a completed 1m26s invocation's
     // log held its full 26 lines only once the process exited. Stall
-    // detection must not watch this harness's stdout/stderr mtime.
+    // detection must not watch this harness's stdout/stderr mtime. Liveness
+    // comes from the CLI's own log stream instead — see `command()`'s
+    // ZCODE_LOG_DIR wiring, which the engine's stall clock watches.
     streamsOutput: false,
     // Unmeasured: no run has proven whether zcode's sandbox can signal child
     // processes or read the process table.
@@ -134,6 +150,19 @@ export const zcodeHarness = {
     // resolves (e.g. GLM_API_KEY); an unresolved token is omitted, not blanked.
     const apiKeyVar = providerApiKeyVar(provider);
     if (token !== null && apiKeyVar !== null) env[apiKeyVar] = token;
+    // The one live surface a buffered harness has: the CLI's own log stream.
+    // `--json` writes stdout only at exit, but `ZCODE_LOG_DIR` in `json`
+    // format receives session events as they happen, so the engine's stall
+    // clock can watch the log dir instead of holding the attempt to the wall
+    // clock alone. The engine supplies one dir per attempt (see
+    // `invocationCommandOptions`); the adapter creates it and points the CLI
+    // at it, and console logging stays off so stderr stays a pure error path.
+    if (options.logDir) {
+      mkdirSync(options.logDir, { recursive: true });
+      env.ZCODE_LOG_DIR = options.logDir;
+      env.ZCODE_LOG_FORMAT = "json";
+      env.ZCODE_LOG_CONSOLE = "false";
+    }
     return { executable: this.executable(runtime), args, promptTransport: "argv", input: null, env };
   },
 
@@ -187,8 +216,8 @@ export function ensureZcodeAvailable(options = {}) {
     const env = options.env ?? process.env;
     const pathDirs = options.pathDirs ?? (env.PATH ?? "").split(delimiter).filter(Boolean);
     if (resolvesOnPath(pathDirs, ZCODE_BIN_NAME)) return;
-    const bundle = options.bundle ?? ZCODE_MACOS_BUNDLE;
-    if (!existsSync(bundle.electron) || !existsSync(bundle.cli)) return;
+    const bundle = options.bundle ?? zcodeBundle(env);
+    if (!bundle || !existsSync(bundle.electron) || !existsSync(bundle.cli)) return;
     const body = zcodeShim(bundle);
     for (const dir of shimDirs(options.home ?? homedir())) {
       if (!pathDirs.includes(dir)) continue;
@@ -198,6 +227,22 @@ export function ensureZcodeAvailable(options = {}) {
     // Unreachable host: the spawn fails and the adapter classifies `not_found`,
     // which is the same answer a machine without the app gets.
   }
+}
+
+/**
+ * The bundle this host has, if any: an explicit `FABERUN_ZCODE_APP_DIR`
+ * override, the macOS app path on darwin, or the first probed Linux layout
+ * whose two paths both exist. A host with none gets null — the same "not
+ * installed" answer every probe below returns.
+ *
+ * @param {Record<string, string|undefined>} env
+ * @returns {{electron: string, cli: string}|null}
+ */
+function zcodeBundle(env) {
+  const appDir = env.FABERUN_ZCODE_APP_DIR;
+  if (appDir) return { electron: join(appDir, "zcode"), cli: join(appDir, "resources", "glm", "zcode.cjs") };
+  if (process.platform === "darwin") return ZCODE_MACOS_BUNDLE;
+  return ZCODE_LINUX_BUNDLES.find((bundle) => existsSync(bundle.electron) && existsSync(bundle.cli)) ?? null;
 }
 
 /**

@@ -335,7 +335,11 @@ schema. ✅
 - Executable: `FABERUN_ZCODE_BIN` → `runtime.executable` → `zcode` on
   `PATH`. When that name resolves to nothing, the adapter installs the section 2
   shim itself onto `PATH` (faberun's change of 2026-09-11; the original
-  text here described the shim as a manual prerequisite).
+  text here described the shim as a manual prerequisite). The bundle behind the
+  shim is found per host: the macOS app path on darwin, one of the probed
+  Linux layouts (`/opt/ZCode`, `/opt/zcode`, `/usr/lib/zcode` — same
+  `resources/glm/zcode.cjs` shape) otherwise, and `FABERUN_ZCODE_APP_DIR`
+  overrides both (`<dir>/zcode` + `<dir>/resources/glm/zcode.cjs`).
 - Per invocation the driver injects: `ZCODE_MODEL=<provider>/<model>`
   (provider from `config.provider`, default `glm`; `[1m]` suffix removed),
   `ZCODE_BASE_URL` (default `https://api.z.ai/api/anthropic`),
@@ -389,3 +393,12 @@ with it, this section is the current truth about the driver, not about the CLI.
   suffix and the CLI ignores it, a `glm-5.3[1m]` runtime and a `glm-5.3` runtime
   were the same invocation listed twice. The `models` catalogue now declares a
   single `glm-5.3` at the 1M window (`scripts/models.mjs`).
+- **The CLI's log stream is the buffered harness's one live signal**
+  (2026-09-22). `--json` still writes stdout only at exit, but
+  `ZCODE_LOG_DIR` + `ZCODE_LOG_FORMAT=json` receive session events as they
+  happen, so the engine hands every non-streaming invocation a per-attempt
+  log dir (`logs/<node>.<attempt>.provider` under the run dir) and its stall
+  clock treats a new write inside it as provider progress. `streamsOutput`
+  stays `false` — the engine still must not parse this harness's stdout —
+  and the 1800 s `stallTimeoutSec` now measures log silence, not total turn
+  age. Stderr stays a pure error path: `ZCODE_LOG_CONSOLE=false`.

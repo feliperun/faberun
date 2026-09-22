@@ -1,9 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 import { HARNESS_STALL_TIMEOUT_SEC, validateRuntime } from "../../src/contract/runtime.mjs";
 import { NON_FAILOVER_CODES, isTimeoutOrStall } from "../../src/engine/backoff.mjs";
@@ -401,6 +401,56 @@ test("done-when 7: a runtime's stallTimeoutSec is validated, falls back to the c
   let timeout;
   await detectStalls(/** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300 }), new Map([["build", job]]), async (_job, _status, error) => { timeout = error; });
   assert.equal(timeout?.code, "stall_timeout", "zcode is stalled by its own declared value");
+});
+
+// ---------------------------------------------------------------------------
+// done-when 7b: a buffered harness's provider log stream is a progress signal.
+// ---------------------------------------------------------------------------
+
+test("done-when 7b: a fresh write inside the provider log dir resets zcode's stall clock, and a silent log stalls it", async () => {
+  // A log the CLI has just appended to is progress, even though stdout stays
+  // at zero bytes for the whole buffered turn.
+  const alive = stallJob("", { id: "zcode-glm", harness: "zcode", model: "glm-5.3", stallTimeoutSec: 0.2 });
+  alive.logDir = join(dirname(alive.paths.stdout), "build.1.provider");
+  mkdirSync(alive.logDir, { recursive: true });
+  writeFileSync(join(alive.logDir, "session.jsonl"), `${JSON.stringify({ type: "message" })}\n`);
+  alive.observedOnce = true;
+  alive.lastLogWriteMs = 0;
+  ageProgress(alive, 500);
+  /** @type {unknown} */
+  let timeout;
+  await detectStalls(/** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300 }), new Map([["build", alive]]), async (_job, _status, error) => { timeout = error; });
+  assert.equal(timeout, undefined, "the log write is provider progress, not silence");
+  assert.ok((alive.lastLogWriteMs ?? 0) > 0, "the seen watermark advanced with the write");
+
+  // And a log dir nothing has written to since the watermark holds no
+  // liveness: past the threshold with no new write is a stall.
+  const silent = stallJob("", { id: "zcode-glm", harness: "zcode", model: "glm-5.3", stallTimeoutSec: 0.2 });
+  silent.logDir = join(dirname(silent.paths.stdout), "build.1.provider");
+  mkdirSync(silent.logDir, { recursive: true });
+  writeFileSync(join(silent.logDir, "session.jsonl"), `${JSON.stringify({ type: "message" })}\n`);
+  silent.observedOnce = true;
+  // The watermark is the write this loop has already seen: the log's own
+  // mtime, so no later scan can mistake the existing file for a new write.
+  // (Not `Date.now() + N` — that bets on this machine's clock.)
+  silent.lastLogWriteMs = statSync(join(silent.logDir, "session.jsonl")).mtimeMs;
+  ageProgress(silent, 500);
+  /** @type {{code: string}|undefined} */
+  let stalled;
+  await detectStalls(/** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300 }), new Map([["build", silent]]), async (_job, _status, error) => { stalled = error; });
+  assert.equal(stalled?.code, "stall_timeout", "a log dir is liveness only while writes keep arriving");
+
+  // A dir that does not exist yet proves nothing either way: a buffered
+  // runtime with a logDir but no log is tracked as silent, not crashed on.
+  const bare = stallJob("", { id: "zcode-glm", harness: "zcode", model: "glm-5.3", stallTimeoutSec: 0.2 });
+  bare.logDir = join(dirname(bare.paths.stdout), "absent.provider");
+  bare.observedOnce = true;
+  bare.lastLogWriteMs = 0;
+  ageProgress(bare, 500);
+  /** @type {{code: string}|undefined} */
+  let bareTimeout;
+  await detectStalls(/** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300 }), new Map([["build", bare]]), async (_job, _status, error) => { bareTimeout = error; });
+  assert.equal(bareTimeout?.code, "stall_timeout", "an absent log dir is not mistaken for progress");
 });
 
 // ---------------------------------------------------------------------------
