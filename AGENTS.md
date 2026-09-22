@@ -205,6 +205,17 @@ Splitting a module is mechanical and should be scripted, not retyped — but:
   default spawns one process per file, and on 2026-09-21 that killed
   `node --test test/engine/` twice with no exit code on a machine at 91%
   swap, exhausting a node whose work was sound.
+- **A test that reads what another process writes must wait for a readiness
+  signal, and the signal must be written *after* the thing it announces.**
+  Bounding a duration from above is the famous version of this hazard; this
+  is the same hazard wearing another shape, and it passes locally. Measured
+  2026-09-22: the live-cancel fixtures were read as soon as they spawned, so
+  three of four CI runners failed with `ENOENT` on a log the fixture had not
+  written yet, while the fourth and the author's machine passed. The first
+  fix wrote the readiness file *before* installing the signal handler, which
+  proves only that the script started; the file has to come after, or the
+  wait proves nothing. Poll for it — polling is a lower bound on elapsed
+  time, never an assertion about how fast this machine is.
 - **Two `node --test` traps, both measured 2026-09-21 on v26.8.1, both of
   which make a check silently stop checking.** A `--test-reporter=` that
   appears *after* a test file on the command line is ignored — node reads its
