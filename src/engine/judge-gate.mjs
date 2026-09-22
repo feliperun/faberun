@@ -16,6 +16,7 @@ import { reviewMode, UNCITED_REJECTION_REASON } from "../contract/review-modes.m
 import { JUDGE_LIMITS } from "../contract/judge-envelope.mjs";
 import { sharedVerificationCommands } from "../contract/final-verification.mjs";
 import { killTarget } from "../host/platform.mjs";
+import { shellWords } from "../util.mjs";
 
 /** @typedef {import("../contract/definition-of-done.mjs").DefinitionOfDoneItem} DefinitionOfDoneItem */
 /** @typedef {import("../contract/verification.mjs").VerificationCommand} VerificationCommand */
@@ -174,29 +175,24 @@ function envForFilteredProof() {
 /**
  * The node:test filters a command string declares, in argv order, as flag and
  * value. Presence alone changes behaviour (the appended reporter and the
- * zero-plan look-up); the value is read for the refusal detail alone, which is
- * why a whitespace split is close enough even though the command runs through
- * a shell.
+ * zero-plan look-up); the value lands in the refusal detail, and it is read
+ * the way the shell this command runs under reads it -- `shellWords` groups a
+ * quoted pattern into one word instead of splitting the pattern itself.
  *
  * @param {string} ref
  * @returns {Array<{flag: string, value: string}>}
  */
 function declaredTestFilters(ref) {
-  const tokens = ref.split(/\s+/u).filter(Boolean);
+  const tokens = shellWords(ref);
   /** @type {Array<{flag: string, value: string}>} */
   const filters = [];
   for (const [index, token] of tokens.entries()) {
     for (const flag of TEST_FILTER_FLAGS) {
-      if (token.startsWith(`${flag}=`)) filters.push({ flag, value: unquote(token.slice(flag.length + 1)) });
-      else if (token === flag) filters.push({ flag, value: unquote(tokens[index + 1] ?? "") });
+      if (token.startsWith(`${flag}=`)) filters.push({ flag, value: token.slice(flag.length + 1) });
+      else if (token === flag) filters.push({ flag, value: tokens[index + 1] ?? "" });
     }
   }
   return filters;
-}
-
-/** @param {string} value @returns {string} */
-function unquote(value) {
-  return value.replace(/^['"]|['"]$/gu, "");
 }
 
 /** @param {Array<{flag: string, value: string}>} filters @returns {string} */

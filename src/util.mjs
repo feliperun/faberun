@@ -229,3 +229,49 @@ export function readJsonTolerant(path) {
 export function finite(value) {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
+
+/**
+ * Split a command string into the words a POSIX shell would pass as argv, for
+ * the two readers handed a command as a display string rather than an argv: a
+ * Definition of Done `command` proof, whose words `engine/scope.mjs` matches
+ * against the files the node wrote, and the node:test filters one declares
+ * (`engine/judge-gate.mjs`). Quotes group and are stripped; whitespace
+ * outside them separates.
+ *
+ * Deliberately not a shell: no expansion, no substitution, no operators, and
+ * no backslash escape -- on Windows a backslash is a path separator and
+ * `C:\Users\x` must survive this intact. The question both callers ask is
+ * "which words does this command name", and a quoted path holding a space is
+ * one word: splitting it on whitespace produced two fragments that matched no
+ * file, so a proof naming a real path read as naming none.
+ *
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function shellWords(text) {
+  /** @type {string[]} */
+  const words = [];
+  /** @type {string|null} */
+  let current = null;
+  /** @type {string|null} */
+  let quote = null;
+  for (const character of text) {
+    if (quote === null && /\s/u.test(character)) {
+      if (current !== null) words.push(current);
+      current = null;
+      continue;
+    }
+    if (quote === null && (character === '"' || character === "'")) {
+      quote = character;
+      current ??= "";
+      continue;
+    }
+    if (quote === character) {
+      quote = null;
+      continue;
+    }
+    current = (current ?? "") + character;
+  }
+  if (current !== null) words.push(current);
+  return words;
+}

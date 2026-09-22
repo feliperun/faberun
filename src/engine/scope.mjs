@@ -15,7 +15,7 @@ import { SETTLED } from "./prompts.mjs";
 import { appendTransitionEvent, recordExecutionOverride, transition, writeNode } from "./state.mjs";
 import { attemptWorkspace } from "../repo/worktree.mjs";
 
-import { errorCode, errorMessage, excerpt, isContained } from "../util.mjs";
+import { errorCode, errorMessage, excerpt, isContained, shellWords } from "../util.mjs";
 import { executeControllerVerification } from "./verify.mjs";
 import { providerReceiptsFromInvocationTail, settleInvocation } from "../run/operations.mjs";
 import { readJson } from "../run/store.mjs";
@@ -108,10 +108,17 @@ export function workerScope(taskPacket) {
 
 /**
  * Everything a node's own proofs name: a Definition of Done `path` proof's
- * path, the words of a `command` proof (a command proof carries a display
- * string, not an argv, so a quoted path holding a space is not recovered), the
- * argv of the verification entry a `verification` proof references, and the
- * argv of every verification command the packet declares.
+ * path, the words of a `command` proof, the argv of the verification entry a
+ * `verification` proof references, and the argv of every verification command
+ * the packet declares.
+ *
+ * A command proof carries a display string, not an argv, so its words are
+ * recovered with `shellWords` rather than a whitespace split -- the split lost
+ * exactly what the shell it runs under preserves. Measured 2026-09-22:
+ * `spawn(ref, {shell: true})` hands the whole string to `sh -c`, which groups
+ * `"b c"` into one argument, while the split here cut it into `"b` and `c"`,
+ * so a proof naming a real path with a space cited two fragments that matched
+ * no file and the write it excused read as unexpected.
  *
  * @param {ValidatedNode} node
  * @returns {ProofCitation[]}
@@ -129,7 +136,7 @@ function proofCitations(node) {
     if (proof.kind === "path") {
       citations.push({ tokens: [proof.ref], cwd: ".", literal: true, citation: `${item.id} path proof` });
     } else if (proof.kind === "command") {
-      citations.push({ tokens: proof.ref.split(/\s+/u), cwd: ".", literal: false, citation: `${item.id} command proof` });
+      citations.push({ tokens: shellWords(proof.ref), cwd: ".", literal: false, citation: `${item.id} command proof` });
     } else {
       const command = commands[Number.parseInt(proof.ref, 10)];
       if (command) citations.push({ tokens: command.argv, cwd: command.cwd ?? ".", literal: false, citation: `${item.id} verification[${proof.ref}] proof` });
