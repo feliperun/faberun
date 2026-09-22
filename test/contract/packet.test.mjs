@@ -363,3 +363,28 @@ test("replayPolicy defaults to safe and accepts only its enumerated values", () 
     );
   }
 });
+
+// The 800-line ceiling is a rule about source modules: source-shape enforces
+// it over .mjs alone. Measured 2026-09-22: a packet declaring the generated
+// docs/COMMANDS.md was warned that 1141 lines left "-341 from the 800-line
+// ceiling", which is not a budget, is not true of that file, and trains the
+// reader to skim past the warnings that are.
+test("the write-file line ceiling warns about modules, not about every declared path", () => {
+  const { directory, path } = writeFixture({
+    nodes: [{
+      id: "build",
+      type: "backend",
+      taskPacket: { ...packet(), writeFiles: ["long.md", "long.mjs", "short.mjs"] },
+    }],
+  });
+  initializeGit(directory);
+  writeFileSync(join(directory, "long.md"), `${"x\n".repeat(1200)}`);
+  writeFileSync(join(directory, "long.mjs"), `${"// x\n".repeat(780)}`);
+  writeFileSync(join(directory, "short.mjs"), "// x\n");
+
+  const warnings = validateContract(JSON.parse(readFileSync(path, "utf8")), path).warnings;
+  const ceiling = warnings.filter((line) => line.includes("800-line ceiling"));
+  assert.equal(ceiling.length, 1, `exactly the module near the ceiling warns: ${JSON.stringify(ceiling)}`);
+  assert.match(ceiling[0], /long\.mjs is already 78[01] lines/u);
+  assert.ok(!ceiling.some((line) => line.includes("long.md")), "a markdown file has no module ceiling");
+});

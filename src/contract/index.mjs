@@ -695,6 +695,12 @@ function dependencyCoversPath(closure, path, cwd) {
 function writeFileLineBudgetWarnings(node, index, cwd) {
   const warnings = [];
   for (const path of node.taskPacket.writeFiles ?? []) {
+    // The ceiling is a rule about source modules, and `source-shape` enforces
+    // it over `.mjs` alone. Measured 2026-09-22: a packet declaring the
+    // generated `docs/COMMANDS.md` was warned that 1141 lines left "-341 from
+    // the 800-line ceiling", which is not a budget, not true of that file, and
+    // trains the reader to skim past the warnings that are.
+    if (!path.endsWith(".mjs")) continue;
     let text;
     try {
       text = readFileSync(resolve(cwd, path), "utf8");
