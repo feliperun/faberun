@@ -1,12 +1,12 @@
 ---
 id: availability-is-verified-not-assumed-phase-2
 title: "Asking costs once per window, and the operator can force a fresh ask"
-version: 1.0.0
+version: 1.1.0
 status: draft
 date: 2026-09-22
 owner: Felipe Broering
 target: feliperun/faberun
-baseline: 0f51681
+baseline: b489e8c
 ---
 
 # Asking costs once per window, and the operator can force a fresh ask
@@ -23,6 +23,28 @@ launch — named as a risk rather than hidden. This phase is the payment plan.
 The freshness rule already exists and is already the single home for its
 semantics. What does not exist is anything that **writes** a live verdict into
 the record the rule reads, and any way for the operator to say *ask again now*.
+
+## What phase 1 actually landed, and what this phase inherits
+
+Amended 2026-09-22 after R1 landed as `b489e8c`; this spec was carved before
+it and had to be told what it now builds on.
+
+- `assertEnvironmentReady` calls `preflightContract` on the run's own
+  serialized contract, with `{ persisted: true }` so a `--base-ref` launch is
+  not revalidated against a checkout its declared paths never lived in.
+- The verdict per runtime is written to `env-preflight.json` under `live`, as
+  `{ ok, checks: [{ id, harness, ok, liveStatus, reason, detail }] }`. That is
+  the record this phase has to carry forward; it is deliberately *not* in
+  `events.jsonl`, which keeps the seven fields the document declares.
+- Blocking is silence only: `preflight_timeout` and `spawn_error`. Anything a
+  provider actually answered — a quota refusal, an auth failure — passes.
+- **`runHasNothingToDispatch` already exists and is not a window.** A launch
+  whose every persisted node state reads `done` asks nothing, because it
+  starts no worker and no judge. This phase must not duplicate, widen or
+  fold that into the cache: it is an exemption on the *work*, and the window
+  is an exemption on the *clock*. Two different questions.
+- The budget is 60s, overridable by `FABERUN_PREFLIGHT_TIMEOUT_SEC`, against
+  a measured 18s for four parallel runtimes.
 
 ## Measured state
 
