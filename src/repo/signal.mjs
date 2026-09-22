@@ -20,6 +20,18 @@
  * entry whose run no active campaign owns is shown once at run level instead
  * of under every campaign at once. It is bounded, because every session pays
  * for it in its first tokens.
+ *
+ * `parked` is decided by `classifyRunProgress`, never by reading `runOutcome`
+ * here. `reduceRunOutcome` is a reduction over snapshots with no notion of
+ * in-flight: a node whose status is `running` is not a success, so it reduces
+ * to `parked` while the controller is still working on it. Measured
+ * 2026-09-22 on a live run: `runOutcome "parked"`, one node `running`,
+ * `controllerAlive true`. The linked-run renderer read that field raw and told
+ * a takeover session to `resume` a run that was 23 minutes into its second
+ * node. The standalone renderer had the conjunct (`&& state === "done"`) and
+ * was right; two copies of one rule, one of them incomplete, so now there is
+ * one copy and it lives in `chain.mjs` with the campaign decision it also
+ * governs.
  */
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -30,6 +42,7 @@ import { readInbox } from "../notify/index.mjs";
 import { repositoryForRunsDir } from "../run/paths.mjs";
 import { SIGNAL_END, SIGNAL_START } from "./signal-block.mjs";
 import { HANDOFF_FILE } from "../campaign/layout.mjs";
+import { classifyRunProgress } from "../campaign/chain.mjs";
 
 export { SIGNAL_END, SIGNAL_START } from "./signal-block.mjs";
 
@@ -91,9 +104,9 @@ function runOwnerIndex(active) {
 }
 
 /**
- * One linked run's outcome as block lines. `runProgress` folds the phase-2
- * `runOutcome`, so a parked run is rendered by its own declared nodes rather
- * than being dropped for having no non-terminal one.
+ * One linked run's outcome as block lines. A parked run is rendered by its own
+ * declared nodes rather than being dropped for having no non-terminal one --
+ * but only once `classifyRunProgress` agrees it settled.
  *
  * @param {string} runsDir
  * @param {string} runId
@@ -106,7 +119,7 @@ function runSignalLines(runsDir, runId) {
     return [`  - run \`${runId}\`: missing — resume \`${resume}\``];
   }
   const progress = runProgress(runDir);
-  switch (progress.runOutcome) {
+  switch (classifyRunProgress(progress)) {
     case "succeeded":
       return [`  - run \`${runId}\`: succeeded (${progress.terminal}/${progress.total} nodes)`];
     case "canceled":
@@ -116,8 +129,8 @@ function runSignalLines(runsDir, runId) {
     case "parked":
       break;
     default:
-      // No snapshot yet: the run exists but has not proved an outcome. It is
-      // active work, not parked work, so it must not claim parked nodes.
+      // `unfinished`: either no snapshot yet, or a node still running. Both are
+      // active work, not parked work, so neither may claim parked nodes.
       return [`  - run \`${runId}\`: active — read \`.runs/${runId}/STATUS.md\`; \`resume\` or \`supervise\` it`];
   }
   const nodes = progress.outcomeNodes ?? [];
@@ -147,9 +160,10 @@ function activeRunLines(runsDir, linked) {
     // A nodes directory with no committed snapshot is a creation in progress,
     // not evidence of work; the old renderer left it off and so does this one.
     if (progress.runOutcome === undefined && progress.total === 0) continue;
-    if (progress.runOutcome === "succeeded" || progress.runOutcome === "canceled") continue;
+    const classified = classifyRunProgress(progress);
+    if (classified === "succeeded" || classified === "canceled") continue;
     const resume = `node src/cli.mjs resume ${runDir}`;
-    if (progress.runOutcome === "parked" && progress.state === "done") {
+    if (classified === "parked") {
       const nodes = (progress.outcomeNodes ?? []).slice(0, MAX_PARKED_NODES).map(nodeText).join(", ");
       lines.push(`- faberun run \`${name}\`: parked — ${nodes || "no nodes named"} — resume \`${resume}\``);
     } else {

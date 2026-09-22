@@ -8,7 +8,7 @@ import {
   SIGNAL_START,
   syncAgentSignal,
 } from "../../src/repo/signal.mjs";
-import { closeCampaign, initializeCampaign } from "../../src/campaign/index.mjs";
+import { closeCampaign, initializeCampaign, registerRun } from "../../src/campaign/index.mjs";
 import { appendJournal } from "../../src/campaign/journal.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
@@ -94,4 +94,33 @@ test("does nothing when AGENTS.md is missing", () => {
   writeRunNodes(runsDir, "run-a", ["running"]);
   assert.equal(syncAgentSignal(runsDir), false);
   assert.ok(!existsSync(join(repo, "AGENTS.md")), "no file created");
+});
+
+// A run linked to a campaign is classified by the same rule as a standalone
+// one. Measured 2026-09-22 on a live run: `reduceRunOutcome` is a reduction
+// over snapshots with no notion of in-flight, so a `running` node -- not a
+// success, not a tier-exhausted wait -- reduced to `parked`, and this renderer
+// read that field raw. The block told a takeover session to `resume` a run
+// whose controller was 23 minutes into its second node.
+test("a linked run with a node still running is active, not parked", () => {
+  const { runsDir, agentsPath } = makeRepo();
+  const campaign = initializeCampaign(runsDir, { campaignId: "live", goal: "keep working" });
+  writeRunNodes(runsDir, "run-live", ["done", "running"]);
+  registerRun(campaign.path, "run-live");
+  assert.equal(syncAgentSignal(runsDir), true);
+  const text = readFileSync(agentsPath, "utf8");
+  assert.match(text, /run `run-live`: active/u);
+  assert.doesNotMatch(text, /run `run-live`: parked/u);
+  assert.doesNotMatch(text, /resume .*run-live/u, "a live controller is never told to resume");
+});
+
+test("a linked run whose every node settled unsuccessfully is parked with its nodes", () => {
+  const { runsDir, agentsPath } = makeRepo();
+  const campaign = initializeCampaign(runsDir, { campaignId: "stuck", goal: "park" });
+  writeRunNodes(runsDir, "run-stuck", ["done", "blocked"]);
+  registerRun(campaign.path, "run-stuck");
+  assert.equal(syncAgentSignal(runsDir), true);
+  const text = readFileSync(agentsPath, "utf8");
+  assert.match(text, /run `run-stuck`: parked/u);
+  assert.match(text, /resume .*run-stuck/u, "a settled run keeps its resume command");
 });
