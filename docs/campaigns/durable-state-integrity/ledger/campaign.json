@@ -1,0 +1,46 @@
+{
+  "id": "durable-state-integrity",
+  "goal": "The durable state faberun keeps is complete, reachable and repairable: a cancel never orphans integrated work, a suite run never writes to the operator home, a journal note is refused rather than silently shortened, and a record written before a field existed is repaired",
+  "status": "active",
+  "linkedRunIds": [
+    "durable-state-integrity-plan-cancel-keeps-integrated-work-draft-1",
+    "durable-state-integrity-plan-cancel-keeps-integrated-work-review-2",
+    "durable-state-integrity-plan-cancel-keeps-integrated-work-revise-3",
+    "durable-state-integrity-plan-cancel-keeps-integrated-work-review-4",
+    "durable-state-integrity-1-cancel-keeps-integrated-work",
+    "durable-state-integrity-plan-a-suite-run-leaves-no-trace-draft-1",
+    "durable-state-integrity-plan-a-suite-run-leaves-no-trace-review-2",
+    "durable-state-integrity-plan-a-suite-run-leaves-no-trace-revise-3",
+    "durable-state-integrity-plan-a-suite-run-leaves-no-trace-revise-4",
+    "durable-state-integrity-2-a-suite-run-leaves-no-trace",
+    "durable-state-integrity-3-a-report-that-says-it-did-it",
+    "durable-state-integrity-4-old-state-is-repaired",
+    "durable-state-integrity-5-cancel-against-a-live-invocation"
+  ],
+  "contracts": [
+    {
+      "path": "/Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/control/durable-state-integrity/contracts/1-cancel-keeps-integrated-work.contract.json",
+      "digest": "0beb814b18cdcb8a5aef70ca7e572059ac592dd13f5c3c69494ff628445e1b28"
+    },
+    {
+      "path": "/Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/control/durable-state-integrity/contracts/2-a-suite-run-leaves-no-trace.contract.json",
+      "digest": "3b258361ff378dd230e313f44398127a8643ec1cbfef5b8341a3e20fbb023dca"
+    },
+    {
+      "path": "/Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/control/durable-state-integrity/contracts/3-a-report-that-says-it-did-it.contract.json",
+      "digest": "201ef438dd49e25d277c4372e0fda5ce4d71f6c719534d08ac4782849902821a"
+    },
+    {
+      "path": "/Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/control/durable-state-integrity/contracts/4-old-state-is-repaired.contract.json",
+      "digest": "0a31e7d8e146a72d9d0c150b109bb5561041691f515d96532d8d4988eb9ec616"
+    },
+    {
+      "path": "/Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/control/durable-state-integrity/contracts/5-cancel-against-a-live-invocation.contract.json",
+      "digest": "1635d1a1a155b35dac4ee78bb619006d97e7579bf1b1809e13e9d235ac11f396"
+    }
+  ],
+  "landBranch": "main",
+  "promotions": [],
+  "createdAt": "2026-09-21T17:08:57.376Z",
+  "updatedAt": "2026-09-22T01:08:46.141Z"
+}
