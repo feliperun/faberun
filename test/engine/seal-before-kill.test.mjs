@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -387,6 +387,40 @@ test("done-when 6: after a tool event, silence longer than the runtime threshold
   let timeout;
   await detectStalls(/** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300 }), new Map([["build", job]]), async (_job, _status, error) => { timeout = error; });
   assert.equal(timeout?.code, "stall_timeout", "a first tool event must not disable stall detection forever");
+});
+
+// ---------------------------------------------------------------------------
+// A long turn that transmits without closing a turn is alive, not stalled.
+// ---------------------------------------------------------------------------
+
+/** One codex reasoning record: neither a completed turn nor a tool call. */
+const REASONING_RECORD = `${JSON.stringify({ type: "item.completed", item: { type: "reasoning", text: "still working" } })}\n`;
+
+test("a turn still transmitting is not stalled, even when it closes no turn and calls no tool", async () => {
+  const job = stallJob(REASONING_RECORD, { id: "luna", harness: "codex", model: "test", stallTimeoutSec: 0.2 });
+  const contract = /** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300 });
+  // The first pass is the observation that records where the transcript stood.
+  await detectStalls(contract, new Map([["build", job]]), async () => {});
+  // The turn keeps reasoning: more records, still no turn.completed and no
+  // tool call, so `turns + toolCalls` is unchanged from the pass above.
+  appendFileSync(job.paths.stdout, `${REASONING_RECORD}${REASONING_RECORD}`);
+  ageProgress(job, 500);
+  /** @type {unknown} */
+  let timeout;
+  await detectStalls(contract, new Map([["build", job]]), async (_job, _status, error) => { timeout = error; });
+  assert.equal(timeout, undefined, "bytes the provider streamed since the last pass are progress");
+});
+
+test("a turn that stops transmitting still stalls, so the bytes rule is not an amnesty", async () => {
+  const job = stallJob(REASONING_RECORD, { id: "luna", harness: "codex", model: "test", stallTimeoutSec: 0.2 });
+  const contract = /** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300 });
+  await detectStalls(contract, new Map([["build", job]]), async () => {});
+  // Nothing appended this time: the transcript is exactly where it was.
+  ageProgress(job, 500);
+  /** @type {{code: string}|undefined} */
+  let timeout;
+  await detectStalls(contract, new Map([["build", job]]), async (_job, _status, error) => { timeout = error; });
+  assert.equal(timeout?.code, "stall_timeout", "silence past the threshold is still a stall");
 });
 
 // ---------------------------------------------------------------------------

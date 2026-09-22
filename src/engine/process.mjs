@@ -36,7 +36,7 @@ import { killTarget } from "../host/platform.mjs";
 /** @typedef {{prompt: string|null, stdout: string, stderr: string}} PathSet */
 /** @typedef {{id: string, pid: number, processGroupId: number|null, processStartToken: string|null, harness: string, runtimeId: string|null, runtimeFingerprint?: string, revision?: number, phase: string, promptPath: string|null, stdoutPath: string, stderrPath: string, startedAt: string, deadlineAt: string|null, updatedAt: string, closedAt: string|null, exitCode: number|null, signal: string|null, status: "active"|"closed"|"terminated", executable: string, snapshotPath?: string, usage?: Usage, usageEstimated?: boolean, costUsd?: number|null, costProvenance?: "priced", runId?: string, campaignId?: string, nodeId?: string, attempt?: number, workspace?: string, worktreeBranch?: string|null, worktreeBaseSha?: string|null, planPhase?: string, role?: "worker"|"judge", model?: string, reasoning?: string|null, sandbox?: string|null, continuationId?: string|null, continuationMode?: "fresh"|"reuse"|"rotate", session?: import("../harnesses/session-metrics.mjs").SessionLedger|null}} Invocation */
 /** @typedef {{pid: number|null, processGroupId?: number|null, processStartToken?: string|null}} InvocationProbe */
-/** @typedef {{child: ChildProcess, contract: ValidatedContract, node: ValidatedNode, state: NodeSnapshot, runtime: HarnessRuntime & {id: string|null}, cwd: string, paths: PathSet, phase: string, invocation: Invocation, startedAt: string, startedTicks: bigint, progressTicks: bigint, lastOutputAt: number, closed: boolean, exitCode: number|null, signal: string|null, spawnError: Error|null, terminating: Promise<void>|null, gateConfigPath: string, gateReleasePath: string, scopeBaseline?: unknown, scopeChecked?: boolean, scopeViolation?: boolean, resultMaterialization?: boolean, recoveryBaseline?: unknown, observeTimer?: ReturnType<typeof setInterval>, monitorOffset?: number, monitorParser?: import("../harnesses/session-metrics.mjs").SessionMetricsParser, lastEventCount?: number, observedOnce?: boolean, onClose?: (invocation: Invocation) => void, onInvocationUpdate?: (invocation: Invocation) => void, onProgress?: (state: NodeSnapshot) => void}} Job */
+/** @typedef {{child: ChildProcess, contract: ValidatedContract, node: ValidatedNode, state: NodeSnapshot, runtime: HarnessRuntime & {id: string|null}, cwd: string, paths: PathSet, phase: string, invocation: Invocation, startedAt: string, startedTicks: bigint, progressTicks: bigint, lastOutputAt: number, closed: boolean, exitCode: number|null, signal: string|null, spawnError: Error|null, terminating: Promise<void>|null, gateConfigPath: string, gateReleasePath: string, scopeBaseline?: unknown, scopeChecked?: boolean, scopeViolation?: boolean, resultMaterialization?: boolean, recoveryBaseline?: unknown, observeTimer?: ReturnType<typeof setInterval>, monitorOffset?: number, monitorParser?: import("../harnesses/session-metrics.mjs").SessionMetricsParser, lastEventCount?: number, lastMonitorOffset?: number, observedOnce?: boolean, onClose?: (invocation: Invocation) => void, onInvocationUpdate?: (invocation: Invocation) => void, onProgress?: (state: NodeSnapshot) => void}} Job */
 /** @typedef {{graceMs?: number, killGraceMs?: number, escalate?: boolean, runDir?: string, kill?: (pid: number, signal: string|number) => unknown, child?: ChildProcess|null}} TerminateOptions */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -434,8 +434,26 @@ export async function detectStalls(contract, running, onTimeout, onProgress, onB
     if (streaming) {
       const monitored = monitorInvocation(job);
       const events = monitored.turns + monitored.toolCalls;
-      if (events !== job.lastEventCount || job.observedOnce !== true) {
+      // Transcript bytes the monitor consumed count as liveness beside the
+      // events, because a turn can transmit for a long time without finishing
+      // one. Codex meters progress as `turn.completed` plus tool calls, so a
+      // single long reasoning stretch -- streaming `item.completed` records
+      // that are neither -- advanced no counter and was killed as a stall
+      // while it was actively transmitting. This is not the mtime the module
+      // header rejects: mtime moves for a buffered harness that has written
+      // nothing a provider produced, and this branch is the streaming
+      // harnesses only, where new bytes on the transcript are the provider's
+      // own output and the monitor's offset only ever advances. A process
+      // that transmits forever without ending is still held by the wall clock
+      // and the turn cap below.
+      // An offset this job has never recorded is not growth: `observedOnce`
+      // below is what covers the first pass, and reading `undefined` as a
+      // change would make every first observation look like progress.
+      const consumed = job.monitorOffset ?? 0;
+      const grew = consumed !== (job.lastMonitorOffset ?? consumed);
+      if (events !== job.lastEventCount || grew || job.observedOnce !== true) {
         job.lastEventCount = events;
+        job.lastMonitorOffset = consumed;
         job.progressTicks = now;
         // `lastOutputAt` is the supervised controller's provider-progress
         // signal (scheduler.mjs): keep it advancing for an event that counts
