@@ -125,7 +125,7 @@ export function loadVerificationSuites(path) {
 
 /**
  * @param {string} target
- * @param {{campaign?: string, phase?: string, "review-rounds"?: string, "approve-below"?: string, "runtime-defaults"?: string, runtimes?: string, verification?: string, detach?: boolean, json?: boolean}} values
+ * @param {{campaign?: string, phase?: string, "review-rounds"?: string, "approve-below"?: string, "runtime-defaults"?: string, runtimes?: string, verification?: string, package?: string, detach?: boolean, json?: boolean}} values
  * @returns {Promise<void>}
  */
 export async function planCli(target, values) {
@@ -142,6 +142,7 @@ export async function planCli(target, values) {
   const verification = typeof values.verification === "string" && values.verification
     ? loadVerificationSuites(values.verification)
     : {};
+  const packageMode = packageModeOf(values.package);
 
   if (values.detach === true) {
     const argv = ["plan", specPath, "--campaign", campaignId, "--phase", phase, "--review-rounds", String(reviewRounds)];
@@ -149,6 +150,7 @@ export async function planCli(target, values) {
     if (values["runtime-defaults"] !== undefined) argv.push("--runtime-defaults", values["runtime-defaults"]);
     if (typeof values.runtimes === "string" && values.runtimes) argv.push("--runtimes", resolve(values.runtimes));
     if (typeof values.verification === "string" && values.verification) argv.push("--verification", resolve(values.verification));
+    if (packageMode !== "implementation") argv.push("--package", packageMode);
     const failurePath = planBootstrapFailurePath(process.cwd(), campaignId, phase);
     mkdirSync(dirname(failurePath), { recursive: true });
     rmSync(failurePath, { force: true });
@@ -186,6 +188,7 @@ export async function planCli(target, values) {
       runtimeDefaults,
       runtimes,
       verification,
+      packageMode,
       launch: async (contractPath, contract) => {
         const child = detachSelf("run", contractPath);
         if (child.pid === undefined) throw new Error("detached planning run has no pid");
@@ -298,4 +301,19 @@ function readPlanBootstrapFailure(failurePath) {
   } catch {
     return null;
   }
+}
+
+/**
+ * `--package implementation|exploratory`. Implementation is the default and
+ * the only mode there was: nodes sized by their write set. Exploratory sizes
+ * by what a node reads, accepts a one-file write set as the normal shape of a
+ * finding, and reports a node whose read surface dwarfs its siblings'.
+ *
+ * @param {unknown} value
+ * @returns {import("../plan/sizing.mjs").PackageMode}
+ */
+export function packageModeOf(value) {
+  if (value === undefined) return "implementation";
+  if (value === "implementation" || value === "exploratory") return value;
+  throw new Error(`--package must be implementation or exploratory: ${String(value)}`);
 }

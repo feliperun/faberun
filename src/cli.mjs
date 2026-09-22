@@ -123,6 +123,7 @@ export const COMMAND_OPTIONS = {
     "runtime-defaults": { type: "string" },
     runtimes: { type: "string" },
     verification: { type: "string" },
+    package: { type: "string" },
     detach: { type: "boolean" },
     json: { type: "boolean" },
   },
