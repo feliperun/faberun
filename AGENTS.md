@@ -284,4 +284,6 @@ Before starting new work here, check `.runs/`: if a campaign is active or a run 
   - run `campaign-brief-plan-spec-critique-spec-review-2`: succeeded (1/1 nodes)
   - run `campaign-brief-plan-spec-critique-spec-review-3`: succeeded (1/1 nodes)
   - run `campaign-brief-plan-spec-critique-spec-review-4`: succeeded (1/1 nodes)
+  - run `campaign-brief-plan-implementation-draft-1`: succeeded (1/1 nodes)
+  - run `campaign-brief-plan-implementation-review-2`: parked — `review:stalled stall_timeout` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/c192cf43-c4cf-4ac1-835e-f1618f395504/runs/campaign-brief-plan-implementation-review-2`
 <!-- faberun-active:end -->
