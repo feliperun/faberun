@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.17.2](https://github.com/feliperun/faberun/compare/v0.17.1...v0.17.2) (2026-09-22)
+
+
+### Bug Fixes
+
+* **test:** the live-cancel fixtures signal readiness before the test cancels ([979a279](https://github.com/feliperun/faberun/commit/979a279f40e374834b247dbc8a8ab27ccd70c976))
+
 ## [0.17.1](https://github.com/feliperun/faberun/compare/v0.17.0...v0.17.1) (2026-09-22)
 
 
