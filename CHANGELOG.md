@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.19.2](https://github.com/feliperun/faberun/compare/v0.19.1...v0.19.2) (2026-09-22)
+
+
+### Bug Fixes
+
+* close the dossier of open faberun findings ([#56](https://github.com/feliperun/faberun/issues/56)) ([3325c8d](https://github.com/feliperun/faberun/commit/3325c8df739a13087612c9bdaf23f37037e932c6))
+
 ## [0.19.1](https://github.com/feliperun/faberun/compare/v0.19.0...v0.19.1) (2026-09-22)
 
 
