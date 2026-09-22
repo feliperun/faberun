@@ -21,6 +21,7 @@
  */
 import { spawn as nodeSpawn } from "node:child_process";
 import { getHarness } from "../harnesses/index.mjs";
+import { spawnInvocation } from "../host/platform.mjs";
 
 // `window` is optional on the type (not every construction site names one --
 // `plan/pipeline.mjs` rebuilds a start sample from journal fields that predate
@@ -70,8 +71,10 @@ export function defaultInvoke(harness, { spawn = nodeSpawn } = {}) {
   return new Promise((settle) => {
     let child;
     try {
-      child = spawn(command.executable, command.args, {
+      const invocation = spawnInvocation(command.executable, command.args);
+      child = spawn(invocation.command, invocation.args, {
         stdio: ["pipe", "pipe", "pipe"],
+        ...invocation.options,
       });
     } catch {
       settle(null);

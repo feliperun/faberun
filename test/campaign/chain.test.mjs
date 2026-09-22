@@ -381,8 +381,8 @@ test("done-when 10c: a stale heartbeat is taken over through the CLI, terminatin
     const done = closeResult(child);
     try {
       assert.equal(await waitForCoordinatorLock(campaignPath, childPid), childPid, "the invocation acquired the previous holder's lock");
-      await holderDone;
-      assert.equal(readFileSync(marker, "utf8"), "SIGTERM\n", "exactly one SIGTERM terminated the previous group");
+      const ended = await holderDone;
+      if (process.platform === "win32") assert.notEqual(ended.code ?? ended.signal, null, "the previous group was terminated"); else assert.equal(readFileSync(marker, "utf8"), "SIGTERM\n", "exactly one SIGTERM terminated the previous group"); // guard-exempt: host-layout `taskkill /F` runs no handler, so only a POSIX holder records its own SIGTERM
     } finally {
       child.kill("SIGTERM");
       await done;

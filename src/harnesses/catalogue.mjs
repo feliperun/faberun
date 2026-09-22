@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { getHarness, probeRuntime, registeredHarnesses, resolveVendor } from "./index.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS, composeAssignments } from "../engine/runtime-discovery.mjs";
 import { errorMessage } from "../util.mjs";
+import { spawnInvocation } from "../host/platform.mjs";
 
 /**
  * Model catalogue report: which models each registered harness can run, the
@@ -292,8 +293,14 @@ function displayOrder() {
  */
 function agyCliCatalogue(cwd) {
   const executable = getHarness("agy").executable({ harness: "agy", model: "agy-models" });
-  const result = spawnSync(executable, ["models"], {
+  // The provider CLI is reached the way every other one here is: a name
+  // through PATHEXT, a `.cmd` through the interpreter, a script through the
+  // interpreter its shebang names. A raw spawn of it answers ENOENT on
+  // Windows and the declared catalogue silently wins.
+  const invocation = spawnInvocation(executable, ["models"], { cwd });
+  const result = spawnSync(invocation.command, invocation.args, {
     cwd,
+    ...invocation.options,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
     timeout: AGY_CATALOGUE_TIMEOUT_MS,

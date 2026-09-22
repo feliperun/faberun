@@ -20,7 +20,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
-import { readRunNodes } from "../engine/scheduler.mjs";
+import { readRunNodes } from "../run/node-store.mjs";
 import { spawn } from "node:child_process";
 import { validateContract } from "../contract/index.mjs";
 import { runDirectory } from "../run/paths.mjs";
@@ -55,8 +55,14 @@ export function detachSelf(command, target, extraArgs = []) {
  * exactly as for every detached controller: a foreground launcher is the only
  * moment an operator is present.
  *
+ * `stdio` overrides the discarded default for a caller that has somewhere
+ * durable to put the child's output. A detached *run* wants the default: its
+ * bootstrap record is the channel, and a controller's real output belongs in
+ * the run directory. A detached *plan* has no bootstrap record, so discarding
+ * its stdio discarded the only account of why it died.
+ *
  * @param {string[]} argv
- * @param {{nonce?: string, env?: NodeJS.ProcessEnv}} [options]
+ * @param {{nonce?: string, env?: NodeJS.ProcessEnv, stdio?: import("node:child_process").StdioOptions}} [options]
  * @returns {DetachedChild}
  */
 export function detachArgv(argv, options = {}) {
@@ -64,8 +70,17 @@ export function detachArgv(argv, options = {}) {
   const child = /** @type {DetachedChild} */ (spawn(process.execPath, [CLI_ENTRY, ...argv], {
     cwd: process.cwd(),
     env: { ...process.env, ...options.env, FABERUN_BOOTSTRAP_NONCE: nonce },
-    detached: process.platform !== "win32",
-    stdio: "ignore",
+    // Detached on every platform, for a different reason on each. POSIX: a
+    // new session, so the controller survives the launcher's terminal and
+    // owns a process group its own children can be killed by. Windows: libuv
+    // puts every non-detached child in a job object that is killed when the
+    // parent exits, so without this the controller dies the instant the
+    // launcher returns -- measured 2026-09-21: `run --detach` bootstrapped to
+    // `ready` and then died with its launcher, every time, leaving the node
+    // pending forever. There it also means DETACHED_PROCESS: no console
+    // window, which is what "ignore" stdio already implies.
+    detached: true,
+    stdio: options.stdio ?? "ignore",
   }));
   child.unref();
   child.bootstrapNonce = nonce;

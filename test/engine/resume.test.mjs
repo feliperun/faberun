@@ -14,6 +14,18 @@ import { processStartToken } from "../../src/run/lock.mjs";
 import { closeResult, ensureAttemptWorktree, fakeCodex, fixture, initializeGit, orphan, packet, readStatus, waitForValue, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState, childPid, withCitedGateCodex, withAdvisoryGateCodex } from "../runner-helpers.mjs";
 import { invocationAlive } from "../../src/engine/process.mjs";
+
+/**
+ * A scope declared through a symlink is a POSIX-shaped fixture. Git decides at
+ * init time whether the filesystem can hold symlinks and writes `core.symlinks`
+ * accordingly; measured 2026-09-21 on Windows 11, a fresh `git init` there says
+ * false even where node itself can create one, so the attempt worktree gets a
+ * regular file holding the target path and there is no link for the scope to
+ * resolve through. The product is unchanged by that — the write still lands
+ * inside the workspace and is still reported — but the two spellings the
+ * assertion is about exist only where git materializes the link.
+ */
+const REASON = "git checks a symlink out as a regular file where core.symlinks is off, which is every Windows worktree";
 import { captureWorkspaceSnapshot } from "../../src/repo/workspace.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
@@ -61,7 +73,7 @@ test("resume permits worker edits only to packet write files", async () => {
   assert.equal(nodeState(resumed).status, "done");
 });
 
-test("resume accepts allowed changes reached through an autonomous symlink root", async () => {
+test("resume accepts allowed changes reached through an autonomous symlink root", { skip: process.platform === "win32" ? REASON : false }, async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-resume-symlink-root-"));
   mkdirSync(join(directory, "src"));
   // git tracks no empty directory: a placeholder makes "src" survive into
@@ -83,7 +95,7 @@ test("resume accepts allowed changes reached through an autonomous symlink root"
   assert.equal(nodeState(resumed).attempt, 1);
 });
 
-test("resume source identity uses the pre-execution symlink boundary", async () => {
+test("resume source identity uses the pre-execution symlink boundary", { skip: process.platform === "win32" ? REASON : false }, async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-resume-scope-boundary-"));
   mkdirSync(join(directory, "src"));
   // git tracks no empty directory: a placeholder makes "src" survive into

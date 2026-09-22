@@ -95,9 +95,17 @@ for f in CLAUDE.md GEMINI.md CURSOR.md AGENT.md; do
   fi
   if [ "$DRY_RUN" = 0 ]; then
     mkdir -p "$(dirname "$link")"
-    ( cd "$(dirname "$link")" && rm -f "$(basename "$f")" && ln -s "$dest" "$(basename "$f")" )
+    # MSYS's `ln -s` copies the file instead of linking it unless told
+    # otherwise, which is exactly how a pointer becomes the real file this
+    # script exists to prevent. `winsymlinks:nativestrict` asks for a real
+    # symlink and fails rather than copying when the host cannot make one
+    # (no Developer Mode, no privilege); the plain `ln -s` after it is that
+    # host's honest fallback, and a no-op variable everywhere else.
+    ( cd "$(dirname "$link")" && rm -f "$(basename "$f")" \
+      && { MSYS=winsymlinks:nativestrict ln -s "$dest" "$(basename "$f")" 2>/dev/null \
+           || ln -s "$dest" "$(basename "$f")"; } )
   fi
-  say "  + $f → $dest" "$G"
+  if [ -L "$link" ]; then say "  + $f → $dest" "$G"; else say "  + $f (copy of $dest; this host makes no symlink)" "$Y"; fi
 done
 
 # --- git hook via core.hooksPath --------------------------------------------

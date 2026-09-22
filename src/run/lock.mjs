@@ -57,6 +57,14 @@ export function lockPath(runDir) {
  * different one for whatever process next reuses that pid, without a
  * compiled addon or elevated privileges. Every other platform has no cheap
  * equivalent, so the pid probe alone decides there.
+ *
+ * Windows is that other platform, measured 2026-09-21 on Windows 11 26200:
+ * `wmic` — the one cheap process-table reader — is no longer installed, and
+ * the PowerShell that replaced it costs about 400 ms per probe cold, on a path
+ * a controller walks every time it reads a lock. So the token stays null and
+ * ownership falls back to liveness alone: a lock whose pid has been recycled
+ * into an unrelated process reads as still held there, and its holder has to
+ * be taken over by the stale-heartbeat path rather than recognized as gone.
  * @param {number|null} pid @returns {string|null}
  */
 export function processStartToken(pid) {

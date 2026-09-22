@@ -136,15 +136,22 @@ export function failoverEdges(contract) {
  * The first snapshot wins; every later requirement set is accumulated, so a
  * runtime reached twice is still checked against both callers' demands.
  *
- * @param {Map<string, {runtime: RuntimeSnapshot, requiredCapabilitySets: import("../harnesses/index.mjs").CapabilityRequirements[]}>} runtimes
+ * `routed` says whether some node or default names this runtime, directly or
+ * as a declared failover target. A runtime reached only because a role named
+ * none -- every catalogue entry is then a candidate availability discovery may
+ * pick -- is added with `routed: false`, and one route that names it at all
+ * makes it routed for good.
+ *
+ * @param {Map<string, {runtime: RuntimeSnapshot, requiredCapabilitySets: import("../harnesses/index.mjs").CapabilityRequirements[], routed: boolean}>} runtimes
  * @param {RuntimeSnapshot} runtime
  * @param {import("../harnesses/index.mjs").CapabilityRequirements[]} requiredCapabilitySets
+ * @param {boolean} [routed]
  */
-export function addRuntimeRequirement(runtimes, runtime, requiredCapabilitySets) {
+export function addRuntimeRequirement(runtimes, runtime, requiredCapabilitySets, routed = true) {
   const incoming = requiredCapabilitySets.filter((requirements) => requirements && Object.keys(requirements).length);
   const current = runtimes.get(runtime.id);
-  if (!current) runtimes.set(runtime.id, { runtime, requiredCapabilitySets: incoming });
-  else runtimes.set(runtime.id, { runtime: current.runtime, requiredCapabilitySets: [...current.requiredCapabilitySets, ...incoming] });
+  if (!current) runtimes.set(runtime.id, { runtime, requiredCapabilitySets: incoming, routed });
+  else runtimes.set(runtime.id, { runtime: current.runtime, requiredCapabilitySets: [...current.requiredCapabilitySets, ...incoming], routed: current.routed || routed });
 }
 
 /**

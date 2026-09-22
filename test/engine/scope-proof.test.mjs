@@ -45,11 +45,13 @@ const WORKSPACE_FILES = [
  * attempt earns, and the question is whether this write may use it.
  *
  * @param {string} written
+ * @param {{definitionOfDone?: typeof DEFINITION_OF_DONE, files?: string[]}} [options]
  * @returns {{deferred: boolean, state: import("../../src/contract/index.mjs").NodeSnapshot}}
  */
-function writeOutsideScope(written) {
+function writeOutsideScope(written, options = {}) {
+  const definitionOfDone = options.definitionOfDone ?? DEFINITION_OF_DONE;
   const workspace = mkdtempSync(join(tmpdir(), "scope-proof-workspace-"));
-  for (const path of WORKSPACE_FILES) {
+  for (const path of [...WORKSPACE_FILES, ...options.files ?? []]) {
     mkdirSync(join(workspace, dirname(path)), { recursive: true });
     writeFileSync(join(workspace, path), `// ${path}\n`);
   }
@@ -69,7 +71,7 @@ function writeOutsideScope(written) {
   // A workspace snapshot enumerates the tree through the repository index, so
   // the fixture has to be one.
   initializeGit(workspace);
-  const node = { id: "requirement-ids-reach-the-node", definitionOfDone: DEFINITION_OF_DONE, taskPacket };
+  const node = { id: "requirement-ids-reach-the-node", definitionOfDone, taskPacket };
   const boundary = captureWorkspaceScope(workspace, workerScope(/** @type {any} */ (taskPacket)));
   const baseline = captureWorkspaceSnapshot(workspace);
   writeFileSync(join(workspace, written), "// rewritten by the worker\n");
@@ -128,4 +130,21 @@ test("an out-of-scope write onto a file a command proof names is terminal", () =
   assert.match(/** @type {string} */ (state.error?.message), /test\/engine\/worker-result\.test\.mjs/u, "the message names the path");
   assert.match(/** @type {string} */ (state.error?.message), /dod\.r10\.engine-injects/u, "the message names the proof the write compromised");
   assert.equal(state.scopeFindings, undefined, "a terminal violation is not recorded as an advisory finding");
+});
+
+test("a command proof naming a quoted path with a space still cites that path", () => {
+  // The words of a command proof are recovered the way the shell it runs
+  // under recovers them. Split on whitespace, this ref cited `"test/my` and
+  // `dir/x.test.mjs"` -- two fragments naming no file -- so editing the very
+  // prover the proof names read as an ordinary advisory.
+  const quoted = "test/my dir/x.test.mjs";
+  const { deferred, state } = writeOutsideScope(quoted, {
+    files: [quoted],
+    definitionOfDone: [
+      { id: "dod.quoted", text: "The suite passes", proof: { kind: "command", ref: `node --test "${quoted}"` } },
+    ],
+  });
+  assert.equal(deferred, false, "the node never reaches the gate on an edited prover");
+  assert.equal(state.error?.code, "unexpected_write");
+  assert.match(/** @type {string} */ (state.error?.message), /dod\.quoted/u, "the message names the proof the write compromised");
 });

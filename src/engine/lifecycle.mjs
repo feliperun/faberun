@@ -147,8 +147,19 @@ export function terminalErrorCode(state) {
  * `turn_limit` is here and not among the timeout codes below: a turn the CLI
  * stopped itself at `--max-turns` exits cleanly with no seal yet, and the
  * next dispatch seals its worktree as it does for any previous attempt.
+ *
+ * `incomplete_stream` is a stream that ended before its terminal envelope --
+ * Claude with no `result`, codex with no `turn.completed`, dsh with neither
+ * terminal record (`harnesses/protocol.mjs`). That is the provider's transport
+ * dying mid-turn, not the run's own doing, so it is the same class as
+ * `provider_error` and earns the same one retry. It was absent, and a worker
+ * whose provider dropped its connection parked on the first attempt while a
+ * worker whose provider returned an error envelope got a second one -- the
+ * harsher treatment for the less informative failure. The judge role is
+ * unaffected: `engine/settle-judge.mjs` routes this code to its own bounded
+ * re-ask before anything parks.
  */
-export const AUTO_RETRY_CODES = new Set(["judge_unavailable", "provider_error", "stall_timeout", "wall_clock_timeout", "turn_limit"]);
+export const AUTO_RETRY_CODES = new Set(["judge_unavailable", "provider_error", "incomplete_stream", "stall_timeout", "wall_clock_timeout", "turn_limit"]);
 
 /**
  * Timeout codes earn their automatic retry only when phase 5b sealed work

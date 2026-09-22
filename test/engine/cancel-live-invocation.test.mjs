@@ -12,6 +12,11 @@
  * ignores SIGTERM, so a corpse can only mean SIGKILL), the order of cancel's
  * git operations is read off a recording shim put first on PATH, and no
  * assertion bounds a measured duration from above.
+ *
+ * Half of that construction is POSIX: a signal a process can record, ignore,
+ * or miss. Windows ends a console process with `taskkill /T /F` and nothing
+ * else, so the four tests that do not rest on an ignored signal run there and
+ * the three that do are skipped by name — see `NO_IGNORABLE_SIGNAL`.
  */
 
 import test from "node:test";
@@ -27,12 +32,44 @@ import { invocationOwned, processGroupAlive } from "../../src/engine/process-ide
 import { readLock, processStartToken } from "../../src/run/lock.mjs";
 import { gitHead, preservedRefName, runRefName } from "../../src/repo/worktree.mjs";
 
-import { binariesInPath, fixture, orphan, waitForValue, withFakeCodex, writeContract } from "../helpers.mjs";
+import { SPAWN_WAIT_FACTOR, binariesInPath, fixture, orphan, waitForValue, withFakeCodex, writeContract } from "../helpers.mjs";
 import { childPid } from "../runner-helpers.mjs";
 
 /** @typedef {import("node:child_process").ChildProcess} ChildProcess */
 
 const lockModuleHref = new URL("../../src/run/lock.mjs", import.meta.url).href;
+
+/**
+ * Three of these tests are built on a fixture that is dealt SIGTERM, records
+ * it, and survives — the construction that makes an escalation to SIGKILL, or
+ * a signal that misses, provable rather than assumed. Windows offers a console
+ * process no such ending: `taskkill /T /F` is the only one there (ADR 0009),
+ * so nothing runs on the way out, no signal is ever ignored, and a kill by pid
+ * never misses. The escalation those three pin does not exist to be tested;
+ * the four that do not depend on it run.
+ */
+const NO_IGNORABLE_SIGNAL = "a console process on Windows cannot record or survive the signal that kills it";
+
+/**
+ * How a fixture that cancel took down reports its own death. POSIX names the
+ * signal that did it; Windows has none to name — `taskkill /T /F` ends the
+ * process and the handle reports an exit code with a null `signalCode`. Both
+ * mean "cancel killed it", on top of the kernel's own answer `awaitGone` has
+ * already taken. The handle settles a moment after the kernel frees the pid,
+ * so it is waited for rather than read in the tick `awaitGone` returned in.
+ *
+ * @param {ChildProcess} child
+ * @param {string} message
+ * @returns {Promise<void>}
+ */
+async function assertKilledByCancel(child, message) {
+  if (process.platform !== "win32") {
+    assert.equal(child.signalCode, "SIGTERM", message);
+    return;
+  }
+  await waitForValue(() => (child.exitCode !== null || child.signalCode !== null ? true : null), 10_000 * SPAWN_WAIT_FACTOR);
+  assert.equal(child.signalCode, null, `${message}: Windows names no signal`);
+}
 
 // A failed test must never leave a runner behind — this repository has
 // collected orphan test processes before. Every fixture is tracked, reaped in
@@ -83,6 +120,12 @@ function spawnFixture(script, options = {}) {
   chmodSync(path, 0o755);
   const child = spawn(process.execPath, [path], { stdio: "ignore", detached: options.detached ?? true });
   tracked.add(child);
+  // Unreferenced so a fixture can never hold the runner open. The `finally`
+  // that reaps it does not run when a helper throws before its `try` — and a
+  // referenced handle then keeps the event loop alive forever, which is how
+  // one failing assertion turned into a six-hour CI job (measured
+  // 2026-09-22). The exit handler above still reaps every tracked fixture.
+  child.unref();
   return child;
 }
 
@@ -120,7 +163,7 @@ setInterval(() => {}, 60_000);
  * @returns {Promise<void>}
  */
 async function awaitTrapReady(log) {
-  await waitForValue(() => (existsSync(log) ? true : null), 10_000);
+  await waitForValue(() => (existsSync(log) ? true : null), 10_000 * SPAWN_WAIT_FACTOR);
 }
 
 /**
@@ -164,15 +207,22 @@ async function scaffoldRun(id) {
  * recycled while the fixture is alive.
  *
  * @param {ChildProcess} child
- * @returns {Promise<string>}
+ * @returns {Promise<string|null>} the token where the platform has one
  */
 async function awaitOwnedToken(child) {
   const pid = childPid(child);
-  return /** @type {Promise<string>} */ (waitForValue(() => {
-    const token = processStartToken(pid);
-    if (typeof token !== "string" || token.length === 0) return null;
-    return invocationOwned({ pid, processGroupId: pid, processStartToken: token }) ? token : null;
-  }));
+  // Windows records no start token: `wmic` is gone from Windows 11 26200 and
+  // the PowerShell that replaced it costs about 400 ms a probe, so ownership
+  // there is the live pid the controller recorded (`process-identity.mjs`).
+  // Wait for whichever proof this platform actually has, and record the
+  // identity a dispatched invocation would carry — the point is that cancel
+  // reads the same shape it writes.
+  const owned = await waitForValue(() => {
+    const token = process.platform === "win32" ? null : processStartToken(pid);
+    if (process.platform !== "win32" && (typeof token !== "string" || token.length === 0)) return null;
+    return invocationOwned({ pid, processGroupId: pid, processStartToken: token }) ? { token } : null;
+  });
+  return /** @type {string|null} */ (/** @type {{token: string|null}} */ (owned).token);
 }
 
 /**
@@ -198,7 +248,9 @@ async function recordInvocation(runDir, nodeId, child, overrides = {}) {
     ...(previous ?? {}),
     id: "live-fixture-invocation",
     pid,
-    processGroupId: overrides.processGroupId ?? pid,
+    // A dispatched invocation on Windows records no process group — there is
+    // none to record — so neither does this one.
+    processGroupId: process.platform === "win32" ? null : overrides.processGroupId ?? pid,
     processStartToken: token,
     harness: "codex",
     runtimeId: null,
@@ -244,7 +296,7 @@ async function recordVerificationAttempt(runDir, nodeId, child) {
     invocationId: "live-fixture-attempt",
     status: "active",
     pid,
-    processGroupId: pid,
+    processGroupId: process.platform === "win32" ? null : pid,
     processStartToken: token,
     completedAt: null,
   };
@@ -271,7 +323,7 @@ async function recordVerificationAttempt(runDir, nodeId, child) {
 async function aDeadGroupId() {
   const ephemeral = spawnFixture("process.exit(0);\n");
   const pid = childPid(ephemeral);
-  await waitForValue(() => (ephemeral.exitCode !== null ? pid : null), 5_000);
+  await waitForValue(() => (ephemeral.exitCode !== null ? pid : null), 5_000 * SPAWN_WAIT_FACTOR);
   assert.equal(processGroupAlive(pid), false, "the ephemeral fixture's group is gone");
   return pid;
 }
@@ -287,7 +339,7 @@ async function aDeadGroupId() {
  */
 async function awaitGone(child, options = {}) {
   const pid = childPid(child);
-  await waitForValue(() => (!pidAlive(pid) ? true : null), 10_000);
+  await waitForValue(() => (!pidAlive(pid) ? true : null), 10_000 * SPAWN_WAIT_FACTOR);
   if (options.group) assert.equal(processGroupAlive(pid), false, "the fixture's whole process group is gone");
 }
 
@@ -309,7 +361,7 @@ async function reap(child, options = {}) {
       if (/** @type {{code?: string}} */ (error).code !== "ESRCH") throw error;
     }
   }
-  await waitForValue(() => (child.exitCode !== null || child.signalCode !== null ? true : null), 5_000);
+  await waitForValue(() => (child.exitCode !== null || child.signalCode !== null ? true : null), 5_000 * SPAWN_WAIT_FACTOR);
   assert.equal(pidAlive(childPid(child)), false, "the fixture is gone before the test returns");
   if (options.group) assert.equal(processGroupAlive(childPid(child)), false, "the fixture's process group is gone before the test returns");
 }
@@ -381,7 +433,7 @@ test("cancel signals a live invocation and confirms the process is gone", async 
     const result = await cancelRun(runDir);
 
     await awaitGone(child, { group: true });
-    assert.equal(child.signalCode, "SIGTERM", "the first signal sufficed for a fixture without a handler");
+    await assertKilledByCancel(child, "the first signal sufficed for a fixture without a handler");
     assert.deepEqual(result.preservedRefs, [preservedRefName("cancel-live-signal", "build")]);
     const state = JSON.parse(readFileSync(join(runDir, "nodes", "build.json"), "utf8"));
     assert.equal(state.status, "canceled");
@@ -393,7 +445,7 @@ test("cancel signals a live invocation and confirms the process is gone", async 
   }
 });
 
-test("an invocation that ignores SIGTERM is escalated to SIGKILL, deterministically", async () => {
+test("an invocation that ignores SIGTERM is escalated to SIGKILL, deterministically", { skip: process.platform === "win32" ? NO_IGNORABLE_SIGNAL : false }, async () => {
   const { runDir } = await scaffoldRun("cancel-live-escalate");
   orphan(runDir, "build");
   const received = join(mkdtempSync(join(tmpdir(), "cancel-live-trap-")), "signals.log");
@@ -415,7 +467,7 @@ test("an invocation that ignores SIGTERM is escalated to SIGKILL, deterministica
   }
 });
 
-test("cancel refuses while a recorded invocation survives and releases nothing", async () => {
+test("cancel refuses while a recorded invocation survives and releases nothing", { skip: process.platform === "win32" ? NO_IGNORABLE_SIGNAL : false }, async () => {
   const { directory, runDir } = await scaffoldRun("cancel-live-refusal");
   orphan(runDir, "build");
   const child = spawnFixture("setInterval(() => {}, 60_000);\n");
@@ -451,7 +503,7 @@ test("cancel terminates an active verification attempt and marks verification ca
     await cancelRun(runDir);
 
     await awaitGone(child, { group: true });
-    assert.equal(child.signalCode, "SIGTERM");
+    await assertKilledByCancel(child, "cancel took the verification attempt down");
     const state = JSON.parse(readFileSync(join(runDir, "nodes", "build.json"), "utf8"));
     assert.equal(state.verification.completed, true);
     assert.equal(state.verification.passed, false);
@@ -464,7 +516,7 @@ test("cancel terminates an active verification attempt and marks verification ca
   }
 });
 
-test("preserved refs exist before the first attempt branch release, so an interrupted cancel leaves more reachable", async () => {
+test("preserved refs exist before the first attempt branch release, so an interrupted cancel leaves more reachable", { skip: process.platform === "win32" ? NO_IGNORABLE_SIGNAL : false }, async () => {
   const { directory, runDir } = await scaffoldRun("cancel-live-order");
   orphan(runDir, "build");
   const received = join(mkdtempSync(join(tmpdir(), "cancel-live-trap-")), "signals.log");
@@ -524,7 +576,7 @@ test("cancel signals a controller holding the run lock and confirms its death be
     await cancelRun(runDir);
 
     await awaitGone(child);
-    assert.equal(child.signalCode, "SIGTERM", "the controller died by the first signal");
+    await assertKilledByCancel(child, "the controller died by the first signal");
     const state = JSON.parse(readFileSync(join(runDir, "nodes", "build.json"), "utf8"));
     assert.equal(state.status, "canceled", "cancel took the dead controller's stale lock and finished the run");
   } finally {
@@ -532,7 +584,7 @@ test("cancel signals a controller holding the run lock and confirms its death be
   }
 });
 
-test("a controller that ignores SIGTERM is escalated to SIGKILL", async () => {
+test("a controller that ignores SIGTERM is escalated to SIGKILL", { skip: process.platform === "win32" ? NO_IGNORABLE_SIGNAL : false }, async () => {
   const { runDir } = await scaffoldRun("cancel-live-controller-escalate");
   orphan(runDir, "build");
   const received = join(mkdtempSync(join(tmpdir(), "cancel-live-trap-")), "signals.log");

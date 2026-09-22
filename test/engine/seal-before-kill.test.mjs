@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -13,7 +13,7 @@ import { runContract } from "../../src/engine/scheduler.mjs";
 import { TIER_EXHAUSTION_CAP_REASON, TIER_EXHAUSTION_HOLD_CAP_MS, planResumeRetry } from "../../src/engine/retry.mjs";
 import { createAttemptWorktree, createRunRef, git, removeWorktree } from "../../src/repo/worktree.mjs";
 import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
-import { fixture, packet, waitForValue, writeContract } from "../helpers.mjs";
+import { SPAWN_WAIT_FACTOR, fixture, packet, waitForValue, writeContract } from "../helpers.mjs";
 import { nodeState } from "../runner-helpers.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
@@ -198,7 +198,12 @@ test("done-when 1 and 4: a wall-clock timeout seals, auto-retries on the same ru
   const contractPath = writeContract(directory, fixture({
     id: "seal-e2e-run",
     pollIntervalMs: 10,
-    timeoutSec: 0.7,
+    // The budget one healthy attempt has to fit inside, so it has to cover a
+    // provider spawn on this host — an extra command-interpreter process on
+    // Windows. Measured 2026-09-21: the retry that must succeed took longer
+    // than the POSIX number under the suite's own parallelism and was killed
+    // as a timeout, turning the proof inside out.
+    timeoutSec: 0.7 * SPAWN_WAIT_FACTOR,
     runtimeDefaults: { worker: "luna", judge: "luna" },
     runtimes: { luna: { harness: "codex", model: "gpt-5.6-luna", reasoning: "xhigh" } },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
@@ -231,7 +236,7 @@ test("done-when 1 and 4: a stall_timeout seals and auto-retries on the same runt
     id: "seal-stall-run",
     pollIntervalMs: 10,
     timeoutSec: 60,
-    stallTimeoutSec: 0.4,
+    stallTimeoutSec: 0.4 * SPAWN_WAIT_FACTOR,
     runtimeDefaults: { worker: "luna", judge: "luna" },
     runtimes: { luna: { harness: "codex", model: "gpt-5.6-luna", reasoning: "xhigh" } },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
@@ -344,7 +349,12 @@ setInterval(() => {}, 60_000);
     const sealedSha = state.worktree?.sealedSha;
     assert.ok(sealedSha, "the timeout sealed a non-empty attempt");
     assert.equal(git(repo, ["show", `${sealedSha}:README.md`]), "ordered-seal", "the seal holds the work as it was before the kill");
-    assert.equal(existsSync(join(worktree.path, "README.md")), false, "the provider's SIGTERM handler deleted the live file after the seal, proving the seal landed first");
+    // The deletion is the provider running its own SIGTERM handler, which is
+    // a POSIX proof: `taskkill /F` is the only ending Windows offers a
+    // console process, so nothing runs there on the way out. The sealed
+    // content asserted above is the ordering proof that holds on both.
+    // guard-exempt: host-layout only a POSIX provider runs a dying handler
+    if (process.platform !== "win32") assert.equal(existsSync(join(worktree.path, "README.md")), false, "the provider's SIGTERM handler deleted the live file after the seal, proving the seal landed first");
   } finally {
     if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
     else process.env.FABERUN_CODEX_BIN = previous;
@@ -377,6 +387,40 @@ test("done-when 6: after a tool event, silence longer than the runtime threshold
   let timeout;
   await detectStalls(/** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300 }), new Map([["build", job]]), async (_job, _status, error) => { timeout = error; });
   assert.equal(timeout?.code, "stall_timeout", "a first tool event must not disable stall detection forever");
+});
+
+// ---------------------------------------------------------------------------
+// A long turn that transmits without closing a turn is alive, not stalled.
+// ---------------------------------------------------------------------------
+
+/** One codex reasoning record: neither a completed turn nor a tool call. */
+const REASONING_RECORD = `${JSON.stringify({ type: "item.completed", item: { type: "reasoning", text: "still working" } })}\n`;
+
+test("a turn still transmitting is not stalled, even when it closes no turn and calls no tool", async () => {
+  const job = stallJob(REASONING_RECORD, { id: "luna", harness: "codex", model: "test", stallTimeoutSec: 0.2 });
+  const contract = /** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300 });
+  // The first pass is the observation that records where the transcript stood.
+  await detectStalls(contract, new Map([["build", job]]), async () => {});
+  // The turn keeps reasoning: more records, still no turn.completed and no
+  // tool call, so `turns + toolCalls` is unchanged from the pass above.
+  appendFileSync(job.paths.stdout, `${REASONING_RECORD}${REASONING_RECORD}`);
+  ageProgress(job, 500);
+  /** @type {unknown} */
+  let timeout;
+  await detectStalls(contract, new Map([["build", job]]), async (_job, _status, error) => { timeout = error; });
+  assert.equal(timeout, undefined, "bytes the provider streamed since the last pass are progress");
+});
+
+test("a turn that stops transmitting still stalls, so the bytes rule is not an amnesty", async () => {
+  const job = stallJob(REASONING_RECORD, { id: "luna", harness: "codex", model: "test", stallTimeoutSec: 0.2 });
+  const contract = /** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300 });
+  await detectStalls(contract, new Map([["build", job]]), async () => {});
+  // Nothing appended this time: the transcript is exactly where it was.
+  ageProgress(job, 500);
+  /** @type {{code: string}|undefined} */
+  let timeout;
+  await detectStalls(contract, new Map([["build", job]]), async (_job, _status, error) => { timeout = error; });
+  assert.equal(timeout?.code, "stall_timeout", "silence past the threshold is still a stall");
 });
 
 // ---------------------------------------------------------------------------
@@ -530,4 +574,56 @@ test("a turn cap ends the attempt the way a timeout does: seal path, code turn_l
   let none;
   await detectStalls(/** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300, maxTurns: 10 }), new Map([["build", under]]), async (_job, _outcome, error) => { none = error; });
   assert.equal(none, undefined, "under the cap the observed requests are progress, nothing more");
+});
+
+// The ceiling used to arrive only as the kill. `maxTurns` was documented once
+// in the whole set and not in the contract reference, so the author of the
+// audit contract raised `timeoutSec` and `stallTimeoutSec` -- everything they
+// knew existed -- and left this at its default; two Opus attempts at maximum
+// effort were then cut mid-turn with `turn_limit`, after the cost was paid.
+test("an attempt says once that it is nearing its request ceiling, before the ceiling ends it", async () => {
+  /** @type {string[]} */
+  const written = [];
+  const write = process.stdout.write;
+  process.stdout.write = /** @type {any} */ ((/** @type {unknown} */ chunk) => { written.push(String(chunk)); return true; });
+  try {
+    // Four requests against a ceiling of five: past 80%, under the cap.
+    const transcript = `${[1, 2, 3, 4].map(() => JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0 } })).join("\n")}\n`;
+    const job = stallJob(transcript, { id: "luna", harness: "codex", model: "test" });
+    job.observedOnce = true;
+    /** @type {unknown} */
+    let ended;
+    const contract = /** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300, maxTurns: 5 });
+    await detectStalls(contract, new Map([["build", job]]), async (_job, _outcome, error) => { ended = error; });
+    assert.equal(ended, undefined, "the warning is not a kill: the attempt keeps running");
+
+    const warnings = written.filter((line) => line.includes("maxTurns"));
+    assert.equal(warnings.length, 1, `exactly one warning: ${JSON.stringify(written)}`);
+    assert.match(warnings[0], /4 of the attempt's maxTurns of 5 provider requests/u);
+    assert.match(warnings[0], /raise maxTurns/u);
+
+    // Said once per attempt, not once per tick: the operator reads it, and a
+    // line repeated every poll is a line nobody reads.
+    written.length = 0;
+    await detectStalls(contract, new Map([["build", job]]), async () => {});
+    assert.deepEqual(written.filter((line) => line.includes("maxTurns")), []);
+  } finally {
+    process.stdout.write = write;
+  }
+});
+
+test("an attempt well under its ceiling says nothing about it", async () => {
+  /** @type {string[]} */
+  const written = [];
+  const write = process.stdout.write;
+  process.stdout.write = /** @type {any} */ ((/** @type {unknown} */ chunk) => { written.push(String(chunk)); return true; });
+  try {
+    const transcript = `${JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, cached_input_tokens: 0 } })}\n`;
+    const job = stallJob(transcript, { id: "luna", harness: "codex", model: "test" });
+    job.observedOnce = true;
+    await detectStalls(/** @type {any} */ ({ timeoutSec: 2_400, stallTimeoutSec: 300, maxTurns: 150 }), new Map([["build", job]]), async () => {});
+    assert.deepEqual(written.filter((line) => line.includes("maxTurns")), []);
+  } finally {
+    process.stdout.write = write;
+  }
 });

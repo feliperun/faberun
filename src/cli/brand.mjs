@@ -9,7 +9,7 @@
  * untouched.
  */
 
-import { compareVersions, faberunHome, readUpdateCheck } from "../host/home.mjs";
+import { availableUpdate, faberunHome } from "../host/home.mjs";
 
 /** @typedef {"brand"|"ok"|"progress"|"warn"|"fail"|"muted"|"text"} Role */
 /** @typedef {"terra"|"argila"|"folha"} ColorName */
@@ -150,16 +150,15 @@ export function statusToken(kind, level) {
  * opening is muted, the wordmark is the brand role, the tagline is plain text
  * and the last line is muted and filled from the running process. The last line
  * gains ` · update available: <latest>` when the cached check names a newer
- * release; the banner reads only the cache (`update-check.json`) and never
- * fetches. ASCII apart from the middle-dot separator, so it survives every
+ * release and is still inside `UPDATE_CHECK_MAX_AGE_MS`; the banner reads only
+ * the cache (`update-check.json`) and never fetches. ASCII apart from the middle-dot separator, so it survives every
  * monospace font.
  *
  * @param {BannerOptions} options
  * @returns {string}
  */
 export function renderBanner({ version, nodeVersion, harnessCount, level, env = process.env }) {
-  const cached = readUpdateCheck(faberunHome(env));
-  const latest = cached && compareVersions(cached.latest, version) > 0 ? cached.latest : null;
+  const latest = availableUpdate(faberunHome(env), version);
   const terra = /** @param {string} text @returns {string} */ (text) => colorize(text, { color: "terra" }, level);
   const lines = [
     terra("       .-~~~-."),

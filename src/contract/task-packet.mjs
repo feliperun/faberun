@@ -325,6 +325,14 @@ function validateRelativePath(path, label, cwd, mustExist, options = {}) {
   }
   if (!pathInside(realAnchor, realCwd)) throw new TypeError(`${label} escapes cwd`);
 
+  if (!existsSync(absolute) && anchor !== absolute && statSync(anchor).isFile()) {
+    // Nothing can ever appear beneath a regular file, so this path is refused
+    // outright rather than deferred to a dependency that might produce it.
+    // Only POSIX states that through an errno (ENOTDIR, from the walk above);
+    // Windows reports the same layout as a plain absence, so the shape is
+    // asked here rather than read off a platform error code.
+    throw new TypeError(`${label} is under a file, not a directory: ${path}`);
+  }
   if (!mustExist && !existsSync(absolute)) return;
   if (!existsSync(absolute)) {
     if (options.deferMissing) return DEFERRED_MISSING;
@@ -390,7 +398,11 @@ function findExistingPath(path) {
       lstatSync(current);
       return current;
     } catch (error) {
-      if (errorCode(error) !== "ENOENT") throw error;
+      // A path whose parent is a regular file is absent, not unreadable:
+      // POSIX says ENOTDIR where Windows says ENOENT, and both mean the same
+      // thing -- keep walking up to the ancestor that does exist.
+      const code = errorCode(error);
+      if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
     }
     const parent = dirname(current);
     if (parent === current) return null;

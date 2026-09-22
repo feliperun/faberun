@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { validateContract } from "../../src/contract/index.mjs";
@@ -10,7 +10,8 @@ import { droppedWriteFindings, unresolvedFindings } from "../../src/plan/pipelin
 import {
   RISK_TIERS,
   TASK_KINDS,
-  TASK_KIND_CATALOGUE_PATH,
+  TASK_KIND_CATALOGUE_FILE,
+  renderTaskKindCatalogue,
   buildPlanningContract,
   validateFindings,
   validatePlanOutput,
@@ -35,6 +36,7 @@ function baseInputs(overrides = {}) {
     runtimeDefaults: RUNTIME_DEFAULTS,
     specPath: "docs/spec.md",
     repoFactsPath: ".runs/repo-facts.json",
+    cataloguePath: `.runs/${TASK_KIND_CATALOGUE_FILE}`,
     planPath: ".runs/plan.json",
     findingsPath: ".runs/findings.json",
     notesPath: "docs/notes.md",
@@ -56,7 +58,7 @@ function writeInputFile(cwd, relative, content = "placeholder\n") {
 /** @returns {string} a temp checkout holding every path a planning contract may declare in readFiles */
 function checkout() {
   const cwd = mkdtempSync(join(tmpdir(), "plan-template-"));
-  writeInputFile(cwd, TASK_KIND_CATALOGUE_PATH, "export const TASK_KINDS = [];\n");
+  writeInputFile(cwd, `.runs/${TASK_KIND_CATALOGUE_FILE}`, renderTaskKindCatalogue());
   for (const relative of ["docs/spec.md", ".runs/repo-facts.json", ".runs/plan.json", ".runs/findings.json", "docs/notes.md"]) {
     writeInputFile(cwd, relative);
   }
@@ -475,4 +477,28 @@ test("a refused revise output leaves every finding outstanding: there is no revi
   const previous = { nodes: [nodeWriting("build", ["README.md"])] };
   const findings = [findingAgainst("F1", "build")];
   assert.deepEqual(unresolvedFindings(findings, previous, null), findings);
+});
+
+test("a planning contract names no path inside faberun's own source", () => {
+  // The finding this closes: `readFiles` resolve against the *target*
+  // repository, so a planning contract that named `src/plan/template.mjs`
+  // validated in this repository and in no other one -- `faberun plan` could
+  // plan only faberun. The checkout below is deliberately an ordinary
+  // repository with none of faberun's files in it.
+  const cwd = checkout();
+  assert.equal(existsSync(join(cwd, "src", "plan", "template.mjs")), false, "the checkout is not a faberun checkout");
+  const contractPath = join(cwd, "contract.json");
+  for (const kind of /** @type {const} */ (["draft", "revise"])) {
+    const contract = validateContract(buildPlanningContract(kind, baseInputs()), contractPath);
+    const readFiles = contract.nodes[0].taskPacket.readFiles;
+    assert.ok(readFiles.includes(`.runs/${TASK_KIND_CATALOGUE_FILE}`), `${kind} reads the staged catalogue`);
+    for (const path of readFiles) {
+      assert.doesNotMatch(path, /^src\//u, `${kind} must not read ${path}: it is faberun's source, not the target repository's`);
+    }
+  }
+  // The staged document carries the values the validator enforces, so a
+  // worker that obeys it cannot be refused for a taskKind it was told to use.
+  const catalogue = renderTaskKindCatalogue();
+  for (const kind of TASK_KINDS) assert.match(catalogue, new RegExp(`^- ${kind}$`, "mu"));
+  for (const tier of RISK_TIERS) assert.match(catalogue, new RegExp(`^- ${tier}$`, "mu"));
 });

@@ -8,7 +8,18 @@ export const VERIFICATION_LIMITS = Object.freeze({
   stderrBytes: 16 * 1024,
   maxCommands: 32,
   maxRepeat: 8,
-  maxTimeoutSec: 600,
+  // A verification command may declare up to half an hour. It was 600s, which
+  // is below this repository's own suite: measured 2026-09-22, `npm test`
+  // takes 434-473s at the default parallelism on the author's machine and 650s
+  // on a Windows CI runner, and `node --test --test-concurrency=1 test/engine/`
+  // -- the way a packet's verification actually runs it -- takes 1035-1058s.
+  // So the one command that proves the engine could not be declared at all,
+  // and a packet author's way out was `--test-name-pattern`, which exits 0
+  // when it matches nothing (see AGENTS.md). A cap that pushes authors toward
+  // a proof that certifies nothing is worse than a longer runaway. The node's
+  // own wall clock (`contract.timeoutSec`, 2400s by default) still bounds the
+  // attempt above this.
+  maxTimeoutSec: 1_800,
   stateStdoutBytes: 2 * 1024,
   stateCommands: 16,
   stateAttempts: 4,
@@ -42,7 +53,14 @@ export const MUTATION_TIERS = Object.freeze({
 /**
  * One declared deterministic check: an argv command run by the controller.
  *
- * @typedef {{argv: string[], cwd?: string, timeoutSec?: number, repeat?: number, env?: string[], mutation?: {tier: MutationTier}}} VerificationCommand
+ * `requirementId` names the spec requirement this command is the proof of. It
+ * changes nothing about how the command runs; it is what makes a duplicated
+ * proof visible. Measured 2026-09-22: one broken command lived in a spec's R3,
+ * in its R4 and in seven nodes' verification, and the repair reached one of
+ * them — nothing could tell that the other copies had stopped agreeing,
+ * because nothing recorded that they were copies of one claim.
+ *
+ * @typedef {{argv: string[], cwd?: string, timeoutSec?: number, repeat?: number, env?: string[], mutation?: {tier: MutationTier}, requirementId?: string}} VerificationCommand
  */
 
 /**
@@ -122,7 +140,7 @@ export function validateVerificationCommands(commands, label = "verification") {
 function validateVerificationCommand(command, label = "verification command") {
   if (!command || typeof command !== "object" || Array.isArray(command)) throw new TypeError(`${label} must be an argv command object`);
   const record = /** @type {Record<string, unknown>} */ (command);
-  const allowed = new Set(["argv", "cwd", "timeoutSec", "repeat", "env", "mutation"]);
+  const allowed = new Set(["argv", "cwd", "timeoutSec", "repeat", "env", "mutation", "requirementId"]);
   for (const key of Object.keys(record)) if (!allowed.has(key)) throw new TypeError(`${label} has unexpected field ${key}`);
   if (!Array.isArray(record.argv) || record.argv.length === 0 || record.argv.length > 64 || record.argv.some((item) => typeof item !== "string" || !item.trim() || Buffer.byteLength(item, "utf8") > 8 * 1024)) {
     throw new TypeError(`${label}.argv must be a non-empty array of strings`);
@@ -157,10 +175,18 @@ function validateVerificationCommand(command, label = "verification command") {
     }
     mutation = { tier: /** @type {MutationTier} */ (mutationRecord.tier) };
   }
+  // Bounded exactly like the node-level `requirementIds` it must match against
+  // (at most 128 bytes), so the two sides of the claim cannot accept different
+  // ids.
+  if (record.requirementId !== undefined
+    && (typeof record.requirementId !== "string" || !record.requirementId.trim() || Buffer.byteLength(record.requirementId, "utf8") > 128)) {
+    throw new TypeError(`${label}.requirementId must be a requirement id of at most 128 bytes`);
+  }
   /** @type {VerificationCommand} */
   const normalized = { argv: [.../** @type {string[]} */ (record.argv)], timeoutSec, repeat, env: [.../** @type {string[]} */ (env)] };
   if (record.cwd !== undefined) normalized.cwd = /** @type {string} */ (record.cwd);
   if (mutation !== undefined) normalized.mutation = mutation;
+  if (record.requirementId !== undefined) normalized.requirementId = /** @type {string} */ (record.requirementId);
   return normalized;
 }
 
@@ -199,3 +225,49 @@ export function compactVerification(result) {
   return { passed: Boolean(result?.passed), commands };
 }
 
+
+/**
+ * One proof, one source. A command that declares `requirementId` says it is
+ * the proof of that requirement; this reports the two ways such a claim can
+ * be false.
+ *
+ * A claim the node does not carry is a mislabel: the node's own
+ * `requirementIds` are what the phase assigned it, and a command proving
+ * something outside them is either the wrong id or the wrong node.
+ *
+ * Copies that stopped agreeing are the measured one. 2026-09-22: a broken
+ * command lived in a spec's R3, its R4, and seven nodes' verification, and
+ * the repair reached one copy. Nothing could see that the others had drifted,
+ * because nothing recorded that they were copies of a single claim. Argv is
+ * compared against argv, never a joined string against a shell command: a
+ * joined argv loses argument boundaries, which is the same reason a
+ * `verification` proof references an index instead of comparing text.
+ *
+ * @param {Array<{id: string, requirementIds?: string[], commands: VerificationCommand[]}>} owners
+ * @returns {string[]}
+ */
+export function requirementProofWarnings(owners) {
+  /** @type {string[]} */
+  const warnings = [];
+  /** @type {Map<string, Array<{owner: string, position: number, argv: string[]}>>} */
+  const claims = new Map();
+  for (const owner of owners) {
+    owner.commands.forEach((command, position) => {
+      const requirementId = command.requirementId;
+      if (requirementId === undefined) return;
+      if (owner.requirementIds !== undefined && !owner.requirementIds.includes(requirementId)) {
+        warnings.push(`${owner.id}: verification[${position}] declares requirementId "${requirementId}", which this node does not carry in requirementIds`);
+      }
+      const claimed = claims.get(requirementId) ?? [];
+      claimed.push({ owner: owner.id, position, argv: command.argv });
+      claims.set(requirementId, claimed);
+    });
+  }
+  for (const [requirementId, claimed] of claims) {
+    const distinct = new Map(claimed.map((claim) => [JSON.stringify(claim.argv), claim]));
+    if (distinct.size < 2) continue;
+    const listed = [...distinct.values()].map((claim) => `${claim.owner}: verification[${claim.position}] runs ${JSON.stringify(claim.argv)}`).join("; ");
+    warnings.push(`requirementId "${requirementId}" is proven by commands that no longer agree: ${listed}`);
+  }
+  return warnings;
+}

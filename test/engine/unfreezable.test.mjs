@@ -18,7 +18,7 @@ import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/contract/in
 import { runVerification } from "../../src/engine/run-command.mjs";
 import { enforceRunningInvariant } from "../../src/engine/scheduler.mjs";
 import { boundedGitSync, git } from "../../src/repo/worktree.mjs";
-import { initializeGit, waitForValue } from "../helpers.mjs";
+import { SPAWN_WAIT_FACTOR, initializeGit, waitForValue } from "../helpers.mjs";
 
 const SKILL_DIR = fileURLToPath(new URL("../..", import.meta.url));
 
@@ -125,7 +125,7 @@ test("done-when 2: an aborted command settles immediately instead of waiting for
   let escapedPid = null;
   try {
     const pending = runVerification([{ argv: [process.execPath, "escape.mjs"], timeoutSec: 60 }], directory, { signal: controller.signal });
-    await waitForValue(() => (existsSync(join(directory, "escape.pid")) ? true : null), 5_000, 10);
+    await waitForValue(() => (existsSync(join(directory, "escape.pid")) ? true : null), 5_000 * SPAWN_WAIT_FACTOR, 10);
     controller.abort();
     const result = await pending;
     const attempt = result.commands[0].attempts[0];
@@ -177,7 +177,14 @@ test("done-when 3: a timed-out command leaves no surviving member of its process
 // done-when 4: bounded synchronous git returns by its timeout, both paths.
 // ---------------------------------------------------------------------------
 
-test("done-when 4: a synchronous git blocked on a held index lock returns by its timeout with a named error", { timeout: 15_000 }, () => {
+// The blocking git this fixture needs is a script on PATH, and no Windows
+// host can hold one: node refuses to spawn a `.cmd` (EINVAL, the
+// argument-injection fix) and an extensionless shell script is not an
+// executable there at all, so nothing stands in for a git that hangs. The
+// bound itself is the spawnSync timeout and is not platform-shaped.
+const BLOCKING_GIT_IS_POSIX = "no name on a Windows PATH can stand in for a git that blocks";
+
+test("done-when 4: a synchronous git blocked on a held index lock returns by its timeout with a named error", { timeout: 15_000, skip: process.platform === "win32" ? BLOCKING_GIT_IS_POSIX : false }, () => {
   const directory = tempDir("git");
   writeFileSync(join(directory, "seed.txt"), "seed\n");
   initializeGit(directory);

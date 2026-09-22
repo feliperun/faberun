@@ -233,6 +233,21 @@ Splitting a module is mechanical and should be scripted, not retyped — but:
   environment, a path, or whether it is under test has stopped emulating a
   provider and started faking one.
 
+- **A polling deadline is scaled by `SPAWN_WAIT_FACTOR`, never written as a
+  raw number.** The rule above bans asserting how fast a machine is; a wait
+  deadline is the same hazard one step removed, because it fails when the
+  machine is slow rather than when the code is wrong. Measured 2026-09-22 over
+  four Windows CI jobs, `run --detach leaves a controller that outlives the
+  invoker` completed in 11.3s, 15.2s and 16.2s and then blew its 60s deadline
+  on the fourth; the runner's tail is over 4x its median, so a bound chosen
+  from the median turns contention into a red build. The factor is 6 on
+  Windows and 1 everywhere else. Two of eight checks flickering destroys the
+  signal more thoroughly than a slow suite does. Raising a bound separates
+  flake-by-slowness from flake-by-hang and cannot cure the second: on the same
+  runner `a gate exits once the directory holding its release file is gone`
+  either completes in under half a second or never completes, and no deadline
+  makes that test green.
+
 - **Two `node --test` traps, both measured 2026-09-21 on v26.8.1, both of
   which make a check silently stop checking.** A `--test-reporter=` that
   appears *after* a test file on the command line is ignored — node reads its
@@ -257,12 +272,3 @@ When this file governs anything in production:
   unreviewed destructive action against production data.
 - Never grant an agent operating under this file unsupervised write or delete access
   to a production database.
-
-<!-- faberun-active:start (managed by faberun — read, never edit) -->
-Before starting new work here, check `.runs/`: if a campaign is active or a run is not terminal, continue it instead of starting over — read its `HANDOFF.md`/`STATUS.md`, attach to the campaign, and `resume` or `supervise` the run. Active runs are supervised by a deterministic detached process: do not poll `status` in a loop — on resume, check status once and act only on terminal states.
-
-- faberun campaign `availability-is-verified-not-assumed`: active — read `.runs/campaigns/availability-is-verified-not-assumed/HANDOFF.md`
-  - run `availability-is-verified-not-assumed-1-the-gate-asks`: succeeded (2/2 nodes)
-  - run `availability-is-verified-not-assumed-1b-refusing-only-what-has-no-answer`: parked — `the-gate-refuses-only-a-node-with-no-answer:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/availability-is-verified-not-assumed-1b-refusing-only-what-has-no-answer`
-  - run `availability-is-verified-not-assumed-1c-only-silence-blocks`: parked — `only-silence-blocks-the-run:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/availability-is-verified-not-assumed-1c-only-silence-blocks`
-<!-- faberun-active:end -->

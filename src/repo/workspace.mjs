@@ -14,6 +14,7 @@
  * because the verification schema happened to be in the same file.
  */
 import { Buffer } from "node:buffer";
+import { gitArguments } from "../host/platform.mjs";
 import { VERIFICATION_LIMITS } from "../contract/verification.mjs";
 import { basename, isAbsolute, relative, resolve } from "node:path";
 import { closeSync, lstatSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, realpathSync, statSync } from "node:fs";
@@ -278,7 +279,7 @@ function captureIgnoreSources(root) {
   /** @param {string} name @param {string} logical @returns {string|null} */
   const resolveGitPath = (name, logical) => {
     try {
-      const value = execFileSync("git", ["-C", root, "rev-parse", "--git-path", name], {
+      const value = execFileSync("git", gitArguments(["-C", root, "rev-parse", "--git-path", name]), {
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
       }).trim();
@@ -460,7 +461,7 @@ function relevantWorkspacePaths(cwd) {
   args.push("-z");
   let output;
   try {
-    output = execFileSync("git", args, {
+    output = execFileSync("git", gitArguments(args), {
       cwd,
       encoding: "buffer",
       maxBuffer: VERIFICATION_LIMITS.snapshotEntries * (VERIFICATION_LIMITS.snapshotPathBytes + 1) + 1,

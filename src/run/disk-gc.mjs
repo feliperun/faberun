@@ -16,7 +16,7 @@
  * what a caller passes in.
  */
 import { readFileSync, readdirSync, rmSync, statSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { TERMINAL } from "../engine/prompts.mjs";
 import { lockStale, readLock } from "./lock.mjs";
 
@@ -214,7 +214,11 @@ export function writeRunTextWithDiskPressureRetry(runDir, path, text) {
  */
 function simulateEnospcForTest(path) {
   const match = process.env.FABERUN_SIMULATE_ENOSPC_MATCH;
-  if (!match || !path.includes(match)) return;
+  // The substring is authored in the portable spelling — a case names
+  // `nodes/build.json` — while the path carries this host's separator, so both
+  // are compared in that spelling. Raw, the match never fires on Windows and
+  // the injection is inert while the case still reports what it proved.
+  if (!match || !posixSpelling(path).includes(posixSpelling(match))) return;
   const remaining = Number(process.env.FABERUN_SIMULATE_ENOSPC_COUNT ?? "0");
   if (!Number.isInteger(remaining) || remaining <= 0) return;
   process.env.FABERUN_SIMULATE_ENOSPC_COUNT = String(remaining - 1);
@@ -222,6 +226,16 @@ function simulateEnospcForTest(path) {
     new Error(`ENOSPC: simulated no space left on device, write '${path}'`),
     { code: "ENOSPC", errno: -28, syscall: "write", path },
   );
+}
+
+/**
+ * One path spelled with forward slashes, whatever separator this host uses.
+ *
+ * @param {string} path
+ * @returns {string}
+ */
+function posixSpelling(path) {
+  return path.split(sep).join("/");
 }
 
 /**

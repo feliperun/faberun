@@ -395,13 +395,13 @@ const SYNC_GIT_SPAWN = /(?:execFileSync|spawnSync)\s*\(\s*["'`]git/u;
 
 /** @type {{file: string, match: string, reason: string}[]} */
 const SYNC_GIT_EXEMPTIONS = [
-  { file: "src/repo/worktree.mjs", match: "spawnSync(\"git\", args, {", reason: "the boundedGitSync wrapper itself" },
+  { file: "src/repo/worktree.mjs", match: "spawnSync(\"git\", gitArguments(args), {", reason: "the boundedGitSync wrapper itself" },
   { file: "src/repo/workspace.mjs", match: "\"rev-parse\", \"--git-path\"", reason: "read-only path probe; cannot take index.lock" },
-  { file: "src/repo/workspace.mjs", match: "execFileSync(\"git\", args, {", reason: "read-only ls-files index read; cannot take index.lock" },
+  { file: "src/repo/workspace.mjs", match: "execFileSync(\"git\", gitArguments(args), {", reason: "read-only ls-files index read; cannot take index.lock" },
   { file: "src/repo/declared-paths.mjs", match: "\"ls-files\", \"--cached\", \"--error-unmatch\"", reason: "read-only index probe" },
-  { file: "src/repo/declared-paths.mjs", match: "execFileSync(\"git\", args, { encoding: \"buffer\"", reason: "read-only ls-files index read" },
+  { file: "src/repo/declared-paths.mjs", match: "execFileSync(\"git\", gitArguments(args), { encoding: \"buffer\"", reason: "read-only ls-files index read" },
   { file: "src/repo/declared-paths.mjs", match: "[\"init\", \"-q\", temporaryWorktree]", reason: "throwaway temp repo, never the run's index" },
-  { file: "src/repo/declared-paths.mjs", match: "execFileSync(\"git\", args, { stdio: [\"ignore\", \"ignore\", \"ignore\"] });", reason: "read-only check-ignore probes" },
+  { file: "src/repo/declared-paths.mjs", match: "execFileSync(\"git\", gitArguments(args), { stdio: [\"ignore\", \"ignore\", \"ignore\"] });", reason: "read-only check-ignore probes" },
   { file: "src/repo/declared-paths.mjs", match: "args.toSpliced(-3, 1, \"--quiet\")", reason: "read-only check-ignore probe" },
   { file: "src/campaign/chain.mjs", match: "\"rev-parse\", ref", reason: "read-only ref probe" },
   { file: "src/campaign/chain.mjs", match: "\"worktree\", \"add\", \"--detach\"", reason: "outside this packet's write scope" },
@@ -615,5 +615,14 @@ test("package.json's test script still preloads test/scoped-home.mjs", () => {
     pkg.scripts.test,
     /--import\s+\.\/test\/scoped-home\.mjs/u,
     "the static rule above is worthless if the runner stops loading the scope: node --test preloads nothing on its own",
+  );
+});
+
+test("package.json's test script still preloads test/git-env.mjs", () => {
+  const pkg = JSON.parse(readFileSync(join(REPO_DIR, "package.json"), "utf8"));
+  assert.match(
+    pkg.scripts.test,
+    /--import\s+\.\/test\/git-env\.mjs/u,
+    "a fixture repository takes the machine's global git config without it, and a file that imports no helper takes it unnoticed",
   );
 });

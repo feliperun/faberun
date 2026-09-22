@@ -10,9 +10,9 @@ import { appendInbox, noTransportWarning, readInbox, wakeCapabilityNotice, NOTIF
 import { enqueueCampaignNotification } from "../../src/engine/notify-queue.mjs";
 import { environmentPreflight, notifyTransportCheck } from "../../src/host/preflight.mjs";
 import { renderAgentSignalBlock, syncAgentSignal } from "../../src/repo/signal.mjs";
-import { acquireWatchLock, watchCampaignWake } from "../../src/cli/campaign.mjs";
+import { acquireWatchLock, watchCampaignWake } from "../../src/campaign/watch.mjs";
 import { runProgress } from "../../src/engine/supervise.mjs";
-import { fixture, packet, writeContract, withEmptyPath, withFakeCodex, readStatus, waitForValue } from "../helpers.mjs";
+import { SPAWN_WAIT_FACTOR, fixture, packet, writeContract, withEmptyPath, withFakeCodex, readStatus, waitForValue } from "../helpers.mjs";
 import { RUNNER_CLI } from "../runner-helpers.mjs";
 import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
@@ -269,7 +269,7 @@ test("done-when 7: the foreground launch prints the warning once and the detache
   assert.equal(occurrences, 1, result.stdout);
   const pid = Number(/pid (\d+)/u.exec(result.stdout)?.[1] ?? 0);
   try {
-    assert.equal(await waitForValue(() => (readStatus(nodePath) === "done" ? "done" : null), 20_000), "done");
+    assert.equal(await waitForValue(() => (readStatus(nodePath) === "done" ? "done" : null), 20_000 * SPAWN_WAIT_FACTOR), "done");
   } finally {
     if (Number.isInteger(pid) && pid > 0) {
       try { process.kill(pid, "SIGTERM"); } catch { /* already gone */ }

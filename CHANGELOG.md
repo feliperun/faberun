@@ -2,6 +2,47 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.19.3](https://github.com/feliperun/faberun/compare/v0.19.2...v0.19.3) (2026-09-22)
+
+
+### Bug Fixes
+
+* the open findings, from a gate that stops watching to a closure that stays silent ([#59](https://github.com/feliperun/faberun/issues/59)) ([3534ac7](https://github.com/feliperun/faberun/commit/3534ac7b1bc0cd4d20f21157f566a049f3616cf4))
+
+## [0.19.2](https://github.com/feliperun/faberun/compare/v0.19.1...v0.19.2) (2026-09-22)
+
+
+### Bug Fixes
+
+* close the dossier of open faberun findings ([#56](https://github.com/feliperun/faberun/issues/56)) ([3325c8d](https://github.com/feliperun/faberun/commit/3325c8df739a13087612c9bdaf23f37037e932c6))
+
+## [0.19.1](https://github.com/feliperun/faberun/compare/v0.19.0...v0.19.1) (2026-09-22)
+
+
+### Bug Fixes
+
+* the seven omarchy blockers, the stale update check and the Windows CI flake ([#55](https://github.com/feliperun/faberun/issues/55)) ([446346f](https://github.com/feliperun/faberun/commit/446346fff756cd7430087d017c219441ffce0259))
+
+## [0.19.0](https://github.com/feliperun/faberun/compare/v0.18.0...v0.19.0) (2026-09-22)
+
+
+### Features
+
+* **contract:** warn when a node writes a layer its verification never runs ([#48](https://github.com/feliperun/faberun/issues/48)) ([8c26c95](https://github.com/feliperun/faberun/commit/8c26c9566eadd2bd56a725f17605d2eb830e68f5))
+* **engine:** a live verdict outlives the launch that bought it ([#51](https://github.com/feliperun/faberun/issues/51)) ([68c3e87](https://github.com/feliperun/faberun/commit/68c3e877bcba2bf183dbf0b85d795b4da77f804b))
+* **engine:** the dispatch gate asks before it passes ([#49](https://github.com/feliperun/faberun/issues/49)) ([b489e8c](https://github.com/feliperun/faberun/commit/b489e8c9f39dcbe1676994e9034385dd6bd36555))
+* **harnesses:** the availability verdict names which cause it was ([#47](https://github.com/feliperun/faberun/issues/47)) ([13094e0](https://github.com/feliperun/faberun/commit/13094e0fbfb4476a840b27085c0ca51359005675))
+* **host:** doctor reports the verdict, not the version ([#53](https://github.com/feliperun/faberun/issues/53)) ([6d91146](https://github.com/feliperun/faberun/commit/6d9114671ad0b7df63cfc154c6b57e4a04ba6562))
+* **host:** faberun runs on Windows ([87069e7](https://github.com/feliperun/faberun/commit/87069e774bdef0d4c7f67a83bf920bec8baa68f4))
+* **plan:** planning asks before its first stage ([#52](https://github.com/feliperun/faberun/issues/52)) ([a6a5d43](https://github.com/feliperun/faberun/commit/a6a5d4377df3fa19a9a5ccf95bd6e7782fd94dc9))
+
+
+### Bug Fixes
+
+* **contract:** the write-file line ceiling is a rule about modules ([#50](https://github.com/feliperun/faberun/issues/50)) ([6f7dd2c](https://github.com/feliperun/faberun/commit/6f7dd2c5f0b91ca3771153a0d6eb1794577f8187))
+* **signal:** a closed campaign's business leaves the block ([#46](https://github.com/feliperun/faberun/issues/46)) ([2b7f45e](https://github.com/feliperun/faberun/commit/2b7f45ed1e168df11600adb1cb2e5a14712c6664))
+* **signal:** a run with a node still running is active, not parked ([#44](https://github.com/feliperun/faberun/issues/44)) ([693c7a7](https://github.com/feliperun/faberun/commit/693c7a7584923b8e1bbec2f99c8e34553a30acef))
+
 ## [0.18.0](https://github.com/feliperun/faberun/compare/v0.17.2...v0.18.0) (2026-09-22)
 
 

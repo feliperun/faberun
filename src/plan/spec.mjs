@@ -6,6 +6,7 @@
  * schedules, or reaches a provider — this module invokes no model.
  */
 import { git } from "../repo/worktree.mjs";
+import { proveRequirements } from "./proof-run.mjs";
 
 /** @typedef {"command"|"path"|"judgment"} ProofKind */
 /** @typedef {{kind: ProofKind, ref?: string}} SpecProof */
@@ -280,8 +281,18 @@ function targetMatchesOrigin(cwd, target) {
  * Advisory by default — every violation is recorded and `ok` stays `true` —
  * and blocking under `strict`, where any violation makes `ok` `false`.
  *
+ * `runProofs` is the exception to "no model call, ever ... never executes
+ * a proof": it opts into actually running each requirement's `proof`
+ * (`proveRequirements`, the same shell-capture path `measure` already has),
+ * because a proof that is merely present is not a proof that passes.
+ * Measured 2026-09-22: two requirements anchored their proof to a form the
+ * artifact no longer had, and `--strict-traceability` alone never noticed,
+ * since it only checks that `proof` exists. A failed proof is blocking
+ * regardless of `strict` — nothing about "the proof does not run" is an
+ * advisory nicety like a missing Non-goals section.
+ *
  * @param {string} text
- * @param {{cwd?: string, strict?: boolean}} [options]
+ * @param {{cwd?: string, strict?: boolean, runProofs?: boolean, proofProbes?: import("./proof-run.mjs").MeasureProbes}} [options]
  * @returns {SpecValidation}
  */
 export function validateSpec(text, options = {}) {
@@ -315,6 +326,19 @@ export function validateSpec(text, options = {}) {
   }
   if (typeof parsed.frontMatter.target === "string" && !targetMatchesOrigin(cwd, parsed.frontMatter.target)) {
     findings.push({ rule: "target-unresolved", severity: "advisory", message: `target "${parsed.frontMatter.target}" does not match the origin remote`, line: 1 });
+  }
+  if (options.runProofs === true) {
+    const byId = new Map(parsed.requirements.map((requirement) => [requirement.id, requirement]));
+    for (const result of proveRequirements(cwd, parsed.requirements, options.proofProbes)) {
+      if (result.pass) continue;
+      const requirement = result.requirementId === null ? null : byId.get(result.requirementId);
+      findings.push({
+        rule: "requirement-proof-failed",
+        severity: "blocking",
+        message: `requirement ${result.requirementId ?? requirement?.title ?? "?"}'s proof does not pass (${result.kind}: ${result.ref}): ${result.detail}`,
+        line: requirement?.line ?? 1,
+      });
+    }
   }
   const graded = findings.map((finding) => (strict ? { ...finding, severity: /** @type {const} */ ("blocking") } : finding));
   return { class: "structured", ok: !graded.some((finding) => finding.severity === "blocking"), findings: graded };

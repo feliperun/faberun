@@ -132,8 +132,13 @@ export function closeCampaign(campaignPath, { at = new Date().toISOString(), eve
   requireTimestamp(at, "at");
   const campaign = readCampaign(campaignPath);
   if (campaign.status === "closed") throw new Error(`campaign already closed: ${campaign.id}`);
-  if (!readJournalForDedupe(campaignPath).some((entry) => entry.type === "retrospective")) {
+  const journal = readJournalForDedupe(campaignPath);
+  if (!journal.some((entry) => entry.type === "retrospective")) {
     throw new Error(`campaign ${campaign.id} has no recorded retrospective; record one with note --kind retrospective before close`);
+  }
+  const unacknowledged = unacknowledgedAdvisories(campaignPath, campaign, journal);
+  if (unacknowledged.length) {
+    throw new Error(`campaign ${campaign.id} has judge findings no note has answered: ${unacknowledged.join("; ")}. Read them with \`faberun findings <run-dir>\`, then name the node in a note (\`campaign note ${campaign.id} --kind outcome --run-id <run-id> --text "...<node>..."\`) before close`);
   }
   const repoRoot = campaignRepoRoot(campaignPath);
   const ledgerFiles = preserveCampaignLedger(campaignPath, repoRoot);
@@ -145,6 +150,56 @@ export function closeCampaign(campaignPath, { at = new Date().toISOString(), eve
   writeJsonAtomic(join(campaignPath, CAMPAIGN_FILE), closed);
   appendJournal(campaignPath, { type: "campaign.closed", at, eventId });
   return { path: campaignPath, campaign: closed, ledgerFiles };
+}
+
+/**
+ * Judge findings on nodes the gate accepted, which no journal note names.
+ *
+ * A gate that accepts a node whose findings sit below `failOn` is correct and
+ * documented. What was wrong is that the campaign could then be closed with
+ * the finding never read by anyone: measured 2026-09-21, a synthesis node's
+ * `gate.verdict` was `fail` with a real finding, `STATUS` said `passed`, and
+ * the campaign's own retrospective recorded that every gate passed first
+ * time. A close is the last moment the claim can still be corrected.
+ *
+ * Acknowledgement is a note that names the node id. The node id is the
+ * identifier the run, the contract and the findings output all already use,
+ * so matching on it asks the operator for nothing new; matching on a
+ * finding's prose would be matching on text the judge wrote, which is not a
+ * stable name.
+ *
+ * @param {string} campaignPath
+ * @param {Campaign} campaign
+ * @param {{type: string, text?: unknown}[]} journal
+ * @returns {string[]} one `runId/nodeId (N findings, maxSeverity)` per unanswered node, sorted
+ */
+function unacknowledgedAdvisories(campaignPath, campaign, journal) {
+  const runsDir = resolve(campaignPath, "..", "..");
+  const noteText = journal
+    .filter((entry) => typeof entry.text === "string")
+    .map((entry) => /** @type {string} */ (entry.text))
+    .join("\n");
+  /** @type {string[]} */
+  const pending = [];
+  for (const runId of [...campaign.linkedRunIds].sort()) {
+    const contract = readRunJson(join(runsDir, runId, "contract.json"));
+    const nodes = contract !== null && Array.isArray(contract.nodes) ? /** @type {JsonObject[]} */ (contract.nodes) : [];
+    for (const node of nodes) {
+      const nodeId = typeof node.id === "string" ? node.id : "";
+      if (!nodeId) continue;
+      const snapshot = readRunJson(join(runsDir, runId, "nodes", `${nodeId}.json`));
+      if (snapshot === null) continue;
+      // Only an accepted node: on a rejected one the findings are the
+      // rejection itself, and the run already refuses to read as finished.
+      if (snapshot.status !== "done" && snapshot.status !== "no-op") continue;
+      const gate = /** @type {JsonObject|null|undefined} */ (snapshot.gate);
+      const findings = gate && Array.isArray(gate.findings) ? gate.findings : [];
+      if (findings.length === 0) continue;
+      if (noteText.includes(nodeId)) continue;
+      pending.push(`${runId}/${nodeId} (${findings.length} ${findings.length === 1 ? "finding" : "findings"}, ${typeof gate?.maxSeverity === "string" ? gate.maxSeverity : "unknown"})`);
+    }
+  }
+  return pending.sort();
 }
 
 /**

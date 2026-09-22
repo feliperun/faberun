@@ -318,7 +318,13 @@ test("the probe's argv is built by the claude adapter, not a hand-written comman
 
   const result = await defaultInvoke("claude", { spawn: /** @type {any} */ (fakeSpawn) });
 
-  assert.equal(capturedExecutable, "claude");
+  // The probe goes through `spawnInvocation`, which on Windows resolves a
+  // bare executable name against PATH (ADR 0010) -- so the spawned command is
+  // `claude` where nothing needed resolving and the located binary where it
+  // did. Measured 2026-09-22 on Windows 11 with claude installed:
+  // `C:\Users\...\.local\bin\claude.exe`. The assertion is that the probe
+  // spawns the claude binary, which is the claim; the spelling is the host's.
+  assert.match(String(capturedExecutable), /(^claude$|[\\/]claude(\.\w+)?$)/u);
   // The adapter's own preamble discipline (harnesses/claude/index.mjs
   // claudePreambleArgs), not a raw `claude -p ... --output-format
   // stream-json --verbose` command line the probe used to build by hand.

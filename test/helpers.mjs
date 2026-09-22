@@ -6,6 +6,8 @@ import { initializeCampaign } from "../src/campaign/index.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../src/contract/index.mjs";
 import { createAttemptWorktree } from "../src/repo/worktree.mjs";
 import { RUNS_DIR_NAME, campaignTree, runsRoot } from "../src/run/paths.mjs";
+import { writeExecutable } from "./write-executable.mjs";
+import { gitArguments } from "../src/host/platform.mjs";
 
 // The suite must never notify a person or wake a session; `./setup.mjs` is
 // the one place that neutralises every notify variable, and `npm test`
@@ -13,6 +15,10 @@ import { RUNS_DIR_NAME, campaignTree, runsRoot } from "../src/run/paths.mjs";
 // on its own. Tests that need a failing or absent transport set the variable
 // explicitly inside the test and restore it afterward.
 import "./setup.mjs";
+
+// The git every fixture repository is created and read through; the runner
+// preloads it too, so this covers a file executed on its own.
+import "./git-env.mjs";
 
 // runsRoot registers every path it resolves as a project under $FABERUN_HOME.
 // Every fixture this suite builds resolves through it, so an unset variable
@@ -33,6 +39,35 @@ if (!process.env.FABERUN_HOME) {
 export const delay = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
 /**
+ * How much longer a wait has to be on this host before it means the same
+ * thing. Every deadline here is waiting on a spawned process to reach some
+ * state, and a spawn on Windows is not one exec: a fixture binary is a `.cmd`
+ * shim, so the command interpreter starts first and node after it. Measured
+ * 2026-09-21 on Windows 11 with the suite at its default parallelism, a
+ * provider took 0.3-0.6s to reach its first line against ~60ms on Linux, and
+ * five deadlines that hold anywhere else expired. The factor is the honest
+ * translation of "long enough that only a real hang trips this".
+ *
+ * Raised from 3 to 6, measured 2026-09-22 over six Windows CI jobs on this
+ * repository: `run --detach leaves a controller that outlives the invoker`
+ * completed in 11.3s, 15.2s and 16.2s and then blew a 60s deadline, and
+ * `done-when 7` did the same at 66.3s. The median was never the problem --
+ * the runner's tail is over 4x its median, so a bound inside that tail turns
+ * contention into a red build. At 120s both detach tests passed on a rerun of
+ * the same commit.
+ *
+ * What this factor does not fix, and must not be read as fixing: `a gate
+ * exits once the directory holding its release file is gone`
+ * (`test/run/process.test.mjs`) is bimodal on Windows -- it completes in
+ * 345-430ms or it never completes, and its 60s deadline is its own, not this
+ * factor's. It has failed on node 24 three times and node 22 twice across
+ * unrelated commits, so it is neither node-version-specific nor slowness.
+ * Raising a deadline separates flake-by-slowness from flake-by-hang; it
+ * cannot cure the second.
+ */
+export const SPAWN_WAIT_FACTOR = process.platform === "win32" ? 6 : 1;
+
+/**
  * Poll `read` until it returns a non-null value or the deadline passes.
  *
  * @param {() => unknown} read
@@ -40,7 +75,7 @@ export const delay = (milliseconds) => new Promise((resolve) => setTimeout(resol
  * @param {number} [intervalMs]
  * @returns {Promise<unknown>}
  */
-export async function waitForValue(read, timeoutMs = 5_000, intervalMs = 25) {
+export async function waitForValue(read, timeoutMs = 5_000 * SPAWN_WAIT_FACTOR, intervalMs = 25) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const value = await read();
@@ -212,9 +247,13 @@ export function writeContract(directory, value) {
  * @returns {void}
  */
 export function initializeGit(directory) {
-  execFileSync("git", ["init", "-q", directory]);
-  execFileSync("git", ["-C", directory, "add", ".", `:!${RUNS_DIR_NAME}`]);
-  execFileSync("git", ["-C", directory, "-c", "user.email=runner@example.test", "-c", "user.name=runner", "-c", "commit.gpgSign=false", "commit", "-qm", "fixture"]);
+  // Without this, a machine with the file system monitor enabled starts a
+  // detached `git fsmonitor--daemon` for every fixture repository the suite
+  // creates, and each one outlives the directory it watched: measured
+  // 2026-09-20, an afternoon of runs left 4810 of them holding 39 GB.
+  execFileSync("git", gitArguments(["init", "-q", directory]));
+  execFileSync("git", gitArguments(["-C", directory, "add", ".", `:!${RUNS_DIR_NAME}`]));
+  execFileSync("git", gitArguments(["-C", directory, "-c", "user.email=runner@example.test", "-c", "user.name=runner", "-c", "commit.gpgSign=false", "commit", "-qm", "fixture"]));
 }
 
 /**
@@ -224,8 +263,7 @@ export function initializeGit(directory) {
  */
 export function fakeCodex(directory, mode = "pass") {
   const path = join(mkdtempSync(join(tmpdir(), "runner-fake-codex-")), `fake-codex-${mode}.mjs`);
-  writeFileSync(path, `#!${process.execPath}
-import { appendFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+  const source = `import { appendFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 const mode = ${JSON.stringify(mode)};
 if (process.argv.includes("--version")) {
   if (mode === "version-fail") {
@@ -462,9 +500,8 @@ if (process.argv.includes("--version")) {
     }
   });
 }
-`);
-  chmodSync(path, 0o755);
-  return path;
+`;
+  return writeExecutable(path, source);
 }
 
 /**
@@ -474,8 +511,7 @@ if (process.argv.includes("--version")) {
  */
 export function fakeExecJsonl(directory, mode = "pass") {
   const path = join(mkdtempSync(join(tmpdir(), "runner-fake-jsonl-")), "fake-jsonl.mjs");
-  const script = process.platform === "win32" ? `#!${process.execPath}
-const mode = ${JSON.stringify(mode)};
+  const script = process.platform === "win32" ? `const mode = ${JSON.stringify(mode)};
 if (process.argv.includes("--version")) {
   console.log("fake-jsonl 1.0.0");
 } else {
@@ -511,9 +547,16 @@ case "$request" in
 esac
 printf '%s\\n' '{"schemaVersion":1,"type":"run.completed","result":'"$(printf '%s' "$result" | sed 's/"/\\\\"/g; s/^/"/; s/$/"/')"',"continuationId":"fake-thread","usage":{"inputTokens":5,"outputTokens":2,"cacheReadInputTokens":1},"costUsd":0.01}'
 `;
-  writeFileSync(path, script);
-  chmodSync(path, 0o755);
-  return path;
+  // The POSIX half carries its own `#!/bin/sh`, so it needs the exec bit and
+  // nothing else: `writeExecutable` would put node in front of a shell
+  // script. The Windows half is node, and reaches this host through the
+  // `.cmd` shim that writes.
+  if (process.platform !== "win32") {
+    writeFileSync(path, script);
+    chmodSync(path, 0o755);
+    return path;
+  }
+  return writeExecutable(path, script);
 }
 
 /**
@@ -528,8 +571,7 @@ printf '%s\\n' '{"schemaVersion":1,"type":"run.completed","result":'"$(printf '%
  */
 export function fakeAgy(directory) {
   const path = join(mkdtempSync(join(tmpdir(), "runner-fake-agy-")), "agy");
-  writeFileSync(path, `#!${process.execPath}
-if (process.argv.includes("--version")) {
+  const source = `if (process.argv.includes("--version")) {
   console.log("agy 1.0.0");
 } else if (process.argv.includes("models")) {
   console.error("Fetching available models...");
@@ -545,9 +587,8 @@ console.log(JSON.stringify({event:"result",result:{
   usage:{input_tokens:4,output_tokens:1,cache_read_tokens:2}
 }}));
 }
-`);
-  chmodSync(path, 0o755);
-  return path;
+`;
+  return writeExecutable(path, source);
 }
 
 /**
@@ -563,8 +604,7 @@ console.log(JSON.stringify({event:"result",result:{
  */
 export function fakeDsh(directory, mode = "pass") {
   const path = join(mkdtempSync(join(tmpdir(), "runner-fake-dsh-")), `fake-dsh-${mode}.mjs`);
-  writeFileSync(path, `#!${process.execPath}
-const mode = ${JSON.stringify(mode)};
+  const source = `const mode = ${JSON.stringify(mode)};
 const send = (message) => process.stdout.write(JSON.stringify(message) + "\\n");
 if (process.argv.includes("--version")) {
   console.log("fake-dsh 0.1.5-rc.1");
@@ -620,9 +660,8 @@ if (process.argv.includes("--version")) {
     }
   });
 }
-`);
-  chmodSync(path, 0o755);
-  return path;
+`;
+  return writeExecutable(path, source);
 }
 
 /**
@@ -712,6 +751,23 @@ export async function withEmptyPath(body, options = {}) {
       else process.env[key] = value;
     }
   }
+}
+
+/**
+ * The environment that points a spawned CLI at `home` as the operator's own
+ * home directory.
+ *
+ * What the product asks is `os.homedir()`, and that reads a different variable
+ * per platform: `HOME` on POSIX, `USERPROFILE` on Windows. A fixture that sets
+ * only one of them relocates the home on one platform and is silently ignored
+ * on the other — where the test then writes into the real home, or fails
+ * looking for what it wrote.
+ *
+ * @param {string} home
+ * @returns {Record<string, string>}
+ */
+export function homeEnv(home) {
+  return process.platform === "win32" ? { HOME: home, USERPROFILE: home } : { HOME: home };
 }
 
 /**

@@ -25,12 +25,14 @@
  * It also exits when the release file's directory is gone (measured
  * 2026-09-16: gate processes from a prior day's test runs, spawned into a
  * temp directory the failed test never cleaned up, were still alive and
- * waiting for a release file that could now never appear).
+ * waiting for a release file that could now never appear), and it keeps
+ * asking both of those questions after the provider starts, not only before.
  */
 import { existsSync, readFileSync, statSync, openSync, closeSync, readSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import { spawn } from "node:child_process";
 import { NOTIFY_ENV_NAMES } from "../notify/index.mjs";
+import { killTarget, spawnInvocation } from "../host/platform.mjs";
 
 /** @typedef {{executable: string, args: string[], cwd: string, promptTransport: "stdin"|"argv", harness: string, env: Record<string, string|null>|null, stdoutPath: string, stderrPath: string}} GateConfig */
 
@@ -92,13 +94,24 @@ if (config.promptTransport === "stdin") {
 
 /** @param {NodeJS.Signals} signal */
 function killGroup(signal) {
-  try { process.kill(-process.pid, signal); } catch {
+  try {
+    // `killTarget` reads the negative pid as the group on POSIX and as the tree
+    // to walk on Windows, which has no group to signal.
+    killTarget(-process.pid, signal);
+  } catch {
     // ESRCH: the process group is already gone, so there is nothing to signal.
   }
 }
 
 function stopProvider() {
-  try { provider?.kill("SIGTERM"); } catch {
+  try {
+    // The tree, not the process: on Windows a harness installed as a `.cmd` is
+    // reached through the command interpreter, so the provider this gate holds
+    // is `cmd.exe` and the harness is its child. Killing the one it spawned
+    // leaves the other running — measured 2026-09-20, as stranded `node`
+    // processes outliving a suite that had already stopped waiting for them.
+    if (provider?.pid) killTarget(provider.pid, "SIGTERM");
+  } catch {
     // No provider yet, or it already exited: a failed SIGTERM needs no action.
   }
   setTimeout(() => killGroup("SIGKILL"), 100).unref();
@@ -174,17 +187,40 @@ function releaseDirectoryGone() {
   return !existsSync(dirname(releasePath));
 }
 
+/**
+ * How often the gate re-asks its two liveness questions once the provider is
+ * running. Before release the tick below asks them every 10ms, because it is
+ * also polling for the release file; after release it used to stop asking
+ * entirely, leaving the provider's own exit as the gate's only remaining
+ * liveness check. A controller that died without cleaning up, or a run
+ * directory deleted underneath a live attempt, therefore left the provider
+ * running with nobody watching -- the stranded-process shape ADR 0010
+ * describes, in the one window the pre-release check does not cover.
+ *
+ * A second, not ten milliseconds: this watches a provider that runs for
+ * minutes, and three syscalls a second is the whole cost of never stranding
+ * one.
+ */
+const WATCHDOG_INTERVAL_MS = 1_000;
+
 const timer = setInterval(() => {
   if (!parentAlive()) { clearInterval(timer); stopProvider(); return; }
   if (releaseDirectoryGone()) { clearInterval(timer); stopProvider(); return; }
   if (!existsSync(releasePath)) return;
   clearInterval(timer);
+  const watchdog = setInterval(() => {
+    if (parentAlive() && !releaseDirectoryGone()) return;
+    clearInterval(watchdog);
+    stopProvider();
+  }, WATCHDOG_INTERVAL_MS);
   const stdoutFd = openSync(config.stdoutPath, "wx", 0o600);
   const stderrFd = openSync(config.stderrPath, "wx", 0o600);
-  provider = spawn(config.executable, config.args, {
+  const invocation = spawnInvocation(config.executable, config.args, { cwd: config.cwd });
+  provider = spawn(invocation.command, invocation.args, {
     cwd: config.cwd,
     env: childEnv(),
     stdio: [config.promptTransport === "stdin" ? "pipe" : "ignore", stdoutFd, stderrFd],
+    ...invocation.options,
   });
   if (config.promptTransport === "stdin") {
     for (const chunk of pendingInput) provider.stdin?.write(chunk);
@@ -193,6 +229,7 @@ const timer = setInterval(() => {
   }
   provider.once("error", () => process.exitCode = 127);
   provider.once("close", (code) => {
+    clearInterval(watchdog);
     capLog(config.stdoutPath, config.harness === "codex");
     capLog(config.stderrPath);
     process.exit(code ?? 1);

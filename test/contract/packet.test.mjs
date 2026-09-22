@@ -363,3 +363,143 @@ test("replayPolicy defaults to safe and accepts only its enumerated values", () 
     );
   }
 });
+
+// The 800-line ceiling is a rule about source modules: source-shape enforces
+// it over .mjs alone. Measured 2026-09-22: a packet declaring the generated
+// docs/COMMANDS.md was warned that 1141 lines left "-341 from the 800-line
+// ceiling", which is not a budget, is not true of that file, and trains the
+// reader to skim past the warnings that are.
+test("the write-file line ceiling warns about modules, not about every declared path", () => {
+  const { directory, path } = writeFixture({
+    nodes: [{
+      id: "build",
+      type: "backend",
+      taskPacket: { ...packet(), writeFiles: ["long.md", "long.mjs", "short.mjs"] },
+    }],
+  });
+  initializeGit(directory);
+  writeFileSync(join(directory, "long.md"), `${"x\n".repeat(1200)}`);
+  writeFileSync(join(directory, "long.mjs"), `${"// x\n".repeat(780)}`);
+  writeFileSync(join(directory, "short.mjs"), "// x\n");
+
+  const warnings = validateContract(JSON.parse(readFileSync(path, "utf8")), path).warnings;
+  const ceiling = warnings.filter((line) => line.includes("800-line ceiling"));
+  assert.equal(ceiling.length, 1, `exactly the module near the ceiling warns: ${JSON.stringify(ceiling)}`);
+  assert.match(ceiling[0], /long\.mjs is already 78[01] lines/u);
+  assert.ok(!ceiling.some((line) => line.includes("long.md")), "a markdown file has no module ceiling");
+});
+
+// A `kind: "command"` proof's ref runs through a shell, while
+// taskPacket.verification's argv does not: the same unquoted filter value
+// that argv would keep as one argument, a shell splits into words. Measured
+// 2026-09-22: six DoD refs on a real campaign wrote this shape and the gate
+// rejected work whose identical argv had just passed as verification.
+test("an unquoted test-name-pattern value on a command proof is warned, not silently split", () => {
+  const { path } = writeFixture({
+    nodes: [{
+      id: "build",
+      type: "backend",
+      gate: false,
+      taskPacket: packet(),
+      definitionOfDone: [
+        { id: "unit", text: "the suite passes", proof: { kind: "command", ref: "node --test --test-name-pattern=a b c" } },
+      ],
+    }],
+  });
+
+  const warnings = validateContract(JSON.parse(readFileSync(path, "utf8")), path).warnings;
+  const quoting = warnings.filter((line) => line.includes("--test-name-pattern"));
+  assert.equal(quoting.length, 1, `exactly the unquoted proof warns: ${JSON.stringify(warnings)}`);
+  assert.match(quoting[0], /value "a b c" is unquoted/u);
+  assert.match(quoting[0], /--test-name-pattern="a b c"/u);
+});
+
+test("a quoted test-name-pattern value on a command proof warns nothing", () => {
+  const { path } = writeFixture({
+    nodes: [{
+      id: "build",
+      type: "backend",
+      gate: false,
+      taskPacket: packet(),
+      definitionOfDone: [
+        { id: "unit", text: "the suite passes", proof: { kind: "command", ref: 'node --test --test-name-pattern="a b c"' } },
+      ],
+    }],
+  });
+
+  const warnings = validateContract(JSON.parse(readFileSync(path, "utf8")), path).warnings;
+  assert.ok(!warnings.some((line) => line.includes("--test-name-pattern")), `no warning expected: ${JSON.stringify(warnings)}`);
+});
+
+// One proof, one source. Measured 2026-09-22: a broken command lived in a
+// spec's R3, in its R4 and in seven nodes' verification, and the repair
+// reached one copy. Nothing recorded that the others were copies of the same
+// claim, so nothing could say they had stopped agreeing.
+test("verification commands proving one requirement are warned when they stop agreeing", () => {
+  const { path } = writeFixture({
+    nodes: [
+      {
+        id: "alpha",
+        type: "backend",
+        requirementIds: ["R3"],
+        taskPacket: { ...packet(), verification: [{ argv: ["node", "--test", "test/a.test.mjs"], requirementId: "R3" }] },
+      },
+      {
+        id: "beta",
+        type: "backend",
+        requirementIds: ["R3"],
+        taskPacket: { ...packet(), verification: [{ argv: ["node", "--test", "test/repaired.test.mjs"], requirementId: "R3" }] },
+      },
+    ],
+  });
+
+  const warnings = validateContract(JSON.parse(readFileSync(path, "utf8")), path).warnings;
+  const divergence = warnings.filter((line) => line.includes("no longer agree"));
+  assert.equal(divergence.length, 1, JSON.stringify(warnings));
+  assert.match(divergence[0], /requirementId "R3"/u);
+  assert.match(divergence[0], /test\/a\.test\.mjs/u);
+  assert.match(divergence[0], /test\/repaired\.test\.mjs/u);
+});
+
+test("the same command claimed by two nodes for one requirement warns nothing", () => {
+  const command = { argv: ["node", "--test", "test/a.test.mjs"], requirementId: "R3" };
+  const { path } = writeFixture({
+    nodes: [
+      { id: "alpha", type: "backend", requirementIds: ["R3"], taskPacket: { ...packet(), verification: [command] } },
+      { id: "beta", type: "backend", requirementIds: ["R3"], taskPacket: { ...packet(), verification: [command] } },
+    ],
+  });
+
+  const warnings = validateContract(JSON.parse(readFileSync(path, "utf8")), path).warnings;
+  assert.ok(!warnings.some((line) => line.includes("no longer agree")), JSON.stringify(warnings));
+});
+
+test("a verification command claiming a requirement its node does not carry is warned", () => {
+  const { path } = writeFixture({
+    nodes: [{
+      id: "alpha",
+      type: "backend",
+      requirementIds: ["R1"],
+      taskPacket: { ...packet(), verification: [{ argv: ["node", "--test", "test/a.test.mjs"], requirementId: "R9" }] },
+    }],
+  });
+
+  const warnings = validateContract(JSON.parse(readFileSync(path, "utf8")), path).warnings;
+  const mislabel = warnings.filter((line) => line.includes("does not carry in requirementIds"));
+  assert.equal(mislabel.length, 1, JSON.stringify(warnings));
+  assert.match(mislabel[0], /declares requirementId "R9"/u);
+});
+
+test("requirementId is rejected when it is not a bounded id", () => {
+  const { path } = writeFixture({
+    nodes: [{
+      id: "alpha",
+      type: "backend",
+      taskPacket: { ...packet(), verification: [{ argv: ["node", "--test", "test/a.test.mjs"], requirementId: 7 }] },
+    }],
+  });
+  assert.throws(
+    () => validateContract(JSON.parse(readFileSync(path, "utf8")), path),
+    /requirementId must be a requirement id/u,
+  );
+});

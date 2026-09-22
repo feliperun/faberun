@@ -103,7 +103,7 @@ function gitRepo(prefix, commands = []) {
 
 /**
  * @param {string} executable
- * @returns {Map<string, {runtime: import("../../src/contract/index.mjs").RuntimeSnapshot, requiredCapabilitySets: []}>}
+ * @returns {Map<string, {runtime: import("../../src/contract/index.mjs").RuntimeSnapshot, requiredCapabilitySets: [], routed: boolean}>}
  */
 function routedRuntimes(executable) {
   const runtime = /** @type {import("../../src/contract/index.mjs").RuntimeSnapshot} */ ({
@@ -112,7 +112,7 @@ function routedRuntimes(executable) {
     executable,
     model: "gpt-5.6-luna",
   });
-  return new Map([["luna", { runtime, requiredCapabilitySets: /** @type {[]} */ ([]) }]]);
+  return new Map([["luna", { runtime, requiredCapabilitySets: /** @type {[]} */ ([]), routed: true }]]);
 }
 
 test("preflight disk check fails below the configured free-space threshold", () => {
@@ -171,6 +171,33 @@ test("preflight runtime binary check requires a resolvable binary and a version"
   const absent = checkRuntimeBinaries(routedRuntimes(join(directory, "absent-bin")), { luna: "1.0.0" });
   assert.equal(absent.ok, false);
   assert.match(absent.detail, /not found on PATH/u);
+});
+
+test("an unresolvable runtime nobody routed to is not a candidate, not a refusal", () => {
+  const directory = mkdtempSync(join(tmpdir(), "env-preflight-candidate-"));
+  const present = /** @type {import("../../src/contract/index.mjs").RuntimeSnapshot} */ ({ id: "luna", harness: "codex", executable: fakeCodex(directory), model: "gpt-5.6-luna" });
+  const missing = /** @type {import("../../src/contract/index.mjs").RuntimeSnapshot} */ ({ id: "ghost", harness: "codex", executable: join(directory, "absent-bin"), model: "gpt-5.6" });
+  const versions = { luna: "1.0.0", ghost: "1.0.0" };
+
+  const routed = checkRuntimeBinaries(new Map([
+    ["luna", { runtime: present, requiredCapabilitySets: /** @type {[]} */ ([]), routed: true }],
+    ["ghost", { runtime: missing, requiredCapabilitySets: /** @type {[]} */ ([]), routed: true }],
+  ]), versions);
+  assert.equal(routed.ok, false, "a runtime the contract named still has to resolve");
+  assert.match(routed.detail, /ghost/u);
+
+  const candidate = checkRuntimeBinaries(new Map([
+    ["luna", { runtime: present, requiredCapabilitySets: /** @type {[]} */ ([]), routed: false }],
+    ["ghost", { runtime: missing, requiredCapabilitySets: /** @type {[]} */ ([]), routed: false }],
+  ]), versions);
+  assert.equal(candidate.ok, true, "one resolvable candidate is enough for discovery to choose from");
+  assert.match(candidate.detail, /not candidates: ghost/u, "the unusable candidate is still reported, just not fatal");
+
+  const none = checkRuntimeBinaries(new Map([
+    ["ghost", { runtime: missing, requiredCapabilitySets: /** @type {[]} */ ([]), routed: false }],
+  ]), versions);
+  assert.equal(none.ok, false, "a catalogue where nothing resolves leaves no route at all");
+  assert.match(none.detail, /nothing to choose/u);
 });
 
 test("preflight environment report blocks only on non-advisory failures", () => {

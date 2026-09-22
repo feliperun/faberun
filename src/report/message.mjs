@@ -28,7 +28,7 @@ import { chooseLanguage, labelsFor } from "./locale.mjs";
 import { readNodeSnapshot } from "../run/node-store.mjs";
 import { campaignDir } from "../campaign/layout.mjs";
 import { readJournal } from "../campaign/journal.mjs";
-import { compareVersions, faberunHome, readUpdateCheck } from "../host/home.mjs";
+import { availableUpdate, faberunHome } from "../host/home.mjs";
 import { packageVersion } from "../host/package.mjs";
 import { boundedUtf8, compactTokens } from "../util.mjs";
 import { SETTLED, SUCCESS } from "../engine/prompts.mjs";
@@ -277,23 +277,23 @@ function footer(view, eventType) {
 }
 
 /**
- * One line when the cached update check names a release newer than the one
- * running. The cache only, never the network: `faberun update --check`
+ * One line when a still-fresh cached update check names a release newer than
+ * the one running. The cache only, never the network: `faberun update --check`
  * refreshes it, and a notification must never wait on a request.
  *
  * @param {(key: string) => string} label
  * @returns {string[]}
  */
 function updateLine(label) {
-  let check;
+  let latest;
   try {
-    check = readUpdateCheck(faberunHome());
+    latest = availableUpdate(faberunHome(), packageVersion());
   } catch {
     // An unreadable install root is the banner's problem to report, not the message's.
     return [];
   }
-  if (!check || compareVersions(check.latest, packageVersion()) <= 0) return [];
-  return [`⬆️ faberun ${check.latest} ${label("available")} · ${label("runUpdate")} faberun update`];
+  if (!latest) return [];
+  return [`⬆️ faberun ${latest} ${label("available")} · ${label("runUpdate")} faberun update`];
 }
 
 /**

@@ -52,7 +52,7 @@ These are the variables `src/` reads that a user, not a test, would set.
 
 ## faberun run
 ```text
-faberun run <contract.json> [--detach] [--base-ref <value>]
+faberun run <contract.json> [--detach] [--base-ref <value>] [--fresh-preflight]
 ```
 Validate a contract, refuse a launch when the base it would cut from is dirty,
 then drive the run's DAG. Use it to start a run; `--detach` is the normal shape
@@ -65,6 +65,7 @@ it.
 | --- | --- | --- | --- |
 | `--detach` | none | Spawn the controller detached and return once its bootstrap record exists. | off |
 | `--base-ref` | git ref | Cut every attempt worktree from this ref instead of the checkout's `HEAD`. | current `HEAD` |
+| `--fresh-preflight` | none | Ask every routed runtime the live preflight even when the verdict store under `FABERUN_HOME` (`availability.json`) holds an answer observed inside the freshness window (15 minutes); the fresh answers are recorded for later launches. | off |
 Reads `<contract.json>`. Writes `.runs/<contract.id>/` (frozen contract, run
 metadata, node snapshots, logs, `status.json`, `STATUS.md`), the attempt
 worktrees under `.runs/worktrees/<run-id>/`, and `refs/faberun/<run-id>/…`.
@@ -116,7 +117,7 @@ Related: `faberun doctor`, `faberun run`, `faberun validate`.
 
 ## faberun resume
 ```text
-faberun resume <run-dir> [--detach] [--node <value>] [--reconcile <value>] [--answer <value>]
+faberun resume <run-dir> [--detach] [--node <value>] [--reconcile <value>] [--answer <value>] [--fresh-preflight]
 ```
 Continue an interrupted run in place: the same run, node and frozen packet,
 attempt plus one. It adopts completed work first, then re-dispatches ordinary
@@ -129,6 +130,7 @@ against that same ref, from any checkout.
 | `--node` | node id | Limit the retry to that node and its dependents. | every eligible node |
 | `--reconcile` | node id | Re-dispatch a node blocked with `unknown_effect_reconciled`; refuses without it. | none |
 | `--answer` | `<node-id>=<path>` | Record an operator answer for a node blocked on context, then re-dispatch it and its dependents. The file is refused above 8 KiB. | none |
+| `--fresh-preflight` | none | Ask every routed runtime the live preflight again, ignoring any stored verdict inside its freshness window; the fresh answers are recorded for later launches. | off |
 Reads and writes `.runs/<run-id>/` (node snapshots, integration ledger,
 operations, logs) and the attempt worktrees. `--answer` is text only and is
 never written into a worktree.
@@ -509,7 +511,7 @@ node src/cli.mjs spec validate docs/campaigns/feature-42/spec/PROPOSAL.md
 Related: `faberun contract validate`.
 ### faberun spec validate
 ```text
-faberun spec validate <file> [--strict-traceability] [--json]
+faberun spec validate <file> [--strict-traceability] [--run-proofs] [--json]
 ```
 Parse a spec and check it against the format's advisory rules: a requirement
 without a stable id or a `proof`, a missing Non-goals section, a Success
@@ -521,6 +523,7 @@ those findings into a failure instead of a warning.
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
 | `--strict-traceability` | none | Fail validation on any advisory finding instead of only reporting it. | off |
+| `--run-proofs` | none | Run each requirement's declared `proof` against the repository as it stands, instead of only checking that one is written down. A proof that does not pass is blocking whether or not `--strict-traceability` is given. | off |
 | `--json` | none | Emit `{class, ok, findings}` as one JSON object. | off |
 Reads `<file>` and, for `target`/`baseline` resolution, this repository's git
 history; writes nothing. Exits `1` when validation is not `ok`.
@@ -549,7 +552,7 @@ Related: `faberun spec validate`.
 
 ## faberun plan
 ```text
-faberun plan <spec.md> [--campaign <value>] [--phase <value>] [--review-rounds <value>] [--approve-below <value>] [--runtime-defaults <value>] [--runtimes <value>] [--verification <value>] [--detach] [--json]
+faberun plan <spec.md> [--campaign <value>] [--phase <value>] [--review-rounds <value>] [--approve-below <value>] [--runtime-defaults <value>] [--runtimes <value>] [--verification <value>] [--package <value>] [--targeted-fix] [--detach] [--json]
 ```
 Run the planning pipeline outside the control session: draft, then review, then
 revise up to `--review-rounds` (default 2) whenever the reviewer's findings
@@ -571,6 +574,8 @@ approves everything, `none` approves nothing); an unapproved plan gets its own
 | `--runtime-defaults` | `worker=<id>,judge=<id>` | The operator's runtime instruction; wins over the routing table. | discovery |
 | `--runtimes` | path to a JSON file | A runtime catalogue in the contract's `runtimes` shape, validated the same way; replaces built-in discovery for every stage and the frozen contract. `--runtime-defaults` ids then resolve against it. | built-in discovery |
 | `--verification` | path to a JSON file | Verification suites in the contract's own shape — `sharedVerification`, `finalVerification`, either or both keys — validated the same way and carried verbatim into the frozen contract. A key that is not a contract suite is refused. | none — freezing with neither suite warns |
+| `--package` | `implementation` or `exploratory` | What kind of work this package is, which decides how nodes are sized. `implementation` sizes by the write set (4 to 6 files, merging what falls under it). `exploratory` — an audit, a review, a survey — sizes by what each node reads and by risk: a one-file write set is the normal shape of a finding, no node is merged for being underfilled, and a node whose read surface dwarfs its siblings' is reported. | `implementation` |
+| `--targeted-fix` | none | Accept a plan with a single node. Sizing refuses one by default, because a phase that decomposes into one node is usually a plan that was never decomposed; a targeted fix is the case where one node is the honest answer. | off |
 | `--detach` | none | Spawn the whole pipeline detached and return once it starts. | off |
 | `--json` | none | Emit the pipeline's result object as one JSON line. | off |
 Reads `<spec.md>` and the target campaign's record; writes

@@ -60,7 +60,18 @@ export const DISCOVERY_RUNTIME_DEFINITIONS = Object.freeze({
     costRank: 1,
   },
   "agy-gemini": { harness: "agy", model: "gemini-3.8-flash-low", vendor: "google", tier: 1, costRank: 1 },
+  // Three codex rows, because the harness declares three models and an
+  // account is entitled to only some of them: measured 2026-09-21 on the
+  // owner's ChatGPT account, plain `gpt-5.6` answers HTTP 400 while
+  // `gpt-5.6-sol` answers normally. One row meant `setup` could offer only the
+  // model that account cannot use, and the operator's only way out was to hand
+  // every contract its own catalogue through `--runtimes`. Declaration order is
+  // unchanged, so the composed default is still `codex-gpt`: which of the three
+  // an account can reach is not something this file can know, and the live
+  // preflight is what reports it per id.
   "codex-gpt": { harness: "codex", model: "gpt-5.6", vendor: "openai", tier: 2, costRank: 2 },
+  "codex-sol": { harness: "codex", model: "gpt-5.6-sol", vendor: "openai", tier: 2, costRank: 2 },
+  "codex-luna": { harness: "codex", model: "gpt-5.6-luna", vendor: "openai", tier: 2, costRank: 2 },
   "claude-sonnet": { harness: "claude", model: "claude-sonnet-5", vendor: "anthropic", tier: 2, costRank: 2 },
 });
 
@@ -234,21 +245,42 @@ function tierOrder(runtime) {
 }
 
 /**
- * Span in seconds of every rate-limit window label a harness reports. The
- * labels are claude's `rateLimitType` values (measured 2026-09-17, the
- * `rate_limit_event` line recorded in `src/harnesses/protocol.mjs`); a label
+ * How long a recorded live-preflight verdict stays fresh, in seconds. This is
+ * the hello's own clock and is never derived from the quota windows below: a
+ * spend allowance expires when the provider resets it, a hello expires
+ * because whatever it proved -- a working credential, a spawning binary, a
+ * model that answers -- has stopped holding. Measured 2026-09-22: the ask
+ * costs about 18s for four runtimes in parallel, so every launch that reuses
+ * instead of asking saves about that. The window bets that a provider which
+ * answered still answers for the next quarter hour -- long enough to cover a
+ * burst of relaunches and retries, short enough that whatever died in
+ * between is bought again within fifteen minutes.
+ */
+const PREFLIGHT_FRESH_SEC = 15 * 60;
+
+/** The window label a persisted live-preflight verdict carries. */
+export const PREFLIGHT_WINDOW = "preflight";
+
+/**
+ * Span in seconds of every window label a catalogue or stored record may
+ * carry. `five_hour` and `seven_day` are claude's rate-limit labels (measured
+ * 2026-09-17, the `rate_limit_event` line recorded in
+ * `src/harnesses/protocol.mjs`); `preflight` is the hello's own clock, whose
+ * duration and reasoning live in `PREFLIGHT_FRESH_SEC` above -- the two kinds
+ * of window expire for different reasons and are never one clock. A label
  * missing here cannot prove staleness, so its observation never self-expires.
  *
  * @type {Readonly<Record<string, number>>}
  */
-const AVAILABILITY_WINDOW_SEC = Object.freeze({ five_hour: 5 * 3600, seven_day: 7 * 86400 });
+const AVAILABILITY_WINDOW_SEC = Object.freeze({ five_hour: 5 * 3600, seven_day: 7 * 86400, [PREFLIGHT_WINDOW]: PREFLIGHT_FRESH_SEC });
 
 /**
  * May a runtime be admitted on this catalogue record? Exhaustion is waited
  * out on `exhaustedUntil`; an observation older than its own window reads as
  * unknown and admits nothing, because unknown must not look rested. This is
  * the one home of the rule: plan routing and engine composition both read it,
- * so the null and staleness semantics cannot drift between readers. The
+ * as does the verdict store's reuse decision in `run/availability.mjs`, so
+ * the null and staleness semantics cannot drift between readers. The
  * parameter is typed on the fields the rule reads, not on the full record --
  * the plan's table copy names no `reason`.
  *

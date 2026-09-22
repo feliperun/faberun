@@ -13,6 +13,18 @@ import { nodeState, showRefFile, advisoryGateCodex } from "../runner-helpers.mjs
 import { validateContract } from "../../src/contract/index.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
+/**
+ * A scope declared through a symlink is a POSIX-shaped fixture. Git decides at
+ * init time whether the filesystem can hold symlinks and writes `core.symlinks`
+ * accordingly; measured 2026-09-21 on Windows 11, a fresh `git init` there says
+ * false even where node itself can create one, so the attempt worktree gets a
+ * regular file holding the target path and there is no link for the scope to
+ * resolve through. The product is unchanged by that — the write still lands
+ * inside the workspace and is still reported — but the two spellings the
+ * assertion is about exist only where git materializes the link.
+ */
+const REASON = "git checks a symlink out as a regular file where core.symlinks is off, which is every Windows worktree";
+
 test("an unexpected write on green verification is an advisory finding, not a terminal failure", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-scope-"));
   writeFileSync(join(directory, "preexisting.txt"), "keep me\n");
@@ -255,7 +267,7 @@ test("a worker-created symlink cannot authorize its target, but is advisory on g
   assert.deepEqual(state.scopeFindings?.unexpectedPaths, ["outside.txt"]);
 });
 
-test("retargeting a contained alias cannot authorize the new target, but is advisory on green verification", async () => {
+test("retargeting a contained alias cannot authorize the new target, but is advisory on green verification", { skip: process.platform === "win32" ? REASON : false }, async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-scope-retargeted-symlink-"));
   writeFileSync(join(directory, "src.txt"), "source\n");
   writeFileSync(join(directory, "outside.txt"), "outside\n");
@@ -274,7 +286,7 @@ test("retargeting a contained alias cannot authorize the new target, but is advi
   assert.deepEqual(state.scopeFindings?.unexpectedPaths, ["outside.txt"]);
 });
 
-test("a pre-existing contained alias remains an authorized write path", async () => {
+test("a pre-existing contained alias remains an authorized write path", { skip: process.platform === "win32" ? REASON : false }, async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-scope-contained-alias-"));
   writeFileSync(join(directory, "src.txt"), "source\n");
   writeFileSync(join(directory, "outside.txt"), "outside\n");

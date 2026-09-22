@@ -432,12 +432,26 @@ function renderLine(item) {
 
 /**
  * Quote a shell argument only when it needs it, so a normal path stays bare and
- * a path with a space (or any other shell metacharacter) is single-quoted.
+ * a path with a space (or any other shell metacharacter) is quoted the way the
+ * shell reading this line quotes.
  *
  * @param {string} value
  * @returns {string}
  */
 function quoteArg(value) {
   if (/^[A-Za-z0-9_@%+=:,./-]+$/u.test(value)) return value;
+  // A Windows path is not a POSIX word: every separator is a backslash, so the
+  // rule above rejects even a plain run directory. Quoting it the POSIX way
+  // would leave the line worse than bare — cmd.exe reads a single quote as a
+  // literal character and would look for a directory named with one. There the
+  // separator is ordinary, and only a space (or a character the shell reads)
+  // needs the quotes that platform does understand.
+  // `~` is in the set because a Windows temporary directory is routinely an
+  // 8.3 short name — `C:\Users\RUNNER~1\AppData\Local\Temp` on a CI runner —
+  // and nothing reads a tilde inside a path: cmd.exe has no expansion for it,
+  // and PowerShell expands one only at the start of a path.
+  if (process.platform === "win32") {
+    return /^[A-Za-z0-9_@%+=:,.~\\/-]+$/u.test(value) ? value : `"${value.replaceAll('"', '\\"')}"`;
+  }
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }

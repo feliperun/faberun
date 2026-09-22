@@ -24,9 +24,10 @@ import { campaignCli } from "../cli/campaign.mjs";
 import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
 import { stableJson } from "../util.mjs";
 import { allowanceDelta, allowanceEventFields, sampleAllowance } from "../seat/allowance.mjs";
+import { askPlanningRuntimes, refusePlanningSilence } from "./preflight.mjs";
 import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
-import { RISK_TIERS, buildPlanningContract, validateFindings, validatePlanOutput } from "./template.mjs";
+import { RISK_TIERS, TASK_KIND_CATALOGUE_FILE, buildPlanningContract, renderTaskKindCatalogue, validateFindings, validatePlanOutput } from "./template.mjs";
 import { MIN_WRITE_FILES, applySizingRules, provenParallelism } from "./sizing.mjs";
 import { resolveRuntimes } from "./routing.mjs";
 import { freezePlan } from "./freeze.mjs";
@@ -42,6 +43,7 @@ import { campaignTree, runDirectory } from "../run/paths.mjs";
 /** @typedef {{sizing: import("./sizing.mjs").SizingResult, routing: import("./routing.mjs").RoutingResult, nodes: JsonObject[]}} AssembledPlan */
 /** @typedef {"standard"|"high"|"none"} ApproveBelow */
 /** @typedef {(contractPath: string, contract: ValidatedContract) => Promise<void>|void} LaunchFn */
+/** @typedef {(runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, cwd: string) => Promise<import("../harnesses/index.mjs").ProbeResult[]>} AskFn */
 /** @typedef {(runDir: string) => Promise<import("../engine/supervise.mjs").RunProgress>|import("../engine/supervise.mjs").RunProgress} WaitFn */
 /** @typedef {{status: "frozen", plansDir: string, planPath: string, contractPath: string, approved: boolean, findings: PlanFindingOutput[], warnings: string[]}} FrozenPipelineResult */
 /** @typedef {{status: "contested", plansDir: string, planPath: string, findings: PlanFindingOutput[], round: number}} ContestedPipelineResult */
@@ -80,14 +82,24 @@ export const DEFAULT_NODE_BUDGET_MS = 600_000;
 const APPROVE_BELOW_VALUES = new Set(["standard", "high", "none"]);
 
 /**
- * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, runtimes: Record<string, JsonObject>, verification?: VerificationSuites, launch: LaunchFn, wait: WaitFn}} options
+ * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, runtimes: Record<string, JsonObject>, verification?: VerificationSuites, packageMode?: import("./sizing.mjs").PackageMode, targetedFix?: boolean, launch: LaunchFn, wait: WaitFn, ask?: AskFn}} options
+ *   `targetedFix` allows a plan with a single node. Sizing refuses one by
+ *   default because a phase that decomposes into one node is usually a plan
+ *   that was never decomposed; a targeted fix is the case where one node is
+ *   the honest answer, and the operator says so.
  * @returns {Promise<FrozenPipelineResult|ContestedPipelineResult>}
  */
 export async function runPlanningPipeline(options) {
   const {
     specPath, campaignId, phase, runtimes, launch, wait,
-    reviewRounds = 2, runtimeDefaults = {}, verification = {},
+    reviewRounds = 2, runtimeDefaults = {}, verification = {}, targetedFix = false,
   } = options;
+  const ask = options.ask ?? askPlanningRuntimes;
+  // Implementation work is sized by what it writes; exploratory work -- an
+  // audit, a review, a survey -- by what it reads, because it writes one
+  // findings file whatever surface it covers.
+  const packageMode = /** @type {import("./sizing.mjs").PackageMode} */ (options.packageMode ?? "implementation");
+  if (packageMode !== "implementation" && packageMode !== "exploratory") throw new TypeError(`packageMode must be implementation or exploratory: ${String(packageMode)}`);
   const approveBelow = /** @type {ApproveBelow} */ (options.approveBelow ?? "standard");
   if (!APPROVE_BELOW_VALUES.has(approveBelow)) throw new TypeError(`approveBelow must be one of ${[...APPROVE_BELOW_VALUES].join(", ")}`);
   if (typeof launch !== "function") throw new TypeError("runPlanningPipeline requires a launch seam");
@@ -97,6 +109,7 @@ export async function runPlanningPipeline(options) {
   const campaignPath = campaignTree(cwd, campaignId);
   const campaign = readCampaign(campaignPath);
   if (campaign.status !== "active") throw new Error(`campaign is closed: ${campaignId}`);
+  refusePlanningSilence(await ask(runtimes, runtimeDefaults, cwd), cwd);
 
   const relativeSpecPath = repoRelativePath(cwd, specPath, "specPath");
   const specText = readFileSync(resolve(cwd, relativeSpecPath), "utf8");
@@ -131,6 +144,12 @@ export async function runPlanningPipeline(options) {
   const repoFactsPath = join(scratchDir, "repo-facts.json");
   writeFileSync(repoFactsPath, `${JSON.stringify(repoFacts, null, 2)}\n`);
   const relativeRepoFactsPath = relative(cwd, repoFactsPath);
+  // The taskKind catalogue is staged like every other planning input. It used
+  // to be handed over as faberun's own `src/plan/template.mjs`, which resolves
+  // against the target repository and therefore exists in exactly one of them.
+  const cataloguePath = join(scratchDir, TASK_KIND_CATALOGUE_FILE);
+  writeFileSync(cataloguePath, renderTaskKindCatalogue());
+  const relativeCataloguePath = relative(cwd, cataloguePath);
   logStage("repo-facts", { gitHead: repoFacts.gitHead });
 
   let n = 0;
@@ -173,7 +192,7 @@ export async function runPlanningPipeline(options) {
     return { contract: validated, output };
   };
 
-  const draft = await runStage("draft", { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath });
+  const draft = await runStage("draft", { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, packageMode });
   /** @type {PlanOutput|null} */
   let plan = null;
   // Everything still open against the plan in hand, accumulated across rounds
@@ -243,7 +262,7 @@ export async function runPlanningPipeline(options) {
     stage = "sizing";
     const sizing = applySizingRules(
       { nodes: currentPlan.nodes.map(toSizingNode), justification: currentPlan.justification },
-      { nodeBudgetMs: DEFAULT_NODE_BUDGET_MS, facts: repoFacts, minWriteFiles: MIN_WRITE_FILES, turnCeiling: DEFAULT_MAX_TURNS },
+      { nodeBudgetMs: DEFAULT_NODE_BUDGET_MS, facts: repoFacts, minWriteFiles: MIN_WRITE_FILES, turnCeiling: DEFAULT_MAX_TURNS, packageMode, readVolume: (path) => fileLineCount(join(cwd, path)), targetedFix },
     );
     stage = "routing";
     const routing = resolveRuntimes(sizing.plan.nodes, {
@@ -361,7 +380,7 @@ export async function runPlanningPipeline(options) {
     const findingsPath = join(scratchDir, `findings-round-${round}.json`);
     writeJsonAtomic(findingsPath, findings);
     const revise = await runStage("revise", {
-      specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, findingsPath: relative(cwd, findingsPath),
+      specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, findingsPath), packageMode,
     });
     // Kept for the write-drop comparison: the plan the revise revised, against
     // the plan it produced.
@@ -749,4 +768,22 @@ function toContractNode(node, phase, assignment) {
     definitionOfDone: node.definitionOfDone ?? [],
     gate,
   };
+}
+
+/**
+ * Lines in a file the plan declares as a read, or null when it cannot be
+ * counted (absent, a directory, unreadable). Exploratory sizing is measured
+ * against this: what a node must read is what it is paid for.
+ *
+ * @param {string} path
+ * @returns {number|null}
+ */
+function fileLineCount(path) {
+  try {
+    const text = readFileSync(path, "utf8");
+    if (text === "") return 0;
+    return text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
+  } catch {
+    return null;
+  }
 }

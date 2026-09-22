@@ -23,25 +23,57 @@ import { validateVerificationCommands } from "../contract/verification.mjs";
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
 /** @typedef {"draft"|"review"|"revise"|"spec-author"|"spec-review"} PlanningKind */
 /** @typedef {"low"|"standard"|"high"} RiskTier */
-/** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, specPath?: string, repoFactsPath?: string, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
+/** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, specPath?: string, repoFactsPath?: string, cataloguePath?: string, packageMode?: import("./sizing.mjs").PackageMode, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
 /** @typedef {{id: string, objective: string, taskKind: string, riskTier: RiskTier, dependsOn: string[], readFiles: string[], writeFiles: string[], scopeAcknowledged: string[], definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], verification: import("../contract/verification.mjs").VerificationCommand[], expectedTurns?: number}} PlanOutputNode */
 /** @typedef {{nodes: PlanOutputNode[], phases?: PlanPhase[], findings?: PlanFindingOutput[], justification?: string}} PlanOutput */
 /** @typedef {{id: string, requirementIds: string[], deliverable: string}} PlanPhase */
 /** @typedef {{id: string, severity: "critical"|"major"|"minor", nodeId: string, text: string}} PlanFindingOutput */
 
-/**
- * The taskKind catalogue a draft or revise classifies against. Exported here,
- * not read from a separate document, so `TASK_KIND_CATALOGUE_PATH` (this
- * module's own repo-relative path) is a real, always-present file a
- * closed-context worker can be told to read for the authoritative list.
- */
+/** The taskKind catalogue a draft or revise classifies against. */
 export const TASK_KINDS = Object.freeze(["docs", "implement", "test", "refactor", "infra", "judge"]);
 
 /** The risk tiers a draft or revise classifies against. */
 export const RISK_TIERS = Object.freeze(["low", "standard", "high"]);
 
-/** This module's own repo-relative path: the taskKind catalogue's home. */
-export const TASK_KIND_CATALOGUE_PATH = "src/plan/template.mjs";
+/**
+ * The file name the planner stages the catalogue under, beside the spec and
+ * the repository facts it already stages.
+ *
+ * This used to be `src/plan/template.mjs` -- this module's own repo-relative
+ * path -- so that a closed-context worker had a real, always-present file to
+ * read for the authoritative list. It is always present in *this* repository.
+ * A planning contract's `readFiles` resolve against the target repository, and
+ * every other repository refuses the contract with `readFiles[2] does not
+ * exist: src/plan/template.mjs`, which made `faberun plan` able to plan only
+ * faberun. The catalogue is data, so it is written out like the other inputs
+ * instead of being pointed at across repository boundaries.
+ */
+export const TASK_KIND_CATALOGUE_FILE = "task-kinds.md";
+
+/**
+ * The catalogue document itself, rendered from the two exported lists so the
+ * file a worker reads and the values `validatePlanOutput` accepts cannot
+ * drift apart.
+ *
+ * @returns {string}
+ */
+export function renderTaskKindCatalogue() {
+  return [
+    "# taskKind and riskTier catalogue",
+    "",
+    "Written by `faberun plan` for this stage. These are the only values a plan may use;",
+    "any other value is rejected when the plan is validated.",
+    "",
+    "## taskKind",
+    "",
+    ...TASK_KINDS.map((kind) => `- ${kind}`),
+    "",
+    "## riskTier",
+    "",
+    ...RISK_TIERS.map((tier) => `- ${tier}`),
+    "",
+  ].join("\n");
+}
 
 /**
  * Which of the caller's `runtimeDefaults` roles resolves this contract's
@@ -62,8 +94,8 @@ const KIND_ROLE = Object.freeze({
 
 /** @type {Record<PlanningKind, string[]>} */
 const REQUIRED_INPUTS = Object.freeze({
-  draft: ["specPath", "repoFactsPath"],
-  revise: ["specPath", "repoFactsPath", "findingsPath"],
+  draft: ["specPath", "repoFactsPath", "cataloguePath"],
+  revise: ["specPath", "repoFactsPath", "cataloguePath", "findingsPath"],
   review: ["specPath", "repoFactsPath", "planPath"],
   "spec-author": ["notesPath"],
   "spec-review": ["specPath"],
@@ -86,7 +118,29 @@ const PLAN_OUTPUT_SHAPE = '{nodes: [{id, objective, taskKind, riskTier, dependsO
  * 150 requests.
  */
 const SIZING_INSTRUCTION = "Size nodes to 4 to 6 write files where the work allows, and give every node an expectedTurns: the provider requests one worker needs to finish it end to end (measured median 49 for 4 to 6 files). A smaller node pays the same orientation and about 15 minutes of verification, judge and integration for less delivered work; a node you expect past 150 requests must be split, because a run cuts an attempt there.";
+/**
+ * The exploratory counterpart to the sizing guidance above: sizing by what a
+ * node reads, because that is what exploratory work is paid for. An audit
+ * node writes one findings file whatever surface it covers, so the write-set
+ * sentence would size every node in such a package identically and wrongly --
+ * which is why the audit of 2026-09-22 was written by hand as 50 KB of JSON
+ * instead of planned.
+ */
+const EXPLORATORY_SIZING_INSTRUCTION = "Size nodes by what each must read and by risk, never by what it writes: one write file is the normal shape for a finding, a review or an audit. Give every node an expectedTurns (the provider requests one worker needs end to end), keep the read volume of the nodes within the same order of each other so one does not cost several times its siblings, and split a node you expect past 150 requests, because a run cuts an attempt there.";
 const FINDINGS_SHAPE = "[{id, severity, nodeId, text}]";
+
+/**
+ * The instruction list is a frozen table because it is the same for every
+ * campaign; only the sizing sentence depends on what kind of package this is.
+ *
+ * @param {PlanningKind} kind
+ * @param {PlanningContractInputs} inputs
+ * @returns {string[]}
+ */
+function instructionsFor(kind, inputs) {
+  if (inputs.packageMode !== "exploratory") return INSTRUCTIONS[kind];
+  return INSTRUCTIONS[kind].map((line) => (line === SIZING_INSTRUCTION ? EXPLORATORY_SIZING_INSTRUCTION : line));
+}
 
 // The rule every planned packet is held to at freeze time, worded from
 // AGENTS.md's Faberun protocol and src/repo/scope-closure.mjs ("reading it
@@ -110,7 +164,7 @@ const OBJECTIVES = Object.freeze({
 /** @type {Record<PlanningKind, string[]>} */
 const INSTRUCTIONS = Object.freeze({
   draft: [
-    `Consult ${TASK_KIND_CATALOGUE_PATH}'s exported TASK_KINDS before classifying any node; taskKind must be one of that catalogue and riskTier must be one of ${RISK_TIERS.join(", ")}.`,
+    `Consult the ${TASK_KIND_CATALOGUE_FILE} in readFiles before classifying any node; taskKind must be one of that catalogue and riskTier must be one of ${RISK_TIERS.join(", ")}.`,
     "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies and the deliverable it produces in one sentence. A phase associated with no requirement is reported as a finding, not refused.",
     ...SCOPE_CLOSURE_RULE,
     `Return exactly one worker-result JSON object. Put the plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
@@ -156,9 +210,9 @@ const NON_GOALS = Object.freeze({
  * @returns {string[]}
  */
 function readFilesForKind(kind, inputs) {
-  if (kind === "draft") return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), TASK_KIND_CATALOGUE_PATH];
+  if (kind === "draft") return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.cataloguePath)];
   if (kind === "revise") {
-    return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), TASK_KIND_CATALOGUE_PATH, /** @type {string} */ (inputs.findingsPath)];
+    return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.cataloguePath), /** @type {string} */ (inputs.findingsPath)];
   }
   if (kind === "review") return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.planPath)];
   if (kind === "spec-author") return [/** @type {string} */ (inputs.notesPath)];
@@ -193,7 +247,7 @@ export function buildPlanningContract(kind, inputs) {
   const taskPacket = {
     mode: "discovery",
     objective: OBJECTIVES[kind],
-    instructions: INSTRUCTIONS[kind],
+    instructions: instructionsFor(kind, inputs),
     readFiles,
     writeFiles: [],
     symbols: [],
