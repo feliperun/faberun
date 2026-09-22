@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.19.1](https://github.com/feliperun/faberun/compare/v0.19.0...v0.19.1) (2026-09-22)
+
+
+### Bug Fixes
+
+* the seven omarchy blockers, the stale update check and the Windows CI flake ([#55](https://github.com/feliperun/faberun/issues/55)) ([446346f](https://github.com/feliperun/faberun/commit/446346fff756cd7430087d017c219441ffce0259))
+
 ## [0.19.0](https://github.com/feliperun/faberun/compare/v0.18.0...v0.19.0) (2026-09-22)
 
 
