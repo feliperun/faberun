@@ -1,0 +1,38 @@
+{
+  "id": "availability-is-verified-not-assumed",
+  "goal": "Availability is verified by saying hello, not presumed from a badge: the gate that blocks a run uses the verdict of something that answered, the verdict names which of four causes occurred, and asking costs once per declared window",
+  "status": "active",
+  "linkedRunIds": [
+    "availability-is-verified-not-assumed-1-the-gate-asks",
+    "availability-is-verified-not-assumed-1b-refusing-only-what-has-no-answer",
+    "availability-is-verified-not-assumed-1c-only-silence-blocks",
+    "availability-is-verified-not-assumed-2-asking-costs-once",
+    "availability-is-verified-not-assumed-3-planning-and-reporting"
+  ],
+  "contracts": [
+    {
+      "path": "/Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/control/availability-is-verified-not-assumed/contracts/1-the-gate-asks.contract.json",
+      "digest": "5a3abacc9ba27220d6aa0bc0ed76895bffeee32aa67bff7bc6cff4410fd22566"
+    },
+    {
+      "path": "/Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/control/availability-is-verified-not-assumed/contracts/1b-refusing-only-what-has-no-answer.contract.json",
+      "digest": "f7607ba83c51b663d58599b0f1954afb6716fce149777649e92be9ac26a0c8b7"
+    },
+    {
+      "path": "/Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/control/availability-is-verified-not-assumed/contracts/1c-only-silence-blocks.contract.json",
+      "digest": "b4751b10ad9fd6e538dce7e20f08e7c35821c1a38c10fe7f5289249036c64174"
+    },
+    {
+      "path": "/Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/control/availability-is-verified-not-assumed/contracts/2-asking-costs-once.contract.json",
+      "digest": "b17246838e06d50de4ad0d845cad697a097612ea17c057614a020ca43174b8eb"
+    },
+    {
+      "path": "/Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/control/availability-is-verified-not-assumed/contracts/3-planning-and-reporting.contract.json",
+      "digest": "d28ba942452fb254a75177e981b0168fb921fddebaf122e4da09fa0957bfffd2"
+    }
+  ],
+  "landBranch": "main",
+  "promotions": [],
+  "createdAt": "2026-09-22T03:34:36.611Z",
+  "updatedAt": "2026-09-22T14:27:43.003Z"
+}

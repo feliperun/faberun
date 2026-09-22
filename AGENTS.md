@@ -257,12 +257,3 @@ When this file governs anything in production:
   unreviewed destructive action against production data.
 - Never grant an agent operating under this file unsupervised write or delete access
   to a production database.
-
-<!-- faberun-active:start (managed by faberun — read, never edit) -->
-Before starting new work here, check `.runs/`: if a campaign is active or a run is not terminal, continue it instead of starting over — read its `HANDOFF.md`/`STATUS.md`, attach to the campaign, and `resume` or `supervise` the run. Active runs are supervised by a deterministic detached process: do not poll `status` in a loop — on resume, check status once and act only on terminal states.
-
-- faberun campaign `availability-is-verified-not-assumed`: active — read `.runs/campaigns/availability-is-verified-not-assumed/HANDOFF.md`
-  - run `availability-is-verified-not-assumed-1-the-gate-asks`: succeeded (2/2 nodes)
-  - run `availability-is-verified-not-assumed-1b-refusing-only-what-has-no-answer`: parked — `the-gate-refuses-only-a-node-with-no-answer:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/availability-is-verified-not-assumed-1b-refusing-only-what-has-no-answer`
-  - run `availability-is-verified-not-assumed-1c-only-silence-blocks`: parked — `only-silence-blocks-the-run:blocked context_missing` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/34e158d9-b337-4135-a0bf-85867a5f8057/runs/availability-is-verified-not-assumed-1c-only-silence-blocks`
-<!-- faberun-active:end -->
