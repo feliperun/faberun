@@ -1,7 +1,7 @@
 ---
 id: campaign-brief
 title: "Campaign Brief before execution"
-version: 1.4.0
+version: 1.5.0
 status: draft
 date: 2026-09-22
 owner: Felipe Broering
@@ -65,21 +65,21 @@ campaign and must retain that purpose.
 
 - **statement:** a matrix lists every stable requirement id from the structured
   spec, the frozen contract nodes carrying that id, and each node's declared
-  proof or verification. The planner gives every planned node one internal
-  phase id and declares each phase's requirement ids and deliverable; these
-  internal ids are distinct from the CLI `--phase` name of the frozen artefact.
-  The planning pipeline passes both node phase ids and declarations to freeze,
-  which stamps the phase's requirement ids on its contract nodes and records
-  the declarations in `plan.json`. A missing or undeclared node phase is a
-  planning error, not a silently unattributed node. The brief cross-checks
-  the frozen declarations against the stamped node ids and links to the spec
-  and plan. A declared requirement with no responsible node is `uncovered`;
-  absent phase declarations are a
-  distinct `traceability missing` gap, not evidence that every requirement was
-  intentionally left uncovered. A phase declaration that maps to no frozen
-  node is also `traceability missing`, so a real planner/freeze fixture must
-  preserve the phase-to-node mapping. Unknown ids in either phases or nodes
-  are named explicitly.
+  proof or verification. The planner groups every planned node exactly once in
+  an internal declaration `{id, requirementIds, nodeIds, deliverable}`; these
+  ids are distinct from the CLI `--phase` name of the frozen artefact and the
+  contract node's execution `phase`. Each declaration has at least one
+  requirement id and one real node id. The planning pipeline passes the
+  declarations to freeze, which stamps their requirement ids on the named
+  contract nodes and preserves their `nodeIds` in `plan.json`; the planner and
+  freeze validators reject a missing, duplicate or unknown node assignment.
+  The brief cross-checks frozen declarations against stamped node ids and
+  links to the spec and plan. A requirement claimed by this frozen plan but
+  lacking a responsible node is `uncovered`. A requirement not claimed by this
+  plan is `outside this plan`, not a gap or a claim that another phase will
+  cover it. Absent declarations or a declaration with no matching frozen node
+  are `traceability missing` gaps. Unknown requirement ids in either
+  declarations or nodes are named explicitly.
 - **proof:** command: node --test test/plan/template.test.mjs test/plan/pipeline.test.mjs test/plan/freeze.test.mjs test/campaign/campaign-brief.test.mjs
 
 ### R4. The work and judgment are legible
@@ -240,12 +240,19 @@ campaign and must retain that purpose.
 ## Planned evals
 
 - A missing or changed spec, missing phase declarations, a phase with no
-  frozen node, an uncovered requirement, an unknown id, a changed `plan.json`
-  and a stale contract digest produce their distinct refusal or gap states. A
-  real planner/freeze fixture assigns internal phases to nodes, preserves the
-  phase declarations and links each requirement to a node and proof. It
-  rejects a node with no declared phase and a sidecar made before the pipeline
-  adds the plan's final status/approval fields;
+  frozen node, a claimed but uncovered requirement, an unknown id, a changed
+  `plan.json` and a stale contract digest produce distinct refusal or gap
+  states. A requirement outside this phase plan is visible as `outside this
+  plan` without implying future coverage. A real planner/freeze fixture
+  preserves `nodeIds` in each declaration and links each claimed requirement
+  to a frozen node and proof. It rejects unassigned or multiply assigned
+  nodes, empty phase requirements, and a sidecar made before the pipeline adds
+  the plan's final status/approval fields;
+- A complete fixture with valid decisions, risks and evals, all requirements
+  claimed by this plan and covered, and five comparable complete historical
+  samples per assigned role yields `ready for human review`. The same fixture
+  with one spec requirement outside this phase plan remains ready and labels
+  that row `outside this plan` rather than `uncovered`;
   older frozen plans lacking spec identity are refused until refrozen.
 - Parallel siblings and a blocked successor retain their edges in Markdown
   and HTML. With `maxParallel: 1`, the siblings are not described as
