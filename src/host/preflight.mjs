@@ -8,6 +8,17 @@
  * report as run evidence and stops, so the operator fixes the host and
  * resumes instead of starting over and paying for the finished nodes twice.
  *
+ * A version is not a verdict: a binary that answered `--version` can still
+ * hold a dead credential or a spent quota. With a contract, `doctor` asks
+ * each routed runtime the same live question the dispatch gate asks and
+ * reports that verdict beside the version checks — the `models` surfaces
+ * name this report the authoritative word on availability — and without a
+ * contract it says plainly that it asked nothing. The verdict is the
+ * report, not the gate: a runtime with no answer is a finding on its own
+ * line, while the exit code keeps answering the host-fact question it
+ * always answered, because blocking on silence is the dispatch gate's job
+ * and it blocks on exactly those causes.
+ *
  * A check may be advisory, meaning it reports a fact without blocking: a
  * merely dirty worktree is normal in this repository (the run captures a
  * dirtyTreeFingerprint for it), while unmerged paths or an interrupted git
@@ -18,6 +29,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statfsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, getHarness, probeRuntime } from "../harnesses/index.mjs";
+import { liveSilenceCause } from "../engine/live-silence.mjs";
 import { addRuntimeRequirement, failoverTargets, runtimeSnapshot } from "../engine/failover.mjs";
 import { pricingSeedAge } from "../engine/pricing-seed.mjs";
 import { validateContract } from "../contract/index.mjs";
@@ -31,10 +43,13 @@ import { NOTIFY_SESSION_ENV, sessionWakeNotice } from "../notify/session.mjs";
 import { findExecutable } from "./platform.mjs";
 import { colorLevel, statusToken } from "../cli/brand.mjs";
 import { RUNS_DIR_NAME } from "../run/paths.mjs";
+import { availabilityKey, readAvailability, recordAvailability } from "../run/availability.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {import("../contract/index.mjs").RuntimeSnapshot} RuntimeSnapshot */
 /** @typedef {import("../harnesses/index.mjs").CapabilityRequirements} CapabilityRequirements */
+/** @typedef {import("../harnesses/index.mjs").ProbeResult} ProbeResult */
+/** @typedef {import("../engine/runtime-discovery.mjs").RuntimeAvailability} RuntimeAvailability */
 /** @typedef {Map<string, {runtime: RuntimeSnapshot, requiredCapabilitySets: CapabilityRequirements[]}>} ReachableRuntimes */
 /** @typedef {{name: string, ok: boolean, advisory: boolean, detail: string}} EnvCheck */
 /** @typedef {{schemaVersion: number, ok: boolean, checks: EnvCheck[]}} EnvReport */
@@ -384,6 +399,106 @@ export function reachableRuntimes(contract) {
   return runtimes;
 }
 
+
+/**
+ * Read the live verdict off one `preflightContract` probe, in the detail it
+ * embeds: `… · live <status> · <code>: …` for an ask that failed, and the
+ * repository wording when no runtime could be asked at all. Any verdict a
+ * provider produced — a quota refusal, an auth failure, unparsable output —
+ * is an answer; a silence is a verdict of nothing and is never recorded, so
+ * the operator who fixes the host is never told the fix "already answered".
+ *
+ * @param {ProbeResult} probe
+ * @returns {{answered: boolean, cause: string|null, recorded: boolean}}
+ */
+function liveVerdict(probe) {
+  if (probe.liveStatus === "done") return { answered: true, cause: null, recorded: true };
+  // `liveSilenceCause` is the dispatch gate's own classification, imported
+  // rather than restated. A second copy here had `command_invalid` in it,
+  // which the gate deliberately does not: a command that could not be
+  // constructed never reached a provider, so there is no availability verdict
+  // to report either way. Two copies of this rule is how doctor and the gate
+  // would come to disagree about whether an answer was an answer.
+  const silence = liveSilenceCause(probe);
+  if (silence !== null) return { answered: false, cause: silence, recorded: false };
+  const match = / · live \S+ · ([a-z_]+):/u.exec(probe.detail ?? "");
+  const cause = match?.[1] ?? null;
+  if (cause === null) return { answered: false, cause, recorded: false };
+  return { answered: true, cause, recorded: true };
+}
+
+/**
+ * The live half of `doctor`: the verdict, not the version. The two catalogue
+ * surfaces (`models`, `models --probe`) name this report the authoritative
+ * word on availability, so with a contract doctor asks what the dispatch
+ * gate asks — one trivial prompt per routed runtime through
+ * `preflightContract` — and reports beside the version checks what
+ * answered, naming the cause when nothing did.
+ *
+ * A verdict this machine recorded inside the preflight window is reused
+ * rather than re-bought, and every ask that reached a provider is recorded
+ * in turn: the store (`run/availability.mjs`) is the only cache; none is
+ * built here.
+ *
+ * Every check returned here is advisory. `ok` carries the honest verdict —
+ * false when nothing answered — but the lines never gate `doctor`'s exit
+ * code: the report is where the operator reads what answered, and blocking
+ * on silence is the dispatch gate's decision, made on the same causes. A
+ * doctor that failed on a runtime it could not ask inside its own sandbox
+ * (a relative-executable wrapper) would report the runtime broken when the
+ * actual launch may resolve it fine.
+ *
+ * @param {string} contractPath the authored contract, re-read and re-validated by the ask
+ * @param {ReachableRuntimes} runtimes
+ * @returns {Promise<EnvCheck[]>}
+ */
+async function liveAvailabilityChecks(contractPath, runtimes) {
+  /** @type {Map<string, RuntimeAvailability>} */
+  const fresh = new Map();
+  for (const [id, { runtime }] of runtimes) {
+    const verdict = readAvailability(availabilityKey({
+      harness: runtime.harness,
+      model: runtime.model,
+      executable: getHarness(runtime.harness).executable(runtime),
+    }));
+    if (verdict) fresh.set(id, verdict);
+  }
+  if (runtimes.size > 0 && fresh.size === runtimes.size) {
+    return [...runtimes.keys()].map((id) => {
+      const verdict = /** @type {RuntimeAvailability} */ (fresh.get(id));
+      return {
+        name: `availability ${id}`,
+        ok: true,
+        advisory: true,
+        detail: `answered · verdict reused · observed ${verdict.observedAt ?? "unknown instant"}`,
+      };
+    });
+  }
+  // The ask is imported where it runs: live-preflight imports this module's
+  // reachableRuntimes, so a static edge here would be the runtime import
+  // cycle the source gate bans. At call time both modules are fully
+  // evaluated; this is a plain cache hit, not a cycle.
+  const { preflightContract } = await import("../engine/live-preflight.mjs");
+  // measured 2026-09-22 (dispatch gate): four routed runtimes asked in
+  // parallel took about 18s, so 60s is the budget; FABERUN_PREFLIGHT_TIMEOUT_SEC
+  // is the same operator override the gate honours.
+  const override = Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC);
+  const timeoutSec = process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC !== undefined && Number.isFinite(override) && override > 0 ? override : 60;
+  const probes = await preflightContract(contractPath, { liveTimeoutSec: timeoutSec });
+  recordAvailability(probes.filter((probe) => liveVerdict(probe).recorded).map((probe) => availabilityKey(probe)));
+  return probes.map((probe) => {
+    const verdict = liveVerdict(probe);
+    return {
+      name: `availability ${probe.id ?? probe.harness}`,
+      ok: verdict.answered,
+      advisory: true,
+      detail: verdict.answered
+        ? `answered · ${probe.detail ?? `the provider answered (${verdict.cause})`}`
+        : `no answer · ${probe.detail ?? `cause ${verdict.cause ?? "unknown"}`}`,
+    };
+  });
+}
+
 const HARNESS_BIN_OVERRIDES = Object.freeze({
   codex: "FABERUN_CODEX_BIN",
   claude: "FABERUN_CLAUDE_BIN",
@@ -393,9 +508,17 @@ const HARNESS_BIN_OVERRIDES = Object.freeze({
 });
 
 /**
- * Mutation-free environment doctor: repository prerequisites, ignored .runs,
- * required binaries, the dispatch environment gate, and (when a contract is
- * given) schema and harness versions.
+ * Environment doctor: repository prerequisites, ignored .runs, required
+ * binaries, the dispatch environment gate, and (when a contract is given)
+ * the harness versions beside the live availability verdict per routed
+ * runtime — the report `models` defers to. Without a contract it says
+ * plainly that it asked nothing.
+ *
+ * The exit code answers the host-fact question it always answered: the
+ * live availability lines carry their verdict (false when nothing
+ * answered) but are advisory, because blocking on silence is the dispatch
+ * gate's job and a runtime doctor could not ask inside its own sandbox is
+ * not thereby a runtime the launch cannot run.
  *
  * @param {string|undefined} contractPath
  * @param {{cwd?: string, json?: boolean, discover?: boolean}} values
@@ -403,7 +526,7 @@ const HARNESS_BIN_OVERRIDES = Object.freeze({
  */
 export async function doctorCommand(contractPath, values) {
   const repoDir = resolve(values.cwd ?? ".");
-  /** @type {{name: string, ok: boolean, detail: string}[]} */
+  /** @type {{name: string, ok: boolean, advisory?: boolean, detail: string}[]} */
   const checks = [];
   const gitRepo = isGitWorkTree(repoDir);
   checks.push({ name: "git repository", ok: gitRepo, detail: gitRepo ? repoDir : "not inside a git work tree" });
@@ -457,6 +580,10 @@ export async function doctorCommand(contractPath, values) {
         harnessVersions[id] = probe.version;
         checks.push({ name: `harness ${probe.id ?? runtime.harness}`, ok: probe.ok, detail: probe.detail ?? (probe.ok ? "ok" : "probe failed") });
       }
+      // The verdict beside the version: a binary that answered --version is
+      // not thereby a provider that answered, and the report names which of
+      // the two failed because the remedies differ.
+      checks.push(...await liveAvailabilityChecks(absolute, runtimes));
     } catch (error) {
       checks.push({ name: "contract", ok: false, detail: errorMessage(error) });
     }
@@ -497,7 +624,12 @@ export async function doctorCommand(contractPath, values) {
   for (const check of environmentPreflight({ cwd: dispatchCwd, runtimes: routedRuntimes, harnessVersions }).checks) {
     checks.push({ name: check.name, ok: check.ok || check.advisory, detail: check.ok ? check.detail : `${check.detail} (advisory)` });
   }
-  const ok = checks.every((check) => check.ok);
+  // The live availability lines never gate the verdict: a no-answer is the
+  // finding it is on its own line (ok false, cause named), and what still
+  // fails doctor is every host fact and static probe — which is why the
+  // nonexistent-binary case below exits non-zero while a merely silent
+  // provider does not.
+  const ok = checks.every((check) => check.ok || check.advisory === true);
   const transportWarning = noTransportWarning(process.env);
   if (transportWarning) process.stderr.write(`${statusToken("warn", colorLevel(process.env, process.stderr.isTTY))} ${transportWarning}\n`);
   if (values.json === true) {
