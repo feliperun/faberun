@@ -10,7 +10,7 @@ import { compactCost, compactTokens, errorCode } from "../util.mjs";
 import { basename, join } from "node:path";
 import { readJson, writeJsonAtomic, writeTextAtomic } from "../run/store.mjs";
 import { scopeFindingsNote } from "../contract/scope-findings.mjs";
-import { MARK, fit, roleCosts, statusNote, writeStatusArtifacts } from "./render.mjs";
+import { MARK, advisoryFindingCount, fit, judgeRuntimeLabel, roleCosts, roleUsage, statusNote, workerRuntimeLabel, writeStatusArtifacts } from "./render.mjs";
 import { packetRepetitionByNode, packetRepetitionNote } from "./packet-repetition.mjs";
 import { unlinkSync } from "node:fs";
 
@@ -60,7 +60,11 @@ function renderFinalStatus(runDir, contract, states) {
     row(widths.map((width) => "-".repeat(width))),
   ];
   for (const node of nodes) {
-    const runtime = node.runtime ? `${node.runtime.harness}/${node.runtime.model}` : "-";
+    // The runtime that did this node's work, not the one dispatched last: a
+    // judge dispatch overwrites `state.runtime`, so reading it here credited
+    // every node to the judge. `render.mjs` already read it correctly and
+    // these two surfaces disagreed; now there is one reader.
+    const runtime = workerRuntimeLabel(node) ?? "-";
     const planNode = contract.nodes.find((candidate) => candidate.id === node.id);
     const detail = statusNote(node) ?? "-";
     // A scope finding leads the note and drops the phase boilerplate: the
@@ -72,9 +76,17 @@ function renderFinalStatus(runDir, contract, states) {
   }
   lines.push("```", "", "## Needs you", "");
   const attention = nodes.filter((node) => !["pending", "running", "done"].includes(node.status));
-  if (!attention.length && !identityWarnings.length) lines.push("Nothing needs you right now.");
+  // A node the gate accepted in spite of judge findings: the decision stands,
+  // the finding is still the operator's to read. Without this the closing
+  // artifact said nothing needed anyone while a real finding sat in the node.
+  const advised = nodes.filter((node) => advisoryFindingCount(node) > 0 && !attention.includes(node));
+  if (!attention.length && !identityWarnings.length && !advised.length) lines.push("Nothing needs you right now.");
   for (const warning of identityWarnings) lines.push(`- [~] ${warning}`);
   for (const node of attention) lines.push(`- ${MARK[node.status] ?? "[?]"} ${node.id}: ${node.gate?.summary ?? node.error?.message ?? node.status}`);
+  for (const node of advised) {
+    const count = advisoryFindingCount(node);
+    lines.push(`- [~] ${node.id}: ${node.status} with ${count} judge ${count === 1 ? "finding" : "findings"} below the gate's threshold (${node.gate?.maxSeverity ?? "unknown"}). Read them with \`faberun findings\`.`);
+  }
   return `${lines.join("\n")}\n`;
 }
 /**
@@ -88,7 +100,7 @@ export function renderFinalReport(runDir, contract, states) {
   const counts = new Map();
   for (const node of nodes) counts.set(node.status, (counts.get(node.status) ?? 0) + 1);
   const summary = [...counts].map(([status, count]) => `${count} ${status}`).join(" · ");
-  const widths = [3, 24, 9, 7, 7, 28, 10, 10, 10, 12, 64];
+  const widths = [3, 24, 9, 7, 7, 28, 28, 10, 10, 10, 12, 12, 64];
   /** @param {unknown[]} cells */
   const row = (cells) => cells.map((cell, index) => fit(String(cell ?? ""), widths[index])).join(" ");
   const totals = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, declaredReadBytes: 0 };
@@ -99,7 +111,7 @@ export function renderFinalReport(runDir, contract, states) {
     `${nodes.length} nodes · ${summary}`,
     "",
     "```",
-    row(["", "NODE", "STATE", "TRY", "REV", "RUNTIME", "IN", "OUT", "CACHE", "COST", "NOTE"]),
+    row(["", "NODE", "STATE", "TRY", "REV", "WORKER", "JUDGE", "IN", "OUT", "CACHE", "W COST", "J COST", "NOTE"]),
     row(widths.map((width) => "-".repeat(width))),
   ];
   for (const node of nodes) {
@@ -109,7 +121,14 @@ export function renderFinalReport(runDir, contract, states) {
     totals.cacheReadInputTokens += usage.cacheReadInputTokens ?? 0;
     if (typeof node.declaredReadBytes === "number") totals.declaredReadBytes += node.declaredReadBytes;
     if (typeof node.costUsd === "number" && Number.isFinite(node.costUsd)) totalCostUsd = (totalCostUsd ?? 0) + node.costUsd;
-    const runtime = node.runtime ? `${node.runtime.harness}/${node.runtime.model}` : "-";
+    // Worker and judge in columns of their own. One runtime label over a cost
+    // that bought both reads as the whole node having run there: measured
+    // 2026-09-21, seven nodes each reported a single runtime carrying
+    // aggregated worker+judge cost, and a per-runtime cost read off that
+    // table is wrong in both directions.
+    const nodeRoles = roleUsage([node]);
+    const runtime = workerRuntimeLabel(node) ?? "-";
+    const judge = judgeRuntimeLabel(node) ?? "-";
     const planNode = contract.nodes.find((candidate) => candidate.id === node.id);
     const detail = node.gate?.summary ?? node.error?.message ?? (node.blockedBy?.length ? node.blockedBy.join(", ") : null) ?? (typeof node.result === "string" && node.result.trim() ? node.result.trim() : node.phase ?? "-");
     // The advisory scope finding leads the note, as it does in STATUS.md.
@@ -123,10 +142,12 @@ export function renderFinalReport(runDir, contract, states) {
       node.attempt ?? 0,
       node.revisions ?? 0,
       runtime,
+      judge,
       compactTokens(usage.inputTokens),
       compactTokens(usage.outputTokens),
       compactTokens(usage.cacheReadInputTokens),
-      compactCost(node.costUsd),
+      roleCostCell(nodeRoles.worker),
+      roleCostCell(nodeRoles.judge),
       note,
     ]));
   }
@@ -134,6 +155,22 @@ export function renderFinalReport(runDir, contract, states) {
   lines.push("```", "", `totals · in ${compactTokens(totals.inputTokens)} · out ${compactTokens(totals.outputTokens)} · cache ${compactTokens(totals.cacheReadInputTokens)} · worker ${compactCost(roles.worker)} · judge ${compactCost(roles.judge)} · cost ${compactCost(totalCostUsd)} · read ${compactTokens(totals.declaredReadBytes)}${packetRepetitionNote(packetRepetitionByNode(runDir, nodes))}`);
   return `${lines.join("\n")}\n`;
 }
+
+/**
+ * One role's cost cell. An unpriced invocation reads as `est` rather than as
+ * a dollar figure or a dash: the number a provider never reported is not the
+ * same fact as the number it did, and a cell that hides the difference is how
+ * an estimate gets read as a receipt.
+ *
+ * @param {import("./render.mjs").RoleUsage} role
+ * @returns {string}
+ */
+function roleCostCell(role) {
+  if (role.costProvenance === "none") return "-";
+  if (role.costProvenance === "priced") return compactCost(role.costUsd);
+  return "est";
+}
+
 /**
  * Consolidated terminal-state handoff: one bounded JSON snapshot in the run
  * dir so a triage session never loads full run state. Nodes stay the source

@@ -6,11 +6,16 @@ import { lockStale, pidAlive, readLock } from "../run/lock.mjs";
 import { scopeFindingsNote } from "../contract/scope-findings.mjs";
 import { reviewNote } from "../contract/review-modes.mjs";
 import { validateNodeSnapshot, validateRunMetadata } from "../contract/snapshot.mjs";
-import { compactCost, compactTokens, finite, truncateChars } from "../util.mjs";
+import { compactCost, compactTokens, truncateChars } from "../util.mjs";
 import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
 import { readHeartbeat } from "../engine/supervise.mjs";
 import { SETTLED, SUCCESS } from "../engine/prompts.mjs";
 import { packetRepetitionByNode, packetRepetitionNote } from "./packet-repetition.mjs";
+import { aggregateCostProjection, costProjection, formatCost, formatRole, roleCosts, roleUsage } from "./role-usage.mjs";
+
+// Re-exported so every caller keeps one import site for a run's numbers while
+// the accounting itself lives in one module of its own.
+export { formatRole, roleCosts, roleUsage };
 
 /** Advisory ceiling for status.json (TECH-SPEC lean, rule 5); never enforced destructively. */
 const STATUS_JSON_MAX_BYTES = 200 * 1024;
@@ -23,11 +28,11 @@ const POINTER_ATTENTION_CHARS = 80;
 /** @typedef {import("../contract/index.mjs").NodeSnapshot} NodeSnapshot */
 /** @typedef {import("../contract/index.mjs").NodeStatus} NodeStatus */
 /** @typedef {Record<string, unknown>} JsonObject */
-/** @typedef {"priced"|"partial"|"unpriced"|"none"} CostProvenance */
-/** @typedef {{costUsd: number|null, costProvenance: CostProvenance, inputTokens: number, outputTokens: number, cacheReadInputTokens: number, pricedInvocations: number, unpricedInvocations: number}} RoleUsage */
+/** @typedef {import("./role-usage.mjs").RoleUsage} RoleUsage */
 /** @typedef {{inputTokens: number|null, outputTokens: number|null, cacheReadInputTokens: number|null}} StatusPayloadUsage */
 /** @typedef {{index: number, total: number, argv: string}} VerificationProgress */
-/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, verdict: string|null, gateOutcome: "passed"|"rejected"|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, errorCode: string|null, blockedBy: string[], verificationProgress: VerificationProgress|null, declaredReadBytes: number|null}} StatusPayloadNode */
+/** @typedef {{verdict: string, maxSeverity: string, findingCount: number, summary: string|null}} StatusPayloadGate */
+/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, judgeRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, roleCostUsd: {worker: number|null, judge: number|null}, costProvenance: {worker: string, judge: string}, verdict: string|null, gate: StatusPayloadGate|null, gateOutcome: "passed"|"rejected"|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, errorCode: string|null, blockedBy: string[], verificationProgress: VerificationProgress|null, declaredReadBytes: number|null}} StatusPayloadNode */
 /** @typedef {{schemaVersion: 1, run: string, contractId: string, campaignId: string, goal: string, usage: {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUsd: number|null}, roles: {worker: RoleUsage, judge: RoleUsage}, controller: JsonObject, identityWarnings: string[], summary: string, nodes: StatusPayloadNode[]}} StatusPayload */
 
 /** The glyph each terminal state prints in a status table. */
@@ -65,10 +70,19 @@ export function renderStatus(runDir) {
   lines.push("## Needs you", "");
   const attention = payload.nodes.filter((node) => !["pending", "running", "done", "no-op"].includes(node.status));
   const orphans = controller.status.state !== "active" ? payload.nodes.filter((node) => node.status === "running").map((node) => node.id) : [];
-  if (!attention.length && !orphans.length && !identityWarnings.length) lines.push("Nothing needs you right now.");
+  // An accepted node whose judge left findings is not in an attention state —
+  // the gate was right to accept it — but the finding is still something the
+  // operator has to have seen. It is named here and nowhere else in this
+  // section, so "Nothing needs you right now" cannot be printed over it.
+  const advised = payload.nodes.filter((node) => (node.gate?.findingCount ?? 0) > 0 && node.gateOutcome !== "rejected");
+  if (!attention.length && !orphans.length && !identityWarnings.length && !advised.length) lines.push("Nothing needs you right now.");
   if (orphans.length) lines.push(`- [>] the run process is gone while ${orphans.join(", ")} still claims to be running. Those nodes are orphans, not live work. Resume the run directory to adopt whatever their workers finished.`);
   for (const warning of identityWarnings) lines.push(`- [~] ${warning}`);
   for (const node of attention) lines.push(`- ${MARK[node.status] ?? "[?]"} ${node.id}: ${node.note ?? node.status}`);
+  for (const node of advised) {
+    const count = node.gate?.findingCount ?? 0;
+    lines.push(`- [~] ${node.id}: ${node.status} with ${count} judge ${count === 1 ? "finding" : "findings"} below the gate's threshold (${node.gate?.maxSeverity ?? "unknown"}). Read them with \`faberun findings\`.`);
+  }
   lines.push("", "## Now", "", nowLine(payload, now), "", "## Nodes", "");
 
   const widths = [3, 24, 9, 3, 28, 8, 6, 6, 6, 10, 9, MAX_NOTE_LENGTH];
@@ -87,7 +101,7 @@ export function renderStatus(runDir) {
       compactTokens(node.usage?.cacheReadInputTokens),
       compactTokens(node.usage?.outputTokens),
       compactCost(node.costUsd),
-      node.gateOutcome ?? "-",
+      gateCell(node),
       node.note ?? "-",
     ]));
   }
@@ -143,6 +157,22 @@ function executionPhaseOf(node) {
   if (candidateVerificationActive(node)) return "candidate";
   if (verificationProgress(node)) return "verification";
   return node.phase;
+}
+
+/**
+ * The GATE cell: what the gate decided, plus how many findings it accepted
+ * the node in spite of. `passed` alone read as "the judge found nothing",
+ * which is a different claim and was the false one. Bounded to the column's
+ * nine characters by construction — `passed ~99` is the widest it gets.
+ *
+ * @param {{gateOutcome: "passed"|"rejected"|null, gate: {findingCount: number}|null}} node
+ * @returns {string}
+ */
+function gateCell(node) {
+  if (!node.gateOutcome) return "-";
+  const count = node.gate?.findingCount ?? 0;
+  if (node.gateOutcome !== "passed" || count === 0) return node.gateOutcome;
+  return `passed ~${count > 99 ? 99 : count}`;
 }
 
 /** What the gate decided (independent of `verdict`: an advisory review or a below-threshold fail verdict still accepts the node, engine/review.mjs `applyJudgeResult`). @param {NodeSnapshot} node @returns {"passed"|"rejected"|null} */
@@ -228,6 +258,7 @@ function buildStatusPayload(runDir, contract, nodes, identityWarnings, usage) {
     summary: [...counts].map(([status, count]) => `${count} ${status}`).join(" · "),
     nodes: nodes.map((node) => {
       const progress = verificationProgress(node);
+      const nodeRoles = roleUsage([node]);
       return {
         id: node.id,
         status: node.status,
@@ -238,6 +269,7 @@ function buildStatusPayload(runDir, contract, nodes, identityWarnings, usage) {
         executionPhase: executionPhaseOf(node),
         runtime: node.runtime ? `${node.runtime.harness}/${node.runtime.model}` : null,
         workerRuntime: workerRuntimeLabel(node),
+        judgeRuntime: judgeRuntimeLabel(node),
         continuation: continuationMode(node),
         attempt: node.attempt,
         revisions: node.revisions,
@@ -245,7 +277,21 @@ function buildStatusPayload(runDir, contract, nodes, identityWarnings, usage) {
         updatedAt: node.updatedAt ?? null,
         usage: node.usage ? { inputTokens: node.usage.inputTokens ?? null, outputTokens: node.usage.outputTokens ?? null, cacheReadInputTokens: node.usage.cacheReadInputTokens ?? null } : null,
         costUsd: typeof node.costUsd === "number" ? node.costUsd : null,
+        // `costUsd` is the node's total, and it buys two different runtimes'
+        // work. Read against a single `runtime` label it credits the judge
+        // with the worker's spend, or the reverse. The split is the same
+        // `roleUsage` the run totals already use, applied to one node.
+        roleCostUsd: { worker: nodeRoles.worker.costUsd, judge: nodeRoles.judge.costUsd },
+        costProvenance: { worker: nodeRoles.worker.costProvenance, judge: nodeRoles.judge.costProvenance },
         verdict: node.gate?.verdict ?? null,
+        // The structured gate result, beside the bounded `note` rather than
+        // inside it: a note is cut to MAX_NOTE_LENGTH for the table cell it
+        // shares, and a gate summary whose second clause is the finding
+        // ("... However, ...") loses exactly the half that matters. These
+        // three fields are never cut.
+        gate: node.gate
+          ? { verdict: node.gate.verdict, maxSeverity: node.gate.maxSeverity, findingCount: node.gate.findings?.length ?? 0, summary: node.gate.summary ?? null }
+          : null,
         gateOutcome: gateOutcome(node),
         pendingHandoff: pendingHandoff(node),
         note: statusNote(node),
@@ -464,6 +510,21 @@ export function renderReportJson(runDir) {
 }
 
 /**
+ * What the judge found, whether or not it was enough to stop the node.
+ *
+ * A gate that accepts a node whose judge left findings below `failOn` is
+ * behaving exactly as declared (`applyJudgeResult`, and the rule stated at the
+ * head of this file). The defect was that the finding then became unreadable:
+ * `findings` answered only exhaustion, so a real, correct judge finding on a
+ * node that passed reported "no findings or blocking questions to act on".
+ * Measured 2026-09-21 on a synthesis node whose gate verdict was `fail` with a
+ * severity under the threshold: the run's own retrospective claimed it had
+ * passed every gate first time, against the tool's own recorded
+ * `blockingJudgeFirstPassRate`.
+ *
+ * A finding on an accepted node is listed as an advisory: named, not
+ * escalated. The decision is unchanged; only its legibility is.
+ *
  * @param {string} runDir
  * @returns {string}
  */
@@ -472,15 +533,29 @@ export function renderFindings(runDir) {
   const sections = [];
   for (const node of nodes) {
     const gate = node.gate;
-    if (node.status === "exhausted" && gate?.findings?.length) {
+    if (gate?.findings?.length) {
       const listed = gate.findings.map((finding) => `- [${finding.severity}] ${finding.description}\n  Evidence: ${finding.evidence}`).join("\n");
-      sections.push(`## ${node.id}\n\nGate verdict: ${gate.verdict} (${gate.maxSeverity}). ${gate.summary}\n\n${listed}`);
+      const advisory = node.status !== "exhausted";
+      const heading = advisory ? `## ${node.id} (advisory · the node ${node.status})` : `## ${node.id}`;
+      sections.push(`${heading}\n\nGate verdict: ${gate.verdict} (${gate.maxSeverity}). ${gate.summary}\n\n${listed}`);
       continue;
     }
     const question = blockedContextQuestion(node);
     if (question) sections.push(question);
   }
   return sections.length ? `${sections.join("\n\n")}\n` : "no findings or blocking questions to act on\n";
+}
+
+/**
+ * How many judge findings a node carries that did not stop it. Zero for a node
+ * the gate rejected — there the findings are the rejection, not an aside.
+ *
+ * @param {NodeSnapshot} node
+ * @returns {number}
+ */
+export function advisoryFindingCount(node) {
+  if (node.status === "exhausted" || node.status === "failed") return 0;
+  return node.gate?.findings?.length ?? 0;
 }
 
 /**
@@ -570,10 +645,24 @@ function continuationMode(node) {
  * @param {NodeSnapshot} node
  * @returns {string|null}
  */
-function workerRuntimeLabel(node) {
+export function workerRuntimeLabel(node) {
   const worker = [...(node.invocations ?? [])].reverse().find((invocation) => invocation.role === "worker");
   if (worker?.harness && worker.model) return `${worker.harness}/${worker.model}`;
   return node.runtime ? `${node.runtime.harness}/${node.runtime.model}` : null;
+}
+
+/**
+ * Who judged this node. Unlike the worker's, this has no fallback to
+ * `state.runtime`: that field is whatever was dispatched last, so reading it
+ * as the judge is the very mistake this pair exists to stop. A node with no
+ * judge invocation was not judged, and says so with null.
+ *
+ * @param {NodeSnapshot} node
+ * @returns {string|null}
+ */
+export function judgeRuntimeLabel(node) {
+  const judge = [...(node.invocations ?? [])].reverse().find((invocation) => invocation.role === "judge");
+  return judge?.harness && judge.model ? `${judge.harness}/${judge.model}` : null;
 }
 
 /**
@@ -655,136 +744,6 @@ function nodeNote(node) {
   if (note) return note;
   if (typeof node.result === "string" && node.result.trim()) return node.result.trim();
   return node.phase ?? "-";
-}
-
-/** @typedef {{costUsd: number|null, status: "known"|"estimated"|"ambiguous"}} CostProjection */
-
-/**
- * Per-role usage from the invocation ledger, with provenance for whether the
- * cost total is honest: `priced` (all invocations costed), `partial`/`unpriced`
- * (some/none costed, so `costUsd` stays null rather than understating), or
- * `none` (no invocation). Token totals are always carried.
- *
- * @param {NodeSnapshot[]} nodes
- * @returns {{worker: RoleUsage, judge: RoleUsage}}
- */
-export function roleUsage(nodes) {
-  /** @type {Record<"worker"|"judge", {total: number, priced: number, unpriced: number, inputTokens: number, outputTokens: number, cacheReadInputTokens: number}>} */
-  const roles = {
-    worker: { total: 0, priced: 0, unpriced: 0, inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 },
-    judge: { total: 0, priced: 0, unpriced: 0, inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0 },
-  };
-  for (const node of nodes) {
-    for (const invocation of node.invocations ?? []) {
-      if (invocation.role !== "worker" && invocation.role !== "judge") continue;
-      const bucket = roles[invocation.role];
-      const cost = finite(invocation.costUsd);
-      if (cost === null) bucket.unpriced += 1;
-      else {
-        bucket.priced += 1;
-        bucket.total += cost;
-      }
-      bucket.inputTokens += finite(invocation.usage?.inputTokens) ?? 0;
-      bucket.outputTokens += finite(invocation.usage?.outputTokens) ?? 0;
-      bucket.cacheReadInputTokens += finite(invocation.usage?.cacheReadInputTokens) ?? 0;
-    }
-  }
-  return { worker: summarizeRole(roles.worker), judge: summarizeRole(roles.judge) };
-}
-
-/**
- * @param {{total: number, priced: number, unpriced: number, inputTokens: number, outputTokens: number, cacheReadInputTokens: number}} bucket
- * @returns {RoleUsage}
- */
-function summarizeRole(bucket) {
-  const costProvenance = bucket.priced > 0
-    ? (bucket.unpriced > 0 ? "partial" : "priced")
-    : (bucket.unpriced > 0 ? "unpriced" : "none");
-  return {
-    costUsd: costProvenance === "priced" ? bucket.total : null,
-    costProvenance,
-    inputTokens: bucket.inputTokens,
-    outputTokens: bucket.outputTokens,
-    cacheReadInputTokens: bucket.cacheReadInputTokens,
-    pricedInvocations: bucket.priced,
-    unpricedInvocations: bucket.unpriced,
-  };
-}
-
-/**
- * Per-role cost, summed from the invocation ledger alone. Kept for the closing
- * artifacts, which render only the dollar cell; `roleUsage` carries the
- * provenance that cell cannot express.
- *
- * @param {NodeSnapshot[]} nodes
- * @returns {{worker: number|null, judge: number|null}}
- */
-export function roleCosts(nodes) {
-  const roles = roleUsage(nodes);
-  return { worker: roles.worker.costUsd, judge: roles.judge.costUsd };
-}
-
-/**
- * A role's cell in a totals line: the dollar total when every invocation is
- * priced, `unpriced` with the token totals it did record when any invocation
- * has no cost, and `-` only when the role has no invocation at all. An
- * unpriced role reads as real work instead of vanishing into a dash.
- *
- * @param {RoleUsage} role
- * @returns {string}
- */
-export function formatRole(role) {
-  if (role.costUsd !== null) return compactCost(role.costUsd);
-  if (role.costProvenance === "none") return "-";
-  return `unpriced (in ${compactTokens(role.inputTokens)} · out ${compactTokens(role.outputTokens)} · cache ${compactTokens(role.cacheReadInputTokens)})`;
-}
-
-/**
- * Project cost only from durable snapshot evidence. Invocation costs are
- * provider-reported; a standalone node total has no provider attribution and
- * remains an estimate. Missing or mismatched evidence is ambiguous.
- *
- * @param {NodeSnapshot} node
- * @returns {CostProjection}
- */
-function costProjection(node) {
-  const nodeCost = finite(node.costUsd);
-  const invocations = Array.isArray(node.invocations) ? node.invocations : [];
-  const invocationCosts = invocations.map((invocation) => finite(invocation.costUsd));
-
-  if (invocations.length > 0) {
-    if (!invocationCosts.every((cost) => cost !== null)) return { costUsd: null, status: "ambiguous" };
-    const reportedCost = invocationCosts.reduce((total, cost) => total + /** @type {number} */ (cost), 0);
-    if (nodeCost !== null && !sameCost(nodeCost, reportedCost)) return { costUsd: null, status: "ambiguous" };
-    return { costUsd: nodeCost ?? reportedCost, status: "known" };
-  }
-
-  if (nodeCost !== null) return { costUsd: nodeCost, status: "estimated" };
-  return { costUsd: null, status: "ambiguous" };
-}
-
-/** @param {CostProjection[]} costs @returns {CostProjection} */
-function aggregateCostProjection(costs) {
-  if (costs.length === 0 || costs.some((cost) => cost.status === "ambiguous")) {
-    return { costUsd: null, status: "ambiguous" };
-  }
-  const costUsd = costs.every((cost) => typeof cost.costUsd === "number")
-    ? costs.reduce((total, cost) => total + /** @type {number} */ (cost.costUsd), 0)
-    : null;
-  return {
-    costUsd,
-    status: costs.some((cost) => cost.status === "estimated") ? "estimated" : "known",
-  };
-}
-
-/** @param {number} left @param {number} right @returns {boolean} */
-function sameCost(left, right) {
-  return Math.abs(left - right) <= 1e-9;
-}
-
-/** @param {CostProjection} projection @returns {string} */
-function formatCost(projection) {
-  return `${compactCost(projection.costUsd)} (${projection.status})`;
 }
 
 /**
