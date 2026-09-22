@@ -71,14 +71,24 @@ times.
 
 ## Requisitos
 
-### R1. O gate pergunta, e recusa só quem ficou sem resposta
+### R1. O gate pergunta, e recusa só o silêncio
 
 - **statement:** o gate pergunta a cada runtime roteado antes de qualquer
-  despacho, e bloqueia a run apenas quando algum nó fica sem nenhum runtime
-  que respondeu entre os candidatos que o contrato declara para ele. Um
-  primeiro-escolhido exausto com fallback declarado não bloqueia nada: é
-  exatamente o caso para o qual o fallback existe.
+  despacho, e bloqueia a run apenas quando um runtime não respondeu nada.
+  Respondeu significa respondeu, não significa saudável: uma recusa por cota
+  esgotada é um oi que voltou, e a run segue pelo failover que o contrato
+  declara. Só o silêncio do pipeline — `preflight_timeout`, `spawn_error`,
+  `command_invalid` — bloqueia, e a recusa nomeia o runtime mudo com a causa
+  `unknown`.
 - **proof:** `command: node --test test/engine/live-gate.test.mjs`
+
+> **Correção, 2026-09-22.** A primeira versão deste requisito dizia "sem
+> nenhum runtime que respondeu entre os candidatos que o contrato declara",
+> o que exigia que o gate lesse o grafo de failover. O nó que a executou
+> parou com `context_missing` e devolveu a regra acima, que é mais simples e
+> mais fiel ao nome da campanha: disponibilidade é verificada por quem
+> falou. Um runtime exausto falou. Nada de `synthesizedChain`, nada de
+> conjunto de candidatos.
 
 ## Non-goals
 
@@ -88,9 +98,17 @@ times.
 - Do not weaken the ask to a version check, a PATH lookup, or anything the
   provider does not answer. The campaign's whole claim is that a badge is not
   a verdict.
-- Do not edit a test to make it pass. The 59 failures are the specification
-  for this phase; a test that still fails at the end is a rule still wrong.
-  `test/helpers.mjs` is the exception and is a fixture, not a test.
+- Do not edit a test to weaken what it asserts. The 59 failures are the
+  specification for this phase, and a test that still fails on the blocking
+  rule is a rule still wrong.
+  Two files are a bounded exception, because their premise — that only
+  dispatch invokes a provider — is the premise this requirement changes.
+  `test/engine/tier-exhaustion.test.mjs` and `test/engine/failover.test.mjs`
+  define fixtures that log every provider invocation and assert exact
+  contents, so the ask lands in those logs at the spawn level, before any
+  rule applies. Their logs may learn to ignore the hello. What they assert
+  about dispatch — the hop order, the request count, the continuation ids —
+  stays exactly as it is.
 - Do not change the meaning of any reason R2 established.
 - Do not touch `docs/history/`, any campaign already recorded under
   `docs/campaigns/`, or `evals/golden/`.
@@ -126,7 +144,8 @@ times.
 
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
-| The refined rule needs the failover graph, which lives in `plan/routing` and `engine/failover`, not in `run-identity` | high | Name the reader it must consult rather than duplicating the graph; a second copy of routing is worse than the bug |
+| ~~The refined rule needs the failover graph~~ | — | Retired 2026-09-22: under "only silence blocks" the gate needs no graph at all, so there is nothing to consult and nothing to duplicate |
+| The hello lands in a fixture's invocation log and breaks a count | high | Two named files may teach their logs to ignore the hello; every other test stays untouched, and a third file needing it is a signal the rule is wrong again |
 | Teaching fixtures to answer becomes a bypass by accident | high | The probe's prompt is a fixed string; answering *it* is emulation, and any condition on run context or environment is a bypass |
 | A verification that covers `test/engine/` exceeds the 600s cap | medium | A constraint: split by file group with measured durations, never one directory command |
-| `exhausted` fixtures are exempted to make tests pass | high | A provider out of quota is genuinely unavailable; the fix is the blocking rule, never pretending the answer was different |
+| The hello is faked rather than emulated | high | A fixture answers the hello because a real provider would, in every mode including exhausted and silent; conditioning on environment, path or under-test remains forbidden |
