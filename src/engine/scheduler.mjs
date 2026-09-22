@@ -238,6 +238,19 @@ export async function runContract(contractPath, options = {}) {
   }
   const lock = acquireLock(runDir);
   try {
+    // `contract.json` is written before anything else claims a name outside
+    // this directory, because `cancel` is the only verb that releases those
+    // names and it reads the contract from here. Everything below can fail or
+    // be killed -- `runtimeAssignments` probes providers, `captureRunIdentity`
+    // shells out to git, `createRunRef` claims `refs/faberun/<id>/run` -- and a
+    // launch that died between the ref and this write used to leave an
+    // occupied ref plus a run directory `cancel` could not parse: the operator
+    // was refused the directory, deleted it, was then refused the ref, and had
+    // no single verb for either. Written first, the directory is always
+    // cancellable from the instant it exists.
+    mkdirSync(join(runDir, "nodes"), { recursive: true });
+    mkdirSync(join(runDir, "logs"), { recursive: true });
+    writeJsonAtomic(join(runDir, "contract.json"), serializableContract(contract));
     const runtimePlan = await runtimeAssignments(contract);
     const scopeBoundaries = captureNodeScopeBoundaries(contract);
     const sourceIdentity = await captureRunIdentity(contract, scopeBoundaries);
@@ -245,9 +258,6 @@ export async function runContract(contractPath, options = {}) {
     lock.assert();
     const runsDir = runsRoot(contract.cwd);
     const campaign = resolveCampaign(runsDir, contract.campaignId);
-    mkdirSync(join(runDir, "nodes"), { recursive: true });
-    mkdirSync(join(runDir, "logs"), { recursive: true });
-    writeJsonAtomic(join(runDir, "contract.json"), serializableContract(contract));
     writeJsonAtomic(join(runDir, "judge.schema.json"), JUDGE_SCHEMA);
     writeJsonAtomic(join(runDir, "run.json"), createRunMetadata(lock, sourceIdentity, {}, integrationRef));
     registerRun(campaign.path, contract.id);
@@ -757,18 +767,34 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
 }
 
 /**
+ * The persisted node snapshots of one run.
+ *
+ * `tolerateMissing` returns only the snapshots that exist instead of refusing
+ * the run. For resume and supervise a node the contract declares and the run
+ * never persisted is corruption and stays fatal; for `cancel` it is the
+ * ordinary shape of what is being cancelled. A launch writes `contract.json`
+ * first and can die before it writes any node -- probing providers, shelling
+ * out to git, claiming the run ref -- and the directory then holds a
+ * contract, an occupied ref and no node state at all. Such a node started
+ * nothing, holds no invocation and no worktree, so there is nothing to
+ * terminate and only the git names to release, which is what cancel is for.
+ *
  * @param {string} runDir
  * @param {ValidatedContract} contract
+ * @param {{tolerateMissing?: boolean}} [options]
  * @returns {NodeSnapshot[]}
  */
-export function readRunNodes(runDir, contract) {
+export function readRunNodes(runDir, contract, options = {}) {
   const names = listNodeSnapshots(runDir);
   const expected = new Map(contract.nodes.map((node) => [`${node.id}.json`, node]));
   for (const name of names) if (!expected.has(name)) throw new TypeError(`unexpected persisted node snapshot ${name}`);
-  return contract.nodes.map((node) => {
+  return contract.nodes.flatMap((node) => {
     const name = `${node.id}.json`;
-    if (!names.includes(name)) throw new TypeError(`missing persisted node snapshot ${name}`);
-    return validateNodeSnapshot(readNodeSnapshot(runDir, node.id), node);
+    if (!names.includes(name)) {
+      if (options.tolerateMissing === true) return [];
+      throw new TypeError(`missing persisted node snapshot ${name}`);
+    }
+    return [validateNodeSnapshot(readNodeSnapshot(runDir, node.id), node)];
   });
 }
 

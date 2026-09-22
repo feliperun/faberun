@@ -55,7 +55,7 @@ export async function cancelRun(runDirPath) {
   }
   const controllerLock = await acquireStaleLock(runDir);
   try {
-    const states = readRunNodes(runDir, contract);
+    const states = readRunNodes(runDir, contract, { tolerateMissing: true });
     /** @type {Error[]} */
     const failures = [];
     for (const state of states) {
@@ -196,7 +196,7 @@ async function waitForTerminal(runDir, timeoutMs) {
   while (Date.now() < deadline) {
     const contractPath = join(runDir, "contract.json");
     const contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath, { persisted: true });
-    const states = readRunNodes(runDir, contract);
+    const states = readRunNodes(runDir, contract, { tolerateMissing: true });
     if (states.every((state) => SETTLED.has(state.status)) && states.every((state) => (state.invocations ?? []).every((invocation) => !invocationOwned(invocation)))) return true;
     await delay(100);
   }
