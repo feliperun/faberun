@@ -154,3 +154,41 @@ function parseVersion(text) {
   if (!match) return null;
   return [Number(match[1]), Number(match[2]), Number(match[3])];
 }
+
+/**
+ * How old a cached update check may be and still be repeated as a fact about
+ * the world. The banner and the notification message read the cache and never
+ * the network -- a version hint must not put a request in front of every
+ * command -- so the cache is only ever as fresh as the last
+ * `faberun update --check` somebody remembered to run. Measured 2026-09-22 on
+ * the owner's machine: `update-check.json` was five days old and still named
+ * 0.10.0 as the latest release while 0.19.0 was being cut.
+ *
+ * A week is the bound, not a refresh: past it the hint stops being shown
+ * rather than being re-fetched, because a stale claim asserted with authority
+ * is worse than no claim. The command that does reach the network is
+ * unaffected, and the file keeps its `checkedAt` either way.
+ */
+export const UPDATE_CHECK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * The newer release a still-fresh cached check names, or null: no cache, a
+ * cache older than the window, a cache timestamped in the future (a record
+ * that would otherwise never expire), or a `latest` that is not newer than
+ * what is running. The one home of the "is there an update to mention" rule,
+ * so the banner and the notification message cannot come to disagree.
+ *
+ * @param {string} home
+ * @param {string} version the version actually running
+ * @param {number} [now] epoch milliseconds, injected by tests
+ * @returns {string|null}
+ */
+export function availableUpdate(home, version, now = Date.now()) {
+  const check = readUpdateCheck(home);
+  if (!check) return null;
+  const checkedAt = Date.parse(check.checkedAt);
+  if (!Number.isFinite(checkedAt)) return null;
+  const age = now - checkedAt;
+  if (age < 0 || age > UPDATE_CHECK_MAX_AGE_MS) return null;
+  return compareVersions(check.latest, version) > 0 ? check.latest : null;
+}
