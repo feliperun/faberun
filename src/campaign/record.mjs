@@ -49,9 +49,14 @@ export function campaignIdOf(campaignPath) {
   }
 }
 /**
+ * The campaign record's schema, in one home. Exported so the repair verb in
+ * `run/migrate.mjs` can prove a record's only defect is the absent `status`
+ * field by validating the record with that default applied, instead of the
+ * schema being restated beside the repair.
+ *
  * @param {unknown} campaign
  */
-function validateCampaign(campaign) {
+export function validateCampaign(campaign) {
   if (!campaign || typeof campaign !== "object" || Array.isArray(campaign)) {
     throw new TypeError("campaign.json must be an object");
   }

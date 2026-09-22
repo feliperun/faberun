@@ -34,10 +34,18 @@
  * composed here from `projectsDir` plus names `run/paths.mjs` keeps private;
  * widening that module's surface for one caller is worse than spelling the
  * two literals here, next to this comment.
+ *
+ * `repairCampaignRecords` belongs here for the same reason the move does:
+ * both bring state an older faberun wrote to the shape the current code
+ * reads. Read keeps refusing a record it cannot trust, so the repair is a
+ * verb rather than a silent default on read, and it names every record it
+ * repairs and the field it filled — a repair that happens unreported is
+ * corruption by another name.
  */
-import { cpSync, existsSync, lstatSync, readFileSync, readlinkSync, readdirSync, renameSync, rmSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, readFileSync, readlinkSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { campaignsDir } from "../campaign/layout.mjs";
+import { CAMPAIGN_FILE, campaignsDir } from "../campaign/layout.mjs";
+import { validateCampaign } from "../campaign/record.mjs";
 import { readRemotes } from "../cli/project.mjs";
 import { faberunHome } from "../host/home.mjs";
 import { projectsDir, registerProject } from "../host/projects.mjs";
@@ -134,6 +142,65 @@ export function migrateRunState(cwd, options = {}) {
   renameSync(staging, target);
   rmSync(legacy, REMOVE_OPTIONS);
   return { moved: true, legacy, target, runs, campaigns };
+}
+
+/**
+ * Repair every campaign record under `runsDir` whose only defect is the
+ * absent `status` field: a record written before the field existed carries
+ * id, goal and linkedRunIds but no status, and discovery would report it
+ * corrupt forever. The repair fills the default current writes apply, writes
+ * the record back, and names every record it repaired and the field it
+ * filled in the returned list.
+ *
+ * The default is `closed` because an active campaign is one the product is
+ * currently driving, and a record written before the field existed has not
+ * been driven since.
+ *
+ * The predicate is the validator itself, run on the record with the default
+ * applied, so the repair cannot widen: a record that still fails validation
+ * with a valid status — malformed JSON, a missing id, a goal that is not
+ * text, a linkedRunIds that is not an array, a status present but wrong — is
+ * left exactly as discovery reports it. A record already carrying status is
+ * never rewritten, so a second run repairs nothing and writes nothing.
+ *
+ * @param {string} runsDir
+ * @returns {{id: string, field: string}[]} one entry per repaired record
+ */
+export function repairCampaignRecords(runsDir) {
+  const campaigns = campaignsDir(runsDir);
+  if (!existsSync(campaigns)) return [];
+  /** @type {{id: string, field: string}[]} */
+  const repaired = [];
+  for (const entry of readdirSync(campaigns, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const file = join(campaigns, entry.name, CAMPAIGN_FILE);
+    if (!existsSync(file)) continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(readFileSync(file, "utf8"));
+    } catch {
+      // Unreadable or unparseable: there is no absent field to fill, and
+      // discovery keeps reporting the record corrupt.
+      continue;
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) continue;
+    const record = /** @type {Record<string, unknown>} */ (parsed);
+    // A status present but wrong is corruption, not age: only the absent
+    // field is repairable.
+    if (record.status !== undefined) continue;
+    record.status = "closed";
+    try {
+      validateCampaign(record);
+    } catch {
+      // The record fails the schema for a reason other than the absent
+      // status; the fill above dies with this in-memory object and the file
+      // is never written, so discovery's corrupt report stays true.
+      continue;
+    }
+    writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`);
+    repaired.push({ id: String(record.id), field: "status" });
+  }
+  return repaired;
 }
 
 /**
