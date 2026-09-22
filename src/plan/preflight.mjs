@@ -7,7 +7,7 @@
  * tree's 800-line ceiling.
  */
 import { preflightRuntimes } from "../engine/live-preflight.mjs";
-import { liveSilenceCause } from "../engine/run-identity.mjs";
+import { liveSilenceCause } from "../engine/live-silence.mjs";
 import { harnessCapabilities } from "../harnesses/index.mjs";
 import { validateRuntime } from "../contract/runtime.mjs";
 

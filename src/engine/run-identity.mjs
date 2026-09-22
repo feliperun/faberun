@@ -26,6 +26,7 @@ import { validateRunMetadata } from "../contract/snapshot.mjs";
 import { contractDigest } from "../contract/index.mjs";
 import { RUNS_DIR_NAME, runDirectory } from "../run/paths.mjs";
 import { preflightContract } from "./live-preflight.mjs";
+import { liveSilenceCause } from "./live-silence.mjs";
 
 /** @typedef {import("../harnesses/index.mjs").HarnessRuntime} HarnessRuntime */
 /** @typedef {import("../harnesses/index.mjs").ProbeResult} ProbeResult */
@@ -424,21 +425,6 @@ export function serializableContract(contract) {
   };
 }
 /**
- * The live-preflight causes that mean no runtime said anything at all: the
- * provider was asked and did not answer, or could not be started to be asked.
- *
- * `command_invalid` is deliberately not one of them. A command that could not
- * be constructed never reached a provider, so the gate learned nothing about
- * availability and has no verdict to report -- that is a contract defect and
- * belongs to validation, which already owns it. Measured 2026-09-22: three
- * deterministic evals declare a fallback and a judge runtime they never
- * invoke, so those carry no replay recording and the replay adapter throws
- * when asked to build their command. Blocking there refuses a run over a
- * runtime it would never have used, on a fault the provider never had.
- */
-const LIVE_SILENCE_CAUSES = new Set(["preflight_timeout", "spawn_error"]);
-
-/**
  * Live failure codes that name the pipeline rather than the provider, so they
  * are verdicts of nothing and are never recorded: the two silences above, and
  * `command_invalid`, which never reached a provider at all. The recordable
@@ -643,26 +629,3 @@ function launchMayDispatch(runDir) {
   });
 }
 
-/**
- * Whether a live probe is pipeline silence rather than a verdict, and which
- * cause. `preflightContract` embeds the provider envelope's error code in the
- * probe detail (`… · live failed · <code>: …`); the codes in
- * `LIVE_SILENCE_CAUSES` are the ones where a provider was asked and said
- * nothing, and the
- * repository-failure wording means no runtime was even asked. Everything else
- * — a quota refusal, an auth failure, unparsable output — is a provider that
- * answered, and an answer is hello enough.
- *
- * Exported because the planning pipeline refuses on the same rule before its
- * first stage: one classification of silence, never two that can drift into
- * disagreeing about what an answer was.
- *
- * @param {import("../harnesses/index.mjs").ProbeResult} probe
- * @returns {string|null}
- */
-export function liveSilenceCause(probe) {
-  if (probe.ok) return null;
-  if (/live preflight repository failed/u.test(probe.detail ?? "")) return "spawn_error";
-  const match = / · live \S+ · ([a-z_]+):/u.exec(probe.detail ?? "");
-  return match !== null && LIVE_SILENCE_CAUSES.has(match[1]) ? match[1] : null;
-}
