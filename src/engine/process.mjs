@@ -7,8 +7,8 @@
  * a judge decides, or when a run is done. That separation is the point: a stuck
  * provider is killed by the same code whatever it was asked to do.
  */
-import { boundedRegion, monitorInvocation } from "./transcript.mjs";
-import { closeSync, existsSync, fsyncSync, openSync, readdirSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
+import { boundedRegion, latestLogWriteMs, monitorInvocation } from "./transcript.mjs";
+import { closeSync, existsSync, fsyncSync, openSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { errorCode, errorMessage } from "../util.mjs";
 import { fileURLToPath } from "node:url";
@@ -321,47 +321,6 @@ export function stallTimeoutSecFor(runtime, contract) {
   return typeof declared === "number" && Number.isFinite(declared) && declared > 0
     ? declared
     : contract.stallTimeoutSec;
-}
-
-/**
- * Newest write inside the attempt's provider log dir, 0 when nothing is there
- * yet. The CLI lays its session logs out as files (it may nest a directory),
- * so the scan walks three levels and reads only mtimes — never contents,
- * which is the monitor's job for streaming harnesses and nobody else's.
- * Every stat failure is an ordinary not-yet: a dir with nothing readable in
- * it proves no liveness, which is exactly the right answer.
- *
- * Cheap enough to run on every tick: measured 2026-09-22 on macOS, a dir of
- * 250 files across two levels scans in 0.80 ms, against the 1000 ms default
- * `pollIntervalMs` — so the cost is under a tenth of a percent of one job's
- * poll, and the scan reads no bytes.
- *
- * @param {string} dir
- * @param {number} [depth]
- * @returns {number}
- */
-export function latestLogWriteMs(dir, depth = 0) {
-  let newest = 0;
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return 0;
-  }
-  for (const entry of entries) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (depth < 3) newest = Math.max(newest, latestLogWriteMs(path, depth + 1));
-      continue;
-    }
-    try {
-      newest = Math.max(newest, statSync(path).mtimeMs);
-    } catch {
-      // Raced a rotation or a permission change: this entry proves nothing,
-      // the rest of the scan still does.
-    }
-  }
-  return newest;
 }
 
 /**
