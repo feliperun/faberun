@@ -124,3 +124,40 @@ test("a linked run whose every node settled unsuccessfully is parked with its no
   assert.match(text, /run `run-stuck`: parked/u);
   assert.match(text, /resume .*run-stuck/u, "a settled run keeps its resume command");
 });
+
+// Closing a campaign used to promote its parked runs rather than retire them:
+// they stopped being indented children of a campaign and became top-level
+// standalone entries that stayed forever. Measured 2026-09-22: 26 closed
+// campaigns in the live project, seven parked runs from three of them in the
+// block against one live run, each carrying a `resume` command for work a
+// closed campaign had already settled.
+test("a parked run of a closed campaign is retired from the block", () => {
+  const { runsDir, agentsPath } = makeRepo();
+  const closed = initializeCampaign(runsDir, { campaignId: "settled", goal: "was settled" });
+  writeRunNodes(runsDir, "run-settled", ["blocked"]);
+  registerRun(closed.path, "run-settled");
+  appendJournal(closed.path, {
+    type: "retrospective",
+    eventId: "settled-retro",
+    at: new Date().toISOString(),
+    sessionId: "test",
+    text: "Retrospective: settled.",
+  });
+  closeCampaign(closed.path);
+  const open = initializeCampaign(runsDir, { campaignId: "open", goal: "still going" });
+  writeRunNodes(runsDir, "run-open", ["running"]);
+  registerRun(open.path, "run-open");
+  assert.equal(syncAgentSignal(runsDir), true);
+  const text = readFileSync(agentsPath, "utf8");
+  assert.doesNotMatch(text, /run-settled/u, "a closed campaign's run is its own business");
+  assert.match(text, /run `run-open`: active/u, "the live run still shows");
+});
+
+test("a parked run no campaign ever linked still blocks a naive fresh start", () => {
+  const { runsDir, agentsPath } = makeRepo();
+  writeRunNodes(runsDir, "run-orphan", ["blocked"]);
+  assert.equal(syncAgentSignal(runsDir), true);
+  const text = readFileSync(agentsPath, "utf8");
+  assert.match(text, /run `run-orphan`: parked/u);
+  assert.match(text, /resume .*run-orphan/u);
+});
