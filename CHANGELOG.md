@@ -8,6 +8,7 @@ release-please generates the entries below from Conventional Commits.
 ### Bug Fixes
 
 * the Windows CI jobs pass ([#66](https://github.com/feliperun/faberun/issues/66)) ([b7f3f35](https://github.com/feliperun/faberun/commit/b7f3f3507f0e446b3dda2dc6e337e9528f0921b6))
+* the frictions two campaigns found, closed before the next one ([#71](https://github.com/feliperun/faberun/issues/71)) ([735631d](https://github.com/feliperun/faberun/commit/735631d)): a gate-less node runs its Definition of Done proofs, every test file isolates its home, a proof whose test-name pattern matches nothing fails, `campaign supervise --refresh-controller`, conventional seal commits
 
 ## [0.23.0](https://github.com/feliperun/faberun/compare/v0.22.0...v0.23.0) (2026-09-23)
 
