@@ -12,7 +12,6 @@ import {
 } from "../campaign/index.mjs";
 import { addContract, replaceContract } from "./campaign-contract.mjs";
 import { generateCampaignBrief } from "../campaign/brief-cli.mjs";
-import { lockStale, pidAlive, processStartToken, readLock } from "../run/lock.mjs";
 import { runsRoot } from "../run/paths.mjs";
 import { syncAgentSignal } from "../repo/signal.mjs";
 import { acknowledgeJournalEvent, appendJournal, appendSeatAllowanceEvent, readJournal, watchJournal } from "../campaign/journal.mjs";
