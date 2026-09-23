@@ -15,7 +15,7 @@ import { assertObject, boundedString, nonNegativeInteger, nonNegativeNumber, pos
 import { validateMetadata } from "./schema-version.mjs";
 import { assertRuntimeExecutesCommands, requireRuntime, validateRuntime } from "./runtime.mjs";
 import { validateSourceIdentity } from "../repo/source-identity.mjs";
-import { commandCoverageWarnings, mirrorCoverageWarnings, unsnapshottedWriteWarnings } from "../repo/declared-paths.mjs";
+import { commandCoverageWarnings, ignoreSourceWriteWarnings, mirrorCoverageWarnings, unsnapshottedWriteWarnings } from "../repo/declared-paths.mjs";
 import { crossNodeScopeFindings, scopeClosureFindings } from "../repo/scope-closure.mjs";
 
 export { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
@@ -380,6 +380,7 @@ export function validateContract(raw, contractPath, options = {}) {
       ...unquotedFilterValueWarnings(node.definitionOfDone ?? [], index),
       ...(persisted ? [] : mirrorCoverageWarnings(node, index, cwd, contractCommands, contractWrites)),
       ...(persisted ? [] : unsnapshottedWriteWarnings(node, index, cwd)),
+      ...(persisted ? [] : ignoreSourceWriteWarnings(node, index)),
       ...(persisted ? [] : writeFileLineBudgetWarnings(node, index, cwd)),
     ]),
     // Cross-node by construction: a requirement proven in two nodes is only
