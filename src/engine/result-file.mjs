@@ -143,11 +143,23 @@ export function resolveWorkerResult(runDir, node, providerResult) {
   return result;
 }
 /**
+ * A runtime that cannot write (`writable` false) is told its final message is
+ * the result, and `resolveWorkerResult` persists it: asking it to write the
+ * file is what stalled a read-only reviewer (RM-058).
+ *
  * @param {string} prompt
  * @param {string} resultPath
+ * @param {boolean} [writable]
  * @returns {string}
  */
-export function workerProtocolPrompt(prompt, resultPath) {
+export function workerProtocolPrompt(prompt, resultPath, writable = true) {
+  if (!writable) {
+    return [
+      prompt,
+      "Controller worker protocol:",
+      "Your sandbox is read-only, so write no file: your final response is the result, exactly the required worker-result JSON object, and the controller persists it.",
+    ].join("\n\n");
+  }
   return [
     prompt,
     "Controller worker protocol:",

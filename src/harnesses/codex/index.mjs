@@ -51,6 +51,7 @@ export const codexHarness = {
     field: "sandbox",
     executingModes: ["read-only", "workspace-write", "danger-full-access"],
     defaultMode: "workspace-write",
+    readOnlyModes: ["read-only"],
   },
 
   /** @param {import("../index.mjs").HarnessRuntime} runtime @returns {string} */

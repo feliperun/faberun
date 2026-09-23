@@ -55,7 +55,10 @@ const CAPABILITY_NAMES = new Set([
  * the value used when the contract omits that field. `null` means the harness
  * has no permission mode that can deny command execution.
  *
- * @typedef {{field: "permissionMode"|"sandbox", executingModes: string[], defaultMode: string}|null} PermissionExecutionPolicy
+ * `readOnlyModes` names the modes in which the provider cannot write its
+ * workspace, so the controller must not ask it to.
+ *
+ * @typedef {{field: "permissionMode"|"sandbox", executingModes: string[], defaultMode: string, readOnlyModes?: string[]}|null} PermissionExecutionPolicy
  */
 
 /** @typedef {{status: "done"|"no-op"|"blocked"|"failed"|"exhausted"|"stalled"|"canceled", result: string|null, continuationId: string|null, usage: {inputTokens: number|null, outputTokens: number|null, cacheReadInputTokens: number|null}, costUsd: number|null, error: {code: string, message: string, resetAt?: string|null}|null, exhaustedUntil?: string|null, judgeCandidates?: number}} ProviderEnvelope */
@@ -152,6 +155,20 @@ export function resolvePermissionExecution(runtime) {
   if (!policy) return { executes: true, field: null, mode: null, executingModes: [] };
   const mode = /** @type {string} */ (runtime[policy.field] ?? policy.defaultMode);
   return { executes: policy.executingModes.includes(mode), field: policy.field, mode, executingModes: policy.executingModes };
+}
+
+/**
+ * Whether a runtime can write its workspace. False only in a mode its adapter
+ * declares read-only; RM-058 measured a codex reviewer under `read-only`
+ * whose result-file write was rejected and which then stalled for 300s.
+ *
+ * @param {{harness: string, permissionMode?: string, sandbox?: string}} runtime
+ * @returns {boolean}
+ */
+export function writesWorkspace(runtime) {
+  const policy = getHarness(runtime.harness).permissionExecution;
+  if (!policy?.readOnlyModes) return true;
+  return !policy.readOnlyModes.includes(/** @type {string} */ (runtime[policy.field] ?? policy.defaultMode));
 }
 
 /**

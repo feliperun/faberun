@@ -13,7 +13,7 @@ import { DISCOVERY_RUNTIME_DEFINITIONS } from "../engine/runtime-discovery.mjs";
 import { stableJson } from "../util.mjs";
 import { assertObject, boundedString, nonNegativeInteger, nonNegativeNumber, positiveInteger, positiveNumber, rejectUnknown, requireId, requireString } from "./assert.mjs";
 import { validateMetadata } from "./schema-version.mjs";
-import { assertRuntimeExecutesCommands, requireRuntime, validateRuntime } from "./runtime.mjs";
+import { assertRuntimeExecutesCommands, judgeWriteWarnings, requireRuntime, validateRuntime } from "./runtime.mjs";
 import { validateSourceIdentity } from "../repo/source-identity.mjs";
 import { commandCoverageWarnings, ignoreSourceWriteWarnings, mirrorCoverageWarnings, unsnapshottedWriteWarnings } from "../repo/declared-paths.mjs";
 import { crossNodeScopeFindings, scopeClosureFindings } from "../repo/scope-closure.mjs";
@@ -383,6 +383,7 @@ export function validateContract(raw, contractPath, options = {}) {
       ...(persisted ? [] : ignoreSourceWriteWarnings(node, index)),
       ...(persisted ? [] : writeFileLineBudgetWarnings(node, index, cwd)),
     ]),
+    ...judgeWriteWarnings(runtimes, defaults, nodes),
     // Cross-node by construction: a requirement proven in two nodes is only
     // visible when every node's commands are read together, which is the
     // whole point -- one copy repaired and six left behind is what a per-node
