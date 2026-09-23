@@ -84,7 +84,7 @@ const OPERATION_OPTIONS = {
   },
   close: { cwd: { type: "string" }, "event-id": { type: "string" } },
   reledger: { cwd: { type: "string" } },
-  supervise: { cwd: { type: "string" }, "allow-main": { type: "boolean" } },
+  supervise: { cwd: { type: "string" }, "allow-main": { type: "boolean" }, "refresh-controller": { type: "boolean" } },
   unpark: { cwd: { type: "string" }, force: { type: "boolean" }, "event-id": { type: "string" } },
   "add-contract": { cwd: { type: "string" }, path: { type: "string" } },
   "replace-contract": { cwd: { type: "string" }, path: { type: "string" }, replace: { type: "string" } },
@@ -94,7 +94,7 @@ const OPERATION_OPTIONS = {
   ack: { cwd: { type: "string" }, "session-id": { type: "string" }, "event-id": { type: "string" } },
 };
 
-/** @typedef {{cwd?: string, goal?: string, contract?: string[], landBranch?: string, tool?: string, sessionId?: string, transcript?: string, format?: string, cursor?: string, since?: string, kind?: string, text?: string, runId?: string, supersedes?: string, decisionId?: string, questionId?: string, eventId?: string, noTranscript?: boolean, wake?: boolean, detach?: boolean, interval?: string, once?: boolean, allowMain?: boolean, force?: boolean, path?: string, replace?: string, phase?: string}} CliValues */
+/** @typedef {{cwd?: string, goal?: string, contract?: string[], landBranch?: string, tool?: string, sessionId?: string, transcript?: string, format?: string, cursor?: string, since?: string, kind?: string, text?: string, runId?: string, supersedes?: string, decisionId?: string, questionId?: string, eventId?: string, noTranscript?: boolean, wake?: boolean, detach?: boolean, interval?: string, once?: boolean, allowMain?: boolean, refreshController?: boolean, force?: boolean, path?: string, replace?: string, phase?: string}} CliValues */
 /** @typedef {import("../campaign/index.mjs").Campaign} Campaign */
 
 /**
@@ -398,6 +398,7 @@ async function supervise(campaignId, values) {
   const outcome = await driveCampaignChain(path, {
     repo: cwd,
     allowMain: values.allowMain === true,
+    refreshController: values.refreshController === true,
     emit: (line) => process.stdout.write(`${line}\n`),
     launch: async (contractPath, { baseRef, runDir }) => {
       const child = detachSelf("run", contractPath, baseRef ? ["--base-ref", baseRef] : []);
