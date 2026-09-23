@@ -1,21 +1,24 @@
 /**
  * Freezing a plan: the boundary between a session's draft and a contract the
  * engine can execute. `freezePlan` writes the plan's nodes as a validated
- * contract.json, plus a plan.json carrying that contract's digest, the plan's
- * per-phase requirement declarations (which requirement ids each phase
- * satisfies and its one-sentence deliverable), and the full provenance of how
- * it was produced — the two files travel together so a later launch and this
- * record agree on exactly what was reviewed.
+ * contract.json, plus a plan.json carrying that contract's digest, the
+ * structured spec's path and content digest, the plan's per-phase requirement
+ * declarations (which requirement ids each phase satisfies, which planned
+ * nodes it assigns, and its one-sentence deliverable), and the full provenance
+ * of how it was produced — the two files travel together so a later launch and
+ * this record agree on exactly what was reviewed.
  * `verifyFrozenPlan` is the one check that the pair still agree.
  *
  * Nothing here invokes a model or the engine; it only writes and hashes
  * bytes, so freezing a plan can never be mistaken for starting a run.
  */
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, contractDigest, validateContract } from "../contract/index.mjs";
-import { writeJsonAtomic } from "../run/store.mjs";
+import { assertObject, rejectUnknown, requirePacketHash, requireString } from "../contract/assert.mjs";
+import { writeJsonAtomic, writeTextAtomic } from "../run/store.mjs";
 import { validatePlanPhases } from "./template.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
@@ -24,8 +27,9 @@ import { validatePlanPhases } from "./template.mjs";
 /** @typedef {{id: string, severity: "minor"|"major"|"critical", nodeId?: string, text: string}} PlanFinding */
 /** @typedef {{targetGitHead: string|null, planner: PlanParticipant, reviewer: PlanParticipant, sizing: unknown, findings: PlanFinding[]}} PlanProvenanceInput */
 /** @typedef {PlanProvenanceInput & {packageVersion: string, schemaVersion: number, contractVersion: string}} PlanProvenance */
-/** @typedef {{id: string, requirementIds: string[], deliverable: string}} PlanPhase */
-/** @typedef {{formatVersion: number, contractDigest: string, phases?: PlanPhase[], provenance: PlanProvenance}} FrozenPlan */
+/** @typedef {{id: string, requirementIds: string[], nodeIds?: string[], deliverable: string}} PlanPhase */
+/** @typedef {{path: string, digest: string}} PlanSpecIdentity */
+/** @typedef {{formatVersion: number, contractDigest: string, spec?: PlanSpecIdentity, phases?: PlanPhase[], provenance: PlanProvenance}} FrozenPlan */
 /** @typedef {{ok: boolean, digest: string, expectedDigest: string}} FrozenPlanVerdict */
 
 const PLAN_FORMAT_VERSION = 1;
@@ -37,12 +41,16 @@ function packageVersion() {
 }
 
 /**
- * Nodes inherit the requirement ids of the phase they belong to: the frozen
- * contract preserves them per node, so the engine can stamp them onto the
- * node's accepted result without the worker packet or the worker ever
- * declaring one. A node whose phase has no declaration, or declares none,
- * carries none. Nodes are re-listed rather than mutated in place, so the
- * caller's plan keeps the shape it was reviewed with.
+ * Nodes inherit the requirement ids of the phase declaration that names them.
+ * The frozen contract preserves them per node, so the engine can stamp them
+ * onto the node's accepted result without the worker packet or the worker ever
+ * declaring one. The current `{id, requirementIds, nodeIds, deliverable}`
+ * declaration names its nodes outright; the legacy
+ * `{id, requirementIds, deliverable}` shape still resolves by the node's
+ * execution `phase`, so a record frozen before node assignment existed keeps
+ * reading. A node no declaration names, or a declaration that declares no ids,
+ * leaves it unstamped. Nodes are re-listed rather than mutated in place, so
+ * the caller's plan keeps the shape it was reviewed with.
  *
  * @param {unknown} nodes
  * @param {PlanPhase[]} phases
@@ -50,23 +58,108 @@ function packageVersion() {
  */
 function stampPhaseRequirementIds(nodes, phases) {
   if (!Array.isArray(nodes)) return nodes;
-  const byPhase = new Map(
-    phases
-      .filter((phase) => phase.requirementIds.length > 0)
-      .map((phase) => [phase.id, phase.requirementIds]),
-  );
+  /** @type {Map<string, string[]>} */
+  const byNodeId = new Map();
+  /** @type {Map<string, string[]>} */
+  const byExecutionPhase = new Map();
+  for (const phase of phases) {
+    if (phase.requirementIds.length === 0) continue;
+    if (phase.nodeIds === undefined) {
+      byExecutionPhase.set(phase.id, phase.requirementIds);
+      continue;
+    }
+    for (const nodeId of phase.nodeIds) byNodeId.set(nodeId, phase.requirementIds);
+  }
   return nodes.map((node) => {
-    const phase = typeof node?.phase === "string" ? node.phase : undefined;
-    const inherited = phase === undefined ? undefined : byPhase.get(phase);
-    return inherited ? { ...node, requirementIds: [...inherited] } : node;
+    const record = /** @type {Record<string, unknown>} */ (node && typeof node === "object" ? node : {});
+    const byId = typeof record.id === "string" ? byNodeId.get(record.id) : undefined;
+    const inherited = byId ?? (typeof record.phase === "string" ? byExecutionPhase.get(record.phase) : undefined);
+    return inherited ? { ...record, requirementIds: [...inherited] } : node;
   });
 }
 
 /**
+ * The planned node ids a declaration set is checked against, when `plan.nodes`
+ * is a usable list. A non-array nodes field yields undefined, which leaves the
+ * assignment checks to `validateContract`'s own refusal.
+ *
+ * @param {unknown} nodes
+ * @returns {string[]|undefined}
+ */
+function plannedNodeIdsOf(nodes) {
+  if (!Array.isArray(nodes)) return undefined;
+  /** @type {string[]} */
+  const ids = [];
+  for (const node of nodes) {
+    const id = /** @type {Record<string, unknown>|undefined} */ (node && typeof node === "object" ? node : undefined)?.id;
+    if (typeof id === "string") ids.push(id);
+  }
+  return ids;
+}
+
+/**
+ * The spec identity a frozen plan records, shape-checked before anything is
+ * written. Absent is legal so a caller that predates spec identity keeps
+ * freezing; a plan without it is refused by the Campaign Brief instead.
+ *
+ * @param {unknown} spec
+ * @returns {PlanSpecIdentity|undefined}
+ */
+function specIdentityOf(spec) {
+  if (spec === undefined) return undefined;
+  assertObject(spec, "spec");
+  const record = /** @type {Record<string, unknown>} */ (spec);
+  rejectUnknown(record, new Set(["path", "digest"]), "spec");
+  requireString(record.path, "spec.path");
+  requirePacketHash(record.digest, "spec.digest");
+  return { path: /** @type {string} */ (record.path), digest: /** @type {string} */ (record.digest) };
+}
+
+/**
+ * The SHA-256 of a file's exact bytes: the independent digest a frozen plan's
+ * `plan.json.sha256` sidecar carries, recomputable by a reader without parsing
+ * the JSON.
+ *
+ * @param {string} path
+ * @returns {string}
+ */
+export function fileDigest(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+/**
+ * The SHA-256 of a UTF-8 string, the same digest `fileDigest` computes for the
+ * exact bytes a reader sees. Used for the structured spec's content digest.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function contentDigest(text) {
+  return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+/**
+ * Write the final frozen plan record and the `plan.json.sha256` sidecar over
+ * those exact bytes. The digest is taken from the file after it is written, so
+ * it always covers what a reader will read; the caller must not rewrite
+ * plan.json once this returns.
+ *
+ * @param {string} outDir
+ * @param {FrozenPlan} record the final record, status and approval included
+ * @returns {FrozenPlan}
+ */
+export function writeFrozenPlanRecord(outDir, record) {
+  const planPath = join(outDir, "plan.json");
+  writeJsonAtomic(planPath, record);
+  writeTextAtomic(join(outDir, "plan.json.sha256"), `${fileDigest(planPath)}\n`);
+  return record;
+}
+
+/**
  * Validate `plan` as a contract and, only once it is valid, write it and a
- * sibling plan.json naming its digest and provenance. `plan` supplies
- * `schemaVersion`/`contractVersion` itself; when it does not, this fills in
- * the runner's own current values.
+ * sibling plan.json naming its digest, its spec identity and its provenance.
+ * `plan` supplies `schemaVersion`/`contractVersion` itself; when it does not,
+ * this fills in the runner's own current values.
  *
  * contract.json is written before validation runs, because a packet may
  * declare `readFiles: ["contract.json"]` — an execution packet's own file,
@@ -74,21 +167,26 @@ function stampPhaseRequirementIds(nodes, phases) {
  * A validation failure removes that file again, so a caller never observes a
  * contract.json that failed its own check.
  *
- * `options.phases` carries the plan's per-phase requirement declarations —
- * each phase's requirementIds|deliverable pair — validated by the same check
+ * `options.phases` carries the plan's per-phase declarations — each phase's
+ * requirementIds, nodeIds and deliverable — validated by the same check
  * validatePlanOutput applies, and recorded on plan.json verbatim.
+ * `options.spec` carries the structured spec's path and content digest; when
+ * given, both are recorded so a reader can pin the plan to the exact spec it
+ * was planned from.
  *
  * @param {JsonObject} plan
- * @param {{outDir: string, provenance: PlanProvenanceInput, phases?: import("./template.mjs").PlanPhase[]}} options
+ * @param {{outDir: string, provenance: PlanProvenanceInput, phases?: import("./template.mjs").PlanPhase[], spec?: PlanSpecIdentity}} options
  * @returns {FrozenPlan}
  */
-export function freezePlan(plan, { outDir, provenance, phases }) {
+export function freezePlan(plan, { outDir, provenance, phases, spec }) {
   // Shape-checked before anything is written, so a malformed declaration
   // leaves the outDir exactly as it was — the same failure discipline as the
-  // validateContract rollback below. A phase that declares no requirementIds
-  // passes here: the gap is validatePlanOutput's finding to report, not a
-  // reason to refuse the freeze.
-  const phaseDeclarations = validatePlanPhases(phases);
+  // validateContract rollback below. A declaration in the nodeIds shape must
+  // cover every planned node exactly once; a legacy declaration that names no
+  // requirements passes here, its gap being validatePlanOutput's finding to
+  // report rather than a reason to refuse the freeze.
+  const phaseDeclarations = validatePlanPhases(phases, plannedNodeIdsOf(plan.nodes));
+  const specIdentity = specIdentityOf(spec);
   mkdirSync(outDir, { recursive: true });
   const contractPath = join(outDir, "contract.json");
   const raw = /** @type {JsonObject} */ ({
@@ -109,9 +207,12 @@ export function freezePlan(plan, { outDir, provenance, phases }) {
   const frozen = /** @type {FrozenPlan} */ ({
     formatVersion: PLAN_FORMAT_VERSION,
     contractDigest: contractDigest(raw),
+    // The spec's path and digest pin the plan to the exact structured spec it
+    // was drafted from, so the brief can verify the pair before reading facts.
+    ...(specIdentity === undefined ? {} : { spec: specIdentity }),
     // The declarations ride on the record rather than the contract (the
     // contract schema takes no extra field), so the traceability a reviewer
-    // saw is readable straight off plan.json.
+    // saw is readable straight off plan.json, nodeIds included.
     ...(phaseDeclarations === undefined ? {} : { phases: phaseDeclarations }),
     provenance: {
       packageVersion: packageVersion(),

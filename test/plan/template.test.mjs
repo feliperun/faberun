@@ -173,7 +173,7 @@ test("draft and revise instructions spell the nested definitionOfDone and verifi
     // The id charset is requireId's (contract/assert.mjs) verbatim: an id that
     // is present but invalid fails validatePlanOutput just as late as an
     // absent one — after the run already succeeded.
-    assert.match(instructions, /every id in it \(node, phase, and definitionOfDone item\) must match \[A-Za-z0-9\._-\]\+ and never be exactly "\." or "\.\."/);
+    assert.match(instructions, /every id in it \(node, phase, node assignment, and definitionOfDone item\) must match \[A-Za-z0-9\._-\]\+ and never be exactly "\." or "\.\."/);
   }
 });
 
@@ -359,15 +359,81 @@ test("a malformed phase declaration is still a hard refusal", () => {
   );
 });
 
+test("a nodeIds declaration must cover every planned node exactly once", () => {
+  /** @param {unknown} phases @returns {Record<string, unknown>} */
+  const plan = (phases) => ({
+    nodes: [planNode(), { ...planNode(), id: "docs", objective: "Write the docs" }],
+    phases,
+  });
+
+  const validated = validatePlanOutput(plan([
+    { id: "build-phase", requirementIds: ["R1"], nodeIds: ["build"], deliverable: "Build it." },
+    { id: "docs-phase", requirementIds: ["R2"], nodeIds: ["docs"], deliverable: "Document it." },
+  ]));
+  assert.deepEqual(validated.phases, [
+    { id: "build-phase", requirementIds: ["R1"], nodeIds: ["build"], deliverable: "Build it." },
+    { id: "docs-phase", requirementIds: ["R2"], nodeIds: ["docs"], deliverable: "Document it." },
+  ]);
+  assert.equal(validated.findings, undefined);
+
+  // A planned node no declaration names.
+  assert.throws(
+    () => validatePlanOutput(plan([{ id: "build-phase", requirementIds: ["R1"], nodeIds: ["build"], deliverable: "Build it." }])),
+    /leaves planned node\(s\) assigned to no phase: docs/,
+  );
+  // A node two declarations both name.
+  assert.throws(
+    () => validatePlanOutput(plan([
+      { id: "one", requirementIds: ["R1"], nodeIds: ["build", "docs"], deliverable: "Both." },
+      { id: "two", requirementIds: ["R2"], nodeIds: ["docs"], deliverable: "Again." },
+    ])),
+    /assigns node docs to both one and two/,
+  );
+  // A declaration naming a node the plan does not have.
+  assert.throws(
+    () => validatePlanOutput(plan([
+      { id: "one", requirementIds: ["R1"], nodeIds: ["build", "ghost"], deliverable: "Both." },
+      { id: "two", requirementIds: ["R2"], nodeIds: ["docs"], deliverable: "Docs." },
+    ])),
+    /assigns unknown node ghost/,
+  );
+  // The nodeIds shape refuses an empty assignment and an empty requirement
+  // list, the two things the legacy shape reports as a visible gap instead.
+  assert.throws(
+    () => validatePlanOutput(plan([{ id: "one", requirementIds: ["R1"], nodeIds: [], deliverable: "Nothing." }])),
+    /nodeIds must name at least one planned node/,
+  );
+  assert.throws(
+    () => validatePlanOutput(plan([{ id: "one", requirementIds: [], nodeIds: ["build", "docs"], deliverable: "No requirement." }])),
+    /requirementIds must name at least one requirement/,
+  );
+  // Mixing the legacy and nodeIds shapes, and a duplicate phase id, are both
+  // refusals rather than a silent partial attribution.
+  assert.throws(
+    () => validatePlanOutput(plan([
+      { id: "one", requirementIds: ["R1"], nodeIds: ["build"], deliverable: "Build." },
+      { id: "two", requirementIds: ["R2"], deliverable: "Legacy." },
+    ])),
+    /assign nodeIds on every declaration or on none/,
+  );
+  assert.throws(
+    () => validatePlanOutput(plan([
+      { id: "one", requirementIds: ["R1"], nodeIds: ["build"], deliverable: "Build." },
+      { id: "one", requirementIds: ["R2"], nodeIds: ["docs"], deliverable: "Docs." },
+    ])),
+    /duplicate phase id one/,
+  );
+});
+
 test("draft and revise instructions spell the per-phase requirement declaration", () => {
   const cwd = checkout();
   const contractPath = join(cwd, "contract.json");
   for (const kind of /** @type {const} */ (["draft", "revise"])) {
     const contract = validateContract(buildPlanningContract(kind, baseInputs()), contractPath);
     const instructions = contract.nodes[0].taskPacket.instructions.join("\n");
-    assert.match(instructions, /phases\?: \[\{id, requirementIds\?: \[string\], deliverable\}\]/);
-    assert.match(instructions, /the requirement ids \(R<n> from the spec\) the phase satisfies and the deliverable it produces in one sentence/);
-    assert.match(instructions, /reported as a finding, not refused/);
+    assert.match(instructions, /phases\?: \[\{id, requirementIds: \[string\], nodeIds: \[string\], deliverable\}\]/);
+    assert.match(instructions, /the requirement ids \(R<n> from the spec\) the phase satisfies, the planned node ids it assigns, and the deliverable it produces in one sentence/);
+    assert.match(instructions, /Every planned node must appear in exactly one phase's nodeIds; a missing, duplicate, or unknown node assignment is refused/);
   }
 });
 

@@ -906,6 +906,43 @@ node src/cli.mjs campaign replace-contract feature-42 --cwd /repo \
   --replace /repo/.runs/contracts/phase-2.json
 ```
 Related: `faberun campaign add-contract`, `faberun campaign unpark`, `faberun campaign supervise`.
+### faberun campaign brief
+```text
+faberun campaign brief <generate|serve> <campaign-id> [--cwd <value>] [--phase <value>]
+```
+Generate or serve the Campaign Brief for one frozen phase plan. The operator
+runs `generate` explicitly; freezing never does. Verification of the pinned
+plan, contract and spec comes first, then `campaign-brief.md` is written beside
+`plan.json`, then the portable `campaign-brief.md.html` sibling is rendered and
+checked through the external `mdhtml` CLI. Both absolute paths are printed. An
+absent or failing renderer is a named error: the Markdown stays usable, any
+prior HTML copy for the phase is removed so it cannot be mistaken for the
+current brief, and the exit is non-zero. `serve` starts a separate minimal
+loopback-only HTTP server for a phase whose HTML copy already exists; it is not
+the dashboard. Before it binds it verifies and holds the pinned plan and spec
+bytes, and fails with a named error and no URL when a source file is missing or
+changed or the HTML copy is absent. The running server serves the current HTML
+as `text/html; charset=utf-8` plus exact read-only `/plan.json` and `/spec.md`
+drill-downs from the verified bytes, refuses every unrelated path, has no write
+route, and releases its port on shutdown. The HTML file stays readable from
+disk without the server.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--phase` | phase name | The frozen phase plan the brief is generated for or served from. Required. | — |
+Reads `.runs/campaigns/<id>/plans/<phase>/` (`plan.json`, its sidecar and
+`contract.json`), the pinned spec, the campaign journal and recorded usage; for
+`serve`, also the phase's `campaign-brief.md.html` and nothing outside those
+bytes. `generate` writes only `campaign-brief.md` and, after a successful
+render, `campaign-brief.md.html` in that directory; `serve` binds a loopback
+socket and writes nothing. Neither edits the spec, plan, contract or
+`operator-brief.md`.
+```bash
+node src/cli.mjs campaign brief generate feature-42 --phase build --cwd /repo
+node src/cli.mjs campaign brief serve feature-42 --phase build --cwd /repo
+```
+Related: `faberun plan`, `faberun campaign show`.
 ## faberun seat
 ```text
 faberun seat <operation> [<campaign-id>] [--cwd <dir>] ...

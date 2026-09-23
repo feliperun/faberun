@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.21.0](https://github.com/feliperun/faberun/compare/v0.20.0...v0.21.0) (2026-09-23)
+
+
+### Features
+
+* add campaign brief approval surface ([#63](https://github.com/feliperun/faberun/issues/63)) ([c8df469](https://github.com/feliperun/faberun/commit/c8df4693f54d70a5255ddc620f656da88a7e4439))
+
 ## [0.20.0](https://github.com/feliperun/faberun/compare/v0.19.3...v0.20.0) (2026-09-23)
 
 

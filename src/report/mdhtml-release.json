@@ -1,0 +1,30 @@
+{
+  "schema": "faberun/mdhtml-release/1",
+  "repo": "feliperun/md.html",
+  "tag": "v1.1.3",
+  "version": "1.1.3",
+  "major": 1,
+  "minimumVersion": "1.1.3",
+  "assets": {
+    "darwin-arm64": {
+      "file": "mdhtml-1.1.3-darwin-arm64.tar.gz",
+      "sha256": "14cb7921ea75d6732974a32450f3f2abb06a9f69b464aab486de7312b94593a2"
+    },
+    "darwin-x64": {
+      "file": "mdhtml-1.1.3-darwin-x64.tar.gz",
+      "sha256": "dfb348c02f562bd721bc6a64ebd2b5d5b5ac56f2b19dfa7fd9705e7fdaf22a0d"
+    },
+    "linux-x64-gnu": {
+      "file": "mdhtml-1.1.3-linux-x64-gnu.tar.gz",
+      "sha256": "29d6a6f719f683d4aaebe4112d1e6b7c984a0125826fa12e3c3e7675046fdf15"
+    },
+    "linux-x64-musl": {
+      "file": "mdhtml-1.1.3-linux-x64-musl.tar.gz",
+      "sha256": "eba8b398a6eb6ec17fee5a8fbebdc6cab9511d66dc80ae50351df982c6b7dbf3"
+    },
+    "windows-x64": {
+      "file": "mdhtml-1.1.3-windows-x64.tar.gz",
+      "sha256": "2f68f85ea48bb7797a4c2c910e005fb02332d3f2aa548da1484d08c817a8d0fc"
+    }
+  }
+}

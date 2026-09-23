@@ -1,0 +1,21 @@
+{
+  "zcode-glm-flash": {
+    "harness": "zcode",
+    "model": "glm-5.3-flash",
+    "vendor": "zhipu",
+    "config": {
+      "auth_token.env_key": "ZAI_API_KEY"
+    },
+    "tier": 1,
+    "costRank": 1
+  },
+  "codex-sol": {
+    "harness": "codex",
+    "model": "gpt-5.6-sol",
+    "vendor": "openai",
+    "reasoning": "high",
+    "sandbox": "workspace-write",
+    "tier": 2,
+    "costRank": 2
+  }
+}

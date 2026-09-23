@@ -1,0 +1,398 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "rec-audit-remediation-hygiene-v3",
+  "campaignId": "rec-audit-remediation",
+  "goal": "Close the residuals of the rec audit remediation (judge: GLM 5.3 flash primary, claude-sonnet-5 failover because the Z.ai weekly quota is spent until 2026-09-24T02:10Z): the unfiltered non-interactive `rec play` document, the `.?' panic on a long template path, the unit suite's habit of writing rec-wav-test artifacts into the repository, and the missing 0600 mode assertion. Re-issued without the .gitignore edit that failed the first attempt with snapshot_ignore_changed.",
+  "cwd": "/home/frb/dev/frb/rec",
+  "maxParallel": 2,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 2400,
+  "maxTurns": 400,
+  "runtimeDefaults": {
+    "worker": "dsh-deepseek-flash",
+    "judge": "dsh-glm-5.3-flash"
+  },
+  "runtimes": {
+    "dsh-deepseek-flash": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "danger-full-access",
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      }
+    },
+    "dsh-glm-5.3-flash": {
+      "harness": "dsh",
+      "model": "glm-5.3-flash",
+      "vendor": "zhipu",
+      "sandbox": "workspace-write",
+      "config": {
+        "provider": "zai",
+        "api_key.env_key": "ZAI_API_KEY"
+      },
+      "fallback": "claude-sonnet-5"
+    },
+    "claude-sonnet-5": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic",
+      "permissionMode": "bypassPermissions"
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "sentrux",
+        "check",
+        "."
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "sentrux",
+        "gate",
+        "."
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "zig",
+        "build",
+        "test",
+        "-Dtarget=x86_64-linux-gnu",
+        "--summary",
+        "all"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "python3",
+        "-c",
+        "import subprocess\nout=subprocess.run(['git','status','--porcelain','-uall'],capture_output=True,text=True).stdout\nbad=[l for l in out.splitlines() if l.startswith('??') and 'rec-wav-test' in l]\nassert not bad, 'the suite still leaves untracked artifacts: '+str(bad)\nprint('no untracked test artifacts')\n"
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "nodes": [
+    {
+      "id": "residual-fixes",
+      "type": "fix",
+      "phase": "hygiene",
+      "requirementIds": [
+        "R10"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2400,
+      "definitionOfDone": [
+        {
+          "id": "suite-passes",
+          "text": "The unit-test suite passes on the whole worktree",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        },
+        {
+          "id": "no-unwrap",
+          "text": "`refine` no longer unwraps the template directory path",
+          "proof": {
+            "kind": "command",
+            "ref": "python3 -c \"import re,sys; s=open('src/transcribecmd.zig',encoding='utf-8').read(); assert not re.search(r'templatesDirPath\\\\([^;]*?\\\\)\\\\.\\\\?', s, re.S), 'templatesDirPath is still unwrapped with .?'; print('ok')\""
+          }
+        },
+        {
+          "id": "play-filtered",
+          "text": "The non-interactive `rec play` document is filtered",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"playback non-interactive document is filtered\"' src/playback.zig"
+          }
+        },
+        {
+          "id": "residuals-closed",
+          "text": "The `rec play` unfiltered-document residual and the `.?` panic residual named in REMEDIATION.md's 'Not fixed here' section are both closed with a regression test",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "runtime": "dsh-glm-5.3-flash",
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Close two residuals the first contract left open: the unfiltered document `rec play` prints off a terminal, and the `.?' that turns a too-long config path into a panic in `rec transcribe --refine`.",
+        "instructions": [
+          "Read the 'Not fixed here' section of docs/campaigns/rec-audit-remediation/REMEDIATION.md first: it names both items, with file and line.",
+          "Item 1 - `rec play` prints an unfiltered document. In src/playback.zig's non-interactive branch (around lines 110-122), `markdown.render` output is written straight through `printStderr`, so a transcript containing ANSI/OSC bytes reaches a terminal. src/markdown.zig fixed its own `show()` path with the private `filterForPipe`, which you cannot call from playback.zig. src/viewport.zig already exports `stripControls(text, keep, buf)`; use it with `\"\\n\\t\"` as the keep set, over a buffer the size of the rendered document, before the write. Extract the filtering into a small helper in src/playback.zig so it is directly testable, and name the test exactly `playback non-interactive document is filtered`. Do not touch the interactive (tty) path, and do not add a second copy of the filter.",
+          "Item 2 - src/transcribecmd.zig around line 333 still has `llm.templatesDirPath(config_dir, &tpl_buf).?`. The first contract made `templatesDirPath`/`joinPath` return null when the result would not fit the caller's buffer, so a pathologically long `XDG_CONFIG_HOME`/`HOME` now panics at that `.?` instead of overflowing the buffer. Handle the null the way the neighbouring failures in the same function do: print `refine: ignorado (sem diretório de templates)` through `ui.print` and return, leaving the transcript untouched. Do not edit src/llm.zig - it is not in your writeFiles and its contract already returns an optional."
+        ],
+        "readFiles": [
+          "docs/campaigns/rec-audit-remediation/REMEDIATION.md",
+          "src/playback.zig",
+          "src/transcribecmd.zig",
+          "src/markdown.zig",
+          "src/viewport.zig"
+        ],
+        "writeFiles": [
+          "src/playback.zig",
+          "src/transcribecmd.zig"
+        ],
+        "symbols": [
+          "printStderr",
+          "render",
+          "stripControls",
+          "filterForPipe",
+          "templatesDirPath",
+          "materializeTemplates"
+        ],
+        "decisions": [
+          "This contract is the follow-up step of campaign rec-audit-remediation. The first contract (rec-audit-remediation-fixes) already fixed the 22 audit findings and is integrated in the branch you are cut from; docs/campaigns/rec-audit-remediation/REMEDIATION.md records it.",
+          "Its 'Not fixed here' section is the specification of this step: close the residuals it lists and stop the unit suite from writing artifacts into the repository.",
+          "Keep the diff surgical: one behaviour fix plus its test per item, no opportunistic refactors, no new dependencies, no version bump.",
+          "Code, comments and test names are in English.",
+          "Do not edit AGENTS.md, CLAUDE.md, GEMINI.md, CURSOR.md or AGENT.md; never run git commit, git push, or any destructive git command - the controller seals and integrates your work.",
+          "Local gate: zig build test -Dtarget=x86_64-linux-gnu --summary all. A bare `zig build test` fails to link on this host (Zig 0.16.0 vs the host glibc .sframe relocations); naming the gnu target is required and is not a repository change.",
+          "Reuse `viewport.stripControls` rather than exporting markdown.zig's private helper: src/markdown.zig is not in writeFiles and a second filter copy is what the first contract deliberately avoided."
+        ],
+        "nonGoals": [
+          "Re-opening or re-fixing anything the first contract already closed.",
+          "The Windows-only MoveFileExW self-replacement path: no host here can execute it.",
+          "Reformatting, renaming, or restructuring code these items did not name.",
+          "Adding dependencies, ADRs, version bumps, or release changes."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "zig",
+              "build",
+              "test",
+              "-Dtarget=x86_64-linux-gnu",
+              "--summary",
+              "all"
+            ],
+            "timeoutSec": 600
+          }
+        ]
+      }
+    },
+    {
+      "id": "test-hygiene",
+      "type": "fix",
+      "phase": "hygiene",
+      "requirementIds": [
+        "R11"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2400,
+      "definitionOfDone": [
+        {
+          "id": "suite-passes",
+          "text": "The unit-test suite passes on the whole worktree",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        },
+        {
+          "id": "no-artifacts",
+          "text": "Running the suite leaves no untracked rec-wav-test artifact in the tree",
+          "proof": {
+            "kind": "verification",
+            "ref": 1
+          }
+        },
+        {
+          "id": "mode-test",
+          "text": "A dedicated test asserts the owner-only file mode",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"wav.openNew creates owner-only files\"' src/wav.zig"
+          }
+        },
+        {
+          "id": "hygiene-closed",
+          "text": "The suite no longer writes into the repository, the committed test artifacts are gone, and FINDING-SYNTH-17 has its own mode assertion",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "runtime": "dsh-glm-5.3-flash",
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "Stop the unit suite from leaving rec-wav-test artifacts in the repository, delete the ones already committed, and give FINDING-SYNTH-17 a real mode assertion.",
+        "instructions": [
+          "Context: `wav.testPath` (src/wav.zig, around line 317) builds `{s}/rec-wav-test-{pid}{suffix}` with `testDir() orelse \".\"`, and `testDir()` returns null unless `TMPDIR` (POSIX) or `TEMP`/`TMP` (Windows) is exported. Under `zig build test` from a shell without `TMPDIR` every test artifact lands in the repository root, and because the controller seals and commits the whole attempt worktree, 14 of those paths are now committed in this branch (`rec-wav-test-*.cfg/deepgram_key`, `rec-wav-test-*.auth/sample.wav`). This is the defect you are fixing - it was found by the operator, not by the audit.",
+          "Fix the root cause so no test artifact can ever land in a tracked path: make the POSIX fallback an always-present scratch directory (the system temp directory) rather than `.`, keep the Windows `TEMP`/`TMP` lookup, and keep the returned shape `rec-wav-test-<pid><suffix>` so existing tests need no change. Update the doc comment above the function to state the guarantee. If a test path is still not creatable on some platform, that must fail the test loudly rather than silently writing next to the source.",
+          "Delete every committed artifact: list them with `git ls-files | grep '^rec-wav-test-'` and remove each path (and now-empty directory) from the worktree. These deletions are expected and in scope even though they sit outside `writeRoots`; state the count in your summary. Do not delete anything else.",
+          "Do NOT edit .gitignore or any other ignore file. The controller refuses a worker that changes the repository's ignore sources (`snapshot_ignore_changed`: 'workspace ignore sources changed during worker execution'), because that changes what the workspace snapshot is able to see. The root-cause fix plus the deletions closed this defect once already in a rejected attempt; the ignore pattern is neither needed nor allowed.",
+          "FINDING-SYNTH-17 verification gap: `openNew` opening 0o600 is asserted only indirectly today. Add a test named exactly `wav.openNew creates owner-only files` that creates a file through the same open path and asserts the resulting mode is 0600 (mask with 0o777; skip the assertion on Windows, where there is no POSIX mode).",
+          "Both verification entries declared in this packet must pass: the suite, then the check that no untracked rec-wav-test path exists afterwards. The second one only inspects untracked (`??`) entries, so the deletions you made are not counted against you."
+        ],
+        "readFiles": [],
+        "writeRoots": [
+          "src/wav.zig",
+          "src/transcribe.zig"
+        ],
+        "symbols": [
+          "testPath",
+          "testDir",
+          "openNew",
+          "create_write_flags"
+        ],
+        "decisions": [
+          "This contract is the follow-up step of campaign rec-audit-remediation. The first contract (rec-audit-remediation-fixes) already fixed the 22 audit findings and is integrated in the branch you are cut from; docs/campaigns/rec-audit-remediation/REMEDIATION.md records it.",
+          "Its 'Not fixed here' section is the specification of this step: close the residuals it lists and stop the unit suite from writing artifacts into the repository.",
+          "Keep the diff surgical: one behaviour fix plus its test per item, no opportunistic refactors, no new dependencies, no version bump.",
+          "Code, comments and test names are in English.",
+          "Do not edit AGENTS.md, CLAUDE.md, GEMINI.md, CURSOR.md or AGENT.md; never run git commit, git push, or any destructive git command - the controller seals and integrates your work.",
+          "Local gate: zig build test -Dtarget=x86_64-linux-gnu --summary all. A bare `zig build test` fails to link on this host (Zig 0.16.0 vs the host glibc .sframe relocations); naming the gnu target is required and is not a repository change.",
+          "The committed rec-wav-test-* paths are deleted as part of this node: they are test artifacts the seal accidentally captured, not repository content. Every other path in the worktree stays untouched.",
+          "An `autonomous` packet is used here because the artifact paths are discovered at run time (`git ls-files`), so they cannot be enumerated in a closed `writeFiles` list.",
+          "Measured on this campaign: a worker that writes .gitignore fails the node with `snapshot_ignore_changed`. The ignore file stays untouched; the defect is closed at its source instead."
+        ],
+        "nonGoals": [
+          "Re-opening or re-fixing anything the first contract already closed.",
+          "The Windows-only MoveFileExW self-replacement path: no host here can execute it.",
+          "Reformatting, renaming, or restructuring code these items did not name.",
+          "Adding dependencies, ADRs, version bumps, or release changes.",
+          "Touching any path other than src/wav.zig, src/transcribe.zig and the rec-wav-test-* artifacts."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "zig",
+              "build",
+              "test",
+              "-Dtarget=x86_64-linux-gnu",
+              "--summary",
+              "all"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "python3",
+              "-c",
+              "import subprocess\nout=subprocess.run(['git','status','--porcelain','-uall'],capture_output=True,text=True).stdout\nbad=[l for l in out.splitlines() if l.startswith('??') and 'rec-wav-test' in l]\nassert not bad, 'the suite still leaves untracked artifacts: '+str(bad)\nprint('no untracked test artifacts')\n"
+            ],
+            "timeoutSec": 120
+          }
+        ]
+      }
+    },
+    {
+      "id": "residual-report",
+      "type": "docs",
+      "phase": "hygiene",
+      "requirementIds": [
+        "R12"
+      ],
+      "dependsOn": [
+        "residual-fixes",
+        "test-hygiene"
+      ],
+      "timeoutSec": 2100,
+      "definitionOfDone": [
+        {
+          "id": "suite-passes",
+          "text": "The unit-test suite passes on the whole worktree",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        },
+        {
+          "id": "report-updated",
+          "text": "REMEDIATION.md records the follow-up honestly",
+          "proof": {
+            "kind": "command",
+            "ref": "python3 -c \"s=open('docs/campaigns/rec-audit-remediation/REMEDIATION.md',encoding='utf-8').read(); assert 'Follow-up' in s, 'no follow-up section'; assert 'rec-wav-test' in s, 'test-artifact hygiene not recorded'; print('report updated')\""
+          }
+        },
+        {
+          "id": "report-honest",
+          "text": "The report names what this follow-up closed, what remains open, and the verification that proves each closure, all taken from the real diff",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "runtime": "dsh-glm-5.3-flash",
+        "review": "advisory",
+        "failOn": [
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Update REMEDIATION.md so its 'Not fixed here' section reflects what this follow-up contract closed and what is still open.",
+        "instructions": [
+          "Your worktree contains the integrated fixes from both contracts of this campaign. Read the actual diff before writing: `git log --oneline -20` and `git diff <the audit base 3c7f5cb>..HEAD --stat`.",
+          "REMEDIATION.md still lists four items under 'Not fixed here'. Two are closed by the node this one depends on (the unfiltered `rec play` document, and the `.?` on `templatesDirPath` in `rec transcribe --refine`), and one more is closed by the test-hygiene node (FINDING-SYNTH-17 now has a dedicated mode assertion, plus the rec-wav-test artifacts and the suite's habit of writing them into the tree). The Windows-only MoveFileExW rename dance stays open and must stay listed as such.",
+          "Edit only the affected parts: turn the 'Not fixed here' section into an accurate description of the residual state, and add a 'Follow-up' section that names this contract, lists each item it closed with the file and the test or command that proves it, and states that the rec-wav-test-* paths the first contract's seal committed were deleted by the hygiene node. Quote code that is actually in your worktree's diff.",
+          "Do not rewrite the 22-row findings table - those fixes are not this contract's work and its rows are still accurate. Do not edit docs/audits/AUDIT-REPORT.md or docs/audits/AUDIT-REPORT-ADDENDUM.md.",
+          "Keep the document's existing English markdown style: no emoji, concrete file:line references."
+        ],
+        "readFiles": [
+          "docs/campaigns/rec-audit-remediation/REMEDIATION.md",
+          "docs/audits/AUDIT-REPORT-ADDENDUM.md"
+        ],
+        "writeFiles": [
+          "docs/campaigns/rec-audit-remediation/REMEDIATION.md"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This contract is the follow-up step of campaign rec-audit-remediation. The first contract (rec-audit-remediation-fixes) already fixed the 22 audit findings and is integrated in the branch you are cut from; docs/campaigns/rec-audit-remediation/REMEDIATION.md records it.",
+          "Its 'Not fixed here' section is the specification of this step: close the residuals it lists and stop the unit suite from writing artifacts into the repository.",
+          "Keep the diff surgical: one behaviour fix plus its test per item, no opportunistic refactors, no new dependencies, no version bump.",
+          "Code, comments and test names are in English.",
+          "Do not edit AGENTS.md, CLAUDE.md, GEMINI.md, CURSOR.md or AGENT.md; never run git commit, git push, or any destructive git command - the controller seals and integrates your work.",
+          "Local gate: zig build test -Dtarget=x86_64-linux-gnu --summary all. A bare `zig build test` fails to link on this host (Zig 0.16.0 vs the host glibc .sframe relocations); naming the gnu target is required and is not a repository change.",
+          "Only REMEDIATION.md is edited; the audit report and its addendum are historical records."
+        ],
+        "nonGoals": [
+          "Re-opening or re-fixing anything the first contract already closed.",
+          "The Windows-only MoveFileExW self-replacement path: no host here can execute it.",
+          "Reformatting, renaming, or restructuring code these items did not name.",
+          "Adding dependencies, ADRs, version bumps, or release changes.",
+          "Editing the audit report, its addendum, or the findings table."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "zig",
+              "build",
+              "test",
+              "-Dtarget=x86_64-linux-gnu",
+              "--summary",
+              "all"
+            ],
+            "timeoutSec": 600
+          }
+        ]
+      }
+    }
+  ]
+}

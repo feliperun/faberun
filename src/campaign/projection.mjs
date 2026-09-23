@@ -17,6 +17,7 @@ import { readJournal, validateJournalEntry, withoutLegacyLivenessFields } from "
 /** @typedef {import("../notify/index.mjs").JsonObject} JsonObject */
 /** @typedef {import("./index.mjs").Projection} Projection */
 /** @typedef {import("./index.mjs").ProjectionRecord} ProjectionRecord */
+/** @typedef {{id: string, text: string, at: string, sessionId: string}} ProjectedDecision */
 
 /**
  * @param {string} campaignPath
@@ -57,6 +58,39 @@ export function readProjectionState(campaignPath, campaign) {
     size: journalSize,
     changed: true,
   };
+}
+/**
+ * The active decisions a campaign journal folds to: every `decision` entry the
+ * projection still holds, ordered by journal position, with `supersede`
+ * bookkeeping already applied by the fold. This is the only journal view a
+ * Campaign Brief may use for decisions; nothing is inferred from a run graph, a
+ * run status or prose. A projection that carries no decisions yields an empty
+ * list, never a guess.
+ *
+ * @param {Projection} state
+ * @returns {ProjectedDecision[]}
+ */
+export function projectCampaignDecisions(state) {
+  const decisions = state && typeof state === "object" && typeof state.decisions === "object" && state.decisions !== null && !Array.isArray(state.decisions)
+    ? /** @type {Record<string, JournalEntry>} */ (state.decisions)
+    : {};
+  /** @type {ProjectedDecision[]} */
+  const projected = [];
+  for (const entry of Object.values(decisions)) {
+    if (entry.type !== "decision" || typeof entry.decisionId !== "string") continue;
+    projected.push({
+      id: entry.decisionId,
+      text: typeof entry.text === "string" ? entry.text : "",
+      at: typeof entry.at === "string" ? entry.at : "",
+      sessionId: typeof entry.sessionId === "string" ? entry.sessionId : "",
+    });
+  }
+  projected.sort((left, right) => {
+    if (left.at !== right.at) return left.at < right.at ? -1 : 1;
+    if (left.id !== right.id) return left.id < right.id ? -1 : 1;
+    return 0;
+  });
+  return projected;
 }
 /**
  * @param {unknown} stored
