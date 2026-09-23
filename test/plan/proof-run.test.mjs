@@ -18,6 +18,9 @@ test("a proof whose test-name pattern matches no test fails", () => {
   assert.equal(vacuous.pass, false, "a pattern that matched nothing proved nothing");
   assert.match(vacuous.detail, /matched no test/u);
   assert.equal(prove('node --test --test-name-pattern="the real behaviour holds" real.test.mjs').pass, true);
-  assert.equal(prove("node --test --test-name-pattern='real behaviour' real.test.mjs").pass, true, "single quotes and a partial pattern still match");
+  // Single quotes are POSIX shell syntax; cmd.exe passes them through and
+  // splits the pattern at its space (measured 2026-09-23 on the Windows CI).
+  const quoted = process.platform === "win32" ? '"real behaviour"' : "'real behaviour'";
+  assert.equal(prove(`node --test --test-name-pattern=${quoted} real.test.mjs`).pass, true, "quotes and a partial pattern still match");
   assert.equal(prove("node --test real.test.mjs").pass, true, "a proof with no pattern is judged by its exit code alone");
 });
