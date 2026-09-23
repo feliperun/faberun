@@ -541,20 +541,23 @@ test("three independent replay nodes run concurrently under maxParallel and each
   }));
   const result = await runContract(path);
   assert.equal(result.ok, true);
-  /** @type {number[]} */
-  const startedAtMs = [];
+  /** @type {{started: number, closed: number}[]} */
+  const spans = [];
   for (const id of ["alpha", "beta", "gamma"]) {
     const state = result.states.get(id);
     assert.equal(state?.status, "done");
-    const started = Date.parse(state?.invocations?.[0]?.startedAt ?? "");
-    assert.ok(Number.isFinite(started), `${id} must record an invocation start time`);
-    startedAtMs.push(started);
+    const invocation = state?.invocations?.[0];
+    const span = { started: Date.parse(invocation?.startedAt ?? ""), closed: Date.parse(invocation?.closedAt ?? "") };
+    assert.ok(Number.isFinite(span.started) && Number.isFinite(span.closed), `${id} must record when its invocation started and closed`);
+    spans.push(span);
   }
-  // Each later node started before the earlier one's recorded delay could
-  // have elapsed: the three worker processes were in flight at once, not
-  // dispatched one after another.
-  assert.ok(startedAtMs[1] - startedAtMs[0] < delayMs, "beta started while alpha was still in flight");
-  assert.ok(startedAtMs[2] - startedAtMs[1] < delayMs, "gamma started while beta was still in flight");
+  // Each later node started before the earlier one's invocation closed, read
+  // off the recorded events rather than against delayMs: measured 2026-09-23
+  // under --test-concurrency=16 on macOS (load average 15), the setup between
+  // two dispatches outlasted a 2s delay and three concurrent nodes read as
+  // sequential.
+  assert.ok(spans[1].started < spans[0].closed, "beta started while alpha was still in flight");
+  assert.ok(spans[2].started < spans[1].closed, "gamma started while beta was still in flight");
   for (const id of ["alpha", "beta", "gamma"]) {
     assert.equal(showRefFile(directory, runRefName("replay-parallel-run"), `${id}.txt`), `${id}\n`);
   }

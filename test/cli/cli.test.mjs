@@ -375,7 +375,11 @@ test("idle polls emit no notification, and resume never re-notifies an already-t
   process.env.FABERUN_CODEX_BIN = fakeCodex(directory, "wait-for-release");
   try {
     const pending = runContract(path);
-    await waitForValue(() => (existsSync(started) ? "started" : null));
+    // A wait for the provider's own readiness file, so its bound only decides
+    // how long a hang takes to report. Measured 2026-09-23 under
+    // --test-concurrency=16 on macOS (load average 15): the 5s default lost in
+    // two of two full runs, before the preflight hello and the worker spawned.
+    await waitForValue(() => (existsSync(started) ? "started" : null), 60_000 * SPAWN_WAIT_FACTOR);
     // Let several controller polls pass while the node stays running: idle
     // passes must not create any notify.jsonl entry.
     await delay(200);
