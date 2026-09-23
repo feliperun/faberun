@@ -1,0 +1,189 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "rec-audit-remediation-cleanup",
+  "campaignId": "rec-audit-remediation",
+  "goal": "Remove the last two rec-wav-test artifacts the campaign's own seals captured, so the remediation branch carries none, and record that in the remediation report.",
+  "cwd": "/home/frb/dev/frb/rec",
+  "maxParallel": 1,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 2100,
+  "maxTurns": 400,
+  "runtimeDefaults": {
+    "worker": "dsh-deepseek-flash",
+    "judge": "dsh-glm-5.3-flash"
+  },
+  "runtimes": {
+    "dsh-deepseek-flash": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "danger-full-access",
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      }
+    },
+    "dsh-glm-5.3-flash": {
+      "harness": "dsh",
+      "model": "glm-5.3-flash",
+      "vendor": "zhipu",
+      "sandbox": "workspace-write",
+      "config": {
+        "provider": "zai",
+        "api_key.env_key": "ZAI_API_KEY"
+      },
+      "fallback": "claude-sonnet-5"
+    },
+    "claude-sonnet-5": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "reasoning": "high",
+      "vendor": "anthropic",
+      "permissionMode": "bypassPermissions"
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "sentrux",
+        "check",
+        "."
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "sentrux",
+        "gate",
+        "."
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "zig",
+        "build",
+        "test",
+        "-Dtarget=x86_64-linux-gnu",
+        "--summary",
+        "all"
+      ],
+      "timeoutSec": 600
+    },
+    {
+      "argv": [
+        "python3",
+        "-c",
+        "import glob\nbad=sorted(glob.glob('rec-wav-test-*'))\nassert not bad, 'test artifacts still exist on disk: '+str(bad)\nprint('no rec-wav-test path on disk')\n"
+      ],
+      "timeoutSec": 60
+    }
+  ],
+  "nodes": [
+    {
+      "id": "artifact-cleanup",
+      "type": "fix",
+      "phase": "hygiene",
+      "requirementIds": [
+        "R11"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2100,
+      "definitionOfDone": [
+        {
+          "id": "suite-passes",
+          "text": "The unit-test suite passes on the whole worktree",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        },
+        {
+          "id": "tree-clean",
+          "text": "No rec-wav-test path exists in the worktree after the suite ran",
+          "proof": {
+            "kind": "verification",
+            "ref": 1
+          }
+        },
+        {
+          "id": "report-accurate",
+          "text": "REMEDIATION.md states that the branch no longer carries any rec-wav-test artifact",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qi 'no rec-wav-test' docs/campaigns/rec-audit-remediation/REMEDIATION.md"
+          }
+        },
+        {
+          "id": "cleanup",
+          "text": "The two artifacts the campaign's own seals captured are deleted and the report's disclosure matches the final tree",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "runtime": "dsh-glm-5.3-flash",
+        "review": "advisory",
+        "failOn": [
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "Delete the last two rec-wav-test artifacts from this branch and make the remediation report match.",
+        "instructions": [
+          "Context: campaign rec-audit-remediation fixed the 22 audit findings, and its hygiene contract stopped the unit suite from writing test artifacts into the repository (wav.testDir now resolves to the system temp dir). Two artifacts survived that cleanup because a parallel node's own test run created them after the hygiene node had listed the paths: `rec-wav-test-3930.auth/sample.wav` and `rec-wav-test-3930.cfg/deepgram_key`. The audit remediation report already discloses them.",
+          "List what is actually there with `git ls-files | grep '^rec-wav-test-'` and remove every path it prints (and the now-empty directory). Nothing else may be deleted. Your suite no longer recreates them, so this is a one-time cleanup.",
+          "Then update docs/campaigns/rec-audit-remediation/REMEDIATION.md: its Follow-up section currently discloses that those two directories remain tracked. Replace that disclosure with the accurate final state - the branch carries no `rec-wav-test-*` path - and keep the rest of the section (the closed residuals, the Windows-only item, the verification gates) unchanged and accurate.",
+          "Both declared verification commands must pass: the suite, then the check that no `rec-wav-test-*` path exists on disk."
+        ],
+        "readFiles": [
+          "docs/campaigns/rec-audit-remediation/REMEDIATION.md"
+        ],
+        "writeRoots": [
+          "docs/campaigns/rec-audit-remediation/REMEDIATION.md",
+          "rec-wav-test-3930.auth",
+          "rec-wav-test-3930.cfg"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is the follow-up step of campaign rec-audit-remediation; the first contract fixed the 22 audit findings and the second closed their residuals.",
+          "The two paths are test artifacts a previous seal captured by accident, not repository content; deleting them is in scope even though the exact set is discovered at run time.",
+          "Do NOT edit .gitignore or any other ignore file: the controller refuses a worker that changes the repository's ignore sources (`snapshot_ignore_changed`).",
+          "Keep the diff surgical: the deletions plus the report sentence, nothing else.",
+          "Code, comments and documents are in English; never run git commit or git push - the controller seals and integrates your work."
+        ],
+        "nonGoals": [
+          "Re-opening any finding or residual the earlier contracts closed.",
+          "Touching src/, tests, workflows, installers, or .gitignore.",
+          "Reformatting the report beyond the disclosure sentence."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "zig",
+              "build",
+              "test",
+              "-Dtarget=x86_64-linux-gnu",
+              "--summary",
+              "all"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "python3",
+              "-c",
+              "import glob\nbad=sorted(glob.glob('rec-wav-test-*'))\nassert not bad, 'test artifacts still exist on disk: '+str(bad)\nprint('no rec-wav-test path on disk')\n"
+            ],
+            "timeoutSec": 60
+          }
+        ]
+      }
+    }
+  ]
+}

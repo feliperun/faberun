@@ -1,0 +1,11 @@
+[metrics] rec-audit-remediation · 5 runs · 96 events · 10 indicators
+nodesDoneRate                up          0.7778                   · 18 records
+linkedRunsPerClosedCheckpoint down        0.4167                   · 12 records
+runsPerCampaign              down        5                        · 5 records
+wallClockSec                 down        5472.137s (1.52h)        · 96 records
+usageTokensByKind            informative inputTokens=991k cacheReadInputTokens=30.9M outputTokens=512k · 34 records
+usageTokensByKindByRuntime   informative dsh-deepseek-flash.inputTokens=736k dsh-deepseek-flash.cacheReadInputTokens=29.4M +7 more · 34 records
+usageCostUsd                 down        1.3474                   · 32 records · 6 unknown
+blockingJudgeFirstPassRate   up          claude-sonnet-5=1 dsh-glm-5.3-flash=0.8889 · 11 records
+notifyReceiptRate            up          1                        · 27 records
+silentStallRate              down        0                        · 44 records

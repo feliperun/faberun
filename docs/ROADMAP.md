@@ -76,6 +76,10 @@ parked runs of closed ones — see decision D1.
 | RM-004 | `faberun plan` has never run end to end against a live harness | falsified 2026-09-21: two plans, four stages each, real workers on GLM-5.3-Flash and gpt-5.6-sol reading real worktrees, no replay | dropped — falsified |
 | RM-049 | `validateContract` checks containment against `contract.cwd` at authoring time, before any worktree exists | the surviving half of RM-004; unchanged by the live-harness evidence | idea |
 | RM-005 | The couplings that kill packets are not import edges | six packets refused `context_missing` **after passing `validate`** — so the gap is not the deterministic check, which already refuses | measured |
+| RM-051 | A worker that writes an ignore source fails the node, and no document says so | `snapshot_ignore_changed` killed a node whose only defect was one `.gitignore` line the packet asked for; `captureIgnoreSources` (`src/repo/workspace.mjs`) tracks `.faberunignore`, `.gitignore`, `.git/config` and git's per-worktree paths, and the error names none of them. The same class cost an earlier campaign 80 minutes when a package-install hook wrote `.husky/_/.gitignore` — two occurrences, both found by accident | measured |
+| RM-052 | A file the verification creates in the worktree reaches the integration commit | `rec`'s suite wrote `rec-wav-test-<pid>.*` in the CWD, and 14 of them crossed the seal into the remediation branch. `scopeFindings` records unexpected *writes*; nothing records untracked *artifacts* a verification left behind | measured |
+| RM-053 | A detached controller dies with the launcher's cgroup, and the park message does not say the run exists | launching from a shell whose scope was torn down left `attention: detached bootstrap did not become ready for pid 31966 (launch_failed)` and a run directory with every node `pending` and `controller: none`; the same run finished under a durable `resume` | measured |
+| RM-054 | A packet defect has no operator override, so the only exit discards the attempt's good work | the failed `test-hygiene` attempt had already deleted the 14 artifacts and fixed `testDir()`; re-issuing the contract re-ran from zero because a failed attempt's seal is not on the new run's ancestry. `resume --answer` is the right mechanism and covers only `context_missing` | measured |
 
 **`RM-005` was rewritten after being checked against the tree, and the
 correction matters.** The deterministic half already exists: `validateContract`
@@ -195,6 +199,7 @@ repository and this class of task, pick on cost-adjusted success rate.
 | RM-020 | Ledger scorecard in "recommend" mode, promoted to auto-select only above a floor | proposed floor: ≥60 distinct nodes, ≥5 campaigns, 60 days, ≥20 random, pass@1 ≥95% with lower bound ≥90%, 10% exploration | idea |
 | RM-021 | `DEFAULT_ROUTING_TABLE` is empty; routing is taskKind + riskTier only | verified in `src/plan/pipeline.mjs` | measured |
 | RM-022 | Price every invocation from tokens × the vendored `models.dev` rate rather than recording `unknown` | owner decision 2026-09-18: vendor the seed, do not chase exactness | landed |
+| RM-055 | `metrics` counts an operator's deliberate re-issue as a failure | `nodesDoneRate` 0,7778 over 18 node records, and all four non-done records come from the two runs the operator canceled to re-issue a contract after a packet defect — one of which had produced the work that landed. `replace-contract` already records the substitution | measured |
 
 **See open question Q6.** The floor in `RM-020` is what separates evidence from
 anecdote, and it is not yet agreed.
@@ -240,6 +245,7 @@ stops being optional.
 | RM-028 | Level 2: container + restricted filesystem + controlled secrets | — | idea |
 | RM-029 | Levels 3–4: ephemeral microVM; policy-based capabilities (network allowlist, filesystem scope, docker/cloud denied, no secrets) | — | idea |
 | RM-048 | Evaluate `akitaonrails/ai-jail` as the isolation layer | it wraps a command, and a harness binary already resolves through `FABERUN_<HARNESS>_BIN` or `runtime.executable`, so it is testable without a code change | idea |
+| RM-050 | `workspace-write` cannot run a toolchain that caches in `$HOME`, and the documentation does not say so | measured 2026-09-22 with `dsh`/`deepseek-flash`: under `workspace-write` the compiler dies `manifest_create ReadOnlyFileSystem` before its first source file, and under `danger-full-access` the same packet compiles in 19 s. `references/contract.md` describes `workspace-write` as "executes and writes inside the worktree" — which is exactly the half that blocks a compiler | measured |
 
 This stays at P6, after autonomy — see decision D2. The levels above are a sketch
 to be argued properly when the work starts, not a settled design. Until then the
