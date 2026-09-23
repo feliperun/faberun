@@ -30,7 +30,7 @@ import { collectRepoFacts } from "./repo-facts.mjs";
 import { RISK_TIERS, TASK_KIND_CATALOGUE_FILE, buildPlanningContract, renderTaskKindCatalogue, validateFindings, validatePlanOutput } from "./template.mjs";
 import { MIN_WRITE_FILES, applySizingRules, provenParallelism } from "./sizing.mjs";
 import { resolveRuntimes } from "./routing.mjs";
-import { contentDigest, freezePlan, writeFrozenPlanRecord } from "./freeze.mjs";
+import { assertTimeoutsCoverMeasured, contentDigest, freezePlan, writeFrozenPlanRecord } from "./freeze.mjs";
 import { availabilityOf, fileLineCount, highestOf, modelOf, toContractNode, toSizingNode } from "./pipeline-shape.mjs";
 import { campaignTree, runDirectory } from "../run/paths.mjs";
 
@@ -364,7 +364,7 @@ export async function runPlanningPipeline(options) {
       /** @type {PlanFindingOutput|null} */
       let freezeFailure = null;
       try {
-        validateContract(frozenContractRaw(assembleFrozenNodes(plan)), join(plansDir, "contract.json"));
+        assertTimeoutsCoverMeasured(validateContract(frozenContractRaw(assembleFrozenNodes(plan)), join(plansDir, "contract.json")), repoFacts);
       } catch (error) {
         freezeFailure = invalidPlanFinding(`freeze-r${round}`, error);
         findings = [...findings, freezeFailure];
@@ -457,6 +457,7 @@ export async function runPlanningPipeline(options) {
       // The pipeline's own pinned spec bytes: a wrong or missing digest is the
       // first thing the Campaign Brief refuses on, never a summary.
       spec: { path: relativeSpecPath, digest: specDigest },
+      facts: repoFacts,
       provenance: {
         targetGitHead: repoFacts.gitHead,
         planner: { runtimeId: runtimeDefaults.worker ?? "", model: modelOf(runtimes, runtimeDefaults.worker) },

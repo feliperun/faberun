@@ -5,7 +5,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
-import { captureWorkspaceSnapshot } from "../../src/repo/workspace.mjs";
+import { captureWorkspaceSnapshot, compareWorkspaceSnapshot } from "../../src/repo/workspace.mjs";
+import { validateContract } from "../../src/contract/index.mjs";
+import { fixture, packet, writeContract } from "../helpers.mjs";
 import { createAttemptWorktree, runRefName } from "../../src/repo/worktree.mjs";
 import { RUNS_DIR_NAME } from "../../src/run/paths.mjs";
 
@@ -108,4 +110,35 @@ test("a declared read git does not track is carried into the attempt worktree; a
   );
   assert.equal(existsSync(join(worktree.path, "missing.txt")), false, "an absent declared read is skipped, not fabricated");
   assert.equal(existsSync(join(worktree.path, basename(outside))), false, "a path resolving outside the repository is never copied");
+});
+
+// RM-051: `snapshot_ignore_changed` killed a node whose packet asked for one
+// `.gitignore` line, and the error named no source. The rule holds; the
+// author is now told before dispatch and the operator which file moved.
+test("a node that writes an ignore source is warned before and told which one after", () => {
+  const directory = mkdtempSync(join(tmpdir(), "workspace-ignore-source-"));
+  mkdirSync(join(directory, ".husky", "_"), { recursive: true });
+  writeFileSync(join(directory, ".husky", "_", ".gitignore"), "*\n");
+  const path = writeContract(directory, fixture({
+    nodes: [
+      { id: "ignores", type: "backend", taskPacket: packet({ writeFiles: ["README.md", ".gitignore", ".husky/_/.gitignore", "venv/pkg/.gitignore"] }), gate: false },
+      { id: "plain", type: "backend", taskPacket: packet(), gate: false },
+    ],
+  }));
+  const contract = validateContract(JSON.parse(readFileSync(path, "utf8")), path);
+  const warned = contract.warnings.filter((warning) => warning.includes("writes_ignore_source"));
+  assert.equal(warned.length, 1, `one finding per node that writes an ignore source:\n${contract.warnings.join("\n")}`);
+  assert.match(warned[0], /nodes\[0\] \(ignores\)/u);
+  assert.match(warned[0], /\.gitignore, \.husky\/_\/\.gitignore/u, "the finding names every ignore source the node writes");
+  assert.match(warned[0], /snapshot_ignore_changed/u, "the finding says what happens if the worker changes it");
+
+  const before = captureWorkspaceSnapshot(directory);
+  writeFileSync(join(directory, ".husky", "_", ".gitignore"), "*\n!keep\n");
+  assert.throws(
+    () => compareWorkspaceSnapshot(before, directory, { files: ["README.md"] }),
+    (error) => error instanceof Error &&
+      /snapshot_ignore_changed/u.test(String(/** @type {{code?: string}} */ (error).code)) &&
+      /: \.husky\/_\/\.gitignore$/u.test(error.message),
+    "the failure names the ignore source that changed, and only that one",
+  );
 });

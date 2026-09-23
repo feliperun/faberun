@@ -13,9 +13,9 @@ import { DISCOVERY_RUNTIME_DEFINITIONS } from "../engine/runtime-discovery.mjs";
 import { stableJson } from "../util.mjs";
 import { assertObject, boundedString, nonNegativeInteger, nonNegativeNumber, positiveInteger, positiveNumber, rejectUnknown, requireId, requireString } from "./assert.mjs";
 import { validateMetadata } from "./schema-version.mjs";
-import { assertRuntimeExecutesCommands, requireRuntime, validateRuntime } from "./runtime.mjs";
+import { assertRuntimeExecutesCommands, judgeWriteWarnings, requireRuntime, validateRuntime } from "./runtime.mjs";
 import { validateSourceIdentity } from "../repo/source-identity.mjs";
-import { commandCoverageWarnings, mirrorCoverageWarnings, unsnapshottedWriteWarnings } from "../repo/declared-paths.mjs";
+import { commandCoverageWarnings, ignoreSourceWriteWarnings, mirrorCoverageWarnings, unsnapshottedWriteWarnings } from "../repo/declared-paths.mjs";
 import { crossNodeScopeFindings, scopeClosureFindings } from "../repo/scope-closure.mjs";
 
 export { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
@@ -98,7 +98,7 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 /** @typedef {{history: RoutingHistoryEntry[], currentOverride: RoutingOverride|null, assignments?: RuntimeAssignments, availability?: Record<string, RuntimeAvailability>, tierExhaustion?: TierExhaustion, tierExhaustionCycle?: number}} RoutingState */
 /** @typedef {{revision?: number, heartbeatCount: number, dryHeartbeatCount: number, progressSignature?: string|null, lastHeartbeatAt: string|null, lastProgressAt: string|null, nextCheckAt?: string|null}} ProgressState */
 /** @typedef {{status: "unassigned"|"provisioning"|"ready"|"failed"|"removed", path: string|null, branch: string|null, commit: string|null, baseSha?: string|null, sealedSha?: string|null, sealError?: string|null, previousAttempt?: number|null}} WorktreeState */
-/** @typedef {{schemaVersion: number, contractVersion: string, id: string, type: string, sourceIdentity: SourceIdentity, packetHash: string, requirementIds?: string[], status: NodeStatus, phase: NodePhase, attempt: number, revisions: number, judgeFailures?: number, review?: ("none"|"advisory"|"blocking"), runtime: RuntimeSnapshot|null, blockedBy: string[], startedAt: string|null, updatedAt: string, result: unknown, gate: GateResult|null, error: SnapshotError|null, usage?: Usage, costUsd?: number, routing?: RoutingState|null, progress?: ProgressState|null, worktree?: WorktreeState|null, integratedHead?: string|null, invocations?: Invocation[], executionOverrides?: ExecutionOverride[], verification?: VerificationState|null, scope?: BoundedScope|null, scopeFindings?: ScopeFindings|null, previousAttempt?: string, sessionPolicy?: {forceFresh?: boolean}|null, declaredReadBytes?: number|null}} NodeSnapshot */
+/** @typedef {{schemaVersion: number, contractVersion: string, id: string, type: string, sourceIdentity: SourceIdentity, packetHash: string, requirementIds?: string[], status: NodeStatus, phase: NodePhase, attempt: number, revisions: number, judgeFailures?: number, review?: ("none"|"advisory"|"blocking"), runtime: RuntimeSnapshot|null, blockedBy: string[], startedAt: string|null, updatedAt: string, result: unknown, gate: GateResult|null, error: SnapshotError|null, usage?: Usage, costUsd?: number, routing?: RoutingState|null, progress?: ProgressState|null, worktree?: WorktreeState|null, integratedHead?: string|null, invocations?: Invocation[], executionOverrides?: ExecutionOverride[], verification?: VerificationState|null, scope?: BoundedScope|null, scopeFindings?: ScopeFindings|null, verificationArtifacts?: string[], previousAttempt?: string, sessionPolicy?: {forceFresh?: boolean}|null, declaredReadBytes?: number|null}} NodeSnapshot */
 /** @typedef {{path: string, sha: string}} ControllerIdentity */
 /** @typedef {{schemaVersion: number, contractVersion: string, pid: number, processStartToken: string|null, startedAt: string, sourceIdentity: SourceIdentity, controllerIdentity?: ControllerIdentity, integrationRef?: string, identityWarnings?: string[], relaunchCount?: number, lastRelaunchProgressAt?: string|null, attention?: {code: string, message: string, at: string}|null, contractDigest?: string, scopeDecision?: ScopeDecision, autoRetries?: Record<string, {code: string, at: string}>}} RunMetadata */
 /** @typedef {{at: string, base: string|null, dirtyTreeFingerprint: string|null}} ScopeDecision */
@@ -380,8 +380,10 @@ export function validateContract(raw, contractPath, options = {}) {
       ...unquotedFilterValueWarnings(node.definitionOfDone ?? [], index),
       ...(persisted ? [] : mirrorCoverageWarnings(node, index, cwd, contractCommands, contractWrites)),
       ...(persisted ? [] : unsnapshottedWriteWarnings(node, index, cwd)),
+      ...(persisted ? [] : ignoreSourceWriteWarnings(node, index)),
       ...(persisted ? [] : writeFileLineBudgetWarnings(node, index, cwd)),
     ]),
+    ...judgeWriteWarnings(runtimes, defaults, nodes),
     // Cross-node by construction: a requirement proven in two nodes is only
     // visible when every node's commands are read together, which is the
     // whole point -- one copy repaired and six left behind is what a per-node

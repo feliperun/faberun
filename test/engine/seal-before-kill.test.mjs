@@ -198,12 +198,12 @@ test("done-when 1 and 4: a wall-clock timeout seals, auto-retries on the same ru
   const contractPath = writeContract(directory, fixture({
     id: "seal-e2e-run",
     pollIntervalMs: 10,
-    // The budget one healthy attempt has to fit inside, so it has to cover a
-    // provider spawn on this host — an extra command-interpreter process on
-    // Windows. Measured 2026-09-21: the retry that must succeed took longer
-    // than the POSIX number under the suite's own parallelism and was killed
-    // as a timeout, turning the proof inside out.
-    timeoutSec: 0.7 * SPAWN_WAIT_FACTOR,
+    // The budget the hung attempt exhausts and the healthy retry has to fit
+    // inside, so it has to cover a provider spawn under the suite's own
+    // parallelism. Measured: 0.7s lost on Windows CI (2026-09-21) and under
+    // parallel load on macOS (RM-056); 3s costs the test 3s and leaves
+    // the retry four times the margin. `source-shape` bans a sub-second one.
+    timeoutSec: 3 * SPAWN_WAIT_FACTOR,
     runtimeDefaults: { worker: "luna", judge: "luna" },
     runtimes: { luna: { harness: "codex", model: "gpt-5.6-luna", reasoning: "xhigh" } },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
@@ -236,7 +236,9 @@ test("done-when 1 and 4: a stall_timeout seals and auto-retries on the same runt
     id: "seal-stall-run",
     pollIntervalMs: 10,
     timeoutSec: 60,
-    stallTimeoutSec: 0.4 * SPAWN_WAIT_FACTOR,
+    // The same bet as the wall clock above: 0.4s lost under parallel load
+    // on macOS (RM-056), and the retry has to stay inside this too.
+    stallTimeoutSec: 2 * SPAWN_WAIT_FACTOR,
     runtimeDefaults: { worker: "luna", judge: "luna" },
     runtimes: { luna: { harness: "codex", model: "gpt-5.6-luna", reasoning: "xhigh" } },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],

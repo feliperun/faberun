@@ -42,6 +42,7 @@ import { pidAlive, processStartToken } from "../run/lock.mjs";
 import { delay, errorCode, errorMessage } from "../util.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
 import { runDirectory } from "../run/paths.mjs";
+import { listNodeSnapshots, readNodeSnapshot } from "../run/node-store.mjs";
 import { gitArguments, killTarget } from "../host/platform.mjs";
 
 /** @typedef {import("../contract/index.mjs").ControllerIdentity} ControllerIdentity */
@@ -561,12 +562,14 @@ export async function driveCampaignChain(campaignPath, options = {}) {
       try {
         await launch(entry.path, { baseRef, controllerIdentity, runDir, contract });
       } catch (error) {
+        const stranded = strandedRunNote(runDir);
         return park({
           code: errorCode(error) ?? "launch_failed",
-          message: errorMessage(error),
+          message: stranded ? `${errorMessage(error)}; ${stranded}` : errorMessage(error),
           contractPath: entry.path,
           contractId: id,
           runId: id,
+          ...(stranded ? { resume: `resume ${runDir}` } : {}),
         });
       }
       heartbeat.progress();
@@ -577,4 +580,30 @@ export async function driveCampaignChain(campaignPath, options = {}) {
     heartbeat.stop();
     if (acquired) releaseCoordinatorLock(campaignPath, acquired.lock);
   }
+}
+
+/**
+ * What a launch that died before readiness left on disk. RM-053, measured on
+ * `rec-audit-remediation`: the controller died with the launcher's cgroup,
+ * the park said only `detached bootstrap did not become ready`, and the run
+ * directory it left, every node pending, finished under a durable `resume`.
+ *
+ * @param {string} runDir
+ * @returns {string|null}
+ */
+function strandedRunNote(runDir) {
+  if (!runDir || !existsSync(runDir)) return null;
+  /** @type {Map<string, number>} */
+  const counts = new Map();
+  for (const name of listNodeSnapshots(runDir)) {
+    let status = "unreadable";
+    try {
+      status = String(/** @type {{status?: unknown}} */ (readNodeSnapshot(runDir, name.replace(/\.json$/u, ""))).status ?? "unknown");
+    } catch {
+      // A snapshot caught mid-write is counted as unreadable, not dropped.
+    }
+    counts.set(status, (counts.get(status) ?? 0) + 1);
+  }
+  const nodes = [...counts].sort(([left], [right]) => left.localeCompare(right)).map(([status, count]) => `${count} ${status}`).join(" · ");
+  return `run directory ${runDir} exists (nodes: ${nodes || "none written yet"}); \`faberun resume ${runDir}\` completes it, under tmux, systemd-run or faberun seat so it outlives this shell`;
 }

@@ -545,6 +545,57 @@ test(`tests blocking on wall-clock time never exceed ${BLOCKING_WAIT_CEILING}`, 
 });
 
 /**
+ * A sub-second `timeoutSec` or `stallTimeoutSec` is a bet that a provider
+ * spawn fits inside it. `done-when 1 and 4` (0.7s wall clock, 0.4s stall)
+ * lost that bet under parallel load on the owner's macOS (RM-056), because the healthy retry has to fit inside the same budget the
+ * hung attempt exhausts. A budget under one second is allowed only in a test
+ * named here, and the reason says why nothing healthy has to fit inside it.
+ * A leading literal counts, so `0.7 * SPAWN_WAIT_FACTOR` is 0.7 on POSIX.
+ */
+const SUB_SECOND_BUDGET = /\b(?:stallTimeoutSec|timeoutSec)["']?\s*:\s*(\d+(?:\.\d+)?|\.\d+)/gu;
+const TEST_TITLE = /\btest\(\s*(["'`])((?:(?!\1).)*)\1/gu;
+const EXPIRES_ON_PURPOSE = "the budget is what the test expires; no healthy invocation has to fit inside it";
+const UNIT_CLOCK = "detectStalls is driven by ageProgress, not by a spawned provider racing the budget";
+/** @type {Map<string, string>} test title -> why a sub-second budget is safe there */
+const SUB_SECOND_ALLOWED = new Map([
+  ["finalVerification accepts the verification-command schema and rejects unknown shapes", "0 is the invalid value being rejected"],
+  ["done-when 7: a runtime's stallTimeoutSec is validated, falls back to the contract, and gives zcode a concrete value that stalls it", "0 is the invalid value being rejected"],
+  ["verification reports timeout and nonzero exit", EXPIRES_ON_PURPOSE],
+  ["a probe whose version check hangs past its timeout is unknown", EXPIRES_ON_PURPOSE],
+  ["marks a silent provider stalled", EXPIRES_ON_PURPOSE],
+  ["enforces the wall-clock cap even while output changes", EXPIRES_ON_PURPOSE],
+  ["done-when 3: the seal is committed before the kill, so a provider's dying deletion cannot erase it", EXPIRES_ON_PURPOSE],
+  ["done-when 1: a child that escapes the group and holds the pipe settles from the timer with timedOut", EXPIRES_ON_PURPOSE],
+  ["done-when 3: a timed-out command leaves no surviving member of its process group", EXPIRES_ON_PURPOSE],
+  ["stall supervision uses the latest persisted timeout override", EXPIRES_ON_PURPOSE],
+  ["the pre-termination hook runs before terminateProcess, and a no-op is the default", EXPIRES_ON_PURPOSE],
+  ["stall supervision kills a runtime whose harness declares streamed output once it goes quiet past stallTimeoutSec", EXPIRES_ON_PURPOSE],
+  ["stall supervision never kills a runtime whose harness declares no streamed output; it is bounded by timeoutSec instead", "the stall budget is the one the test proves is ignored"],
+  ["done-when 5: a tool event resets the stall clock even though no workspace file was written", UNIT_CLOCK],
+  ["done-when 6: after a tool event, silence longer than the runtime threshold still stalls", UNIT_CLOCK],
+  ["a turn still transmitting is not stalled, even when it closes no turn and calls no tool", UNIT_CLOCK],
+  ["a turn that stops transmitting still stalls, so the bytes rule is not an amnesty", UNIT_CLOCK],
+  ["done-when 7b: a fresh write inside the provider log dir resets zcode's stall clock, and a silent log stalls it", UNIT_CLOCK],
+]);
+
+test("no test gives a contract a budget under one second", () => {
+  const offenders = TEST_FILES.flatMap((file) => {
+    const titles = [...file.text.matchAll(TEST_TITLE)];
+    return [...file.text.matchAll(SUB_SECOND_BUDGET)]
+      .filter((match) => Number(match[1]) < 1)
+      .map((match) => ({ file: file.label, budget: match[0], title: titles.filter((title) => (title.index ?? 0) < (match.index ?? 0)).at(-1)?.[2] ?? "(module scope)" }))
+      .filter((entry) => !SUB_SECOND_ALLOWED.has(entry.title));
+  });
+  assert.deepEqual(
+    offenders.map((entry) => `${entry.file}  ${entry.title}  ${entry.budget}`),
+    [],
+    "a sub-second budget races a provider spawn; wait for an event, or name the test in SUB_SECOND_ALLOWED with the reason",
+  );
+  const titles = new Set(TEST_FILES.flatMap((file) => [...file.text.matchAll(TEST_TITLE)].map((match) => match[2])));
+  assert.deepEqual([...SUB_SECOND_ALLOWED.keys()].filter((title) => !titles.has(title)), [], "an allowed title no test carries is a stale entry");
+});
+
+/**
  * FABERUN_HOME writes under test/, ratcheted to temp-scoped shapes only.
  *
  * The node that authored this rule expected one owner file; its first run

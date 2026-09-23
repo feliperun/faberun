@@ -322,10 +322,27 @@ function gitTracks(repo, read) {
 }
 
 /**
- * @param {{repo: string, path: string, baseSha: string|null, runId: string, nodeId: string, attempt: number}} args
+ * Every untracked, unignored path in a worktree, outside the runner's own
+ * `.runs` tree and the linked `node_modules`: the same exclusions the seal
+ * applies, so the two agree on what "left in the worktree" means.
+ *
+ * @param {string} path
+ * @returns {string[]}
+ */
+export function untrackedPaths(path) {
+  const listed = git(path, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ".", `:(exclude)${RUNS_DIR_NAME}`, ":(exclude)node_modules"]);
+  return listed.split("\0").filter((entry) => entry.startsWith("?? ")).map((entry) => entry.slice(3)).sort();
+}
+
+/**
+ * `exclude` names paths the attempt holds but must not seal: what the
+ * controller's own verification left behind (`verificationArtifacts`). They
+ * stay on disk and out of the commit.
+ *
+ * @param {{repo: string, path: string, baseSha: string|null, runId: string, nodeId: string, attempt: number, exclude?: string[]}} args
  * @returns {SealedAttempt}
  */
-export function sealAttempt({ repo, path, baseSha, runId, nodeId, attempt }) {
+export function sealAttempt({ repo, path, baseSha, runId, nodeId, attempt, exclude = [] }) {
   // The attempt-local `.runs` result sidecar must never enter the attempt
   // commit. Naming it through an exclude pathspec makes `git add` exit 1 with
   // advice.addIgnoredFile as soon as the sidecar exists in a repository that
@@ -345,6 +362,11 @@ export function sealAttempt({ repo, path, baseSha, runId, nodeId, attempt }) {
     // node_modules is linked into the worktree as a symlink, which `node_modules/`
     // in .gitignore does not match; never let the link into the attempt commit.
     runGit(["-C", path, "rm", "-r", "-q", "--cached", "--ignore-unmatch", "--", RUNS_DIR_NAME, "node_modules"]);
+    if (exclude.length) runGit(["-C", path, "rm", "-q", "--cached", "--ignore-unmatch", "--", ...exclude.map((item) => `:(literal)${item}`)]);
+  }
+  // A worktree whose only change was an excluded artifact stages nothing, and
+  // an empty commit exits 1; the attempt's head is then its seal.
+  if (dirty && !stagedNothing(path)) {
     runGit([
       "-C", path,
       "-c", "user.email=runner@example.test",
@@ -369,6 +391,16 @@ export function sealAttempt({ repo, path, baseSha, runId, nodeId, attempt }) {
   if (!sha) throw new Error(`attempt worktree has no commit: ${path}`);
   const empty = Boolean(baseSha && gitDiffEmpty(path, baseSha, sha));
   return { sha, empty };
+}
+
+/** @param {string} path @returns {boolean} */
+function stagedNothing(path) {
+  try {
+    runGit(["-C", path, "diff", "--cached", "--quiet"]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** @param {string} repo @param {string} base @param {string} head @returns {boolean} */

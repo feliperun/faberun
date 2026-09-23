@@ -36,6 +36,18 @@ export function scopeFindingsNote(scopeFindings) {
 }
 
 /**
+ * The `verification_artifact` finding: paths the controller's verification
+ * left untracked, which the seal kept out of the integration.
+ *
+ * @param {string[]|null|undefined} paths
+ * @returns {string|null}
+ */
+export function verificationArtifactsNote(paths) {
+  if (!paths?.length) return null;
+  return `verification_artifact: ${paths.length} path${paths.length === 1 ? "" : "s"} left unsealed (${paths.slice(0, 3).join(", ")})`;
+}
+
+/**
  * @param {{unexpectedPaths: string[]}|null|undefined} scopeFindings
  * @returns {string}
  */

@@ -53,7 +53,7 @@ export function captureWorkspaceSnapshot(cwd, expectedIgnoreSources) {
   const root = realpathSync(cwd);
   const ignoreSources = captureIgnoreSources(root);
   if (expectedIgnoreSources !== undefined && !sameSnapshotEntries(expectedIgnoreSources, ignoreSources)) {
-    throw fail("snapshot_ignore_changed", "workspace ignore sources changed during worker execution");
+    throw ignoreSourcesChanged(expectedIgnoreSources, ignoreSources);
   }
   /** @type {SnapshotEntry[]} */
   const entries = [];
@@ -123,7 +123,7 @@ export function compareWorkspaceSnapshot(before, cwd, scope = {}) {
     });
   const after = captureWorkspaceSnapshot(cwd, before.ignoreSources);
   if (!sameSnapshotEntries(before.ignoreSources, after.ignoreSources)) {
-    throw fail("snapshot_ignore_changed", "workspace ignore sources changed during worker execution");
+    throw ignoreSourcesChanged(before.ignoreSources, after.ignoreSources);
   }
   const prior = new Map(before.entries.map((/** @type {SnapshotEntry} */ entry) => [entry.path, JSON.stringify(entry)]));
   const current = new Map(after.entries.map((/** @type {SnapshotEntry} */ entry) => [entry.path, JSON.stringify(entry)]));
@@ -262,6 +262,45 @@ export function validateWorkspaceScopeBoundary(cwd, boundary, declared = {}) {
     rootOrigins,
   };
 }
+/** Directories `captureIgnoreSources` skips at any depth. */
+const SKIPPED_SOURCE_DIRS = new Set([".git", RUNS_DIR_NAME, "node_modules", ".venv", "venv"]);
+
+/** The ignore sources `captureIgnoreSources` always fingerprints at the root. */
+const ROOT_IGNORE_SOURCES = [".faberunignore", ".gitignore", ".git/config"];
+
+/**
+ * Whether a workspace-relative path is one `captureIgnoreSources` fingerprints,
+ * so a worker that changes it fails its node with `snapshot_ignore_changed`.
+ * A `.gitignore` counts at any depth outside the directories the walk skips.
+ *
+ * @param {string} path
+ * @returns {boolean}
+ */
+export function isIgnoreSource(path) {
+  const normalized = path.replaceAll("\\", "/").replace(/^\.\//u, "");
+  if (ROOT_IGNORE_SOURCES.includes(normalized) || normalized === ".git/info/exclude" || normalized === ".git") return true;
+  const segments = normalized.split("/");
+  // The same directories `captureIgnoreSources` never walks.
+  if (segments.some((segment) => SKIPPED_SOURCE_DIRS.has(segment)) || [".claude", ".codex"].includes(segments[0])) return false;
+  return basename(normalized) === ".gitignore";
+}
+
+/**
+ * The `snapshot_ignore_changed` failure, naming every source that moved.
+ * Measured on `rec-audit-remediation`: the message named none, and the
+ * operator had to diff the worktree to learn it was one `.gitignore` line.
+ *
+ * @param {SnapshotEntry[]} before
+ * @param {SnapshotEntry[]} after
+ * @returns {Error}
+ */
+function ignoreSourcesChanged(before, after) {
+  const prior = new Map(before.map((entry) => [entry.path, JSON.stringify(entry)]));
+  const current = new Map(after.map((entry) => [entry.path, JSON.stringify(entry)]));
+  const changed = [...new Set([...prior.keys(), ...current.keys()])].filter((path) => prior.get(path) !== current.get(path)).sort();
+  return fail("snapshot_ignore_changed", `workspace ignore sources changed during worker execution: ${changed.join(", ")}`);
+}
+
 /**
  * Snapshot the files Git can use to hide workspace changes. These entries are
  * kept separate from the relevant-file entry cap. A worker cannot replace
@@ -273,7 +312,7 @@ export function validateWorkspaceScopeBoundary(cwd, boundary, declared = {}) {
  */
 function captureIgnoreSources(root) {
   /** @type {Set<string>} */
-  const paths = new Set([".faberunignore", ".gitignore", ".git/config"]);
+  const paths = new Set(ROOT_IGNORE_SOURCES);
   /** @type {Map<string, string>} */
   const gitPaths = new Map();
   /** @param {string} name @param {string} logical @returns {string|null} */

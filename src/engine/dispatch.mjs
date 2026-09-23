@@ -34,7 +34,7 @@ import { invocationCost, invocationUsage } from "../run/usage.mjs";
 import { logPaths, startProcess } from "./process.mjs";
 import { readBoundedTail } from "./transcript.mjs";
 import { mkdirSync, statSync } from "node:fs";
-import { READ_BYTE_LIMIT, READ_LINE_LIMIT, harnessCapabilities, normalizeProviderResult } from "../harnesses/index.mjs";
+import { READ_BYTE_LIMIT, READ_LINE_LIMIT, harnessCapabilities, normalizeProviderResult, writesWorkspace } from "../harnesses/index.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
 import { judgeReaskInstruction, reviewMode } from "../contract/review-modes.mjs";
 import { routeRuntimeForState, runtimeSnapshot } from "./failover.mjs";
@@ -194,6 +194,7 @@ function sealPreviousAttempt(contract, node, state) {
     runId: contract.id,
     nodeId: node.id,
     attempt,
+    exclude: state.verificationArtifacts,
   });
   return sealed.empty ? null : { sha: sealed.sha, attempt };
 }
@@ -269,7 +270,7 @@ export function startWorker(contract, node, state, runDir, running, prompt, lock
   // make sure the directory exists before the provider is asked to.
   const resultPath = attemptWorkerResultPath(runDir, node.id, workspace);
   mkdirSync(dirname(resultPath), { recursive: true });
-  const effectivePrompt = workerProtocolPrompt(phasePlan.prompt, resultPath);
+  const effectivePrompt = workerProtocolPrompt(phasePlan.prompt, resultPath, writesWorkspace(runtime));
   const paths = logPaths(runDir, node.id, "worker", state.attempt);
   if (Buffer.byteLength(effectivePrompt, "utf8") > 64 * 1024) {
     transition(runDir, state, "failed", { phase: "worker", error: { code: "worker_prompt_too_large", message: "worker prompt exceeds 65536 bytes" } }, lock);
@@ -390,8 +391,9 @@ export function startResultMaterialization(contract, node, state, runDir, runnin
   const resultPath = attemptWorkerResultPath(runDir, node.id, workspace);
   const prompt = appendSandboxNotice([
     `${RESULT_MATERIALIZATION_PROMPT_HEADER} Do not inspect, implement, verify, or invoke tools.`,
-    `Your only job in this single bounded turn is to write the required worker-result JSON object to: ${resultPath}`,
-    "Then return that same JSON object as the final message.",
+    ...(writesWorkspace(materializationRuntime)
+      ? [`Your only job in this single bounded turn is to write the required worker-result JSON object to: ${resultPath}`, "Then return that same JSON object as the final message."]
+      : ["Your sandbox is read-only, so write no file: your only job in this single bounded turn is to return the required worker-result JSON object as the final message."]),
   ].join("\n\n"), materializationRuntime);
   let baseline;
   try {

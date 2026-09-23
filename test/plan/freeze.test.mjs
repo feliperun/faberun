@@ -315,3 +315,52 @@ test("freezing and verifying a plan invokes no model: no FABERUN_*_BIN is requir
     }
   }
 });
+
+// RM-057, measured on the Campaign Brief run: a reviewer froze the final
+// gate at `timeoutSec: 120` while repo facts measured two of its parts at
+// 178,904 ms and 246,955 ms, so the gate could only ever time out.
+test("a frozen verification timeout covers its measured duration", () => {
+  const facts = {
+    scripts: { test: "node --test" },
+    verificationCandidates: [
+      { argv: ["node", "--test", "test/engine"], measuredMs: 178_904, eligible: true },
+      { argv: ["node", "--test", "test/plan"], measuredMs: 246_955, eligible: true },
+      { argv: ["npm", "run", "check"], measuredMs: 2_000, eligible: true },
+    ],
+  };
+  /** @param {string} id @param {Record<string, unknown>[]} verification */
+  const planWith = (id, verification) => fixture({ id, campaignId: `${id}-campaign`, nodes: [{ id: "build", type: "backend", taskPacket: packet({ verification }), gate: false }] });
+
+  const short = outDir();
+  assert.throws(
+    () => freezePlan(planWith("plan-short", [{ argv: ["npm", "test"], timeoutSec: 120 }]), { outDir: short, provenance: provenance(), facts }),
+    /npm test.*timeoutSec 120s.*425\.9s.*at least 639s/u,
+    "the sum of the parts a command includes is its measured duration",
+  );
+  assert.equal(existsSync(join(short, "contract.json")), false, "a refused freeze leaves no contract behind");
+  assert.throws(
+    () => freezePlan(planWith("plan-part", [{ argv: ["node", "--test", "test/engine"], timeoutSec: 200 }]), { outDir: outDir(), provenance: provenance(), facts }),
+    /node --test test\/engine.*timeoutSec 200s.*178\.9s.*at least 269s/u,
+    "a command measured on its own is held to its own measurement",
+  );
+  assert.doesNotThrow(() => freezePlan(planWith("plan-covered", [
+    { argv: ["npm", "test"], timeoutSec: 700 },
+    { argv: ["node", "--test", "test/engine"], timeoutSec: 300 },
+    { argv: ["node", "--test", "test/unmeasured"], timeoutSec: 5 },
+    { argv: ["node", "--test", "--test-name-pattern", "one test", "test/engine"], timeoutSec: 60 },
+  ]), { outDir: outDir(), provenance: provenance(), facts }), "covered timeouts, and a command with no measurement, freeze");
+
+  const script = { ...facts, scripts: { test: "node --test --import ./test/setup.mjs test/*.test.mjs test/*/*.test.mjs" } };
+  assert.throws(
+    () => freezePlan(planWith("plan-script", [{ argv: ["npm", "test"], timeoutSec: 120 }]), { outDir: outDir(), provenance: provenance(), facts: script }),
+    /npm test.*425\.9s/u,
+    "this repository's own test script, with an --import value and two globs, includes both parts once",
+  );
+
+  const huge = { ...facts, verificationCandidates: [...facts.verificationCandidates, { argv: ["node", "--test", "test/huge"], measuredMs: 1_900_000, eligible: false }] };
+  assert.throws(
+    () => freezePlan(planWith("plan-huge", [{ argv: ["node", "--test", "test/huge"], timeoutSec: 1800 }]), { outDir: outDir(), provenance: provenance(), facts: huge }),
+    /node --test test\/huge measured 1900\.0s.*1800s.*split it/u,
+    "a command no legal timeout can cover is named with the advice to split it",
+  );
+});

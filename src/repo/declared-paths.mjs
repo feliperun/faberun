@@ -17,6 +17,7 @@ import { join, resolve } from "node:path";
 import { lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { RUNS_DIR_NAME } from "../run/paths.mjs";
+import { isIgnoreSource } from "./workspace.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedNode} ValidatedNode */
 
@@ -48,6 +49,21 @@ export function unsnapshottedWriteWarnings(node, index, cwd) {
   return [...hidden.values()].map(({ kind, root, path }) =>
     `nodes[${index}] (${node.id}): ${path.includes("/") ? `${kind} under ${root}/` : `${kind} ${path}`} are outside the workspace snapshot, so the closed-scope gate cannot observe them`,
   );
+}
+/**
+ * `writes_ignore_source`: a declared write the workspace snapshot fingerprints
+ * as an ignore source. The node fails with `snapshot_ignore_changed` the
+ * moment the worker changes it, and two campaigns each lost a node learning
+ * that (RM-051), so the author hears it before dispatch.
+ *
+ * @param {ValidatedNode} node
+ * @param {number} index
+ * @returns {string[]}
+ */
+export function ignoreSourceWriteWarnings(node, index) {
+  const sources = (node.taskPacket.writeFiles ?? []).filter(isIgnoreSource);
+  if (!sources.length) return [];
+  return [`nodes[${index}] (${node.id}): writes_ignore_source: writeFiles ${sources.join(", ")} ${sources.length === 1 ? "is an ignore source" : "are ignore sources"} the workspace snapshot fingerprints; a worker that changes one fails the node with snapshot_ignore_changed, so make that edit outside the run`];
 }
 /**
  * @param {string|undefined} cwd

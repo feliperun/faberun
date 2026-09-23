@@ -9,7 +9,7 @@
 import { compactCost, compactTokens, errorCode } from "../util.mjs";
 import { basename, join } from "node:path";
 import { readJson, writeJsonAtomic, writeTextAtomic } from "../run/store.mjs";
-import { scopeFindingsNote } from "../contract/scope-findings.mjs";
+import { scopeFindingsNote, verificationArtifactsNote } from "../contract/scope-findings.mjs";
 import { MARK, advisoryFindingCount, fit, judgeRuntimeLabel, roleCosts, roleUsage, statusNote, workerRuntimeLabel, writeStatusArtifacts } from "./render.mjs";
 import { packetRepetitionByNode, packetRepetitionNote } from "./packet-repetition.mjs";
 import { unlinkSync } from "node:fs";
@@ -131,9 +131,10 @@ export function renderFinalReport(runDir, contract, states) {
     const judge = judgeRuntimeLabel(node) ?? "-";
     const planNode = contract.nodes.find((candidate) => candidate.id === node.id);
     const detail = node.gate?.summary ?? node.error?.message ?? (node.blockedBy?.length ? node.blockedBy.join(", ") : null) ?? (typeof node.result === "string" && node.result.trim() ? node.result.trim() : node.phase ?? "-");
-    // The advisory scope finding leads the note, as it does in STATUS.md.
-    const note = scopeFindingsNote(node.scopeFindings)
-      ? `${scopeFindingsNote(node.scopeFindings)} · ${detail}`
+    // The advisory findings lead the note, as they do in STATUS.md.
+    const findings = [scopeFindingsNote(node.scopeFindings), verificationArtifactsNote(node.verificationArtifacts)].filter(Boolean).join(" · ");
+    const note = findings
+      ? `${findings} · ${detail}`
       : `${detail} · phase ${planNode?.phase ?? "-"} · ${node.invocations?.at(-1)?.continuationMode ?? "fresh"}`;
     lines.push(row([
       MARK[node.status] ?? "[?]",

@@ -11,7 +11,7 @@
  */
 import { assertObject, nonNegativeNumber, positiveInteger, positiveNumber, rejectUnknown, requireId, requireString, requireStringArray, requireTimestamp } from "./assert.mjs";
 import { composeAssignments } from "../engine/runtime-discovery.mjs";
-import { harnessCapabilities, resolvePermissionExecution, resolveVendor, validateCapabilityRequirements } from "../harnesses/index.mjs";
+import { harnessCapabilities, resolvePermissionExecution, resolveVendor, validateCapabilityRequirements, writesWorkspace } from "../harnesses/index.mjs";
 import { stableJson } from "../util.mjs";
 /** @typedef {import("./index.mjs").NodeStatus} NodeStatus */
 /** @typedef {import("../engine/runtime-discovery.mjs").RuntimeAvailability} RuntimeAvailability */
@@ -211,6 +211,27 @@ export function assertRuntimeExecutesCommands(runtimes, runtimeId, index, nodeId
   throw new TypeError(
     `nodes[${index}] (${nodeId}) has verification but ${label} ${runtimeId} uses ${execution.field}=${execution.mode}; ${runtime.harness} executes commands only in ${execution.executingModes.join(", ")}`,
   );
+}
+/**
+ * A judge runtime that declares a writing mode its harness offers a read-only
+ * alternative to. The verdict reaches the gate without a write (RM-058), and
+ * `judge_protocol` blocks a judge that writes anyway, so the grant buys
+ * nothing but the chance to write where the judge should not.
+ *
+ * @param {Record<string, ValidatedRuntime>} runtimes
+ * @param {{judge?: string}} defaults
+ * @param {{gate?: {runtime?: string}|false|null}[]} nodes
+ * @returns {string[]}
+ */
+export function judgeWriteWarnings(runtimes, defaults, nodes) {
+  const judges = new Set([defaults.judge, ...nodes.map((node) => (node.gate ? node.gate.runtime : undefined))].filter((id) => typeof id === "string"));
+  return [...judges].flatMap((id) => {
+    const runtime = runtimes[/** @type {string} */ (id)];
+    const execution = resolvePermissionExecution(runtime);
+    if (!execution.field || runtime[execution.field] === undefined || !writesWorkspace(runtime)) return [];
+    if (writesWorkspace({ ...runtime, [execution.field]: "read-only" })) return [];
+    return [`judge runtime ${id} declares ${execution.field} ${execution.mode}; a judge's verdict reaches the gate without writing, so declare ${execution.field} read-only`];
+  });
 }
 /**
  * @param {unknown} value

@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, contractDigest, validateContract } from "../contract/index.mjs";
 import { assertObject, rejectUnknown, requirePacketHash, requireString } from "../contract/assert.mjs";
 import { writeJsonAtomic, writeTextAtomic } from "../run/store.mjs";
+import { VERIFICATION_LIMITS } from "../contract/verification.mjs";
 import { validatePlanPhases } from "./template.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
@@ -31,8 +32,107 @@ import { validatePlanPhases } from "./template.mjs";
 /** @typedef {{path: string, digest: string}} PlanSpecIdentity */
 /** @typedef {{formatVersion: number, contractDigest: string, spec?: PlanSpecIdentity, phases?: PlanPhase[], provenance: PlanProvenance}} FrozenPlan */
 /** @typedef {{ok: boolean, digest: string, expectedDigest: string}} FrozenPlanVerdict */
+/** @typedef {{scripts?: Record<string, string>, verificationCandidates: {argv: string[], measuredMs: number}[]}} MeasuredFacts */
 
 const PLAN_FORMAT_VERSION = 1;
+
+/**
+ * The margin a frozen verification timeout keeps over its measured duration.
+ * No measurement behind the number itself: it is the spec's (RM-057), and a
+ * timeout only bounds a failure, so a passing command never waits for it.
+ */
+const MEASURED_TIMEOUT_MARGIN = 1.5;
+
+/** `node --test` options that run a subset of the files they name. */
+const FILTER_OPTIONS = ["--test-name-pattern", "--test-skip-pattern", "--test-only", "--test-shard"];
+
+/** `node` options whose value is the next argument, so it is not a path. */
+const NODE_VALUE_OPTIONS = new Set(["--import", "--require", "-r", "--loader", "--experimental-loader", "--env-file", "--test-reporter", "--test-reporter-destination", "--test-name-pattern", "--test-skip-pattern", "--test-concurrency", "--test-timeout"]);
+
+/**
+ * The `node --test <dir>` candidates one path argument includes: a directory
+ * includes itself and everything below it, and a glob includes the
+ * directories below its literal prefix only when it descends (`test/*` +
+ * `/…`); `test/*.test.mjs` names top-level files no candidate measured.
+ *
+ * @param {string} arg
+ * @param {string[]} directories
+ * @returns {string[]}
+ */
+function includedDirectories(arg, directories) {
+  const path = arg.replace(/^\.\//u, "").replace(/\/+$/u, "");
+  const wildcard = path.search(/[*?[]/u);
+  if (wildcard < 0) return directories.filter((directory) => directory === path || directory.startsWith(`${path}/`));
+  const base = path.slice(0, path.lastIndexOf("/", wildcard));
+  if (!path.slice(wildcard).includes("/")) return [];
+  return directories.filter((directory) => base === "" || directory.startsWith(`${base}/`));
+}
+
+/**
+ * What repo facts measured for a verification command: its own candidate, or
+ * the sum of the `node --test <dir>` candidates it includes, `npm test`
+ * resolved through the `test` script. A lower bound when the command also
+ * runs files no candidate measured; null when it includes nothing measured.
+ *
+ * @param {string[]} argv
+ * @param {MeasuredFacts} facts
+ * @returns {number|null}
+ */
+function measuredMsFor(argv, facts) {
+  const candidates = facts.verificationCandidates;
+  const exact = candidates.find((candidate) => candidate.argv.join(" ") === argv.join(" "));
+  if (exact) return exact.measuredMs;
+  const npmTest = argv[0] === "npm" && ["test", "run test"].includes(argv.slice(1).join(" "));
+  if (npmTest && typeof facts.scripts?.test === "string") return measuredMsFor(facts.scripts.test.trim().split(/\s+/u), facts);
+  if (argv[0] !== "node" || argv[1] !== "--test") return null;
+  // A filtered run measures nothing a directory candidate measured.
+  if (argv.some((arg) => FILTER_OPTIONS.some((option) => arg === option || arg.startsWith(`${option}=`)))) return null;
+  const measured = new Map(candidates
+    .filter((candidate) => candidate.argv.length === 3 && candidate.argv[0] === "node" && candidate.argv[1] === "--test")
+    .map((candidate) => [candidate.argv[2].replace(/\/+$/u, ""), candidate.measuredMs]));
+  /** @type {string[]} */
+  const paths = [];
+  for (let index = 2; index < argv.length; index += 1) {
+    if (NODE_VALUE_OPTIONS.has(argv[index])) index += 1;
+    else if (!argv[index].startsWith("-")) paths.push(argv[index]);
+  }
+  const included = new Set((paths.length ? paths : ["test"]).flatMap((path) => includedDirectories(path, [...measured.keys()])));
+  if (!included.size) return null;
+  return [...included].reduce((sum, directory) => sum + /** @type {number} */ (measured.get(directory)), 0);
+}
+
+/**
+ * Refuse a contract whose verification timeout sits under
+ * `MEASURED_TIMEOUT_MARGIN` times what repo facts measured for the command,
+ * and name a command no legal timeout can cover, so the plan is contested
+ * with the advice to split it. RM-057, measured on the Campaign Brief run:
+ * a gate frozen at 120s against parts measured at 178,904 ms and 246,955 ms.
+ *
+ * @param {import("../contract/index.mjs").ValidatedContract} contract
+ * @param {MeasuredFacts} facts
+ * @returns {void}
+ */
+export function assertTimeoutsCoverMeasured(contract, facts) {
+  const commands = [
+    ...contract.nodes.flatMap((node) => node.taskPacket.verification ?? []),
+    ...contract.sharedVerification ?? [],
+    ...contract.finalVerification ?? [],
+  ];
+  const problems = new Set();
+  for (const command of commands) {
+    const measuredMs = measuredMsFor(command.argv, facts);
+    if (measuredMs === null) continue;
+    const timeoutSec = command.timeoutSec ?? 120;
+    const requiredSec = Math.ceil((measuredMs * MEASURED_TIMEOUT_MARGIN) / 1_000);
+    const shown = `${command.argv.join(" ")} measured ${(measuredMs / 1_000).toFixed(1)}s`;
+    if (requiredSec > VERIFICATION_LIMITS.maxTimeoutSec) {
+      problems.add(`${shown}, and ${MEASURED_TIMEOUT_MARGIN} times that passes the ${VERIFICATION_LIMITS.maxTimeoutSec}s maxTimeoutSec: split it into commands that each fit`);
+    } else if (timeoutSec < requiredSec) {
+      problems.add(`verification ${command.argv.join(" ")} has timeoutSec ${timeoutSec}s, under ${MEASURED_TIMEOUT_MARGIN} times its measured ${(measuredMs / 1_000).toFixed(1)}s: raise it to at least ${requiredSec}s`);
+    }
+  }
+  if (problems.size) throw new TypeError(`verification timeouts do not cover their measured durations: ${[...problems].join("; ")}`);
+}
 
 /** @returns {string} the installed package's own version, read once per call so a freeze always names the toolchain that produced it */
 function packageVersion() {
@@ -175,10 +275,13 @@ export function writeFrozenPlanRecord(outDir, record) {
  * was planned from.
  *
  * @param {JsonObject} plan
- * @param {{outDir: string, provenance: PlanProvenanceInput, phases?: import("./template.mjs").PlanPhase[], spec?: PlanSpecIdentity}} options
+ * `options.facts` carries repo facts' measured durations; given, a
+ * verification timeout that does not cover one is refused.
+ *
+ * @param {{outDir: string, provenance: PlanProvenanceInput, phases?: import("./template.mjs").PlanPhase[], spec?: PlanSpecIdentity, facts?: MeasuredFacts}} options
  * @returns {FrozenPlan}
  */
-export function freezePlan(plan, { outDir, provenance, phases, spec }) {
+export function freezePlan(plan, { outDir, provenance, phases, spec, facts }) {
   // Shape-checked before anything is written, so a malformed declaration
   // leaves the outDir exactly as it was — the same failure discipline as the
   // validateContract rollback below. A declaration in the nodeIds shape must
@@ -199,7 +302,8 @@ export function freezePlan(plan, { outDir, provenance, phases, spec }) {
   });
   writeJsonAtomic(contractPath, raw);
   try {
-    validateContract(raw, contractPath);
+    const validated = validateContract(raw, contractPath);
+    if (facts) assertTimeoutsCoverMeasured(validated, facts);
   } catch (error) {
     rmSync(contractPath, { force: true });
     throw error;
