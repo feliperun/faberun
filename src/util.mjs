@@ -275,3 +275,13 @@ export function shellWords(text) {
   if (current !== null) words.push(current);
   return words;
 }
+
+/**
+ * Block the thread without a timer, for a synchronous path that has to wait
+ * out a short race. Callers keep the duration tiny and bounded.
+ *
+ * @param {number} milliseconds
+ */
+export function sleepSync(milliseconds) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
+}
