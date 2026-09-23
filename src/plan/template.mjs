@@ -10,10 +10,12 @@
  * artefact under review, never the author's packet, transcript or summary.
  *
  * The plan output validator also owns requirement traceability: a plan
- * declares, per phase, the requirement ids it satisfies and its one-sentence
- * deliverable, and a phase associated with no requirement is reported as a
- * finding — never a silent pass, never a refusal. freeze.mjs imports the same
- * phase check for the frozen plan record.
+ * declares, per phase, the requirement ids it satisfies, the node ids it
+ * assigns, and its one-sentence deliverable. A planned node belongs to exactly
+ * one declaration, so a missing, duplicate, or unknown node assignment is a
+ * refusal. A legacy declaration that names no requirements and no nodes is
+ * still reported as a finding, never a silent pass. freeze.mjs imports the
+ * same phase check for the frozen plan record.
  */
 import { assertObject, positiveInteger, rejectUnknown, requireId, requireString, requireStringArray } from "../contract/assert.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../contract/index.mjs";
@@ -26,7 +28,7 @@ import { validateVerificationCommands } from "../contract/verification.mjs";
 /** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, specPath?: string, repoFactsPath?: string, cataloguePath?: string, packageMode?: import("./sizing.mjs").PackageMode, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
 /** @typedef {{id: string, objective: string, taskKind: string, riskTier: RiskTier, dependsOn: string[], readFiles: string[], writeFiles: string[], scopeAcknowledged: string[], definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], verification: import("../contract/verification.mjs").VerificationCommand[], expectedTurns?: number}} PlanOutputNode */
 /** @typedef {{nodes: PlanOutputNode[], phases?: PlanPhase[], findings?: PlanFindingOutput[], justification?: string}} PlanOutput */
-/** @typedef {{id: string, requirementIds: string[], deliverable: string}} PlanPhase */
+/** @typedef {{id: string, requirementIds: string[], nodeIds?: string[], deliverable: string}} PlanPhase */
 /** @typedef {{id: string, severity: "critical"|"major"|"minor", nodeId: string, text: string}} PlanFindingOutput */
 
 /** The taskKind catalogue a draft or revise classifies against. */
@@ -109,7 +111,7 @@ const REQUIRED_INPUTS = Object.freeze({
 // run had already succeeded. The id charset is requireId's
 // (contract/assert.mjs) verbatim, because an id that is present but invalid
 // fails that same validator just as late.
-const PLAN_OUTPUT_SHAPE = '{nodes: [{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: [{id, text, proof?: {kind: "command"|"path"|"verification", ref}, judgment?: true}], verification: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}], expectedTurns?}], phases?: [{id, requirementIds?: [string], deliverable}], justification?}; every id in it (node, phase, and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly "." or ".."';
+const PLAN_OUTPUT_SHAPE = '{nodes: [{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: [{id, text, proof?: {kind: "command"|"path"|"verification", ref}, judgment?: true}], verification: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}], expectedTurns?}], phases?: [{id, requirementIds: [string], nodeIds: [string], deliverable}], justification?}; every id in it (node, phase, node assignment, and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly "." or ".."';
 /**
  * The size guidance every draft and revise carries. measured 2026-09-20 over
  * stored runs: median 49 provider requests per worker turn; cost per turn
@@ -165,7 +167,7 @@ const OBJECTIVES = Object.freeze({
 const INSTRUCTIONS = Object.freeze({
   draft: [
     `Consult the ${TASK_KIND_CATALOGUE_FILE} in readFiles before classifying any node; taskKind must be one of that catalogue and riskTier must be one of ${RISK_TIERS.join(", ")}.`,
-    "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies and the deliverable it produces in one sentence. A phase associated with no requirement is reported as a finding, not refused.",
+    "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies, the planned node ids it assigns, and the deliverable it produces in one sentence. Every planned node must appear in exactly one phase's nodeIds; a missing, duplicate, or unknown node assignment is refused.",
     ...SCOPE_CLOSURE_RULE,
     `Return exactly one worker-result JSON object. Put the plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan. taskKind and riskTier are the only classification a draft makes; a routing table assigns a runtime afterward, from those two fields alone.",
@@ -173,7 +175,7 @@ const INSTRUCTIONS = Object.freeze({
   ],
   revise: [
     "Read the findings and resolve every one; do not leave a critical or major finding unaddressed.",
-    "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies and the deliverable it produces in one sentence. A phase associated with no requirement is reported as a finding, not refused.",
+    "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies, the planned node ids it assigns, and the deliverable it produces in one sentence. Every planned node must appear in exactly one phase's nodeIds; a missing, duplicate, or unknown node assignment is refused.",
     ...SCOPE_CLOSURE_RULE,
     `Return exactly one worker-result JSON object. Put the revised plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan.",
@@ -344,7 +346,7 @@ export function validatePlanOutput(plan) {
     });
   });
   if (record.justification !== undefined) requireString(record.justification, "plan.justification");
-  const phases = validatePlanPhases(record.phases);
+  const phases = validatePlanPhases(record.phases, nodes.map((node) => node.id));
   const findings = (phases ?? [])
     .filter((phase) => phase.requirementIds.length === 0)
     .map((phase) => /** @type {PlanFindingOutput} */ ({
@@ -364,41 +366,102 @@ export function validatePlanOutput(plan) {
   };
 }
 
-// The fields a phase declaration carries beyond its id: requirementIds|deliverable —
-// which spec requirements the phase satisfies, and the one sentence naming its result.
-const PLAN_PHASE_FIELDS = new Set(["id", "requirementIds", "deliverable"]);
+// The fields a phase declaration carries beyond its id: requirementIds|nodeIds|deliverable —
+// which spec requirements the phase satisfies, which planned nodes it assigns, and the one
+// sentence naming its result.
+const PLAN_PHASE_FIELDS = new Set(["id", "requirementIds", "nodeIds", "deliverable"]);
 
 /**
- * Validate a plan's `phases` — the per-phase requirement declarations: the
- * requirement ids (R<n> from the spec) each phase satisfies and the
- * deliverable it produces in one sentence. Absent, empty, and requirement-less
- * are legal here: a support phase with no requirement is the caller's finding
- * to report (validatePlanOutput does), so the gap stays visible without a
- * malformed-but-honest plan being refused. Shared with freeze.mjs, which holds
- * the same declarations on the frozen plan record.
+ * Validate a plan's `phases` — the per-phase requirement declarations. The
+ * current shape `{id, requirementIds, nodeIds, deliverable}` assigns every
+ * planned node to exactly one declaration: `plannedNodeIds` is the plan's own
+ * node-id list, and a node no declaration names, a node two declarations both
+ * name, or a declared node absent from the plan is refused. A declaration in
+ * the older `{id, requirementIds, deliverable}` shape (no `nodeIds` at all)
+ * stays legal so a plan frozen before node assignment existed still reads; in
+ * that shape an empty `requirementIds` is the caller's finding to report
+ * (validatePlanOutput does), not a refusal. Mixing the two shapes is refused
+ * because it would leave some nodes silently unattributed. Shared with
+ * freeze.mjs, which holds the same declarations on the frozen plan record.
  *
  * @param {unknown} phases
+ * @param {string[]|undefined} [plannedNodeIds] the plan's node ids, when the caller has them
  * @returns {PlanPhase[]|undefined} the normalized declarations, or undefined when none were given
  */
-export function validatePlanPhases(phases) {
+export function validatePlanPhases(phases, plannedNodeIds) {
   if (phases === undefined) return undefined;
   if (!Array.isArray(phases)) throw new TypeError("plan.phases must be an array of phase declarations");
   if (phases.length === 0) return undefined;
-  return phases.map((phase, index) => {
+
+  /** @type {Set<string>} */
+  const ids = new Set();
+  const declarations = phases.map((phase, index) => {
     const label = `plan.phases[${index}]`;
     assertObject(phase, label);
     const record = /** @type {Record<string, unknown>} */ (phase);
     rejectUnknown(record, PLAN_PHASE_FIELDS, label);
     requireId(record.id, `${label}.id`);
+    const id = /** @type {string} */ (record.id);
+    if (ids.has(id)) throw new TypeError(`plan.phases has duplicate phase id ${id}`);
+    ids.add(id);
     requireString(record.deliverable, `${label}.deliverable`);
-    const requirementIds = record.requirementIds ?? [];
+    const requirementIds = /** @type {string[]} */ (record.requirementIds ?? []);
     requireStringArray(requirementIds, `${label}.requirementIds`);
-    return {
-      id: /** @type {string} */ (record.id),
+    /** @type {string[]|undefined} */
+    let nodeIds;
+    if (record.nodeIds !== undefined) {
+      requireStringArray(record.nodeIds, `${label}.nodeIds`);
+      nodeIds = /** @type {string[]} */ (record.nodeIds);
+      if (nodeIds.length === 0) throw new TypeError(`${label}.nodeIds must name at least one planned node`);
+      if (requirementIds.length === 0) throw new TypeError(`${label}.requirementIds must name at least one requirement when the declaration assigns nodes`);
+    }
+    return /** @type {PlanPhase} */ ({
+      id,
       requirementIds: /** @type {string[]} */ (requirementIds),
+      ...(nodeIds === undefined ? {} : { nodeIds }),
       deliverable: /** @type {string} */ (record.deliverable),
-    };
+    });
   });
+
+  const assigned = declarations.filter((declaration) => declaration.nodeIds !== undefined);
+  if (assigned.length > 0 && assigned.length !== declarations.length) {
+    throw new TypeError("plan.phases must assign nodeIds on every declaration or on none: mixing the two leaves the nodes named by the other declarations unattributed");
+  }
+  if (assigned.length > 0 && plannedNodeIds !== undefined) {
+    validateNodeAssignments(assigned, plannedNodeIds);
+  }
+  return declarations;
+}
+
+/**
+ * Refuse a node assignment that does not cover the plan exactly once. Called
+ * only for the nodeIds shape, where every declaration already names at least
+ * one node and at least one requirement.
+ *
+ * @param {PlanPhase[]} declarations
+ * @param {string[]} plannedNodeIds
+ * @returns {void}
+ */
+function validateNodeAssignments(declarations, plannedNodeIds) {
+  const planned = new Set(plannedNodeIds);
+  /** @type {Map<string, string>} */
+  const owner = new Map();
+  for (const declaration of declarations) {
+    for (const nodeId of declaration.nodeIds ?? []) {
+      if (!planned.has(nodeId)) {
+        throw new TypeError(`plan.phases: phase ${declaration.id} assigns unknown node ${nodeId}, which is not one of the plan's nodes`);
+      }
+      const previous = owner.get(nodeId);
+      if (previous !== undefined) {
+        throw new TypeError(`plan.phases assigns node ${nodeId} to both ${previous} and ${declaration.id}; every planned node belongs to exactly one phase`);
+      }
+      owner.set(nodeId, declaration.id);
+    }
+  }
+  const missing = [...planned].filter((nodeId) => !owner.has(nodeId));
+  if (missing.length > 0) {
+    throw new TypeError(`plan.phases leaves planned node(s) assigned to no phase: ${missing.join(", ")}`);
+  }
 }
 
 const FINDING_FIELDS = new Set(["id", "severity", "nodeId", "text"]);

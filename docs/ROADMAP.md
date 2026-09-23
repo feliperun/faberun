@@ -120,22 +120,22 @@ judgment and those delegable**; only the relevant risks; an execution estimate
 
 | id | item | evidence | state |
 | --- | --- | --- | --- |
-| RM-006 | Campaign Brief as a pre-execution approval artefact | — | idea |
-| RM-007 | Requirement Coverage Matrix in the brief | requirement ids already travel from phase to node (R9–R11, shipped 0.14.0), so the data exists | idea |
-| RM-008 | Render the graph, the risks, the human decisions and the planned evals | — | idea |
-| RM-009 | Cost and duration estimate as a range | `usage.jsonl` already records `costUsd` with `costProvenance` per invocation | idea |
-| RM-010 | Publish the brief as a shareable artefact (e.g. a PR comment linking to it) | — | idea |
-| RM-045 | An `mdhtml` theme built from `DESIGN.md`, so the rendered brief looks like Faberun | the design system is already specified: Terra, Argila, Areia, Folha, Carvão, each with one meaning and one job | idea |
+| RM-006 | Campaign Brief as a pre-execution approval artefact | no approval artefact at `d9eae18`; [spec](campaigns/campaign-brief/spec/SPEC.md) R1–R2 | specified |
+| RM-007 | Requirement Coverage Matrix in the brief | requirement ids already travel from phase to node; [spec](campaigns/campaign-brief/spec/SPEC.md) R3 | specified |
+| RM-008 | Render the graph, the risks, the human decisions and the planned evals | frozen nodes carry `dependsOn`; [spec](campaigns/campaign-brief/spec/SPEC.md) R4 | specified |
+| RM-009 | Cost and duration estimate as a range | `usage.jsonl` records priced costs and sizing records measured node overhead; [spec](campaigns/campaign-brief/spec/SPEC.md) R5 | specified |
+| RM-010 | Publish the brief as a shareable artefact (e.g. a PR comment linking to it) | no sharing surface at `d9eae18`; [spec](campaigns/campaign-brief/spec/SPEC.md) R7–R8 specify portable `mdhtml` plus local browser server | specified |
+| RM-045 | An `mdhtml` theme built from `DESIGN.md`, so the rendered brief looks like Faberun | `DESIGN.md` defines the palette and `mdhtml` accepts a local `.theme.css`; [spec](campaigns/campaign-brief/spec/SPEC.md) R6 | specified |
 
 The brief is authored in Markdown and rendered with `mdhtml` into a portable,
 self-contained document, keeping Markdown as the source. The theme is Faberun's
-own — see decision D5.
+own — see decision D5. A minimal loopback server opens the local file in a
+browser — see decision D8.
 
-**Name collision, see open question Q2.** `src/campaign/brief.mjs` already
-writes `operator-brief.md`: a 4 KiB capsule of durable facts so a *fresh seat can
-take over a running campaign*, a pure function of recorded facts with no model
-involved. That is continuity, not approval. Two different artefacts currently
-compete for one name.
+**Two briefs, see decision D7.** `src/campaign/brief.mjs` already writes
+`operator-brief.md`: a 4 KiB capsule of durable facts so a *fresh seat can take
+over a running campaign*, a pure function of recorded facts with no model
+involved. The pre-execution approval artefact is `campaign-brief.md`.
 
 ---
 
@@ -448,18 +448,22 @@ its own worth unaided, so there is a baseline. Only then adopt the memory layer,
 and quantify it with a before/after paired benchmark. A layer adopted before the
 baseline exists can never be shown to have helped.
 
+**D7 — Keep two briefs with different names.** Owner decision 2026-09-21:
+`operator-brief.md` remains the small, model-free continuity capsule for a fresh
+seat taking over a running campaign. `campaign-brief.md` is the pre-execution
+approval artefact. Merging them would make the continuity capsule depend on the
+richer approval workflow and obscure which document an operator should review
+before pressing Play.
+
+**D8 — Share the first Campaign Brief as portable HTML with local browser
+access.** Owner decision 2026-09-21: `mdhtml` produces a self-contained file
+that opens offline; Faberun also offers a minimal server bound to loopback so
+the operator can open that document through a local browser URL. External
+publication and automatic PR comments are not part of the first release.
+
 ## Open questions for the owner
 
 Still open. Each changes what gets built, so none is decided here.
-
-**Q2 — Two artefacts are both called a brief.** `operator-brief.md` exists and is
-a continuity capsule: 4 KiB, no model, rebuilt from the journal, for a fresh
-seat taking over a *running* campaign. The Campaign Brief in P1 is a
-*pre-execution* approval surface, richer, and probably model-written. Rename one,
-or make the approval surface a different artefact entirely? *Recommendation: two
-names for two artefacts — merging them would spoil the continuity capsule, which
-is deliberately small and model-free so it can be rebuilt after the seat that
-would have written it died.*
 
 **Q6 — When may empirical routing decide on its own?** The proposed floor is
 deliberately conservative (≥60 nodes, ≥5 campaigns, 60 days, pass@1 ≥95%). A

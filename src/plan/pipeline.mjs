@@ -30,7 +30,8 @@ import { collectRepoFacts } from "./repo-facts.mjs";
 import { RISK_TIERS, TASK_KIND_CATALOGUE_FILE, buildPlanningContract, renderTaskKindCatalogue, validateFindings, validatePlanOutput } from "./template.mjs";
 import { MIN_WRITE_FILES, applySizingRules, provenParallelism } from "./sizing.mjs";
 import { resolveRuntimes } from "./routing.mjs";
-import { freezePlan } from "./freeze.mjs";
+import { contentDigest, freezePlan, writeFrozenPlanRecord } from "./freeze.mjs";
+import { availabilityOf, fileLineCount, highestOf, modelOf, toContractNode, toSizingNode } from "./pipeline-shape.mjs";
 import { campaignTree, runDirectory } from "../run/paths.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
@@ -39,8 +40,9 @@ import { campaignTree, runDirectory } from "../run/paths.mjs";
 /** @typedef {{sharedVerification?: VerificationCommand[], finalVerification?: VerificationCommand[]}} VerificationSuites */
 /** @typedef {import("./template.mjs").PlanOutput} PlanOutput */
 /** @typedef {import("./template.mjs").PlanFindingOutput} PlanFindingOutput */
+/** @typedef {import("./template.mjs").PlanPhase} PlanPhase */
 /** @typedef {import("./sizing.mjs").PlanNode & {objective: string}} SizedPlanNode */
-/** @typedef {{sizing: import("./sizing.mjs").SizingResult, routing: import("./routing.mjs").RoutingResult, nodes: JsonObject[]}} AssembledPlan */
+/** @typedef {{sizing: import("./sizing.mjs").SizingResult, routing: import("./routing.mjs").RoutingResult, nodes: JsonObject[], phases?: PlanPhase[]}} AssembledPlan */
 /** @typedef {"standard"|"high"|"none"} ApproveBelow */
 /** @typedef {(contractPath: string, contract: ValidatedContract) => Promise<void>|void} LaunchFn */
 /** @typedef {(runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, cwd: string) => Promise<import("../harnesses/index.mjs").ProbeResult[]>} AskFn */
@@ -113,6 +115,9 @@ export async function runPlanningPipeline(options) {
 
   const relativeSpecPath = repoRelativePath(cwd, specPath, "specPath");
   const specText = readFileSync(resolve(cwd, relativeSpecPath), "utf8");
+  // Pinned now, from the same bytes every planning stage reads, so the frozen
+  // record names the exact structured spec it was planned from.
+  const specDigest = contentDigest(specText);
   const specValidation = validateSpec(specText, { cwd, strict: true });
   if (specValidation.class === "structured" && !specValidation.ok) {
     const detail = specValidation.findings.map((finding) => `${finding.rule}: ${finding.message}`).join("; ");
@@ -276,6 +281,11 @@ export async function runPlanningPipeline(options) {
       sizing,
       routing,
       nodes: sizing.plan.nodes.map((node) => toContractNode(/** @type {SizedPlanNode} */ (node), phase, routing.assignments[node.id])),
+      // The declarations a reviewer saw, remapped onto the nodes sizing
+      // actually produced: a merge removes a node id, and a declaration that
+      // named it must now name the node that absorbed it or freeze would see
+      // an unknown assignment.
+      phases: carryPhaseDeclarations(currentPlan.phases, sizing.transformations),
     };
   };
 
@@ -443,6 +453,10 @@ export async function runPlanningPipeline(options) {
     highestRiskTier = highestOf(assembled.sizing.plan.nodes.map((node) => node.riskTier ?? RISK_TIERS[0]));
     frozen = freezePlan(frozenContractRaw(assembled), {
       outDir: plansDir,
+      phases: assembled.phases,
+      // The pipeline's own pinned spec bytes: a wrong or missing digest is the
+      // first thing the Campaign Brief refuses on, never a summary.
+      spec: { path: relativeSpecPath, digest: specDigest },
       provenance: {
         targetGitHead: repoFacts.gitHead,
         planner: { runtimeId: runtimeDefaults.worker ?? "", model: modelOf(runtimes, runtimeDefaults.worker) },
@@ -490,7 +504,10 @@ export async function runPlanningPipeline(options) {
 
   const approved = approveBelow === "high" ? true : approveBelow === "none" ? false : highestRiskTier !== "high";
   const planPath = join(plansDir, "plan.json");
-  writeJsonAtomic(planPath, { ...frozen, status: "frozen", approved });
+  // The final bytes — status and approval included — are written first; the
+  // sidecar then covers exactly those bytes, and nothing rewrites the plan
+  // afterward. The written record is the plan.json the brief will read.
+  writeFrozenPlan(plansDir, /** @type {import("./freeze.mjs").FrozenPlan} */ (frozen), { status: "frozen", approved });
   if (!approved) {
     await campaignCli([
       "note", campaignId, "--cwd", cwd, "--session-id", PLANNER_SESSION_ID,
@@ -666,124 +683,58 @@ export function droppedWriteFindings(previousPlan, revisedPlan) {
 }
 
 /**
- * Every declared runtime treated as available. Live discovery (probing a
- * harness for real exhaustion) is a separate concern this pipeline does not
- * take on; a campaign that needs it can inject a table row and prune its
- * `runtimes` catalogue instead.
+ * The phase declarations a reviewer saw, remapped onto the nodes sizing
+ * actually produced. `applySizingRules` is the only stage that changes the
+ * node set, and it only ever folds one node into another — a declaration that
+ * named the folded-away node must name the node that absorbed it, or freeze
+ * would refuse the record as an unknown assignment. A two-entry transformation
+ * is a merge (`[child, parent]`); every one-entry transformation edits a node
+ * in place. Resolution follows a chain, so a node folded into another that was
+ * itself folded lands on the final owner, and duplicates collapse so a
+ * declaration never lists the same node twice. A declaration in the legacy
+ * shape (no `nodeIds`) is returned untouched.
  *
- * @param {Record<string, JsonObject>} runtimes
- * @returns {Record<string, {available: true, exhaustedUntil: null}>}
+ * @param {PlanPhase[]|undefined} phases
+ * @param {import("./sizing.mjs").SizingTransformation[]|undefined} transformations
+ * @returns {PlanPhase[]|undefined}
  */
-function availabilityOf(runtimes) {
-  return Object.fromEntries(Object.keys(runtimes).map((id) => [id, { available: true, exhaustedUntil: null }]));
-}
-
-/**
- * @param {Record<string, JsonObject>} runtimes
- * @param {string|undefined} id
- * @returns {string}
- */
-function modelOf(runtimes, id) {
-  const model = id ? runtimes[id]?.model : undefined;
-  return typeof model === "string" ? model : "";
-}
-
-/**
- * @param {string[]} riskTiers
- * @returns {string}
- */
-function highestOf(riskTiers) {
-  return riskTiers.reduce((highest, tier) => (RISK_TIERS.indexOf(tier) > RISK_TIERS.indexOf(highest) ? tier : highest), RISK_TIERS[0]);
-}
-
-/**
- * A draft or revise output node (flat `readFiles`/`writeFiles`/`verification`)
- * turned into the shape `applySizingRules` merges and splits: those fields move
- * under `taskPacket`, alongside `sizing.mjs`'s own `writeFiles`/`verification`
- * expectations, while `objective` rides along as a passthrough field a merge
- * never touches.
- *
- * @param {import("./template.mjs").PlanOutputNode} node
- * @returns {SizedPlanNode}
- */
-function toSizingNode(node) {
-  return /** @type {SizedPlanNode} */ ({
-    id: node.id,
-    dependsOn: node.dependsOn,
-    taskKind: node.taskKind,
-    riskTier: node.riskTier,
-    objective: node.objective,
-    expectedTurns: node.expectedTurns,
-    definitionOfDone: node.definitionOfDone,
-    taskPacket: {
-      readFiles: node.readFiles,
-      writeFiles: node.writeFiles,
-      scopeAcknowledged: node.scopeAcknowledged,
-      verification: node.verification,
-    },
+export function carryPhaseDeclarations(phases, transformations) {
+  if (!phases || phases.length === 0) return phases;
+  /** @type {Map<string, string>} */
+  const parentOf = new Map();
+  for (const transformation of transformations ?? []) {
+    const nodes = transformation?.nodes;
+    if (Array.isArray(nodes) && nodes.length === 2 && typeof nodes[0] === "string" && typeof nodes[1] === "string") {
+      parentOf.set(nodes[0], nodes[1]);
+    }
+  }
+  if (parentOf.size === 0) return phases;
+  /** @param {string} id @returns {string} */
+  const resolve = (id) => {
+    let current = id;
+    const seen = new Set();
+    while (parentOf.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = /** @type {string} */ (parentOf.get(current));
+    }
+    return current;
+  };
+  return phases.map((phase) => {
+    if (phase.nodeIds === undefined) return phase;
+    return { ...phase, nodeIds: [...new Set(phase.nodeIds.map(resolve))] };
   });
 }
 
 /**
- * A sized plan node's classification and shape, turned into the contract node
- * `freezePlan` validates. `riskTier: "low"` gets no gate; `standard` an
- * advisory one; `high` a blocking one, which `validateGate` requires `major`
- * in `failOn` for.
+ * Write the pipeline's final frozen plan record and the `plan.json.sha256`
+ * sidecar over those exact bytes. This is the last write to plan.json: after
+ * it returns, the sidecar and the plan agree, and neither may be rewritten.
  *
- * @param {SizedPlanNode} node
- * @param {string} phase
- * @param {{worker: string|null, judge: string|null}|undefined} assignment
- * @returns {JsonObject}
+ * @param {string} outDir
+ * @param {import("./freeze.mjs").FrozenPlan} frozen
+ * @param {{status: "frozen", approved: boolean}} outcome
+ * @returns {import("./freeze.mjs").FrozenPlan}
  */
-function toContractNode(node, phase, assignment) {
-  const riskTier = /** @type {string} */ (node.riskTier);
-  const gate = riskTier === "low"
-    ? false
-    : {
-      review: riskTier === "high" ? "blocking" : "advisory",
-      failOn: riskTier === "high" ? ["major", "critical"] : ["critical"],
-      ...(assignment?.judge ? { runtime: assignment.judge } : {}),
-    };
-  return {
-    id: node.id,
-    type: node.taskKind,
-    phase,
-    dependsOn: node.dependsOn ?? [],
-    ...(assignment?.worker ? { runtime: assignment.worker } : {}),
-    taskPacket: {
-      mode: "execution",
-      objective: node.objective,
-      instructions: [node.objective],
-      readFiles: node.taskPacket.readFiles ?? [],
-      writeFiles: node.taskPacket.writeFiles ?? [],
-      // Carried, never computed here: the drafter decided which importers it
-      // will not change, and scope closure exists to force that decision on a
-      // person rather than answer it for them (src/repo/scope-closure.mjs).
-      scopeAcknowledged: node.taskPacket.scopeAcknowledged ?? [],
-      symbols: [],
-      decisions: [],
-      nonGoals: [],
-      verification: node.taskPacket.verification,
-    },
-    definitionOfDone: node.definitionOfDone ?? [],
-    gate,
-  };
-}
-
-/**
- * Lines in a file the plan declares as a read, or null when it cannot be
- * counted (absent, a directory, unreadable). Exploratory sizing is measured
- * against this: what a node must read is what it is paid for.
- *
- * @param {string} path
- * @returns {number|null}
- */
-function fileLineCount(path) {
-  try {
-    const text = readFileSync(path, "utf8");
-    if (text === "") return 0;
-    return text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
-  } catch {
-    return null;
-  }
+export function writeFrozenPlan(outDir, frozen, outcome) {
+  return writeFrozenPlanRecord(outDir, { ...frozen, ...outcome });
 }

@@ -1,0 +1,44 @@
+{
+  "id": "campaign-brief",
+  "goal": "A short pre-execution Campaign Brief makes intent, coverage, execution graph, human decisions, risk, evals, and expense reviewable before a frozen plan is run.",
+  "status": "active",
+  "linkedRunIds": [
+    "campaign-brief-plan-approval-surface-draft-1",
+    "campaign-brief-plan-approval-surface-review-2",
+    "campaign-brief-plan-approval-surface-revise-3",
+    "campaign-brief-plan-spec-critique-spec-review-1",
+    "campaign-brief-plan-spec-critique-spec-review-2",
+    "campaign-brief-plan-spec-critique-spec-review-3",
+    "campaign-brief-plan-spec-critique-spec-review-4",
+    "campaign-brief-plan-implementation-draft-1",
+    "campaign-brief-plan-implementation-review-2",
+    "campaign-brief-plan-implementation-r2-draft-1",
+    "campaign-brief-plan-implementation-r2-review-2",
+    "campaign-brief-plan-implementation-r2-revise-3",
+    "campaign-brief-plan-implementation-r2-review-4",
+    "campaign-brief-implementation-r3",
+    "campaign-brief-implementation-r3-deepseek",
+    "campaign-brief-implementation-r3-deepseek-scope",
+    "campaign-brief-implementation-r3-deepseek-frontdoor",
+    "campaign-brief-implementation-r3-deepseek-finalize"
+  ],
+  "contracts": [
+    {
+      "path": "/Users/frb/.faberun/projects/c192cf43-c4cf-4ac1-835e-f1618f395504/runs/campaigns/campaign-brief/plans/implementation-r3-deepseek-finalize/contract.json",
+      "digest": "5671334ba4149644fde7154932e093ab4ec7cf234b1aeb6d9beed046da4980fa"
+    }
+  ],
+  "landBranch": "campaign/campaign-brief",
+  "promotions": [
+    {
+      "runId": "campaign-brief-implementation-r3-deepseek-finalize",
+      "contractPath": "/Users/frb/.faberun/projects/c192cf43-c4cf-4ac1-835e-f1618f395504/runs/campaigns/campaign-brief/plans/implementation-r3-deepseek-finalize/contract.json",
+      "branch": "campaign/campaign-brief",
+      "sha": "e2e3001999b5d5acada9155f2a6675a4dc865b91",
+      "previousSha": "9df2a0792991588d04caeb37263fd6e301529389",
+      "at": "2026-09-23T02:41:00.015Z"
+    }
+  ],
+  "createdAt": "2026-09-21T20:42:35.624Z",
+  "updatedAt": "2026-09-23T02:41:00.015Z"
+}

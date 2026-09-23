@@ -341,3 +341,268 @@ function listNodeSnapshotFiles(runDir) {
     return [];
   }
 }
+
+// --- R5 expense pool -------------------------------------------------------
+//
+// The Campaign Brief's cost and duration estimate may only use this target
+// project's durable completed execution nodes. Collection is deliberately
+// narrow: a node enters the pool only when its persisted snapshot says `done`,
+// its run is an execution (not planning/discovery) contract, its completion
+// falls inside the recorded window, and the node carries the worker evidence
+// the comparability key needs. Nothing here estimates a missing value; a field
+// without recorded evidence stays null so the estimate can say
+// `insufficient data` instead of inventing a zero.
+
+/** @typedef {{runtimeId: string|null, model: string|null, costUsd: number|null, costProvenance: string|null}} CompletedExecutionRole */
+/**
+ * One completed execution node, with the worker (and optional judge) role
+ * evidence the estimate compares against a planned assignment. `costUsd` is
+ * non-null only when every invocation for that role is priced; `durationMs` is
+ * non-null only when both the node's actual elapsed time and its verification
+ * elapsed time are recorded. `timeoutSec` is never read: it is a ceiling, not a
+ * measurement.
+ *
+ * @typedef {object} CompletedExecutionNode
+ * @property {string} runId
+ * @property {string} nodeId
+ * @property {string} taskKind
+ * @property {string|null} completedAt
+ * @property {number|null} nodeElapsedMs
+ * @property {number|null} verificationElapsedMs
+ * @property {number|null} durationMs
+ * @property {CompletedExecutionRole} worker
+ * @property {CompletedExecutionRole|null} judge
+ */
+/** @typedef {{runId: string|null, reason: string}} UnreadableRun */
+/**
+ * @typedef {object} CompletedExecutionPool
+ * @property {CompletedExecutionNode[]} nodes
+ * @property {string[]} sourceRuns
+ * @property {UnreadableRun[]} unreadable
+ * @property {number} scannedRuns
+ * @property {boolean} readable
+ */
+
+/**
+ * Collect this project's durable completed execution nodes for the 90 days
+ * before `cutoff`. Planning/discovery runs and incomplete nodes are excluded;
+ * a run whose contract or node directory cannot be read is named in
+ * `unreadable` rather than silently dropped, so the estimate can report
+ * `insufficient data` with a reason. Cost evidence comes from the run's
+ * `usage.jsonl` records when present, falling back to the persisted invocation
+ * records, and is admitted only when priced.
+ *
+ * @param {{runsRoot: string, cutoff: string, windowDays?: number}} options
+ * @returns {CompletedExecutionPool}
+ */
+export function collectCompletedExecutionNodes(options) {
+  const runsRoot = typeof options?.runsRoot === "string" ? options.runsRoot : "";
+  const cutoff = typeof options?.cutoff === "string" ? options.cutoff : "";
+  const cutoffMs = Date.parse(cutoff);
+  const windowDays = typeof options?.windowDays === "number" && Number.isFinite(options.windowDays) && options.windowDays > 0
+    ? options.windowDays
+    : 90;
+  if (!runsRoot) {
+    return { nodes: [], sourceRuns: [], unreadable: [{ runId: null, reason: "no runs root was provided" }], scannedRuns: 0, readable: false };
+  }
+  if (!Number.isFinite(cutoffMs)) {
+    return { nodes: [], sourceRuns: [], unreadable: [{ runId: null, reason: `usage cutoff ${cutoff || "(missing)"} is not a valid date` }], scannedRuns: 0, readable: false };
+  }
+  let runIds;
+  try {
+    runIds = readdirSync(runsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch (error) {
+    return { nodes: [], sourceRuns: [], unreadable: [{ runId: null, reason: `runs root ${runsRoot} is unreadable: ${errorMessage(error)}` }], scannedRuns: 0, readable: false };
+  }
+  const windowStartMs = cutoffMs - windowDays * 24 * 60 * 60 * 1000;
+  /** @type {CompletedExecutionNode[]} */
+  const nodes = [];
+  /** @type {UnreadableRun[]} */
+  const unreadable = [];
+  const sourceRuns = new Set();
+  for (const runId of runIds) {
+    const runDir = join(runsRoot, runId);
+    // The runs root also holds sibling trees (`campaigns/`, `worktrees/`).
+    // Only a directory carrying run metadata or node snapshots is a run; a
+    // run-shaped directory whose contract is gone is no longer silently
+    // skipped, it is named unreadable.
+    const isRun = existsSync(join(runDir, "run.json")) || existsSync(join(runDir, "bootstrap.json")) || existsSync(join(runDir, "nodes"));
+    if (!isRun) continue;
+    let contract;
+    try {
+      contract = JSON.parse(readFileSync(join(runDir, "contract.json"), "utf8"));
+    } catch (error) {
+      unreadable.push({ runId, reason: `contract.json is unreadable: ${errorMessage(error)}` });
+      continue;
+    }
+    if (!contract || typeof contract !== "object" || Array.isArray(contract)) {
+      unreadable.push({ runId, reason: "contract.json is not a JSON object" });
+      continue;
+    }
+    const contractNodes = /** @type {any[]} */ (Array.isArray(contract.nodes) ? contract.nodes : []);
+    const contractById = new Map(contractNodes.map((node) => [String(node?.id ?? ""), node]));
+    if (contractNodes.length > 0 && contractNodes.every((node) => node?.taskPacket?.mode === "discovery")) continue;
+    /** @type {Map<string, Record<string, unknown>[]>} */
+    let usageByNode;
+    try {
+      usageByNode = readUsageByNode(runDir);
+    } catch {
+      usageByNode = new Map();
+    }
+    let snapshotNames;
+    try {
+      snapshotNames = readdirSync(join(runDir, "nodes")).filter((name) => name.endsWith(".json"));
+    } catch (error) {
+      unreadable.push({ runId, reason: `nodes directory is unreadable: ${errorMessage(error)}` });
+      continue;
+    }
+    for (const name of snapshotNames) {
+      let snapshot;
+      try {
+        snapshot = JSON.parse(readFileSync(join(runDir, "nodes", name), "utf8"));
+      } catch {
+        // A torn snapshot contributes nothing; a measurement never fails
+        // because one run was mid-write.
+        continue;
+      }
+      if (!snapshot || snapshot.status !== "done") continue;
+      const nodeId = String(snapshot.id ?? "");
+      const contractNode = contractById.get(nodeId);
+      if (contractNode?.taskPacket?.mode === "discovery") continue;
+      const taskKind = typeof snapshot.type === "string" ? snapshot.type : "";
+      if (!taskKind) continue;
+      const completedAt = typeof snapshot.updatedAt === "string" ? snapshot.updatedAt : null;
+      const completedMs = completedAt ? Date.parse(completedAt) : NaN;
+      if (!Number.isFinite(completedMs) || completedMs > cutoffMs || completedMs < windowStartMs) continue;
+      const invocations = Array.isArray(snapshot.invocations) ? /** @type {Record<string, unknown>[]} */ (snapshot.invocations) : [];
+      const usageRecords = usageByNode.get(nodeId) ?? [];
+      const worker = roleEvidence("worker", usageRecords, invocations, contract, contractNode);
+      if (worker === null) continue;
+      const judge = roleEvidence("judge", usageRecords, invocations, contract, contractNode);
+      const nodeElapsedMs = elapsedBetween(snapshot.startedAt, snapshot.updatedAt);
+      const verificationElapsedMs = verificationElapsed(snapshot.verification);
+      nodes.push({
+        runId,
+        nodeId,
+        taskKind,
+        completedAt,
+        nodeElapsedMs,
+        verificationElapsedMs,
+        durationMs: nodeElapsedMs !== null && verificationElapsedMs !== null ? nodeElapsedMs + verificationElapsedMs : null,
+        worker,
+        judge,
+      });
+      sourceRuns.add(runId);
+    }
+  }
+  return { nodes, sourceRuns: [...sourceRuns], unreadable, scannedRuns: runIds.length, readable: true };
+}
+
+/**
+ * @param {string} runDir
+ * @returns {Map<string, Record<string, unknown>[]>}
+ */
+function readUsageByNode(runDir) {
+  /** @type {Map<string, Record<string, unknown>[]>} */
+  const byNode = new Map();
+  const path = join(runDir, USAGE_LOG_NAME);
+  if (!existsSync(path)) return byNode;
+  for (const line of readFileSync(path, "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!record || typeof record !== "object" || Array.isArray(record)) continue;
+    const nodeId = typeof record.nodeId === "string" ? record.nodeId : null;
+    if (nodeId === null) continue;
+    const list = byNode.get(nodeId) ?? [];
+    list.push(record);
+    byNode.set(nodeId, list);
+  }
+  return byNode;
+}
+
+/**
+ * The role evidence for one completed node. `usage.jsonl` records are the
+ * priced source; persisted snapshot invocations stand in only when the ledger
+ * has no record for the node, so provenance is still the recorded value and
+ * never a recomputation. A role whose invocations are not all priced has no
+ * cost evidence (null), rather than a partial sum.
+ *
+ * @param {"worker"|"judge"} role
+ * @param {Record<string, unknown>[]} usageRecords
+ * @param {Record<string, unknown>[]} invocations
+ * @param {Record<string, any>} contract
+ * @param {Record<string, any>|undefined} contractNode
+ * @returns {CompletedExecutionRole|null}
+ */
+function roleEvidence(role, usageRecords, invocations, contract, contractNode) {
+  const fromUsage = usageRecords.filter((record) => record?.role === role);
+  const source = fromUsage.length > 0
+    ? fromUsage
+    : invocations.filter((invocation) => invocation?.role === role || invocation?.phase === role);
+  if (source.length === 0) return null;
+  const last = source[source.length - 1];
+  const defaultRuntime = role === "worker" ? contract.runtimeDefaults?.worker : contract.runtimeDefaults?.judge;
+  const gateRuntime = contractNode?.gate && typeof contractNode.gate === "object" ? contractNode.gate.runtime : null;
+  const declaredRuntime = role === "worker" ? contractNode?.runtime : gateRuntime;
+  const runtimeId = typeof last.runtimeId === "string" && last.runtimeId
+    ? last.runtimeId
+    : typeof declaredRuntime === "string" && declaredRuntime
+      ? declaredRuntime
+      : typeof defaultRuntime === "string" && defaultRuntime ? defaultRuntime : null;
+  const runtimes = contract.runtimes && typeof contract.runtimes === "object" && !Array.isArray(contract.runtimes)
+    ? /** @type {Record<string, any>} */ (contract.runtimes)
+    : {};
+  const declaredModel = runtimeId !== null && runtimes[runtimeId] && typeof runtimes[runtimeId].model === "string" ? runtimes[runtimeId].model : null;
+  const model = typeof last.model === "string" && last.model ? last.model : declaredModel;
+  const priced = source.every((record) => typeof record.costUsd === "number" && Number.isFinite(record.costUsd) && record.costProvenance === "priced");
+  const costUsd = priced ? source.reduce((total, record) => total + /** @type {number} */ (record.costUsd), 0) : null;
+  return { runtimeId, model, costUsd, costProvenance: costUsd === null ? null : "priced" };
+}
+
+/**
+ * The elapsed time between two ISO timestamps, or null when either is missing
+ * or the pair is not ordered.
+ *
+ * @param {unknown} start
+ * @param {unknown} end
+ * @returns {number|null}
+ */
+function elapsedBetween(start, end) {
+  const startMs = typeof start === "string" ? Date.parse(start) : NaN;
+  const endMs = typeof end === "string" ? Date.parse(end) : NaN;
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs < startMs) return null;
+  return endMs - startMs;
+}
+
+/**
+ * The recorded verification elapsed time: the sum of each attempt's reported
+ * `durationMs`, or its start/completed pair when the duration is absent. A
+ * verification object with no `attempts` array is not recorded and returns
+ * null; an empty attempts array is a recorded zero.
+ *
+ * @param {unknown} verification
+ * @returns {number|null}
+ */
+function verificationElapsed(verification) {
+  if (!verification || typeof verification !== "object" || Array.isArray(verification)) return null;
+  const record = /** @type {Record<string, unknown>} */ (verification);
+  if (!Array.isArray(record.attempts)) return null;
+  let total = 0;
+  for (const attempt of record.attempts) {
+    if (!attempt || typeof attempt !== "object") return null;
+    const entry = /** @type {Record<string, unknown>} */ (attempt);
+    const result = entry.result && typeof entry.result === "object" ? /** @type {Record<string, unknown>} */ (entry.result) : null;
+    const duration = result && typeof result.durationMs === "number" && Number.isFinite(result.durationMs) ? result.durationMs : null;
+    const measured = duration !== null ? duration : elapsedBetween(entry.startedAt, entry.completedAt);
+    if (measured === null) return null;
+    total += measured;
+  }
+  return total;
+}
