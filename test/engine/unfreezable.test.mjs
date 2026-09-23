@@ -8,6 +8,7 @@
  * unbounded git lives in `test/repo/source-shape.test.mjs`; case 5 here checks
  * the call sites this packet owns.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";

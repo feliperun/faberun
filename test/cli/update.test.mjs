@@ -1,3 +1,4 @@
+import "../scoped-home.mjs";
 import test, { after, before } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";

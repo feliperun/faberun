@@ -1,3 +1,4 @@
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
@@ -20,7 +21,6 @@ import { writeHeartbeat } from "../../src/engine/supervise.mjs";
 import { processStartToken } from "../../src/run/lock.mjs";
 import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 import { packet, closeResult, waitForValue, withFakeCodex } from "../helpers.mjs";
-
 /** @typedef {import("../../src/contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {import("../../src/contract/index.mjs").ControllerIdentity} ControllerIdentity */
 /** @typedef {{baseRef: string|undefined, controllerIdentity: ControllerIdentity, runDir: string, contract: ValidatedContract}} ChainLaunchContext */

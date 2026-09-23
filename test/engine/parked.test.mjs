@@ -6,6 +6,7 @@
  * re-nags on a schedule, and a node whose remedy is "try again" gets exactly
  * one automatic retry whose consumption survives a controller restart.
  */
+import "../scoped-home.mjs";
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";

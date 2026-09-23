@@ -11,6 +11,7 @@
  * Every run is driven through the replay harness with `maxParallel: 1`, so
  * node order is deterministic and no provider is reached.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";

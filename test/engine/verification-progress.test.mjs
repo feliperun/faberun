@@ -11,6 +11,7 @@
  * back filtered to entries that carry progress, so that second pass cannot
  * be mistaken for the one under test.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";

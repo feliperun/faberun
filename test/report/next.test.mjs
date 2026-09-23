@@ -4,6 +4,7 @@
  * build run directories by hand — node snapshots are plain JSON that `next`
  * parses tolerantly, so no controller or provider has to run.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

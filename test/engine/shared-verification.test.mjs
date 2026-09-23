@@ -9,6 +9,7 @@
  * The run is driven through the replay harness, so no provider is reached and
  * every case is deterministic.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync } from "node:fs";

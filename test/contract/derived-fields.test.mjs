@@ -4,6 +4,7 @@
  * removal; the commit half of these tests pins the worktree-HEAD derivation the
  * remaining derived fields (commit, digest, worktreeIdentity) build on.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";

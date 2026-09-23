@@ -17,6 +17,7 @@
  * reads what processes actually overlapped rather than what a snapshot
  * happened to say at one instant.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";

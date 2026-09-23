@@ -9,6 +9,7 @@
  * the file is run without the runner (`node --test test/repo/`) and so a
  * regression that drops the preload from the script still fails here.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

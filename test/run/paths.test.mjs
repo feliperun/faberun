@@ -6,6 +6,7 @@
  * that would only assert the function equals itself. Every other test
  * composes a fixture path through this module's resolver instead.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, realpathSync } from "node:fs";

@@ -8,6 +8,7 @@
  * implementation: with `node:fs` mocked to permit nothing but reading the
  * handed contract.json, a persisted load still succeeds.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

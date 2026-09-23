@@ -9,6 +9,7 @@
  * than the controller, and because that file crossed the 800-line ceiling
  * carrying both jobs.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";

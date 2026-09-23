@@ -8,6 +8,7 @@
  * the judge role. The reviewer is reached only as the *worker* of the review
  * stage's contract, which is built after the draft has already been bought.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { askPlanningRuntimes, refusePlanningSilence } from "../../src/plan/preflight.mjs";
