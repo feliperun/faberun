@@ -286,4 +286,11 @@ Before starting new work here, check `.runs/`: if a campaign is active or a run 
   - run `campaign-brief-plan-spec-critique-spec-review-4`: succeeded (1/1 nodes)
   - run `campaign-brief-plan-implementation-draft-1`: succeeded (1/1 nodes)
   - run `campaign-brief-plan-implementation-review-2`: parked — `review:stalled stall_timeout` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/c192cf43-c4cf-4ac1-835e-f1618f395504/runs/campaign-brief-plan-implementation-review-2`
+  - run `campaign-brief-plan-implementation-r2-draft-1`: succeeded (1/1 nodes)
+  - run `campaign-brief-plan-implementation-r2-review-2`: succeeded (1/1 nodes)
+  - run `campaign-brief-plan-implementation-r2-revise-3`: succeeded (1/1 nodes)
+  - run `campaign-brief-plan-implementation-r2-review-4`: succeeded (1/1 nodes)
+  - run `campaign-brief-implementation-r3`: parked — `freeze-plan-identity:exhausted quota_exhausted`, `brief-markdown-core:blocked dependency_failed`, `brief-expense-estimate:blocked dependency_failed`, `brief-graph-decisions:blocked dependency_failed`, `brief-render-html:blocked dependency_failed`, `brief-cli-generate:blocked dependency_failed`, +1 more — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/c192cf43-c4cf-4ac1-835e-f1618f395504/runs/campaign-brief-implementation-r3`
+  - run `campaign-brief-implementation-r3-deepseek`: parked — `brief-expense-estimate:failed unexpected_write`, `brief-graph-decisions:blocked dependency_failed`, `brief-render-html:blocked dependency_failed`, `brief-cli-generate:blocked dependency_failed`, `brief-serve-loopback:blocked dependency_failed` — resume `node src/cli.mjs resume /Users/frb/.faberun/projects/c192cf43-c4cf-4ac1-835e-f1618f395504/runs/campaign-brief-implementation-r3-deepseek`
+  - attention: contract campaign-brief-implementation-r3-deepseek run parked: node brief-expense-estimate failed [unexpected_write] (run_parked)
 <!-- faberun-active:end -->
