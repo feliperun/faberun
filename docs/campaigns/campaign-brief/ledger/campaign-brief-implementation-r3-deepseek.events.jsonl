@@ -1,0 +1,14 @@
+{"at":"2026-09-22T23:54:57.627Z","node":"freeze-plan-identity","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-23T00:04:24.791Z","node":"freeze-plan-identity","to":"done","phase":"complete","runtime":"dsh-deepseek-flash","verdict":"pass"}
+{"at":"2026-09-23T00:04:27.320Z","node":"brief-markdown-core","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-23T00:12:13.362Z","node":"brief-markdown-core","to":"running","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-23T00:21:03.237Z","node":"brief-markdown-core","to":"running","phase":"judge","runtime":"codex-sol","verdict":"fail","revisions":1}
+{"at":"2026-09-23T00:22:29.312Z","node":"brief-markdown-core","to":"running","phase":"judge","runtime":"codex-sol","verdict":"fail","revisions":1}
+{"at":"2026-09-23T00:23:30.526Z","node":"brief-markdown-core","to":"done","phase":"complete","runtime":"codex-sol","verdict":"fail","revisions":1}
+{"at":"2026-09-23T00:23:32.069Z","node":"brief-expense-estimate","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-23T00:34:03.968Z","node":"brief-expense-estimate","to":"failed","phase":"worker","runtime":"dsh-deepseek-flash","error":"unexpected_write"}
+{"at":"2026-09-23T00:34:03.968Z","node":"brief-expense-estimate","to":"failed","phase":"worker","runtime":"dsh-deepseek-flash","error":"unexpected_write"}
+{"at":"2026-09-23T00:34:05.028Z","node":"brief-graph-decisions","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-23T00:34:05.048Z","node":"brief-render-html","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-23T00:34:05.068Z","node":"brief-cli-generate","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-23T00:34:05.085Z","node":"brief-serve-loopback","to":"blocked","phase":"dependency","error":"dependency_failed"}

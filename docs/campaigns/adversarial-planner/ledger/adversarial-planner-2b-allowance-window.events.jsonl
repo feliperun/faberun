@@ -1,0 +1,4 @@
+{"at":"2026-09-17T13:40:34.617Z","node":"allowance-window-pinned","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T13:58:10.767Z","node":"allowance-window-pinned","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T14:00:47.970Z","node":"allowance-window-pinned","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-17T14:03:09.146Z","node":"allowance-window-pinned","to":"blocked","phase":"complete","runtime":"claude-sonnet-worker","verdict":"fail","error":"context_missing","revisions":1}

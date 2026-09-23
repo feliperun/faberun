@@ -1,0 +1,14 @@
+{"at":"2026-09-15T11:23:42.163Z","node":"spend-less-per-node","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T11:38:44.706Z","node":"spend-less-per-node","to":"pending","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T11:38:44.706Z","node":"spend-less-per-node","to":"pending","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T11:38:45.823Z","node":"spend-less-per-node","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T11:53:48.558Z","node":"spend-less-per-node","to":"stalled","phase":"worker","runtime":"dsh-deepseek-flash","error":"stall_timeout"}
+{"at":"2026-09-15T11:54:28.447Z","node":"spend-less-per-node","to":"pending","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T11:54:30.103Z","node":"spend-less-per-node","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T12:13:07.351Z","node":"spend-less-per-node","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-15T12:25:50.801Z","node":"spend-less-per-node","to":"pending","phase":"worker","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-15T12:25:52.044Z","node":"spend-less-per-node","to":"running","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-15T12:40:53.937Z","node":"spend-less-per-node","to":"stalled","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","error":"stall_timeout","revisions":1}
+{"at":"2026-09-15T12:46:31.661Z","node":"spend-less-per-node","to":"pending","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-15T12:46:33.411Z","node":"spend-less-per-node","to":"running","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-15T12:58:57.564Z","node":"spend-less-per-node","to":"exhausted","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","error":"verification_failed","revisions":1}

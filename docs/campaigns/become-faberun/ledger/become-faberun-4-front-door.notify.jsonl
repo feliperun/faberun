@@ -1,0 +1,6 @@
+{"at":"2026-09-16T03:23:41.698Z","dedupeKey":"node.terminal:become-faberun-4-front-door:skill-references:done:1:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T03:43:37.497Z","dedupeKey":"node.terminal:become-faberun-4-front-door:docs-accuracy:done:1:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T03:54:57.137Z","dedupeKey":"node.terminal:become-faberun-4-front-door:readme-front-door:blocked:2:1","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T03:54:57.234Z","dedupeKey":"run.terminal:become-faberun-4-front-door:attention","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T04:18:06.228Z","dedupeKey":"node.terminal:become-faberun-4-front-door:readme-front-door:done:3:1","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T04:18:06.320Z","dedupeKey":"run.terminal:become-faberun-4-front-door:done","attempt":1,"status":"delivered"}

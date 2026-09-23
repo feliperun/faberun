@@ -1,0 +1,16 @@
+{"at":"2026-09-18T16:29:13.786Z","node":"a-contract-can-join-an-active-campaign","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-18T16:44:44.739Z","node":"a-contract-can-join-an-active-campaign","to":"running","phase":"judge","runtime":"deepseek-flash-judge"}
+{"at":"2026-09-18T16:47:22.775Z","node":"a-contract-can-join-an-active-campaign","to":"done","phase":"complete","runtime":"deepseek-flash-judge","verdict":"pass"}
+{"at":"2026-09-18T16:47:24.532Z","node":"a-cancelled-run-releases-what-it-will-never-reuse","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-18T17:07:10.586Z","node":"a-cancelled-run-releases-what-it-will-never-reuse","to":"running","phase":"judge","runtime":"deepseek-flash-judge"}
+{"at":"2026-09-18T17:07:47.009Z","node":"a-cancelled-run-releases-what-it-will-never-reuse","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-18T17:11:56.066Z","node":"a-cancelled-run-releases-what-it-will-never-reuse","to":"pending","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-18T17:11:56.066Z","node":"a-cancelled-run-releases-what-it-will-never-reuse","to":"pending","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-18T17:11:58.612Z","node":"a-cancelled-run-releases-what-it-will-never-reuse","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-18T17:12:01.993Z","node":"a-cancelled-run-releases-what-it-will-never-reuse","to":"failed","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","error":"provider_error","revisions":1}
+{"at":"2026-09-18T17:12:03.039Z","node":"a-refusal-says-what-would-fix-it","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-18T17:54:59.087Z","node":"a-cancelled-run-releases-what-it-will-never-reuse","to":"pending","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-18T17:54:59.113Z","node":"a-refusal-says-what-would-fix-it","to":"pending","phase":"worker"}
+{"at":"2026-09-18T17:55:01.472Z","node":"a-cancelled-run-releases-what-it-will-never-reuse","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-18T18:08:50.255Z","node":"a-cancelled-run-releases-what-it-will-never-reuse","to":"blocked","phase":"complete","runtime":"claude-sonnet-worker","verdict":"fail","error":"context_missing","revisions":1}
+{"at":"2026-09-18T18:08:51.302Z","node":"a-refusal-says-what-would-fix-it","to":"blocked","phase":"dependency","error":"dependency_failed"}

@@ -1,5 +1,4 @@
 import {
-  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
@@ -11,11 +10,14 @@ import { writeJsonAtomic } from "../run/store.mjs";
 import { projectIdForRunsDir, repositoryForRunsDir } from "../run/paths.mjs";
 import { requireId, requirePacketHash, requireString, requireTimestamp } from "../contract/assert.mjs";
 import { promoteRun } from "../repo/integrate.mjs";
-import { CAMPAIGN_FILE, GOAL_TEXT_BYTES, JOURNAL_FILE, PROJECTION_FILE, campaignDir, campaignsDir } from "./layout.mjs";
+import { CAMPAIGN_FILE, GOAL_TEXT_BYTES, PROJECTION_FILE, campaignDir, campaignsDir } from "./layout.mjs";
 import { readCampaign } from "./record.mjs";
 import { appendJournal, normalizeText, readJournalForDedupe } from "./journal.mjs";
 import { readProjectionState } from "./projection.mjs";
 import { handoffFromState, materializeHandoff } from "./handoff.mjs";
+import { preserveCampaignLedger, reledgerCampaignLedger } from "./ledger.mjs";
+
+export { preserveCampaignLedger, reledgerCampaignLedger } from "./ledger.mjs";
 
 /** @typedef {Record<string, unknown>} JsonObject */
 /** @typedef {{path: string, digest: string}} CampaignContract */
@@ -23,7 +25,8 @@ import { handoffFromState, materializeHandoff } from "./handoff.mjs";
 /** @typedef {{code: string, message: string, at: string, contractPath?: string, contractId?: string, runId?: string, node?: string|null, status?: string|null, resume?: string}} CampaignAttention */
 /** @typedef {{runId: string, node: string, passed: boolean|null, verdict: string|null}} RequirementNodeEvidence */
 /** @typedef {{requirementId: string, status: "covered"|"open", nodes: RequirementNodeEvidence[]}} RequirementClosure */
-/** @typedef {{id: string, goal: string, status: "active"|"closed", linkedRunIds: string[], contracts: CampaignContract[], landBranch: string, promotions: PromotionRecord[], attention?: CampaignAttention, requirements?: RequirementClosure[], createdAt: string, updatedAt: string, closedAt?: string}} Campaign */
+/** @typedef {{oldPath: string, newPath: string, runIds: string[], at: string}} ContractReplacement */
+/** @typedef {{id: string, goal: string, status: "active"|"closed", linkedRunIds: string[], contracts: CampaignContract[], replacements?: ContractReplacement[], landBranch: string, promotions: PromotionRecord[], attention?: CampaignAttention, requirements?: RequirementClosure[], createdAt: string, updatedAt: string, closedAt?: string}} Campaign */
 /** @typedef {{type: string, eventId: string, at: string, sessionId?: string, text?: string, tool?: string, transcript?: string|null, transcriptUnavailable?: boolean, format?: string|null, cursor?: string|null, decisionId?: string, supersedes?: string, runId?: string, questionId?: string, campaignId?: string, nodeId?: string|null, phase?: string, checkpointsDone?: number, checkpointsTotal?: number, runtime?: string|null, state?: string, lastProgressAt?: string, attention?: string|null}} JournalEntry */
 /** @typedef {{updatedAt: string|null, decisions: Record<string, JournalEntry>, questions: Record<string, JournalEntry>, constraints: JournalEntry[], intents: JournalEntry[], outcomes: JournalEntry[], sessions: JournalEntry[], next: JournalEntry|null, evicted: Record<string, number>}} Projection */
 /** @typedef {{cursor: number, byte: number, size: number, projection: Projection}} ProjectionRecord */
@@ -55,6 +58,7 @@ export function initializeCampaign(runsDir, { campaignId, goal, at = new Date().
     status: "active",
     linkedRunIds: [],
     contracts: validatedContracts,
+    replacements: [],
     landBranch: branch,
     promotions: [],
     createdAt: at,
@@ -126,7 +130,7 @@ export function resolveCampaign(runsDir, campaignId) {
 /**
  * @param {string} campaignPath
  * @param {{at?: string, eventId?: string}} options
- * @returns {{path: string, campaign: Campaign, ledgerFiles: string[]}}
+ * @returns {{path: string, campaign: Campaign, ledgerFiles: string[], ledgerSkipped: {runId: string, source: string}[]}}
  */
 export function closeCampaign(campaignPath, { at = new Date().toISOString(), eventId = randomUUID() } = {}) {
   requireTimestamp(at, "at");
@@ -140,8 +144,6 @@ export function closeCampaign(campaignPath, { at = new Date().toISOString(), eve
   if (unacknowledged.length) {
     throw new Error(`campaign ${campaign.id} has judge findings no note has answered: ${unacknowledged.join("; ")}. Read them with \`faberun findings <run-dir>\`, then name the node in a note (\`campaign note ${campaign.id} --kind outcome --run-id <run-id> --text "...<node>..."\`) before close`);
   }
-  const repoRoot = campaignRepoRoot(campaignPath);
-  const ledgerFiles = preserveCampaignLedger(campaignPath, repoRoot);
   // The closure travels on the record itself, computed in one deterministic
   // pass over the linked runs' own files before the close is written.
   const requirements = buildRequirementClosure(campaignPath, campaign);
@@ -149,7 +151,24 @@ export function closeCampaign(campaignPath, { at = new Date().toISOString(), eve
   const closed = { ...campaign, status: "closed", closedAt: at, updatedAt: at, requirements };
   writeJsonAtomic(join(campaignPath, CAMPAIGN_FILE), closed);
   appendJournal(campaignPath, { type: "campaign.closed", at, eventId });
-  return { path: campaignPath, campaign: closed, ledgerFiles };
+  // Preserve after the closed record exists: the ledger is the recomputable
+  // closed record, including requirements used by the north-star projector.
+  const ledger = preserveCampaignLedger(campaignPath, campaignRepoRoot(campaignPath));
+  return { path: campaignPath, campaign: closed, ledgerFiles: ledger.written, ledgerSkipped: ledger.skipped };
+}
+
+/**
+ * Complete the versioned evidence ledger of a closed campaign. Unlike close,
+ * this operation never updates the campaign record or journal: it only adds
+ * surviving run sources beneath the repository's ledger directory.
+ *
+ * @param {string} campaignPath
+ * @returns {import("./ledger.mjs").LedgerReledger & {ledgerDir: string}}
+ */
+export function reledgerCampaign(campaignPath) {
+  const campaign = readCampaign(campaignPath);
+  if (campaign.status !== "closed") throw new Error(`campaign is not closed: ${campaign.id}`);
+  return reledgerCampaignLedger(campaignPath, campaignRepoRoot(campaignPath));
 }
 
 /**
@@ -291,46 +310,6 @@ function campaignRepoRoot(campaignPath) {
 }
 
 /**
- * Copy a campaign's journal, record and each linked run's usage into
- * `<repoRoot>/docs/campaigns/<id>/ledger/` so the comparative arm of the
- * planner has a session-side baseline even after `.runs/` (gitignored) is
- * pruned. Nothing in this tree redacts token counts, costs or operator notes
- * before this point, so the copy is verbatim; the pre-commit secret scan is
- * the guard against anything that should not land in git.
- *
- * Idempotent: re-running it (a second `close` on an already-closed campaign
- * cannot reach this, but a direct call can) overwrites the same destination
- * files rather than duplicating them. A linked run without a `usage.jsonl`
- * (never launched, or pruned) is skipped rather than thrown.
- *
- * @param {string} campaignPath
- * @param {string} repoRoot
- * @returns {string[]}
- */
-export function preserveCampaignLedger(campaignPath, repoRoot) {
-  const campaign = readCampaign(campaignPath);
-  const runsDir = resolve(campaignPath, "..", "..");
-  const ledgerDir = join(repoRoot, "docs", "campaigns", campaign.id, "ledger");
-  mkdirSync(ledgerDir, { recursive: true });
-  const written = [];
-  for (const name of [JOURNAL_FILE, CAMPAIGN_FILE]) {
-    const source = join(campaignPath, name);
-    if (!existsSync(source)) continue;
-    const destination = join(ledgerDir, name);
-    copyFileSync(source, destination);
-    written.push(destination);
-  }
-  for (const runId of campaign.linkedRunIds) {
-    const source = join(runsDir, runId, "usage.jsonl");
-    if (!existsSync(source)) continue;
-    const destination = join(ledgerDir, `${runId}.usage.jsonl`);
-    copyFileSync(source, destination);
-    written.push(destination);
-  }
-  return written;
-}
-
-/**
  * @param {string} campaignPath
  * @param {string} runId
  * @param {string} at
@@ -422,6 +401,7 @@ export function addContractToCampaign(campaignPath, contractPath, { at = new Dat
     : campaign.contracts.map((existing, index) => (index === existingIndex ? entry : existing));
   const updated = /** @type {Campaign} */ ({ ...campaign, contracts, updatedAt: at });
   writeJsonAtomic(join(campaignPath, CAMPAIGN_FILE), updated);
+  appendJournal(campaignPath, { type: "operator.command", eventId: randomUUID(), at, command: "campaign add-contract" });
   return { campaign: updated, added: true };
 }
 
@@ -458,11 +438,41 @@ export function replaceContractInCampaign(campaignPath, oldPath, newPath, { at =
   const contracts = campaign.contracts.map((entry, position) => (position === index ? replaced : entry));
   const attention = campaign.attention;
   const clearAttention = attention !== undefined && attention.contractPath === oldPath;
+  const replacementRunIds = replacedRunIds(campaignPath, campaign, oldPath, newPath, attention?.runId);
+  const replacement = { oldPath, newPath, runIds: replacementRunIds, at };
   /** @type {Campaign} */
-  const updated = { ...campaign, contracts, updatedAt: at };
+  const updated = { ...campaign, contracts, replacements: [...(campaign.replacements ?? []), replacement], updatedAt: at };
   if (clearAttention) delete updated.attention;
   writeJsonAtomic(join(campaignPath, CAMPAIGN_FILE), updated);
   return { campaign: updated, replaced, clearedAttention: clearAttention ? /** @type {CampaignAttention} */ (attention) : null };
+}
+
+/**
+ * Identify the run whose authored contract is being re-issued. The parked
+ * attention is the authoritative link when present; matching the old
+ * contract id also covers a replacement requested before the run was parked.
+ *
+ * @param {string} campaignPath
+ * @param {Campaign} campaign
+ * @param {string} oldPath
+ * @param {string} newPath
+ * @param {string|undefined} attentionRunId
+ * @returns {string[]}
+ */
+function replacedRunIds(campaignPath, campaign, oldPath, newPath, attentionRunId) {
+  const ids = new Set();
+  if (attentionRunId !== undefined && campaign.linkedRunIds.includes(attentionRunId)) ids.add(attentionRunId);
+  const oldContract = readRunJson(oldPath);
+  const oldId = oldContract !== null && typeof oldContract.id === "string" ? oldContract.id : null;
+  if (oldId !== null && campaign.linkedRunIds.includes(oldId)) ids.add(oldId);
+  const runsDir = resolve(campaignPath, "..", "..");
+  for (const runId of campaign.linkedRunIds) {
+    const runContract = readRunJson(join(runsDir, runId, "contract.json"));
+    if (runContract !== null && oldId !== null && runContract.id === oldId) ids.add(runId);
+  }
+  const replacementContract = readRunJson(newPath);
+  const replacementId = replacementContract !== null && typeof replacementContract.id === "string" ? replacementContract.id : null;
+  return [...ids].filter((runId) => replacementId === null || runId !== replacementId).sort();
 }
 
 /**
@@ -584,4 +594,3 @@ export function renderRunHandoff(runDir) {
   if (!existsSync(join(path, CAMPAIGN_FILE))) return null;
   return renderHandoff(path, runsDir);
 }
-

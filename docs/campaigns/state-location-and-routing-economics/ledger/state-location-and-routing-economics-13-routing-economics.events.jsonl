@@ -1,0 +1,9 @@
+{"at":"2026-09-21T08:20:35.657Z","node":"catalogue-observed-runtime-data","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T08:53:40.662Z","node":"measure-repeated-packet-bytes","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T08:53:56.661Z","node":"catalogue-observed-runtime-data","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"pass"}
+{"at":"2026-09-21T09:17:55.943Z","node":"declare-routing-strategy","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T09:18:05.389Z","node":"measure-repeated-packet-bytes","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-21T09:25:40.395Z","node":"measure-repeated-packet-bytes","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-21T10:00:08.779Z","node":"declare-routing-strategy","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"pass"}
+{"at":"2026-09-21T10:00:10.917Z","node":"attempt-affinity-yields","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T11:09:48.672Z","node":"attempt-affinity-yields","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"pass"}

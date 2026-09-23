@@ -1,0 +1,11 @@
+{"at":"2026-09-19T06:20:32.706Z","node":"migrating-is-safe-to-run-twice","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-19T06:50:00.702Z","node":"migrating-is-safe-to-run-twice","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-19T06:52:09.953Z","node":"migrating-is-safe-to-run-twice","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-19T06:52:37.641Z","node":"migrating-is-safe-to-run-twice","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-19T07:12:27.527Z","node":"migrating-is-safe-to-run-twice","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-19T07:16:18.442Z","node":"migrating-is-safe-to-run-twice","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass","revisions":1}
+{"at":"2026-09-19T07:16:20.082Z","node":"the-status-line-follows-the-state","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-19T07:44:00.910Z","node":"the-status-line-follows-the-state","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-19T08:27:22.092Z","node":"the-status-line-follows-the-state","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-19T08:41:36.703Z","node":"the-status-line-follows-the-state","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-19T08:59:09.894Z","node":"the-status-line-follows-the-state","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass","revisions":1}

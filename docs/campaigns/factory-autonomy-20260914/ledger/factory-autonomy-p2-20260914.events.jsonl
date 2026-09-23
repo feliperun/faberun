@@ -1,0 +1,7 @@
+{"at":"2026-09-15T01:04:58.740Z","node":"persisted-load-is-pure","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T01:26:39.615Z","node":"persisted-load-is-pure","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T01:29:56.829Z","node":"persisted-load-is-pure","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-15T01:36:41.931Z","node":"persisted-load-is-pure","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass"}
+{"at":"2026-09-15T01:36:43.071Z","node":"parked-not-finished","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T02:02:36.533Z","node":"parked-not-finished","to":"failed","phase":"worker","runtime":"dsh-deepseek-flash","error":"unexpected_write"}
+{"at":"2026-09-15T02:02:36.533Z","node":"parked-not-finished","to":"failed","phase":"worker","runtime":"dsh-deepseek-flash","error":"unexpected_write"}

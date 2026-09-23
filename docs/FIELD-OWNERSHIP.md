@@ -29,7 +29,7 @@ writer per field` — re-derives every writer from `src/` and fails when the
 derivation disagrees with this document. The document is the declaration; the
 test is what keeps it from becoming fiction on the third change.
 
-**Measured 2026-09-20 against this tree:** 32 `events.jsonl` fields and 15
+**Measured 2026-09-20 against this tree:** 32 `events.jsonl` fields and 16
 `journal.jsonl` event types. Fifteen entries have more than one writer today.
 Those fifteen are the ratchet at the end of this file; they are declared, not
 fixed, because changing who writes a field is a behavior change and belongs to
@@ -115,6 +115,7 @@ document and the schema cannot drift apart.
 | `next` | `note` | `at`, `type`, `eventId`, `sessionId`, `text` | when a note of that kind is recorded |
 | `open-question` | `note` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when a note of that kind is recorded |
 | `question.resolved` | `resolveQuestion` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when `campaign note --resolve` runs |
+| `operator.command` | `addContractToCampaign` | `at`, `type`, `eventId`, `command`, `sessionId`, `runId` | when a campaign-changing operator command is recorded |
 | `retrospective` | `note` | `at`, `type`, `eventId`, `sessionId`, `text` | when a note of that kind is recorded |
 | `seat.allowance` | `appendSeatAllowanceEvent` | `at`, `type`, `eventId`, `sample`, `harness`, `remaining`, `limit`, `resetsAt`, `delta`, `window` | when `campaign init` samples the operator's own seat allowance at campaign start (`sample: "start"`, `harness` from env-marker detection, `delta: null`), and when `plan freeze` re-samples that exact same harness (not the plan's worker runtime) at plan freeze (`sample: "freeze"`, `delta` against the start sample, or `null` with no start entry to compare against); `window` names the rate-limit window the sample measured (claude's `rateLimitType`, e.g. `"seven_day"`), so a delta across two differently-governed windows can be told apart from a real one |
 
@@ -238,6 +239,7 @@ behavior, and a node that declares must not also move the thing it declares.
     "next": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "text"] },
     "open-question": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "questionId", "text"] },
     "question.resolved": { "writers": ["resolveQuestion"], "fields": ["at", "type", "eventId", "sessionId", "questionId", "text"] },
+    "operator.command": { "writers": ["addContractToCampaign"], "fields": ["at", "type", "eventId", "command", "sessionId", "runId"] },
     "retrospective": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "text"] },
     "seat.allowance": { "writers": ["appendSeatAllowanceEvent"], "fields": ["at", "type", "eventId", "sample", "harness", "remaining", "limit", "resetsAt", "delta", "window"] }
   },

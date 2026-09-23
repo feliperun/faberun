@@ -1,0 +1,3 @@
+{"at":"2026-09-18T12:48:38.134Z","node":"the-runs-directory-is-machine-owned-on-purpose","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-18T13:07:25.135Z","node":"the-runs-directory-is-machine-owned-on-purpose","to":"running","phase":"judge","runtime":"deepseek-flash-judge"}
+{"at":"2026-09-18T13:25:34.700Z","node":"the-runs-directory-is-machine-owned-on-purpose","to":"done","phase":"complete","runtime":"deepseek-flash-judge","verdict":"pass"}

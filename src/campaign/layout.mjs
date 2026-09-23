@@ -13,6 +13,7 @@ import { requireId } from "../contract/assert.mjs";
 export const CAMPAIGN_DIR_NAME = "campaigns";
 export const CAMPAIGN_FILE = "campaign.json";
 export const JOURNAL_FILE = "journal.jsonl";
+export const LEDGER_SOURCE_MANIFEST_FILE = "sources.json";
 export const HANDOFF_FILE = "HANDOFF.md";
 export const PROJECTION_FILE = "projection.json";
 export const JOURNAL_WATCH_CURSOR_DIR = "watch-cursors";

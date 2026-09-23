@@ -1,0 +1,12 @@
+{"at":"2026-09-17T21:37:15.824Z","node":"a-judge-that-writes-is-a-protocol-defect","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T22:09:25.380Z","node":"a-judge-that-writes-is-a-protocol-defect","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-17T22:28:13.359Z","node":"a-judge-that-writes-is-a-protocol-defect","to":"running","phase":"judge","runtime":"gemini-pro-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-17T22:37:32.460Z","node":"a-judge-that-writes-is-a-protocol-defect","to":"pending","phase":"judge","runtime":"deepseek-flash-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-17T22:37:32.460Z","node":"a-judge-that-writes-is-a-protocol-defect","to":"pending","phase":"judge","runtime":"deepseek-flash-judge","verdict":"fail","override":{},"revisions":1}
+{"at":"2026-09-17T22:37:33.708Z","node":"a-judge-that-writes-is-a-protocol-defect","to":"running","phase":"judge","runtime":"deepseek-flash-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-17T22:39:13.419Z","node":"a-judge-that-writes-is-a-protocol-defect","to":"running","phase":"judge","runtime":"deepseek-flash-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-17T22:41:11.324Z","node":"a-judge-that-writes-is-a-protocol-defect","to":"blocked","phase":"judge","runtime":"deepseek-flash-judge","verdict":"fail","error":"judge_unavailable","revisions":1}
+{"at":"2026-09-17T22:41:11.399Z","node":"a-judge-that-writes-is-a-protocol-defect","to":"pending","phase":"judge","runtime":"deepseek-flash-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-17T22:41:11.399Z","node":"a-judge-that-writes-is-a-protocol-defect","to":"pending","phase":"judge","runtime":"deepseek-flash-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-17T22:41:12.625Z","node":"a-judge-that-writes-is-a-protocol-defect","to":"running","phase":"judge","runtime":"deepseek-flash-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-17T22:43:07.608Z","node":"a-judge-that-writes-is-a-protocol-defect","to":"blocked","phase":"judge","runtime":"deepseek-flash-judge","verdict":"fail","error":"judge_unavailable","revisions":1}

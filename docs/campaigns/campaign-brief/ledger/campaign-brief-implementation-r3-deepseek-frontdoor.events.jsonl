@@ -1,0 +1,5 @@
+{"at":"2026-09-23T01:36:31.605Z","node":"brief-cli-generate","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-23T01:49:05.394Z","node":"brief-cli-generate","to":"done","phase":"complete","runtime":"dsh-deepseek-flash","verdict":"pass"}
+{"at":"2026-09-23T01:49:07.445Z","node":"brief-serve-loopback","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-23T01:59:54.907Z","node":"brief-serve-loopback","to":"running","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-23T02:29:43.942Z","node":"brief-serve-loopback","to":"exhausted","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","error":"mechanical_gate_failed","revisions":1}

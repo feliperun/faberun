@@ -1,0 +1,8 @@
+{"at":"2026-09-20T16:37:26.064Z","node":"the-draft-states-the-shape-it-demands","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-20T16:52:19.460Z","node":"the-draft-states-the-shape-it-demands","to":"running","phase":"judge","runtime":"codex-sol-judge"}
+{"at":"2026-09-20T16:53:56.277Z","node":"the-draft-states-the-shape-it-demands","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-20T17:00:08.799Z","node":"the-draft-states-the-shape-it-demands","to":"running","phase":"judge","runtime":"codex-sol-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-20T17:01:52.342Z","node":"the-draft-states-the-shape-it-demands","to":"done","phase":"complete","runtime":"codex-sol-judge","verdict":"pass","revisions":1}
+{"at":"2026-09-20T17:01:54.131Z","node":"an-absent-value-says-it-is-absent","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-20T17:22:53.642Z","node":"an-absent-value-says-it-is-absent","to":"running","phase":"judge","runtime":"codex-sol-judge"}
+{"at":"2026-09-20T17:38:02.057Z","node":"an-absent-value-says-it-is-absent","to":"done","phase":"complete","runtime":"codex-sol-judge","verdict":"pass"}

@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "evidence-you-can-recompute-b",
+  "campaignId": "evidence-you-can-recompute",
+  "goal": "evals/baseline.json recomputes from versioned ledgers and cites no machine path (R6).",
+  "cwd": "../../../..",
+  "maxParallel": 1,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 2400,
+  "maxTurns": 400,
+  "runtimeDefaults": {
+    "worker": "codex-luna",
+    "judge": "claude-opus"
+  },
+  "runtimes": {
+    "codex-luna": {
+      "harness": "codex",
+      "model": "gpt-5.6-luna",
+      "vendor": "openai",
+      "reasoning": "high",
+      "sandbox": "danger-full-access",
+      "fallback": "dsh-deepseek",
+      "tier": 2,
+      "costRank": 2
+    },
+    "dsh-deepseek": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "danger-full-access",
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "stallTimeoutSec": 900,
+      "tier": 1,
+      "costRank": 1
+    },
+    "claude-opus": {
+      "harness": "claude",
+      "model": "claude-opus-5-5",
+      "vendor": "anthropic",
+      "reasoning": "high",
+      "tier": 3,
+      "costRank": 3
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "timeoutSec": 60
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 60
+    }
+  ],
+  "nodes": [
+    {
+      "id": "baseline-from-ledgers",
+      "type": "backend",
+      "phase": "baseline",
+      "requirementIds": [
+        "R6"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2400,
+      "gate": false,
+      "definitionOfDone": [
+        {
+          "id": "r6-test-exists",
+          "text": "test/evals/baseline.test.mjs carries a test named exactly \"the baseline recomputes from versioned ledgers\"",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test(\"the baseline recomputes from versioned ledgers\"' test/evals/baseline.test.mjs"
+          }
+        },
+        {
+          "id": "r6-recomputes",
+          "text": "Every baseline indicator recomputes from the cited ledgers to the fourth decimal",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"the baseline recomputes from versioned ledgers\" test/evals/baseline.test.mjs"
+          }
+        },
+        {
+          "id": "r6-no-machine-paths",
+          "text": "evals/baseline.json cites no absolute machine path",
+          "proof": {
+            "kind": "verification",
+            "ref": 1
+          }
+        },
+        {
+          "id": "evals-green",
+          "text": "node evals/run.mjs --class deterministic --assert-no-model stays green",
+          "proof": {
+            "kind": "verification",
+            "ref": 2
+          }
+        },
+        {
+          "id": "evals-green",
+          "text": "node evals/run.mjs --class deterministic --assert-no-model stays green",
+          "proof": {
+            "kind": "verification",
+            "ref": 2
+          }
+        }
+      ],
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "Regenerate evals/baseline.json from the three most recent closed campaigns whose versioned ledger is complete, citing only repository-relative ledger directories, and prove it recomputes (R6).",
+        "instructions": [
+          "The three ledgers, chosen by the operator as the most recent closed campaigns whose ledger is complete after the R3 reledger (no linked-run source gone): docs/campaigns/first-target-frictions/ledger, docs/campaigns/campaign-brief/ledger, docs/campaigns/availability-is-verified-not-assumed/ledger. state-location-and-routing-economics is excluded because 17 of its sources no longer exist.",
+          "Compute the indicators with the ledger reader the previous contract added (`node evals/run.mjs --project-ledger <dir>` and the module behind it), merging the three ledgers' sources the way evals/metrics.mjs already merges several runs' sources. Today its provenance writes an absolute `ledgerDir` and `campaign: null`; the baseline must cite the ledger directories relative to the repository root and name each campaign.",
+          "Keep the baseline's existing shape (schemaVersion, provenance, indicators). The provenance note records the previous values and the reason each changed, in the same form as the 2026-09-12 note already in the file: say the baseline moved from five run directories of faberun-measurement-20260910 on the owner's machine to three versioned ledgers, and list the previous indicator values with their counts.",
+          "Write the proof test in the new file test/evals/baseline.test.mjs, named exactly: the baseline recomputes from versioned ledgers. It reads evals/baseline.json, recomputes every indicator from the cited ledger directories through the same code path, and asserts equality to the fourth decimal, including null indicators. It also asserts that no provenance path is absolute.",
+          "If anything else reads evals/baseline.json (search evals/ and test/), keep it working; the deterministic eval class must stay green."
+        ],
+        "readFiles": [
+          "docs/campaigns/evidence-you-can-recompute/spec/SPEC.md",
+          "AGENTS.md",
+          "evals/baseline.json",
+          "evals/metrics.mjs",
+          "evals/run.mjs"
+        ],
+        "writeRoots": [
+          "evals/baseline.json",
+          "evals/metrics.mjs",
+          "evals/run.mjs",
+          "evals/ledger.mjs",
+          "test/evals/baseline.test.mjs",
+          "test/evals/"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evidence-you-can-recompute of the leaving-home program; the spec is docs/campaigns/evidence-you-can-recompute/spec/SPEC.md and is the source of truth for every requirement this node carries. Read the requirement text there before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck must stay clean), no file over 800 lines, no name exported from two src modules, no top-level body defined twice, no barrel modules, no empty catch, every module keeps a header comment saying what it owns and why it is separate, comments record measurement not intent.",
+          "No new runtime dependency; package.json keeps no `dependencies`. No test calls a provider. No test writes to the operator's real home: tests run with the --import ./test/scoped-home.mjs setup the verification commands use.",
+          "Do NOT edit .gitignore or any other ignore source: the controller fails a node that changes one (snapshot_ignore_changed).",
+          "The proof test is pinned: create the test with exactly the name the Definition of Done quotes, in exactly the file it names. A --test-name-pattern that matches nothing still exits 0, so the DoD also checks the name exists.",
+          "Reuse the pieces the spec names instead of reimplementing them; keep the diff to what the requirement forces.",
+          "Code, comments and documents are in English. Never run git commit or git push: the controller seals and integrates your work."
+        ],
+        "nonGoals": [
+          "Changing any ledger",
+          "Changing the pricing seed",
+          "Any stochastic eval"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/evals/baseline.test.mjs",
+              "test/evals/resilience.test.mjs"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "sh",
+              "-c",
+              "! grep -q '/Users/' evals/baseline.json"
+            ],
+            "timeoutSec": 30
+          },
+          {
+            "argv": [
+              "node",
+              "evals/run.mjs",
+              "--class",
+              "deterministic",
+              "--assert-no-model"
+            ],
+            "timeoutSec": 600
+          }
+        ]
+      }
+    }
+  ]
+}

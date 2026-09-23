@@ -1,0 +1,8 @@
+{"at":"2026-09-22T23:43:01.889Z","node":"freeze-plan-identity","to":"running","phase":"worker","runtime":"zcode-glm-flash"}
+{"at":"2026-09-22T23:53:21.371Z","node":"freeze-plan-identity","to":"exhausted","phase":"worker","runtime":"zcode-glm-flash","error":"quota_exhausted"}
+{"at":"2026-09-22T23:53:22.478Z","node":"brief-markdown-core","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-22T23:53:22.549Z","node":"brief-expense-estimate","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-22T23:53:22.641Z","node":"brief-graph-decisions","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-22T23:53:22.755Z","node":"brief-render-html","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-22T23:53:22.859Z","node":"brief-cli-generate","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-22T23:53:22.954Z","node":"brief-serve-loopback","to":"blocked","phase":"dependency","error":"dependency_failed"}

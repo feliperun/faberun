@@ -81,6 +81,18 @@ export function validateCampaign(campaign) {
       requirePacketHash(/** @type {JsonObject} */ (entry).digest, `campaign.contracts[${index}].digest`);
     }
   }
+  if (record.replacements !== undefined) {
+    if (!Array.isArray(record.replacements)) throw new TypeError("campaign.replacements must be an array");
+    for (const [index, entry] of record.replacements.entries()) {
+      assertObject(entry, `campaign.replacements[${index}]`);
+      const replacement = /** @type {JsonObject} */ (entry);
+      requireString(replacement.oldPath, `campaign.replacements[${index}].oldPath`);
+      requireString(replacement.newPath, `campaign.replacements[${index}].newPath`);
+      requireTimestamp(replacement.at, `campaign.replacements[${index}].at`);
+      if (!Array.isArray(replacement.runIds)) throw new TypeError(`campaign.replacements[${index}].runIds must be an array`);
+      for (const runId of replacement.runIds) requireId(runId, `campaign.replacements[${index}].runIds[]`);
+    }
+  }
   if (record.landBranch !== undefined) requireText(record.landBranch, "campaign.landBranch");
   // The chain's durable park: the campaign stays active but carries the reason
   // it stopped, naming the contract, the node and the status when they exist.

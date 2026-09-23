@@ -1,0 +1,7 @@
+{"at":"2026-09-16T01:31:11.440Z","node":"install-review","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-16T01:33:20.884Z","node":"install-review","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-16T01:35:31.280Z","node":"install-review","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass"}
+{"at":"2026-09-16T01:35:32.539Z","node":"field-ownership-declaration","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-16T01:41:16.507Z","node":"field-ownership-declaration","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-16T01:50:22.990Z","node":"field-ownership-declaration","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-16T02:01:09.539Z","node":"field-ownership-declaration","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"fail"}

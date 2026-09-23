@@ -1,0 +1,729 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "evidence-you-can-recompute-a",
+  "campaignId": "evidence-you-can-recompute",
+  "goal": "Every number faberun states about itself recomputes from main: ledger sources, reledger, ledger metrics, north star, recovery-aware rates, unknown-cost reasons, the orchestration-arms record and one docs budget (R1 to R5, R7 to R9).",
+  "cwd": "../../../..",
+  "maxParallel": 2,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 2400,
+  "maxTurns": 400,
+  "runtimeDefaults": {
+    "worker": "codex-luna",
+    "judge": "claude-opus"
+  },
+  "runtimes": {
+    "codex-luna": {
+      "harness": "codex",
+      "model": "gpt-5.6-luna",
+      "vendor": "openai",
+      "reasoning": "high",
+      "sandbox": "danger-full-access",
+      "fallback": "dsh-deepseek",
+      "tier": 2,
+      "costRank": 2
+    },
+    "dsh-deepseek": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "danger-full-access",
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "stallTimeoutSec": 900,
+      "tier": 1,
+      "costRank": 1
+    },
+    "claude-opus": {
+      "harness": "claude",
+      "model": "claude-opus-5-5",
+      "vendor": "anthropic",
+      "reasoning": "high",
+      "tier": 3,
+      "costRank": 3
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "timeoutSec": 60
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 60
+    }
+  ],
+  "nodes": [
+    {
+      "type": "backend",
+      "phase": "ledger",
+      "requirementIds": [
+        "R1"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2400,
+      "id": "ledger-sources",
+      "definitionOfDone": [
+        {
+          "id": "r1-sources-exists",
+          "text": "test/campaign/ledger.test.mjs carries a test named exactly \"a closed ledger carries every source the projectors read\"",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test(\"a closed ledger carries every source the projectors read\"' test/campaign/ledger.test.mjs"
+          }
+        },
+        {
+          "id": "r1-sources",
+          "text": "A closed ledger carries events, notify, the node projection and proposals, idempotently, and names what was skipped",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"a closed ledger carries every source the projectors read\" test/campaign/ledger.test.mjs"
+          }
+        }
+      ],
+      "gate": false,
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "campaign close preserves every source the metrics and evals projectors read into docs/campaigns/<id>/ledger/ (R1).",
+        "instructions": [
+          "Today preserveCampaignLedger (src/campaign/index.mjs) copies journal.jsonl, campaign.json and each linked run's usage.jsonl. Extend it so each linked run also contributes `<runId>.events.jsonl` (its events.jsonl), `<runId>.notify.jsonl` (its notify.jsonl) and `<runId>.nodes.json`: a projection of the run's node snapshots with exactly the fields projectMetrics reads. The campaign's `proposals/` directory, when it exists, is copied to `ledger/proposals/`.",
+          "The node-snapshot projection already exists: readRunNodes in src/campaign/metrics.mjs reduces a snapshot to {id, status, attempt, revisions, review}. Export it under a descriptive name and have the ledger write exactly what it returns, so the field list lives in one place. notify.jsonl is included because projectMetrics reads it too; the requirement title is every source the projectors read.",
+          "Preservation stays idempotent (running close's copy twice yields the same files). A run missing one of these files is skipped and named, never thrown: preserveCampaignLedger returns what it wrote and what it skipped (run id and source), and `faberun campaign close` prints the skipped sources.",
+          "No prompt, diff or worker output enters the ledger: the sources are exactly the files above.",
+          "Write the proof test in test/campaign/ledger.test.mjs, named exactly: a closed ledger carries every source the projectors read. It builds a campaign with two linked runs in a temporary FABERUN_HOME (see the existing tests in that file), one run missing notify.jsonl, closes it, and asserts every file above, the field list of the nodes projection, the proposals copy, idempotence of a second copy, and that the missing source is reported."
+        ],
+        "readFiles": [
+          "docs/campaigns/evidence-you-can-recompute/spec/SPEC.md",
+          "AGENTS.md",
+          "src/campaign/index.mjs",
+          "src/campaign/metrics.mjs",
+          "src/cli/campaign.mjs",
+          "test/campaign/ledger.test.mjs"
+        ],
+        "writeRoots": [
+          "src/campaign/index.mjs",
+          "src/campaign/metrics.mjs",
+          "src/campaign/ledger.mjs",
+          "src/cli/campaign.mjs",
+          "test/campaign/ledger.test.mjs"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evidence-you-can-recompute of the leaving-home program; the spec is docs/campaigns/evidence-you-can-recompute/spec/SPEC.md and is the source of truth for every requirement this node carries. Read the requirement text there before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck must stay clean), no file over 800 lines, no name exported from two src modules, no top-level body defined twice, no barrel modules, no empty catch, every module keeps a header comment saying what it owns and why it is separate, comments record measurement not intent.",
+          "No new runtime dependency; package.json keeps no `dependencies`. No test calls a provider. No test writes to the operator's real home: tests run with the --import ./test/scoped-home.mjs setup the verification commands use.",
+          "Do NOT edit .gitignore or any other ignore source: the controller fails a node that changes one (snapshot_ignore_changed).",
+          "The proof test is pinned: create the test with exactly the name the Definition of Done quotes, in exactly the file it names. A --test-name-pattern that matches nothing still exits 0, so the DoD also checks the name exists.",
+          "Reuse the pieces the spec names instead of reimplementing them; keep the diff to what the requirement forces.",
+          "Code, comments and documents are in English. Never run git commit or git push: the controller seals and integrates your work."
+        ],
+        "nonGoals": [
+          "The reledger verb (next node)",
+          "Reading metrics from a ledger (a later node)"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/campaign/ledger.test.mjs",
+              "test/campaign/campaign.test.mjs"
+            ],
+            "timeoutSec": 300
+          }
+        ]
+      }
+    },
+    {
+      "type": "backend",
+      "phase": "ledger",
+      "requirementIds": [
+        "R3"
+      ],
+      "dependsOn": [
+        "ledger-sources"
+      ],
+      "timeoutSec": 2400,
+      "id": "reledger",
+      "definitionOfDone": [
+        {
+          "id": "manual-current",
+          "text": "docs/COMMANDS.md matches the command registry (npm run docs:check)",
+          "proof": {
+            "kind": "verification",
+            "ref": 1
+          }
+        },
+        {
+          "id": "r3-reledger-exists",
+          "text": "test/campaign/ledger.test.mjs carries a test named exactly \"reledger completes a ledger without losing what it had\"",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test(\"reledger completes a ledger without losing what it had\"' test/campaign/ledger.test.mjs"
+          }
+        },
+        {
+          "id": "r3-reledger",
+          "text": "reledger copies what is missing, keeps what exists, is idempotent and lists vanished runs",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"reledger completes a ledger without losing what it had\" test/campaign/ledger.test.mjs"
+          }
+        }
+      ],
+      "gate": false,
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "`faberun campaign reledger <campaign-id>` completes the versioned ledger of an already closed campaign without losing anything it had (R3).",
+        "instructions": [
+          "Add the operation `reledger` to `faberun campaign` (src/cli/campaign.mjs, with its flags scoped like the other operations: --cwd). It copies the R1 sources of every linked run that still exists in the operator's home into docs/campaigns/<id>/ledger/, reusing the copy the previous node built. It works on a closed campaign: it writes only under docs/campaigns/<id>/ledger/, never the campaign record or journal.",
+          "Never delete or shorten a file already in the ledger: when the destination exists and the source is not a strict extension of it (same leading bytes, longer), keep the destination. Running reledger twice gives the same result.",
+          "The output lists, per run, what was copied and what no longer exists.",
+          "The command manual is generated: update the command registry the manual reads and run `npm run docs` so docs/COMMANDS.md carries the new operation; `npm run docs:check` and test/docs/command-surface.test.mjs must pass.",
+          "Write the proof test in test/campaign/ledger.test.mjs, named exactly: reledger completes a ledger without losing what it had. It covers: a missing file is copied, an existing longer or divergent file is kept byte for byte, a second run changes nothing, and a vanished run is listed as gone."
+        ],
+        "readFiles": [
+          "docs/campaigns/evidence-you-can-recompute/spec/SPEC.md",
+          "AGENTS.md",
+          "src/cli/campaign.mjs",
+          "src/cli/manual.mjs",
+          "test/docs/command-surface.test.mjs",
+          "test/campaign/ledger.test.mjs"
+        ],
+        "writeRoots": [
+          "src/campaign/index.mjs",
+          "src/campaign/ledger.mjs",
+          "src/cli/",
+          "docs/COMMANDS.md",
+          "test/campaign/ledger.test.mjs",
+          "test/docs/command-surface.test.mjs",
+          "test/cli/"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evidence-you-can-recompute of the leaving-home program; the spec is docs/campaigns/evidence-you-can-recompute/spec/SPEC.md and is the source of truth for every requirement this node carries. Read the requirement text there before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck must stay clean), no file over 800 lines, no name exported from two src modules, no top-level body defined twice, no barrel modules, no empty catch, every module keeps a header comment saying what it owns and why it is separate, comments record measurement not intent.",
+          "No new runtime dependency; package.json keeps no `dependencies`. No test calls a provider. No test writes to the operator's real home: tests run with the --import ./test/scoped-home.mjs setup the verification commands use.",
+          "Do NOT edit .gitignore or any other ignore source: the controller fails a node that changes one (snapshot_ignore_changed).",
+          "The proof test is pinned: create the test with exactly the name the Definition of Done quotes, in exactly the file it names. A --test-name-pattern that matches nothing still exits 0, so the DoD also checks the name exists.",
+          "Reuse the pieces the spec names instead of reimplementing them; keep the diff to what the requirement forces.",
+          "Code, comments and documents are in English. Never run git commit or git push: the controller seals and integrates your work."
+        ],
+        "nonGoals": [
+          "Running reledger on the operator's real home: that is the operator's step after this contract"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/campaign/ledger.test.mjs",
+              "test/docs/command-surface.test.mjs"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "npm",
+              "run",
+              "docs:check"
+            ],
+            "timeoutSec": 60
+          }
+        ]
+      }
+    },
+    {
+      "type": "backend",
+      "phase": "indicators",
+      "requirementIds": [
+        "R2"
+      ],
+      "dependsOn": [
+        "reledger"
+      ],
+      "timeoutSec": 2400,
+      "id": "metrics-from-ledger",
+      "definitionOfDone": [
+        {
+          "id": "manual-current",
+          "text": "docs/COMMANDS.md matches the command registry (npm run docs:check)",
+          "proof": {
+            "kind": "verification",
+            "ref": 1
+          }
+        },
+        {
+          "id": "r2-ledger-equality-exists",
+          "text": "test/campaign/metrics-evals.test.mjs carries a test named exactly \"metrics from a ledger equal metrics from its run directories\"",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test(\"metrics from a ledger equal metrics from its run directories\"' test/campaign/metrics-evals.test.mjs"
+          }
+        },
+        {
+          "id": "r2-ledger-equality",
+          "text": "Metrics and eval indicators from a ledger equal those from run directories; a missing source is null and named",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"metrics from a ledger equal metrics from its run directories\" test/campaign/metrics-evals.test.mjs"
+          }
+        }
+      ],
+      "gate": false,
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "Metrics recomputed from a versioned ledger equal the metrics read from the run directories (R2).",
+        "instructions": [
+          "Add `--ledger <dir>` to `faberun metrics <campaign-id>` and `--project-ledger <dir>` to `node evals/run.mjs`. Both read the R1 files of the ledger directory (journal.jsonl, campaign.json and the per-run `<runId>.events.jsonl`, `.usage.jsonl`, `.notify.jsonl`, `.nodes.json`) instead of the run directories, and feed the same projectors (projectMetrics; projectEvalIndicators through the existing merge in evals/metrics.mjs).",
+          "A source absent from the ledger yields its indicator as null together with the name of the missing source, never as zero. Keep that visible in both the text and the --json output.",
+          "evals/run.mjs is 710 lines: put the ledger reader in its own module rather than growing it past the 800-line ceiling. Update the generated manual (`npm run docs`) for the new metrics flag.",
+          "Write the proof test in test/campaign/metrics-evals.test.mjs, named exactly: metrics from a ledger equal metrics from its run directories. It builds a fixture campaign with run directories, preserves its ledger, and asserts that both readers give identical indicators, and that deleting one ledger source turns exactly its indicator into null with the source named."
+        ],
+        "readFiles": [
+          "docs/campaigns/evidence-you-can-recompute/spec/SPEC.md",
+          "AGENTS.md",
+          "src/campaign/metrics.mjs",
+          "src/campaign/metrics-evals.mjs",
+          "evals/metrics.mjs",
+          "evals/run.mjs",
+          "src/report/metrics-report.mjs",
+          "test/campaign/metrics-evals.test.mjs"
+        ],
+        "writeRoots": [
+          "src/campaign/",
+          "src/report/metrics-report.mjs",
+          "src/cli.mjs",
+          "evals/metrics.mjs",
+          "evals/run.mjs",
+          "evals/ledger.mjs",
+          "docs/COMMANDS.md",
+          "test/campaign/",
+          "test/evals/",
+          "test/docs/command-surface.test.mjs"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evidence-you-can-recompute of the leaving-home program; the spec is docs/campaigns/evidence-you-can-recompute/spec/SPEC.md and is the source of truth for every requirement this node carries. Read the requirement text there before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck must stay clean), no file over 800 lines, no name exported from two src modules, no top-level body defined twice, no barrel modules, no empty catch, every module keeps a header comment saying what it owns and why it is separate, comments record measurement not intent.",
+          "No new runtime dependency; package.json keeps no `dependencies`. No test calls a provider. No test writes to the operator's real home: tests run with the --import ./test/scoped-home.mjs setup the verification commands use.",
+          "Do NOT edit .gitignore or any other ignore source: the controller fails a node that changes one (snapshot_ignore_changed).",
+          "The proof test is pinned: create the test with exactly the name the Definition of Done quotes, in exactly the file it names. A --test-name-pattern that matches nothing still exits 0, so the DoD also checks the name exists.",
+          "Reuse the pieces the spec names instead of reimplementing them; keep the diff to what the requirement forces.",
+          "Code, comments and documents are in English. Never run git commit or git push: the controller seals and integrates your work."
+        ],
+        "nonGoals": [],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/campaign/metrics-evals.test.mjs",
+              "test/campaign/metrics.test.mjs",
+              "test/evals/resilience.test.mjs"
+            ],
+            "timeoutSec": 300
+          },
+          {
+            "argv": [
+              "npm",
+              "run",
+              "docs:check"
+            ],
+            "timeoutSec": 60
+          }
+        ]
+      }
+    },
+    {
+      "type": "backend",
+      "phase": "indicators",
+      "requirementIds": [
+        "R5",
+        "R9"
+      ],
+      "dependsOn": [
+        "metrics-from-ledger"
+      ],
+      "timeoutSec": 2400,
+      "id": "north-star-and-recovery",
+      "definitionOfDone": [
+        {
+          "id": "r5-north-star-exists",
+          "text": "test/campaign/metrics.test.mjs carries a test named exactly \"the north star is measured from initialization to the last proven requirement\"",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test(\"the north star is measured from initialization to the last proven requirement\"' test/campaign/metrics.test.mjs"
+          }
+        },
+        {
+          "id": "r5-north-star",
+          "text": "intentToVerifiedSeconds and humanTouches are projected as the spec defines",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"the north star is measured from initialization to the last proven requirement\" test/campaign/metrics.test.mjs"
+          }
+        },
+        {
+          "id": "r9-replaced-run-exists",
+          "text": "test/campaign/metrics.test.mjs carries a test named exactly \"a replaced run leaves the done rate and is named\"",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test(\"a replaced run leaves the done rate and is named\"' test/campaign/metrics.test.mjs"
+          }
+        },
+        {
+          "id": "r9-replaced-run",
+          "text": "A replaced run leaves every per-node rate, which publishes numerator, denominator and excluded ids",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"a replaced run leaves the done rate and is named\" test/campaign/metrics.test.mjs"
+          }
+        }
+      ],
+      "gate": false,
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "projectMetrics reports intentToVerifiedSeconds and humanTouches (R5), and a run replace-contract substituted leaves every per-node rate, which publishes numerator, denominator and excluded run ids (R9).",
+        "instructions": [
+          "R5: intentToVerifiedSeconds is the time between the campaign.initialized journal event and the event at which the last requirement declared by the campaign's phases gets an approved proof in the requirement closure; null while any declared requirement has no proof. humanTouches counts operator commands that changed campaign state after the first launch: campaign resolve, resume --answer, resume --reconcile, cancel, campaign add-contract. humanTouches is diagnostic with direction informative, never down (decision D4). The journal becomes a projector input; read it from the campaign directory and from the ledger (journal.jsonl) alike.",
+          "R9: a run that `campaign replace-contract` replaced (the campaign record already records the substitution; find where) leaves the denominator of nodesDoneRate and every per-node rate. Every rate publishes its numerator, denominator and the ids of the runs it excluded. A run canceled without replacement still counts.",
+          "Apply the same shape to the eval indicators in evals/metrics.mjs where they report per-node rates, so the evals rates also publish numerator, denominator and exclusions.",
+          "Write two proof tests in test/campaign/metrics.test.mjs, named exactly: the north star is measured from initialization to the last proven requirement; and: a replaced run leaves the done rate and is named."
+        ],
+        "readFiles": [
+          "docs/campaigns/evidence-you-can-recompute/spec/SPEC.md",
+          "AGENTS.md",
+          "src/campaign/metrics.mjs",
+          "src/campaign/index.mjs",
+          "evals/metrics.mjs",
+          "test/campaign/metrics.test.mjs"
+        ],
+        "writeRoots": [
+          "src/campaign/",
+          "src/report/metrics-report.mjs",
+          "evals/metrics.mjs",
+          "evals/ledger.mjs",
+          "test/campaign/",
+          "test/evals/"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evidence-you-can-recompute of the leaving-home program; the spec is docs/campaigns/evidence-you-can-recompute/spec/SPEC.md and is the source of truth for every requirement this node carries. Read the requirement text there before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck must stay clean), no file over 800 lines, no name exported from two src modules, no top-level body defined twice, no barrel modules, no empty catch, every module keeps a header comment saying what it owns and why it is separate, comments record measurement not intent.",
+          "No new runtime dependency; package.json keeps no `dependencies`. No test calls a provider. No test writes to the operator's real home: tests run with the --import ./test/scoped-home.mjs setup the verification commands use.",
+          "Do NOT edit .gitignore or any other ignore source: the controller fails a node that changes one (snapshot_ignore_changed).",
+          "The proof test is pinned: create the test with exactly the name the Definition of Done quotes, in exactly the file it names. A --test-name-pattern that matches nothing still exits 0, so the DoD also checks the name exists.",
+          "Reuse the pieces the spec names instead of reimplementing them; keep the diff to what the requirement forces.",
+          "Code, comments and documents are in English. Never run git commit or git push: the controller seals and integrates your work."
+        ],
+        "nonGoals": [],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/campaign/metrics.test.mjs",
+              "test/campaign/metrics-evals.test.mjs",
+              "test/evals/resilience.test.mjs"
+            ],
+            "timeoutSec": 300
+          }
+        ]
+      }
+    },
+    {
+      "type": "backend",
+      "phase": "indicators",
+      "requirementIds": [
+        "R4"
+      ],
+      "dependsOn": [
+        "north-star-and-recovery"
+      ],
+      "timeoutSec": 2400,
+      "id": "unknown-cost-reason",
+      "definitionOfDone": [
+        {
+          "id": "r4-unknown-reason-exists",
+          "text": "test/run/pricing.test.mjs carries a test named exactly \"an unknown cost names its reason\"",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test(\"an unknown cost names its reason\"' test/run/pricing.test.mjs"
+          }
+        },
+        {
+          "id": "r4-unknown-reason",
+          "text": "Every unknown cost names one reason of the closed vocabulary; metrics and close report the fraction by reason",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"an unknown cost names its reason\" test/run/pricing.test.mjs"
+          }
+        }
+      ],
+      "gate": false,
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "Every usage record with costProvenance unknown carries unknownReason from a closed vocabulary, metrics reports the unknown fraction by reason, and campaign close prints it (R4).",
+        "instructions": [
+          "appendUsageRecord (src/run/usage.mjs) writes costProvenance; when it is `unknown`, also write unknownReason, one of: no-usage-stream (the harness emits no counts: its adapter's capabilities say usage false), model-not-priced (tokens were counted but the model is not in the vendored pricing seed), provider-reported-nothing (the stream arrived with neither cost nor tokens), invocation-killed (the invocation ended by timeout, stall, cancel or signal before reporting). Decide the reason where the invocation's usage and pricing are resolved; keep the vocabulary in one exported constant.",
+          "Records written before this change have no unknownReason: readers treat them as `legacy`.",
+          "faberun metrics reports the unknown fraction split by reason (text and --json); `faberun campaign close` prints that fraction next to what it already prints.",
+          "If a usage-record validator or field registry exists (search for where usage.jsonl fields are validated or documented), update it too.",
+          "Write the proof test in test/run/pricing.test.mjs, named exactly: an unknown cost names its reason. Cover each of the four reasons and the legacy read."
+        ],
+        "readFiles": [
+          "docs/campaigns/evidence-you-can-recompute/spec/SPEC.md",
+          "AGENTS.md",
+          "src/run/usage.mjs",
+          "src/campaign/metrics.mjs",
+          "test/run/pricing.test.mjs"
+        ],
+        "writeRoots": [
+          "src/run/",
+          "src/engine/",
+          "src/campaign/",
+          "src/cli/campaign.mjs",
+          "src/report/metrics-report.mjs",
+          "evals/metrics.mjs",
+          "test/run/",
+          "test/campaign/",
+          "test/engine/",
+          "docs/campaigns/state-location-and-routing-economics/FIELD-OWNERSHIP.md"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evidence-you-can-recompute of the leaving-home program; the spec is docs/campaigns/evidence-you-can-recompute/spec/SPEC.md and is the source of truth for every requirement this node carries. Read the requirement text there before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck must stay clean), no file over 800 lines, no name exported from two src modules, no top-level body defined twice, no barrel modules, no empty catch, every module keeps a header comment saying what it owns and why it is separate, comments record measurement not intent.",
+          "No new runtime dependency; package.json keeps no `dependencies`. No test calls a provider. No test writes to the operator's real home: tests run with the --import ./test/scoped-home.mjs setup the verification commands use.",
+          "Do NOT edit .gitignore or any other ignore source: the controller fails a node that changes one (snapshot_ignore_changed).",
+          "The proof test is pinned: create the test with exactly the name the Definition of Done quotes, in exactly the file it names. A --test-name-pattern that matches nothing still exits 0, so the DoD also checks the name exists.",
+          "Reuse the pieces the spec names instead of reimplementing them; keep the diff to what the requirement forces.",
+          "Code, comments and documents are in English. Never run git commit or git push: the controller seals and integrates your work."
+        ],
+        "nonGoals": [],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/run/pricing.test.mjs",
+              "test/campaign/metrics.test.mjs",
+              "test/campaign/ledger.test.mjs"
+            ],
+            "timeoutSec": 300
+          }
+        ]
+      }
+    },
+    {
+      "type": "docs",
+      "phase": "evidence",
+      "requirementIds": [
+        "R7"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2400,
+      "id": "arms-record",
+      "definitionOfDone": [
+        {
+          "id": "r7-versioned-record-exists",
+          "text": "test/docs/orchestration-arms-record.test.mjs carries a test named exactly \"the measurement the roadmap thesis cites is versioned\"",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test(\"the measurement the roadmap thesis cites is versioned\"' test/docs/orchestration-arms-record.test.mjs"
+          }
+        },
+        {
+          "id": "r7-versioned-record",
+          "text": "The record is on main with STATE, spec, runs.jsonl and analyses, no driver code, and both citations point to it",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"the measurement the roadmap thesis cites is versioned\" test/docs/orchestration-arms-record.test.mjs"
+          }
+        }
+      ],
+      "gate": false,
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "The orchestration-arms record the roadmap thesis cites is versioned on main under docs/campaigns/orchestration-arms/ (R7).",
+        "instructions": [
+          "The record lives only on the branch origin/spike/orchestration-arms, which this worktree's git can read (`git show origin/spike/orchestration-arms:<path>`, `git ls-tree -r --name-only origin/spike/orchestration-arms`). Copy, byte for byte: docs/campaigns/orchestration-arms/STATE.md and docs/campaigns/orchestration-arms/spec/SPEC.md to the same paths, and every file under spike/arms/resultados/ except anything under a contracts/ directory to docs/campaigns/orchestration-arms/results/ keeping the relative layout (runs.jsonl, the analysis-*.md files and reports/). No driver code: nothing from spike/arms/ outside resultados/, and no .mjs file.",
+          "Point the two citations at the new path: the thesis paragraph at the top of docs/ROADMAP.md (it says the record still lives on the spike branch) and the comment in src/engine/settle.mjs that cites the campaign. Change only those sentences.",
+          "Write the proof test in the new file test/docs/orchestration-arms-record.test.mjs, named exactly: the measurement the roadmap thesis cites is versioned. It asserts STATE.md, spec/SPEC.md, results/runs.jsonl and the four analyses exist, no .mjs file sits under docs/campaigns/orchestration-arms/, and both citations name docs/campaigns/orchestration-arms."
+        ],
+        "readFiles": [
+          "docs/campaigns/evidence-you-can-recompute/spec/SPEC.md",
+          "AGENTS.md",
+          "docs/ROADMAP.md",
+          "src/engine/settle.mjs"
+        ],
+        "writeRoots": [
+          "docs/campaigns/orchestration-arms/",
+          "docs/ROADMAP.md",
+          "src/engine/settle.mjs",
+          "test/docs/orchestration-arms-record.test.mjs"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evidence-you-can-recompute of the leaving-home program; the spec is docs/campaigns/evidence-you-can-recompute/spec/SPEC.md and is the source of truth for every requirement this node carries. Read the requirement text there before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck must stay clean), no file over 800 lines, no name exported from two src modules, no top-level body defined twice, no barrel modules, no empty catch, every module keeps a header comment saying what it owns and why it is separate, comments record measurement not intent.",
+          "No new runtime dependency; package.json keeps no `dependencies`. No test calls a provider. No test writes to the operator's real home: tests run with the --import ./test/scoped-home.mjs setup the verification commands use.",
+          "Do NOT edit .gitignore or any other ignore source: the controller fails a node that changes one (snapshot_ignore_changed).",
+          "The proof test is pinned: create the test with exactly the name the Definition of Done quotes, in exactly the file it names. A --test-name-pattern that matches nothing still exits 0, so the DoD also checks the name exists.",
+          "Reuse the pieces the spec names instead of reimplementing them; keep the diff to what the requirement forces.",
+          "Code, comments and documents are in English. Never run git commit or git push: the controller seals and integrates your work."
+        ],
+        "nonGoals": [
+          "Bringing the spike/arms driver to main (next campaign)",
+          "Editing the copied record's content"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/docs/orchestration-arms-record.test.mjs",
+              "test/docs/link-check.test.mjs"
+            ],
+            "timeoutSec": 300
+          }
+        ]
+      }
+    },
+    {
+      "type": "test",
+      "phase": "evidence",
+      "requirementIds": [
+        "R8"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2400,
+      "id": "docs-byte-budget",
+      "definitionOfDone": [
+        {
+          "id": "r8-byte-budget-exists",
+          "text": "test/docs/docs-diet.test.mjs carries a test named exactly \"the skill and its references share one byte budget\"",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test(\"the skill and its references share one byte budget\"' test/docs/docs-diet.test.mjs"
+          }
+        },
+        {
+          "id": "r8-byte-budget",
+          "text": "One byte budget covers SKILL.md and the references, raisable only through a cited new ADR",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"the skill and its references share one byte budget\" test/docs/docs-diet.test.mjs"
+          }
+        }
+      ],
+      "gate": false,
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "test/docs/docs-diet.test.mjs imposes one byte budget on SKILL.md plus references/*.md, fixed at the baseline's 46,855 bytes, raisable only with a new ADR the test finds cited (R8).",
+        "instructions": [
+          "Keep every per-file ceiling as it is. Add a total ceiling of 46855 bytes over skills/faberun/SKILL.md plus every skills/faberun/references/*.md (measured at 46,852 on this tree after the previous campaign's cut).",
+          "The total may only rise with a new ADR: the constant's comment cites a docs/adr/NNNN-*.md path, and the test fails when the total ceiling exceeds 46855 unless the cited ADR file exists and is newer than 0010. Raising one file's ceiling without lowering another so that the sum passes the budget fails the suite.",
+          "Write the proof test in test/docs/docs-diet.test.mjs, named exactly: the skill and its references share one byte budget."
+        ],
+        "readFiles": [
+          "docs/campaigns/evidence-you-can-recompute/spec/SPEC.md",
+          "AGENTS.md",
+          "test/docs/docs-diet.test.mjs",
+          "docs/adr/README.md"
+        ],
+        "writeRoots": [
+          "test/docs/docs-diet.test.mjs"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evidence-you-can-recompute of the leaving-home program; the spec is docs/campaigns/evidence-you-can-recompute/spec/SPEC.md and is the source of truth for every requirement this node carries. Read the requirement text there before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck must stay clean), no file over 800 lines, no name exported from two src modules, no top-level body defined twice, no barrel modules, no empty catch, every module keeps a header comment saying what it owns and why it is separate, comments record measurement not intent.",
+          "No new runtime dependency; package.json keeps no `dependencies`. No test calls a provider. No test writes to the operator's real home: tests run with the --import ./test/scoped-home.mjs setup the verification commands use.",
+          "Do NOT edit .gitignore or any other ignore source: the controller fails a node that changes one (snapshot_ignore_changed).",
+          "The proof test is pinned: create the test with exactly the name the Definition of Done quotes, in exactly the file it names. A --test-name-pattern that matches nothing still exits 0, so the DoD also checks the name exists.",
+          "Reuse the pieces the spec names instead of reimplementing them; keep the diff to what the requirement forces.",
+          "Code, comments and documents are in English. Never run git commit or git push: the controller seals and integrates your work."
+        ],
+        "nonGoals": [
+          "Editing any skill document",
+          "Raising any ceiling"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/docs/docs-diet.test.mjs"
+            ],
+            "timeoutSec": 300
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -259,13 +259,14 @@ function accountDelegation(runtimeId, runtime, envelope, priced, observation) {
     nodeId,
     role: "worker",
     runtimeId,
+    harness: runtime.harness,
     model: runtime.model,
     usage: envelope.usage,
     costUsd: priced.costUsd,
     costProvenance: priced.costProvenance,
     startedAt: observation.startedAt,
     closedAt: new Date().toISOString(),
-  }));
+  }), { runtime });
 }
 
 /** @param {string} reason @returns {BulkReadResult} */

@@ -27,6 +27,8 @@ test("marks a silent provider stalled", async () => {
     const result = await runContract(path);
     assert.equal(result.ok, false);
     assert.equal(nodeState(result).status, "stalled");
+    const records = readFileSync(join(result.runDir, "usage.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    assert.equal(records[0].unknownReason, "invocation-killed", "the scheduler records the stall kill before settling the node");
   } finally {
     if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
     else process.env.FABERUN_CODEX_BIN = previous;

@@ -1,0 +1,4 @@
+{"at":"2026-09-19T14:39:59.880Z","node":"a-requirement-declares-what-to-measure","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-19T15:08:06.569Z","node":"a-requirement-declares-what-to-measure","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-19T15:28:28.447Z","node":"a-requirement-declares-what-to-measure","to":"running","phase":"judge","runtime":"codex-sol-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-19T15:28:33.009Z","node":"a-requirement-declares-what-to-measure","to":"exhausted","phase":"judge","runtime":"codex-sol-judge","verdict":"fail","error":"quota_exhausted","revisions":1}

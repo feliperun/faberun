@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "evidence-you-can-recompute-review",
+  "campaignId": "evidence-you-can-recompute",
+  "goal": "Cross-vendor review of the campaign diff against its spec",
+  "cwd": "../../../..",
+  "maxParallel": 1,
+  "timeoutSec": 2400,
+  "runtimeDefaults": {
+    "worker": "claude-opus-review",
+    "judge": "codex-luna"
+  },
+  "runtimes": {
+    "claude-opus-review": {
+      "harness": "claude",
+      "model": "claude-opus-5-5",
+      "vendor": "anthropic",
+      "reasoning": "high",
+      "permissionMode": "bypassPermissions"
+    },
+    "codex-luna": {
+      "harness": "codex",
+      "model": "gpt-5.6-luna",
+      "vendor": "openai",
+      "sandbox": "read-only"
+    }
+  },
+  "nodes": [
+    {
+      "id": "review",
+      "type": "review",
+      "phase": "review",
+      "gate": false,
+      "taskPacket": {
+        "mode": "discovery",
+        "objective": "Review the campaign change (git diff origin/main..HEAD for the files in readFiles) against docs/campaigns/evidence-you-can-recompute/spec/SPEC.md and report defects.",
+        "instructions": [
+          "Read the spec. For each changed file run `git diff origin/main -- <file>` and read it for context. Do not modify any file.",
+          "For each requirement R1 to R9 say whether the change implements the statement and whether its proof test would fail without the implementation.",
+          "Look for correctness bugs: a ledger copy that can shorten or delete a file, a metric that differs between ledger and run-directory reads, an unknown cost with no or a wrong reason, a rate whose numerator or denominator is wrong, a baseline that does not recompute, a secret or a machine path that can reach the ledger, a test that writes outside its temporary home.",
+          "Return output as {findings: [{severity: critical|major|minor, where, defect, scenario}], satisfied: [requirement ids]}. An empty findings list is a valid answer; do not invent defects."
+        ],
+        "readFiles": [
+          "docs/campaigns/evidence-you-can-recompute/spec/SPEC.md",
+          "docs/FIELD-OWNERSHIP.md",
+          "docs/ROADMAP.md",
+          "evals/baseline.json",
+          "evals/ledger.mjs",
+          "evals/metrics.mjs",
+          "evals/run.mjs",
+          "src/campaign/index.mjs",
+          "src/campaign/journal.mjs",
+          "src/campaign/ledger.mjs",
+          "src/campaign/metrics-command.mjs",
+          "src/campaign/metrics.mjs",
+          "src/campaign/record.mjs",
+          "src/cli.mjs",
+          "src/cli/campaign.mjs",
+          "src/cli/manual.mjs",
+          "src/engine/bulk-read.mjs",
+          "src/engine/lifecycle.mjs",
+          "src/engine/scheduler.mjs",
+          "src/engine/settle.mjs",
+          "src/report/metrics-report.mjs",
+          "src/run/usage.mjs",
+          "test/campaign/ledger.test.mjs",
+          "test/campaign/metrics-evals.test.mjs",
+          "test/campaign/metrics.test.mjs",
+          "test/docs/docs-diet.test.mjs",
+          "test/docs/orchestration-arms-record.test.mjs",
+          "test/evals/baseline.test.mjs",
+          "test/harnesses/replay-run.test.mjs",
+          "test/run/pricing.test.mjs"
+        ],
+        "writeFiles": [],
+        "symbols": [],
+        "decisions": [],
+        "nonGoals": [
+          "Editing code"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "true"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

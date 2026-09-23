@@ -1,0 +1,5 @@
+{"at":"2026-09-17T07:20:42.186Z","dedupeKey":"node.terminal:adversarial-planner-1b-discovery-result-output:discovery-output-ingested:done:1:0","attempt":1,"status":"no_transport"}
+{"at":"2026-09-17T07:30:29.314Z","dedupeKey":"node.terminal:adversarial-planner-1b-discovery-result-output:planning-contract-template:done:1:0","attempt":1,"status":"no_transport"}
+{"at":"2026-09-17T08:01:56.881Z","dedupeKey":"node.terminal:adversarial-planner-1b-discovery-result-output:plan-verb:done:2:1","attempt":1,"status":"no_transport"}
+{"at":"2026-09-17T08:07:27.074Z","dedupeKey":"node.terminal:adversarial-planner-1b-discovery-result-output:plan-eval-cases:blocked:1:0","attempt":1,"status":"no_transport"}
+{"at":"2026-09-17T08:07:27.136Z","dedupeKey":"run.terminal:adversarial-planner-1b-discovery-result-output:attention","attempt":1,"status":"no_transport"}

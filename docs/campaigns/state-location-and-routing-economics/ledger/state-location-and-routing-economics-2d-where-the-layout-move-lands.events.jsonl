@@ -1,0 +1,2 @@
+{"at":"2026-09-18T09:27:53.900Z","node":"where-the-layout-move-lands","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-18T09:41:16.622Z","node":"where-the-layout-move-lands","to":"blocked","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","error":"protocol_failure"}

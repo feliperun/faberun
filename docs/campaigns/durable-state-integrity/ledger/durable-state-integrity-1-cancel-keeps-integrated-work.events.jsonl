@@ -1,0 +1,4 @@
+{"at":"2026-09-21T18:10:07.058Z","node":"worktree-preserve-ref-verb","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T18:18:18.860Z","node":"worktree-preserve-ref-verb","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"pass"}
+{"at":"2026-09-21T18:18:20.849Z","node":"cancel-preserves-integrated-heads","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T18:51:07.200Z","node":"cancel-preserves-integrated-heads","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"pass"}

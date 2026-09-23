@@ -1,0 +1,2 @@
+{"at":"2026-09-21T14:30:13.478Z","node":"r19-resilience-exercised","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T14:37:05.491Z","node":"r19-resilience-exercised","to":"blocked","phase":"complete","runtime":"zcode-glm-worker","error":"context_missing"}

@@ -33,6 +33,7 @@ const JOURNAL_TYPES = new Set([
   "next",
   "open-question",
   "question.resolved",
+  "operator.command",
   "retrospective",
   "liveness",
   "seat.allowance",
@@ -63,6 +64,7 @@ const ENTRY_SHAPES = {
   next: ["at", "type", "eventId", "sessionId", "text"],
   "open-question": ["at", "type", "eventId", "sessionId", "questionId", "text"],
   "question.resolved": ["at", "type", "eventId", "sessionId", "questionId", "text"],
+  "operator.command": ["at", "type", "eventId", "command", "sessionId", "runId"],
   retrospective: ["at", "type", "eventId", "sessionId", "text"],
   liveness: ["at", "type", "eventId", "campaignId", "runId", "nodeId", "phase", "checkpointsDone", "checkpointsTotal", "runtime", "state", "lastProgressAt", "attention"],
   "seat.allowance": ["at", "type", "eventId", "sample", "harness", "remaining", "limit", "resetsAt", "delta", "window"],
@@ -276,6 +278,12 @@ export function validateJournalEntry(entry) {
   // rejects an unexpected key; no deeper shape validation is needed for a type
   // nothing produces.
   if (type === "liveness") return;
+  if (type === "operator.command") {
+    requireText(record.command, "entry.command");
+    if (record.sessionId !== undefined) requireText(record.sessionId, "entry.sessionId");
+    if (record.runId !== undefined) requireText(record.runId, "entry.runId");
+    return;
+  }
   if (type === "seat.allowance") return validateSeatAllowanceEntry(record);
   if (type === "session.attached") return validateSessionEntry(record);
   if (type === "run.registered") {

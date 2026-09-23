@@ -1,0 +1,5 @@
+{"at":"2026-09-21T20:28:02.139Z","node":"the-runner-scopes-every-test-process","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T20:41:28.468Z","node":"the-runner-scopes-every-test-process","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"pass"}
+{"at":"2026-09-21T20:41:30.594Z","node":"no-test-file-can-reach-the-real-home","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T21:10:47.227Z","node":"no-test-file-can-reach-the-real-home","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-21T21:33:25.517Z","node":"no-test-file-can-reach-the-real-home","to":"exhausted","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","error":"verification_failed","revisions":1}

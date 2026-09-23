@@ -1,0 +1,6 @@
+{"at":"2026-09-16T01:06:28.089Z","node":"guard-review","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-16T01:10:37.197Z","node":"guard-review","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-16T01:15:14.362Z","node":"guard-review","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"fail"}
+{"at":"2026-09-16T01:15:15.455Z","node":"install-script","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-16T01:27:46.853Z","node":"install-script","to":"running","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-16T01:29:46.168Z","node":"install-script","to":"canceled","phase":"canceled","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}

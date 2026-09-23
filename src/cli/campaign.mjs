@@ -7,6 +7,7 @@ import {
   closeCampaign,
   discoverCampaigns,
   initializeCampaign,
+  reledgerCampaign,
   renderHandoff,
   resolveCampaign,
 } from "../campaign/index.mjs";
@@ -18,6 +19,8 @@ import { acknowledgeJournalEvent, appendJournal, appendSeatAllowanceEvent, readJ
 import { driveCampaignChain } from "../campaign/chain.mjs";
 import { unparkCampaign } from "../campaign/unpark.mjs";
 import { readCampaign } from "../campaign/record.mjs";
+import { projectMetrics } from "../campaign/metrics.mjs";
+import { readMetricsSources } from "../campaign/metrics-command.mjs";
 import { DEFAULT_WAKE_POLL_MS, watchCampaignWake } from "../campaign/watch.mjs";
 import { allowanceEventFields, sampleAllowance } from "../seat/allowance.mjs";
 import { detectOperatorHarness } from "../seat/harnesses.mjs";
@@ -80,6 +83,7 @@ const OPERATION_OPTIONS = {
     "event-id": { type: "string" },
   },
   close: { cwd: { type: "string" }, "event-id": { type: "string" } },
+  reledger: { cwd: { type: "string" } },
   supervise: { cwd: { type: "string" }, "allow-main": { type: "boolean" } },
   unpark: { cwd: { type: "string" }, force: { type: "boolean" }, "event-id": { type: "string" } },
   "add-contract": { cwd: { type: "string" }, path: { type: "string" } },
@@ -131,6 +135,7 @@ export async function campaignCli(args) {
   if (operation === "note") return note(campaignId, values);
   if (operation === "resolve") return resolveQuestion(campaignId, values);
   if (operation === "close") return close(campaignId, values);
+  if (operation === "reledger") return reledger(campaignId, values);
   if (operation === "supervise") return supervise(campaignId, values);
   if (operation === "unpark") return unpark(campaignId, values);
   if (operation === "show") return show(campaignId, values);
@@ -310,8 +315,42 @@ function close(campaignId, values) {
   renderHandoff(path, runsDir);
   process.stdout.write(`[campaign] ${closed.campaign.id} closed\n`);
   process.stdout.write(`[campaign] ledger · docs/campaigns/${closed.campaign.id}/ledger · ${closed.ledgerFiles.length} files\n`);
+  reportUnknownCostFraction(path, runsDir);
+  for (const skipped of closed.ledgerSkipped) {
+    process.stdout.write(`[campaign] ledger skipped · ${skipped.runId}/${skipped.source}\n`);
+  }
   reportRequirementClosure(closed.campaign.requirements ?? []);
   if (syncAgentSignal(runsDir)) process.stdout.write(`[campaign] AGENTS.md signal updated\n`);
+}
+
+/**
+ * Print the unknown-cost fraction beside the close's ledger summary. The
+ * denominator is every usage record, so each reason can be recomputed from the
+ * copied ledger rather than from the operator's transient run directory.
+ *
+ * @param {string} campaignPath
+ * @param {string} runsDir
+ */
+function reportUnknownCostFraction(campaignPath, runsDir) {
+  const metrics = projectMetrics(readMetricsSources(campaignPath, { runsDir }));
+  const indicator = metrics.usageCostUsd;
+  const total = indicator.count + indicator.unknownCount;
+  const reasons = Object.entries(indicator.unknownFractionByReason)
+    .map(([reason, fraction]) => `${reason}=${fraction}`)
+    .join(", ");
+  process.stdout.write(`[campaign] unknown cost · ${indicator.unknownCount}/${total} (${reasons || "none"})\n`);
+}
+
+/**
+ * @param {string} campaignId
+ * @param {CliValues} values
+ */
+function reledger(campaignId, values) {
+  const { path } = selectCampaign(campaignId, values);
+  const result = reledgerCampaign(path);
+  process.stdout.write(`[campaign] ${campaignId} reledger · docs/campaigns/${campaignId}/ledger\n`);
+  for (const change of result.copied) process.stdout.write(`[campaign] reledger copied · ${change.runId}/${change.source}\n`);
+  for (const change of result.gone) process.stdout.write(`[campaign] reledger gone · ${change.runId}/${change.source}\n`);
 }
 
 /**
@@ -645,7 +684,7 @@ function positiveIntervalMs(value) {
 
 function usage() {
   process.stderr.write(
-    "usage: faberun campaign <init|watch|attach|note|resolve|close|supervise|unpark|show|list|sync|ack|add-contract|replace-contract|brief> <campaign-id> [--cwd <dir>] ...\n",
+    "usage: faberun campaign <init|watch|attach|note|resolve|close|reledger|supervise|unpark|show|list|sync|ack|add-contract|replace-contract|brief> <campaign-id> [--cwd <dir>] ...\n",
   );
   process.exitCode = 2;
 }

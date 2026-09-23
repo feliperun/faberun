@@ -1,0 +1,3 @@
+{"at":"2026-09-22T01:08:48.436Z","node":"cancel-is-proven-against-a-live-invocation","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-22T01:39:26.497Z","node":"cancel-is-proven-against-a-live-invocation","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-22T02:02:09.210Z","node":"cancel-is-proven-against-a-live-invocation","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"pass","revisions":1}

@@ -1,0 +1,7 @@
+{"at":"2026-09-18T14:34:06.676Z","node":"a-project-is-keyed-by-its-path","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-18T14:39:16.302Z","node":"a-project-is-keyed-by-its-path","to":"running","phase":"judge","runtime":"deepseek-flash-judge"}
+{"at":"2026-09-18T14:39:49.424Z","node":"a-project-is-keyed-by-its-path","to":"done","phase":"complete","runtime":"deepseek-flash-judge","verdict":"pass"}
+{"at":"2026-09-18T14:39:50.610Z","node":"a-moved-project-keeps-its-campaigns","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-18T15:04:49.792Z","node":"a-moved-project-keeps-its-campaigns","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-18T15:23:58.528Z","node":"a-moved-project-keeps-its-campaigns","to":"running","phase":"judge","runtime":"deepseek-flash-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-18T15:37:13.823Z","node":"a-moved-project-keeps-its-campaigns","to":"done","phase":"complete","runtime":"deepseek-flash-judge","verdict":"pass","revisions":1}

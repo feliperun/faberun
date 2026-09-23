@@ -1,0 +1,192 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "evidence-you-can-recompute-a3",
+  "campaignId": "evidence-you-can-recompute",
+  "goal": "src/campaign/metrics.mjs is back under the 800-line ceiling: the faberun metrics command moves to its own module.",
+  "cwd": "../../../..",
+  "maxParallel": 1,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 2400,
+  "maxTurns": 400,
+  "runtimeDefaults": {
+    "worker": "codex-luna",
+    "judge": "claude-opus"
+  },
+  "runtimes": {
+    "codex-luna": {
+      "harness": "codex",
+      "model": "gpt-5.6-luna",
+      "vendor": "openai",
+      "reasoning": "high",
+      "sandbox": "danger-full-access",
+      "fallback": "dsh-deepseek",
+      "tier": 2,
+      "costRank": 2
+    },
+    "dsh-deepseek": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "danger-full-access",
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "stallTimeoutSec": 900,
+      "tier": 1,
+      "costRank": 1
+    },
+    "claude-opus": {
+      "harness": "claude",
+      "model": "claude-opus-5-5",
+      "vendor": "anthropic",
+      "reasoning": "high",
+      "tier": 3,
+      "costRank": 3
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "timeoutSec": 60
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 60
+    }
+  ],
+  "nodes": [
+    {
+      "id": "metrics-command-module",
+      "type": "refactor",
+      "phase": "repair",
+      "requirementIds": [
+        "R2",
+        "R5"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2400,
+      "gate": false,
+      "definitionOfDone": [
+        {
+          "id": "line-ceiling",
+          "text": "test/repo/source-shape.test.mjs passes: no file over 800 lines, no cycle, no name exported twice, no duplicated body, header count ratchet intact",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        },
+        {
+          "id": "metrics-green",
+          "text": "The metrics, ledger, evals and CLI tests pass unchanged",
+          "proof": {
+            "kind": "verification",
+            "ref": 1
+          }
+        },
+        {
+          "id": "manual-current",
+          "text": "docs/COMMANDS.md matches the command registry (npm run docs:check)",
+          "proof": {
+            "kind": "verification",
+            "ref": 2
+          }
+        }
+      ],
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "Move the `faberun metrics` command half of src/campaign/metrics.mjs into its own module so the file is under 800 lines, changing no behaviour.",
+        "instructions": [
+          "Measured 2026-09-23: src/campaign/metrics.mjs is 814 lines after contract A and fails `no file in the repository exceeds 800 lines`. Its header already names two jobs: the pure projector (projectMetrics and its helpers) and, 'the second half of this module', the faberun metrics command: METRICS_OPTIONS, METRICS_MANUAL, the run and ledger source readers (readMetricsSources, readLedgerNodeSnapshots, readMetricNodeSnapshots, readJsonlRecords and their file-name constants) and renderCampaignMetrics.",
+          "Move that second half, unchanged, to a new module src/campaign/metrics-command.mjs with its own header comment saying what it owns and why it is separate (reading the filesystem and the command's flags, while metrics.mjs stays a pure function over parsed records). Update the header of metrics.mjs to match.",
+          "Update every importer (search src/, evals/ and test/ for imports from campaign/metrics.mjs): each imported name must come from the module that now owns it. No re-export shim: a module that only re-exports is banned (no barrel modules).",
+          "Do not raise LINE_CEILING, do not change the HEADERLESS ratchet upward: the new module carries a header."
+        ],
+        "readFiles": [
+          "AGENTS.md",
+          "src/campaign/metrics.mjs",
+          "test/repo/source-shape.test.mjs"
+        ],
+        "writeRoots": [
+          "src/",
+          "evals/",
+          "test/campaign/",
+          "test/evals/",
+          "test/cli/",
+          "test/harnesses/",
+          "docs/COMMANDS.md"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evidence-you-can-recompute of the leaving-home program; the spec is docs/campaigns/evidence-you-can-recompute/spec/SPEC.md and is the source of truth for every requirement this node carries. Read the requirement text there before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck must stay clean), no file over 800 lines, no name exported from two src modules, no top-level body defined twice, no barrel modules, no empty catch, every module keeps a header comment saying what it owns and why it is separate, comments record measurement not intent.",
+          "No new runtime dependency; package.json keeps no `dependencies`. No test calls a provider. No test writes to the operator's real home: tests run with the --import ./test/scoped-home.mjs setup the verification commands use.",
+          "Do NOT edit .gitignore or any other ignore source: the controller fails a node that changes one (snapshot_ignore_changed).",
+          "The proof test is pinned: create the test with exactly the name the Definition of Done quotes, in exactly the file it names. A --test-name-pattern that matches nothing still exits 0, so the DoD also checks the name exists.",
+          "Reuse the pieces the spec names instead of reimplementing them; keep the diff to what the requirement forces.",
+          "Code, comments and documents are in English. Never run git commit or git push: the controller seals and integrates your work."
+        ],
+        "nonGoals": [
+          "Any behaviour change",
+          "Raising any ceiling or ratchet"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/repo/source-shape.test.mjs"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/campaign/metrics.test.mjs",
+              "test/campaign/metrics-evals.test.mjs",
+              "test/campaign/ledger.test.mjs",
+              "test/evals/baseline.test.mjs",
+              "test/cli/manual.test.mjs"
+            ],
+            "timeoutSec": 600
+          },
+          {
+            "argv": [
+              "npm",
+              "run",
+              "docs:check"
+            ],
+            "timeoutSec": 60
+          }
+        ]
+      }
+    }
+  ]
+}

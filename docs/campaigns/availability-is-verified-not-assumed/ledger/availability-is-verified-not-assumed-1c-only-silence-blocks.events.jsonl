@@ -1,0 +1,3 @@
+{"at":"2026-09-22T07:56:28.996Z","node":"only-silence-blocks-the-run","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-22T08:56:46.612Z","node":"only-silence-blocks-the-run","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-22T09:45:37.730Z","node":"only-silence-blocks-the-run","to":"blocked","phase":"complete","runtime":"zcode-glm-worker","verdict":"fail","error":"context_missing","revisions":1}

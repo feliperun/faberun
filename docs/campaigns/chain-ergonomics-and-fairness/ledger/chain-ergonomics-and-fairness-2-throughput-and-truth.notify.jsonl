@@ -1,0 +1,4 @@
+{"at":"2026-09-17T16:56:20.196Z","dedupeKey":"node.terminal:chain-ergonomics-and-fairness-2-throughput-and-truth:final-verification-once-per-phase:exhausted:2:1","attempt":1,"status":"no_transport"}
+{"at":"2026-09-17T17:42:35.232Z","dedupeKey":"node.terminal:chain-ergonomics-and-fairness-2-throughput-and-truth:dispatch-during-verification:exhausted:2:1","attempt":1,"status":"no_transport"}
+{"at":"2026-09-17T17:46:51.110Z","dedupeKey":"node.terminal:chain-ergonomics-and-fairness-2-throughput-and-truth:status-tells-the-truth:exhausted:2:1","attempt":1,"status":"no_transport"}
+{"at":"2026-09-17T17:46:51.188Z","dedupeKey":"run.terminal:chain-ergonomics-and-fairness-2-throughput-and-truth:attention","attempt":1,"status":"no_transport"}

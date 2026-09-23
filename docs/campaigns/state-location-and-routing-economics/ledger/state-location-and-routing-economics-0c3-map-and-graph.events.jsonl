@@ -1,0 +1,12 @@
+{"at":"2026-09-18T00:49:07.482Z","node":"the-progress-message-has-one-renderer","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-18T00:58:12.254Z","node":"the-progress-message-has-one-renderer","to":"running","phase":"judge","runtime":"deepseek-flash-judge"}
+{"at":"2026-09-18T01:01:06.195Z","node":"the-progress-message-has-one-renderer","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-18T01:05:26.961Z","node":"the-progress-message-has-one-renderer","to":"running","phase":"judge","runtime":"deepseek-flash-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-18T01:06:50.003Z","node":"the-progress-message-has-one-renderer","to":"done","phase":"complete","runtime":"deepseek-flash-judge","verdict":"pass","revisions":1}
+{"at":"2026-09-18T01:06:51.243Z","node":"the-rollup-carries-the-graph","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-18T01:16:51.870Z","node":"the-rollup-carries-the-graph","to":"pending","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-18T01:16:51.870Z","node":"the-rollup-carries-the-graph","to":"pending","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-18T01:16:54.168Z","node":"the-rollup-carries-the-graph","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-18T01:16:56.546Z","node":"the-rollup-carries-the-graph","to":"failed","phase":"worker","runtime":"claude-sonnet-worker","error":"provider_error"}
+{"at":"2026-09-18T01:16:57.584Z","node":"the-page-draws-the-graph","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-18T01:16:57.606Z","node":"both-audiences-get-the-same-message","to":"blocked","phase":"dependency","error":"dependency_failed"}

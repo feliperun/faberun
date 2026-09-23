@@ -1,0 +1,6 @@
+{"at":"2026-09-15T11:53:48.648Z","dedupeKey":"node.terminal:factory-autonomy-p6-20260914:spend-less-per-node:stalled:2:0","attempt":1,"status":"no_transport"}
+{"at":"2026-09-15T11:53:48.700Z","dedupeKey":"run.terminal:factory-autonomy-p6-20260914:attention","attempt":1,"status":"no_transport"}
+{"at":"2026-09-15T12:40:54.092Z","dedupeKey":"node.terminal:factory-autonomy-p6-20260914:spend-less-per-node:stalled:4:1","attempt":1,"status":"no_transport"}
+{"at":"2026-09-15T12:58:57.662Z","dedupeKey":"node.terminal:factory-autonomy-p6-20260914:spend-less-per-node:exhausted:5:1","attempt":1,"status":"no_transport"}
+{"at":"2026-09-15T13:09:01.257Z","dedupeKey":"run.attention:factory-autonomy-p6-20260914:2026-09-15T12:59:01.120Z:0","attempt":1,"status":"no_transport"}
+{"at":"2026-09-15T13:59:01.791Z","dedupeKey":"run.attention:factory-autonomy-p6-20260914:2026-09-15T12:59:01.120Z:1","attempt":1,"status":"no_transport"}

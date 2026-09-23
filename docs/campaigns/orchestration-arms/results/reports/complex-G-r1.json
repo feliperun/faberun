@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "label": "complex",
+    "arm": "G",
+    "repetition": 1,
+    "finalSha": "4eb8954487d4d27b10a7d78eeca8fb4708af72f8"
+  },
+  "indicators": {
+    "costPerDeliveredRequirementUsd": {
+      "value": 1.3315,
+      "direction": "down",
+      "count": 1
+    },
+    "costUsd": {
+      "value": 2.663,
+      "direction": "down",
+      "count": 1
+    },
+    "proofsPassed": {
+      "value": 2,
+      "direction": "up",
+      "count": 1
+    },
+    "wallClockMinutes": {
+      "value": 19.4089,
+      "direction": "down",
+      "count": 1
+    },
+    "requests": {
+      "value": null,
+      "direction": "down",
+      "count": 0
+    },
+    "contextMaxKTokens": {
+      "value": null,
+      "direction": "down",
+      "count": 0
+    },
+    "outOfScopeFiles": {
+      "value": 0,
+      "direction": "down",
+      "count": 1
+    }
+  }
+}

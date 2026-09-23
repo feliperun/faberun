@@ -1,7 +1,7 @@
 {
   "id": "spec-format-and-planning-stages",
   "goal": "First half of the owner's planner proposal: campaign close preserves its ledgers in the record; a versioned, validated spec format documented as a worker-loadable reference with faberun spec validate and scaffold (deterministic, legacy class for pre-format documents) and a structured REQUIREMENTS.md beside every campaign record; and the planner's four deterministic stages under src/plan/ -- repository facts with measured durations, a declarative routing table with vendor independence, sizing rules with provenance, and a freeze with digest and provenance -- each proven against fixtures without a model. Anthropic models only. Spec: docs/campaigns/spec-format-and-planning-stages/spec/SPEC.md.",
-  "status": "active",
+  "status": "closed",
   "linkedRunIds": [
     "spec-format-and-planning-stages-1-ledger-and-spec-format",
     "spec-format-and-planning-stages-2-planning-stages"
@@ -36,5 +36,6 @@
     }
   ],
   "createdAt": "2026-09-17T03:11:52.064Z",
-  "updatedAt": "2026-09-17T06:21:36.292Z"
+  "updatedAt": "2026-09-17T06:48:50.619Z",
+  "closedAt": "2026-09-17T06:48:50.619Z"
 }

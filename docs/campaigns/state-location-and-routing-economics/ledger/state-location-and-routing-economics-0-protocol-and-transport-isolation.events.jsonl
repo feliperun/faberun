@@ -1,0 +1,10 @@
+{"at":"2026-09-17T20:12:23.480Z","node":"the-prompt-states-the-whole-result-shape","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T20:20:07.394Z","node":"no-test-can-reach-the-operator-transport","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T20:21:31.473Z","node":"the-prompt-states-the-whole-result-shape","to":"running","phase":"judge","runtime":"gemini-pro-judge"}
+{"at":"2026-09-17T20:25:09.654Z","node":"the-prompt-states-the-whole-result-shape","to":"done","phase":"complete","runtime":"gemini-pro-judge","verdict":"pass"}
+{"at":"2026-09-17T20:25:28.147Z","node":"no-test-can-reach-the-operator-transport","to":"running","phase":"judge","runtime":"gemini-pro-judge"}
+{"at":"2026-09-17T20:33:08.954Z","node":"no-test-can-reach-the-operator-transport","to":"running","phase":"judge","runtime":"gemini-pro-judge"}
+{"at":"2026-09-17T20:33:50.742Z","node":"no-test-can-reach-the-operator-transport","to":"done","phase":"complete","runtime":"gemini-pro-judge","verdict":"pass"}
+{"at":"2026-09-17T20:33:51.980Z","node":"the-timing-probe-has-no-side-effects","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T20:52:11.146Z","node":"the-timing-probe-has-no-side-effects","to":"running","phase":"judge","runtime":"gemini-pro-judge"}
+{"at":"2026-09-17T21:03:33.549Z","node":"the-timing-probe-has-no-side-effects","to":"done","phase":"complete","runtime":"gemini-pro-judge","verdict":"pass"}

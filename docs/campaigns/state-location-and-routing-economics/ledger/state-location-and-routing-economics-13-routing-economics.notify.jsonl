@@ -1,0 +1,5 @@
+{"at":"2026-09-21T08:53:59.723Z","dedupeKey":"node.terminal:state-location-and-routing-economics-13-routing-economics:catalogue-observed-runtime-data:done:1:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-21T09:25:43.210Z","dedupeKey":"node.terminal:state-location-and-routing-economics-13-routing-economics:measure-repeated-packet-bytes:done:2:1","attempt":1,"status":"delivered"}
+{"at":"2026-09-21T10:00:13.166Z","dedupeKey":"node.terminal:state-location-and-routing-economics-13-routing-economics:declare-routing-strategy:done:1:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-21T11:09:51.695Z","dedupeKey":"node.terminal:state-location-and-routing-economics-13-routing-economics:attempt-affinity-yields:done:1:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-21T11:09:53.867Z","dedupeKey":"run.terminal:state-location-and-routing-economics-13-routing-economics:done","attempt":1,"status":"delivered"}

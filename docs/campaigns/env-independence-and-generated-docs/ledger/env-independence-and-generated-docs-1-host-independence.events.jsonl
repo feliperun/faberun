@@ -1,0 +1,9 @@
+{"at":"2026-09-17T00:10:02.138Z","node":"installer-test-builds-its-path","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T00:10:03.158Z","node":"root-pointers-stay-symlinks","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T00:20:31.016Z","node":"root-pointers-stay-symlinks","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T00:20:48.080Z","node":"installer-test-builds-its-path","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T00:31:07.401Z","node":"root-pointers-stay-symlinks","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass"}
+{"at":"2026-09-17T00:31:26.134Z","node":"installer-test-builds-its-path","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass"}
+{"at":"2026-09-17T00:31:27.680Z","node":"host-layout-guard","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T00:50:50.639Z","node":"host-layout-guard","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T01:03:35.599Z","node":"host-layout-guard","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass"}

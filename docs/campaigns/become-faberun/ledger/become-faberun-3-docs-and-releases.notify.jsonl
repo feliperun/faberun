@@ -1,0 +1,7 @@
+{"at":"2026-09-16T02:06:28.795Z","dedupeKey":"node.terminal:become-faberun-3-docs-and-releases:supervisor-group-guard:done:1:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T02:10:05.279Z","dedupeKey":"node.terminal:become-faberun-3-docs-and-releases:release-pipeline:done:2:1","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T02:14:26.039Z","dedupeKey":"node.terminal:become-faberun-3-docs-and-releases:command-manual:done:1:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T02:15:55.682Z","dedupeKey":"node.terminal:become-faberun-3-docs-and-releases:vision-and-concepts:done:1:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T02:22:54.796Z","dedupeKey":"node.terminal:become-faberun-3-docs-and-releases:getting-started-and-adrs:done:1:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T03:09:31.442Z","dedupeKey":"node.terminal:become-faberun-3-docs-and-releases:docs-index:done:2:1","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T03:09:31.539Z","dedupeKey":"run.terminal:become-faberun-3-docs-and-releases:done","attempt":1,"status":"delivered"}

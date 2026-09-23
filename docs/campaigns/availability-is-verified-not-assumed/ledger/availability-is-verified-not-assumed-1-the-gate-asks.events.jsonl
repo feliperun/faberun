@@ -1,0 +1,6 @@
+{"at":"2026-09-22T04:07:54.050Z","node":"the-verdict-names-which-cause","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-22T04:25:18.975Z","node":"the-verdict-names-which-cause","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"pass"}
+{"at":"2026-09-22T04:25:20.587Z","node":"the-dispatch-gate-asks-before-it-passes","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-22T04:50:18.557Z","node":"the-dispatch-gate-asks-before-it-passes","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-22T05:31:09.172Z","node":"the-dispatch-gate-asks-before-it-passes","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-22T05:37:04.029Z","node":"the-dispatch-gate-asks-before-it-passes","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"pass","revisions":1}

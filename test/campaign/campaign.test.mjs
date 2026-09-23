@@ -720,6 +720,29 @@ test("replacing a contract swaps the entry and drops the attention that named it
   assert.equal(reread.attention, undefined, "the campaign is no longer parked");
 });
 
+test("replacing a contract excludes the old run only when the replacement id differs", () => {
+  for (const [suffix, replacementId, expectedRunIds] of [
+    ["same-id", "phase-1", []],
+    ["new-id", "phase-1-retry", ["phase-1"]],
+  ]) {
+    const directory = mkdtempSync(join(tmpdir(), `runner-campaign-replace-${suffix}-`));
+    const runsDir = runsRoot(directory);
+    const oldPath = join(directory, "phase-1.json");
+    const newPath = join(directory, "phase-1-fixed.json");
+    writeFileSync(oldPath, JSON.stringify({ id: "phase-1" }));
+    writeFileSync(newPath, JSON.stringify({ id: replacementId }));
+    const { path } = initializeCampaign(runsDir, {
+      campaignId: `replace-${suffix}`,
+      goal: "Keep replacement evidence honest",
+      contracts: [{ path: oldPath, digest: authoredContractDigest(oldPath) }],
+    });
+    registerRun(path, "phase-1");
+
+    const { campaign } = replaceContractInCampaign(path, oldPath, newPath);
+    assert.deepEqual(campaign.replacements?.at(-1)?.runIds, expectedRunIds);
+  }
+});
+
 test("replacing a contract that does not match the parked attention leaves it in place", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-replace-contract-unrelated-attention-"));
   const runsDir = runsRoot(directory);

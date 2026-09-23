@@ -1,0 +1,14 @@
+{"at":"2026-09-23T13:21:43.209Z","node":"ledger-sources","to":"running","phase":"worker","runtime":"codex-luna"}
+{"at":"2026-09-23T13:21:44.354Z","node":"arms-record","to":"running","phase":"worker","runtime":"codex-luna"}
+{"at":"2026-09-23T13:24:58.096Z","node":"docs-byte-budget","to":"running","phase":"worker","runtime":"codex-luna"}
+{"at":"2026-09-23T13:25:06.714Z","node":"arms-record","to":"done","phase":"complete","runtime":"codex-luna"}
+{"at":"2026-09-23T13:27:38.499Z","node":"docs-byte-budget","to":"done","phase":"complete","runtime":"codex-luna"}
+{"at":"2026-09-23T13:28:30.290Z","node":"ledger-sources","to":"done","phase":"complete","runtime":"codex-luna"}
+{"at":"2026-09-23T13:28:31.856Z","node":"reledger","to":"running","phase":"worker","runtime":"codex-luna"}
+{"at":"2026-09-23T13:33:31.215Z","node":"reledger","to":"done","phase":"complete","runtime":"codex-luna"}
+{"at":"2026-09-23T13:33:32.913Z","node":"metrics-from-ledger","to":"running","phase":"worker","runtime":"codex-luna"}
+{"at":"2026-09-23T13:44:55.130Z","node":"metrics-from-ledger","to":"done","phase":"complete","runtime":"codex-luna"}
+{"at":"2026-09-23T13:44:57.018Z","node":"north-star-and-recovery","to":"running","phase":"worker","runtime":"codex-luna"}
+{"at":"2026-09-23T13:57:51.590Z","node":"north-star-and-recovery","to":"done","phase":"complete","runtime":"codex-luna"}
+{"at":"2026-09-23T13:57:53.373Z","node":"unknown-cost-reason","to":"running","phase":"worker","runtime":"codex-luna"}
+{"at":"2026-09-23T14:07:54.628Z","node":"unknown-cost-reason","to":"done","phase":"complete","runtime":"codex-luna"}

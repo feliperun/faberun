@@ -1,0 +1,4 @@
+{"at":"2026-09-20T19:06:25.714Z","node":"a-plan-is-checked-as-a-contract-while-a-round-remains","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-20T19:50:05.216Z","node":"a-plan-is-checked-as-a-contract-while-a-round-remains","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-20T20:36:47.974Z","node":"a-plan-is-checked-as-a-contract-while-a-round-remains","to":"running","phase":"judge","runtime":"codex-sol-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-20T20:38:09.344Z","node":"a-plan-is-checked-as-a-contract-while-a-round-remains","to":"exhausted","phase":"judge","runtime":"codex-sol-judge","verdict":"fail","error":"revision_cap","revisions":1}

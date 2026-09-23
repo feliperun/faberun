@@ -20,8 +20,8 @@ Two measurements support the thesis rather than assuming it:
 - The `orchestration-arms` campaign found that *how* work is organised (faberun
   vs a session vs subagents) does not move the bill when the model is held
   constant, while swapping in a cheap writer moves it 16 to 50 times. Its record
-  still lives on the `spike/orchestration-arms` branch; bringing it to `main` is
-  `RM-065`.
+  is versioned at `docs/campaigns/orchestration-arms/`; `RM-065` landed it on
+  `main`.
 - The `rec-audit-remediation` campaign, the first against a repository faberun
   did not write, fixed 22 audit findings in a Zig codebase for US$ 1.35, with a
   `deepseek-flash` writer and a `glm-5.3-flash` judge that cost 2.8% of the bill
@@ -236,14 +236,14 @@ Start recording systematically now, not when the system is "ready".
 | id | item | evidence | state |
 | --- | --- | --- | --- |
 | RM-015 | Add the missing per-node dimensions: taskKind, vendor, harness, retries, judge used and judge outcome, tests run, human intervention | 15 of ~25 desired fields already exist; the pilot export needs most of them | specified in part: `friends-pilot` R2 |
-| RM-016 | Per-campaign roll-up: intent, complexity, nodes, duration, cost, retries, human interventions, success rate, replans, final eval outcome | `faberun metrics` exists and reads runs | specified in part: `evidence-you-can-recompute` R5, R9 |
+| RM-016 | Per-campaign roll-up: intent, complexity, nodes, duration, cost, retries, human interventions, success rate, replans, final eval outcome | `faberun metrics` exists and reads runs | landed in part: `evidence-you-can-recompute` R5, R9, 2026-09-23 |
 | RM-017 | Per-request metering for codex | zcode has no stream, so the measure differs per harness; 4 of 10 arms in the complex round have no request count | idea |
 | RM-018 | Classify `blocked_context` refusals into four kinds: correct refusal, false refusal, harness incompatibility, implementation failure, without auto-escalating to a more expensive model | none yet | idea |
-| RM-060 | A closed ledger carries every source the projectors read | `preserveCampaignLedger` copies journal, record and `usage.jsonl`; the projectors also read `events.jsonl` and node snapshots, which now live only in the operator's home | specified: `evidence-you-can-recompute` R1 to R2 |
-| RM-061 | `campaign reledger` completes the ledger of an already closed campaign | the campaigns closed since 2026-09-15 have ledgers without events or snapshots | specified: `evidence-you-can-recompute` R3 |
-| RM-062 | An unknown cost names its reason | 73 of 186 invocations `unknown` in `state-location-and-routing-economics`; 1 of 21 in `durable-state-integrity` after `RM-022` | specified: `evidence-you-can-recompute` R4 |
-| RM-063 | The North Star is an indicator | D4 chose it; nothing in `src/` or `evals/` computes it | specified: `evidence-you-can-recompute` R5 |
-| RM-066 | The baseline recomputes from versioned ledgers | `evals/baseline.json` dates from 2026-09-12 and cites five absolute paths on the owner's machine | specified: `evidence-you-can-recompute` R6 |
+| RM-060 | A closed ledger carries every source the projectors read | `preserveCampaignLedger` copies journal, record and `usage.jsonl`; the projectors also read `events.jsonl` and node snapshots, which now live only in the operator's home | landed: `evidence-you-can-recompute` R1 to R2, 2026-09-23 |
+| RM-061 | `campaign reledger` completes the ledger of an already closed campaign | the campaigns closed since 2026-09-15 have ledgers without events or snapshots | landed: `evidence-you-can-recompute` R3, 2026-09-23 |
+| RM-062 | An unknown cost names its reason | 73 of 186 invocations `unknown` in `state-location-and-routing-economics`; 1 of 21 in `durable-state-integrity` after `RM-022` | landed: `evidence-you-can-recompute` R4, 2026-09-23 |
+| RM-063 | The North Star is an indicator | D4 chose it; nothing in `src/` or `evals/` computes it | landed: `evidence-you-can-recompute` R5, 2026-09-23 |
+| RM-066 | The baseline recomputes from versioned ledgers | `evals/baseline.json` dates from 2026-09-12 and cites five absolute paths on the owner's machine | landed: `evidence-you-can-recompute` R6, 2026-09-23 |
 
 ---
 
@@ -257,7 +257,7 @@ repository and this class of task, pick on cost-adjusted success rate.
 | RM-019 | Cheap writer as the per-class default (taskKind × acceptance kind; high risk excluded), as a static policy first | a cheap writer moved cost 16 to 50 times in `orchestration-arms`; `rec-audit-remediation` closed 12 of 12 nodes with `deepseek-flash` for US$ 0.47 of worker spend | measured; applied as a program rule |
 | RM-020 | Ledger scorecard in "recommend" mode, promoted to auto-select only above a floor | proposed floor: at least 60 distinct nodes, 5 campaigns, 60 days, 20 random, pass@1 of 95% with lower bound of 90%, 10% exploration | idea |
 | RM-021 | `DEFAULT_ROUTING_TABLE` is empty; routing is taskKind + riskTier only | verified in `src/plan/pipeline.mjs` | measured |
-| RM-055 | `metrics` counts an operator's deliberate re-issue as a failure | `nodesDoneRate` 0.7778 over 18 node records, and all four non-done records come from the two runs the operator canceled to re-issue a contract after a packet defect, one of which had produced the work that landed. `replace-contract` already records the substitution | specified: `evidence-you-can-recompute` R9 |
+| RM-055 | `metrics` counts an operator's deliberate re-issue as a failure | `nodesDoneRate` 0.7778 over 18 node records, and all four non-done records come from the two runs the operator canceled to re-issue a contract after a packet defect, one of which had produced the work that landed. `replace-contract` already records the substitution | landed: `evidence-you-can-recompute` R9, 2026-09-23 |
 
 **See open question Q6.** The floor in `RM-020` is what separates evidence from
 anecdote, and it is not yet agreed. The fallback judge is part of routing too:
@@ -370,7 +370,7 @@ judgment; they do not transport information.
 
 | id | item | evidence | state |
 | --- | --- | --- | --- |
-| RM-030 | `campaign close` preserves `proposals/` in the ledger | 16 proposals lived only in gitignored `.runs/`; the close copies journal, record and usage, not these | specified: `evidence-you-can-recompute` R1 |
+| RM-030 | `campaign close` preserves `proposals/` in the ledger | 16 proposals lived only in gitignored `.runs/`; the close copies journal, record and usage, not these | landed: `evidence-you-can-recompute` R1, 2026-09-23 |
 | RM-031 | Emit `judgment` proofs only where no `command`/`path` proof covers the item, and support `gate.skipWhen` | `judgeRequired` already skips the judge when no `judgment` item exists, and `gate.skipWhen` exists | specified in part: `evals-with-a-budget` R10 |
 | RM-032 | Detect unproductive loops and stop them | 23 turns with no result accounted for 25% of one campaign's spend; `process.mjs` restarts the stall clock on any event | measured |
 | RM-033 | Ask the owner asynchronously (WhatsApp, then `campaign resolve`) instead of keeping a session alive to be present when a question appears | none yet | idea |
@@ -392,8 +392,8 @@ its author.
 | RM-034 | State vendor neutrality explicitly in the README and public docs | none yet; waits for D10 | idea |
 | RM-035 | Permanent paired benchmark: versioned corpus, same writer/base/acceptance, randomised order, repetitions, CI95 resampled by task | the `spike/arms/` driver produced two rounds; the complex round has one repetition, and two identical sonnet runs differed by about 40% | specified: `evals-with-a-budget` R1 to R4, R8 |
 | RM-036 | External validation with 3 to 5 developers who already use agents | the signal is spontaneous reuse, not "nice" | specified: `friends-pilot` R6 |
-| RM-064 | The skill and its references share one byte budget | 12 ceiling raises between 2026-09-13 and 2026-09-22, each justified, none offset | specified: `evidence-you-can-recompute` R8 |
-| RM-065 | The `orchestration-arms` record lives on `main` | the thesis above cites it; it exists only on `spike/orchestration-arms` | specified: `evidence-you-can-recompute` R7 |
+| RM-064 | The skill and its references share one byte budget | 12 ceiling raises between 2026-09-13 and 2026-09-22, each justified, none offset | landed: `evidence-you-can-recompute` R8, 2026-09-23 |
+| RM-065 | The `orchestration-arms` record lives on `main` | the thesis above cites it; it exists only on `spike/orchestration-arms` | landed: `evidence-you-can-recompute` R7, 2026-09-23 |
 | RM-067 | Every stochastic eval class has a hard budget | no class has one; the complex round alone recorded US$ 28.85, including voided launches | specified: `evals-with-a-budget` R1 |
 | RM-076 | A redacted campaign export a participant reads before sending | a ledger carries paths, requirement text, notes and the repository name | specified: `friends-pilot` R2 |
 | RM-077 | Friction is a journal type | 16 journal types, none for "this blocked me" | specified: `friends-pilot` R3 |
@@ -480,6 +480,7 @@ vendor, and a rewrite in another language. Prove the core first.
 
 | id | item | where | when |
 | --- | --- | --- | --- |
+| RM-030, RM-055, RM-060 to RM-066, RM-016 (part) | The `evidence-you-can-recompute` campaign: complete ledgers and reledger, metrics from a ledger, unknown-cost reasons, the North Star, recovery-aware rates, the orchestration-arms record on main, one docs byte budget, a baseline that recomputes from versioned ledgers | `feat/evidence-you-can-recompute` | 2026-09-23 |
 | RM-051 to RM-053, RM-056 to RM-058 | The `first-target-frictions` campaign: ignore-source warning, verification artefacts kept out of the seal, stranded-run resume, no sub-second test budget, measured verification timeouts, read-only judge | `d34d1d9`, `1d47973`, `826dd0e`, `72b08e5`, `614010b`, `33825a8`, `7d23785` | 2026-09-23 |
 | RM-002 | Close the `durable-state-integrity` campaign | `f46d5e6`; 10 requirements, 13 runs, US$ 1.88 | 2026-09-22 |
 | RM-003 | `cancel` is proven against a genuinely live invocation | `e550650` | 2026-09-22 |

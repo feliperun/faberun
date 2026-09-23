@@ -1,0 +1,6 @@
+{"at":"2026-09-21T21:55:12.160Z","node":"a-note-that-does-not-fit-is-refused","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T22:04:10.953Z","node":"a-proof-that-selected-no-test-is-refused","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T22:09:28.464Z","node":"a-note-that-does-not-fit-is-refused","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"pass"}
+{"at":"2026-09-21T22:17:32.128Z","node":"an-attention-belongs-to-one-campaign-or-none","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T22:17:50.812Z","node":"a-proof-that-selected-no-test-is-refused","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"pass"}
+{"at":"2026-09-21T22:37:21.760Z","node":"an-attention-belongs-to-one-campaign-or-none","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"pass"}

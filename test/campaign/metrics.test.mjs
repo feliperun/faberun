@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderMetricsJson, renderMetricsReport } from "../../src/report/metrics-report.mjs";
 import { renderReportJson } from "../../src/report/render.mjs";
-import { projectMetrics, readMetricsSources } from "../../src/campaign/metrics.mjs";
+import { projectMetrics } from "../../src/campaign/metrics.mjs";
+import { readMetricsSources } from "../../src/campaign/metrics-command.mjs";
 import { projectEvalIndicators } from "../../evals/metrics.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 import { campaignTree, runDirectory, runsRoot } from "../../src/run/paths.mjs";
@@ -25,6 +26,8 @@ const DIRECTIONS = {
   blockingJudgeFirstPassRate: "up",
   notifyReceiptRate: "up",
   silentStallRate: "down",
+  intentToVerifiedSeconds: "down",
+  humanTouches: "informative",
 };
 
 /** @param {number} minute @param {number} [second] @returns {string} */
@@ -32,7 +35,7 @@ const at = (minute, second = 0) => new Date(Date.parse("2026-09-04T10:00:00.000Z
 
 /**
  * @param {string} runId @param {string} node @param {string} to
- * @param {{at: string, phase?: string, runtime?: string, verdict?: string}} rest
+ * @param {{at: string, phase?: string, runtime?: string, verdict?: string, override?: unknown, recovery?: string, error?: string}} rest
  * @returns {Record<string, unknown>}
  */
 const event = (runId, node, to, rest) => ({ runId, node, to, ...rest });
@@ -47,12 +50,15 @@ test("metrics nodesDoneRate is done-at-any-attempt over terminal logical nodes, 
   const metrics = projectMetrics({ nodes });
   // Two terminal logical nodes (a, b); c and d are still open and are
   // censored rather than counted as failures.
-  assert.deepEqual(metrics.nodesDoneRate, { value: 0.5, direction: "up", count: 2 });
+  assert.deepEqual(metrics.nodesDoneRate, { value: 0.5, direction: "up", count: 2, numerator: 1, denominator: 2, excludedRunIds: [] });
 
   assert.deepEqual(projectMetrics({ nodes: [{ runId: "r1", id: "a", status: "pending" }] }).nodesDoneRate, {
     value: null,
     direction: "up",
     count: 0,
+    numerator: 0,
+    denominator: 0,
+    excludedRunIds: [],
   });
 });
 
@@ -62,7 +68,87 @@ test("metrics nodesDoneRate treats the same id in two runs as two logical nodes"
     { runId: "take2", id: "build", status: "done" },
   ];
   const metrics = projectMetrics({ nodes });
-  assert.deepEqual(metrics.nodesDoneRate, { value: 0.5, direction: "up", count: 2 });
+  assert.deepEqual(metrics.nodesDoneRate, { value: 0.5, direction: "up", count: 2, numerator: 1, denominator: 2, excludedRunIds: [] });
+});
+
+test("the north star is measured from initialization to the last proven requirement", () => {
+  const metrics = projectMetrics({
+    journal: [
+      { type: "campaign.initialized", at: at(0), eventId: "init" },
+      { type: "run.registered", at: at(1), eventId: "launch", runId: "run-a" },
+      { type: "question.resolved", at: at(2), eventId: "touch-1", sessionId: "test", questionId: "q1", text: "resolved" },
+      { type: "operator.command", at: at(7), eventId: "touch-5", command: "campaign add-contract" },
+    ],
+    requirements: [
+      { requirementId: "req-1", status: "covered", nodes: [{ runId: "run-a", node: "build", passed: true, verdict: "pass" }] },
+      { requirementId: "req-2", status: "covered", nodes: [{ runId: "run-a", node: "ship", passed: true, verdict: "pass" }] },
+    ],
+    events: [
+      event("run-a", "build", "done", { at: at(3) }),
+      event("run-a", "build", "blocked", { at: at(4), override: { kind: "operator-answer", text: "answered" } }),
+      event("run-a", "build", "blocked", { at: at(5), recovery: "reconcile_acknowledged" }),
+      event("run-a", "ship", "done", { at: at(6) }),
+      event("run-a", "cancel-me", "canceled", { at: at(8) }),
+      event("run-a", "cancel-me", "canceled", { at: at(9) }),
+    ],
+  });
+  assert.deepEqual(metrics.intentToVerifiedSeconds, { value: 360, direction: "down", count: 1 });
+  assert.deepEqual(metrics.humanTouches, { value: 5, direction: "informative", count: 5 });
+
+  const incomplete = projectMetrics({
+    journal: [{ type: "campaign.initialized", at: at(0), eventId: "init" }],
+    requirements: [{ requirementId: "req-1", status: "open", nodes: [] }],
+  });
+  assert.deepEqual(incomplete.intentToVerifiedSeconds, { value: null, direction: "down", count: 0 });
+});
+
+test("a replaced run leaves the done rate and is named", () => {
+  const campaign = { replacements: [{ oldPath: "old.json", newPath: "new.json", runIds: ["run-replaced"], at: at(2) }] };
+  const nodes = [
+    { runId: "run-replaced", id: "build", status: "failed", review: "blocking" },
+    { runId: "run-kept", id: "build", status: "done", review: "blocking" },
+    { runId: "run-canceled", id: "build", status: "canceled", review: "blocking" },
+  ];
+  const events = [
+    event("run-replaced", "build", "running", { at: at(0), verdict: "fail", runtime: "judge" }),
+    event("run-kept", "build", "running", { at: at(1), verdict: "pass", runtime: "judge" }),
+  ];
+  const usageRecords = [
+    { runId: "run-replaced", nodeId: "build", role: "judge", runtimeId: "judge", inputTokens: 1, costUsd: 4, costProvenance: "provider" },
+    { runId: "run-kept", nodeId: "build", role: "judge", runtimeId: "judge", inputTokens: 1, costUsd: 2, costProvenance: "provider" },
+  ];
+  const metrics = projectMetrics({ campaign, nodes, events, usageRecords });
+  assert.deepEqual(metrics.nodesDoneRate, { value: 0.5, direction: "up", count: 2, numerator: 1, denominator: 2, excludedRunIds: ["run-replaced"] });
+  assert.deepEqual(metrics.blockingJudgeFirstPassRate, {
+    value: { judge: 1 },
+    direction: "up",
+    count: 1,
+    numerator: { judge: 1 },
+    denominator: { judge: 1 },
+    excludedRunIds: ["run-replaced"],
+  });
+  const evals = projectEvalIndicators({
+    events: [
+      ...events,
+      event("run-replaced", "build", "done", { at: at(2), error: "protocol_failure" }),
+      event("run-kept", "build", "done", { at: at(3) }),
+    ],
+    usageRecords,
+    excludedRunIds: ["run-replaced"],
+  });
+  assert.deepEqual(evals.firstPassGateRate, {
+    value: { build: 1 },
+    direction: "up",
+    count: 1,
+    numerator: { build: 1 },
+    denominator: { build: 1 },
+    excludedRunIds: ["run-replaced"],
+  });
+  assert.equal(metrics.usageCostUsd.value, 6, "replacement usage remains in campaign spend");
+  assert.equal(evals.costPerClosedCheckpoint.value, 6, "replacement usage remains in eval spend");
+  assert.deepEqual(evals.judgeInvocationRate, { value: 1, direction: "up", count: 1, numerator: 1, denominator: 1, excludedRunIds: ["run-replaced"] });
+  assert.deepEqual(evals.protocolFailureRate, { value: 0.5, direction: "down", count: 2, numerator: 1, denominator: 2, excludedRunIds: ["run-replaced"] });
+  assert.equal(metrics.nodesDoneRate.denominator, 2, "the canceled run without replacement remains in the denominator");
 });
 
 test("metrics linkedRunsPerClosedCheckpoint divides runs by distinct closed node ids", () => {
@@ -132,10 +218,24 @@ test("metrics usageCostUsd sums only priced records and counts unknown provenanc
     { runtimeId: "glm", inputTokens: 1, costUsd: null, costProvenance: "unknown" },
   ];
   const metrics = projectMetrics({ usageRecords });
-  assert.deepEqual(metrics.usageCostUsd, { value: 1.5, direction: "down", count: 1, unknownCount: 1 });
+  assert.deepEqual(metrics.usageCostUsd, {
+    value: 1.5,
+    direction: "down",
+    count: 1,
+    unknownCount: 1,
+    unknownCountByReason: { legacy: 1 },
+    unknownFractionByReason: { legacy: 0.5 },
+  });
 
   const allUnknown = projectMetrics({ usageRecords: [{ inputTokens: 1, costUsd: null, costProvenance: "unknown" }] });
-  assert.deepEqual(allUnknown.usageCostUsd, { value: null, direction: "down", count: 0, unknownCount: 1 });
+  assert.deepEqual(allUnknown.usageCostUsd, {
+    value: null,
+    direction: "down",
+    count: 0,
+    unknownCount: 1,
+    unknownCountByReason: { legacy: 1 },
+    unknownFractionByReason: { legacy: 1 },
+  });
 });
 
 test("done-when 7: campaign metrics counts a priced record, not just a provider one", () => {
@@ -144,7 +244,14 @@ test("done-when 7: campaign metrics counts a priced record, not just a provider 
     { runtimeId: "luna", inputTokens: 1, costUsd: null, costProvenance: "unknown" },
   ];
   const metrics = projectMetrics({ usageRecords });
-  assert.deepEqual(metrics.usageCostUsd, { value: 1.65, direction: "down", count: 1, unknownCount: 1 });
+  assert.deepEqual(metrics.usageCostUsd, {
+    value: 1.65,
+    direction: "down",
+    count: 1,
+    unknownCount: 1,
+    unknownCountByReason: { legacy: 1 },
+    unknownFractionByReason: { legacy: 0.5 },
+  });
 });
 
 test("done-when 7: evals costPerClosedCheckpoint counts a priced record", () => {
@@ -270,10 +377,10 @@ test("metrics blockingJudgeFirstPassRate is measured only over blocking-reviewed
     event("r1", "g2", "blocked", { at: at(3), phase: "judge", runtime: "glm", verdict: "fail" }),
   ];
   const metrics = projectMetrics({ nodes, events });
-  assert.deepEqual(metrics.blockingJudgeFirstPassRate, { value: { glm: 0 }, direction: "up", count: 1 });
+  assert.deepEqual(metrics.blockingJudgeFirstPassRate, { value: { glm: 0 }, direction: "up", count: 1, numerator: { glm: 0 }, denominator: { glm: 1 }, excludedRunIds: [] });
 
   const noBlocking = projectMetrics({ nodes: [{ runId: "r1", id: "g2", status: "done", review: "advisory" }], events });
-  assert.deepEqual(noBlocking.blockingJudgeFirstPassRate, { value: null, direction: "up", count: 0 });
+  assert.deepEqual(noBlocking.blockingJudgeFirstPassRate, { value: null, direction: "up", count: 0, numerator: {}, denominator: {}, excludedRunIds: [] });
 });
 
 test("metrics notifyReceiptRate counts a dedupeKey settled within 60s as satisfied", () => {
@@ -292,9 +399,9 @@ test("metrics notifyReceiptRate counts a dedupeKey settled within 60s as satisfi
     { dedupeKey: "node.terminal:r:e:done:1:0", attempt: 1, status: "failed", at: at(0) },
   ];
   const metrics = projectMetrics({ notifications });
-  assert.deepEqual(metrics.notifyReceiptRate, { value: 0.6, direction: "up", count: 5 });
+  assert.deepEqual(metrics.notifyReceiptRate, { value: 0.6, direction: "up", count: 5, numerator: 3, denominator: 5, excludedRunIds: [] });
 
-  assert.deepEqual(projectMetrics().notifyReceiptRate, { value: null, direction: "up", count: 0 });
+  assert.deepEqual(projectMetrics().notifyReceiptRate, { value: null, direction: "up", count: 0, numerator: 0, denominator: 0, excludedRunIds: [] });
 });
 
 test("metrics silentStallRate is stalled logical nodes per active run-hour", () => {
@@ -310,10 +417,10 @@ test("metrics silentStallRate is stalled logical nodes per active run-hour", () 
     event("r1", "b", "running", { at: at(70) }),
   ];
   const metrics = projectMetrics({ nodes, events });
-  assert.deepEqual(metrics.silentStallRate, { value: 1, direction: "down", count: 1 });
+  assert.deepEqual(metrics.silentStallRate, { value: 1, direction: "down", count: 1, numerator: 1, denominator: 1, excludedRunIds: [] });
 
   const noActiveTime = projectMetrics({ nodes: [{ runId: "r1", id: "a", status: "stalled" }] });
-  assert.deepEqual(noActiveTime.silentStallRate, { value: null, direction: "down", count: 0 });
+  assert.deepEqual(noActiveTime.silentStallRate, { value: null, direction: "down", count: 0, numerator: 1, denominator: 0, excludedRunIds: [] });
 });
 
 test("metrics projects every indicator of section 6, null and never zero without records", () => {
@@ -405,7 +512,7 @@ test("metrics baseline reproduces this campaign's own recorded runs", () => {
   const metrics = projectMetrics(sources);
   // Pinned from a real projection over the fixture above: change the fixture
   // deliberately, or not at all.
-  assert.deepEqual(metrics.nodesDoneRate, { value: 0.1667, direction: "up", count: 54 });
+  assert.deepEqual(metrics.nodesDoneRate, { value: 0.1667, direction: "up", count: 54, numerator: 9, denominator: 54, excludedRunIds: [] });
   assert.deepEqual(metrics.linkedRunsPerClosedCheckpoint, { value: 3.2222, direction: "down", count: 9 });
   assert.deepEqual(metrics.runsPerCampaign, { value: 29, direction: "down", count: 29 });
   assert.deepEqual(metrics.wallClockSec, { value: 234235.193, direction: "down", count: 181 });
@@ -414,10 +521,17 @@ test("metrics baseline reproduces this campaign's own recorded runs", () => {
     direction: "informative",
     count: 9,
   });
-  assert.deepEqual(metrics.usageCostUsd, { value: 89.8846, direction: "down", count: 6, unknownCount: 3 });
-  assert.deepEqual(metrics.blockingJudgeFirstPassRate, { value: { luna: 0, sol: 1 }, direction: "up", count: 2 });
-  assert.deepEqual(metrics.notifyReceiptRate, { value: 1, direction: "up", count: 11 });
-  assert.deepEqual(metrics.silentStallRate, { value: 0.0906, direction: "down", count: 100 });
+  assert.deepEqual(metrics.usageCostUsd, {
+    value: 89.8846,
+    direction: "down",
+    count: 6,
+    unknownCount: 3,
+    unknownCountByReason: { legacy: 3 },
+    unknownFractionByReason: { legacy: 0.3333 },
+  });
+  assert.deepEqual(metrics.blockingJudgeFirstPassRate, { value: { luna: 0, sol: 1 }, direction: "up", count: 2, numerator: { luna: 0, sol: 1 }, denominator: { luna: 1, sol: 1 }, excludedRunIds: [] });
+  assert.deepEqual(metrics.notifyReceiptRate, { value: 1, direction: "up", count: 11, numerator: 11, denominator: 11, excludedRunIds: [] });
+  assert.deepEqual(metrics.silentStallRate, { value: 0.0906, direction: "down", count: 100, numerator: 3, denominator: 33.12929083333333, excludedRunIds: [] });
 });
 
 test("metrics baseline report prints every indicator with its value and direction", () => {
@@ -425,13 +539,13 @@ test("metrics baseline report prints every indicator with its value and directio
   const metrics = projectMetrics(sources);
   const report = renderMetricsReport(sources, metrics);
   const lines = report.trimEnd().split("\n");
-  assert.equal(lines.length, Object.keys(metrics).length + 1, "one header plus one line per indicator");
-  assert.match(lines[0], new RegExp(`${BASELINE_CAMPAIGN} · 29 runs · 181 events · 10 indicators`, "u"));
+  assert.equal(lines.length, Object.keys(metrics).length + 2, "a header, missing-source line and one line per indicator");
+  assert.match(lines[0], new RegExp(`${BASELINE_CAMPAIGN} · 29 runs · 181 events · 12 indicators`, "u"));
   for (const [name, indicator] of Object.entries(metrics)) {
     const line = lines.find((candidate) => candidate.startsWith(name));
     assert.ok(line, `${name} is missing from the report`);
     assert.match(line, new RegExp(`\\b${indicator.direction}\\b`, "u"), `${name} must print its direction`);
-    assert.match(line, /· \d+ records?(?: · \d+ unknown)?$/u, `${name} must print how many records it was measured from`);
+    assert.match(line, /· \d+ records?(?: · \d+ unknown(?: \(.+\))?)?(?: · missing .+)?$/u, `${name} must print how many records it was measured from`);
     assert.ok(line.length <= 140, `${name} line is unbounded at ${line.length} chars`);
   }
   assert.match(report, /usageCostUsd\s+down\s+89\.8846\s+· 6 records · 3 unknown/u);

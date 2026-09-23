@@ -1,0 +1,3 @@
+{"at":"2026-09-17T11:02:40.086Z","node":"plan-eval-cases-on-replay","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T11:48:15.398Z","node":"plan-eval-cases-on-replay","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T12:04:18.205Z","node":"plan-eval-cases-on-replay","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"fail"}

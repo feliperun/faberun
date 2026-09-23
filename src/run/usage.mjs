@@ -15,7 +15,7 @@ import { liveUsage } from "../harnesses/session-metrics.mjs";
 import { priceUsage } from "../engine/process.mjs";
 import { readBoundedTail, sessionLedger } from "../engine/transcript.mjs";
 import { writeNode } from "../engine/state.mjs";
-import { normalizeProviderResult } from "../harnesses/index.mjs";
+import { harnessCapabilities, normalizeProviderResult } from "../harnesses/index.mjs";
 
 // `priceUsage` is defined beside `invocationResult`, the second source point,
 // and re-exported here so the ledger's public surface is unchanged. This module
@@ -31,6 +31,15 @@ export { priceUsage };
 /** @typedef {ProviderEnvelope & {costProvenance?: "priced"}} PricedEnvelope */
 /** @typedef {{kind: "adopted"|"rejudge"|"restart"|"reconciled"|"exhausted"|"stalled", phase?: "worker"|"judge", result?: unknown, usage?: Usage, costUsd?: number|null, costProvenance?: "priced", exhaustedUntil?: string|null, error?: {code: string, message: string}|null, invocationId?: string, reason?: string}} RecoveryOutcome */
 /** @typedef {import("../contract/index.mjs").Usage} Usage */
+/** @typedef {"no-usage-stream"|"model-not-priced"|"provider-reported-nothing"|"invocation-killed"} UnknownCostReason */
+
+/** The only reasons a newly-written unknown cost may carry. `legacy` is read-only compatibility for older ledgers. */
+export const UNKNOWN_COST_REASONS = Object.freeze([
+  "no-usage-stream",
+  "model-not-priced",
+  "provider-reported-nothing",
+  "invocation-killed",
+]);
 
 /**
  * Extract the invocation's provider envelope from the bounded transcript tail
@@ -144,10 +153,15 @@ export function usageRecordIds(runDir) {
  *
  * @param {string} runDir
  * @param {Invocation|undefined|null} invocation
+ * @param {{runtime?: {harness?: string, capabilities?: {usage?: boolean}}, unknownReason?: UnknownCostReason}} [options]
  */
-export function appendUsageRecord(runDir, invocation) {
+export function appendUsageRecord(runDir, invocation, options = {}) {
   if (!invocation?.id || usageRecordIds(runDir).has(invocation.id)) return;
   const usage = /** @type {Usage} */ (invocation.usage ?? { inputTokens: null, outputTokens: null, cacheReadInputTokens: null });
+  const costProvenance = invocation.costProvenance ?? (typeof invocation.costUsd === "number" ? "provider" : "unknown");
+  const unknownReason = costProvenance === "unknown"
+    ? unknownCostReason(invocation, usage, options)
+    : undefined;
   appendJsonl(join(runDir, USAGE_LOG_NAME), {
     invocationId: invocation.id,
     runId: invocation.runId ?? basename(runDir),
@@ -162,11 +176,50 @@ export function appendUsageRecord(runDir, invocation) {
     costUsd: typeof invocation.costUsd === "number" ? invocation.costUsd : null,
     // A persisted `priced` marker wins; otherwise the pre-Phase-4 rule applies
     // unchanged: a reported number is `provider`, absence is `unknown`.
-    costProvenance: invocation.costProvenance ?? (typeof invocation.costUsd === "number" ? "provider" : "unknown"),
+    costProvenance,
+    ...(unknownReason === undefined ? {} : { unknownReason }),
     session: invocation.session ?? null,
     startedAt: invocation.startedAt ?? null,
     finishedAt: invocation.closedAt ?? null,
   });
+}
+
+/**
+ * Explain an unknown cost at the point where the invocation's counters and
+ * pricing have been resolved. A runtime can be supplied by the live engine;
+ * older or recovery callers fall back to the invocation's harness identity.
+ *
+ * @param {Invocation} invocation
+ * @param {Usage} usage
+ * @param {{runtime?: {harness?: string, capabilities?: {usage?: boolean}}, unknownReason?: UnknownCostReason}} [options]
+ * @returns {UnknownCostReason}
+ */
+function unknownCostReason(invocation, usage, options = {}) {
+  if (options.unknownReason !== undefined) return options.unknownReason;
+  if (invocation.signal !== null && invocation.signal !== undefined || invocation.status === "terminated") {
+    return "invocation-killed";
+  }
+  const runtimeUsage = options.runtime?.capabilities?.usage;
+  if (runtimeUsage === false || (runtimeUsage === undefined && invocation.harness !== undefined && !harnessHasUsage(invocation.harness))) {
+    return "no-usage-stream";
+  }
+  if (!hasMeasuredUsage(usage)) return "provider-reported-nothing";
+  // A partial token stream cannot be called "nothing". It also cannot be
+  // priced because one or more counters are absent, so the model-not-priced
+  // bucket is the only remaining vocabulary that preserves the unknown cost.
+  return "model-not-priced";
+}
+
+/** @param {string} harness @returns {boolean} */
+function harnessHasUsage(harness) {
+  try {
+    return harnessCapabilities({ harness }).usage;
+  } catch (error) {
+    // An unknown harness cannot prove that it emits usage; callers still get
+    // the provider-reported-nothing fallback rather than a guessed adapter.
+    void error;
+    return true;
+  }
 }
 /**
  * Recovery can discover usage after the run synchronized its records. Attach
@@ -201,7 +254,11 @@ export async function persistRecoveryUsage(runDir, state, recovery, lock) {
     writeNode(runDir, state, lock);
   }
   const updated = state.invocations?.find((invocation) => invocation.id === current.id);
-  if (updated) appendUsageRecord(runDir, updated);
+  if (updated) {
+    const killed = recovery.kind === "stalled"
+      || (recovery.kind === "restart" && /wall-clock budget|died without a completed stream/iu.test(recovery.reason ?? ""));
+    appendUsageRecord(runDir, updated, killed ? { unknownReason: "invocation-killed" } : {});
+  }
 }
 /**
  * @param {Usage|undefined} left

@@ -1,0 +1,9 @@
+{"at":"2026-09-14T23:17:34.520Z","node":"heartbeat-and-supervision","to":"running","phase":"worker","runtime":"zcode-glm-flash"}
+{"at":"2026-09-15T00:10:00.455Z","node":"heartbeat-and-supervision","to":"pending","phase":"worker","runtime":"agy-gemini-flash"}
+{"at":"2026-09-15T00:10:00.455Z","node":"heartbeat-and-supervision","to":"pending","phase":"worker","runtime":"agy-gemini-flash","override":{}}
+{"at":"2026-09-15T00:10:01.998Z","node":"heartbeat-and-supervision","to":"running","phase":"worker","runtime":"agy-gemini-flash"}
+{"at":"2026-09-15T00:23:57.015Z","node":"heartbeat-and-supervision","to":"pending","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T00:23:57.015Z","node":"heartbeat-and-supervision","to":"pending","phase":"worker","runtime":"dsh-deepseek-flash","override":{}}
+{"at":"2026-09-15T00:23:58.282Z","node":"heartbeat-and-supervision","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T00:45:22.295Z","node":"heartbeat-and-supervision","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-15T00:53:59.749Z","node":"heartbeat-and-supervision","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass"}

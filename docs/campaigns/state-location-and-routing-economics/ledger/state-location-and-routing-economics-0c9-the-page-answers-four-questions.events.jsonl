@@ -1,0 +1,9 @@
+{"at":"2026-09-19T10:17:39.478Z","node":"the-campaign-remembers-what-it-did","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-19T10:40:09.997Z","node":"the-campaign-remembers-what-it-did","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-19T10:44:14.241Z","node":"the-campaign-remembers-what-it-did","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-19T11:01:28.317Z","node":"the-campaign-remembers-what-it-did","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-19T11:04:16.836Z","node":"the-campaign-remembers-what-it-did","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass","revisions":1}
+{"at":"2026-09-19T11:04:18.518Z","node":"the-page-opens-with-the-answers","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-19T12:00:51.326Z","node":"the-page-opens-with-the-answers","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-19T12:50:42.868Z","node":"the-page-opens-with-the-answers","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-19T12:54:46.948Z","node":"the-page-opens-with-the-answers","to":"exhausted","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","error":"revision_cap","revisions":1}

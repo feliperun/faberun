@@ -39,7 +39,7 @@ import { updateCommand } from "./cli/update.mjs";
 import { contractCli, validateContractFile } from "./cli/contract.mjs";
 import { specCli } from "./cli/spec.mjs";
 import { planCli } from "./cli/plan.mjs";
-import { METRICS_OPTIONS, renderCampaignMetrics } from "./campaign/metrics.mjs";
+import { METRICS_OPTIONS, renderCampaignMetrics } from "./campaign/metrics-command.mjs";
 import { runContract } from "./engine/scheduler.mjs";
 import { resumeRun } from "./engine/resume.mjs";
 import { cancelRun } from "./engine/cancel.mjs";

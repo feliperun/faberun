@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "label": "pilot",
+    "arm": "C",
+    "repetition": 2,
+    "finalSha": "519784b24b41a063d2997e7b5c8b4950f0d67233"
+  },
+  "indicators": {
+    "costPerDeliveredRequirementUsd": {
+      "value": 0.2027,
+      "direction": "down",
+      "count": 1
+    },
+    "costUsd": {
+      "value": 1.0137,
+      "direction": "down",
+      "count": 1
+    },
+    "proofsPassed": {
+      "value": 5,
+      "direction": "up",
+      "count": 1
+    },
+    "wallClockMinutes": {
+      "value": 3.1134,
+      "direction": "down",
+      "count": 1
+    },
+    "requests": {
+      "value": 94,
+      "direction": "down",
+      "count": 1
+    },
+    "contextMaxKTokens": {
+      "value": 44.298,
+      "direction": "down",
+      "count": 1
+    },
+    "outOfScopeFiles": {
+      "value": 0,
+      "direction": "down",
+      "count": 1
+    }
+  }
+}

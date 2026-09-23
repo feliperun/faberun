@@ -1,0 +1,5 @@
+{"at":"2026-09-21T04:59:47.784Z","node":"a-scope-finding-never-invites-writing-less","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T05:19:31.317Z","node":"a-scope-finding-never-invites-writing-less","to":"running","phase":"judge","runtime":"codex-sol-judge"}
+{"at":"2026-09-21T05:21:59.548Z","node":"a-scope-finding-never-invites-writing-less","to":"done","phase":"complete","runtime":"codex-sol-judge","verdict":"pass"}
+{"at":"2026-09-21T05:22:01.431Z","node":"a-planned-contract-carries-the-repositorys-ratchets","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T05:29:13.849Z","node":"a-planned-contract-carries-the-repositorys-ratchets","to":"blocked","phase":"complete","runtime":"zcode-glm-worker","error":"context_missing"}
