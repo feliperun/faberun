@@ -401,8 +401,20 @@ export function addContractToCampaign(campaignPath, contractPath, { at = new Dat
     : campaign.contracts.map((existing, index) => (index === existingIndex ? entry : existing));
   const updated = /** @type {Campaign} */ ({ ...campaign, contracts, updatedAt: at });
   writeJsonAtomic(join(campaignPath, CAMPAIGN_FILE), updated);
-  appendJournal(campaignPath, { type: "operator.command", eventId: randomUUID(), at, command: "campaign add-contract" });
+  recordOperatorCommand(campaignPath, "campaign add-contract", at);
   return { campaign: updated, added: true };
+}
+
+/**
+ * The one writer of `operator.command` (docs/FIELD-OWNERSHIP.md): an operator
+ * command that changed campaign state, which `humanTouches` counts.
+ *
+ * @param {string} campaignPath
+ * @param {string} command
+ * @param {string} [at]
+ */
+export function recordOperatorCommand(campaignPath, command, at = new Date().toISOString()) {
+  appendJournal(campaignPath, { type: "operator.command", eventId: randomUUID(), at, command });
 }
 
 /**

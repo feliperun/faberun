@@ -1,3 +1,4 @@
+import "../scoped-home.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
@@ -593,6 +594,29 @@ test("no test gives a contract a budget under one second", () => {
   );
   const titles = new Set(TEST_FILES.flatMap((file) => [...file.text.matchAll(TEST_TITLE)].map((match) => match[2])));
   assert.deepEqual([...SUB_SECOND_ALLOWED.keys()].filter((title) => !titles.has(title)), [], "an allowed title no test carries is a stale entry");
+});
+
+/**
+ * Every test file scopes FABERUN_HOME itself, as its first import. The
+ * runner-level `--import ./test/scoped-home.mjs` only exists under `npm test`,
+ * and measured 2026-09-23 three other callers ran this tree's tests without
+ * it -- the planner's repo facts (`node --test test/<dir>`), `spec validate
+ * --run-proofs`, and an operator's bare `node --test <file>` -- leaving
+ * clean-closure, spoken-closure and ledger-equivalence campaigns in the
+ * operator's real ~/.faberun. A file that isolates itself is safe under any
+ * runner.
+ */
+const SCOPED_HOME_IMPORT = /^import\s+["'](?:\.\.?\/)+scoped-home\.mjs["'];?\s*$/u;
+
+test("every test file scopes its home before it imports anything", () => {
+  const unscoped = TEST_FILES
+    .filter((file) => file.label.endsWith(".test.mjs"))
+    .filter((file) => {
+      const first = file.text.split("\n").find((line) => /^import\b/u.test(line));
+      return !first || !SCOPED_HOME_IMPORT.test(first.trim());
+    })
+    .map((file) => file.label);
+  assert.deepEqual(unscoped, [], "the first import of every test file must be its scoped-home module");
 });
 
 /**

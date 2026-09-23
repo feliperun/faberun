@@ -1,3 +1,4 @@
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, statSync, writeFileSync, writeSync } from "node:fs";

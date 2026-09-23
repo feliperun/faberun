@@ -4,6 +4,7 @@
  * reserved name while letting contracts add their own references/local-*.md,
  * so no node can overwrite the articles mid-campaign.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

@@ -32,7 +32,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
-import { assertContractManifestIntact, parkCampaign, promoteRunInCampaign } from "./index.mjs";
+import { assertContractManifestIntact, parkCampaign, promoteRunInCampaign, recordOperatorCommand } from "./index.mjs";
 import { readCampaign } from "./record.mjs";
 import { validateContract } from "../contract/index.mjs";
 import { defaultControllerIdentity, storedContractDigest, verifyControllerIdentity } from "../engine/run-identity.mjs";
@@ -386,6 +386,7 @@ function storedContractId(stored) {
  *   maxTicks?: number,
  *   coordination?: boolean,
  *   controllerIdentity?: ControllerIdentity,
+ *   refreshController?: boolean,
  *   launch?: (contractPath: string, context: {baseRef: string|undefined, controllerIdentity: ControllerIdentity, runDir: string, contract: ValidatedContract}) => Promise<void>|void,
  *   validate?: (entry: CampaignContract, context: {repo: string|undefined, baseRef: string|undefined, contractPath: string}) => ValidatedContract,
  *   progress?: (runDir: string) => RunProgress,
@@ -551,13 +552,25 @@ export async function driveCampaignChain(campaignPath, options = {}) {
       try {
         verifyControllerIdentity(controllerIdentity);
       } catch (error) {
-        return park({
-          code: errorCode(error) ?? "controller_snapshot_changed",
-          message: errorMessage(error),
-          contractPath: entry.path,
-          contractId: id,
-          runId: id,
-        });
+        // A campaign whose contracts change faberun's own src/ changes the
+        // controller between launches (measured on evidence-you-can-recompute).
+        // Adopting the new snapshot is the operator's call, so it happens only
+        // under --refresh-controller and is recorded as an operator command.
+        if (options.refreshController === true && errorCode(error) === "controller_snapshot_changed") {
+          controllerIdentity = defaultControllerIdentity();
+          recordOperatorCommand(campaignPath, "campaign supervise --refresh-controller");
+          emit(`[campaign] controller snapshot refreshed · ${controllerIdentity.sha.slice(0, 12)}`);
+        } else {
+          return park({
+            code: errorCode(error) ?? "controller_snapshot_changed",
+            message: errorCode(error) === "controller_snapshot_changed"
+              ? `${errorMessage(error)}: \`faberun campaign supervise ${readCampaign(campaignPath).id} --refresh-controller\``
+              : errorMessage(error),
+            contractPath: entry.path,
+            contractId: id,
+            runId: id,
+          });
+        }
       }
       try {
         await launch(entry.path, { baseRef, controllerIdentity, runDir, contract });

@@ -4,6 +4,7 @@
  * directly so the written path can be an ordinary implementation file, which
  * is what the end-to-end scope tests cannot control.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";

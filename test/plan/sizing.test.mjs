@@ -1,3 +1,4 @@
+import "../scoped-home.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { applySizingRules, provenParallelism } from "../../src/plan/sizing.mjs";

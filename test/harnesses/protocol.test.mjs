@@ -1,3 +1,4 @@
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { extractJson, isVerdictCandidate } from "../../src/harnesses/protocol.mjs";

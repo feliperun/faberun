@@ -1,3 +1,4 @@
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
@@ -658,11 +659,14 @@ test("an out-of-scope write onto a file the node's own proof cites fails instead
   // (`requirement-ids-reach-the-node`) whose legitimate out-of-scope write was
   // an implementation file none of its proofs name: the bare words of
   // `npm run typecheck` and the test files its command proofs run claim
-  // nothing, so the advisory path keeps working as it does today.
+  // nothing, so the advisory path keeps working as it does today. The proofs
+  // must also pass in this fixture repository: since a disabled gate runs its
+  // mechanical proofs (2026-09-23), a proof naming a file the fixture lacks
+  // fails the node for a reason this case is not about.
   const uncited = await attempt("uncited-proof", {
     definitionOfDone: [
-      { id: "suite-green", text: "The suite is green", proof: { kind: "command", ref: "node --test test/engine/worker-result.test.mjs" } },
-      { id: "types-clean", text: "The types are clean", proof: { kind: "command", ref: "npm run typecheck" } },
+      { id: "suite-green", text: "The suite is green", proof: { kind: "command", ref: 'node -e "process.exit(0)" test/engine/worker-result.test.mjs' } },
+      { id: "types-clean", text: "The types are clean", proof: { kind: "command", ref: 'node -e "process.exit(0)" typecheck' } },
       { id: "readme-exists", text: "The README exists", proof: { kind: "path", ref: "README.md" } },
     ],
   });

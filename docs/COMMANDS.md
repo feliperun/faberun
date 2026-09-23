@@ -179,7 +179,7 @@ node src/cli.mjs supervise --detach /repo/.runs/feature-42 --interval 30
 Related: `faberun resume`, `faberun status`, `faberun supervise campaign`.
 ### faberun supervise campaign
 ```text
-faberun supervise campaign <campaign-id> [--cwd <value>] [--allow-main]
+faberun supervise campaign <campaign-id> [--cwd <value>] [--allow-main] [--refresh-controller]
 ```
 Drive a campaign chain: take the campaign's coordinator lock, write its
 heartbeat, and launch each registered contract's run from the same controller
@@ -190,6 +190,7 @@ second invocation against a fresh heartbeat writes nothing and exits `0`.
 | --- | --- | --- | --- |
 | `--cwd` | directory | Repository holding `.runs/`. | current directory |
 | `--allow-main` | none | Authorize promoting a run whose campaign `landBranch` is `main`. | off |
+| `--refresh-controller` | none | Adopt the current controller snapshot when a launch finds it changed, recorded as an operator command. | off |
 Reads `.runs/campaigns/<id>/` and each linked run directory; writes the
 coordinator lock and heartbeat, and starts detached `run` children.
 ```bash
@@ -782,7 +783,7 @@ node src/cli.mjs campaign close feature-42 --cwd /repo
 Related: `faberun campaign note`, `faberun campaign list`.
 ### faberun campaign supervise
 ```text
-faberun campaign supervise <campaign-id> [--cwd <value>] [--allow-main]
+faberun campaign supervise <campaign-id> [--cwd <value>] [--allow-main] [--refresh-controller]
 ```
 Drive the campaign chain: take the coordinator lock, write the heartbeat, and
 launch each contract's run from the same controller snapshot. A second
@@ -793,6 +794,7 @@ same operation as `faberun supervise campaign`.
 | --- | --- | --- | --- |
 | `--cwd` | directory | Repository holding `.runs/`. | current directory |
 | `--allow-main` | none | Authorize promoting a run whose campaign `landBranch` is `main`. | off |
+| `--refresh-controller` | none | Adopt the current controller snapshot when a launch finds it changed, recorded as an operator command. | off |
 Reads `.runs/campaigns/<id>/` and each linked run; writes the coordinator lock
 and heartbeat and starts detached `run` children.
 ```bash

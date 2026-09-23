@@ -1,3 +1,4 @@
+import "../scoped-home.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { detectLanguage, labelsFor } from "../../src/report/locale.mjs";

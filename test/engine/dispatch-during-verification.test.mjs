@@ -6,6 +6,7 @@
  * serializing settlement across nodes rather than merely running two workers
  * concurrently from the start.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";

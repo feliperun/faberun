@@ -5,6 +5,7 @@
  * `run` is a fake here -- so these cases prove the indexing and the merge
  * without a workspace or a git repository.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { retryDivergentCandidateCommands } from "../../src/engine/verify.mjs";

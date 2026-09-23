@@ -19,6 +19,7 @@
  * the three that do are skipped by name — see `NO_IGNORABLE_SIGNAL`.
  */
 
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";

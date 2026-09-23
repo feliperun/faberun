@@ -311,7 +311,7 @@ function humanTouchesOf(journal, events) {
 /** @param {JsonObject} entry @returns {boolean} */
 function isRecordedJournalTouch(entry) {
   return entry.type === "question.resolved"
-    || (entry.type === "operator.command" && entry.command === "campaign add-contract");
+    || (entry.type === "operator.command" && ["campaign add-contract", "campaign supervise --refresh-controller"].includes(String(entry.command)));
 }
 
 /** @param {JsonObject} entry @returns {boolean} */

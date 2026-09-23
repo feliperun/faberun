@@ -50,7 +50,7 @@ import { transition, writeNode } from "./state.mjs";
  * `dispatched`: a judge is running (or failed to start and the node is already
  * marked failed).
  *
- * @typedef {{kind: "rejected", verdict: JudgeVerdict}|{kind: "settle", gate: JudgeVerdict}|{kind: "dispatched"}} JudgeRound
+ * @typedef {{kind: "rejected", verdict: JudgeVerdict}|{kind: "settle", gate: JudgeVerdict|null}|{kind: "dispatched"}} JudgeRound
  */
 /** @typedef {import("./prompts.mjs").JudgeVerdict} JudgeVerdict */
 
@@ -438,6 +438,28 @@ export function startResultMaterialization(contract, node, state, runDir, runnin
   } catch (error) {
     transition(runDir, state, "failed", { phase: "worker", error: { code: "result_materialization_failed", message: errorMessage(error) } }, lock);
   }
+}
+/**
+ * The mechanical half of the gate, for a node whose gate is disabled: its
+ * Definition of Done command and path proofs still run, and no judge is
+ * asked. Measured 2026-09-23 on evidence-you-can-recompute: every node carried
+ * `gate: false`, and not one of its declared proofs ran.
+ *
+ * @param {ValidatedContract} contract
+ * @param {ValidatedNode} node
+ * @param {NodeSnapshot} state
+ * @returns {Promise<JudgeRound>}
+ */
+export async function startMechanicalGate(contract, node, state) {
+  const { verdict, results } = await deterministicGate(
+    node,
+    attemptWorkspace(state) ?? contract.cwd,
+    false,
+    gateProofTimeoutMs(node, contract),
+    /** @type {import("../contract/index.mjs").VerificationState|null} */ (state.verification),
+  );
+  if (verdict.verdict === "fail") return { kind: "rejected", verdict };
+  return { kind: "settle", gate: results.length ? verdict : null };
 }
 /**
  * Gate a completed worker: mechanical proofs gate first, the judge arbitrates

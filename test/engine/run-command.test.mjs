@@ -4,6 +4,7 @@
  * from outside the process group is evidence about the sandbox, not about the
  * command under test.
  */
+import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
