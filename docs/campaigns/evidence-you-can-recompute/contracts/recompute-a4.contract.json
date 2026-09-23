@@ -1,0 +1,376 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "evidence-you-can-recompute-a4",
+  "campaignId": "evidence-you-can-recompute",
+  "goal": "The critical and major findings of the campaign's cross-vendor review are fixed with regression tests.",
+  "cwd": "../../../..",
+  "maxParallel": 1,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 2400,
+  "maxTurns": 400,
+  "runtimeDefaults": {
+    "worker": "codex-luna",
+    "judge": "claude-opus"
+  },
+  "runtimes": {
+    "codex-luna": {
+      "harness": "codex",
+      "model": "gpt-5.6-luna",
+      "vendor": "openai",
+      "reasoning": "high",
+      "sandbox": "danger-full-access",
+      "fallback": "dsh-deepseek",
+      "tier": 2,
+      "costRank": 2
+    },
+    "dsh-deepseek": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "danger-full-access",
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "stallTimeoutSec": 900,
+      "tier": 1,
+      "costRank": 1
+    },
+    "claude-opus": {
+      "harness": "claude",
+      "model": "claude-opus-5-5",
+      "vendor": "anthropic",
+      "reasoning": "high",
+      "tier": 3,
+      "costRank": 3
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "timeoutSec": 60
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 60
+    }
+  ],
+  "nodes": [
+    {
+      "id": "ledger-review-fixes",
+      "type": "fix",
+      "phase": "review-fixes",
+      "requirementIds": [
+        "R1",
+        "R2",
+        "R3"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2400,
+      "gate": false,
+      "definitionOfDone": [
+        {
+          "id": "ledger-review-fixes-suite",
+          "text": "The campaign, evals, run, docs and shape suites pass, the new regression tests included",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        },
+        {
+          "id": "ledger-review-fixes-manual",
+          "text": "docs/COMMANDS.md matches the command registry (npm run docs:check)",
+          "proof": {
+            "kind": "verification",
+            "ref": 1
+          }
+        }
+      ],
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "The ledger holds the closed record, reads absent sources the way the run directories do, carries proposals on reledger, and never carries free text or machine paths (R1 to R3).",
+        "instructions": [
+          "The cross-vendor review (claude-opus-5-5, run evidence-you-can-recompute-review, 2026-09-23) of the integrated campaign found the defects below; fix each one, write a regression test that fails without the fix, and keep every existing test green.",
+          "CRITICAL, closeCampaign (src/campaign/index.mjs): preserveCampaignLedger runs before the closed record (status closed, closedAt, requirements) is written, so every ledger holds the pre-close campaign.json and intentToVerifiedSeconds read from a ledger is always null. Preserve after the closed record is written. reledger must also bring an already preserved pre-close campaign.json up to date: when the ledger's campaign.json has the same id and is not closed while the source is closed, replace it (that adds information and loses none); keep journal.jsonl's strict-extension rule. Regression test: a closed ledger's campaign.json is closed and carries requirements, and intentToVerifiedSeconds from the ledger equals the run-directory read.",
+          "MAJOR, readMetricsSources ledger path (src/campaign/metrics-command.mjs) and applyMissingSources (src/campaign/metrics.mjs): a per-run file that the run never wrote nulls a whole indicator in the ledger read, while the run-directory read treats it as empty. Make preservation record, in the ledger, the per-run sources that were absent at the origin (for example a small manifest file), and make the ledger reader treat those exactly like the run-directory read does; only a source the manifest says was preserved and is now missing counts as missing and nulls its indicator. Regression test: a run with no notify.jsonl gives identical indicators from both reads.",
+          "MAJOR, reledgerCampaignLedger (src/campaign/ledger.mjs): reledger never copies proposals/, which is an R1 source. Copy it under the same never-delete, never-shorten rule. Regression test.",
+          "MAJOR, R1 says no worker output enters the ledger, but events.jsonl and notify.jsonl are copied byte for byte, carrying judge summaries, free-text messages and absolute paths such as `resume /Users/...`. Preserve a projection of each instead: only the fields the projectors read (projectMetrics, the metrics readers and projectEvalIndicators with its merge), listed in one exported constant per file, the same discipline as the node projection. Regression test with a secret-looking token and an absolute path planted in a fixture event's summary and a notify message: neither reaches the ledger, and the indicators are unchanged."
+        ],
+        "readFiles": [
+          "docs/campaigns/evidence-you-can-recompute/spec/SPEC.md",
+          "AGENTS.md",
+          "src/campaign/index.mjs",
+          "src/campaign/ledger.mjs",
+          "src/campaign/metrics-command.mjs",
+          "src/campaign/metrics.mjs",
+          "evals/metrics.mjs",
+          "evals/ledger.mjs"
+        ],
+        "writeRoots": [
+          "src/campaign/",
+          "evals/metrics.mjs",
+          "evals/ledger.mjs",
+          "evals/run.mjs",
+          "test/campaign/",
+          "test/evals/",
+          "docs/COMMANDS.md",
+          "src/cli/"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evidence-you-can-recompute of the leaving-home program; the spec is docs/campaigns/evidence-you-can-recompute/spec/SPEC.md and is the source of truth for every requirement this node carries. Read the requirement text there before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck must stay clean), no file over 800 lines, no name exported from two src modules, no top-level body defined twice, no barrel modules, no empty catch, every module keeps a header comment saying what it owns and why it is separate, comments record measurement not intent.",
+          "No new runtime dependency; package.json keeps no `dependencies`. No test calls a provider. No test writes to the operator's real home: tests run with the --import ./test/scoped-home.mjs setup the verification commands use.",
+          "Do NOT edit .gitignore or any other ignore source: the controller fails a node that changes one (snapshot_ignore_changed).",
+          "The proof test is pinned: create the test with exactly the name the Definition of Done quotes, in exactly the file it names. A --test-name-pattern that matches nothing still exits 0, so the DoD also checks the name exists.",
+          "Reuse the pieces the spec names instead of reimplementing them; keep the diff to what the requirement forces.",
+          "Code, comments and documents are in English. Never run git commit or git push: the controller seals and integrates your work."
+        ],
+        "nonGoals": [
+          "Weakening or deleting an assertion",
+          "Editing any committed ledger under docs/campaigns/*/ledger/ (the operator regenerates them)"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/campaign/",
+              "test/evals/",
+              "test/run/",
+              "test/docs/",
+              "test/harnesses/replay-run.test.mjs",
+              "test/repo/source-shape.test.mjs"
+            ],
+            "timeoutSec": 900
+          },
+          {
+            "argv": [
+              "npm",
+              "run",
+              "docs:check"
+            ],
+            "timeoutSec": 60
+          }
+        ]
+      }
+    },
+    {
+      "id": "rate-review-fixes",
+      "type": "fix",
+      "phase": "review-fixes",
+      "requirementIds": [
+        "R5",
+        "R9"
+      ],
+      "dependsOn": [
+        "ledger-review-fixes"
+      ],
+      "timeoutSec": 2400,
+      "gate": false,
+      "definitionOfDone": [
+        {
+          "id": "rate-review-fixes-suite",
+          "text": "The campaign, evals, run, docs and shape suites pass, the new regression tests included",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        },
+        {
+          "id": "rate-review-fixes-manual",
+          "text": "docs/COMMANDS.md matches the command registry (npm run docs:check)",
+          "proof": {
+            "kind": "verification",
+            "ref": 1
+          }
+        }
+      ],
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "Excluding a replaced run touches only per-node rates, never spend, never a landed run that reused its id; humanTouches counts what production records (R5, R9).",
+        "instructions": [
+          "The cross-vendor review (claude-opus-5-5, run evidence-you-can-recompute-review, 2026-09-23) of the integrated campaign found the defects below; fix each one, write a regression test that fails without the fix, and keep every existing test green.",
+          "MAJOR, projectEvalIndicators (evals/metrics.mjs): excluding a replaced run also drops its usage records, so its spend vanishes from costPerClosedCheckpoint, protocolFailureRate and judgeInvocationRate with no trace. R9 removes replaced runs only from done-rate and per-node denominators. Keep every usage record in cost and invocation indicators; apply exclusion only to per-node rates, and let each of those publish its excludedRunIds. Apply the same rule in src/campaign/metrics.mjs.",
+          "MAJOR, replacedRunIds (src/campaign/index.mjs) identifies a replaced run by run id, but a re-issued contract may keep the id (scheduler's archiveCanceledRunDir moves the old directory aside), and then the landed run is excluded. Exclude a run only when the replacement's run id differs from the replaced one; when they are equal, the linked directory already holds only the new run and nothing is excluded. Regression test for both cases.",
+          "humanTouches (src/campaign/metrics.mjs) counts only operator.command entries, which production writes for campaign add-contract alone, while its proof uses synthetic entries no code path writes. Count the operator actions production actually records: question.resolved journal events (campaign resolve), operator answers (resume --answer) and reconcile acknowledgements (resume --reconcile) in node overrides or events, and the first transition to canceled of each run (cancel), plus campaign add-contract; find each record in the tree. Rewrite the R5 proof's fixture so it uses those real records, keeping its exact test name: the north star is measured from initialization to the last proven requirement."
+        ],
+        "readFiles": [
+          "docs/campaigns/evidence-you-can-recompute/spec/SPEC.md",
+          "AGENTS.md",
+          "evals/metrics.mjs",
+          "src/campaign/metrics.mjs",
+          "src/campaign/index.mjs",
+          "src/engine/scheduler.mjs"
+        ],
+        "writeRoots": [
+          "evals/metrics.mjs",
+          "evals/ledger.mjs",
+          "src/campaign/",
+          "test/campaign/",
+          "test/evals/"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evidence-you-can-recompute of the leaving-home program; the spec is docs/campaigns/evidence-you-can-recompute/spec/SPEC.md and is the source of truth for every requirement this node carries. Read the requirement text there before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck must stay clean), no file over 800 lines, no name exported from two src modules, no top-level body defined twice, no barrel modules, no empty catch, every module keeps a header comment saying what it owns and why it is separate, comments record measurement not intent.",
+          "No new runtime dependency; package.json keeps no `dependencies`. No test calls a provider. No test writes to the operator's real home: tests run with the --import ./test/scoped-home.mjs setup the verification commands use.",
+          "Do NOT edit .gitignore or any other ignore source: the controller fails a node that changes one (snapshot_ignore_changed).",
+          "The proof test is pinned: create the test with exactly the name the Definition of Done quotes, in exactly the file it names. A --test-name-pattern that matches nothing still exits 0, so the DoD also checks the name exists.",
+          "Reuse the pieces the spec names instead of reimplementing them; keep the diff to what the requirement forces.",
+          "Code, comments and documents are in English. Never run git commit or git push: the controller seals and integrates your work."
+        ],
+        "nonGoals": [
+          "Weakening or deleting an assertion",
+          "Editing any committed ledger under docs/campaigns/*/ledger/ (the operator regenerates them)"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/campaign/",
+              "test/evals/",
+              "test/run/",
+              "test/docs/",
+              "test/harnesses/replay-run.test.mjs",
+              "test/repo/source-shape.test.mjs"
+            ],
+            "timeoutSec": 900
+          },
+          {
+            "argv": [
+              "npm",
+              "run",
+              "docs:check"
+            ],
+            "timeoutSec": 60
+          }
+        ]
+      }
+    },
+    {
+      "id": "unknown-reason-review-fixes",
+      "type": "fix",
+      "phase": "review-fixes",
+      "requirementIds": [
+        "R4"
+      ],
+      "dependsOn": [
+        "rate-review-fixes"
+      ],
+      "timeoutSec": 2400,
+      "gate": false,
+      "definitionOfDone": [
+        {
+          "id": "unknown-reason-review-fixes-suite",
+          "text": "The campaign, evals, run, docs and shape suites pass, the new regression tests included",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        },
+        {
+          "id": "unknown-reason-review-fixes-manual",
+          "text": "docs/COMMANDS.md matches the command registry (npm run docs:check)",
+          "proof": {
+            "kind": "verification",
+            "ref": 1
+          }
+        }
+      ],
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "A killed invocation's unknown cost is recorded as invocation-killed on every kill path (R4).",
+        "instructions": [
+          "The cross-vendor review (claude-opus-5-5, run evidence-you-can-recompute-review, 2026-09-23) of the integrated campaign found the defects below; fix each one, write a regression test that fails without the fix, and keep every existing test green.",
+          "MAJOR, src/engine/scheduler.mjs cancel and stall paths: appendUsageRecord runs after terminateProcess but before settleInvocation writes the terminal status, and unknownCostReason (src/run/usage.mjs) only sees a kill through invocation.signal or status terminated, so a killed invocation is recorded as provider-reported-nothing. Pass the reason explicitly (or record the termination before the usage record) on every path that kills an invocation: cancel, stall, wall-clock timeout. Regression test driving a cancel and a stall through the scheduler with a fixture provider.",
+          "Minor from the same review, fix it here: the final fallback of unknownCostReason labels a record that did report tokens for a priced model as provider-reported-nothing, which the spec defines as neither cost nor tokens. Give that case the reason the spec's vocabulary actually fits, or make it unreachable, and test it."
+        ],
+        "readFiles": [
+          "docs/campaigns/evidence-you-can-recompute/spec/SPEC.md",
+          "AGENTS.md",
+          "src/engine/scheduler.mjs",
+          "src/run/usage.mjs",
+          "test/run/pricing.test.mjs"
+        ],
+        "writeRoots": [
+          "src/engine/",
+          "src/run/",
+          "test/run/",
+          "test/engine/"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evidence-you-can-recompute of the leaving-home program; the spec is docs/campaigns/evidence-you-can-recompute/spec/SPEC.md and is the source of truth for every requirement this node carries. Read the requirement text there before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck must stay clean), no file over 800 lines, no name exported from two src modules, no top-level body defined twice, no barrel modules, no empty catch, every module keeps a header comment saying what it owns and why it is separate, comments record measurement not intent.",
+          "No new runtime dependency; package.json keeps no `dependencies`. No test calls a provider. No test writes to the operator's real home: tests run with the --import ./test/scoped-home.mjs setup the verification commands use.",
+          "Do NOT edit .gitignore or any other ignore source: the controller fails a node that changes one (snapshot_ignore_changed).",
+          "The proof test is pinned: create the test with exactly the name the Definition of Done quotes, in exactly the file it names. A --test-name-pattern that matches nothing still exits 0, so the DoD also checks the name exists.",
+          "Reuse the pieces the spec names instead of reimplementing them; keep the diff to what the requirement forces.",
+          "Code, comments and documents are in English. Never run git commit or git push: the controller seals and integrates your work."
+        ],
+        "nonGoals": [
+          "Weakening or deleting an assertion",
+          "Editing any committed ledger under docs/campaigns/*/ledger/ (the operator regenerates them)"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/campaign/",
+              "test/evals/",
+              "test/run/",
+              "test/docs/",
+              "test/harnesses/replay-run.test.mjs",
+              "test/repo/source-shape.test.mjs"
+            ],
+            "timeoutSec": 900
+          },
+          {
+            "argv": [
+              "npm",
+              "run",
+              "docs:check"
+            ],
+            "timeoutSec": 60
+          }
+        ]
+      }
+    }
+  ]
+}

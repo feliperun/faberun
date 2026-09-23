@@ -1,7 +1,7 @@
 {
   "id": "adversarial-planner",
   "goal": "Second half of the owner's planner proposal: planning outside the session. A discovery result may carry a bounded structured output; one template builds the one-node discovery contracts for draft, review, revise, spec authoring and spec review with the reviewer isolated to spec, facts and artefact; faberun plan orchestrates them into a frozen plan that never launches and can end contested, with the operator's runtime defaults winning and approval by risk policy through the campaign's open-question; three deterministic eval cases prove no-autostart, contested and detached; the seat's allowance is measured and journaled where the harness exposes it; a comparative eval arm decides by measurement whether the planner beats session authoring. Anthropic models only. Spec: docs/campaigns/adversarial-planner/spec/SPEC.md.",
-  "status": "active",
+  "status": "closed",
   "linkedRunIds": [
     "adversarial-planner-1-planning-pipeline",
     "adversarial-planner-1b-discovery-result-output",
@@ -48,5 +48,6 @@
     }
   ],
   "createdAt": "2026-09-17T06:49:08.080Z",
-  "updatedAt": "2026-09-17T14:33:38.174Z"
+  "updatedAt": "2026-09-17T15:04:19.764Z",
+  "closedAt": "2026-09-17T15:04:19.764Z"
 }

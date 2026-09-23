@@ -1,7 +1,7 @@
 {
   "id": "state-location-and-routing-economics",
   "goal": "The owner's spec v1.1.0: run state lives under the user home behind one path resolver with a safe migration and an opt-in prune, a requirement id travels from the plan to the node and into closure so a closed campaign reports what it did not cover, and routing decides on observable data with attempt affinity, while the stochastic, mutation and resilience suites get their own schedule. Spec: docs/campaigns/state-location-and-routing-economics/spec/SPEC.md",
-  "status": "active",
+  "status": "closed",
   "linkedRunIds": [
     "state-location-and-routing-economics-plan-r1-run-path-resolver-draft-1",
     "state-location-and-routing-economics-0-protocol-and-transport-isolation",
@@ -88,5 +88,7 @@
     }
   ],
   "createdAt": "2026-09-17T19:42:35.917Z",
-  "updatedAt": "2026-09-21T14:58:57.510Z"
+  "updatedAt": "2026-09-21T16:46:26.211Z",
+  "closedAt": "2026-09-21T16:46:26.211Z",
+  "requirements": []
 }

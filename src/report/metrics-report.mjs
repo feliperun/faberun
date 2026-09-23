@@ -13,7 +13,7 @@
  */
 
 /** @typedef {import("../campaign/metrics.mjs").CampaignMetrics} CampaignMetrics */
-/** @typedef {import("../campaign/metrics.mjs").MetricsSources} MetricsSources */
+/** @typedef {import("../campaign/metrics-command.mjs").MetricsSources} MetricsSources */
 
 /** Schema of the `--json` form; bumped when a consumer would have to change. */
 const METRICS_SCHEMA_VERSION = 2;
@@ -39,17 +39,28 @@ const HOURS_PRECISION = 10_000;
  * @returns {string}
  */
 export function renderMetricsReport(sources, metrics) {
+  const missingSources = sources.missingSources ?? [];
   const lines = [
     `[metrics] ${sources.campaignId} · ${sources.runIds.length} runs · ${sources.events.length} events · ${Object.keys(metrics).length} indicators`,
   ];
+  if (missingSources.length > 0) lines.push(`missing sources: ${missingSources.join(", ")}`);
   for (const [name, indicator] of Object.entries(metrics)) {
     const records = indicator.count === 1 ? "1 record" : `${indicator.count} records`;
     const unknown = typeof (/** @type {{unknownCount?: number}} */ (indicator).unknownCount) === "number"
-      ? ` · ${(/** @type {{unknownCount: number}} */ (indicator)).unknownCount} unknown`
+      ? `${unknownCostSuffix(/** @type {{unknownCount: number, unknownFractionByReason?: Record<string, number>}} */ (indicator))}`
       : "";
-    lines.push(`${name.padEnd(NAME_WIDTH)} ${indicator.direction.padEnd(11)} ${formatValue(name, indicator.value).padEnd(24)} · ${records}${unknown}`);
+    const missing = Array.isArray(indicator.missingSources) ? ` · missing ${indicator.missingSources.join(", ")}` : "";
+    lines.push(`${name.padEnd(NAME_WIDTH)} ${indicator.direction.padEnd(11)} ${formatValue(name, indicator.value).padEnd(24)} · ${records}${unknown}${missing}`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+/** @param {{unknownCount: number, unknownFractionByReason?: Record<string, number>}} indicator @returns {string} */
+function unknownCostSuffix(indicator) {
+  const reasons = Object.entries(indicator.unknownFractionByReason ?? {})
+    .map(([reason, fraction]) => `${reason}=${fraction}`)
+    .join(", ");
+  return ` · ${indicator.unknownCount} unknown${reasons ? ` (${reasons})` : ""}`;
 }
 
 /**
@@ -60,11 +71,13 @@ export function renderMetricsReport(sources, metrics) {
  * @returns {string}
  */
 export function renderMetricsJson(sources, metrics) {
+  const missingSources = sources.missingSources ?? [];
   return `${JSON.stringify({
     schemaVersion: METRICS_SCHEMA_VERSION,
     campaignId: sources.campaignId,
     runs: sources.runIds.length,
     events: sources.events.length,
+    missingSources,
     indicators: metrics,
   })}\n`;
 }

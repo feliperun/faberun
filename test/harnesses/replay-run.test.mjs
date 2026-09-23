@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { projectMetrics, readMetricsSources } from "../../src/campaign/metrics.mjs";
+import { projectMetrics } from "../../src/campaign/metrics.mjs";
+import { readMetricsSources } from "../../src/campaign/metrics-command.mjs";
 import { resumeRun } from "../../src/engine/resume.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { integrateAttempt, readIntegrationJournal, recoverIntegrations } from "../../src/repo/integrate.mjs";
@@ -560,7 +561,14 @@ test("D27: a complete replayed campaign notifies once per terminal node plus onc
   const metrics = campaignMetrics(replayed.campaignPath, replayed.runsDir);
   assert.deepEqual(
     metrics.notifyReceiptRate,
-    { value: 1, direction: "up", count: notifications.length },
+    {
+      value: 1,
+      direction: "up",
+      count: notifications.length,
+      numerator: notifications.length,
+      denominator: notifications.length,
+      excludedRunIds: [],
+    },
     "every notified event settled (delivered) on its first attempt",
   );
 });

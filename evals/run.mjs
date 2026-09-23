@@ -17,6 +17,7 @@ import { writeJsonAtomic } from "../src/run/store.mjs";
 import { createAttemptWorktree } from "../src/repo/worktree.mjs";
 import { RUNS_DIR_NAME, runsRoot } from "../src/run/paths.mjs";
 import { compareEvalReports, mergeEvalRunSources, noiseBandOf, projectEvalIndicators, readEvalRunSources, renderEvalComparisonReport } from "./metrics.mjs";
+import { readEvalLedgerSources } from "./ledger.mjs";
 import { discoverCaseIds, loadCase, materializeCase, safeJoin, withEnvOverlay, withModelBinsUnavailable, withScopedFaberunHome } from "./case.mjs";
 import { applyDiscriminator, compareGc, compareIntegration, compareNode, comparePreflight, normalizedSteps } from "./compare.mjs";
 import { runValidateGolden, runVerifyFixtures } from "./golden.mjs";
@@ -346,7 +347,8 @@ function runCompare(rest) {
 }
 
 /**
- * `evals/run.mjs --project <runDir>... [--campaign <id>] [--note <text>] [--json]`:
+ * `evals/run.mjs --project <runDir>... [--campaign <id>] [--note <text>] [--json]` or
+ * `evals/run.mjs --project-ledger <dir>... [--campaign <id>] [--note <text>] [--json]`:
  * project indicators straight from one or more runs' own `events.jsonl`/
  * `usage.jsonl` (concatenated when more than one directory is given — a
  * campaign run across several sequential orchestrator attempts has no
@@ -365,6 +367,8 @@ function runProject(rest) {
   /** @type {string|null} */
   let note = null;
   /** @type {string[]} */
+  const ledgerDirs = [];
+  /** @type {string[]} */
   const runDirs = [];
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -379,18 +383,34 @@ function runProject(rest) {
       note = rest[index] ?? null;
       continue;
     }
+    if (arg === "--project-ledger") {
+      index += 1;
+      if (rest[index] !== undefined) ledgerDirs.push(rest[index]);
+      continue;
+    }
     runDirs.push(arg);
   }
-  if (runDirs.length === 0) {
+  if (ledgerDirs.length > 0 && runDirs.length > 0) {
+    usageError("--project and --project-ledger are mutually exclusive");
+    return;
+  }
+  if (ledgerDirs.length === 0 && runDirs.length === 0) {
     usageError("--project needs at least one run directory");
     return;
   }
   const resolvedRunDirs = runDirs.map((runDir) => resolve(runDir));
-  const merged = mergeEvalRunSources(resolvedRunDirs.map((runDir) => readEvalRunSources(runDir)));
+  const resolvedLedgerDirs = ledgerDirs.map((dir) => resolve(dir));
+  const ledgers = resolvedLedgerDirs.map((dir) => readEvalLedgerSources(dir));
+  const ledger = ledgers.length === 0 ? null : mergeEvalRunSources(ledgers);
+  const merged = ledger === null
+    ? mergeEvalRunSources(resolvedRunDirs.map((runDir) => readEvalRunSources(runDir)))
+    : ledger;
   const indicators = projectEvalIndicators(merged);
   const report = {
     schemaVersion: 1,
-    provenance: { campaign, runIds: resolvedRunDirs.map((runDir) => basename(runDir)), runDirs: resolvedRunDirs, generatedAt: new Date().toISOString(), note },
+    provenance: ledger === null
+      ? { campaign, runIds: resolvedRunDirs.map((runDir) => basename(runDir)), runDirs: resolvedRunDirs, generatedAt: new Date().toISOString(), note }
+      : { campaign, runIds: ledger.runIds, ...(resolvedLedgerDirs.length === 1 ? { ledgerDir: resolvedLedgerDirs[0] } : { ledgerDirs: resolvedLedgerDirs }), missingSources: ledger.missingSources, generatedAt: new Date().toISOString(), note },
     indicators,
   };
   if (asJson) {
@@ -398,8 +418,12 @@ function runProject(rest) {
     return;
   }
   process.stdout.write(`provenance: ${JSON.stringify(report.provenance)}\n`);
+  if (ledger !== null && ledger.missingSources.length > 0) process.stdout.write(`missing sources: ${ledger.missingSources.join(", ")}\n`);
   for (const [name, indicator] of Object.entries(indicators)) {
-    process.stdout.write(`${name}: ${JSON.stringify(/** @type {JsonObject} */ (indicator).value)} (n=${/** @type {JsonObject} */ (indicator).count})\n`);
+    const missing = Array.isArray(/** @type {JsonObject} */ (indicator).missingSources)
+      ? ` [missing ${/** @type {string[]} */ (/** @type {JsonObject} */ (indicator).missingSources).join(", ")}]`
+      : "";
+    process.stdout.write(`${name}: ${JSON.stringify(/** @type {JsonObject} */ (indicator).value)} (n=${/** @type {JsonObject} */ (indicator).count})${missing}\n`);
   }
 }
 
@@ -488,6 +512,10 @@ async function main(argv) {
   }
   if (argv[0] === "--project") {
     runProject(argv.slice(1));
+    return;
+  }
+  if (argv[0] === "--project-ledger") {
+    runProject(["--project-ledger", ...argv.slice(1)]);
     return;
   }
   if (argv[0] === "--band") {

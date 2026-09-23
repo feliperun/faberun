@@ -1,0 +1,5 @@
+{"at":"2026-09-15T23:49:44.509Z","dedupeKey":"node.terminal:become-faberun-2b-install-and-shape-fix:bounded-git-in-setup:done:1:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T00:29:57.717Z","dedupeKey":"node.terminal:become-faberun-2b-install-and-shape-fix:install-script:exhausted:2:1","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T00:29:57.822Z","dedupeKey":"run.terminal:become-faberun-2b-install-and-shape-fix:attention","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T00:40:21.074Z","dedupeKey":"run.attention:become-faberun-2b-install-and-shape-fix:2026-09-16T00:30:20.960Z:0","attempt":1,"status":"failed"}
+{"at":"2026-09-16T01:30:21.477Z","dedupeKey":"run.attention:become-faberun-2b-install-and-shape-fix:2026-09-16T00:30:20.960Z:1","attempt":1,"status":"failed"}

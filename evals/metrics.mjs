@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { jsonObjectOf, round4, timestampMs } from "../src/campaign/metrics-evals.mjs";
 
@@ -26,8 +26,8 @@ const EVAL_UNKNOWN_COST_PROVENANCE = "unknown";
 
 /** @typedef {Record<string, unknown>} JsonObject */
 /** @typedef {"down"|"up"|"informative"} EvalDirection */
-/** @typedef {{value: number|null, direction: EvalDirection, count: number}} EvalIndicator */
-/** @typedef {{value: Record<string, number>|null, direction: EvalDirection, count: number}} EvalGroupedIndicator */
+/** @typedef {{value: number|null, direction: EvalDirection, count: number, numerator?: number, denominator?: number, excludedRunIds?: string[], missingSources?: string[]}} EvalIndicator */
+/** @typedef {{value: Record<string, number>|null, direction: EvalDirection, count: number, numerator?: Record<string, number>, denominator?: Record<string, number>, excludedRunIds?: string[], missingSources?: string[]}} EvalGroupedIndicator */
 
 /**
  * @typedef {{
@@ -48,16 +48,27 @@ const EVAL_UNKNOWN_COST_PROVENANCE = "unknown";
  * `taskKind`, which here is the node's own id: neither file this reads
  * carries a coarser task-category field than the node identifier itself.
  *
- * @param {{events?: unknown[], usageRecords?: unknown[]}} [sources]
+ * @param {{events?: unknown[], usageRecords?: unknown[], missingSources?: string[], excludedRunIds?: string[]}} [sources]
  * @returns {EvalReport}
  */
-export function projectEvalIndicators({ events = [], usageRecords = [] } = {}) {
-  const eventList = events.map(jsonObjectOf).filter((event) => event !== null);
-  const usageList = usageRecords.map(jsonObjectOf).filter((record) => record !== null);
-  const byNode = groupEvalEventsByNode(eventList);
+export function projectEvalIndicators({ events = [], usageRecords = [], missingSources = [], excludedRunIds = [] } = {}) {
+  const excluded = [...new Set(excludedRunIds)].sort();
+  const allEventList = events.flatMap((rawEvent) => {
+    const event = jsonObjectOf(rawEvent);
+    return event !== null ? [event] : [];
+  });
+  const usageList = usageRecords.flatMap((rawRecord) => {
+    const record = jsonObjectOf(rawRecord);
+    return record !== null ? [record] : [];
+  });
+  // Replacement exclusion is a per-node denominator rule. Spend, invocation
+  // and protocol evidence remain campaign totals, so keep their source lists
+  // intact and filter only the grouped node-rate view.
+  const byNode = groupEvalEventsByNode(allEventList.filter((event) => !isExcluded(event, excluded)));
+  const allByNode = groupEvalEventsByNode(allEventList);
   /** @type {Map<string, JsonObject>} */
   const terminalByNode = new Map();
-  for (const [node, entries] of byNode) {
+  for (const [node, entries] of allByNode) {
     const terminal = terminalEvalEventOf(entries);
     if (terminal !== null) terminalByNode.set(node, terminal);
   }
@@ -70,21 +81,55 @@ export function projectEvalIndicators({ events = [], usageRecords = [] } = {}) {
   const judgedNodes = evalJudgeInvocationNodeIdsOf(usageList);
   const judgedClosed = [...closedCheckpoints].filter((node) => judgedNodes.has(node)).length;
   const revisionsSum = [...closedCheckpoints].reduce((sum, node) => sum + evalRevisionsOf(/** @type {JsonObject} */ (terminalByNode.get(node))), 0);
-  const blocked = [...terminalByNode.values()].filter((event) => event.to === EVAL_BLOCKED_STATUS).length;
-  const spanSeconds = evalEventSpanSecondsOf(eventList);
+  const eligibleTerminalByNode = new Map();
+  for (const [node, entries] of byNode) {
+    const terminal = terminalEvalEventOf(entries);
+    if (terminal !== null) eligibleTerminalByNode.set(node, terminal);
+  }
+  const blocked = [...eligibleTerminalByNode.values()].filter((event) => event.to === EVAL_BLOCKED_STATUS).length;
+  const spanSeconds = evalEventSpanSecondsOf(allEventList);
   const workerRuntimesByNode = evalWorkerRuntimesByNodeOf(byNode);
   const failoverNodes = [...workerRuntimesByNode.values()].filter((runtimes) => runtimes.size > 1).length;
-  const protocolFailures = eventList.filter((event) => event.error === PROTOCOL_FAILURE_ERROR).length;
+  const protocolFailures = allEventList.filter((event) => event.error === PROTOCOL_FAILURE_ERROR).length;
 
-  return {
+  const report = {
     costPerClosedCheckpoint: evalMeasured("down", costedCheckpoints.size, costedCheckpoints.size === 0 ? null : cost.total / costedCheckpoints.size),
-    firstPassGateRate: evalGrouped("up", gates.count, gates.value),
-    judgeInvocationRate: evalMeasured("up", closedCheckpoints.size, closedCheckpoints.size === 0 ? null : judgedClosed / closedCheckpoints.size),
+    firstPassGateRate: evalGroupedRate("up", gates, excluded),
+    judgeInvocationRate: evalRate("up", judgedClosed, closedCheckpoints.size, excluded),
     revisionsPerDone: evalMeasured("down", closedCheckpoints.size, closedCheckpoints.size === 0 ? null : revisionsSum / closedCheckpoints.size),
-    blockedContextRate: evalMeasured("down", terminalByNode.size, terminalByNode.size === 0 ? null : blocked / terminalByNode.size),
+    blockedContextRate: evalRate("down", blocked, eligibleTerminalByNode.size, excluded),
     wallClockPerClosedCheckpoint: evalMeasured("down", closedCheckpoints.size, spanSeconds === null || closedCheckpoints.size === 0 ? null : spanSeconds / closedCheckpoints.size),
-    providerFailoverRate: evalMeasured("down", workerRuntimesByNode.size, workerRuntimesByNode.size === 0 ? null : failoverNodes / workerRuntimesByNode.size),
-    protocolFailureRate: evalMeasured("down", usageList.length, usageList.length === 0 ? null : protocolFailures / usageList.length),
+    providerFailoverRate: evalRate("down", failoverNodes, workerRuntimesByNode.size, excluded),
+    protocolFailureRate: evalRate("down", protocolFailures, usageList.length, excluded),
+  };
+  return applyMissingEvalSources(report, missingSources);
+}
+
+/**
+ * Preserve the distinction between an absent ledger source and an empty one.
+ * Each affected indicator is null and names the exact missing source files.
+ *
+ * @param {EvalReport} report
+ * @param {string[]} missingSources
+ * @returns {EvalReport}
+ */
+function applyMissingEvalSources(report, missingSources) {
+  const missing = [...new Set(missingSources)].sort();
+  if (missing.length === 0) return report;
+  /** @template {EvalIndicator|EvalGroupedIndicator} T @param {T} indicator @param {string[]} suffixes @returns {T} */
+  const withMissing = (indicator, suffixes) => {
+    const sources = missing.filter((source) => suffixes.some((suffix) => source.endsWith(`.${suffix}`) || source === suffix));
+    return /** @type {T} */ (sources.length === 0 ? indicator : { ...indicator, value: null, missingSources: sources });
+  };
+  return {
+    costPerClosedCheckpoint: withMissing(report.costPerClosedCheckpoint, ["usage.jsonl"]),
+    firstPassGateRate: withMissing(report.firstPassGateRate, ["events.jsonl"]),
+    judgeInvocationRate: withMissing(report.judgeInvocationRate, ["events.jsonl", "usage.jsonl"]),
+    revisionsPerDone: withMissing(report.revisionsPerDone, ["events.jsonl"]),
+    blockedContextRate: withMissing(report.blockedContextRate, ["events.jsonl"]),
+    wallClockPerClosedCheckpoint: withMissing(report.wallClockPerClosedCheckpoint, ["events.jsonl"]),
+    providerFailoverRate: withMissing(report.providerFailoverRate, ["events.jsonl"]),
+    protocolFailureRate: withMissing(report.protocolFailureRate, ["events.jsonl", "usage.jsonl"]),
   };
 }
 
@@ -102,17 +147,33 @@ function evalMeasured(direction, count, value) {
   return { value: missing ? null : round4(/** @type {number} */ (value)), direction, count };
 }
 
-/**
- * Wrap one indicator reported per group (here, per taskKind). The empty
- * group map is a missing measurement, not a measured zero.
- *
- * @param {EvalDirection} direction
- * @param {number} count
- * @param {Record<string, number>} value
- * @returns {EvalGroupedIndicator}
- */
-function evalGrouped(direction, count, value) {
-  return { value: count === 0 || Object.keys(value).length === 0 ? null : value, direction, count };
+/** @param {EvalDirection} direction @param {number} numerator @param {number} denominator @param {string[]} excludedRunIds @param {number} [count] @returns {EvalIndicator} */
+function evalRate(direction, numerator, denominator, excludedRunIds, count = denominator) {
+  return {
+    value: denominator === 0 || !Number.isFinite(numerator / denominator) ? null : round4(numerator / denominator),
+    direction,
+    count,
+    numerator,
+    denominator,
+    excludedRunIds: [...excludedRunIds],
+  };
+}
+
+/** @param {EvalDirection} direction @param {{value: Record<string, number>, numerator: Record<string, number>, denominator: Record<string, number>, count: number}} groups @param {string[]} excludedRunIds @returns {EvalGroupedIndicator} */
+function evalGroupedRate(direction, groups, excludedRunIds) {
+  return {
+    value: groups.count === 0 || Object.keys(groups.value).length === 0 ? null : groups.value,
+    direction,
+    count: groups.count,
+    numerator: groups.numerator,
+    denominator: groups.denominator,
+    excludedRunIds: [...excludedRunIds],
+  };
+}
+
+/** @param {JsonObject} record @param {string[]} excludedRunIds @returns {boolean} */
+function isExcluded(record, excludedRunIds) {
+  return typeof record.runId === "string" && excludedRunIds.includes(record.runId);
 }
 
 /**
@@ -215,19 +276,25 @@ function evalJudgeInvocationNodeIdsOf(usageRecords) {
  * carry no coarser task-category field to group by.
  *
  * @param {Map<string, {event: JsonObject}[]>} byNode
- * @returns {{value: Record<string, number>, count: number}}
+ * @returns {{value: Record<string, number>, numerator: Record<string, number>, denominator: Record<string, number>, count: number}}
  */
 function evalFirstPassGateRateOf(byNode) {
   /** @type {Record<string, number>} */
   const value = {};
+  /** @type {Record<string, number>} */
+  const numerator = {};
+  /** @type {Record<string, number>} */
+  const denominator = {};
   let count = 0;
   for (const [node, entries] of byNode) {
     const first = entries.find(({ event }) => typeof event.verdict === "string");
     if (first === undefined) continue;
     count += 1;
     value[node] = first.event.verdict === "pass" ? 1 : 0;
+    numerator[node] = first.event.verdict === "pass" ? 1 : 0;
+    denominator[node] = 1;
   }
-  return { value, count };
+  return { value, numerator, denominator, count };
 }
 
 /**
@@ -280,9 +347,10 @@ function evalWorkerRuntimesByNodeOf(byNode) {
  * @returns {{events: unknown[], usageRecords: unknown[]}}
  */
 export function readEvalRunSources(runDir) {
+  const runId = basename(runDir);
   return {
-    events: readEvalJsonlRecords(join(runDir, "events.jsonl")),
-    usageRecords: readEvalJsonlRecords(join(runDir, "usage.jsonl")),
+    events: readEvalJsonlRecords(join(runDir, "events.jsonl")).map((record) => ({ ...jsonObjectOf(record), runId })),
+    usageRecords: readEvalJsonlRecords(join(runDir, "usage.jsonl")).map((record) => ({ ...jsonObjectOf(record), runId })),
   };
 }
 
@@ -295,13 +363,16 @@ export function readEvalRunSources(runDir) {
  * regroups everything by node and timestamp; which source contributed a
  * given record does not matter past this point.
  *
- * @param {{events: unknown[], usageRecords: unknown[]}[]} sourcesList
- * @returns {{events: unknown[], usageRecords: unknown[]}}
+ * @param {{runIds?: string[], events: unknown[], usageRecords: unknown[], missingSources?: string[], excludedRunIds?: string[]}[]} sourcesList
+ * @returns {{runIds: string[], events: unknown[], usageRecords: unknown[], missingSources: string[], excludedRunIds: string[]}}
  */
 export function mergeEvalRunSources(sourcesList) {
   return {
+    runIds: [...new Set(sourcesList.flatMap((sources) => sources.runIds ?? []))],
     events: sourcesList.flatMap((sources) => sources.events),
     usageRecords: sourcesList.flatMap((sources) => sources.usageRecords),
+    missingSources: [...new Set(sourcesList.flatMap((sources) => sources.missingSources ?? []))],
+    excludedRunIds: [...new Set(sourcesList.flatMap((sources) => sources.excludedRunIds ?? []))],
   };
 }
 

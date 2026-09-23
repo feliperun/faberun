@@ -10,13 +10,15 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { COMMAND_OPTIONS } from "../cli.mjs";
+import { METRICS_MANUAL } from "../campaign/metrics-command.mjs";
 import CAMPAIGN_OPERATIONS from "./campaign.mjs";
 import SEAT_OPERATIONS from "./seat.mjs";
 import CONTRACT_OPERATIONS from "./contract.mjs";
 import SKILLS_OPERATIONS from "./skills.mjs";
 import SPEC_OPERATIONS from "./spec.mjs";
 
-/** @typedef {{type: "string"|"boolean", multiple?: boolean}} FlagSpec */
+/** @typedef {{value: string, effect: string, default: string}} ManualFlag */
+/** @typedef {{type: "string"|"boolean", multiple?: boolean, manual?: ManualFlag}} FlagSpec */
 /** @typedef {{flags?: Record<string, FlagSpec>, operations?: Record<string, Record<string, FlagSpec>>}} VerbSurface */
 /** @typedef {{verbs: Record<string, VerbSurface>}} Surface */
 
@@ -51,7 +53,12 @@ const CONTAINER_OPERATIONS = {
 export function collectSurface() {
   /** @type {Record<string, VerbSurface>} */
   const verbs = {};
-  for (const [verb, flags] of Object.entries(COMMAND_OPTIONS)) verbs[verb] = { flags };
+  for (const [verb, flags] of Object.entries(COMMAND_OPTIONS)) {
+    const manualFlags = verb === "metrics"
+      ? Object.fromEntries(Object.entries(flags).map(([name, spec]) => [name, { ...spec, manual: METRICS_MANUAL[name] }]))
+      : flags;
+    verbs[verb] = { flags: manualFlags };
+  }
   if (verbs.supervise) verbs.supervise.operations = { campaign: CAMPAIGN_OPERATIONS.supervise };
   for (const [verb, operations] of Object.entries(CONTAINER_OPERATIONS)) verbs[verb] = { operations };
   return { verbs };
@@ -291,9 +298,10 @@ function buildRows(flags, existingRows) {
   }
   return names.map((name) => {
     const existing = existingRows.get(name);
-    const value = existing ? existing.value : "<value>";
-    const effect = existing ? existing.effect : "";
-    const fallback = existing ? existing.default : "—";
+    const manual = flags[name].manual;
+    const value = existing?.value && existing.value !== "<value>" ? existing.value : manual?.value ?? existing?.value ?? "<value>";
+    const effect = existing?.effect || manual?.effect || "";
+    const fallback = existing?.default && existing.default !== "—" ? existing.default : manual?.default ?? existing?.default ?? "—";
     return `| \`--${name}\` | ${value} | ${effect} | ${fallback} |`;
   });
 }

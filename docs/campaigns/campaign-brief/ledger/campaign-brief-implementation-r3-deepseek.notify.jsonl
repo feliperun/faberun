@@ -1,0 +1,8 @@
+{"at":"2026-09-23T00:04:29.547Z","dedupeKey":"node.terminal:campaign-brief-implementation-r3-deepseek:freeze-plan-identity:done:1:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-23T00:23:34.570Z","dedupeKey":"node.terminal:campaign-brief-implementation-r3-deepseek:brief-markdown-core:done:2:1","attempt":1,"status":"delivered"}
+{"at":"2026-09-23T00:34:07.543Z","dedupeKey":"node.terminal:campaign-brief-implementation-r3-deepseek:brief-expense-estimate:failed:1:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-23T00:34:09.642Z","dedupeKey":"node.terminal:campaign-brief-implementation-r3-deepseek:brief-graph-decisions:blocked:0:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-23T00:34:11.744Z","dedupeKey":"node.terminal:campaign-brief-implementation-r3-deepseek:brief-render-html:blocked:0:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-23T00:34:13.867Z","dedupeKey":"node.terminal:campaign-brief-implementation-r3-deepseek:brief-cli-generate:blocked:0:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-23T00:34:16.001Z","dedupeKey":"node.terminal:campaign-brief-implementation-r3-deepseek:brief-serve-loopback:blocked:0:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-23T00:34:18.137Z","dedupeKey":"run.terminal:campaign-brief-implementation-r3-deepseek:attention","attempt":1,"status":"delivered"}

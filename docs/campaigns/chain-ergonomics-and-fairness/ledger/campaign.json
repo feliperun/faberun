@@ -1,7 +1,7 @@
 {
   "id": "chain-ergonomics-and-fairness",
   "goal": "The six defects the loop's four chained campaigns left in the factory itself, all of them ergonomics or fairness rather than correctness: a run launched with --base-ref validates against that ref so a chained contract reading the previous phase's files launches from any checkout; the refusals on the campaign path name the way forward; a free slot dispatches while another node verifies; the contract's final verification runs once per phase instead of once per terminal node; and the status names the candidate stage and distinguishes a gate that passed from a fail verdict. Anthropic models only. Spec: docs/campaigns/chain-ergonomics-and-fairness/spec/SPEC.md.",
-  "status": "active",
+  "status": "closed",
   "linkedRunIds": [
     "chain-ergonomics-and-fairness-1-launch-and-refusals",
     "chain-ergonomics-and-fairness-1b-base-ref-validation",
@@ -46,5 +46,6 @@
     }
   ],
   "createdAt": "2026-09-17T15:07:58.640Z",
-  "updatedAt": "2026-09-17T19:23:31.700Z"
+  "updatedAt": "2026-09-17T19:34:42.321Z",
+  "closedAt": "2026-09-17T19:34:42.321Z"
 }

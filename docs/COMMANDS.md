@@ -590,7 +590,7 @@ Related: `faberun spec validate`, `faberun campaign resolve`, `faberun run`.
 
 ## faberun metrics
 ```text
-faberun metrics <campaign-id> [--cwd <value>] [--json]
+faberun metrics <campaign-id> [--cwd <value>] [--ledger <value>] [--json]
 ```
 Report a campaign's effectiveness and efficiency together, from what its runs
 recorded: node outcomes, events, usage and notifications.
@@ -598,9 +598,12 @@ recorded: node outcomes, events, usage and notifications.
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
 | `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--ledger` | directory | Read the versioned campaign ledger instead of the operator's run directories. | none |
 | `--json` | none | Emit the indicators as one JSON object. | off |
 Reads `.runs/campaigns/<id>/` and each linked run's events, usage and notify
-logs; writes nothing.
+logs; writes nothing. With `--ledger <dir>`, reads the versioned `campaign.json`
+and per-run projector sources from that ledger instead. A missing ledger source
+is reported by name and makes its dependent indicators `null`, never zero.
 ```bash
 node src/cli.mjs metrics feature-42 --cwd /repo
 ```
@@ -943,6 +946,23 @@ node src/cli.mjs campaign brief generate feature-42 --phase build --cwd /repo
 node src/cli.mjs campaign brief serve feature-42 --phase build --cwd /repo
 ```
 Related: `faberun plan`, `faberun campaign show`.
+### faberun campaign reledger
+```text
+faberun campaign reledger <campaign-id> [--cwd <value>]
+```
+Complete the versioned evidence ledger of a closed campaign from linked run
+sources that still exist in the operator home. Existing ledger files are kept
+unless a source strictly extends them; missing sources are reported as gone.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+Writes only `docs/campaigns/<id>/ledger/`; it never updates the closed campaign
+record or journal.
+```bash
+node src/cli.mjs campaign reledger feature-42 --cwd /repo
+```
+Related: `faberun campaign close`, `faberun campaign show`.
 ## faberun seat
 ```text
 faberun seat <operation> [<campaign-id>] [--cwd <dir>] ...

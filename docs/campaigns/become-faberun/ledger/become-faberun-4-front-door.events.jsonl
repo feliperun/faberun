@@ -1,0 +1,14 @@
+{"at":"2026-09-16T03:10:49.000Z","node":"skill-references","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-16T03:10:49.871Z","node":"docs-accuracy","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-16T03:21:52.002Z","node":"docs-accuracy","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-16T03:21:53.717Z","node":"skill-references","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-16T03:23:40.447Z","node":"skill-references","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass"}
+{"at":"2026-09-16T03:23:41.584Z","node":"readme-front-door","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-16T03:34:10.623Z","node":"docs-accuracy","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"fail"}
+{"at":"2026-09-16T03:43:37.370Z","node":"readme-front-door","to":"running","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-16T03:54:56.996Z","node":"readme-front-door","to":"blocked","phase":"complete","runtime":"dsh-deepseek-flash","verdict":"fail","error":"context_missing","revisions":1}
+{"at":"2026-09-16T03:54:56.996Z","node":"readme-front-door","to":"blocked","phase":"complete","runtime":"dsh-deepseek-flash","verdict":"fail","override":{"kind":"operator-answer"},"error":"context_missing","revisions":1}
+{"at":"2026-09-16T03:56:49.738Z","node":"readme-front-door","to":"pending","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-16T03:56:51.489Z","node":"readme-front-door","to":"running","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-16T04:07:48.590Z","node":"readme-front-door","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-16T04:18:05.811Z","node":"readme-front-door","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass","revisions":1}

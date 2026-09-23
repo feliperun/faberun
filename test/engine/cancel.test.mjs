@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
@@ -13,8 +13,27 @@ import { writeJsonAtomic } from "../../src/run/store.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { gitHead, preservedRefName, runRefName } from "../../src/repo/worktree.mjs";
 
-import { fixture, orphan, withFakeCodex, writeContract } from "../helpers.mjs";
+import { fixture, orphan, waitForValue, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState } from "../runner-helpers.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
+
+test("scheduler cancellation records killed invocation reason before settling", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-cancel-usage-reason-"));
+  const path = writeContract(directory, fixture({ id: "cancel-usage-reason-run", pollIntervalMs: 10 }));
+  const runDir = runDirectory(directory, "cancel-usage-reason-run");
+  const running = withFakeCodex(directory, "wait-for-release", () => runContract(path));
+  try {
+    await waitForValue(() => existsSync(join(runsRoot(directory), "provider-started")) ? true : null);
+    writeFileSync(join(runDir, "cancel.request.json"), JSON.stringify({ requestedAt: new Date().toISOString(), pid: process.pid }));
+    const result = await running;
+    assert.equal(result.ok, false);
+    assert.equal(nodeState(result).status, "canceled");
+    const records = readFileSync(join(runDir, "usage.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+    assert.equal(records[0].unknownReason, "invocation-killed", "the scheduler records the cancel kill before settling the node");
+  } finally {
+    if (existsSync(join(runDir, "cancel.request.json"))) writeFileSync(join(runDir, "cancel.request.json"), "{}");
+  }
+});
 
 test("a cancelled run's contract relaunches with no manual cleanup", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-cancel-relaunch-"));

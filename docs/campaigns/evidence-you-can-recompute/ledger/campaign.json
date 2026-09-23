@@ -1,0 +1,227 @@
+{
+  "id": "evidence-you-can-recompute",
+  "goal": "Todo número que o faberun afirma sobre si mesmo é recomputável a partir de main",
+  "status": "closed",
+  "linkedRunIds": [
+    "evidence-you-can-recompute-plan-default-draft-1",
+    "evidence-you-can-recompute-plan-default-review-2",
+    "evidence-you-can-recompute-plan-default-revise-3",
+    "evidence-you-can-recompute-plan-implementation-draft-1",
+    "evidence-you-can-recompute-plan-implementation-review-2",
+    "evidence-you-can-recompute-plan-implementation-revise-3",
+    "evidence-you-can-recompute-plan-implementation-review-4",
+    "evidence-you-can-recompute-plan-implementation-revise-5",
+    "evidence-you-can-recompute-plan-implementation-review-6",
+    "evidence-you-can-recompute-plan-implementation-revise-7",
+    "evidence-you-can-recompute-a",
+    "evidence-you-can-recompute-a2",
+    "evidence-you-can-recompute-b",
+    "evidence-you-can-recompute-a3",
+    "evidence-you-can-recompute-review",
+    "evidence-you-can-recompute-a4"
+  ],
+  "contracts": [
+    {
+      "path": "/Users/frb/dev/frb/faberun-leave/docs/campaigns/evidence-you-can-recompute/contracts/recompute-a.contract.json",
+      "digest": "0c286e86d946464299fe8a1cb3f8395e3673d13e6b60b6413a97ef108615afa0"
+    },
+    {
+      "path": "/Users/frb/dev/frb/faberun-leave/docs/campaigns/evidence-you-can-recompute/contracts/recompute-a2.contract.json",
+      "digest": "a63d69974783e1b05b816091e5299cdcc7b26ce104e3cd776bde9f7d613f1d59"
+    },
+    {
+      "path": "/Users/frb/dev/frb/faberun-leave/docs/campaigns/evidence-you-can-recompute/contracts/recompute-b.contract.json",
+      "digest": "5c04829a2c7d840c523555453960259f05ccdb05afe7b63da8e76506ad7ab319"
+    }
+  ],
+  "landBranch": "campaign/evidence-you-can-recompute",
+  "promotions": [
+    {
+      "runId": "evidence-you-can-recompute-a",
+      "contractPath": "/Users/frb/dev/frb/faberun-leave/docs/campaigns/evidence-you-can-recompute/contracts/recompute-a.contract.json",
+      "branch": "campaign/evidence-you-can-recompute",
+      "sha": "d6fec5411f95605d6df3e4508068173a8a2e9273",
+      "previousSha": "cfd642555bcfa35df17404c5bc6d3714a2531e7a",
+      "at": "2026-09-23T14:07:55.105Z"
+    }
+  ],
+  "createdAt": "2026-09-23T09:51:14.556Z",
+  "updatedAt": "2026-09-23T17:21:26.263Z",
+  "closedAt": "2026-09-23T17:21:26.263Z",
+  "requirements": [
+    {
+      "requirementId": "R1",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evidence-you-can-recompute-a",
+          "node": "ledger-sources",
+          "passed": true,
+          "verdict": null
+        },
+        {
+          "runId": "evidence-you-can-recompute-a4",
+          "node": "ledger-review-fixes",
+          "passed": true,
+          "verdict": "fail"
+        }
+      ]
+    },
+    {
+      "requirementId": "R2",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evidence-you-can-recompute-a",
+          "node": "metrics-from-ledger",
+          "passed": true,
+          "verdict": null
+        },
+        {
+          "runId": "evidence-you-can-recompute-a2",
+          "node": "suite-green-after-a",
+          "passed": true,
+          "verdict": null
+        },
+        {
+          "runId": "evidence-you-can-recompute-a3",
+          "node": "metrics-command-module",
+          "passed": true,
+          "verdict": null
+        },
+        {
+          "runId": "evidence-you-can-recompute-a4",
+          "node": "ledger-review-fixes",
+          "passed": true,
+          "verdict": "fail"
+        }
+      ]
+    },
+    {
+      "requirementId": "R3",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evidence-you-can-recompute-a",
+          "node": "reledger",
+          "passed": true,
+          "verdict": null
+        },
+        {
+          "runId": "evidence-you-can-recompute-a4",
+          "node": "ledger-review-fixes",
+          "passed": true,
+          "verdict": "fail"
+        }
+      ]
+    },
+    {
+      "requirementId": "R4",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evidence-you-can-recompute-a",
+          "node": "unknown-cost-reason",
+          "passed": true,
+          "verdict": null
+        },
+        {
+          "runId": "evidence-you-can-recompute-a4",
+          "node": "unknown-reason-review-fixes",
+          "passed": true,
+          "verdict": null
+        }
+      ]
+    },
+    {
+      "requirementId": "R5",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evidence-you-can-recompute-a",
+          "node": "north-star-and-recovery",
+          "passed": true,
+          "verdict": null
+        },
+        {
+          "runId": "evidence-you-can-recompute-a2",
+          "node": "suite-green-after-a",
+          "passed": true,
+          "verdict": null
+        },
+        {
+          "runId": "evidence-you-can-recompute-a3",
+          "node": "metrics-command-module",
+          "passed": true,
+          "verdict": null
+        },
+        {
+          "runId": "evidence-you-can-recompute-a4",
+          "node": "rate-review-fixes",
+          "passed": true,
+          "verdict": null
+        }
+      ]
+    },
+    {
+      "requirementId": "R6",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evidence-you-can-recompute-b",
+          "node": "baseline-from-ledgers",
+          "passed": true,
+          "verdict": null
+        }
+      ]
+    },
+    {
+      "requirementId": "R7",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evidence-you-can-recompute-a",
+          "node": "arms-record",
+          "passed": true,
+          "verdict": null
+        }
+      ]
+    },
+    {
+      "requirementId": "R8",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evidence-you-can-recompute-a",
+          "node": "docs-byte-budget",
+          "passed": true,
+          "verdict": null
+        }
+      ]
+    },
+    {
+      "requirementId": "R9",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evidence-you-can-recompute-a",
+          "node": "north-star-and-recovery",
+          "passed": true,
+          "verdict": null
+        },
+        {
+          "runId": "evidence-you-can-recompute-a2",
+          "node": "suite-green-after-a",
+          "passed": true,
+          "verdict": null
+        },
+        {
+          "runId": "evidence-you-can-recompute-a4",
+          "node": "rate-review-fixes",
+          "passed": true,
+          "verdict": null
+        }
+      ]
+    }
+  ]
+}

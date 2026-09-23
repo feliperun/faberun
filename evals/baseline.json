@@ -1,74 +1,153 @@
 {
   "schemaVersion": 1,
   "provenance": {
-    "campaign": "faberun-measurement-20260910",
+    "campaign": "evidence-you-can-recompute",
+    "campaigns": [
+      {
+        "campaign": "first-target-frictions",
+        "ledgerDir": "docs/campaigns/first-target-frictions/ledger"
+      },
+      {
+        "campaign": "campaign-brief",
+        "ledgerDir": "docs/campaigns/campaign-brief/ledger"
+      },
+      {
+        "campaign": "availability-is-verified-not-assumed",
+        "ledgerDir": "docs/campaigns/availability-is-verified-not-assumed/ledger"
+      }
+    ],
+    "ledgerDirs": [
+      "docs/campaigns/first-target-frictions/ledger",
+      "docs/campaigns/campaign-brief/ledger",
+      "docs/campaigns/availability-is-verified-not-assumed/ledger"
+    ],
     "runIds": [
-      "if-measure-c0-guard-20260910",
-      "if-measure-c1a-20260910",
-      "if-measure-c1a-fix-d01-20260910",
-      "if-measure-c1b-20260910",
-      "if-measure-c1c-20260910"
+      "first-target-frictions-review",
+      "first-target-frictions-review-deepseek",
+      "campaign-brief-plan-approval-surface-draft-1",
+      "campaign-brief-plan-approval-surface-review-2",
+      "campaign-brief-plan-approval-surface-revise-3",
+      "campaign-brief-plan-spec-critique-spec-review-1",
+      "campaign-brief-plan-spec-critique-spec-review-2",
+      "campaign-brief-plan-spec-critique-spec-review-3",
+      "campaign-brief-plan-spec-critique-spec-review-4",
+      "campaign-brief-plan-implementation-draft-1",
+      "campaign-brief-plan-implementation-review-2",
+      "campaign-brief-plan-implementation-r2-draft-1",
+      "campaign-brief-plan-implementation-r2-review-2",
+      "campaign-brief-plan-implementation-r2-revise-3",
+      "campaign-brief-plan-implementation-r2-review-4",
+      "campaign-brief-implementation-r3",
+      "campaign-brief-implementation-r3-deepseek",
+      "campaign-brief-implementation-r3-deepseek-scope",
+      "campaign-brief-implementation-r3-deepseek-frontdoor",
+      "campaign-brief-implementation-r3-deepseek-finalize",
+      "availability-is-verified-not-assumed-1-the-gate-asks",
+      "availability-is-verified-not-assumed-1b-refusing-only-what-has-no-answer",
+      "availability-is-verified-not-assumed-1c-only-silence-blocks",
+      "availability-is-verified-not-assumed-2-asking-costs-once",
+      "availability-is-verified-not-assumed-3-planning-and-reporting"
     ],
-    "runDirs": [
-      "/Users/frb/dev/frb/skills/.runs/if-measure-c0-guard-20260910",
-      "/Users/frb/dev/frb/skills/.runs/if-measure-c1a-20260910",
-      "/Users/frb/dev/frb/skills/.runs/if-measure-c1a-fix-d01-20260910",
-      "/Users/frb/dev/frb/skills/.runs/if-measure-c1b-20260910",
-      "/Users/frb/dev/frb/skills/.runs/if-measure-c1c-20260910"
-    ],
-    "generatedAt": "2026-09-12T18:53:38.619Z",
-    "note": "recomputed 2026-09-12 from the same five run dirs, for two reasons. costPerClosedCheckpoint now divides by the checkpoints whose cost a provider actually reported instead of by every closed checkpoint, which used to make any move toward a provider that reports no cost look like a saving. And the previous file was captured before its own campaign finished: it recorded 7 closed checkpoints where the run dirs hold 9, so every comparison against it was measuring a partial campaign. Previous values: costPerClosedCheckpoint 6.1839 (n=7), wallClockPerClosedCheckpoint 1851.0644 (n=7), revisionsPerDone 0.2857 (n=7)."
+    "generatedAt": "2026-09-23T14:22:07.807Z",
+    "note": "recomputed 2026-09-23 from three versioned ledgers instead of the five run directories of faberun-measurement-20260910 on the owner's machine. The source changed because the baseline now cites the three most recent closed campaigns whose complete ledgers are in the repository; each indicator therefore uses the recomputed records and counts below. Previous values: costPerClosedCheckpoint 5.5908 (n=9), firstPassGateRate {fixture-runtime-guard: 1, evals-harness: 0, discriminating-cases: 0, cases-d03-d08: 0, cases-d09-d14: 0, discriminator-and-ci: 1, replay-reset-and-d04: 1, comparator-and-baseline: 0, golden-set: 1} (n=9), judgeInvocationRate 1 (n=9), revisionsPerDone 0.3333 (n=9), blockedContextRate 0 (n=9), wallClockPerClosedCheckpoint 1688.1674 (n=9), providerFailoverRate 0 (n=9), protocolFailureRate 0 (n=23)."
   },
   "indicators": {
     "costPerClosedCheckpoint": {
-      "value": 5.5908,
+      "value": 1.0524,
       "direction": "down",
-      "count": 9
+      "count": 14
     },
     "firstPassGateRate": {
       "value": {
-        "fixture-runtime-guard": 1,
-        "evals-harness": 0,
-        "discriminating-cases": 0,
-        "cases-d03-d08": 0,
-        "cases-d09-d14": 0,
-        "discriminator-and-ci": 1,
-        "replay-reset-and-d04": 1,
-        "comparator-and-baseline": 0,
-        "golden-set": 1
+        "draft": 0,
+        "revise": 0,
+        "freeze-plan-identity": 1,
+        "brief-markdown-core": 0,
+        "brief-expense-estimate": 1,
+        "brief-graph-decisions": 1,
+        "brief-cli-generate": 1,
+        "brief-serve-loopback": 0,
+        "the-verdict-names-which-cause": 1,
+        "the-dispatch-gate-asks-before-it-passes": 0,
+        "only-silence-blocks-the-run": 0,
+        "the-verdict-outlives-the-launch": 1,
+        "a-badge-reader-says-it-read-a-badge": 0
       },
       "direction": "up",
-      "count": 9
+      "count": 13,
+      "numerator": {
+        "draft": 0,
+        "revise": 0,
+        "freeze-plan-identity": 1,
+        "brief-markdown-core": 0,
+        "brief-expense-estimate": 1,
+        "brief-graph-decisions": 1,
+        "brief-cli-generate": 1,
+        "brief-serve-loopback": 0,
+        "the-verdict-names-which-cause": 1,
+        "the-dispatch-gate-asks-before-it-passes": 0,
+        "only-silence-blocks-the-run": 0,
+        "the-verdict-outlives-the-launch": 1,
+        "a-badge-reader-says-it-read-a-badge": 0
+      },
+      "denominator": {
+        "draft": 1,
+        "revise": 1,
+        "freeze-plan-identity": 1,
+        "brief-markdown-core": 1,
+        "brief-expense-estimate": 1,
+        "brief-graph-decisions": 1,
+        "brief-cli-generate": 1,
+        "brief-serve-loopback": 1,
+        "the-verdict-names-which-cause": 1,
+        "the-dispatch-gate-asks-before-it-passes": 1,
+        "only-silence-blocks-the-run": 1,
+        "the-verdict-outlives-the-launch": 1,
+        "a-badge-reader-says-it-read-a-badge": 1
+      },
+      "excludedRunIds": []
     },
     "judgeInvocationRate": {
-      "value": 1,
+      "value": 0.1429,
       "direction": "up",
-      "count": 9
+      "count": 14,
+      "numerator": 2,
+      "denominator": 14,
+      "excludedRunIds": []
     },
     "revisionsPerDone": {
-      "value": 0.3333,
+      "value": 0.3571,
       "direction": "down",
-      "count": 9
+      "count": 14
     },
     "blockedContextRate": {
-      "value": 0,
+      "value": 0.2105,
       "direction": "down",
-      "count": 9
+      "count": 19,
+      "numerator": 4,
+      "denominator": 19,
+      "excludedRunIds": []
     },
     "wallClockPerClosedCheckpoint": {
-      "value": 1688.1674,
+      "value": 7604.1023,
       "direction": "down",
-      "count": 9
+      "count": 14
     },
     "providerFailoverRate": {
-      "value": 0,
+      "value": 0.2105,
       "direction": "down",
-      "count": 9
+      "count": 19,
+      "numerator": 4,
+      "denominator": 19,
+      "excludedRunIds": []
     },
     "protocolFailureRate": {
       "value": 0,
       "direction": "down",
-      "count": 23
+      "count": 44,
+      "numerator": 0,
+      "denominator": 44,
+      "excludedRunIds": []
     }
   }
 }

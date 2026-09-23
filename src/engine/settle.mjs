@@ -46,7 +46,7 @@ import { verifyCandidateWorkspace } from "./verify.mjs";
  * (`gate.maxRevisions`, default 1) whether or not the gate reviews: a red
  * deterministic verification earns the same fresh attempt with the failure in
  * front of the worker that a judge rejection does. Measured 2026-09-20 in the
- * orchestration-arms campaign: with the budget behind `gate.enabled`, a node
+ * `docs/campaigns/orchestration-arms/`: with the budget behind `gate.enabled`, a node
  * under `gate: false` died on one timing test that flaked under load, and its
  * dependant with it, while the judged twin of the same node got its retry.
  * @param {ValidatedContract} contract @param {ValidatedNode} node @param {NodeSnapshot} state @param {string} runDir @param {Map<string, Job>|null} running @param {LockHandle} lock @param {Map<string, NodeSnapshot>} states @param {string} campaignPath @param {JudgeVerdict} verdict @param {{code: string, label: string, phase?: "worker"|"judge", message?: string, forceFresh?: boolean}} options */

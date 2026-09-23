@@ -1,0 +1,11 @@
+{"at":"2026-09-16T22:00:01.224Z","node":"setup-preserves-config","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-16T22:00:02.134Z","node":"notifier-delivery-measured","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-16T22:16:29.617Z","node":"setup-preserves-config","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-16T22:34:03.981Z","node":"setup-preserves-config","to":"pending","phase":"worker","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-16T22:34:05.976Z","node":"setup-preserves-config","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-16T22:44:43.860Z","node":"setup-preserves-config","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-16T22:58:33.813Z","node":"notifier-delivery-measured","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-16T23:08:19.394Z","node":"setup-preserves-config","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass","revisions":1}
+{"at":"2026-09-16T23:08:21.310Z","node":"notifier-delivery-measured","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-16T23:27:22.927Z","node":"notifier-delivery-measured","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-16T23:42:25.206Z","node":"notifier-delivery-measured","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass","revisions":1}

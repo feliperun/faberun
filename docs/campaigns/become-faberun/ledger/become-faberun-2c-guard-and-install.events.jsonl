@@ -1,0 +1,6 @@
+{"at":"2026-09-16T00:32:02.100Z","node":"stale-group-signal-guard","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-16T00:47:04.834Z","node":"stale-group-signal-guard","to":"pending","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-16T00:47:04.834Z","node":"stale-group-signal-guard","to":"pending","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-16T00:47:05.907Z","node":"stale-group-signal-guard","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-16T01:02:08.483Z","node":"stale-group-signal-guard","to":"stalled","phase":"worker","runtime":"dsh-deepseek-flash","error":"stall_timeout"}
+{"at":"2026-09-16T01:02:08.506Z","node":"install-script","to":"blocked","phase":"dependency","error":"dependency_failed"}

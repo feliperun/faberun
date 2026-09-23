@@ -1,0 +1,7 @@
+{"at":"2026-09-19T03:50:20.807Z","node":"the-resolver-answers-from-the-home","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-19T04:29:42.331Z","node":"the-resolver-answers-from-the-home","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-19T04:39:15.539Z","node":"the-resolver-answers-from-the-home","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass"}
+{"at":"2026-09-19T04:39:17.625Z","node":"migrating-is-safe-to-run-twice","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-19T04:54:01.801Z","node":"migrating-is-safe-to-run-twice","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-19T05:36:09.399Z","node":"migrating-is-safe-to-run-twice","to":"exhausted","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","error":"verification_failed","revisions":1}
+{"at":"2026-09-19T05:36:09.450Z","node":"the-status-line-follows-the-state","to":"blocked","phase":"dependency","error":"dependency_failed"}

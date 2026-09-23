@@ -1,0 +1,7 @@
+{"at":"2026-09-21T23:24:06.713Z","node":"a-record-written-before-a-field-is-repaired","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T23:43:39.540Z","node":"a-record-written-before-a-field-is-repaired","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"pass"}
+{"at":"2026-09-21T23:43:41.558Z","node":"the-migration-completes-or-says-what-blocks-it","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T23:46:01.400Z","node":"the-migration-completes-or-says-what-blocks-it","to":"canceled","phase":"worker","runtime":"zcode-glm-worker","error":"incomplete_stream"}
+{"at":"2026-09-21T23:47:06.984Z","node":"the-migration-completes-or-says-what-blocks-it","to":"pending","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T23:47:09.171Z","node":"the-migration-completes-or-says-what-blocks-it","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-22T00:24:15.864Z","node":"the-migration-completes-or-says-what-blocks-it","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"pass"}

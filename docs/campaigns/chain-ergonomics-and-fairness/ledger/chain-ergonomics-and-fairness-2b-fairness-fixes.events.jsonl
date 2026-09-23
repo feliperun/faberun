@@ -1,0 +1,11 @@
+{"at":"2026-09-17T18:00:00.908Z","node":"d14-case-proves-once-per-phase","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T18:04:50.959Z","node":"d14-case-proves-once-per-phase","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T18:06:28.435Z","node":"d14-case-proves-once-per-phase","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-17T18:10:13.707Z","node":"d14-case-proves-once-per-phase","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-17T18:13:16.244Z","node":"d14-case-proves-once-per-phase","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass","revisions":1}
+{"at":"2026-09-17T18:13:17.501Z","node":"judge-branch-on-the-settlement-queue","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T18:43:32.067Z","node":"judge-branch-on-the-settlement-queue","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T18:48:02.867Z","node":"judge-branch-on-the-settlement-queue","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass"}
+{"at":"2026-09-17T18:48:04.459Z","node":"dashboard-shows-the-gate-outcome","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T19:11:11.190Z","node":"dashboard-shows-the-gate-outcome","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T19:23:30.607Z","node":"dashboard-shows-the-gate-outcome","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass"}

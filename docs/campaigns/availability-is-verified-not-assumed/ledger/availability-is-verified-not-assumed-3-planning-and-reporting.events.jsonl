@@ -1,0 +1,5 @@
+{"at":"2026-09-22T14:27:57.323Z","node":"planning-asks-before-its-first-stage","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-22T14:27:58.694Z","node":"a-badge-reader-says-it-read-a-badge","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-22T14:46:23.812Z","node":"planning-asks-before-its-first-stage","to":"blocked","phase":"complete","runtime":"zcode-glm-worker","error":"context_missing"}
+{"at":"2026-09-22T15:16:09.756Z","node":"a-badge-reader-says-it-read-a-badge","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-22T16:37:38.119Z","node":"a-badge-reader-says-it-read-a-badge","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"pass","revisions":1}

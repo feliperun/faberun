@@ -1,0 +1,15 @@
+{"at":"2026-09-17T04:25:35.906Z","node":"repo-facts","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T04:25:36.773Z","node":"routing-table","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T04:41:50.711Z","node":"routing-table","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-17T04:52:52.985Z","node":"repo-facts","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T05:04:04.913Z","node":"routing-table","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-17T05:13:26.595Z","node":"repo-facts","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"fail"}
+{"at":"2026-09-17T05:23:03.043Z","node":"routing-table","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-17T05:23:04.329Z","node":"sizing-rules","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T05:23:05.189Z","node":"plan-freeze","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T05:39:33.534Z","node":"plan-freeze","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T05:49:25.953Z","node":"sizing-rules","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T05:59:24.276Z","node":"plan-freeze","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"fail"}
+{"at":"2026-09-17T05:59:26.100Z","node":"sizing-rules","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-17T06:10:39.831Z","node":"sizing-rules","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-17T06:21:35.590Z","node":"sizing-rules","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass","revisions":1}

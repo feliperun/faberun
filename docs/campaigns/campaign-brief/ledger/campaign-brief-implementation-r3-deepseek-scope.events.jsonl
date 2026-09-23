@@ -1,0 +1,10 @@
+{"at":"2026-09-23T00:35:55.270Z","node":"brief-expense-estimate","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-23T00:45:57.429Z","node":"brief-expense-estimate","to":"running","phase":"judge","runtime":"codex-sol"}
+{"at":"2026-09-23T00:48:34.555Z","node":"brief-expense-estimate","to":"done","phase":"complete","runtime":"codex-sol","verdict":"pass"}
+{"at":"2026-09-23T00:48:36.654Z","node":"brief-graph-decisions","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-23T00:55:29.546Z","node":"brief-graph-decisions","to":"done","phase":"complete","runtime":"dsh-deepseek-flash","verdict":"pass"}
+{"at":"2026-09-23T00:55:31.335Z","node":"brief-render-html","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-23T01:16:11.134Z","node":"brief-render-html","to":"running","phase":"judge","runtime":"codex-sol"}
+{"at":"2026-09-23T01:34:44.037Z","node":"brief-render-html","to":"blocked","phase":"judge","runtime":"codex-sol","error":"judge_protocol"}
+{"at":"2026-09-23T01:34:45.090Z","node":"brief-cli-generate","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-23T01:34:45.112Z","node":"brief-serve-loopback","to":"blocked","phase":"dependency","error":"dependency_failed"}

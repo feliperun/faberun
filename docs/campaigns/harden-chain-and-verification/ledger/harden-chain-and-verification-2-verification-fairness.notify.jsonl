@@ -1,0 +1,12 @@
+{"at":"2026-09-16T21:08:18.878Z","dedupeKey":"node.terminal:harden-chain-and-verification-2-verification-fairness:signal-death-retries-once:done:1:0","attempt":1,"status":"no_transport"}
+{"at":"2026-09-16T21:29:28.888Z","dedupeKey":"node.terminal:harden-chain-and-verification-2-verification-fairness:gate-exits-with-its-run-dir:exhausted:2:1","attempt":1,"status":"no_transport"}
+{"at":"2026-09-16T21:42:05.235Z","dedupeKey":"node.terminal:harden-chain-and-verification-2-verification-fairness:candidate-divergence-retry:done:1:0","attempt":1,"status":"no_transport"}
+{"at":"2026-09-16T21:42:05.284Z","dedupeKey":"run.terminal:harden-chain-and-verification-2-verification-fairness:attention","attempt":1,"status":"no_transport"}
+{"at":"2026-09-16T21:56:09.038Z","dedupeKey":"node.terminal:harden-chain-and-verification-2-verification-fairness:gate-exits-with-its-run-dir:exhausted:3:1","attempt":1,"status":"no_transport"}
+{"at":"2026-09-16T22:06:32.092Z","dedupeKey":"run.attention:harden-chain-and-verification-2-verification-fairness:2026-09-16T21:56:31.991Z:0","attempt":1,"status":"no_transport"}
+{"at":"2026-09-16T22:56:32.694Z","dedupeKey":"run.attention:harden-chain-and-verification-2-verification-fairness:2026-09-16T21:56:31.991Z:1","attempt":1,"status":"no_transport"}
+{"at":"2026-09-17T01:56:34.564Z","dedupeKey":"run.attention:harden-chain-and-verification-2-verification-fairness:2026-09-16T21:56:31.991Z:2","attempt":1,"status":"no_transport"}
+{"at":"2026-09-17T05:56:36.215Z","dedupeKey":"run.attention:harden-chain-and-verification-2-verification-fairness:2026-09-16T21:56:31.991Z:3","attempt":1,"status":"no_transport"}
+{"at":"2026-09-17T09:56:38.400Z","dedupeKey":"run.attention:harden-chain-and-verification-2-verification-fairness:2026-09-16T21:56:31.991Z:4","attempt":1,"status":"no_transport"}
+{"at":"2026-09-17T13:56:40.392Z","dedupeKey":"run.attention:harden-chain-and-verification-2-verification-fairness:2026-09-16T21:56:31.991Z:5","attempt":1,"status":"no_transport"}
+{"at":"2026-09-17T17:56:42.241Z","dedupeKey":"run.attention:harden-chain-and-verification-2-verification-fairness:2026-09-16T21:56:31.991Z:6","attempt":1,"status":"no_transport"}

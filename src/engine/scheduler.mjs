@@ -539,6 +539,7 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
         for (const job of jobs) envelopes.set(job.invocation.id, recordInvocationUsage(job, { accumulate: false }));
         for (const job of jobs) {
           const invocation = job.state.invocations?.find((item) => item.id === job.invocation.id) ?? job.invocation;
+          appendUsageRecord(runDir, invocation, { runtime: job.runtime, unknownReason: "invocation-killed" });
           const scopeOk = job.phase !== "worker" || checkWorkerScope(contract, runDir, job, lock);
           settleInvocation(runDir, invocation, {
             status: scopeOk ? "canceled" : "failed",
@@ -569,7 +570,7 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
         job.state.usage = invocationUsage(job.state);
         job.state.costUsd = invocationCost(job.state);
         const invocation = job.state.invocations?.find((item) => item.id === job.invocation.id) ?? job.invocation;
-        appendUsageRecord(runDir, invocation);
+        appendUsageRecord(runDir, invocation, { runtime: job.runtime, unknownReason: "invocation-killed" });
         if (job.phase === "worker" && !checkWorkerScope(contract, runDir, job, lock)) {
           settleInvocation(runDir, invocation, {
             status: "failed",

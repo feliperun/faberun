@@ -1,0 +1,7 @@
+{"at":"2026-09-17T06:49:29.784Z","node":"discovery-result-output","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T06:59:29.704Z","node":"discovery-result-output","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T07:01:16.040Z","node":"discovery-result-output","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-17T07:04:21.947Z","node":"discovery-result-output","to":"blocked","phase":"complete","runtime":"claude-sonnet-worker","verdict":"fail","error":"context_missing","revisions":1}
+{"at":"2026-09-17T07:04:21.965Z","node":"planning-contract-template","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-17T07:04:21.978Z","node":"plan-verb","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-17T07:04:21.989Z","node":"plan-eval-cases","to":"blocked","phase":"dependency","error":"dependency_failed"}

@@ -1,0 +1,2 @@
+{"at":"2026-09-22T07:02:24.668Z","node":"the-gate-refuses-only-a-node-with-no-answer","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-22T07:53:07.359Z","node":"the-gate-refuses-only-a-node-with-no-answer","to":"blocked","phase":"complete","runtime":"zcode-glm-worker","error":"context_missing"}

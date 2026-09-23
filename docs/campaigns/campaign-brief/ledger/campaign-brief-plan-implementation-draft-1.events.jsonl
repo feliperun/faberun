@@ -1,0 +1,3 @@
+{"at":"2026-09-22T21:24:44.436Z","node":"draft","to":"running","phase":"worker","runtime":"zcode-glm-flash"}
+{"at":"2026-09-22T21:38:23.729Z","node":"draft","to":"running","phase":"worker","runtime":"zcode-glm-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-22T21:49:01.569Z","node":"draft","to":"done","phase":"complete","runtime":"zcode-glm-flash","verdict":"fail","revisions":1}

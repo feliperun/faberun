@@ -1,0 +1,14 @@
+{"at":"2026-09-17T03:12:14.436Z","node":"campaign-close-preserves-ledger","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T03:12:15.308Z","node":"spec-format-reference","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T03:14:12.976Z","node":"spec-format-reference","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T03:25:04.280Z","node":"campaign-close-preserves-ledger","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T03:25:09.015Z","node":"spec-format-reference","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"fail"}
+{"at":"2026-09-17T03:25:10.229Z","node":"spec-validate","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T03:37:10.798Z","node":"campaign-close-preserves-ledger","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"fail"}
+{"at":"2026-09-17T03:37:17.922Z","node":"spec-validate","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T03:39:02.391Z","node":"spec-validate","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"fail"}
+{"at":"2026-09-17T03:39:03.597Z","node":"structured-spec-siblings","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T04:02:22.531Z","node":"structured-spec-siblings","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T04:04:46.635Z","node":"structured-spec-siblings","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-17T04:15:14.822Z","node":"structured-spec-siblings","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-17T04:25:28.962Z","node":"structured-spec-siblings","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass","revisions":1}

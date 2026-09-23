@@ -168,6 +168,7 @@ portão atingido.
 | Campanha | Data | Tempo | Custo real | Portão |
 | --- | --- | --- | --- | --- |
 | `first-target-frictions` | 2026-09-23 | 1 h 50 min (02:32 a 04:22, sessão Opus direta) | US$ 0,08 via faberun (revisão cross-vendor deepseek-flash); a sessão Opus não é medida em `usage.jsonl` | 0 para 1 atingido: três suítes verdes com `--test-concurrency=16` neste macOS (1.571 pass, 0 fail, 411 a 431 s), `writes_ignore_source` no `validate`, juiz somente-leitura entrega o veredito |
+| `evidence-you-can-recompute` | 2026-09-23 | 5,1 h de relógio nas runs (07:16 a 14:30); `intentToVerifiedSeconds` 16.826 s | US$ 7,36 via faberun, 0 de 31 `unknown` (planejamento contestado 3,79; contratos luna 1,65; revisão Opus 1,92) | 1 para 2 atingido: o baseline recomputa a partir de ledgers versionados, o `orchestration-arms` está em main e as docs da skill têm um orçamento só (46.852 de 46.855 bytes). Os contratos foram escritos à mão depois de dois planos contestados |
 
 ## Fora do programa, de propósito
 

@@ -1,0 +1,13 @@
+{"at":"2026-09-21T12:46:31.172Z","node":"r17-nightly-schedule","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T12:59:42.531Z","node":"r17-nightly-schedule","to":"running","phase":"judge","runtime":"codex-sol-judge"}
+{"at":"2026-09-21T13:01:47.446Z","node":"r17-nightly-schedule","to":"done","phase":"complete","runtime":"codex-sol-judge","verdict":"pass"}
+{"at":"2026-09-21T13:01:49.371Z","node":"r18-mutation-by-risk","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T13:22:58.930Z","node":"r19-resilience-exercised","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T13:23:26.571Z","node":"r18-mutation-by-risk","to":"running","phase":"judge","runtime":"codex-sol-judge"}
+{"at":"2026-09-21T13:23:32.985Z","node":"r18-mutation-by-risk","to":"running","phase":"judge","runtime":"codex-sol-judge"}
+{"at":"2026-09-21T13:25:09.513Z","node":"r18-mutation-by-risk","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-21T13:44:03.510Z","node":"r18-mutation-by-risk","to":"running","phase":"judge","runtime":"codex-sol-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-21T13:45:23.581Z","node":"r18-mutation-by-risk","to":"running","phase":"judge","runtime":"codex-sol-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-21T13:45:35.815Z","node":"r18-mutation-by-risk","to":"exhausted","phase":"judge","runtime":"codex-sol-judge","verdict":"fail","error":"revision_cap","revisions":1}
+{"at":"2026-09-21T14:03:26.871Z","node":"r19-resilience-exercised","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-21T14:07:52.187Z","node":"r19-resilience-exercised","to":"canceled","phase":"canceled","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}

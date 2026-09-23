@@ -1,7 +1,7 @@
 {
   "id": "availability-is-verified-not-assumed",
   "goal": "Availability is verified by saying hello, not presumed from a badge: the gate that blocks a run uses the verdict of something that answered, the verdict names which of four causes occurred, and asking costs once per declared window",
-  "status": "active",
+  "status": "closed",
   "linkedRunIds": [
     "availability-is-verified-not-assumed-1-the-gate-asks",
     "availability-is-verified-not-assumed-1b-refusing-only-what-has-no-answer",
@@ -34,5 +34,61 @@
   "landBranch": "main",
   "promotions": [],
   "createdAt": "2026-09-22T03:34:36.611Z",
-  "updatedAt": "2026-09-22T14:27:43.003Z"
+  "updatedAt": "2026-09-22T18:03:18.893Z",
+  "closedAt": "2026-09-22T18:03:18.893Z",
+  "requirements": [
+    {
+      "requirementId": "R1",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "availability-is-verified-not-assumed-1-the-gate-asks",
+          "node": "the-dispatch-gate-asks-before-it-passes",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R2",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "availability-is-verified-not-assumed-1-the-gate-asks",
+          "node": "the-verdict-names-which-cause",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R3",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "availability-is-verified-not-assumed-2-asking-costs-once",
+          "node": "the-verdict-outlives-the-launch",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R4",
+      "status": "open",
+      "nodes": []
+    },
+    {
+      "requirementId": "R5",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "availability-is-verified-not-assumed-3-planning-and-reporting",
+          "node": "a-badge-reader-says-it-read-a-badge",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    }
+  ]
 }

@@ -1,0 +1,15 @@
+{"at":"2026-09-18T10:47:52.304Z","node":"campaign-tests-use-the-resolver","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-18T10:53:58.406Z","node":"campaign-tests-use-the-resolver","to":"running","phase":"judge","runtime":"deepseek-flash-judge"}
+{"at":"2026-09-18T10:56:06.040Z","node":"campaign-tests-use-the-resolver","to":"done","phase":"complete","runtime":"deepseek-flash-judge","verdict":"fail"}
+{"at":"2026-09-18T10:56:07.358Z","node":"engine-tests-use-the-resolver","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-18T11:07:33.044Z","node":"engine-tests-use-the-resolver","to":"running","phase":"judge","runtime":"deepseek-flash-judge"}
+{"at":"2026-09-18T11:12:17.011Z","node":"engine-tests-use-the-resolver","to":"done","phase":"complete","runtime":"deepseek-flash-judge","verdict":"fail"}
+{"at":"2026-09-18T11:12:18.776Z","node":"cli-repo-and-harness-tests-use-the-resolver","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-18T11:25:12.530Z","node":"cli-repo-and-harness-tests-use-the-resolver","to":"running","phase":"judge","runtime":"deepseek-flash-judge"}
+{"at":"2026-09-18T11:29:37.209Z","node":"cli-repo-and-harness-tests-use-the-resolver","to":"done","phase":"complete","runtime":"deepseek-flash-judge","verdict":"fail"}
+{"at":"2026-09-18T11:29:38.702Z","node":"the-remaining-tests-and-evals-use-the-resolver","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-18T11:40:38.892Z","node":"the-remaining-tests-and-evals-use-the-resolver","to":"running","phase":"judge","runtime":"deepseek-flash-judge"}
+{"at":"2026-09-18T11:43:47.327Z","node":"the-remaining-tests-and-evals-use-the-resolver","to":"done","phase":"complete","runtime":"deepseek-flash-judge","verdict":"pass"}
+{"at":"2026-09-18T11:43:48.571Z","node":"one-file-per-tree-spells-the-literal","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-18T12:00:51.076Z","node":"one-file-per-tree-spells-the-literal","to":"running","phase":"judge","runtime":"deepseek-flash-judge"}
+{"at":"2026-09-18T12:14:25.655Z","node":"one-file-per-tree-spells-the-literal","to":"done","phase":"complete","runtime":"deepseek-flash-judge","verdict":"pass"}

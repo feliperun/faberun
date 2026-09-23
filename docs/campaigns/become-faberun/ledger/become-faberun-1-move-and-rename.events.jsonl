@@ -1,0 +1,10 @@
+{"at":"2026-09-15T21:17:08.480Z","node":"move-to-root","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T21:26:11.418Z","node":"move-to-root","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-15T21:29:47.137Z","node":"move-to-root","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail"}
+{"at":"2026-09-15T21:31:28.485Z","node":"move-to-root","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"fail"}
+{"at":"2026-09-15T21:31:29.726Z","node":"rename-to-faberun","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T21:46:32.176Z","node":"rename-to-faberun","to":"pending","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T21:46:32.176Z","node":"rename-to-faberun","to":"pending","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T21:46:33.275Z","node":"rename-to-faberun","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T22:06:32.147Z","node":"rename-to-faberun","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-15T22:22:36.668Z","node":"rename-to-faberun","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"fail"}

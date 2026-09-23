@@ -1,0 +1,8 @@
+{"at":"2026-09-17T12:04:24.703Z","node":"seat-allowance-delta","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T12:31:47.773Z","node":"seat-allowance-delta","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T12:36:45.283Z","node":"seat-allowance-delta","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-17T12:52:27.430Z","node":"seat-allowance-delta","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-17T12:56:11.167Z","node":"seat-allowance-delta","to":"exhausted","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","error":"revision_cap","revisions":1}
+{"at":"2026-09-17T12:56:12.240Z","node":"planner-comparative-arm","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T13:22:01.654Z","node":"planner-comparative-arm","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-17T13:37:03.789Z","node":"planner-comparative-arm","to":"exhausted","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","error":"verification_failed","revisions":1}

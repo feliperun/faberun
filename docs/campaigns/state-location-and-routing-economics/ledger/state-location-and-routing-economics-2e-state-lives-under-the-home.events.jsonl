@@ -1,0 +1,7 @@
+{"at":"2026-09-18T23:39:54.080Z","node":"the-resolver-answers-from-the-home","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-19T00:09:56.894Z","node":"the-resolver-answers-from-the-home","to":"pending","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-19T00:09:56.894Z","node":"the-resolver-answers-from-the-home","to":"pending","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-19T00:10:00.131Z","node":"the-resolver-answers-from-the-home","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-19T00:20:44.085Z","node":"the-resolver-answers-from-the-home","to":"blocked","phase":"complete","runtime":"zcode-glm-worker","error":"context_missing"}
+{"at":"2026-09-19T00:20:45.128Z","node":"migrating-is-safe-to-run-twice","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-19T00:20:45.142Z","node":"the-status-line-follows-the-state","to":"blocked","phase":"dependency","error":"dependency_failed"}

@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendUsageRecord, priceUsage } from "../../src/run/usage.mjs";
+import { projectMetrics } from "../../src/campaign/metrics.mjs";
 import { seedPricing } from "../../src/engine/pricing-seed.mjs";
 import { bulkRead } from "../../src/engine/bulk-read.mjs";
 import { READ_LINE_LIMIT } from "../../src/harnesses/index.mjs";
@@ -15,7 +16,8 @@ import { snapshot, writeFixture } from "../contract/helpers.mjs";
 // Phase 4 of the operator-loop spec: the pure pricing rule and the two schema
 // additions it needs (runtime.pricing, invocation.costProvenance). Wiring the
 // rule into the dispatch and recovery paths is a dependent node, so nothing
-// here touches recordInvocationUsage or appendUsageRecord.
+// here keeps the pure pricing checks separate from the ledger's provenance
+// explanation checks below.
 
 const PRICED = { pricing: { inputPerMTok: 1.0, cachedInputPerMTok: 0.1, outputPerMTok: 3.0 } };
 const FULL_USAGE = { inputTokens: 1_000_000, cacheReadInputTokens: 500_000, outputTokens: 200_000 };
@@ -208,4 +210,54 @@ test("done-when 11: appendUsageRecord reads a pre-Phase-4 number with no costPro
   assert.equal(records.length, 1);
   assert.equal(records[0].costUsd, 0.42);
   assert.equal(records[0].costProvenance, "provider", "absence of the field keeps the pre-Phase-4 rule");
+});
+
+test("an unknown cost names its reason", () => {
+  const runDir = mkdtempSync(join(tmpdir(), "pricing-unknown-reasons-"));
+  /** @param {Record<string, unknown>} overrides @param {Parameters<typeof appendUsageRecord>[2]} [options] */
+  const append = (overrides, options = {}) => appendUsageRecord(runDir, /** @type {any} */ (invocation(overrides)), options);
+  append({ id: "no-stream", usage: { inputTokens: null, outputTokens: null, cacheReadInputTokens: null } }, { runtime: { capabilities: { usage: false } } });
+  append({ id: "not-priced", model: "not-a-vendored-model", usage: { inputTokens: 4, outputTokens: 2, cacheReadInputTokens: 0 } });
+  append({ id: "nothing", usage: { inputTokens: null, outputTokens: null, cacheReadInputTokens: null } });
+  append({ id: "killed", signal: "SIGTERM", usage: { inputTokens: null, outputTokens: null, cacheReadInputTokens: null } });
+  appendUsageRecord(runDir, /** @type {any} */ (invocation({ id: "legacy", costUsd: null, costProvenance: "unknown" })));
+
+  const path = join(runDir, "usage.jsonl");
+  const records = readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.deepEqual(records.map((record) => record.unknownReason), [
+    "no-usage-stream",
+    "model-not-priced",
+    "provider-reported-nothing",
+    "invocation-killed",
+    "provider-reported-nothing",
+  ]);
+  // A record from before R4 has no reason and is read as legacy, while every
+  // record written by the new append path has one of the four closed reasons.
+  delete records[4].unknownReason;
+  const metrics = projectMetrics({ usageRecords: records });
+  assert.deepEqual(metrics.usageCostUsd.unknownCountByReason, {
+    "invocation-killed": 1,
+    "legacy": 1,
+    "model-not-priced": 1,
+    "no-usage-stream": 1,
+    "provider-reported-nothing": 1,
+  });
+  assert.deepEqual(metrics.usageCostUsd.unknownFractionByReason, {
+    "invocation-killed": 0.2,
+    "legacy": 0.2,
+    "model-not-priced": 0.2,
+    "no-usage-stream": 0.2,
+    "provider-reported-nothing": 0.2,
+  });
+});
+
+test("a priced model with partial usage cannot be mislabeled provider-reported-nothing", () => {
+  const runDir = mkdtempSync(join(tmpdir(), "pricing-partial-usage-"));
+  appendUsageRecord(runDir, /** @type {any} */ (invocation({
+    model: "claude-opus-5",
+    usage: { inputTokens: 4, outputTokens: null, cacheReadInputTokens: null },
+  })));
+  const record = JSON.parse(readFileSync(join(runDir, "usage.jsonl"), "utf8"));
+  assert.equal(record.unknownReason, "model-not-priced");
+  assert.notEqual(record.unknownReason, "provider-reported-nothing");
 });

@@ -1,0 +1,6 @@
+{"at":"2026-09-15T02:13:59.145Z","node":"parked-not-finished","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T02:54:14.419Z","node":"parked-not-finished","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T03:00:59.748Z","node":"parked-not-finished","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-15T03:04:45.983Z","node":"parked-not-finished","to":"running","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-15T03:20:41.936Z","node":"parked-not-finished","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-15T03:32:08.463Z","node":"parked-not-finished","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"fail","revisions":1}

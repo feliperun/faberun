@@ -94,9 +94,16 @@ const HANDOFFS_BYTE_CEILING = 2048;
 // other reserved articles' ceilings rather than the file's exact size, since
 // this one is expected to grow with the format itself across the campaign.
 const SPEC_FORMAT_BYTE_CEILING = 6144;
+// Measured 2026-09-23: SKILL.md plus every references/*.md is 46852 bytes.
+// The aggregate ceiling is fixed at the campaign baseline of 46855 bytes.
+// Raising it requires a new ADR cited here as docs/adr/NNNN-*.md; the proof
+// below checks the cited concrete path and its number against ADR 0010.
+const TOTAL_BYTE_BUDGET = 46855;
+const BASELINE_TOTAL_BYTE_BUDGET = 46855;
 
 const skillPath = fileURLToPath(new URL('../../skills/faberun/SKILL.md', import.meta.url));
 const referencesDir = fileURLToPath(new URL('../../skills/faberun/references', import.meta.url));
+const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url));
 
 test('SKILL.md stays within the router byte ceiling', () => {
   const bytes = statSync(skillPath).size;
@@ -147,6 +154,35 @@ test('references/spec-format.md stays within its byte ceiling', () => {
   assert.ok(
     bytes <= SPEC_FORMAT_BYTE_CEILING,
     `references/spec-format.md is ${bytes} bytes; the ceiling is ${SPEC_FORMAT_BYTE_CEILING} bytes.`,
+  );
+});
+
+test("the skill and its references share one byte budget", () => {
+  const referencePaths = readdirSync(referencesDir)
+    .filter((name) => name.endsWith('.md'))
+    .map((name) => join(referencesDir, name));
+  const totalBytes = [skillPath, ...referencePaths]
+    .reduce((sum, path) => sum + statSync(path).size, 0);
+
+  assert.ok(
+    totalBytes <= TOTAL_BYTE_BUDGET,
+    `SKILL.md and references/*.md total ${totalBytes} bytes; the shared budget is ${TOTAL_BYTE_BUDGET} bytes. ` +
+      'Cut one document before growing another.',
+  );
+
+  if (TOTAL_BYTE_BUDGET <= BASELINE_TOTAL_BYTE_BUDGET) return;
+
+  const source = readFileSync(fileURLToPath(import.meta.url), 'utf8');
+  const citedAdr = source.match(/docs\/adr\/(\d{4}-[a-z0-9-]+\.md)/u)?.[0];
+  assert.ok(
+    citedAdr,
+    'an aggregate budget above 46855 must cite a concrete newer ADR path in its comment',
+  );
+  const adrNumber = Number(citedAdr.match(/docs\/adr\/(\d{4})-/u)?.[1]);
+  assert.ok(adrNumber > 10, `${citedAdr} must be newer than docs/adr/0010-the-suite-runs-on-windows.md`);
+  assert.ok(
+    statSync(join(repositoryRoot, citedAdr)).isFile(),
+    `${citedAdr} cited for the aggregate budget must exist`,
   );
 });
 
@@ -202,4 +238,3 @@ test('done-when 8: the notify docs match notify/index.mjs and SKILL.md arms the 
   assert.match(skill, /StartInterval 300/u);
   assert.match(skill, /launchctl load/u);
 });
-

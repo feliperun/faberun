@@ -1,7 +1,7 @@
 {
   "id": "first-target-frictions",
   "goal": "O que o primeiro alvo real e o brief ensinaram, fechado antes de medir qualquer coisa",
-  "status": "active",
+  "status": "closed",
   "linkedRunIds": [
     "first-target-frictions-review",
     "first-target-frictions-review-deepseek"
@@ -10,5 +10,7 @@
   "landBranch": "campaign/first-target-frictions",
   "promotions": [],
   "createdAt": "2026-09-23T05:32:48.048Z",
-  "updatedAt": "2026-09-23T06:19:33.196Z"
+  "updatedAt": "2026-09-23T07:17:06.126Z",
+  "closedAt": "2026-09-23T07:17:06.126Z",
+  "requirements": []
 }

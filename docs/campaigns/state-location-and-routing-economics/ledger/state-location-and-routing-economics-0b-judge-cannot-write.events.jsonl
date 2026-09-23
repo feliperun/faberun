@@ -1,0 +1,2 @@
+{"at":"2026-09-17T21:03:38.597Z","node":"a-judge-that-writes-is-a-protocol-defect","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T21:35:44.711Z","node":"a-judge-that-writes-is-a-protocol-defect","to":"blocked","phase":"complete","runtime":"claude-sonnet-worker","error":"context_missing"}

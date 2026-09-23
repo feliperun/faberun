@@ -1,0 +1,12 @@
+{"at":"2026-09-16T20:54:48.273Z","node":"signal-death-retries-once","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-16T20:54:49.135Z","node":"gate-exits-with-its-run-dir","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-16T20:57:22.136Z","node":"signal-death-retries-once","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-16T21:07:59.673Z","node":"gate-exits-with-its-run-dir","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-16T21:08:17.592Z","node":"signal-death-retries-once","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass"}
+{"at":"2026-09-16T21:08:18.810Z","node":"candidate-divergence-retry","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-16T21:19:30.929Z","node":"gate-exits-with-its-run-dir","to":"exhausted","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","error":"verification_failed","revisions":1}
+{"at":"2026-09-16T21:29:28.797Z","node":"candidate-divergence-retry","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-16T21:42:04.852Z","node":"candidate-divergence-retry","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"fail"}
+{"at":"2026-09-16T21:42:26.252Z","node":"gate-exits-with-its-run-dir","to":"pending","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-16T21:42:28.105Z","node":"gate-exits-with-its-run-dir","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-16T21:56:08.899Z","node":"gate-exits-with-its-run-dir","to":"exhausted","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","error":"verification_failed","revisions":1}

@@ -1,11 +1,10 @@
 /**
  * Metrics projector (TECH-SPEC lean section 6). One pure function over a
- * campaign's own recorded artefacts — every linked run's persisted node
- * snapshots, `events.jsonl`, `usage.jsonl` and `notify.jsonl` — returning
- * exactly the indicators section 6 measures at close. Nothing here estimates
- * a token count or reads a heartbeat: every value comes from a record the
- * platform already wrote for another reason (a node snapshot, a transition,
- * a priced invocation, a delivery receipt).
+ * campaign's own parsed artefacts — node snapshots, transitions, priced
+ * invocations and delivery receipts — returning exactly the indicators
+ * section 6 measures at close. Nothing here estimates a token count or reads
+ * a heartbeat: every value comes from a record the platform already wrote for
+ * another reason.
  *
  * `projectMetrics` takes already-parsed records and never a filesystem path,
  * which keeps every indicator testable without fixtures on disk. Each
@@ -23,21 +22,14 @@
  * 1 only when a whole run had to be re-authored after a failure that
  * `resume` could not repair.
  *
- * The second half of this module is the `faberun metrics` command: reading
- * a campaign's linked runs and parsing the command's flags live here, while
- * `metrics-report.mjs` decides how the projection is printed.
+ * Filesystem reads and the `faberun metrics` command's flags live in
+ * `metrics-command.mjs`; keeping them separate leaves this module a pure
+ * function over parsed records.
  */
 
-import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-
 import { jsonObjectOf, round4, timestampMs } from "./metrics-evals.mjs";
+import { UNKNOWN_COST_REASONS } from "../run/usage.mjs";
 import { MAX_ATTEMPTS as NOTIFY_MAX_ATTEMPTS } from "../notify/index.mjs";
-import { renderMetricsJson, renderMetricsReport } from "../report/metrics-report.mjs";
-import { campaignDir } from "./layout.mjs";
-import { readCampaign } from "./record.mjs";
-import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
-import { runsRoot } from "../run/paths.mjs";
 
 /** Node statuses that are not terminal: everything else settles a logical node. */
 const OPEN_STATUSES = new Set(["pending", "running"]);
@@ -57,9 +49,9 @@ const UNKNOWN_COST_PROVENANCE = "unknown";
 
 /** @typedef {Record<string, unknown>} JsonObject */
 /** @typedef {"down"|"up"|"informative"} Direction */
-/** @typedef {{value: number|null, direction: Direction, count: number}} Indicator */
-/** @typedef {Indicator & {unknownCount: number}} CostIndicator */
-/** @typedef {{value: Record<string, number>|null, direction: Direction, count: number}} GroupedIndicator */
+/** @typedef {{value: number|null, direction: Direction, count: number, numerator?: number, denominator?: number, excludedRunIds?: string[], missingSources?: string[]}} Indicator */
+/** @typedef {Indicator & {unknownCount: number, unknownCountByReason: Record<string, number>, unknownFractionByReason: Record<string, number>}} CostIndicator */
+/** @typedef {{value: Record<string, number>|null, direction: Direction, count: number, numerator?: Record<string, number>, denominator?: Record<string, number>, excludedRunIds?: string[], missingSources?: string[]}} GroupedIndicator */
 /** @typedef {{atMs: number, index: number, event: JsonObject}} RunEvent */
 /** @typedef {{runId: string, id: string, status: string, attempt?: number|null, revisions?: number|null, review?: string|null}} RunNode */
 
@@ -69,6 +61,11 @@ const UNKNOWN_COST_PROVENANCE = "unknown";
  *   usageRecords?: unknown[],
  *   notifications?: unknown[],
  *   nodes?: RunNode[],
+ *   journal?: unknown[],
+ *   campaign?: JsonObject,
+ *   requirements?: unknown[],
+ *   excludedRunIds?: string[],
+ *   missingSources?: string[],
  *   now?: number,
  * }} MetricsInput
  */
@@ -85,6 +82,8 @@ const UNKNOWN_COST_PROVENANCE = "unknown";
  *   blockingJudgeFirstPassRate: GroupedIndicator,
  *   notifyReceiptRate: Indicator,
  *   silentStallRate: Indicator,
+ *   intentToVerifiedSeconds: Indicator,
+ *   humanTouches: Indicator,
  * }} CampaignMetrics
  */
 
@@ -96,29 +95,92 @@ const UNKNOWN_COST_PROVENANCE = "unknown";
  * @param {MetricsInput} [input]
  * @returns {CampaignMetrics}
  */
-export function projectMetrics({ events = [], usageRecords = [], notifications = [], nodes = [], now = Date.now() } = {}) {
+export function projectMetrics({ events = [], usageRecords = [], notifications = [], nodes = [], journal = [], campaign = undefined, requirements = undefined, excludedRunIds = [], missingSources = [], now = Date.now() } = {}) {
   void now;
   const eventList = events.map(jsonObjectOf).filter((event) => event !== null);
-  const nodesDone = nodesDoneRateOf(nodes);
+  const excluded = excludedRunIdsFor(campaign, excludedRunIds);
+  const eligibleNodes = nodes.filter((node) => !excluded.includes(node.runId));
+  const eligibleEvents = eventList.filter((event) => typeof event.runId !== "string" || !excluded.includes(event.runId));
+  const eligibleNotifications = notifications.filter((record) => {
+    const object = jsonObjectOf(record);
+    return object === null || typeof object.runId !== "string" || !excluded.includes(object.runId);
+  });
+  const nodesDone = nodesDoneRateOf(eligibleNodes);
   const runs = runsPerCampaignOf(nodes, eventList);
   const closedCheckpoints = closedCheckpointsOf(nodes);
   const span = eventSpanOf(eventList);
   const usage = usageTotalsOf(usageRecords);
-  const gates = blockingJudgeFirstPassRateOf(nodes, eventList);
-  const notify = notifyReceiptRateOf(notifications);
-  const stalls = silentStallRateOf(nodes, eventList);
-  return {
-    nodesDoneRate: measured("up", nodesDone.terminal, nodesDone.terminal === 0 ? null : nodesDone.done / nodesDone.terminal),
+  const gates = blockingJudgeFirstPassRateOf(eligibleNodes, eligibleEvents);
+  const notify = notifyReceiptRateOf(eligibleNotifications);
+  const stalls = silentStallRateOf(eligibleNodes, eligibleEvents);
+  const declaredRequirements = campaign !== undefined && Array.isArray(campaign.requirements) ? campaign.requirements : requirements;
+  const northStar = intentToVerifiedSecondsOf(journal, declaredRequirements, eventList);
+  const touches = humanTouchesOf(journal, eventList);
+  const metrics = {
+    nodesDoneRate: rate("up", nodesDone.done, nodesDone.terminal, excluded),
     linkedRunsPerClosedCheckpoint: measured("down", closedCheckpoints, closedCheckpoints === 0 ? null : runs / closedCheckpoints),
     runsPerCampaign: measured("down", runs, runs === 0 ? null : runs),
     wallClockSec: measured("down", span.count, span.seconds),
     usageTokensByKind: grouped("informative", usage.tokenCount, usage.tokensByKind),
     usageTokensByKindByRuntime: grouped("informative", usage.tokenCount, usage.tokensByKindByRuntime),
-    usageCostUsd: { ...measured("down", usage.costCount, usage.costCount === 0 ? null : usage.costUsd), unknownCount: usage.unknownCount },
-    blockingJudgeFirstPassRate: grouped("up", gates.count, gates.value),
-    notifyReceiptRate: measured("up", notify.count, notify.count === 0 ? null : notify.satisfied / notify.count),
-    silentStallRate: measured("down", stalls.activeIntervals, stalls.activeHours === 0 ? null : stalls.stalled / stalls.activeHours),
+    usageCostUsd: {
+      ...measured("down", usage.costCount, usage.costCount === 0 ? null : usage.costUsd),
+      unknownCount: usage.unknownCount,
+      unknownCountByReason: usage.unknownCountByReason,
+      unknownFractionByReason: usage.unknownFractionByReason,
+    },
+    blockingJudgeFirstPassRate: groupedRate("up", gates, excluded),
+    notifyReceiptRate: rate("up", notify.satisfied, notify.count, excluded),
+    silentStallRate: rate("down", stalls.stalled, stalls.activeHours, excluded, stalls.activeIntervals),
+    intentToVerifiedSeconds: northStar,
+    humanTouches: touches,
   };
+  return applyMissingSources(metrics, missingSources);
+}
+
+/**
+ * A missing ledger file is incomplete evidence, not an empty measurement.
+ * Preserve the exact filenames so both report forms explain the gap.
+ *
+ * @param {CampaignMetrics} metrics
+ * @param {string[]} missingSources
+ * @returns {CampaignMetrics}
+ */
+function applyMissingSources(metrics, missingSources) {
+  const missing = [...new Set(missingSources)].sort();
+  if (missing.length === 0) return metrics;
+  /** @template {Indicator|GroupedIndicator} T @param {T} indicator @param {string[]} suffixes @returns {T} */
+  const withMissing = (indicator, suffixes) => {
+    const sources = missing.filter((source) => suffixes.some((suffix) => source.endsWith(`.${suffix}`) || source === suffix));
+    return /** @type {T} */ (sources.length === 0 ? indicator : { ...indicator, value: null, missingSources: sources });
+  };
+  return {
+    nodesDoneRate: withMissing(metrics.nodesDoneRate, ["nodes.json"]),
+    linkedRunsPerClosedCheckpoint: withMissing(metrics.linkedRunsPerClosedCheckpoint, ["nodes.json"]),
+    runsPerCampaign: withMissing(metrics.runsPerCampaign, ["events.jsonl"]),
+    wallClockSec: withMissing(metrics.wallClockSec, ["events.jsonl"]),
+    usageTokensByKind: withMissing(metrics.usageTokensByKind, ["usage.jsonl"]),
+    usageTokensByKindByRuntime: withMissing(metrics.usageTokensByKindByRuntime, ["usage.jsonl"]),
+    usageCostUsd: withMissing(metrics.usageCostUsd, ["usage.jsonl"]),
+    blockingJudgeFirstPassRate: withMissing(metrics.blockingJudgeFirstPassRate, ["nodes.json", "events.jsonl"]),
+    notifyReceiptRate: withMissing(metrics.notifyReceiptRate, ["notify.jsonl"]),
+    silentStallRate: withMissing(metrics.silentStallRate, ["nodes.json", "events.jsonl"]),
+    intentToVerifiedSeconds: withMissing(metrics.intentToVerifiedSeconds, ["journal.jsonl", "campaign.json"]),
+    humanTouches: withMissing(metrics.humanTouches, ["journal.jsonl"]),
+  };
+}
+
+/** @param {JsonObject|undefined} campaign @param {string[]} requested @returns {string[]} */
+export function excludedRunIdsFor(campaign, requested) {
+  const fromCampaign = Array.isArray(campaign?.replacements)
+    ? campaign.replacements.flatMap((entry) => {
+      const replacement = jsonObjectOf(entry);
+      return replacement !== null && Array.isArray(replacement.runIds)
+        ? replacement.runIds.filter((id) => typeof id === "string")
+        : [];
+    })
+    : [];
+  return [...new Set([...requested, ...fromCampaign])].sort();
 }
 
 /**
@@ -135,6 +197,18 @@ function measured(direction, count, value) {
   return { value: missing ? null : round4(/** @type {number} */ (value)), direction, count };
 }
 
+/** @param {Direction} direction @param {number} numerator @param {number} denominator @param {string[]} excludedRunIds @param {number} [count] @returns {Indicator} */
+function rate(direction, numerator, denominator, excludedRunIds, count = denominator) {
+  return {
+    value: denominator === 0 || !Number.isFinite(numerator / denominator) ? null : round4(numerator / denominator),
+    direction,
+    count,
+    numerator,
+    denominator,
+    excludedRunIds: [...excludedRunIds],
+  };
+}
+
 /**
  * Wrap one indicator reported per group (lane or runtime). The empty group map
  * is a missing measurement, not a measured zero.
@@ -146,6 +220,106 @@ function measured(direction, count, value) {
  */
 function grouped(direction, count, value) {
   return { value: count === 0 || Object.keys(value).length === 0 ? null : value, direction, count };
+}
+
+/** @param {{value: Record<string, number>, numerator: Record<string, number>, denominator: Record<string, number>, count: number}} groups @param {Direction} direction @param {string[]} excludedRunIds @returns {GroupedIndicator} */
+function groupedRate(direction, groups, excludedRunIds) {
+  return {
+    value: groups.count === 0 || Object.keys(groups.value).length === 0 ? null : groups.value,
+    direction,
+    count: groups.count,
+    numerator: groups.numerator,
+    denominator: groups.denominator,
+    excludedRunIds: [...excludedRunIds],
+  };
+}
+
+/**
+ * The north star is complete only when every declared requirement has an
+ * approved closure evidence entry. The completion instant is the matching
+ * done/proof event, not campaign close, so a late retrospective cannot make
+ * the work look slower or faster than it was.
+ *
+ * @param {unknown[]} journal
+ * @param {unknown[]|undefined} requirements
+ * @param {JsonObject[]} events
+ * @returns {Indicator}
+ */
+function intentToVerifiedSecondsOf(journal, requirements, events) {
+  const entries = journal.map(jsonObjectOf).filter((entry) => entry !== null);
+  const initialized = entries
+    .filter((entry) => entry.type === "campaign.initialized")
+    .map((entry) => timestampMs(entry.at))
+    .find((atMs) => Number.isFinite(atMs));
+  if (!Number.isFinite(initialized) || !Array.isArray(requirements) || requirements.length === 0) {
+    return measured("down", 0, null);
+  }
+  /** @type {number[]} */
+  const proofTimes = [];
+  for (const raw of requirements) {
+    const requirement = jsonObjectOf(raw);
+    if (requirement === null || requirement.status !== "covered" || !Array.isArray(requirement.nodes)) {
+      return measured("down", 0, null);
+    }
+    const approved = requirement.nodes.flatMap((rawEvidence) => {
+      const evidence = jsonObjectOf(rawEvidence);
+      return evidence !== null && evidence.passed === true && (evidence.verdict === null || evidence.verdict === "pass") ? [evidence] : [];
+    });
+    if (approved.length === 0) return measured("down", 0, null);
+    const times = approved.flatMap((evidence) => proofTimesForEvidence(evidence, events));
+    if (times.length === 0) return measured("down", 0, null);
+    proofTimes.push(Math.min(...times));
+  }
+  const lastProof = Math.max(...proofTimes);
+  return measured("down", 1, (lastProof - /** @type {number} */ (initialized)) / 1000);
+}
+
+/** @param {JsonObject} evidence @param {JsonObject[]} events @returns {number[]} */
+function proofTimesForEvidence(evidence, events) {
+  for (const field of ["approvedAt", "at"]) {
+    const direct = timestampMs(evidence[field]);
+    if (Number.isFinite(direct)) return [direct];
+  }
+  return events
+    .filter((event) => event.runId === evidence.runId && event.node === evidence.node)
+    .filter((event) => event.to === "done" || event.proofApproved === true || (event.phase === "verification" && event.passed === true))
+    .map((event) => timestampMs(event.at))
+    .filter((atMs) => Number.isFinite(atMs));
+}
+
+/** @param {unknown[]} journal @param {JsonObject[]} events @returns {Indicator} */
+function humanTouchesOf(journal, events) {
+  const entries = journal.map(jsonObjectOf).filter((entry) => entry !== null);
+  if (entries.length === 0) return { value: null, direction: "informative", count: 0 };
+  const launchTimes = entries
+    .filter((entry) => entry.type === "run.registered")
+    .map((entry) => timestampMs(entry.at))
+    .filter((atMs) => Number.isFinite(atMs));
+  if (launchTimes.length === 0) return { value: 0, direction: "informative", count: 0 };
+  const firstLaunch = Math.min(...launchTimes);
+  const recoveryTouches = events
+    .filter(isRecordedOperatorEvent)
+    .sort((left, right) => timestampMs(left.at) - timestampMs(right.at))
+    .filter((event, index, all) => event.to !== "canceled" || all.findIndex((candidate) => candidate.to === "canceled" && candidate.runId === event.runId) === index);
+  const touches = [...entries.filter(isRecordedJournalTouch), ...recoveryTouches].filter((entry) => {
+    const atMs = timestampMs(entry.at);
+    return Number.isFinite(atMs) && atMs > firstLaunch;
+  });
+  return { value: touches.length, direction: "informative", count: touches.length };
+}
+
+/** @param {JsonObject} entry @returns {boolean} */
+function isRecordedJournalTouch(entry) {
+  return entry.type === "question.resolved"
+    || (entry.type === "operator.command" && entry.command === "campaign add-contract");
+}
+
+/** @param {JsonObject} entry @returns {boolean} */
+function isRecordedOperatorEvent(entry) {
+  const override = jsonObjectOf(entry.override);
+  return entry.to === "canceled"
+    || override?.kind === "operator-answer"
+    || entry.recovery === "reconcile_acknowledged";
 }
 
 /**
@@ -223,7 +397,7 @@ function eventSpanOf(events) {
  * invocation is counted separately rather than folded into a measured zero.
  *
  * @param {unknown[]} usageRecords
- * @returns {{tokensByKind: Record<string, number>, tokensByKindByRuntime: Record<string, number>, tokenCount: number, costUsd: number|null, costCount: number, unknownCount: number}}
+ * @returns {{tokensByKind: Record<string, number>, tokensByKindByRuntime: Record<string, number>, tokenCount: number, costUsd: number|null, costCount: number, unknownCount: number, unknownCountByReason: Record<string, number>, unknownFractionByReason: Record<string, number>}}
  */
 function usageTotalsOf(usageRecords) {
   const tokensByKind = { inputTokens: 0, cacheReadInputTokens: 0, outputTokens: 0 };
@@ -233,6 +407,8 @@ function usageTotalsOf(usageRecords) {
   let costUsd = 0;
   let costCount = 0;
   let unknownCount = 0;
+  /** @type {Record<string, number>} */
+  const unknownCountByReason = {};
   const kinds = /** @type {("inputTokens"|"cacheReadInputTokens"|"outputTokens")[]} */ (["inputTokens", "cacheReadInputTokens", "outputTokens"]);
   for (const raw of usageRecords) {
     const record = jsonObjectOf(raw);
@@ -252,9 +428,26 @@ function usageTotalsOf(usageRecords) {
       costCount += 1;
     } else {
       unknownCount += 1;
+      const reason = typeof record.unknownReason === "string" && UNKNOWN_COST_REASONS.includes(record.unknownReason)
+        ? record.unknownReason
+        : "legacy";
+      unknownCountByReason[reason] = (unknownCountByReason[reason] ?? 0) + 1;
     }
   }
-  return { tokensByKind, tokensByKindByRuntime, tokenCount, costUsd: costCount === 0 ? null : costUsd, costCount, unknownCount };
+  const totalCount = costCount + unknownCount;
+  const unknownFractionByReason = Object.fromEntries(
+    Object.entries(unknownCountByReason).map(([reason, count]) => [reason, round4(count / totalCount)]),
+  );
+  return {
+    tokensByKind,
+    tokensByKindByRuntime,
+    tokenCount,
+    costUsd: costCount === 0 ? null : costUsd,
+    costCount,
+    unknownCount,
+    unknownCountByReason,
+    unknownFractionByReason,
+  };
 }
 
 /**
@@ -265,7 +458,7 @@ function usageTotalsOf(usageRecords) {
  *
  * @param {RunNode[]} nodes
  * @param {JsonObject[]} events
- * @returns {{value: Record<string, number>, count: number}}
+ * @returns {{value: Record<string, number>, numerator: Record<string, number>, denominator: Record<string, number>, count: number}}
  */
 function blockingJudgeFirstPassRateOf(nodes, events) {
   /** @type {Map<string, string|null>} */
@@ -288,11 +481,17 @@ function blockingJudgeFirstPassRateOf(nodes, events) {
   }
   /** @type {Record<string, number>} */
   const value = {};
+  /** @type {Record<string, number>} */
+  const numerator = {};
+  /** @type {Record<string, number>} */
+  const denominator = {};
   for (const lane of [...lanes.keys()].sort()) {
     const tally = /** @type {{gated: number, passed: number}} */ (lanes.get(lane));
     value[lane] = round4(tally.passed / tally.gated);
+    numerator[lane] = tally.passed;
+    denominator[lane] = tally.gated;
   }
-  return { value, count: gated };
+  return { value, numerator, denominator, count: gated };
 }
 
 /**
@@ -398,122 +597,4 @@ function groupEventsByRunNode(events) {
 /** @param {RunEvent} entry @returns {number} */
 function orderOf(entry) {
   return Number.isFinite(entry.atMs) ? entry.atMs : 0;
-}
-
-/** Flags of `faberun metrics`, declared here so the router only names them. */
-/** @type {import("node:util").ParseArgsOptionsConfig} */
-export const METRICS_OPTIONS = { cwd: { type: "string" }, json: { type: "boolean" } };
-
-const RUN_EVENTS_FILE = "events.jsonl";
-const USAGE_LOG_FILE = "usage.jsonl";
-const NOTIFY_LOG_FILE = "notify.jsonl";
-
-/**
- * @typedef {{
- *   campaignId: string,
- *   runIds: string[],
- *   events: unknown[],
- *   usageRecords: unknown[],
- *   notifications: unknown[],
- *   nodes: RunNode[],
- * }} MetricsSources
- */
-
-/**
- * Read the recorded sources of one campaign: every linked run's persisted
- * node snapshots, transition events (tagged with the run id, since a node id
- * is only unique within one run), `usage.jsonl` and `notify.jsonl`. A missing
- * artefact reads as empty, which the projector reports as a missing
- * measurement and never as a measured zero.
- *
- * @param {string} campaignPath
- * @param {{runsDir?: string}} [options]
- * @returns {MetricsSources}
- */
-export function readMetricsSources(campaignPath, { runsDir = join(campaignPath, "..", "..") } = {}) {
-  const campaign = readCampaign(campaignPath);
-  /** @type {unknown[]} */
-  const events = [];
-  /** @type {unknown[]} */
-  const usageRecords = [];
-  /** @type {unknown[]} */
-  const notifications = [];
-  /** @type {RunNode[]} */
-  const nodes = [];
-  for (const runId of campaign.linkedRunIds) {
-    for (const record of readJsonlRecords(join(runsDir, runId, RUN_EVENTS_FILE))) events.push({ ...jsonObjectOf(record), runId });
-    for (const record of readJsonlRecords(join(runsDir, runId, USAGE_LOG_FILE))) usageRecords.push(record);
-    for (const record of readJsonlRecords(join(runsDir, runId, NOTIFY_LOG_FILE))) notifications.push(record);
-    for (const node of readRunNodes(join(runsDir, runId))) nodes.push({ ...node, runId });
-  }
-  return { campaignId: campaign.id, runIds: [...campaign.linkedRunIds], events, usageRecords, notifications, nodes };
-}
-
-/**
- * Persisted node snapshots of one run, reduced to the fields metrics reads.
- * Reading is tolerant of a run directory with no `nodes/` yet (freshly
- * dispatched) and of a snapshot that fails to parse (never blocks a report on
- * a torn write).
- *
- * @param {string} runDir
- * @returns {Omit<RunNode, "runId">[]}
- */
-function readRunNodes(runDir) {
-  /** @type {Omit<RunNode, "runId">[]} */
-  const nodes = [];
-  for (const name of listNodeSnapshots(runDir)) {
-    let record;
-    try {
-      record = jsonObjectOf(JSON.parse(readFileSync(nodeSnapshotPath(runDir, name.slice(0, -".json".length)), "utf8")));
-    } catch {
-      continue;
-    }
-    if (record === null || typeof record.id !== "string" || typeof record.status !== "string") continue;
-    nodes.push({
-      id: record.id,
-      status: record.status,
-      attempt: typeof record.attempt === "number" ? record.attempt : null,
-      revisions: typeof record.revisions === "number" ? record.revisions : null,
-      review: typeof record.review === "string" ? record.review : null,
-    });
-  }
-  return nodes;
-}
-
-/**
- * `faberun metrics <campaign-id> [--cwd <dir>] [--json]`: project the
- * campaign's recorded artefacts and return what the command prints. Reading
- * only, and never a write: a report of a closed campaign must not touch it.
- *
- * @param {string} campaignId
- * @param {{cwd?: unknown, json?: unknown}} [values]
- * @returns {string}
- */
-export function renderCampaignMetrics(campaignId, values = {}) {
-  const runsDir = runsRoot(resolve(typeof values.cwd === "string" && values.cwd !== "" ? values.cwd : process.cwd()));
-  const sources = readMetricsSources(campaignDir(runsDir, campaignId), { runsDir });
-  const metrics = projectMetrics(sources);
-  return values.json === true ? renderMetricsJson(sources, metrics) : renderMetricsReport(sources, metrics);
-}
-
-/**
- * Records of one JSONL artefact. An unterminated final line was never a
- * committed record — the newline is written with the record — so it is skipped
- * rather than parsed.
- *
- * @param {string} path
- * @returns {unknown[]}
- */
-function readJsonlRecords(path) {
-  if (!existsSync(path)) return [];
-  const text = readFileSync(path, "utf8");
-  const lines = text.split(/\r?\n/u);
-  /** @type {unknown[]} */
-  const records = [];
-  for (let index = 0; index < lines.length; index += 1) {
-    if (!lines[index].trim()) continue;
-    if (index === lines.length - 1 && !text.endsWith("\n")) continue;
-    records.push(JSON.parse(lines[index]));
-  }
-  return records;
 }

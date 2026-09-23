@@ -1,7 +1,7 @@
 {
   "id": "env-independence-and-generated-docs",
   "goal": "Two defect classes made inexpressible instead of patched: tests that encode the author's machine (the installer test builds the PATH it needs, a host-layout guard refuses absolute system directories in PATH, version-manager references and process.platform in assertions, and fixture shebangs that resolve node through the PATH shim; the four root pointers are proven to stay symlinks) and hand-written documentation of code surface (docs/COMMANDS.md regenerated from the CLI's own option tables with authored prose preserved, npm run docs and docs:check in CI; worker-loadable references declared and guarded; declared readFiles bytes exposed per node). Owner's proposal plus orchestrator addendum; Anthropic models only. Spec: docs/campaigns/env-independence-and-generated-docs/spec/SPEC.md.",
-  "status": "active",
+  "status": "closed",
   "linkedRunIds": [
     "env-independence-and-generated-docs-1-host-independence",
     "env-independence-and-generated-docs-2-generated-manual",
@@ -58,5 +58,6 @@
     }
   ],
   "createdAt": "2026-09-17T00:09:44.318Z",
-  "updatedAt": "2026-09-17T02:52:17.595Z"
+  "updatedAt": "2026-09-17T03:11:34.011Z",
+  "closedAt": "2026-09-17T03:11:34.011Z"
 }

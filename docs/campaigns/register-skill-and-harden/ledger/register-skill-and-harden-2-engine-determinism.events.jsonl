@@ -1,0 +1,17 @@
+{"at":"2026-09-16T15:26:08.350Z","node":"deterministic-seal-and-reask","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-16T15:26:09.143Z","node":"scope-acknowledged-deferral","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-16T15:27:42.069Z","node":"scope-acknowledged-deferral","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-16T15:29:06.525Z","node":"scope-acknowledged-deferral","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass"}
+{"at":"2026-09-16T15:36:03.273Z","node":"deterministic-seal-and-reask","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-16T15:42:03.288Z","node":"deterministic-seal-and-reask","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass"}
+{"at":"2026-09-16T15:42:04.432Z","node":"unpriced-usage-visible","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-16T15:50:28.644Z","node":"unpriced-usage-visible","to":"running","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-16T16:13:40.451Z","node":"unpriced-usage-visible","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-16T16:24:42.469Z","node":"unpriced-usage-visible","to":"exhausted","phase":"worker","runtime":"claude-opus-judge","verdict":"fail","error":"verification_failed","revisions":1}
+{"at":"2026-09-16T16:30:03.611Z","node":"unpriced-usage-visible","to":"pending","phase":"worker","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-16T16:30:05.180Z","node":"unpriced-usage-visible","to":"running","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-16T16:45:07.971Z","node":"unpriced-usage-visible","to":"pending","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-16T16:45:07.971Z","node":"unpriced-usage-visible","to":"pending","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-16T16:45:09.450Z","node":"unpriced-usage-visible","to":"running","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-16T17:02:16.841Z","node":"unpriced-usage-visible","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-16T17:12:48.326Z","node":"unpriced-usage-visible","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass","revisions":1}

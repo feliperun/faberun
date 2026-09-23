@@ -1,7 +1,7 @@
 {
   "id": "durable-state-integrity",
   "goal": "The durable state faberun keeps is complete, reachable and repairable: a cancel never orphans integrated work, a suite run never writes to the operator home, a journal note is refused rather than silently shortened, and a record written before a field existed is repaired",
-  "status": "active",
+  "status": "closed",
   "linkedRunIds": [
     "durable-state-integrity-plan-cancel-keeps-integrated-work-draft-1",
     "durable-state-integrity-plan-cancel-keeps-integrated-work-review-2",
@@ -42,5 +42,127 @@
   "landBranch": "main",
   "promotions": [],
   "createdAt": "2026-09-21T17:08:57.376Z",
-  "updatedAt": "2026-09-22T01:08:46.141Z"
+  "updatedAt": "2026-09-22T02:21:41.085Z",
+  "closedAt": "2026-09-22T02:21:41.085Z",
+  "requirements": [
+    {
+      "requirementId": "R1",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "durable-state-integrity-1-cancel-keeps-integrated-work",
+          "node": "worktree-preserve-ref-verb",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "durable-state-integrity-1-cancel-keeps-integrated-work",
+          "node": "cancel-preserves-integrated-heads",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R10",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "durable-state-integrity-5-cancel-against-a-live-invocation",
+          "node": "cancel-is-proven-against-a-live-invocation",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R2",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "durable-state-integrity-1-cancel-keeps-integrated-work",
+          "node": "cancel-preserves-integrated-heads",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R3",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "durable-state-integrity-2-a-suite-run-leaves-no-trace",
+          "node": "the-runner-scopes-every-test-process",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R4",
+      "status": "open",
+      "nodes": []
+    },
+    {
+      "requirementId": "R5",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "durable-state-integrity-3-a-report-that-says-it-did-it",
+          "node": "a-note-that-does-not-fit-is-refused",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R6",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "durable-state-integrity-4-old-state-is-repaired",
+          "node": "a-record-written-before-a-field-is-repaired",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R7",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "durable-state-integrity-4-old-state-is-repaired",
+          "node": "the-migration-completes-or-says-what-blocks-it",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R8",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "durable-state-integrity-3-a-report-that-says-it-did-it",
+          "node": "a-proof-that-selected-no-test-is-refused",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R9",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "durable-state-integrity-3-a-report-that-says-it-did-it",
+          "node": "an-attention-belongs-to-one-campaign-or-none",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    }
+  ]
 }

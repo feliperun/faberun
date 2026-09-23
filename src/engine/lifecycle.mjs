@@ -409,7 +409,7 @@ export async function finalizeClosedJobs(contract, runDir, states, closed, lock,
       error: envelope.error ?? null,
       nextState: operationNextState(state),
     });
-    appendUsageRecord(runDir, state.invocations.find((invocation) => invocation.id === job.invocation.id));
+    appendUsageRecord(runDir, state.invocations.find((invocation) => invocation.id === job.invocation.id), { runtime: job.runtime });
     state.usage = invocationUsage(state);
     state.costUsd = invocationCost(state);
     // Checked before any other branch can act on how this invocation closed --
@@ -786,4 +786,3 @@ export async function applyInvalidWorkerResult(contract, node, state, runDir, ru
  * else there.
  *
  * @param {string} runDir @param {string} nodeId @returns {string} */
-

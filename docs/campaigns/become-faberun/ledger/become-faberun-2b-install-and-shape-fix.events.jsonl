@@ -1,0 +1,8 @@
+{"at":"2026-09-15T23:49:16.087Z","node":"bounded-git-in-setup","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T23:49:43.353Z","node":"bounded-git-in-setup","to":"done","phase":"complete","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T23:49:44.398Z","node":"install-script","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-16T00:02:36.571Z","node":"install-script","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-16T00:11:46.379Z","node":"install-script","to":"pending","phase":"worker","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-16T00:11:47.505Z","node":"install-script","to":"running","phase":"worker","runtime":"dsh-deepseek-flash","verdict":"fail","revisions":1}
+{"at":"2026-09-16T00:27:28.716Z","node":"install-script","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-16T00:29:57.545Z","node":"install-script","to":"exhausted","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","error":"revision_cap","revisions":1}

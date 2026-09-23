@@ -1,0 +1,12 @@
+{"at":"2026-09-17T07:05:37.459Z","node":"discovery-output-ingested","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T07:16:54.865Z","node":"discovery-output-ingested","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T07:20:40.930Z","node":"discovery-output-ingested","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass"}
+{"at":"2026-09-17T07:20:42.118Z","node":"planning-contract-template","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T07:28:43.693Z","node":"planning-contract-template","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-17T07:30:28.124Z","node":"planning-contract-template","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass"}
+{"at":"2026-09-17T07:30:29.245Z","node":"plan-verb","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T07:53:10.058Z","node":"plan-verb","to":"running","phase":"worker","runtime":"claude-sonnet-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-17T07:59:03.111Z","node":"plan-verb","to":"running","phase":"judge","runtime":"claude-opus-judge","verdict":"fail","revisions":1}
+{"at":"2026-09-17T08:01:55.671Z","node":"plan-verb","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"pass","revisions":1}
+{"at":"2026-09-17T08:01:56.804Z","node":"plan-eval-cases","to":"running","phase":"worker","runtime":"claude-sonnet-worker"}
+{"at":"2026-09-17T08:07:26.992Z","node":"plan-eval-cases","to":"blocked","phase":"complete","runtime":"claude-sonnet-worker","error":"context_missing"}

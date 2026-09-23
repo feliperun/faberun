@@ -1,0 +1,5 @@
+{"at":"2026-09-15T08:37:05.104Z","dedupeKey":"node.terminal:factory-autonomy-p5a-20260914:unfreezable-loop:failed:1:0","attempt":1,"status":"no_transport"}
+{"at":"2026-09-15T08:37:05.162Z","dedupeKey":"run.terminal:factory-autonomy-p5a-20260914:attention","attempt":1,"status":"no_transport"}
+{"at":"2026-09-15T08:47:09.043Z","dedupeKey":"run.attention:factory-autonomy-p5a-20260914:2026-09-15T08:37:08.772Z:0","attempt":1,"status":"no_transport"}
+{"at":"2026-09-15T09:25:30.034Z","dedupeKey":"node.terminal:factory-autonomy-p5a-20260914:unfreezable-loop:done:2:0","attempt":1,"status":"no_transport"}
+{"at":"2026-09-15T09:25:30.082Z","dedupeKey":"run.terminal:factory-autonomy-p5a-20260914:done","attempt":1,"status":"no_transport"}

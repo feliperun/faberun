@@ -1,0 +1,3 @@
+{"at":"2026-09-15T09:50:36.025Z","node":"seal-before-kill","to":"running","phase":"worker","runtime":"dsh-deepseek-flash"}
+{"at":"2026-09-15T11:03:02.160Z","node":"seal-before-kill","to":"running","phase":"judge","runtime":"claude-opus-judge"}
+{"at":"2026-09-15T11:14:14.406Z","node":"seal-before-kill","to":"done","phase":"complete","runtime":"claude-opus-judge","verdict":"fail"}

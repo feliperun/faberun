@@ -1,0 +1,6 @@
+{"at":"2026-09-21T00:21:41.688Z","node":"plan-declares-requirements","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T00:45:41.895Z","node":"plan-declares-requirements","to":"done","phase":"complete","runtime":"zcode-glm-worker","verdict":"pass"}
+{"at":"2026-09-21T00:45:45.106Z","node":"requirement-ids-reach-the-node","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-21T00:59:49.304Z","node":"requirement-ids-reach-the-node","to":"running","phase":"worker","runtime":"zcode-glm-worker","verdict":"fail","revisions":1}
+{"at":"2026-09-21T01:05:56.993Z","node":"requirement-ids-reach-the-node","to":"blocked","phase":"complete","runtime":"zcode-glm-worker","verdict":"fail","error":"context_missing","revisions":1}
+{"at":"2026-09-21T01:05:58.043Z","node":"closure-maps-requirements","to":"blocked","phase":"dependency","error":"dependency_failed"}

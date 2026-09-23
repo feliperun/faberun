@@ -1,0 +1,6 @@
+{"at":"2026-09-16T15:29:06.893Z","dedupeKey":"node.terminal:register-skill-and-harden-2-engine-determinism:scope-acknowledged-deferral:done:1:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T15:42:04.537Z","dedupeKey":"node.terminal:register-skill-and-harden-2-engine-determinism:deterministic-seal-and-reask:done:1:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T16:24:42.602Z","dedupeKey":"node.terminal:register-skill-and-harden-2-engine-determinism:unpriced-usage-visible:exhausted:2:1","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T16:24:42.696Z","dedupeKey":"run.terminal:register-skill-and-harden-2-engine-determinism:attention","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T17:12:48.715Z","dedupeKey":"node.terminal:register-skill-and-harden-2-engine-determinism:unpriced-usage-visible:done:4:1","attempt":1,"status":"failed"}
+{"at":"2026-09-16T17:12:48.776Z","dedupeKey":"run.terminal:register-skill-and-harden-2-engine-determinism:done","attempt":1,"status":"failed"}

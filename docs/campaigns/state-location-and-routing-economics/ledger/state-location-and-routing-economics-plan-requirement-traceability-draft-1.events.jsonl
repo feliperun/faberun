@@ -1,0 +1,5 @@
+{"at":"2026-09-19T23:54:09.466Z","node":"draft","to":"running","phase":"worker","runtime":"zcode-glm-worker"}
+{"at":"2026-09-20T00:04:17.744Z","node":"draft","to":"pending","phase":"worker","runtime":"deepseek-flash-worker"}
+{"at":"2026-09-20T00:04:17.744Z","node":"draft","to":"pending","phase":"worker","runtime":"deepseek-flash-worker","override":{}}
+{"at":"2026-09-20T00:04:20.059Z","node":"draft","to":"running","phase":"worker","runtime":"deepseek-flash-worker"}
+{"at":"2026-09-20T00:05:12.366Z","node":"draft","to":"blocked","phase":"complete","runtime":"deepseek-flash-worker","error":"context_missing"}

@@ -1,0 +1,3 @@
+{"at":"2026-09-16T01:02:08.617Z","dedupeKey":"node.terminal:become-faberun-2c-guard-and-install:stale-group-signal-guard:stalled:2:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T01:02:08.653Z","dedupeKey":"node.terminal:become-faberun-2c-guard-and-install:install-script:blocked:0:0","attempt":1,"status":"delivered"}
+{"at":"2026-09-16T01:02:08.745Z","dedupeKey":"run.terminal:become-faberun-2c-guard-and-install:attention","attempt":1,"status":"delivered"}
