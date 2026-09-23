@@ -163,6 +163,12 @@ de campanha acrescenta aqui uma linha com a data, o custo real, o
 `intentToVerifiedSeconds` (a partir da primeira campanha, que o cria) e o
 portão atingido.
 
+## Fechamentos
+
+| Campanha | Data | Tempo | Custo real | Portão |
+| --- | --- | --- | --- | --- |
+| `first-target-frictions` | 2026-09-23 | 1 h 50 min (02:32 a 04:22, sessão Opus direta) | US$ 0,08 via faberun (revisão cross-vendor deepseek-flash); a sessão Opus não é medida em `usage.jsonl` | 0 para 1 atingido: três suítes verdes com `--test-concurrency=16` neste macOS (1.571 pass, 0 fail, 411 a 431 s), `writes_ignore_source` no `validate`, juiz somente-leitura entrega o veredito |
+
 ## Fora do programa, de propósito
 
 - Tagline, README novo, posts, vídeo e qualquer divulgação. Vêm depois da D10, e
