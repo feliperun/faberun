@@ -97,9 +97,11 @@ jobs:
         with:
           repository: feliperun/md.html
           ref: v1.1.3
-          # mdhtml v1.1.3 resolves its bundled runtime from the release
-          # build's checkout path, so mirror that path for the pinned binary.
-          path: ../md.html/md.html
+          path: .mdhtml-root
+      - name: Expose mdhtml runtime assets at the release build path
+        run: |
+          mkdir -p ../../md.html
+          ln -s "$GITHUB_WORKSPACE/.mdhtml-root" ../../md.html/md.html
       - uses: actions/setup-node@v4
         with:
           node-version: 22
