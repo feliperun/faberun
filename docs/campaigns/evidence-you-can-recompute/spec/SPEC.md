@@ -1,13 +1,13 @@
 ---
 id: evidence-you-can-recompute
 title: "Todo número que o faberun afirma sobre si mesmo é recomputável a partir de main"
-version: 1.0.0
+version: 1.1.0
 status: draft
-date: 2026-09-22
+date: 2026-09-23
 owner: Felipe Broering
 target: feliperun/faberun
 baseline: 748d7ba
-derived_from: leaving-home
+derived_from: first-target-frictions
 followed_by: evals-with-a-budget
 ---
 
@@ -70,6 +70,14 @@ até 22.860 bytes), 6 no `operations.md` (10.240 até 12.280) e 1 no `SKILL.md`
 (1.024 até 1.100). Cada um tem justificativa datada. A regra funciona como
 registro, mas não freia nada.
 
+**A métrica lê recuperação como falha.** Na `rec-audit-remediation` (PR #62),
+`nodesDoneRate` deu 0,7778 (14 de 18). Os quatro registros que não fecharam vêm
+todos das duas runs que o operador cancelou de propósito para reemitir um
+contrato depois de um defeito de pacote, e uma delas produziu o trabalho que
+aterrissou. `campaign replace-contract` já registra a substituição; a métrica
+não a lê (`RM-055`). Um baseline recomputado com essa regra mede a disposição do
+operador de consertar, não o produto.
+
 Esta campanha não cria capacidade nova. Ela faz o que já existe provar o que
 diz.
 
@@ -90,6 +98,7 @@ pulados).
 | Registro do `orchestration-arms` em main | não (só em `spike/orchestration-arms`) | sim |
 | Aumentos de teto nas docs da skill entre 13/09 e 22/09 | 12 | 0 sem corte equivalente |
 | Bytes de `SKILL.md` + `references/*.md` | 46.855 | 46.855 ou menos |
+| `nodesDoneRate` da `rec-audit-remediation` com as runs substituídas fora | 0,7778 (conta as substituídas) | recomputado sem elas, com os ids excluídos à vista |
 
 Peças existentes que o trabalho reusa em vez de reimplementar:
 `preserveCampaignLedger` e seu contrato de idempotência, `projectMetrics`
@@ -188,6 +197,14 @@ caminhos de `src/run/paths.mjs`, o registro de projeto da home e o ratchet de
   ADR novo em `docs/adr/` que o teste exige estar citado no comentário.
 - **proof:** `command: node --test --test-name-pattern="the skill and its references share one byte budget"`
 
+### R9. Recuperação do operador não conta como falha
+
+- **statement:** uma run que `campaign replace-contract` substituiu sai do
+  denominador de `nodesDoneRate` e de toda taxa por nó, e toda taxa publica
+  numerador, denominador e os ids das runs excluídas, para o leitor poder
+  refazer a conta. Uma run cancelada sem substituição continua contando.
+- **proof:** `command: node --test --test-name-pattern="a replaced run leaves the done rate and is named"`
+
 ## Não-objetivos
 
 - Indicadores novos além de `intentToVerifiedSeconds`, `humanTouches` e a
@@ -222,6 +239,7 @@ caminhos de `src/run/paths.mjs`, o registro de projeto da home e o ratchet de
 | Invocações `unknown` sem motivo em campanha fechada nesta campanha | não medido por motivo | 0 |
 | `intentToVerifiedSeconds` desta própria campanha | inexistente | reportado no fechamento |
 | Bytes da skill e referências | 46.855 | 46.855 ou menos |
+| Runs substituídas contadas como falha | 4 registros na `rec-audit-remediation` | 0 |
 
 ## Riscos
 

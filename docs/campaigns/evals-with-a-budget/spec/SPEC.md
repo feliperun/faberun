@@ -1,9 +1,9 @@
 ---
 id: evals-with-a-budget
 title: "Evals que gastam dinheiro têm orçamento, banda e lugar em main"
-version: 1.0.0
+version: 1.1.0
 status: draft
-date: 2026-09-22
+date: 2026-09-23
 owner: Felipe Broering
 target: feliperun/faberun
 baseline: 748d7ba
@@ -45,6 +45,17 @@ mediu. Sem ela, a revisão cross-vendor, que é princípio do `docs/VISION.md`, 
 uma aposta. A decisão D3 já reconhece que a confiança de uma intent eval é só
 sinal exploratório até o canário reportar.
 
+**O primeiro contraexemplo já apareceu, e ele muda a pergunta.** Na
+`rec-audit-remediation` (PR #62), o juiz `glm-5.3-flash` julgou 8 dos 12 nós
+por US$ 0,04, 2,8% da campanha, e deu o único `fail` dela: um achado menor e
+real (`src/transcribecmd.zig:297` ainda desembrulhava com `.?` o valor que
+passou a poder ser nulo), que o relatório de outra campanha tinha deixado
+passar e que virou o contrato seguinte. No mesmo registro, o juiz de fallback
+`claude-sonnet-5` custou 62% da campanha por três nós. Então a pergunta não é
+"juiz ou não juiz". São duas: quanto o juiz pega quando há algo a pegar, e
+quanto custa o juiz que pega. O canário responde a primeira e a tabela de
+custo por runtime responde a segunda.
+
 Esta campanha traz o instrumento para main, dá a ele orçamento duro e banda, e
 constrói o canário do juiz de forma que a parte determinística (o corpus, a
 contagem e o orçamento) seja provada sem modelo, e a parte estocástica (as
@@ -57,7 +68,8 @@ leituras) seja rodada pelo operador com dinheiro declarado.
 | Driver do benchmark pareado em main | não (`spike/arms/`) | classe `paired` em `evals/` |
 | Repetições do round complexo | 1 | 3 |
 | Classes de eval com orçamento duro | 0 | toda classe estocástica |
-| Nós julgados com finding, nos dois rounds | 0 de 34 | não é alvo, é o que o canário explica |
+| Nós julgados com finding, nos dois rounds do `orchestration-arms` | 0 de 34 | não é alvo, é o que o canário explica |
+| Nós julgados com finding real, `rec-audit-remediation` | 1 de 9 vereditos do juiz GLM, por 2,8% do custo | não é alvo, é o segundo ponto de dado |
 | Participação do juiz no custo do arm julgado | 24% (complexo), 45% (simples) | reportado por campanha |
 | Casos de canário do juiz | 0 | pelo menos 35 |
 | Runtimes de juiz com recall medido | 0 | pelo menos 2 |
@@ -179,8 +191,10 @@ recomputáveis da campanha anterior.
   repetições para os arms A, B, D, E, H e J, e o `judge-canary` para pelo menos
   dois runtimes de juiz de vendors diferentes, dentro do orçamento declarado nas
   Restrições. Os resultados são versionados, e `docs/ROADMAP.md` recebe uma
-  decisão nova (D7) sobre o juiz: manter, restringir a um tipo de nó ou tornar
-  advisory por padrão, citando os arquivos de resultado.
+  decisão nova (D9) sobre o juiz: manter, restringir a um tipo de nó ou tornar
+  advisory por padrão, e qual runtime usar como juiz e como fallback, citando
+  os arquivos de resultado e a tabela de custo por runtime da
+  `rec-audit-remediation`.
 - **proof:** `judgment: true`
 
 ## Não-objetivos
@@ -216,7 +230,7 @@ recomputáveis da campanha anterior.
 | Repetições do round complexo com banda | 1 | 3 |
 | Runtimes de juiz com recall e falso alarme medidos | 0 | 2 ou mais |
 | Casos de canário que passam na prova mecânica | 0 | todos, verificado sem modelo |
-| Decisão sobre o juiz registrada com evidência | nenhuma | D7 no roadmap |
+| Decisão sobre o juiz registrada com evidência | nenhuma | D9 no roadmap |
 | Gasto real das leituras | 0 | até US$ 100 |
 
 ## Riscos

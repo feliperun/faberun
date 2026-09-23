@@ -1,9 +1,9 @@
 ---
 id: friends-pilot
 title: "Três pessoas de fora fecham uma campanha real e o que elas viveram vira dado"
-version: 1.0.0
+version: 1.1.0
 status: draft
-date: 2026-09-22
+date: 2026-09-23
 owner: Felipe Broering
 target: feliperun/faberun
 baseline: 748d7ba
@@ -71,8 +71,9 @@ formato de ids do `docs/ROADMAP.md`.
 - **statement:** `docs/PILOT.md` diz, em linguagem de quem não conhece o
   projeto: para quem é (quem já usa agente de código no dia a dia), o que se
   pede (uma campanha real no próprio repositório, com teto sugerido de US$ 10 e
-  writers baratos como padrão), como instalar, como conferir o que o worker
-  enxerga (`faberun doctor --env`), o que não está protegido (sem sandbox; o
+  writers baratos como padrão), como instalar, como gerar e ler o
+  `campaign-brief.md` (RM-006) com a estimativa de custo em faixa antes do
+  primeiro run, como conferir o que o worker enxerga (`faberun doctor --env`), o que não está protegido (sem sandbox; o
   worker roda comandos com o usuário dele, dentro da lista de ambiente
   permitida), o que é coletado (só o pacote de R2, lido por ele antes de
   enviar), como enviar, como pedir ajuda, e como sair (`faberun uninstall`).
@@ -136,9 +137,9 @@ formato de ids do `docs/ROADMAP.md`.
 
 ### R7. A decisão de divulgar é registrada com o que o piloto mediu
 
-- **statement:** `docs/ROADMAP.md` recebe uma decisão (D8) que diz divulgar ou
+- **statement:** `docs/ROADMAP.md` recebe uma decisão (D10) que diz divulgar ou
   não divulgar, citando: o critério de sucesso das três campanhas anteriores, o
-  resultado de R6, a decisão D7 sobre o juiz, a tabela de R4 e os itens P0 ainda
+  resultado de R6, a decisão D9 sobre o juiz, a tabela de R4 e os itens P0 ainda
   abertos. Se a decisão for não divulgar, ela nomeia o que falta e o próximo
   piloto.
 - **proof:** `judgment: true`
@@ -148,7 +149,7 @@ formato de ids do `docs/ROADMAP.md`.
 - Telemetria, envio automático ou qualquer dado que saia da máquina do
   participante sem ele rodar `export --yes` e mandar o arquivo.
 - Lançamento público, post, landing page, vídeo ou mudança de tagline. Isso é
-  o que vem depois da D8.
+  o que vem depois da D10.
 - Suporte a participante sem experiência com agentes de código.
 - Pagar custo de provedor de participante.
 - Corrigir durante o piloto tudo que o piloto achar. O piloto gera itens do
@@ -174,7 +175,7 @@ formato de ids do `docs/ROADMAP.md`.
 | Participantes com segunda campanha espontânea em 14 dias | 0 | 1 ou mais |
 | Atritos com id no roadmap | não se aplica | 100% |
 | Vazamentos de dado de participante encontrados em pacote | não se aplica | 0 |
-| Decisão de divulgação registrada | não | D8 |
+| Decisão de divulgação registrada | não | D10 |
 
 ## Riscos
 
@@ -183,5 +184,5 @@ formato de ids do `docs/ROADMAP.md`.
 | Os amigos são gentis demais e o sinal vira "ficou legal" | falso positivo | o critério é comportamento (segunda campanha sem pedido), não opinião |
 | Um participante trava no primeiro dia e desiste calado | o atrito mais importante se perde | `docs/PILOT.md` pede o pacote mesmo de campanha abandonada, e R2 exporta campanha não fechada |
 | O worker faz algo destrutivo no repositório de um amigo | dano real e fim da confiança | worktrees isoladas, lista de ambiente permitida, `doctor --env` antes do primeiro run, e o protocolo recomenda um repositório com remote e sem deploy automático |
-| O custo surpreende o participante | abandono | teto sugerido, writers baratos como padrão no protocolo, e `faberun metrics` durante a campanha |
+| O custo surpreende o participante | abandono | o Campaign Brief mostra a faixa de custo antes do primeiro run, o protocolo sugere teto e writers baratos, e `faberun metrics` acompanha durante a campanha |
 | O hash do repositório identifica o participante | exposição | sal local por máquina, nunca enviado |

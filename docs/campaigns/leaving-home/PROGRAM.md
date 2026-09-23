@@ -1,13 +1,14 @@
 ---
 id: leaving-home
 title: "Sair de casa: estabilizar, medir, entregar a amigos e só então divulgar"
-version: 1.0.0
+version: 1.1.0
 status: draft
-date: 2026-09-22
+date: 2026-09-23
 owner: Felipe Broering
 target: feliperun/faberun
-baseline: 748d7ba
+baseline: 424c29b
 campaigns:
+  - first-target-frictions
   - evidence-you-can-recompute
   - evals-with-a-budget
   - safe-to-hand-to-a-friend
@@ -18,55 +19,80 @@ campaigns:
 
 ## Por que um programa, e não uma campanha
 
-Em `748d7ba` o faberun tem 1.500 testes verdes, CI em três sistemas, 28
+Em `748d7ba` o faberun tinha 1.500 testes verdes, CI em três sistemas, 28
 campanhas registradas e um roadmap que exige medição para promover ideia. E
-tem 2 stars, 0 forks e nenhum usuário além do autor. Quase todas as campanhas
-melhoraram o próprio faberun. A retrospectiva mais recente diz que o planner
-contestou os dois planos que recebeu e que os contratos foram escritos à mão.
+tinha 2 stars, 0 forks e nenhum usuário além do autor. Quase todas as campanhas
+melhoraram o próprio faberun. A retrospectiva da `durable-state-integrity` diz
+que o planner contestou os dois planos que recebeu e que os contratos foram
+escritos à mão.
+
+Depois que a primeira versão deste programa foi escrita, duas campanhas
+terminaram e mudaram a ordem dele:
+
+- **`rec-audit-remediation` (PR #62)**, a primeira contra um repositório que o
+  faberun não escreveu: 22 achados corrigidos no `feliperun/rec` (Zig), num
+  host Linux, por US$ 1,35. Ela confirma a tese dos writers baratos, dá o
+  primeiro contraexemplo ao "juiz nunca acha nada" e registra seis fricções
+  (`RM-050` a `RM-055`) que um amigo encontraria no primeiro dia.
+- **`campaign-brief` (PR #63)**, que entrega o P1 do roadmap e mostra o planner
+  errando de jeitos que só o autor sabe corrigir.
+
+Por isso o programa ganhou uma campanha zero, e as outras receberam a
+evidência nova.
 
 O P0 do roadmap já nomeia o objetivo: "I trust faberun enough to leave a
 campaign running without watching it". Este programa estende isso para "e
 confio o bastante para pôr na mão de um amigo". A ordem importa, e cada passo
 depende do anterior:
 
+0. **`first-target-frictions`.** As fricções do alvo real e do brief que matam
+   nó ou produzem ruído de medição: fonte de ignore, artefato de verificação no
+   selo, controlador que morre com o shell, testes que piscam no macOS,
+   verificação congelada abaixo da duração medida e juiz que precisa escrever.
+   Pequena, sem verbo novo, e precede tudo porque a campanha seguinte mede.
 1. **`evidence-you-can-recompute`.** Todo número que o projeto afirma sobre si
-   mesmo precisa ser recomputável a partir de main. Sem isso, nenhuma eval
-   posterior é comparável e nenhum resultado de piloto é verificável.
+   mesmo precisa ser recomputável a partir de main, e recuperação do operador
+   deixa de contar como falha. Sem isso, nenhuma eval posterior é comparável e
+   nenhum resultado de piloto é verificável.
 2. **`evals-with-a-budget`.** O benchmark pareado sai do spike e vira classe
    versionada, com banda e orçamento duro. O juiz ganha um canário que mede se
    ele pega defeitos que a prova mecânica não vê. É aqui que o projeto passa a
    gerar eval de verdade.
 3. **`safe-to-hand-to-a-friend`.** O worker deixa de herdar o ambiente inteiro,
-   o guia de primeiros passos passa a ser executado, o planner enxerga
-   repositório que não é Node, plano contestado e pacote recusado têm caminho
-   de volta, e sair é um comando.
+   o modo de sandbox diz o que custa, o guia de primeiros passos passa a ser
+   executado, o planner enxerga repositório que não é Node, plano contestado,
+   pacote recusado e pacote com defeito têm caminho de volta, e sair é um
+   comando.
 4. **`friends-pilot`.** Três a cinco pessoas próximas rodam uma campanha real
-   nos próprios repositórios. O que elas vivem volta como pacote redigido e como
-   atrito com id no roadmap. O programa termina com a decisão D8: divulgar ou
-   não.
+   nos próprios repositórios, começando pelo Campaign Brief. O que elas vivem
+   volta como pacote redigido e como atrito com id no roadmap. O programa
+   termina com a decisão D10: divulgar ou não.
 
 ## Portões entre campanhas
 
 Uma campanha só começa quando a anterior fechou com o critério de sucesso
 atingido, ou com a exceção registrada no journal como `decision`, com o motivo.
+Toda campanha fecha com `faberun spec validate <spec> --strict-traceability
+--run-proofs` verde: a prova de cada requisito roda, e não só existe.
 
 | Portão | Condição para abrir a próxima |
 | --- | --- |
+| 0 para 1 | a suíte passa sob carga no macOS do operador; nó que escreve fonte de ignore é avisado; nenhum juiz precisa de `workspace-write` |
 | 1 para 2 | `evals/baseline.json` recomputa a partir de ledgers versionados; o registro do `orchestration-arms` está em main; o orçamento de bytes da skill está em vigor |
-| 2 para 3 | três repetições do round complexo com banda; canário medido em pelo menos dois runtimes de juiz; D7 registrada |
+| 2 para 3 | três repetições do round complexo com banda; canário medido em pelo menos dois runtimes de juiz; D9 registrada |
 | 3 para 4 | segredo plantado não chega ao worker; `GETTING-STARTED.md` conferido no CI; primeira campanha offline de um estranho verde; a próxima campanha do próprio operador fecha sem contrato escrito à mão |
-| 4 para divulgação | D8 registrada |
+| 4 para divulgação | D10 registrada |
 
 ## Regras que valem para o programa inteiro
 
 - **Congelamento de escopo.** Nenhum harness novo, nenhuma UI, nenhuma
   reescrita em outra linguagem, nenhum verbo novo que não esteja numa destas
-  quatro specs. Defeito achado durante o programa entra como `RM-###` e só é
+  cinco specs. Defeito achado durante o programa entra como `RM-###` e só é
   corrigido dentro do programa se bloquear a campanha em andamento ou expuser
   dado de alguém.
-- **Orçamento de docs.** O teto de soma de bytes da skill e das referências,
-  criado na primeira campanha, vale para as outras três. Frase nova é paga com
-  corte.
+- **Orçamento de docs.** Nenhum teto de `test/docs/docs-diet.test.mjs` sobe
+  durante o programa. Na campanha zero, frase nova é paga com corte no mesmo
+  arquivo; a partir da primeira, vale o teto de soma que ela cria.
 - **Nenhum teste chama provedor.** Tudo que precisa de modelo real é classe
   estocástica, rodada pelo operador, com `--budget-usd`.
 - **Writers baratos por padrão.** As campanhas do programa usam como worker
@@ -74,8 +100,13 @@ atingido, ou com a exceção registrada no journal como `decision`, com o motivo
   entregando com uma a duas ordens de grandeza a menos de custo (deepseek-flash,
   glm-5.3-flash, gpt-5.6-luna). Sonnet ou opus entram só por nó com
   `riskTier: high`, com o motivo no pacote.
-- **Juiz só onde há julgamento.** Até a D7, item `judgment: true` só entra em
-  nó onde nenhum comando prova o requisito, com `reason` declarado.
+- **Juiz barato, fallback do mesmo nível.** Até a D9, item `judgment: true` só
+  entra em nó onde nenhum comando prova o requisito, com `reason` declarado. O
+  juiz padrão é um runtime barato de outro vendor, e o fallback declarado é de
+  custo parecido: na `rec-audit-remediation`, o juiz GLM custou 2,8% da campanha
+  e o fallback sonnet custou 62% por três nós.
+- **O brief antes do play.** A partir da campanha zero, todo plano congelado
+  passa por `faberun campaign brief generate` e é lido antes do primeiro run.
 - **Nada de repositório de terceiro entra aqui.** Nem de empregador, nem de
   participante do piloto. Do piloto entra só o pacote redigido que o próprio
   participante gerou e aceitou enviar.
@@ -84,39 +115,44 @@ atingido, ou com a exceção registrada no journal como `decision`, com o motivo
 
 | Campanha | Gasto estimado de execução | Gasto de leitura estocástica |
 | --- | --- | --- |
+| `first-target-frictions` | até US$ 5 | 0 |
 | `evidence-you-can-recompute` | até US$ 15 com writers baratos | 0 |
 | `evals-with-a-budget` | até US$ 20 | até US$ 100 (R11) |
 | `safe-to-hand-to-a-friend` | até US$ 25 | 0 |
 | `friends-pilot` | até US$ 10 | 0 (o custo do participante é dele, com teto sugerido) |
 
-As estimativas de execução vêm dos ledgers de `durable-state-integrity` (10
-requisitos, 13 runs, US$ 1,88 com GLM) e de `state-location-and-routing-economics`
-(19 requisitos, 62 runs, US$ 132,61 precificados, dos quais US$ 111,44 de
-worker sonnet). A diferença entre as duas é a principal razão da regra de
-writers baratos.
+As estimativas de execução vêm de três ledgers: `durable-state-integrity` (10
+requisitos, 13 runs, US$ 1,88 com GLM), `rec-audit-remediation` (22 achados, 12
+nós, US$ 1,35 com deepseek-flash e juiz GLM) e
+`state-location-and-routing-economics` (19 requisitos, 62 runs, US$ 132,61
+precificados, dos quais US$ 111,44 de worker sonnet). A distância entre os dois
+primeiros e o terceiro é a razão da regra de writers baratos.
 
 ## Itens do roadmap que o programa promove
 
 Ao abrir cada campanha, as linhas correspondentes de `docs/ROADMAP.md` passam
-para `specified` com o caminho da spec. Itens novos recebem ids a partir de
-`RM-050`.
+para `specified` com o caminho da spec. `RM-050` a `RM-055` vêm da PR #62. Itens
+novos deste programa recebem ids a partir de `RM-056`, e as decisões novas
+seguem a D8 da PR #63: D9 (juiz) e D10 (divulgação).
 
 | Campanha | Itens existentes | Itens novos |
 | --- | --- | --- |
-| `evidence-you-can-recompute` | RM-030, RM-016 (parcial) | ledger completo, `reledger`, motivo de custo desconhecido, North Star medida, orçamento de bytes |
+| `first-target-frictions` | RM-051, RM-052, RM-053 | orçamento de teste abaixo de 1 s, timeout congelado abaixo do medido, juiz somente-leitura, dependência inventada pelo planner (registrada, sem requisito) |
+| `evidence-you-can-recompute` | RM-030, RM-016 (parcial), RM-055 | ledger completo, `reledger`, motivo de custo desconhecido, North Star medida, orçamento de bytes |
 | `evals-with-a-budget` | RM-013, RM-035, RM-031 (parcial) | orçamento estocástico, `reason` em item de julgamento |
-| `safe-to-hand-to-a-friend` | RM-025, D2 (parcial) | ambiente permitido, guia executado, fatos fora do Node, `plan --resolve`, `uninstall` |
+| `safe-to-hand-to-a-friend` | RM-025, RM-050, RM-054, D2 (parcial) | ambiente permitido, guia executado, fatos fora do Node, `plan --resolve`, `uninstall` |
 | `friends-pilot` | RM-036 | exportação redigida, atrito no journal, classe `pilot` |
 
 ## Como rodar
 
-Para cada campanha, na ordem:
+As specs já estão em `docs/campaigns/<id>/spec/SPEC.md`. Para cada campanha, na
+ordem:
 
-    mkdir -p docs/campaigns/<id>/spec
-    # salvar a spec como docs/campaigns/<id>/spec/SPEC.md
     faberun spec validate docs/campaigns/<id>/spec/SPEC.md --strict-traceability
     faberun campaign init <id> --cwd . --goal "<title da spec>"
     faberun plan docs/campaigns/<id>/spec/SPEC.md --campaign <id> --detach
+    faberun campaign brief generate <id> --phase <fase>
+    # ler o brief, aprovar, e só então lançar
 
 Este arquivo fica em `docs/campaigns/leaving-home/PROGRAM.md`. Cada fechamento
 de campanha acrescenta aqui uma linha com a data, o custo real, o
@@ -125,9 +161,11 @@ portão atingido.
 
 ## Fora do programa, de propósito
 
-- Tagline, README novo, posts, vídeo e qualquer divulgação. Vêm depois da D8, e
+- Tagline, README novo, posts, vídeo e qualquer divulgação. Vêm depois da D10, e
   com os números que este programa produzir.
 - Sandbox de container ou microVM (P6).
 - Memória entre harnesses (P9, que a D6 põe por último).
 - Roteamento empírico automático (P4, pergunta Q6).
+- A condição `!job.logDir` que ficou morta no detector depois do #54: decisão do
+  dono, registrada à parte.
 - Reescrita em Rust ou Zig.

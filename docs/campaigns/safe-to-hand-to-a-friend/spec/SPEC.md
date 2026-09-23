@@ -1,9 +1,9 @@
 ---
 id: safe-to-hand-to-a-friend
 title: "Um estranho instala, roda e desinstala sem ajuda e sem expor as credenciais dele"
-version: 1.0.0
+version: 1.1.0
 status: draft
-date: 2026-09-22
+date: 2026-09-23
 owner: Felipe Broering
 target: feliperun/faberun
 baseline: 748d7ba
@@ -31,6 +31,10 @@ as variáveis de notificação. Na máquina de um amigo, isso é o `AWS_*`, o
 registra o risco e adia o sandbox de verdade para a P6. Esta campanha não faz
 sandbox. Ela faz o mínimo que torna aceitável entregar a ferramenta a outra
 pessoa: o worker recebe o ambiente que foi permitido, não o que estava lá.
+O vazamento já causou defeito, não só risco: na campanha do Campaign Brief (PR
+#63), uma `CODEX_VERSION` herdada do ambiente mascarou o banner de versão do
+probe, e o operador teve que removê-la à mão do ambiente do comando para a run
+voltar.
 
 **O guia de primeiros passos descreve um layout que não existe mais.** O
 passo 1 de `docs/GETTING-STARTED.md` mostra como saída
@@ -44,7 +48,24 @@ letra, e a primeira saída já não confere.
 **O planner só enxerga repositório Node.** Os fatos de repositório que o
 planner lê saem de `readScripts` (`src/plan/repo-facts.mjs:52`), que lê
 `package.json`, e das pastas sob `test/`. Um repositório Python, Go ou Rust
-chega ao planner sem nenhum comando de verificação candidato.
+chega ao planner sem nenhum comando de verificação candidato. A primeira
+campanha contra um alvo externo (`rec-audit-remediation`, PR #62) era Zig: o
+operador mediu `zig build test -Dtarget=x86_64-linux-gnu` à mão e escreveu os
+três contratos sem o planner.
+
+**O modo de sandbox do worker esconde a consequência.** A mesma campanha mediu
+que, sob `sandbox: workspace-write` (o padrão do `dsh`), o compilador morre com
+`ReadOnlyFileSystem` antes do primeiro arquivo, porque o cache do toolchain
+fica no `$HOME`; sob `danger-full-access`, o mesmo pacote compila em 19 s. A
+documentação descreve o modo como "executa e escreve dentro do worktree", e a
+mensagem que o operador vê fala de sistema de arquivos, não de sandbox
+(`RM-050`).
+
+**Um defeito de pacote joga fora o trabalho bom.** Ainda na mesma campanha, a
+tentativa que falhou por uma linha errada do pacote já tinha feito a correção
+certa. A única saída foi cancelar e reemitir o contrato, que recomeça do zero.
+`resume --answer` é o mecanismo certo e só cobre `context_missing`
+(`RM-054`).
 
 **Quando o planner contesta, só o autor sabe continuar.** A retrospectiva de
 `durable-state-integrity` registra: "the planner contested both plans it was
@@ -76,7 +97,9 @@ dentro da recusa.
 | Harnesses que declaram o ambiente de que precisam | 0 de 7 (claude, codex, agy, dsh, zcode, exec-jsonl, replay) | 7 de 7 |
 | Saídas do `GETTING-STARTED.md` conferidas contra o CLI | 0 | todas as do passo a passo |
 | Linhas que citam `.runs` nas docs correntes | 31 (7, 11, 11, 2) | 0 sem rótulo de legado |
-| Ecossistemas com comando de verificação detectado pelo planner | 1 (Node) | 5 (Node, Python, Go, Rust, Makefile) |
+| Ecossistemas com comando de verificação detectado pelo planner | 1 (Node) | 6 (Node, Python, Go, Rust, Zig, Makefile) |
+| Consequência do modo de sandbox dita na doc e na mensagem de erro | não | sim |
+| Nós não terminais que aceitam override do operador | só os com `context_missing` | todos |
 | Plano contestado que continua sem contrato escrito à mão | não | sim |
 | Nó recusado por contexto que continua sem intervenção manual no pacote | não | sim, com aprovação do operador |
 | Verbo que remove o que o faberun escreveu fora do repositório | não | `faberun uninstall` |
@@ -150,8 +173,9 @@ scaffold`, o pipeline de plano com seus estágios, `validateContract` com
 
 - **statement:** os fatos de repositório detectam comandos de verificação
   candidatos em `pyproject.toml` ou `pytest.ini` (`pytest`), `go.mod`
-  (`go test ./...`), `Cargo.toml` (`cargo test`) e `Makefile` com alvo `test`
-  (`make test`), além do `package.json` de hoje. Cada candidato registra o
+  (`go test ./...`), `Cargo.toml` (`cargo test`), `build.zig` (`zig build
+  test`) e `Makefile` com alvo `test` (`make test`), além do `package.json` de
+  hoje. Cada candidato registra o
   arquivo de onde veio. A detecção continua determinística, sem modelo, e
   idêntica em duas execuções no mesmo HEAD. Nenhum desses comandos é executado
   na detecção.
@@ -205,13 +229,33 @@ scaffold`, o pipeline de plano com seus estágios, `validateContract` com
   remover o pacote npm.
 - **proof:** `command: node --test --test-name-pattern="uninstall removes everything faberun wrote outside the repository"`
 
+### R12. O modo de sandbox diz o que custa
+
+- **statement:** a linha de `sandbox` de cada harness em
+  `references/contract.md` diz a consequência de `workspace-write` para
+  toolchain com cache fora do worktree, e o executor classifica uma falha de
+  `ReadOnlyFileSystem` fora do worktree sob `workspace-write` como
+  `sandbox_blocked_write`, nomeando o modo e o caminho que foi negado.
+- **proof:** `command: node --test --test-name-pattern="a write blocked by the sandbox names the mode and the path"`
+- **constraints:** a frase nova em `references/contract.md` é paga com corte
+  no mesmo arquivo.
+
+### R13. Todo nó não terminal aceita override do operador
+
+- **statement:** `faberun resume <run-dir> --node <id> --answer <texto>` vale
+  para qualquer nó não terminal, e não só para `context_missing`, com o mesmo
+  limite de 8 KiB e o mesmo registro em `executionOverrides`. O pacote autorado
+  e o `packetHash` ficam intactos, e a próxima tentativa parte do selo da
+  anterior quando ele existe.
+- **proof:** `command: node --test --test-name-pattern="an operator override reaches any non-terminal node"`
+
 ## Não-objetivos
 
 - Sandbox de container, microVM ou `ai-jail` (RM-027 a RM-029, RM-048). A lista
   de ambiente permitido é o mínimo, não o sandbox.
 - Restringir rede ou sistema de arquivos do worker.
 - Mudar o ambiente dos comandos de verificação (ver restrição de R1).
-- Ecossistemas além dos cinco de R7.
+- Ecossistemas além dos seis de R7.
 - Instalador gráfico, app ou página web.
 - Reautoria automática sem aprovação para risco `high`.
 - Suporte a Windows além do que o CI já cobre hoje.
@@ -234,7 +278,8 @@ scaffold`, o pipeline de plano com seus estágios, `validateContract` com
 | --- | --- | --- |
 | Segredo plantado no ambiente do controlador visível ao worker de fixture | sim | não |
 | Saídas do guia que divergem do CLI | pelo menos 1 (`.runs/campaigns/hello`) | 0, verificado no CI |
-| Ecossistemas detectados | 1 | 5 |
+| Ecossistemas detectados | 1 | 6 |
+| Tentativas boas descartadas por defeito de pacote | 1 na `rec-audit-remediation` | 0 |
 | Tempo da primeira campanha offline de ponta a ponta | não existe | menos de 60 s |
 | Contratos escritos à mão na próxima campanha do próprio operador | 2 de 2 (`durable-state-integrity`) | 0 |
 
