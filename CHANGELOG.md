@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.20.0](https://github.com/feliperun/faberun/compare/v0.19.3...v0.20.0) (2026-09-23)
+
+
+### Features
+
+* **harnesses:** zcode log-stream liveness and Linux shim support ([#54](https://github.com/feliperun/faberun/issues/54)) ([418b4f9](https://github.com/feliperun/faberun/commit/418b4f936c05d4eb8cb7ed316464c66f2970f7b1))
+
 ## [0.19.3](https://github.com/feliperun/faberun/compare/v0.19.2...v0.19.3) (2026-09-22)
 
 
