@@ -1,10 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fixture, packet } from "../helpers.mjs";
-import { freezePlan, verifyFrozenPlan } from "../../src/plan/freeze.mjs";
+import { contentDigest, fileDigest, freezePlan, verifyFrozenPlan, writeFrozenPlanRecord } from "../../src/plan/freeze.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 
 const PACKAGE_VERSION = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
@@ -117,6 +118,121 @@ test("malformed phase declarations write nothing, like any other freeze failure"
   assert.throws(() => freezePlan(plan, { outDir: dir, provenance: provenance(), phases: /** @type {any} */ ("protocol") }), /plan\.phases/);
   assert.equal(existsSync(join(dir, "contract.json")), false);
   assert.equal(existsSync(join(dir, "plan.json")), false);
+});
+
+/**
+ * Two nodes sharing one execution phase: the shape the legacy phase-id match
+ * could not express, which nodeIds exist to disambiguate.
+ *
+ * @param {string} id
+ * @returns {Record<string, unknown>}
+ */
+function sharedPhasePlan(id) {
+  return fixture({
+    id,
+    campaignId: `${id}-campaign`,
+    nodes: [
+      { id: "build", type: "backend", phase: "shared-phase", taskPacket: packet(), gate: false },
+      { id: "docs", type: "docs", phase: "shared-phase", taskPacket: packet({ mode: "discovery", readFiles: [], writeFiles: [], objective: "Survey the docs" }), gate: false },
+    ],
+  });
+}
+
+test("freeze records the structured spec's path and content digest in plan.json", () => {
+  const dir = outDir();
+  const spec = { path: "docs/campaigns/campaign-brief/spec/SPEC.md", digest: contentDigest("# Campaign brief\n") };
+  const frozen = freezePlan(fixture({ id: "plan-fixture-spec", campaignId: "plan-fixture-campaign-spec" }), {
+    outDir: dir,
+    provenance: provenance(),
+    spec,
+  });
+
+  assert.deepEqual(frozen.spec, spec);
+  const onDisk = JSON.parse(readFileSync(join(dir, "plan.json"), "utf8"));
+  assert.deepEqual(onDisk.spec, spec);
+  assert.equal(verifyFrozenPlan(dir).ok, true);
+
+  // A digest that is not a SHA-256 refuses before either file is written.
+  const badDir = outDir();
+  assert.throws(
+    () => freezePlan(fixture({ id: "plan-fixture-bad-spec", campaignId: "plan-fixture-campaign-bad-spec" }), {
+      outDir: badDir,
+      provenance: provenance(),
+      spec: { path: "docs/SPEC.md", digest: "not-a-sha256" },
+    }),
+    /spec\.digest/,
+  );
+  assert.equal(existsSync(join(badDir, "contract.json")), false);
+  assert.equal(existsSync(join(badDir, "plan.json")), false);
+});
+
+test("freeze stamps a nodeIds declaration's requirement ids on the named nodes and preserves the nodeIds", () => {
+  const dir = outDir();
+  const phases = [
+    { id: "build-phase", requirementIds: ["R1", "R2"], nodeIds: ["build"], deliverable: "Build it." },
+    { id: "docs-phase", requirementIds: ["R3"], nodeIds: ["docs"], deliverable: "Document it." },
+  ];
+  const frozen = freezePlan(sharedPhasePlan("plan-fixture-nodeids"), { outDir: dir, provenance: provenance(), phases });
+
+  assert.deepEqual(frozen.phases, phases);
+  const onDisk = JSON.parse(readFileSync(join(dir, "plan.json"), "utf8"));
+  assert.deepEqual(onDisk.phases, phases);
+  const contract = JSON.parse(readFileSync(join(dir, "contract.json"), "utf8"));
+  assert.deepEqual(contract.nodes.find((/** @type {any} */ node) => node.id === "build").requirementIds, ["R1", "R2"]);
+  assert.deepEqual(contract.nodes.find((/** @type {any} */ node) => node.id === "docs").requirementIds, ["R3"]);
+  assert.equal(verifyFrozenPlan(dir).ok, true);
+});
+
+test("freeze refuses a missing, duplicate or unknown node assignment and writes nothing", () => {
+  const cases = [
+    {
+      label: "missing",
+      phases: [{ id: "build-phase", requirementIds: ["R1"], nodeIds: ["build"], deliverable: "Build it." }],
+      message: /leaves planned node\(s\) assigned to no phase: docs/,
+    },
+    {
+      label: "duplicate",
+      phases: [
+        { id: "p1", requirementIds: ["R1"], nodeIds: ["build", "docs"], deliverable: "Both." },
+        { id: "p2", requirementIds: ["R2"], nodeIds: ["build"], deliverable: "Again." },
+      ],
+      message: /assigns node build to both p1 and p2/,
+    },
+    {
+      label: "unknown",
+      phases: [
+        { id: "p1", requirementIds: ["R1"], nodeIds: ["build"], deliverable: "Build." },
+        { id: "p2", requirementIds: ["R2"], nodeIds: ["docs", "ghost"], deliverable: "Ghost." },
+      ],
+      message: /assigns unknown node ghost/,
+    },
+  ];
+  for (const testCase of cases) {
+    const dir = outDir();
+    assert.throws(
+      () => freezePlan(sharedPhasePlan(`plan-fixture-assignment-${testCase.label}`), { outDir: dir, provenance: provenance(), phases: testCase.phases }),
+      testCase.message,
+      testCase.label,
+    );
+    assert.equal(existsSync(join(dir, "contract.json")), false, `${testCase.label}: no contract`);
+    assert.equal(existsSync(join(dir, "plan.json")), false, `${testCase.label}: no plan`);
+  }
+});
+
+test("writeFrozenPlanRecord seals the final plan bytes with an independent sha256 sidecar", () => {
+  const dir = outDir();
+  const frozen = freezePlan(fixture({ id: "plan-fixture-seal", campaignId: "plan-fixture-seal-campaign" }), { outDir: dir, provenance: provenance() });
+  const outcome = { status: "frozen", approved: true };
+  writeFrozenPlanRecord(dir, { ...frozen, ...outcome });
+
+  const planPath = join(dir, "plan.json");
+  const planBytes = readFileSync(planPath);
+  const sidecar = readFileSync(join(dir, "plan.json.sha256"), "utf8").trim();
+  assert.equal(sidecar, createHash("sha256").update(planBytes).digest("hex"));
+  assert.equal(sidecar, fileDigest(planPath), "the exported file digest hashes the same exact bytes");
+  const onDisk = JSON.parse(planBytes.toString("utf8"));
+  assert.equal(onDisk.status, "frozen");
+  assert.equal(onDisk.approved, true);
 });
 
 test("the frozen contract keeps the runtime the operator declared", () => {
