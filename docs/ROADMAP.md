@@ -131,6 +131,12 @@ parked runs of closed ones; see decision D1.
 | RM-058 | A read-only judge still delivers its verdict | the Campaign Brief run had to grant the `codex-sol` judge `workspace-write` so it could persist `review.json` | landed: `7d23785`, `first-target-frictions` R6, 2026-09-23 |
 | RM-059 | The planner can propose a dependency that does not exist | a Campaign Brief draft proposed an npm package for `mdhtml` that resolves to an unrelated package; there is no deterministic way yet to tell a legitimate new dependency from an invented one | idea |
 | RM-080 | `!job.logDir` in the liveness detector is dead for every existing harness after #54 | found reviewing #54; kept on purpose because it states the author's intent, and removing it would redesign someone else's decision without need | idea: owner decision |
+| RM-081 | A node without a gate still runs its Definition of Done proofs | measured on `evidence-you-can-recompute`: every node carried `gate: false`, and a `grep` proof that could only fail was never run; the engine settled gate-less nodes straight to done | landed: `fix/campaign-frictions`, 2026-09-23 |
+| RM-082 | Every test file isolates its own home | the planner's repo facts, `spec validate --run-proofs` and a bare `node --test` left `clean-closure`, `spoken-closure` and `ledger-equivalence` campaigns in the operator's real `~/.faberun`; only `npm test` preloaded the scope | landed: `fix/campaign-frictions`, 2026-09-23 |
+| RM-083 | A proof whose test-name pattern matches nothing fails | `spec validate --run-proofs` reported `evidence-you-can-recompute` R6 proven before R6 existed | landed: `fix/campaign-frictions`, 2026-09-23 |
+| RM-084 | A campaign that changes faberun's own `src/` can refresh the controller snapshot | the chain parked contracts A2 to A4 of `evidence-you-can-recompute` with `controller_snapshot_changed` and no command to refresh; they ran by hand | landed: `fix/campaign-frictions`, 2026-09-23 |
+| RM-085 | A seal commit message passes the repository's commit convention | every `faberun <run> <node> attempt N` seal fails commitlint, so each campaign PR is rebuilt as a squash | landed: `fix/campaign-frictions`, 2026-09-23 |
+| RM-086 | `faberun plan` run inside a tmux pane died during repo facts | twice on 2026-09-23 the plan and its pane vanished mid repo facts with no exit line, while `plan --detach` survived the same tree; running every `node --test test/<dir>` without a terminal did not reproduce it, so the cause needs a controlling terminal and is unknown | idea: measured, not reproduced |
 
 **`RM-005` was rewritten after being checked against the tree, and the
 correction matters.** The deterministic half already exists: `validateContract`
@@ -480,6 +486,7 @@ vendor, and a rewrite in another language. Prove the core first.
 
 | id | item | where | when |
 | --- | --- | --- | --- |
+| RM-081 to RM-085 | Product frictions found running `first-target-frictions` and `evidence-you-can-recompute`: gate-less nodes run their proofs, tests isolate their home, a vacuous proof fails, the controller snapshot can be refreshed, seals follow the commit convention | `fix/campaign-frictions` | 2026-09-23 |
 | RM-030, RM-055, RM-060 to RM-066, RM-016 (part) | The `evidence-you-can-recompute` campaign: complete ledgers and reledger, metrics from a ledger, unknown-cost reasons, the North Star, recovery-aware rates, the orchestration-arms record on main, one docs byte budget, a baseline that recomputes from versioned ledgers | `feat/evidence-you-can-recompute` | 2026-09-23 |
 | RM-051 to RM-053, RM-056 to RM-058 | The `first-target-frictions` campaign: ignore-source warning, verification artefacts kept out of the seal, stranded-run resume, no sub-second test budget, measured verification timeouts, read-only judge | `d34d1d9`, `1d47973`, `826dd0e`, `72b08e5`, `614010b`, `33825a8`, `7d23785` | 2026-09-23 |
 | RM-002 | Close the `durable-state-integrity` campaign | `f46d5e6`; 10 requirements, 13 runs, US$ 1.88 | 2026-09-22 |
