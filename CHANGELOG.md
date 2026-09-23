@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.22.0](https://github.com/feliperun/faberun/compare/v0.21.0...v0.22.0) (2026-09-23)
+
+
+### Features
+
+* close the frictions the first real target and the brief taught, before measuring ([d11a7ef](https://github.com/feliperun/faberun/commit/d11a7ef315b656fa3d7354558f9b32b4bb90f299))
+
 ## [0.21.0](https://github.com/feliperun/faberun/compare/v0.20.0...v0.21.0) (2026-09-23)
 
 
