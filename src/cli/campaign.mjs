@@ -11,6 +11,8 @@ import {
   resolveCampaign,
 } from "../campaign/index.mjs";
 import { addContract, replaceContract } from "./campaign-contract.mjs";
+import { generateCampaignBrief } from "../campaign/brief-cli.mjs";
+import { lockStale, pidAlive, processStartToken, readLock } from "../run/lock.mjs";
 import { runsRoot } from "../run/paths.mjs";
 import { syncAgentSignal } from "../repo/signal.mjs";
 import { acknowledgeJournalEvent, appendJournal, appendSeatAllowanceEvent, readJournal, watchJournal } from "../campaign/journal.mjs";
@@ -83,12 +85,13 @@ const OPERATION_OPTIONS = {
   unpark: { cwd: { type: "string" }, force: { type: "boolean" }, "event-id": { type: "string" } },
   "add-contract": { cwd: { type: "string" }, path: { type: "string" } },
   "replace-contract": { cwd: { type: "string" }, path: { type: "string" }, replace: { type: "string" } },
+  brief: { cwd: { type: "string" }, phase: { type: "string" } },
   show: { cwd: { type: "string" } },
   sync: { cwd: { type: "string" }, "session-id": { type: "string" } },
   ack: { cwd: { type: "string" }, "session-id": { type: "string" }, "event-id": { type: "string" } },
 };
 
-/** @typedef {{cwd?: string, goal?: string, contract?: string[], landBranch?: string, tool?: string, sessionId?: string, transcript?: string, format?: string, cursor?: string, since?: string, kind?: string, text?: string, runId?: string, supersedes?: string, decisionId?: string, questionId?: string, eventId?: string, noTranscript?: boolean, wake?: boolean, detach?: boolean, interval?: string, once?: boolean, allowMain?: boolean, force?: boolean, path?: string, replace?: string}} CliValues */
+/** @typedef {{cwd?: string, goal?: string, contract?: string[], landBranch?: string, tool?: string, sessionId?: string, transcript?: string, format?: string, cursor?: string, since?: string, kind?: string, text?: string, runId?: string, supersedes?: string, decisionId?: string, questionId?: string, eventId?: string, noTranscript?: boolean, wake?: boolean, detach?: boolean, interval?: string, once?: boolean, allowMain?: boolean, force?: boolean, path?: string, replace?: string, phase?: string}} CliValues */
 /** @typedef {import("../campaign/index.mjs").Campaign} Campaign */
 
 /**
@@ -99,6 +102,24 @@ export async function campaignCli(args) {
   const operation = args[0];
   if (!operation || !(operation in OPERATION_OPTIONS)) return usage();
   const { positional, values } = parseArgs(args.slice(1), operation);
+  if (operation === "brief") {
+    const [action, campaignId, ...extra] = positional;
+    if (campaignId === undefined || extra.length) return usage();
+    if (action === "generate") {
+      generateCampaignBrief({ campaignId, phase: values.phase, cwd: values.cwd });
+      return;
+    }
+    // `serve` starts the separate R8 loopback server; the module owns the
+    // verification and HTTP behavior, the CLI only parses and dispatches. It is
+    // imported on demand so the ordinary CLI startup graph stays free of the
+    // HTTP server for every other verb.
+    if (action === "serve") {
+      const { serveCampaignBrief } = await import("../web/campaign-brief-server.mjs");
+      await serveCampaignBrief({ campaignId, phase: values.phase, cwd: values.cwd });
+      return;
+    }
+    return usage();
+  }
   const [campaignId, ...extra] = positional;
   if (operation === "list") {
     if (campaignId !== undefined || extra.length) return usage();
@@ -625,7 +646,7 @@ function positiveIntervalMs(value) {
 
 function usage() {
   process.stderr.write(
-    "usage: faberun campaign <init|watch|attach|note|resolve|close|supervise|unpark|show|list|sync|ack|add-contract|replace-contract> <campaign-id> [--cwd <dir>] ...\n",
+    "usage: faberun campaign <init|watch|attach|note|resolve|close|supervise|unpark|show|list|sync|ack|add-contract|replace-contract|brief> <campaign-id> [--cwd <dir>] ...\n",
   );
   process.exitCode = 2;
 }

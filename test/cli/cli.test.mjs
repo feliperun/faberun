@@ -6,7 +6,9 @@ import { join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
-import { CONTRACT_VERSION, validateContract } from "../../src/contract/index.mjs";
+import { CONTRACT_VERSION, contractDigest, validateContract } from "../../src/contract/index.mjs";
+import { initializeCampaign } from "../../src/campaign/index.mjs";
+import { contentDigest, writeFrozenPlanRecord } from "../../src/plan/freeze.mjs";
 import { renderFindings, renderReport, renderStatus, renderStatusJson } from "../../src/report/render.mjs";
 import { resumeRun } from "../../src/engine/resume.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
@@ -31,7 +33,6 @@ test("runs the CLI through an installed symlink", () => {
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "valid\n");
 });
-
 test("doctor checks repository prerequisites without mutating anything", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-doctor-"));
   execFileSync("git", ["init", "-q", directory]);
@@ -593,4 +594,56 @@ test("seat is a dispatched verb named in the usage line", () => {
   const campaigns = spawnSync(process.execPath, [RUNNER_CLI, "campaign", "list", "--cwd", directory], { encoding: "utf8" });
   assert.equal(campaigns.status, 0, campaigns.stderr);
   assert.match(campaigns.stdout, /\[campaign\] none/u);
+});
+
+// R8: the loopback browser surface reached through the CLI. Only the refusal
+// paths are driven here, so the spawned invocation is always short-lived; the
+// success path (which keeps a server alive) is exercised through the
+// `serveCampaignBrief` module in test/web/campaign-brief-server.test.mjs.
+test("campaign brief serve refuses a changed spec before binding and never prints a URL", () => {
+  // The fixture and the spawned CLI must resolve the same runs root, so both
+  // use a throwaway home instead of the operator's own ~/.faberun.
+  const home = mkdtempSync(join(tmpdir(), "runner-brief-serve-home-"));
+  const previousHome = process.env.FABERUN_HOME;
+  process.env.FABERUN_HOME = home;
+  const cwd = mkdtempSync(join(tmpdir(), "runner-brief-serve-"));
+  try {
+    const campaignId = "brief-serve";
+    const phase = "alpha";
+    const runsDir = runsRoot(cwd);
+    const { path: campaignPath } = initializeCampaign(runsDir, { campaignId, goal: "Serve the brief" });
+    const planDir = join(campaignPath, "plans", phase);
+    mkdirSync(planDir, { recursive: true });
+    const specPath = join(cwd, "SPEC.md");
+    const spec = "# Spec\n";
+    writeFileSync(specPath, spec, "utf8");
+    const frozenContract = { schemaVersion: 1, contractVersion: CONTRACT_VERSION, id: "brief-serve-run", campaignId, goal: "Serve", cwd: ".", nodes: [] };
+    writeFileSync(join(planDir, "contract.json"), `${JSON.stringify(frozenContract)}\n`, "utf8");
+    writeFrozenPlanRecord(planDir, /** @type {any} */ ({
+      formatVersion: 1,
+      contractDigest: contractDigest(frozenContract),
+      spec: { path: specPath, digest: contentDigest(spec) },
+      phases: [{ id: phase, requirementIds: ["R1"], nodeIds: [], deliverable: "The served brief." }],
+      provenance: {},
+      status: "frozen",
+      approved: true,
+    }));
+    writeFileSync(join(planDir, "campaign-brief.md.html"), "<!doctype html><html><body>ready for human review</body></html>\n", "utf8");
+    // The spec changes after the freeze: the startup gate must refuse it.
+    writeFileSync(specPath, `${spec}\nchanged after freeze\n`, "utf8");
+
+    const env = { ...process.env, FABERUN_HOME: home };
+    const changed = spawnSync(process.execPath, [RUNNER_CLI, "campaign", "brief", "serve", campaignId, "--phase", phase, "--cwd", cwd], { encoding: "utf8", env, timeout: 30_000 });
+    assert.equal(changed.status, 1, changed.stdout);
+    assert.match(changed.stderr, /does not match plan\.spec\.digest/u);
+    assert.doesNotMatch(changed.stdout, /http:\/\//u, "a refused startup prints no URL");
+
+    const missingPhase = spawnSync(process.execPath, [RUNNER_CLI, "campaign", "brief", "serve", campaignId, "--cwd", cwd], { encoding: "utf8", env, timeout: 30_000 });
+    assert.equal(missingPhase.status, 1);
+    assert.match(missingPhase.stderr, /requires --phase/u);
+    assert.doesNotMatch(missingPhase.stdout, /http:\/\//u);
+  } finally {
+    if (previousHome === undefined) delete process.env.FABERUN_HOME;
+    else process.env.FABERUN_HOME = previousHome;
+  }
 });

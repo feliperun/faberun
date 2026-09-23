@@ -73,7 +73,6 @@ jobs:
       - run: npm run check
         shell: bash
       - run: npm run typecheck
-<<<<<<< HEAD
         shell: bash
       - run: npm test
           && test ! -e "$HOME/.faberun"
