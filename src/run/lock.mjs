@@ -17,7 +17,7 @@ import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, rena
 import { hostname } from "node:os";
 import { join } from "node:path";
 import { fsyncDirectory } from "./store.mjs";
-import { errorCode } from "../util.mjs";
+import { errorCode, sleepSync } from "../util.mjs";
 
 const LOCK_FILE = "controller.lock";
 const TAKEOVER_ATTEMPTS = 20;
@@ -84,7 +84,7 @@ export function processStartToken(pid) {
     // and report nothing for a pid that is already alive. One short retry
     // closes that window; a still-empty answer stays null.
     if (!pidAlive(pid)) return null;
-    sleepMs(20);
+    sleepSync(20);
     const retried = psStartTime(pid);
     return retried.length > 0 ? retried : null;
   }
@@ -104,16 +104,6 @@ function psStartTime(pid) {
   } catch {
     return "";
   }
-}
-
-/**
- * Block without a timer so the synchronous darwin retry above can wait out the
- * spawn race. The duration is tiny and bounded, so blocking the loop is safe.
- *
- * @param {number} milliseconds
- */
-function sleepMs(milliseconds) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
 }
 
 /** @param {number|null|undefined} pid @returns {boolean} */
