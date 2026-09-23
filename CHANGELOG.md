@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.23.0](https://github.com/feliperun/faberun/compare/v0.22.0...v0.23.0) (2026-09-23)
+
+
+### Features
+
+* every number faberun states about itself recomputes from main ([7b74767](https://github.com/feliperun/faberun/commit/7b747671fc201dbd7ff1e7a9ed692b6db9e576be))
+
 ## [0.22.0](https://github.com/feliperun/faberun/compare/v0.21.0...v0.22.0) (2026-09-23)
 
 
