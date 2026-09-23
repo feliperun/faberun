@@ -45,22 +45,22 @@ attempt's sealed sha, the same continuation rule as any other retry.
 One controller drives a run, holding `<run-dir>/controller.lock`: `{pid,
 processStartToken, startedAt, hostname}`. Acquisition is an exclusive create
 with no TTL. A contender treats the lock as stale only once it can prove the
-holder dead — the pid is gone, or its process start token no longer matches
-(pid recycled); anything less is `controller_active` and it exits untouched.
-Takeover renames the lock aside, re-checks the captured record is stale, then
-installs its own; a capture that turns out live is handed back. Worker/judge/
+holder dead — pid gone, or its start token no longer matches (pid recycled);
+otherwise it exits `controller_active`, untouched. Takeover renames the lock
+aside and re-checks it is stale before installing its own. Worker/judge/
 verification children run detached in their own process group, so before
 dispatching new work `resume`'s recovery pass terminates (`SIGTERM` then
 `SIGKILL`, same as `cancel`) every invocation recorded for a `running` node —
 unless it is still inside its deadline, when it is adopted and its result read.
-`cancel <run-dir>` signals a live controller first, so its own takeover never
-waits on an expiry.
+`cancel` signals a live controller first, so its takeover never waits.
 
 `supervise <run-dir> [--detach] [--interval <sec>]` is the watchdog above that.
 It holds no lock and writes no state: every interval (default 30s) it launches
 `resume --detach` when a node is unfinished and no controller is live, exits 0
 once all are terminal, and stops after three failed launches. An empty run
-directory is never resumed — it has not proved it needs to be.
+directory is never resumed. A detached controller outlives its launcher,
+not the session scope (cgroup) holding it: run long work under `tmux`,
+`systemd-run` or the seat.
 
 ## Runtime discovery
 
