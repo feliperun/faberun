@@ -6,9 +6,6 @@
  * every provider binary from the environment, which is what makes
  * `--assert-no-model` a proof rather than a promise: a case that secretly
  * reaches a real provider fails to spawn instead of quietly costing money.
- *
- * `resolveRelativeTimestamps` exists because a recording pinned to an absolute
- * instant expires. Cases say `-5m` and mean it.
  */
 import { EVALS_ROOT } from "./paths.mjs";
 import { execFileSync } from "node:child_process";
@@ -225,53 +222,13 @@ function patchRecordingEnvelopeField(content, { index, path, value, remove }) {
   return `${patched.join("\n")}\n`;
 }
 /**
- * A recorded envelope's `error.resetAt` or top-level `exhaustedUntil` may
- * carry a relative placeholder — the string `"+<milliseconds>"` — instead of
- * an absolute timestamp, since a fixture checked into git cannot know what
- * "soon" means relative to whenever the suite actually runs. Resolved once,
- * at materialization time, into a real ISO timestamp measured from now; every
- * other value (an absolute timestamp, or the field's absence) passes through
- * untouched. The replay harness itself never sees the placeholder, only the
- * resolved literal string — exactly the shape a real harness would produce.
- *
- * @param {string} content
- * @returns {string}
- */
-function resolveRelativeTimestamps(content) {
-  const lines = content.split("\n").filter((line) => line.length > 0);
-  const resolved = lines.map((line) => {
-    const record = JSON.parse(line);
-    const envelope = record.envelope;
-    if (!envelope || typeof envelope !== "object") return line;
-    let changed = false;
-    if (envelope.error && typeof envelope.error === "object" && typeof envelope.error.resetAt === "string") {
-      const resolvedAt = resolveRelativeTimestamp(envelope.error.resetAt);
-      if (resolvedAt !== envelope.error.resetAt) {
-        envelope.error = { ...envelope.error, resetAt: resolvedAt };
-        changed = true;
-      }
-    }
-    if (typeof envelope.exhaustedUntil === "string") {
-      const resolvedUntil = resolveRelativeTimestamp(envelope.exhaustedUntil);
-      if (resolvedUntil !== envelope.exhaustedUntil) {
-        envelope.exhaustedUntil = resolvedUntil;
-        changed = true;
-      }
-    }
-    return changed ? JSON.stringify({ ...record, envelope }) : line;
-  });
-  return `${resolved.join("\n")}\n`;
-}
-/** @param {string} value @returns {string} */
-function resolveRelativeTimestamp(value) {
-  const match = /^\+(\d+)$/u.exec(value);
-  if (!match) return value;
-  return new Date(Date.now() + Number(match[1])).toISOString();
-}
-/**
  * Copy one declared recording into a fresh case-local recordings directory,
- * resolving relative timestamps and applying a discriminator's recording
- * patch when it targets this runtime. Shared by `materializeCase` (a
+ * applying a discriminator's recording patch when it targets this runtime.
+ * A relative `error.resetAt` (`"+3000"`) is copied as written: the replay
+ * binary resolves it when it emits the envelope. Resolving it here started the
+ * window before git init, campaign init and the controller's own startup, and
+ * on a Windows runner those outlasted the three seconds -- D04's reset landed
+ * in the past and the node failed over. Shared by `materializeCase` (a
  * contract-kind case) and `materializePlanCase` (a command-kind case), which
  * otherwise build two different things around the copied file.
  *
@@ -287,7 +244,7 @@ function copyRecording(caseId, caseDir, recordingsDir, runtimeId, filename, reco
   const source = join(caseDir, filename);
   if (!existsSync(source)) throw new Error(`case ${caseId} declares recording ${filename} for runtime ${runtimeId}, but the file does not exist`);
   const dest = join(recordingsDir, filename);
-  let content = resolveRelativeTimestamps(readFileSync(source, "utf8"));
+  let content = readFileSync(source, "utf8");
   if (recordingPatch && recordingPatch.runtime === runtimeId) {
     content = "code" in recordingPatch
       ? patchRecordingErrorCode(content, recordingPatch)

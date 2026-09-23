@@ -174,15 +174,15 @@ and has:
   and `replay-bin.mjs` for the exact envelope schema).
 
 A recorded envelope's `error.resetAt` and top-level `exhaustedUntil` are both
-optional, and both may carry a relative placeholder — the string
-`"+<milliseconds>"` — instead of an absolute timestamp. The harness resolves
-it to a real ISO timestamp, measured from the moment the case is
-materialized, before the recording is copied into the workspace; the
-`replay` harness itself never sees the placeholder, only the resolved literal
-string, exactly the shape a real harness would produce. Use this for a case
-whose scenario turns on a reset landing inside a window measured from
-whenever the suite happens to run (see D04's `primary.jsonl`); an absolute
-timestamp works too when the exact instant does not matter to the case.
+optional. `error.resetAt` may carry a relative placeholder — the string
+`"+<milliseconds>"` — instead of an absolute timestamp. The `replay` binary
+resolves it to a real ISO timestamp at the moment it emits the envelope, so
+the controller receives exactly the shape a real harness would produce and the
+window starts where the invocation ends, not where the case was materialized
+(on a slow runner, repository setup alone outlasted a three-second window).
+Use this for a case whose scenario turns on a reset landing inside a window
+(see D04's `primary.jsonl`); an absolute timestamp works too when the exact
+instant does not matter to the case.
 
 A recording only stands in for a prompt invocation — the live version probe
 (`probeRuntime`, run once per declared runtime whenever a contract leaves a
