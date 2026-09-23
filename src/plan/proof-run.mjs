@@ -65,18 +65,60 @@ export const MEASURE_SIDE_EFFECT_ENV_KEYS = [
  * @returns {{output: string, exitCode: number|null, truncated: boolean}}
  */
 export function runShellCapture(cwd, command, probes = {}) {
+  const { output, exitCode, truncated } = runShellFull(cwd, command, probes);
+  const bytes = Buffer.from(output, "utf8");
+  return {
+    output: truncated ? bytes.subarray(0, MEASURE_OUTPUT_CAP_BYTES).toString("utf8") : output,
+    exitCode,
+    truncated,
+  };
+}
+
+/**
+ * The shell run behind `runShellCapture`, returning the whole output: a
+ * pinned-test check has to see every test the runner reported, and the
+ * matching line can sit far past the 4 KiB a measurement keeps.
+ *
+ * @param {string} cwd
+ * @param {string} command
+ * @param {MeasureProbes} [probes]
+ * @returns {{output: string, exitCode: number|null, truncated: boolean}}
+ */
+function runShellFull(cwd, command, probes = {}) {
   const run = probes.run ?? spawnSync;
   const env = { ...process.env };
   for (const key of MEASURE_SIDE_EFFECT_ENV_KEYS) delete env[key];
+  // A nested `node --test` that inherits NODE_TEST_CONTEXT stays a runner
+  // child and prints no result at all (measured 2026-09-21, AGENTS.md), so a
+  // proof run from inside a test runner would have nothing to show.
+  delete env.NODE_TEST_CONTEXT;
   const result = run(command, { shell: true, cwd, timeout: MEASURE_TIMEOUT_MS, encoding: "utf8", env });
   const combined = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-  const bytes = Buffer.from(combined, "utf8");
-  const truncated = bytes.length > MEASURE_OUTPUT_CAP_BYTES;
-  return {
-    output: truncated ? bytes.subarray(0, MEASURE_OUTPUT_CAP_BYTES).toString("utf8") : combined,
-    exitCode: result.status,
-    truncated,
-  };
+  return { output: combined, exitCode: result.status, truncated: Buffer.byteLength(combined, "utf8") > MEASURE_OUTPUT_CAP_BYTES };
+}
+
+/** `--test-name-pattern` in a shell command, quoted or bare, `=` or space. */
+const NAME_PATTERN_FLAG = /--test-name-pattern(?:=|\s+)(?:"([^"]*)"|'([^']*)'|(\S+))/u;
+/** A passing test as the spec reporter (`✔ name (1ms)`) or TAP (`ok 1 - name`) prints it. */
+const PASSING_TEST_LINE = /^\s*(?:\u2714\s+|ok \d+ - )(.+?)(?:\s+\(\d[\d.]*m?s\))?\s*$/gmu;
+
+/**
+ * Whether a `node --test --test-name-pattern=<p>` proof ran a test named by
+ * its pattern. Node exits 0 when the pattern matches nothing, printing only
+ * the file, so the exit code alone cannot tell a proof from its absence.
+ * Returns null when the command carries no pattern.
+ *
+ * @param {string} command
+ * @param {string} output
+ * @returns {boolean|null}
+ */
+function patternMatchedATest(command, output) {
+  if (!/\bnode\b[^|;&]*--test\b/u.test(command)) return null;
+  const flag = NAME_PATTERN_FLAG.exec(command);
+  if (!flag) return null;
+  const pattern = new RegExp(flag[1] ?? flag[2] ?? flag[3], "u");
+  const plain = output.replace(/\u001b\[[0-9;]*m/gu, "");
+  return [...plain.matchAll(PASSING_TEST_LINE)].some((line) => pattern.test(line[1]) && !/\.m?[jt]s$/u.test(line[1].trim()));
 }
 
 /**
@@ -104,11 +146,12 @@ export function proveRequirements(cwd, requirements, probes = {}) {
     const proof = requirement.proof;
     if (!proof?.ref) continue;
     if (proof.kind === "command") {
-      const { output, exitCode } = runShellCapture(cwd, proof.ref, probes);
-      const detail = exitCode === 0
-        ? "exit 0"
-        : `exit ${exitCode ?? "no exit code (killed or never started)"}${output.trim() ? `: ${output.trim().slice(0, PROOF_DETAIL_CAP)}` : ""}`;
-      results.push({ requirementId: requirement.id, kind: "command", ref: proof.ref, pass: exitCode === 0, detail });
+      const { output, exitCode } = runShellFull(cwd, proof.ref, probes);
+      const matched = exitCode === 0 ? patternMatchedATest(proof.ref, output) : null;
+      const detail = exitCode !== 0
+        ? `exit ${exitCode ?? "no exit code (killed or never started)"}${output.trim() ? `: ${output.trim().slice(0, PROOF_DETAIL_CAP)}` : ""}`
+        : matched === false ? "exit 0, but its --test-name-pattern matched no test: the proof ran nothing" : "exit 0";
+      results.push({ requirementId: requirement.id, kind: "command", ref: proof.ref, pass: exitCode === 0 && matched !== false, detail });
       continue;
     }
     if (proof.kind === "path") {
