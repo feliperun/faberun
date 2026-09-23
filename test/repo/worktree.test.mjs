@@ -6,7 +6,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { candidateRefName, createPreservedRef, preservedRefName, runRefName } from "../../src/repo/worktree.mjs";
+import { candidateRefName, createPreservedRef, preservedRefName, runRefName, sealAttempt } from "../../src/repo/worktree.mjs";
 import { initializeGit } from "../helpers.mjs";
 
 /**
@@ -72,4 +72,23 @@ test("the preserved ref keeps the integrated commit readable through git gc --pr
   execFileSync("git", ["-C", repo, "gc", "--prune=now"], { stdio: "ignore" });
   assert.equal(gitOut(repo, ["cat-file", "-t", sha]), "commit", "the integrated commit survived the gc");
   assert.equal(gitOut(repo, ["rev-parse", ref]), sha);
+});
+
+// Measured 2026-09-23: the campaign branch of evidence-you-can-recompute
+// carried seal commits titled `faberun <run> <node> attempt 1`, and the PR's
+// commit-message check (commitlint, conventional) refuses every one, so each
+// campaign PR had to be rebuilt as a squash. A seal answers to the factory,
+// but it lands in branches that answer to this convention.
+test("a seal commit message follows the conventional commit shape", () => {
+  const repo = mkdtempSync(join(tmpdir(), "seal-message-"));
+  writeFileSync(join(repo, "README.md"), "base\n");
+  initializeGit(repo);
+  writeFileSync(join(repo, "sealed.txt"), "work\n");
+  const runId = "a-run-whose-id-is-long-enough-to-matter-2026-09-23";
+  sealAttempt({ repo, path: repo, baseSha: null, runId, nodeId: "build", attempt: 2 });
+  const message = execFileSync("git", ["-C", repo, "log", "-1", "--format=%B"], { encoding: "utf8" }).trim();
+  const [header, ...rest] = message.split("\n");
+  assert.match(header, /^chore\(faberun\): seal build attempt 2$/u);
+  assert.ok(header.length <= 100, "commitlint's header-max-length");
+  assert.match(rest.join("\n"), new RegExp(`run ${runId}`, "u"), "the run id stays in the body");
 });

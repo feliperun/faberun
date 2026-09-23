@@ -384,7 +384,10 @@ export function sealAttempt({ repo, path, baseSha, runId, nodeId, attempt, exclu
       // schedule it chose. The identity and signing overrides above are the
       // same argument: this commit answers to the factory, not to the repo's
       // conventions for human commits.
-      "commit", "--no-verify", "-qm", `faberun ${runId} ${nodeId} attempt ${attempt}`,
+      // Conventional, so a campaign branch passes a PR's commitlint check
+      // (measured 2026-09-23: every `faberun <run> <node> attempt N` seal was
+      // refused); the run id moves to the body to keep the header short.
+      "commit", "--no-verify", "-q", "-m", `chore(faberun): seal ${nodeId} attempt ${attempt}`, "-m", `run ${runId}`,
     ]);
   }
   const sha = gitHead(path);
