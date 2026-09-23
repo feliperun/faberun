@@ -19,6 +19,7 @@ import { fileURLToPath } from "node:url";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, contractDigest, validateContract } from "../contract/index.mjs";
 import { assertObject, rejectUnknown, requirePacketHash, requireString } from "../contract/assert.mjs";
 import { writeJsonAtomic, writeTextAtomic } from "../run/store.mjs";
+import { VERIFICATION_LIMITS } from "../contract/verification.mjs";
 import { validatePlanPhases } from "./template.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
@@ -31,8 +32,78 @@ import { validatePlanPhases } from "./template.mjs";
 /** @typedef {{path: string, digest: string}} PlanSpecIdentity */
 /** @typedef {{formatVersion: number, contractDigest: string, spec?: PlanSpecIdentity, phases?: PlanPhase[], provenance: PlanProvenance}} FrozenPlan */
 /** @typedef {{ok: boolean, digest: string, expectedDigest: string}} FrozenPlanVerdict */
+/** @typedef {{scripts?: Record<string, string>, verificationCandidates: {argv: string[], measuredMs: number}[]}} MeasuredFacts */
 
 const PLAN_FORMAT_VERSION = 1;
+
+/**
+ * The margin a frozen verification timeout keeps over its measured duration.
+ * No measurement behind the number itself: it is the spec's (RM-057), and a
+ * timeout only bounds a failure, so a passing command never waits for it.
+ */
+const MEASURED_TIMEOUT_MARGIN = 1.5;
+
+/**
+ * What repo facts measured for a verification command: its own candidate, or
+ * the sum of the `node --test <dir>` candidates it includes, `npm test`
+ * resolved through the `test` script. Null when nothing measured it.
+ *
+ * @param {string[]} argv
+ * @param {MeasuredFacts} facts
+ * @returns {number|null}
+ */
+function measuredMsFor(argv, facts) {
+  const candidates = facts.verificationCandidates;
+  const exact = candidates.find((candidate) => candidate.argv.join(" ") === argv.join(" "));
+  if (exact) return exact.measuredMs;
+  const npmTest = argv[0] === "npm" && (argv.slice(1).join(" ") === "test" || argv.slice(1).join(" ") === "run test");
+  const resolved = npmTest && typeof facts.scripts?.test === "string" ? facts.scripts.test.trim().split(/\s+/u) : argv;
+  if (resolved.join(" ") !== argv.join(" ")) return measuredMsFor(resolved, facts);
+  if (resolved[0] !== "node" || resolved[1] !== "--test") return null;
+  const paths = resolved.slice(2).filter((arg) => !arg.startsWith("-")).map((path) => path.replace(/\/+$/u, ""));
+  const roots = paths.length ? paths : ["test"];
+  let total = 0;
+  for (const root of roots) {
+    const parts = candidates.filter((candidate) => candidate.argv[0] === "node" && candidate.argv[1] === "--test" && candidate.argv.length === 3
+      && (candidate.argv[2] === root || candidate.argv[2].startsWith(`${root}/`)));
+    if (!parts.length) return null;
+    total += parts.reduce((sum, part) => sum + part.measuredMs, 0);
+  }
+  return total;
+}
+
+/**
+ * Refuse a contract whose verification timeout sits under
+ * `MEASURED_TIMEOUT_MARGIN` times what repo facts measured for the command,
+ * and name a command no legal timeout can cover, so the plan is contested
+ * with the advice to split it. RM-057, measured on the Campaign Brief run:
+ * a gate frozen at 120s against parts measured at 178,904 ms and 246,955 ms.
+ *
+ * @param {import("../contract/index.mjs").ValidatedContract} contract
+ * @param {MeasuredFacts} facts
+ * @returns {void}
+ */
+export function assertTimeoutsCoverMeasured(contract, facts) {
+  const commands = [
+    ...contract.nodes.flatMap((node) => node.taskPacket.verification ?? []),
+    ...contract.sharedVerification ?? [],
+    ...contract.finalVerification ?? [],
+  ];
+  const problems = new Set();
+  for (const command of commands) {
+    const measuredMs = measuredMsFor(command.argv, facts);
+    if (measuredMs === null) continue;
+    const timeoutSec = command.timeoutSec ?? 120;
+    const requiredSec = Math.ceil((measuredMs * MEASURED_TIMEOUT_MARGIN) / 1_000);
+    const shown = `${command.argv.join(" ")} measured ${(measuredMs / 1_000).toFixed(1)}s`;
+    if (requiredSec > VERIFICATION_LIMITS.maxTimeoutSec) {
+      problems.add(`${shown}, and ${MEASURED_TIMEOUT_MARGIN} times that passes the ${VERIFICATION_LIMITS.maxTimeoutSec}s maxTimeoutSec: split it into commands that each fit`);
+    } else if (timeoutSec < requiredSec) {
+      problems.add(`verification ${command.argv.join(" ")} has timeoutSec ${timeoutSec}s, under ${MEASURED_TIMEOUT_MARGIN} times its measured ${(measuredMs / 1_000).toFixed(1)}s: raise it to at least ${requiredSec}s`);
+    }
+  }
+  if (problems.size) throw new TypeError(`verification timeouts do not cover their measured durations: ${[...problems].join("; ")}`);
+}
 
 /** @returns {string} the installed package's own version, read once per call so a freeze always names the toolchain that produced it */
 function packageVersion() {
@@ -175,10 +246,13 @@ export function writeFrozenPlanRecord(outDir, record) {
  * was planned from.
  *
  * @param {JsonObject} plan
- * @param {{outDir: string, provenance: PlanProvenanceInput, phases?: import("./template.mjs").PlanPhase[], spec?: PlanSpecIdentity}} options
+ * `options.facts` carries repo facts' measured durations; given, a
+ * verification timeout that does not cover one is refused.
+ *
+ * @param {{outDir: string, provenance: PlanProvenanceInput, phases?: import("./template.mjs").PlanPhase[], spec?: PlanSpecIdentity, facts?: MeasuredFacts}} options
  * @returns {FrozenPlan}
  */
-export function freezePlan(plan, { outDir, provenance, phases, spec }) {
+export function freezePlan(plan, { outDir, provenance, phases, spec, facts }) {
   // Shape-checked before anything is written, so a malformed declaration
   // leaves the outDir exactly as it was — the same failure discipline as the
   // validateContract rollback below. A declaration in the nodeIds shape must
@@ -199,7 +273,8 @@ export function freezePlan(plan, { outDir, provenance, phases, spec }) {
   });
   writeJsonAtomic(contractPath, raw);
   try {
-    validateContract(raw, contractPath);
+    const validated = validateContract(raw, contractPath);
+    if (facts) assertTimeoutsCoverMeasured(validated, facts);
   } catch (error) {
     rmSync(contractPath, { force: true });
     throw error;
