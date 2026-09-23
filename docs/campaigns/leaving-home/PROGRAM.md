@@ -130,18 +130,22 @@ primeiros e o terceiro é a razão da regra de writers baratos.
 
 ## Itens do roadmap que o programa promove
 
-Ao abrir cada campanha, as linhas correspondentes de `docs/ROADMAP.md` passam
-para `specified` com o caminho da spec. `RM-050` a `RM-055` vêm da PR #62. Itens
-novos deste programa recebem ids a partir de `RM-056`, e as decisões novas
+As linhas correspondentes de `docs/ROADMAP.md` já estão como `specified`, com
+a campanha e o requisito que as carregam, e passam a `running` e `landed` com
+elas. `RM-050` a `RM-055` vêm da PR #62. Os
+itens novos deste programa são `RM-056` a `RM-079`, e as decisões novas
 seguem a D8 da PR #63: D9 (juiz) e D10 (divulgação).
 
-| Campanha | Itens existentes | Itens novos |
+| Campanha | Itens que já existiam | Itens novos |
 | --- | --- | --- |
-| `first-target-frictions` | RM-051, RM-052, RM-053 | orçamento de teste abaixo de 1 s, timeout congelado abaixo do medido, juiz somente-leitura, dependência inventada pelo planner (registrada, sem requisito) |
-| `evidence-you-can-recompute` | RM-030, RM-016 (parcial), RM-055 | ledger completo, `reledger`, motivo de custo desconhecido, North Star medida, orçamento de bytes |
-| `evals-with-a-budget` | RM-013, RM-035, RM-031 (parcial) | orçamento estocástico, `reason` em item de julgamento |
-| `safe-to-hand-to-a-friend` | RM-025, RM-050, RM-054, D2 (parcial) | ambiente permitido, guia executado, fatos fora do Node, `plan --resolve`, `uninstall` |
-| `friends-pilot` | RM-036 | exportação redigida, atrito no journal, classe `pilot` |
+| `first-target-frictions` | RM-051, RM-052, RM-053 | RM-056 (orçamento de teste abaixo de 1 s), RM-057 (timeout congelado abaixo do medido), RM-058 (juiz somente-leitura); RM-059 (dependência inventada) fica registrado, sem requisito |
+| `evidence-you-can-recompute` | RM-030, RM-016 (parcial), RM-055 | RM-060 (ledger completo), RM-061 (`reledger`), RM-062 (motivo de custo desconhecido), RM-063 (North Star), RM-064 (orçamento de bytes), RM-065 (`orchestration-arms` em main), RM-066 (baseline recomputável) |
+| `evals-with-a-budget` | RM-013, RM-035, RM-031 (parcial) | RM-067 (orçamento estocástico), RM-068 (`reason` em item de julgamento) |
+| `safe-to-hand-to-a-friend` | RM-025, RM-050, RM-054, D2 (parcial) | RM-069 (ambiente permitido), RM-070 (guia executado), RM-071 (layout legado nas docs), RM-072 (fatos fora do Node), RM-073 (primeira campanha offline), RM-074 (`plan --resolve`), RM-075 (`uninstall`) |
+| `friends-pilot` | RM-036, RM-015 (parcial) | RM-076 (exportação redigida), RM-077 (atrito no journal), RM-078 (classe `pilot`), RM-079 (protocolo do piloto) |
+
+O lugar de cada item que ficou fora do programa, e o que o traria para dentro,
+está em `docs/ROADMAP.md`, na seção "Where every other item stands".
 
 ## Como rodar
 
