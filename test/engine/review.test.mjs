@@ -238,10 +238,10 @@ test("a judge timeout re-asks once then blocks as judge_unavailable", async () =
       type: "backend",
       taskPacket: packet(),
       // The worker has to finish inside this for the judge to be reached at
-      // all, and a provider spawn on Windows costs an extra process: at the
-      // POSIX number the worker itself timed out and the test proved nothing
-      // about the judge. Measured 2026-09-21.
-      timeoutSec: 1 * SPAWN_WAIT_FACTOR,
+      // all. Measured: at 1s the worker itself timed out on Windows CI
+      // (2026-09-21) and under parallel load on macOS (RM-056), and the
+      // test proved nothing about the judge. The judge spends it three times.
+      timeoutSec: 3 * SPAWN_WAIT_FACTOR,
       definitionOfDone: [{ id: "works", text: "It works", judgment: true }],
       gate: { review: "blocking", failOn: ["major", "critical"] },
     }],
