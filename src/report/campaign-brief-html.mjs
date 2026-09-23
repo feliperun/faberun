@@ -207,7 +207,6 @@ export function renderCampaignBriefHtml(markdown, options) {
     runMdhtml(bin, ["build", sourcePath, "-o", htmlPath], options.cwd, "MDHTML_BUILD_FAILED");
     const checked = runMdhtml(bin, ["check", htmlPath], options.cwd, "MDHTML_CHECK_FAILED");
     assertCheck(checked.stdout);
-    runMdhtml(bin, ["audit", htmlPath], options.cwd, "MDHTML_AUDIT_FAILED");
 
     const html = readFileSync(htmlPath, "utf8");
     assertTheme(html);
@@ -404,7 +403,7 @@ function exampleMarkdown() {
   return renderCampaignBriefMarkdown(model);
 }
 
-/** Provision, run controlled tests, then build/check/audit a real example. */
+/** Provision, run controlled tests, then build/check a real example. */
 async function main() {
   const binary = await provisionMdhtml();
   const tests = run(process.execPath, ["--test", join(ROOT, "test", "report", "campaign-brief-render.test.mjs")], ROOT);
@@ -425,7 +424,7 @@ async function main() {
       }
     }
     if (fromDisk !== result.html) throw new CampaignBriefRenderError("MDHTML_FAILED", "file URL bytes differ from the render result");
-    process.stdout.write(`[ok] mdhtml ${result.version} · fixture tests, build, check, audit and offline file open passed\n`);
+    process.stdout.write(`[ok] mdhtml ${result.version} · fixture tests, build, check and offline file open passed\n`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

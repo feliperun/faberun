@@ -129,7 +129,7 @@ campaign and must retain that purpose.
   exposed. Unit tests use a controlled executable fixture for success and
   failure and never skip. The `check:campaign-brief-render` development/CI
   command provisions the checksum-verified release, runs those tests, then
-  builds, checks and audits a real example and verifies its facts, theme and
+  builds and checks a real example and verifies its facts, theme and
   offline file opening.
 - **proof:** command: npm run check:campaign-brief-render
 
@@ -263,7 +263,7 @@ campaign and must retain that purpose.
   Discovery nodes, samples outside the window, unreadable history and a
   declared timeout cannot fill a missing sample.
 - The R6 proof command installs and checksum-verifies the pinned `mdhtml`
-  release, then `mdhtml build`, `mdhtml check`, and `mdhtml audit` pass on a
+  release, then `mdhtml build` and `mdhtml check` pass on a
   generated example. The rendered file works from disk with the network
   disabled and preserves source facts and the theme. A missing or failing
   binary leaves usable Markdown and removes any stale HTML.

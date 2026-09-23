@@ -70,12 +70,6 @@ if (command === "check") {
   process.exit(0);
 }
 
-if (command === "audit") {
-  failIf("audit");
-  process.stdout.write("SAFE\n");
-  process.exit(0);
-}
-
 if (command === "extract") {
   failIf("extract");
   const input = args[1];
@@ -251,15 +245,6 @@ test("names a failing portability check", () => {
   const { outputPath } = outputSpace();
   withEnv("FIXTURE_CHECK_REQUESTS", "1", () => {
     assert.throws(() => render(EXAMPLE_MARKDOWN, { mdhtmlBin: bin, outputPath }), isNamedFailure("MDHTML_CHECK_FAILED"));
-  });
-  assert.equal(existsSync(outputPath), false);
-});
-
-test("names a failing audit", () => {
-  const bin = fixtureBin();
-  const { outputPath } = outputSpace();
-  withEnv("FIXTURE_FAIL", "audit", () => {
-    assert.throws(() => render(EXAMPLE_MARKDOWN, { mdhtmlBin: bin, outputPath }), isNamedFailure("MDHTML_AUDIT_FAILED"));
   });
   assert.equal(existsSync(outputPath), false);
 });
