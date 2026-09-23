@@ -396,6 +396,7 @@ export async function sealBeforeTerminate(job, timeout) {
       runId: job.contract.id,
       nodeId: job.node.id,
       attempt: job.state.attempt,
+      exclude: job.state.verificationArtifacts,
     });
     job.state.worktree = {
       ...job.state.worktree,

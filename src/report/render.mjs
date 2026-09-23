@@ -3,7 +3,7 @@ import { basename, join } from "node:path";
 import { validateContract } from "../contract/index.mjs";
 import { readJson, writeJsonAtomic } from "../run/store.mjs";
 import { lockStale, pidAlive, readLock } from "../run/lock.mjs";
-import { scopeFindingsNote } from "../contract/scope-findings.mjs";
+import { scopeFindingsNote, verificationArtifactsNote } from "../contract/scope-findings.mjs";
 import { reviewNote } from "../contract/review-modes.mjs";
 import { validateNodeSnapshot, validateRunMetadata } from "../contract/snapshot.mjs";
 import { compactCost, compactTokens, truncateChars } from "../util.mjs";
@@ -32,7 +32,7 @@ const POINTER_ATTENTION_CHARS = 80;
 /** @typedef {{inputTokens: number|null, outputTokens: number|null, cacheReadInputTokens: number|null}} StatusPayloadUsage */
 /** @typedef {{index: number, total: number, argv: string}} VerificationProgress */
 /** @typedef {{verdict: string, maxSeverity: string, findingCount: number, summary: string|null}} StatusPayloadGate */
-/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, judgeRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, roleCostUsd: {worker: number|null, judge: number|null}, costProvenance: {worker: string, judge: string}, verdict: string|null, gate: StatusPayloadGate|null, gateOutcome: "passed"|"rejected"|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, errorCode: string|null, blockedBy: string[], verificationProgress: VerificationProgress|null, declaredReadBytes: number|null}} StatusPayloadNode */
+/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, judgeRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, roleCostUsd: {worker: number|null, judge: number|null}, costProvenance: {worker: string, judge: string}, verdict: string|null, gate: StatusPayloadGate|null, gateOutcome: "passed"|"rejected"|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, verificationArtifacts: string[]|null, errorCode: string|null, blockedBy: string[], verificationProgress: VerificationProgress|null, declaredReadBytes: number|null}} StatusPayloadNode */
 /** @typedef {{schemaVersion: 1, run: string, contractId: string, campaignId: string, goal: string, usage: {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUsd: number|null}, roles: {worker: RoleUsage, judge: RoleUsage}, controller: JsonObject, identityWarnings: string[], summary: string, nodes: StatusPayloadNode[]}} StatusPayload */
 
 /** The glyph each terminal state prints in a status table. */
@@ -296,6 +296,7 @@ function buildStatusPayload(runDir, contract, nodes, identityWarnings, usage) {
         pendingHandoff: pendingHandoff(node),
         note: statusNote(node),
         scopeFindings: node.scopeFindings?.unexpectedPaths ?? null,
+        verificationArtifacts: node.verificationArtifacts ?? null,
         errorCode: node.error?.code ?? null,
         blockedBy: node.blockedBy ?? [],
         verificationProgress: progress,
@@ -723,7 +724,7 @@ function boundedNote(segments, maxLength = MAX_NOTE_LENGTH) {
  * @returns {string|null}
  */
 export function statusNote(node) {
-  const scope = scopeFindingsNote(node.scopeFindings);
+  const scope = boundedNote([scopeFindingsNote(node.scopeFindings), verificationArtifactsNote(node.verificationArtifacts)]);
   const review = reviewNote(node);
   const detail = node.gate?.summary ?? node.error?.message ?? node.blockedBy?.join(", ") ?? (candidateVerificationActive(node) ? "candidate" : node.phase);
   const note = boundedNote([review, detail]);

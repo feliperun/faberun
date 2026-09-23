@@ -194,6 +194,7 @@ function sealPreviousAttempt(contract, node, state) {
     runId: contract.id,
     nodeId: node.id,
     attempt,
+    exclude: state.verificationArtifacts,
   });
   return sealed.empty ? null : { sha: sealed.sha, attempt };
 }

@@ -166,6 +166,7 @@ export async function settleDone(contract, node, state, runDir, lock, states, ca
       runId: contract.id,
       nodeId: node.id,
       attempt: state.attempt,
+      exclude: state.verificationArtifacts,
     });
     state.worktree = { ...state.worktree, commit: sealed.sha, status: "ready" };
     writeNode(runDir, state, lock);

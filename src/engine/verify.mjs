@@ -8,9 +8,10 @@
  * catch. `recoverVerificationAttempts` reads back what a crashed controller had
  * already proved, so a resume does not pay for the same suite twice.
  */
-import { attemptWorkspace } from "../repo/worktree.mjs";
+import { attemptWorkspace, untrackedPaths } from "../repo/worktree.mjs";
 import { boundedUtf8, errorMessage } from "../util.mjs";
 import { compactVerification } from "../contract/verification.mjs";
+import { MAX_SCOPE_FINDING_PATHS } from "../contract/scope-findings.mjs";
 import { finalVerificationCommands, phaseTerminalNode, sharedVerificationCommands } from "../contract/final-verification.mjs";
 import { join } from "node:path";
 import { listNodeSnapshots, readNodeSnapshot } from "../run/node-store.mjs";
@@ -137,7 +138,11 @@ export async function executeControllerVerification(contract, runDir, node, stat
     attempts: [...(state.verification?.attempts ?? [])],
   };
   writeNode(runDir, state, lock);
-  const workspace = attemptWorkspace(state) ?? contract.cwd;
+  const attempt = attemptWorkspace(state);
+  const workspace = attempt ?? contract.cwd;
+  // The mark between "worker finished" and "verification ran": what was
+  // already untracked is the worker's, what appears after is the suite's.
+  const untrackedBefore = attempt ? new Set(untrackedPaths(attempt)) : null;
   const commands = [...node.taskPacket.verification, ...sharedVerificationCommands(contract), ...finalVerificationCommands(contract, node, settledSiblingIds(runDir, contract, node))];
   /** @param {VerificationAttempt} attempt @returns {VerificationProgress} */
   const progressFor = (attempt) => verificationProgress(attempt.commandIndex + 1, commands.length, /** @type {VerificationCommand|undefined} */ (commands[attempt.commandIndex])?.argv);
@@ -169,8 +174,38 @@ export async function executeControllerVerification(contract, runDir, node, stat
       attempts: verificationAttemptRecords(state),
     };
   }
+  if (attempt && untrackedBefore) {
+    const artifacts = verificationArtifacts(node, state, untrackedBefore, untrackedPaths(attempt));
+    if (artifacts.length) state.verificationArtifacts = artifacts;
+    else delete state.verificationArtifacts;
+  }
   writeNode(runDir, state, lock);
   return state.verification;
+}
+
+/**
+ * RM-052, measured on `rec-audit-remediation`: the target's suite wrote
+ * `rec-wav-test-<pid>.*` into its working directory, and 14 of them crossed
+ * the seal into the remediation branch. A path the verification leaves
+ * untracked, outside the packet's declared writes, is recorded here and kept
+ * out of the seal. An earlier pass's artifact stays recorded while it is
+ * still on disk, since the next pass sees it as already there. Bounded like
+ * scope findings; an artifact past the bound would still be sealed.
+ *
+ * @param {ValidatedNode} node
+ * @param {NodeSnapshot} state
+ * @param {Set<string>} before
+ * @param {string[]} after
+ * @returns {string[]}
+ */
+function verificationArtifacts(node, state, before, after) {
+  const files = new Set(node.taskPacket.writeFiles ?? []);
+  const roots = (node.taskPacket.writeRoots ?? []).map((root) => root.replace(/\/+$/u, ""));
+  const previous = new Set(state.verificationArtifacts ?? []);
+  return after
+    .filter((path) => !before.has(path) || previous.has(path))
+    .filter((path) => !files.has(path) && !roots.some((root) => path === root || path.startsWith(`${root}/`)))
+    .slice(0, MAX_SCOPE_FINDING_PATHS);
 }
 /**
  * @param {string} runDir

@@ -129,7 +129,7 @@ export function validateNodeSnapshot(value, expectedNode = null) {
     "schemaVersion", "contractVersion", "id", "type", "sourceIdentity", "packetHash", "status", "phase",
     "attempt", "revisions", "judgeFailures", "requirementIds", "runtime", "blockedBy", "startedAt", "updatedAt", "result", "gate", "error", "usage",
     "costUsd", "routing", "progress", "worktree", "invocations", "executionOverrides", "verification", "scope",
-    "scopeFindings", "review", "previousAttempt", "sessionPolicy", "integratedHead", "declaredReadBytes",
+    "scopeFindings", "verificationArtifacts", "review", "previousAttempt", "sessionPolicy", "integratedHead", "declaredReadBytes",
   ]), "node snapshot");
   validateMetadata(value, "node snapshot");
   requireId(value.id, "node snapshot.id");
@@ -184,6 +184,7 @@ export function validateNodeSnapshot(value, expectedNode = null) {
   if (value.verification !== undefined && value.verification !== null) validateVerificationSnapshot(value.verification);
   if (value.scope !== undefined && value.scope !== null) validateScopeSnapshot(value.scope);
   if (value.scopeFindings !== undefined && value.scopeFindings !== null) validateScopeFindings(value.scopeFindings);
+  if (value.verificationArtifacts !== undefined) validatePathList(value.verificationArtifacts, "node snapshot.verificationArtifacts");
   // The session policy a rejection decision leaves for the dispatch that will
   // run the retry. It is persisted because the decision can hand the node back
   // to the scheduler, whose own `startWorker` call carries no argument; without
@@ -611,12 +612,22 @@ function validateScopeSnapshot(value) {
 function validateScopeFindings(value) {
   assertObject(value, "node snapshot.scopeFindings");
   rejectUnknown(value, new Set(["unexpectedPaths"]), "node snapshot.scopeFindings");
-  const paths = /** @type {unknown[]} */ (value.unexpectedPaths);
-  if (!Array.isArray(value.unexpectedPaths) || paths.length > MAX_SCOPE_FINDING_PATHS || paths.some((path) => typeof path !== "string")) {
-    throw new TypeError("node snapshot.scopeFindings.unexpectedPaths is invalid");
+  validatePathList(value.unexpectedPaths, "node snapshot.scopeFindings.unexpectedPaths");
+}
+/**
+ * A bounded list of workspace paths: the shape of a scope finding and of the
+ * paths a verification left behind (`verificationArtifacts`).
+ *
+ * @param {unknown} value
+ * @param {string} label
+ */
+function validatePathList(value, label) {
+  const paths = /** @type {unknown[]} */ (value);
+  if (!Array.isArray(value) || paths.length > MAX_SCOPE_FINDING_PATHS || paths.some((path) => typeof path !== "string")) {
+    throw new TypeError(`${label} is invalid`);
   }
   if (paths.some((path) => Buffer.byteLength(/** @type {string} */ (path), "utf8") > 1024)) {
-    throw new TypeError("node snapshot.scopeFindings.unexpectedPaths contains an oversized path");
+    throw new TypeError(`${label} contains an oversized path`);
   }
 }
 /**
