@@ -26,6 +26,8 @@ export function renderCampaignBriefMarkdown(model) {
   const body = [
     renderCoverage(model),
     renderWorkGraph(model),
+    renderDecisions(model),
+    renderRisksAndEvals(model),
     renderGaps(model),
     renderEstimate(model),
     renderProvenance(model),
@@ -221,11 +223,11 @@ function renderWorkGraph(model) {
   const { graph } = model;
   const edgeLines = graph.edges.length > 0
     ? graph.edges.map((edge) => `- \`${edge.from}\` → \`${edge.to}\``)
-    : ["- Edges: none"];
+    : ["- Dependency edges: none"];
   const independent = graph.independent.length > 0 ? graph.independent.map((id) => `\`${id}\``).join(", ") : "none";
   const blocking = graph.blocking.length > 0
-    ? graph.blocking.map((entry) => `\`${entry.node}\` depends on ${entry.prerequisites.map((id) => `\`${id}\``).join(", ")}`)
-    : ["none"];
+    ? graph.blocking.map((entry) => `\`${entry.node}\` depends on ${entry.prerequisites.map((id) => `\`${id}\``).join(", ")}`).join("; ")
+    : "none";
   const concurrent = Object.entries(graph.maxConcurrent)
     .map(([runtimeId, limit]) => `\`${runtimeId}\` ${limit}`)
     .join(", ");
@@ -233,11 +235,66 @@ function renderWorkGraph(model) {
     "## Work graph",
     ...edgeLines,
     `- Dependency-independent nodes: ${independent}`,
-    `- Blocking prerequisites: ${blocking.join("; ")}`,
+    `- Blocking prerequisites: ${blocking}`,
     `- maxParallel: ${graph.maxParallel}`,
     `- maxConcurrent: ${concurrent || "none"}`,
     `- Effective concurrency: ${graph.effectiveConcurrency}`,
+    `- ${renderDispatchable(graph)}`,
   ].join("\n");
+}
+
+/**
+ * The capacity reading, kept distinct from the graph reading: a node with no
+ * prerequisites is dependency-independent, but that never means it can run at
+ * the same time as a sibling. With `maxParallel` 1 the line says plainly that
+ * independent nodes are not simultaneously dispatchable.
+ *
+ * @param {BriefModel["graph"]} graph
+ * @returns {string}
+ */
+function renderDispatchable(graph) {
+  if (graph.dispatchableTogether.length >= 2) {
+    return `Workers that can run at the same time: ${graph.dispatchableTogether.map((id) => `\`${id}\``).join(", ")}.`;
+  }
+  return `Workers that can run at the same time: none — ${graph.dispatchNote}.`;
+}
+
+/**
+ * Human and delegated decisions from this campaign's spec sections and the
+ * active campaign journal projection, and nothing else. The section repeats the
+ * facts the opening carries so they survive the 250-word opening limit.
+ *
+ * @param {BriefModel} model
+ * @returns {string}
+ */
+function renderDecisions(model) {
+  const { decisions } = model;
+  const lines = [
+    "## Decisions",
+    "(sources: this campaign's spec sections and the active campaign journal projection; nothing inferred from the graph)",
+    ...decisions.human.map((text) => `- Human decision (spec): ${text}`),
+    ...decisions.delegated.map((text) => `- Delegated decision (spec): ${text}`),
+    ...decisions.journal.map((decision) => `- Journal decision [${decision.id}]: ${decision.text}${decision.at ? ` · ${decision.at}` : ""}`),
+  ];
+  if (lines.length === 2) lines.push("- none recorded");
+  return lines.join("\n");
+}
+
+/**
+ * Risks and planned evals, from this campaign's spec only.
+ *
+ * @param {BriefModel} model
+ * @returns {string}
+ */
+function renderRisksAndEvals(model) {
+  const { decisions } = model;
+  const lines = [
+    "## Risks and planned evals",
+    ...decisions.risks.map((risk) => `- Risk: ${risk.risk} — impact: ${risk.impact}; mitigation: ${risk.mitigation}`),
+    ...decisions.evals.map((text) => `- Planned eval: ${text}`),
+  ];
+  if (lines.length === 1) lines.push("- none recorded");
+  return lines.join("\n");
 }
 
 /**
@@ -256,14 +313,21 @@ function renderGaps(model) {
  */
 function renderEstimate(model) {
   const { estimate } = model;
+  const method = estimate.method.length > 0 ? estimate.method.join("; ") : "not recorded";
+  const assumptions = estimate.assumptions.length > 0 ? estimate.assumptions.join("; ") : "not recorded";
   return [
     "## Estimate",
+    `- Nodes: ${estimate.nodeCount}`,
+    `- Workers: ${estimate.workerCount}`,
     `- Cost: ${renderMeasure(estimate.cost, "usd")}`,
+    `- Cost provenance: ${estimate.cost.provenance ?? "not recorded"}`,
     `- Duration: ${renderMeasure(estimate.duration, "minutes")}`,
+    `- Duration provenance: ${estimate.duration.provenance ?? "not recorded"}`,
     `- Runtimes: ${estimate.runtimes.length > 0 ? estimate.runtimes.map((id) => `\`${id}\``).join(", ") : "none"}`,
     `- Models: ${estimate.models.length > 0 ? estimate.models.map((model_) => `\`${model_}\``).join(", ") : "none"}`,
     `- Effective worker concurrency: ${estimate.effectiveConcurrency}`,
-    `- Method: ${estimate.method.length > 0 ? estimate.method.join("; ") : "not recorded"}`,
+    `- Method: ${method}`,
+    `- Assumptions: ${assumptions}`,
     `- Sample cutoff: ${estimate.sampleCutoff ?? "not recorded"}`,
     `- Advisory only: ranges are not spend or time ceilings.`,
   ].join("\n");
@@ -276,7 +340,8 @@ function renderEstimate(model) {
  */
 function renderMeasure(measure, unit) {
   if (measure.status !== "range" || measure.min === null || measure.max === null) {
-    return `insufficient data — ${measure.reason ?? "no reason recorded"}`;
+    const samples = typeof measure.samples === "number" ? ` (${measure.samples} comparable sample${measure.samples === 1 ? "" : "s"})` : "";
+    return `insufficient data — ${measure.reason ?? "no reason recorded"}${samples}`;
   }
   const range = unit === "usd" ? `$${measure.min}–$${measure.max}` : `${measure.min}–${measure.max} minutes`;
   const provenance = measure.sourceRuns.length > 0 ? ` (source runs: ${measure.sourceRuns.join(", ")})` : "";

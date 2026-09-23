@@ -59,6 +59,17 @@ test("the emitted contract.json validates", () => {
   assert.doesNotThrow(() => validateContract(raw, contractPath));
 });
 
+test("freezing a plan does not generate a Campaign Brief", () => {
+  const dir = outDir();
+  freezePlan(fixture({ id: "plan-fixture-no-brief", campaignId: "plan-fixture-no-brief-campaign" }), {
+    outDir: dir,
+    provenance: provenance(),
+  });
+
+  assert.equal(existsSync(join(dir, "campaign-brief.md")), false);
+  assert.equal(existsSync(join(dir, "campaign-brief.md.html")), false);
+});
+
 test("a frozen contract carries operator-supplied shared and final verification, digest included", () => {
   const dir = outDir();
   const plan = fixture({ id: "plan-fixture-ratchets", campaignId: "plan-fixture-campaign-ratchets" });

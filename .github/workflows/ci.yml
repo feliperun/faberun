@@ -73,6 +73,7 @@ jobs:
       - run: npm run check
         shell: bash
       - run: npm run typecheck
+<<<<<<< HEAD
         shell: bash
       - run: npm test
           && test ! -e "$HOME/.faberun"
@@ -81,3 +82,20 @@ jobs:
         shell: bash
       - run: node evals/run.mjs --class deterministic --verify-discriminating
         shell: bash
+
+  # R6: the portable brief renderer is an optional external release, not a
+  # Faberun runtime dependency. This job provisions the checksum-verified
+  # mdhtml v1.1.3 asset named by the committed src/report/mdhtml-release.json
+  # manifest, then runs the renderer fixture tests and builds, checks and
+  # audits a real example. It stays out of the `ci` job so the required
+  # merge-path step list and the Windows install surface keep their exact
+  # shape.
+  campaign-brief-render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run check:campaign-brief-render

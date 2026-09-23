@@ -25,9 +25,12 @@ import { contractDigest } from "../contract/index.mjs";
 import { contentDigest, fileDigest } from "../plan/freeze.mjs";
 import { parseSpec } from "../plan/spec.mjs";
 import { errorCode } from "../util.mjs";
+import { projectCampaignDecisions } from "./projection.mjs";
 
 /** @typedef {import("../plan/spec.mjs").ParsedSpec} ParsedSpec */
 /** @typedef {import("../plan/spec.mjs").SpecRequirement} SpecRequirement */
+/** @typedef {import("./index.mjs").Projection} Projection */
+/** @typedef {import("./projection.mjs").ProjectedDecision} ProjectedDecision */
 /** @typedef {Record<string, any>} AnyRecord */
 
 /** @typedef {"missing_input"|"invalid_input"|"plan_digest_mismatch"|"missing_identity"|"contract_digest_mismatch"|"spec_digest_mismatch"} BriefInputErrorCode */
@@ -40,15 +43,15 @@ import { errorCode } from "../util.mjs";
 /** @typedef {{id: string, runtimeId: string|null, model: string|null, dependsOn: string[], requirementIds: string[]}} BriefGraphNode */
 /** @typedef {{from: string, to: string}} BriefGraphEdge */
 /** @typedef {{node: string, prerequisites: string[]}} BriefBlockingNode */
-/** @typedef {{nodes: BriefGraphNode[], edges: BriefGraphEdge[], independent: string[], blocking: BriefBlockingNode[], maxParallel: number, maxConcurrent: Record<string, number>, effectiveConcurrency: number, gaps: string[]}} BriefGraph */
-/** @typedef {{status: "range"|"insufficient data", min: number|null, max: number|null, samples: number|null, reason: string|null, sourceRuns: string[], method: string|null}} BriefMeasure */
-/** @typedef {{status?: "range"|"insufficient data", min?: number, max?: number, samples?: number, reason?: string, sourceRuns?: string[], method?: string}} BriefMeasureInput */
-/** @typedef {{cost?: BriefMeasureInput, duration?: BriefMeasureInput, runtimes?: string[], models?: string[], effectiveConcurrency?: number, sampleCutoff?: string|null, method?: string[]}} BriefEstimateInput */
-/** @typedef {{cost: BriefMeasure, duration: BriefMeasure, runtimes: string[], models: string[], effectiveConcurrency: number, sampleCutoff: string|null, method: string[], gaps: string[]}} BriefEstimate */
+/** @typedef {{nodes: BriefGraphNode[], edges: BriefGraphEdge[], independent: string[], blocking: BriefBlockingNode[], maxParallel: number, maxConcurrent: Record<string, number>, effectiveConcurrency: number, dispatchableTogether: string[], dispatchNote: string, gaps: string[]}} BriefGraph */
+/** @typedef {{status: "range"|"insufficient data", min: number|null, max: number|null, samples: number|null, reason: string|null, sourceRuns: string[], method: string|null, provenance: string|null}} BriefMeasure */
+/** @typedef {{status?: "range"|"insufficient data", min?: number|null, max?: number|null, samples?: number|null, reason?: string|null, sourceRuns?: string[], method?: string|null, provenance?: string|null}} BriefMeasureInput */
+/** @typedef {{cost?: BriefMeasureInput, duration?: BriefMeasureInput, runtimes?: string[], models?: string[], effectiveConcurrency?: number, nodeCount?: number, workerCount?: number, sampleCutoff?: string|null, method?: string[], assumptions?: string[]}} BriefEstimateInput */
+/** @typedef {{cost: BriefMeasure, duration: BriefMeasure, runtimes: string[], models: string[], effectiveConcurrency: number, nodeCount: number, workerCount: number, sampleCutoff: string|null, method: string[], assumptions: string[], gaps: string[]}} BriefEstimate */
 /** @typedef {{measure: string, target: string, evidence: string}} BriefSuccessCriterion */
 /** @typedef {{risk: string, impact: string, mitigation: string}} BriefRisk */
 /** @typedef {{intent: string|null, expectedOutcome: string|null, successCriteria: BriefSuccessCriterion[], humanFacts: string[], calculatedFacts: string[], gaps: string[]}} BriefOpening */
-/** @typedef {{human: string[], delegated: string[], risks: BriefRisk[], evals: string[], gaps: string[]}} BriefDecisions */
+/** @typedef {{human: string[], delegated: string[], journal: ProjectedDecision[], risks: BriefRisk[], evals: string[], gaps: string[]}} BriefDecisions */
 /** @typedef {{campaign: string, specBaseline: string|null, specDigest: string, specPath: string, targetGitHead: string|null, planPath: string, planDigest: string, contractDigest: string, journalCursor: number, usageSampleCutoff: string|null}} BriefIdentity */
 /** @typedef {{identity: BriefIdentity, opening: BriefOpening, coverage: BriefCoverage, graph: BriefGraph, decisions: BriefDecisions, estimate: BriefEstimate, decisionState: BriefDecisionState}} BriefModel */
 
@@ -67,6 +70,7 @@ import { errorCode } from "../util.mjs";
  * @property {string} [cwd]
  * @property {number} [journalCursor]
  * @property {string|null} [usageSampleCutoff]
+ * @property {Projection} [projection]
  * @property {BriefEstimateInput} [estimate]
  */
 
@@ -150,7 +154,8 @@ export function buildBriefModel(options) {
   const declarations = normalizeDeclarations(plan.phases);
   const coverage = buildCoverage(parsedSpec, declarations, contractNodes, specPath, planPath);
   const graph = buildGraph(contract, contractNodes);
-  const decisions = buildDecisions(parsedSpec);
+  const journalDecisions = options.projection ? projectCampaignDecisions(options.projection) : [];
+  const decisions = buildDecisions(parsedSpec, journalDecisions);
   const estimate = buildEstimate(options.estimate, graph, options.usageSampleCutoff ?? null);
   const opening = buildOpening(parsedSpec, coverage, graph, estimate, decisions);
   const identity = buildIdentity({
@@ -439,24 +444,125 @@ function buildGraph(contract, nodes) {
     maxConcurrent[node.runtimeId] = maxConcurrent[node.runtimeId] === undefined ? limit : Math.min(maxConcurrent[node.runtimeId], limit);
   }
   const maxParallel = Number.isInteger(contract.maxParallel) && contract.maxParallel > 0 ? contract.maxParallel : 1;
-  const independentCapacity = independent.reduce((total, id) => {
-    const node = graphNodes.find((candidate) => candidate.id === id);
-    const limit = node && node.runtimeId !== null ? maxConcurrent[node.runtimeId] ?? 1 : 1;
-    return total + limit;
-  }, 0);
-  const effectiveConcurrency = Math.max(1, Math.min(maxParallel, independent.length || 1, independentCapacity || 1));
-  return { nodes: graphNodes, edges, independent, blocking, maxParallel, maxConcurrent, effectiveConcurrency, gaps };
+  // Effective concurrency, and the workers that can actually be in flight
+  // together, are properties of the graph and the capacities -- not the size of
+  // the dependency-independent set. Two independent nodes still cannot run
+  // together when maxParallel is 1 or their shared runtime is at its cap.
+  const schedule = scheduleUnderCapacity(
+    graphNodes.map((node) => ({ id: node.id, runtimeId: node.runtimeId, dependsOn: node.dependsOn })),
+    () => 1,
+    maxParallel,
+    maxConcurrent,
+  );
+  const effectiveConcurrency = Math.max(1, schedule.peakConcurrency);
+  const dispatchableTogether = schedule.peakNodeIds;
+  return {
+    nodes: graphNodes,
+    edges,
+    independent,
+    blocking,
+    maxParallel,
+    maxConcurrent,
+    effectiveConcurrency,
+    dispatchableTogether,
+    dispatchNote: dispatchNoteFor(dispatchableTogether, graphNodes.length, maxParallel),
+    gaps,
+  };
 }
 
 /**
- * Human decisions and delegated decisions from the explicit spec sections;
- * risks and planned evals only from this campaign's spec. A missing section is
- * a gap, never inferred from the graph.
+ * Why capacity does or does not let two workers run at the same time. The note
+ * is the model's honest reading of the limits, so a renderer never has to
+ * decide whether an independent pair is "simultaneously dispatchable": with
+ * `maxParallel` 1 the answer is always no.
+ *
+ * @param {string[]} dispatchableTogether
+ * @param {number} nodeCount
+ * @param {number} maxParallel
+ * @returns {string}
+ */
+function dispatchNoteFor(dispatchableTogether, nodeCount, maxParallel) {
+  if (dispatchableTogether.length >= 2) {
+    return `up to ${dispatchableTogether.length} workers run together under maxParallel ${maxParallel} and the per-runtime maxConcurrent caps`;
+  }
+  if (nodeCount < 2) return "fewer than two nodes are planned";
+  if (maxParallel <= 1) return "maxParallel is 1, so dependency-independent nodes are not simultaneously dispatchable";
+  return "each assigned runtime's maxConcurrent admits only one worker at a time";
+}
+
+/**
+ * Schedule a dependency graph under a global `maxParallel` ceiling and each
+ * runtime's own `maxConcurrent` ceiling, reporting the wall-clock makespan and
+ * the peak number of nodes running at once. `durationOf` supplies each node's
+ * duration, so scheduling the graph with lower and upper per-node durations
+ * turns a per-node range into a plan-level elapsed range. The peak is a
+ * property of the graph and the capacities, not of the dependency-independent
+ * set.
+ *
+ * @param {{id: string, runtimeId: string|null, dependsOn: string[]}[]} nodes
+ * @param {(node: {id: string}) => number} durationOf
+ * @param {number} maxParallel
+ * @param {Record<string, number>} maxConcurrent
+ * @returns {{makespanMs: number, peakConcurrency: number, peakNodeIds: string[]}}
+ */
+export function scheduleUnderCapacity(nodes, durationOf, maxParallel, maxConcurrent) {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const remaining = new Map();
+  const dependents = new Map();
+  for (const node of nodes) {
+    const dependencies = node.dependsOn.filter((id) => byId.has(id));
+    remaining.set(node.id, dependencies.length);
+    for (const dependency of dependencies) dependents.set(dependency, [...(dependents.get(dependency) ?? []), node.id]);
+  }
+  const running = new Map();
+  const runtimeRunning = new Map();
+  const done = new Set();
+  const limit = Number.isInteger(maxParallel) && maxParallel > 0 ? maxParallel : 1;
+  let time = 0;
+  let peak = 0;
+  /** @type {string[]} */
+  let peakNodeIds = [];
+  while (done.size < nodes.length) {
+    for (const node of nodes) {
+      if (done.has(node.id) || running.has(node.id) || (remaining.get(node.id) ?? 0) > 0) continue;
+      if (running.size >= limit) break;
+      const runtimeKey = node.runtimeId ?? "";
+      const width = node.runtimeId !== null && Number.isInteger(maxConcurrent[node.runtimeId]) && maxConcurrent[node.runtimeId] > 0 ? maxConcurrent[node.runtimeId] : 1;
+      if ((runtimeRunning.get(runtimeKey) ?? 0) >= width) continue;
+      const duration = durationOf(node);
+      running.set(node.id, time + (Number.isFinite(duration) ? Math.max(0, duration) : 0));
+      runtimeRunning.set(runtimeKey, (runtimeRunning.get(runtimeKey) ?? 0) + 1);
+      if (running.size > peak) {
+        peak = running.size;
+        peakNodeIds = [...running.keys()];
+      }
+    }
+    if (running.size === 0) break; // a cycle or nothing dispatchable
+    time = Math.min(...running.values());
+    for (const [id, finish] of [...running]) {
+      if (finish !== time) continue;
+      running.delete(id);
+      runtimeRunning.set(byId.get(id)?.runtimeId ?? "", Math.max(0, (runtimeRunning.get(byId.get(id)?.runtimeId ?? "") ?? 1) - 1));
+      done.add(id);
+      for (const dependent of dependents.get(id) ?? []) remaining.set(dependent, Math.max(0, (remaining.get(dependent) ?? 1) - 1));
+    }
+  }
+  return { makespanMs: time, peakConcurrency: peak, peakNodeIds };
+}
+
+/**
+ * Human decisions and delegated decisions from the explicit spec sections and
+ * the active campaign journal projection; risks and planned evals only from
+ * this campaign's spec. A missing section, or a decision the sources cannot
+ * reconcile (the same decision claimed by both a human and a delegable section,
+ * or two active journal decisions claiming the same text under different ids),
+ * is a gap, never inferred from the graph.
  *
  * @param {ParsedSpec} parsedSpec
+ * @param {ProjectedDecision[]} journal
  * @returns {BriefDecisions}
  */
-function buildDecisions(parsedSpec) {
+function buildDecisions(parsedSpec, journal) {
   /** @param {string} name @returns {string} */
   const section = (name) => parsedSpec.sections.get(name)?.body ?? "";
   const human = [...bulletLines(section("human decisions")), ...bulletLines(section("settled owner decisions"))];
@@ -478,7 +584,37 @@ function buildDecisions(parsedSpec) {
     if (!present) gaps.push(`spec has no ${name} section`);
   }
   if (human.length === 0) gaps.push("spec records no human decision");
-  return { human, delegated, risks, evals, gaps };
+  // A decision listed as both human and delegable is ambiguous: the brief
+  // cannot claim the human kept it and delegated it. Name the conflict instead
+  // of silently choosing one side.
+  const humanTexts = new Set(human.map(normalizeDecisionText));
+  for (const decision of delegated) {
+    if (humanTexts.has(normalizeDecisionText(decision))) {
+      gaps.push(`conflicting decision is listed as both human and delegable: "${decision}"`);
+    }
+  }
+  // Two active journal decisions that carry the same text under different ids
+  // are a conflict of record; the brief refuses to pick one as authoritative.
+  /** @type {Map<string, string>} */
+  const journalByText = new Map();
+  for (const decision of journal) {
+    const key = normalizeDecisionText(decision.text);
+    const prior = journalByText.get(key);
+    if (prior !== undefined && prior !== decision.id) {
+      gaps.push(`conflicting journal decisions ${prior} and ${decision.id} record the same text: "${decision.text}"`);
+    } else {
+      journalByText.set(key, decision.id);
+    }
+  }
+  return { human, delegated, journal, risks, evals, gaps };
+}
+
+/**
+ * @param {string} text
+ * @returns {string}
+ */
+function normalizeDecisionText(text) {
+  return text.replace(/\s+/gu, " ").trim().toLowerCase();
 }
 
 /**
@@ -507,8 +643,11 @@ function buildEstimate(input, graph, sampleCutoff) {
     runtimes: unique(input?.runtimes ?? graph.nodes.map((node) => node.runtimeId).filter((id) => id !== null).map(String)),
     models: unique(input?.models ?? graph.nodes.map((node) => node.model).filter((model) => model !== null).map(String)),
     effectiveConcurrency: typeof input?.effectiveConcurrency === "number" ? input.effectiveConcurrency : graph.effectiveConcurrency,
+    nodeCount: typeof input?.nodeCount === "number" ? input.nodeCount : graph.nodes.length,
+    workerCount: typeof input?.workerCount === "number" ? input.workerCount : graph.nodes.length,
     sampleCutoff: typeof sampleCutoff === "string" && sampleCutoff.trim() ? sampleCutoff : null,
     method: input?.method ?? [],
+    assumptions: input?.assumptions ?? [],
     gaps,
   };
 }
@@ -528,6 +667,7 @@ function normalizeMeasure(input, label) {
     reason,
     sourceRuns: input?.sourceRuns ?? [],
     method: input?.method ?? null,
+    provenance: input?.provenance ?? null,
   });
   if (!input || input.status !== "range") return insufficient(input?.reason ?? `${label} range was not provided`);
   if (typeof input.samples !== "number" || input.samples < SAMPLE_FLOOR) {
@@ -544,6 +684,7 @@ function normalizeMeasure(input, label) {
     reason: null,
     sourceRuns: input.sourceRuns ?? [],
     method: input.method ?? null,
+    provenance: input.provenance ?? null,
   };
 }
 
@@ -571,6 +712,7 @@ function buildOpening(parsedSpec, coverage, graph, estimate, decisions) {
   /** @type {string[]} */
   const humanFacts = [
     ...decisions.human.map((text) => `Human decision: ${text}`),
+    ...decisions.journal.map((decision) => `Journal decision [${decision.id}]: ${decision.text}${decision.at ? ` · ${decision.at}` : ""}`),
     ...decisions.delegated.map((text) => `Delegated decision: ${text}`),
     ...decisions.risks.map((risk) => `Risk: ${risk.risk} — mitigation: ${risk.mitigation}`),
     ...decisions.evals.map((text) => `Planned eval: ${text}`),
@@ -709,7 +851,7 @@ function firstSentence(text) {
  * @param {unknown} value
  * @returns {any[]}
  */
-function asArray(value) {
+export function asArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
@@ -718,7 +860,7 @@ function asArray(value) {
  * @param {T[]} values
  * @returns {T[]}
  */
-function unique(values) {
+export function unique(values) {
   const seen = new Set();
   const result = [];
   for (const value of values) {
