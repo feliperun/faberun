@@ -349,6 +349,13 @@ test("a frozen verification timeout covers its measured duration", () => {
     { argv: ["node", "--test", "test/unmeasured"], timeoutSec: 5 },
   ]), { outDir: outDir(), provenance: provenance(), facts }), "covered timeouts, and a command with no measurement, freeze");
 
+  const script = { ...facts, scripts: { test: "node --test --import ./test/setup.mjs test/*.test.mjs test/*/*.test.mjs" } };
+  assert.throws(
+    () => freezePlan(planWith("plan-script", [{ argv: ["npm", "test"], timeoutSec: 120 }]), { outDir: outDir(), provenance: provenance(), facts: script }),
+    /npm test.*425\.9s/u,
+    "this repository's own test script, with an --import value and two globs, includes both parts once",
+  );
+
   const huge = { ...facts, verificationCandidates: [...facts.verificationCandidates, { argv: ["node", "--test", "test/huge"], measuredMs: 1_900_000, eligible: false }] };
   assert.throws(
     () => freezePlan(planWith("plan-huge", [{ argv: ["node", "--test", "test/huge"], timeoutSec: 1800 }]), { outDir: outDir(), provenance: provenance(), facts: huge }),

@@ -43,10 +43,33 @@ const PLAN_FORMAT_VERSION = 1;
  */
 const MEASURED_TIMEOUT_MARGIN = 1.5;
 
+/** `node` options whose value is the next argument, so it is not a path. */
+const NODE_VALUE_OPTIONS = new Set(["--import", "--require", "-r", "--loader", "--experimental-loader", "--env-file", "--test-reporter", "--test-reporter-destination", "--test-name-pattern", "--test-skip-pattern", "--test-concurrency", "--test-timeout"]);
+
+/**
+ * The `node --test <dir>` candidates one path argument includes: a directory
+ * includes itself and everything below it, and a glob includes the
+ * directories below its literal prefix only when it descends (`test/*` +
+ * `/…`); `test/*.test.mjs` names top-level files no candidate measured.
+ *
+ * @param {string} arg
+ * @param {string[]} directories
+ * @returns {string[]}
+ */
+function includedDirectories(arg, directories) {
+  const path = arg.replace(/^\.\//u, "").replace(/\/+$/u, "");
+  const wildcard = path.search(/[*?[]/u);
+  if (wildcard < 0) return directories.filter((directory) => directory === path || directory.startsWith(`${path}/`));
+  const base = path.slice(0, path.lastIndexOf("/", wildcard));
+  if (!path.slice(wildcard).includes("/")) return [];
+  return directories.filter((directory) => base === "" || directory.startsWith(`${base}/`));
+}
+
 /**
  * What repo facts measured for a verification command: its own candidate, or
  * the sum of the `node --test <dir>` candidates it includes, `npm test`
- * resolved through the `test` script. Null when nothing measured it.
+ * resolved through the `test` script. A lower bound when the command also
+ * runs files no candidate measured; null when it includes nothing measured.
  *
  * @param {string[]} argv
  * @param {MeasuredFacts} facts
@@ -56,20 +79,21 @@ function measuredMsFor(argv, facts) {
   const candidates = facts.verificationCandidates;
   const exact = candidates.find((candidate) => candidate.argv.join(" ") === argv.join(" "));
   if (exact) return exact.measuredMs;
-  const npmTest = argv[0] === "npm" && (argv.slice(1).join(" ") === "test" || argv.slice(1).join(" ") === "run test");
-  const resolved = npmTest && typeof facts.scripts?.test === "string" ? facts.scripts.test.trim().split(/\s+/u) : argv;
-  if (resolved.join(" ") !== argv.join(" ")) return measuredMsFor(resolved, facts);
-  if (resolved[0] !== "node" || resolved[1] !== "--test") return null;
-  const paths = resolved.slice(2).filter((arg) => !arg.startsWith("-")).map((path) => path.replace(/\/+$/u, ""));
-  const roots = paths.length ? paths : ["test"];
-  let total = 0;
-  for (const root of roots) {
-    const parts = candidates.filter((candidate) => candidate.argv[0] === "node" && candidate.argv[1] === "--test" && candidate.argv.length === 3
-      && (candidate.argv[2] === root || candidate.argv[2].startsWith(`${root}/`)));
-    if (!parts.length) return null;
-    total += parts.reduce((sum, part) => sum + part.measuredMs, 0);
+  const npmTest = argv[0] === "npm" && ["test", "run test"].includes(argv.slice(1).join(" "));
+  if (npmTest && typeof facts.scripts?.test === "string") return measuredMsFor(facts.scripts.test.trim().split(/\s+/u), facts);
+  if (argv[0] !== "node" || argv[1] !== "--test") return null;
+  const measured = new Map(candidates
+    .filter((candidate) => candidate.argv.length === 3 && candidate.argv[0] === "node" && candidate.argv[1] === "--test")
+    .map((candidate) => [candidate.argv[2].replace(/\/+$/u, ""), candidate.measuredMs]));
+  /** @type {string[]} */
+  const paths = [];
+  for (let index = 2; index < argv.length; index += 1) {
+    if (NODE_VALUE_OPTIONS.has(argv[index])) index += 1;
+    else if (!argv[index].startsWith("-")) paths.push(argv[index]);
   }
-  return total;
+  const included = new Set((paths.length ? paths : ["test"]).flatMap((path) => includedDirectories(path, [...measured.keys()])));
+  if (!included.size) return null;
+  return [...included].reduce((sum, directory) => sum + /** @type {number} */ (measured.get(directory)), 0);
 }
 
 /**
