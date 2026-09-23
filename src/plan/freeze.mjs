@@ -43,6 +43,9 @@ const PLAN_FORMAT_VERSION = 1;
  */
 const MEASURED_TIMEOUT_MARGIN = 1.5;
 
+/** `node --test` options that run a subset of the files they name. */
+const FILTER_OPTIONS = ["--test-name-pattern", "--test-skip-pattern", "--test-only", "--test-shard"];
+
 /** `node` options whose value is the next argument, so it is not a path. */
 const NODE_VALUE_OPTIONS = new Set(["--import", "--require", "-r", "--loader", "--experimental-loader", "--env-file", "--test-reporter", "--test-reporter-destination", "--test-name-pattern", "--test-skip-pattern", "--test-concurrency", "--test-timeout"]);
 
@@ -82,6 +85,8 @@ function measuredMsFor(argv, facts) {
   const npmTest = argv[0] === "npm" && ["test", "run test"].includes(argv.slice(1).join(" "));
   if (npmTest && typeof facts.scripts?.test === "string") return measuredMsFor(facts.scripts.test.trim().split(/\s+/u), facts);
   if (argv[0] !== "node" || argv[1] !== "--test") return null;
+  // A filtered run measures nothing a directory candidate measured.
+  if (argv.some((arg) => FILTER_OPTIONS.some((option) => arg === option || arg.startsWith(`${option}=`)))) return null;
   const measured = new Map(candidates
     .filter((candidate) => candidate.argv.length === 3 && candidate.argv[0] === "node" && candidate.argv[1] === "--test")
     .map((candidate) => [candidate.argv[2].replace(/\/+$/u, ""), candidate.measuredMs]));

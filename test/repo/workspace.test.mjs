@@ -121,7 +121,7 @@ test("a node that writes an ignore source is warned before and told which one af
   writeFileSync(join(directory, ".husky", "_", ".gitignore"), "*\n");
   const path = writeContract(directory, fixture({
     nodes: [
-      { id: "ignores", type: "backend", taskPacket: packet({ writeFiles: ["README.md", ".gitignore", ".husky/_/.gitignore"] }), gate: false },
+      { id: "ignores", type: "backend", taskPacket: packet({ writeFiles: ["README.md", ".gitignore", ".husky/_/.gitignore", "venv/pkg/.gitignore"] }), gate: false },
       { id: "plain", type: "backend", taskPacket: packet(), gate: false },
     ],
   }));

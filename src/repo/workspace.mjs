@@ -262,22 +262,27 @@ export function validateWorkspaceScopeBoundary(cwd, boundary, declared = {}) {
     rootOrigins,
   };
 }
+/** Directories `captureIgnoreSources` skips at any depth. */
+const SKIPPED_SOURCE_DIRS = new Set([".git", RUNS_DIR_NAME, "node_modules", ".venv", "venv"]);
+
 /** The ignore sources `captureIgnoreSources` always fingerprints at the root. */
 const ROOT_IGNORE_SOURCES = [".faberunignore", ".gitignore", ".git/config"];
 
 /**
  * Whether a workspace-relative path is one `captureIgnoreSources` fingerprints,
  * so a worker that changes it fails its node with `snapshot_ignore_changed`.
- * A `.gitignore` counts at any depth outside `node_modules`, which the walk
- * skips.
+ * A `.gitignore` counts at any depth outside the directories the walk skips.
  *
  * @param {string} path
  * @returns {boolean}
  */
 export function isIgnoreSource(path) {
   const normalized = path.replaceAll("\\", "/").replace(/^\.\//u, "");
-  if (ROOT_IGNORE_SOURCES.includes(normalized) || normalized === ".git/info/exclude") return true;
-  return basename(normalized) === ".gitignore" && !NODE_MODULES_SEGMENT.test(normalized);
+  if (ROOT_IGNORE_SOURCES.includes(normalized) || normalized === ".git/info/exclude" || normalized === ".git") return true;
+  const segments = normalized.split("/");
+  // The same directories `captureIgnoreSources` never walks.
+  if (segments.some((segment) => SKIPPED_SOURCE_DIRS.has(segment)) || [".claude", ".codex"].includes(segments[0])) return false;
+  return basename(normalized) === ".gitignore";
 }
 
 /**

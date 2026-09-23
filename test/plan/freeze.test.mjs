@@ -347,6 +347,7 @@ test("a frozen verification timeout covers its measured duration", () => {
     { argv: ["npm", "test"], timeoutSec: 700 },
     { argv: ["node", "--test", "test/engine"], timeoutSec: 300 },
     { argv: ["node", "--test", "test/unmeasured"], timeoutSec: 5 },
+    { argv: ["node", "--test", "--test-name-pattern", "one test", "test/engine"], timeoutSec: 60 },
   ]), { outDir: outDir(), provenance: provenance(), facts }), "covered timeouts, and a command with no measurement, freeze");
 
   const script = { ...facts, scripts: { test: "node --test --import ./test/setup.mjs test/*.test.mjs test/*/*.test.mjs" } };
