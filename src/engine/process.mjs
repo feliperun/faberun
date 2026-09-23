@@ -7,7 +7,7 @@
  * a judge decides, or when a run is done. That separation is the point: a stuck
  * provider is killed by the same code whatever it was asked to do.
  */
-import { boundedRegion, monitorInvocation } from "./transcript.mjs";
+import { boundedRegion, latestLogWriteMs, monitorInvocation } from "./transcript.mjs";
 import { closeSync, existsSync, fsyncSync, openSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { errorCode, errorMessage } from "../util.mjs";
@@ -36,7 +36,7 @@ import { killTarget } from "../host/platform.mjs";
 /** @typedef {{prompt: string|null, stdout: string, stderr: string}} PathSet */
 /** @typedef {{id: string, pid: number, processGroupId: number|null, processStartToken: string|null, harness: string, runtimeId: string|null, runtimeFingerprint?: string, revision?: number, phase: string, promptPath: string|null, stdoutPath: string, stderrPath: string, startedAt: string, deadlineAt: string|null, updatedAt: string, closedAt: string|null, exitCode: number|null, signal: string|null, status: "active"|"closed"|"terminated", executable: string, snapshotPath?: string, usage?: Usage, usageEstimated?: boolean, costUsd?: number|null, costProvenance?: "priced", runId?: string, campaignId?: string, nodeId?: string, attempt?: number, workspace?: string, worktreeBranch?: string|null, worktreeBaseSha?: string|null, planPhase?: string, role?: "worker"|"judge", model?: string, reasoning?: string|null, sandbox?: string|null, continuationId?: string|null, continuationMode?: "fresh"|"reuse"|"rotate", session?: import("../harnesses/session-metrics.mjs").SessionLedger|null}} Invocation */
 /** @typedef {{pid: number|null, processGroupId?: number|null, processStartToken?: string|null}} InvocationProbe */
-/** @typedef {{child: ChildProcess, contract: ValidatedContract, node: ValidatedNode, state: NodeSnapshot, runtime: HarnessRuntime & {id: string|null}, cwd: string, paths: PathSet, phase: string, invocation: Invocation, startedAt: string, startedTicks: bigint, progressTicks: bigint, lastOutputAt: number, closed: boolean, exitCode: number|null, signal: string|null, spawnError: Error|null, terminating: Promise<void>|null, gateConfigPath: string, gateReleasePath: string, scopeBaseline?: unknown, scopeChecked?: boolean, scopeViolation?: boolean, resultMaterialization?: boolean, recoveryBaseline?: unknown, observeTimer?: ReturnType<typeof setInterval>, monitorOffset?: number, monitorParser?: import("../harnesses/session-metrics.mjs").SessionMetricsParser, lastEventCount?: number, lastMonitorOffset?: number, observedOnce?: boolean, turnCapWarned?: boolean, onClose?: (invocation: Invocation) => void, onInvocationUpdate?: (invocation: Invocation) => void, onProgress?: (state: NodeSnapshot) => void}} Job */
+/** @typedef {{child: ChildProcess, contract: ValidatedContract, node: ValidatedNode, state: NodeSnapshot, runtime: HarnessRuntime & {id: string|null}, cwd: string, paths: PathSet, phase: string, invocation: Invocation, startedAt: string, startedTicks: bigint, progressTicks: bigint, lastOutputAt: number, closed: boolean, exitCode: number|null, signal: string|null, spawnError: Error|null, terminating: Promise<void>|null, gateConfigPath: string, gateReleasePath: string, logDir?: string|null, scopeBaseline?: unknown, scopeChecked?: boolean, scopeViolation?: boolean, resultMaterialization?: boolean, recoveryBaseline?: unknown, observeTimer?: ReturnType<typeof setInterval>, monitorOffset?: number, monitorParser?: import("../harnesses/session-metrics.mjs").SessionMetricsParser, lastEventCount?: number, lastMonitorOffset?: number, lastLogWriteMs?: number, observedOnce?: boolean, turnCapWarned?: boolean, onClose?: (invocation: Invocation) => void, onInvocationUpdate?: (invocation: Invocation) => void, onProgress?: (state: NodeSnapshot) => void}} Job */
 /** @typedef {{graceMs?: number, killGraceMs?: number, escalate?: boolean, runDir?: string, kill?: (pid: number, signal: string|number) => unknown, child?: ChildProcess|null}} TerminateOptions */
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -48,6 +48,16 @@ const GATE_PATH = join(HERE, "gate.mjs");
  */
 export function startProcess({ contract, node, state, runtime, prompt, paths, phase, workspace = contract.cwd, commandOptions = {}, onInvocation, onInvocationUpdate, onProgress }) {
   const command = providerCommand(runtime, prompt, commandOptions);
+  // The engine offers a log dir to every non-streaming harness; only an
+  // adapter that wants one creates it (zcode does, inside `command()` above,
+  // which has already run). Taking the offer is therefore observable, and the
+  // stall detector must key on the adapter's answer rather than on the
+  // engine's offer: `exec-jsonl` and `replay` are non-streaming too, declare
+  // no `stallTimeoutSec`, and were deliberately not stall-tracked at all. A
+  // path they never write to would otherwise have made them tracked against a
+  // log that stays empty forever -- measured 2026-09-22 against the contract
+  // default of 300s, a healthy exec-jsonl worker was killed as stalled.
+  const logDir = commandOptions.logDir && existsSync(commandOptions.logDir) ? commandOptions.logDir : null;
   if (paths.prompt) writeFileSync(paths.prompt, prompt, { flag: "wx", mode: 0o600 });
   const gateConfigPath = `${paths.prompt}.gate.json`;
   const gateReleasePath = `${paths.prompt}.gate.release`;
@@ -125,6 +135,7 @@ export function startProcess({ contract, node, state, runtime, prompt, paths, ph
     terminating: null,
     gateConfigPath,
     gateReleasePath,
+    logDir,
     onInvocationUpdate,
     onProgress,
   };
@@ -433,11 +444,13 @@ export async function detectStalls(contract, running, onTimeout, onProgress, onB
     // calling tools is alive even when it writes no workspace file, and a
     // buffered harness (zcode's `--json`) writes its whole transcript only at
     // exit, so its mtime proves nothing. A harness that never streams is
-    // stall-tracked only when its runtime declares its own threshold; otherwise
-    // the wall clock above is the only budget it is held to.
+    // stall-tracked through its provider log dir when its adapter keeps one
+    // (zcode points the CLI's `ZCODE_LOG_DIR` at it), through a runtime that
+    // declares its own threshold, or by neither — the wall clock above is
+    // then the only budget it is held to.
     const streaming = harnessCapabilities(job.runtime).streamsOutput;
     const declaredStall = typeof (/** @type {{stallTimeoutSec?: unknown}} */ (job.runtime)?.stallTimeoutSec) === "number";
-    if (!streaming && !declaredStall) continue;
+    if (!streaming && !declaredStall && !job.logDir) continue;
     const stallTimeoutSec = stallTimeoutSecFor(job.runtime, contract);
     if (streaming) {
       const monitored = monitorInvocation(job);
@@ -499,9 +512,24 @@ export async function detectStalls(contract, running, onTimeout, onProgress, onB
         await onTimeout(job, "exhausted", limit);
         continue;
       }
-    } else if (job.observedOnce !== true) {
-      job.progressTicks = now;
-      job.lastOutputAt = Date.now();
+    } else {
+      // The buffered-harness liveness signal: the CLI's log stream appending
+      // inside the attempt's log dir. An mtime that advances past the newest
+      // one this loop has seen is a write, and a write is progress — the same
+      // lower-bound discipline as the polling fixtures: it can only delay a
+      // stall verdict, never prove speed.
+      if (job.logDir) {
+        const written = latestLogWriteMs(job.logDir);
+        if (written > (job.lastLogWriteMs ?? 0)) {
+          job.lastLogWriteMs = written;
+          job.progressTicks = now;
+          job.lastOutputAt = Date.now();
+        }
+      }
+      if (job.observedOnce !== true) {
+        job.progressTicks = now;
+        job.lastOutputAt = Date.now();
+      }
     }
     job.observedOnce = true;
     if (elapsedSeconds(job.progressTicks, now) < stallTimeoutSec) continue;

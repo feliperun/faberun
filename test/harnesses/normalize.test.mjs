@@ -512,6 +512,48 @@ test("zcode tool policy is refused honestly and the judge schema travels in the 
   assert.ok(prompt.includes(JSON.stringify(JUDGE_SCHEMA)), "the schema text rides inside the prompt");
 });
 
+test("the zcode adapter points the CLI's log stream at the attempt's provider log dir", () => {
+  const root = mkdtempSync(join(tmpdir(), "runner-zcode-logdir-"));
+  const logDir = join(root, "logs", "build.1.provider");
+  const command = providerCommand({ harness: "zcode", model: "glm-5.3" }, "work", { logDir });
+  assert.equal(command.env?.ZCODE_LOG_DIR, logDir, "the CLI logs into the dir the engine watches");
+  assert.equal(command.env?.ZCODE_LOG_FORMAT, "json", "the events must arrive as data, not text");
+  assert.equal(command.env?.ZCODE_LOG_CONSOLE, "false", "stderr stays a pure error path");
+  assert.ok(existsSync(logDir), "the adapter creates the dir: the engine only reads it");
+  assert.deepEqual(
+    providerCommand({ harness: "zcode", model: "glm-5.3" }, "work").env?.ZCODE_LOG_DIR ?? null,
+    null,
+    "no dir offered, no log wiring",
+  );
+});
+
+test("the zcode adapter finds the app bundle on Linux and through the app-dir override", () => {
+  const root = mkdtempSync(join(tmpdir(), "runner-zcode-linux-"));
+  const home = join(root, "home");
+  const bin = join(home, ".local", "bin");
+  mkdirSync(bin, { recursive: true });
+  // The override wins wherever it points, and its layout mirrors the vendor's
+  // resources shape: <appDir>/zcode + <appDir>/resources/glm/zcode.cjs.
+  const appDir = join(root, "apps", "ZCode");
+  mkdirSync(join(appDir, "resources", "glm"), { recursive: true });
+  const electron = join(appDir, "zcode");
+  const cli = join(appDir, "resources", "glm", "zcode.cjs");
+  writeFileSync(electron, "electron");
+  writeFileSync(cli, "cli");
+
+  ensureZcodeAvailable({ pathDirs: [bin], home, env: { FABERUN_ZCODE_APP_DIR: appDir } });
+  const body = readFileSync(join(bin, "zcode"), "utf8");
+  assert.ok(body.includes(`exec ${electron}`), "the overridden app's Electron runs the bundle");
+  assert.ok(body.includes(cli), "and is handed the overridden app's CLI");
+
+  // An override that points nowhere installs nothing — deterministic on any
+  // host, however its real filesystem happens to be laid out.
+  const bare = join(root, "bare");
+  mkdirSync(bare, { recursive: true });
+  ensureZcodeAvailable({ pathDirs: [bare], home, env: { FABERUN_ZCODE_APP_DIR: join(root, "absent") } });
+  assert.equal(existsSync(join(bare, "zcode")), false, "no bundle at the override, no shim");
+});
+
 test("the zcode adapter installs its CLI onto the PATH when the app is bundled", () => {
   const root = mkdtempSync(join(tmpdir(), "runner-zcode-host-"));
   const home = join(root, "home");

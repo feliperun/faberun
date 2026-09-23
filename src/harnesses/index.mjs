@@ -95,7 +95,7 @@ export const READ_LINE_LIMIT = 1500;
  */
 export const READ_BYTE_LIMIT = 32 * 1024;
 
-/** @typedef {{schema?: object, schemaPath?: string, continuationId?: string|null, toolPolicy?: ToolPolicy, env?: Record<string, string>, maxTurns?: number}} CommandOptions */
+/** @typedef {{schema?: object, schemaPath?: string, continuationId?: string|null, toolPolicy?: ToolPolicy, env?: Record<string, string>, maxTurns?: number, logDir?: string|null}} CommandOptions */
 
 /** @typedef {{preferStructured?: boolean, exitCode?: number|null, signal?: string|null, stderr?: string}} NormalizeOptions */
 

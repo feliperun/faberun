@@ -34,7 +34,7 @@ import { invocationCost, invocationUsage } from "../run/usage.mjs";
 import { logPaths, startProcess } from "./process.mjs";
 import { readBoundedTail } from "./transcript.mjs";
 import { mkdirSync, statSync } from "node:fs";
-import { READ_BYTE_LIMIT, READ_LINE_LIMIT, normalizeProviderResult } from "../harnesses/index.mjs";
+import { READ_BYTE_LIMIT, READ_LINE_LIMIT, harnessCapabilities, normalizeProviderResult } from "../harnesses/index.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
 import { judgeReaskInstruction, reviewMode } from "../contract/review-modes.mjs";
 import { routeRuntimeForState, runtimeSnapshot } from "./failover.mjs";
@@ -153,12 +153,19 @@ function workerToolPolicy(runtime, node, workspace) {
  * @returns {import("../harnesses/index.mjs").CommandOptions}
  */
 function invocationCommandOptions(contract, node, state, runtime, phasePlan, runDir, lock, extra = {}) {
+  // A harness that streams its stdout proves liveness through the event
+  // monitor; a buffered one (zcode's `--json` writes only at exit) has one
+  // live surface left, its own log stream, and the adapter decides whether
+  // this dir means anything to it. Streaming harnesses get none: their log
+  // dir would be dead weight the engine never watches.
+  const streaming = harnessCapabilities(runtime).streamsOutput === true;
   return {
     ...extra,
     continuationId: runtime.capabilities.continuation === true ? phasePlan.continuationId : null,
     // The attempt's request ceiling. An adapter that can enforce it natively
     // takes it as a flag; the monitor enforces it for every streaming harness.
     maxTurns: node.maxTurns ?? contract.maxTurns,
+    logDir: streaming ? null : join(runDir, "logs", `${node.id}.${state.attempt}.provider`),
   };
 }
 /**
