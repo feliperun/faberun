@@ -1,0 +1,1094 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "rec-audit-remediation-fixes",
+  "campaignId": "rec-audit-remediation",
+  "goal": "Fix all 22 findings of the rec bug and security audit (FINDING-SYNTH-01..19 plus A.6.1..A.6.3) with regression tests and green repository gates.",
+  "cwd": "/home/frb/dev/frb/rec",
+  "maxParallel": 3,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 2700,
+  "maxTurns": 400,
+  "runtimeDefaults": {
+    "worker": "dsh-deepseek-flash",
+    "judge": "dsh-glm-5.3-flash"
+  },
+  "runtimes": {
+    "dsh-deepseek-flash": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "danger-full-access",
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      }
+    },
+    "dsh-glm-5.3-flash": {
+      "harness": "dsh",
+      "model": "glm-5.3-flash",
+      "vendor": "zhipu",
+      "sandbox": "workspace-write",
+      "config": {
+        "provider": "zai",
+        "api_key.env_key": "ZAI_API_KEY"
+      }
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "sentrux",
+        "check",
+        "."
+      ],
+      "timeoutSec": 120
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "sentrux",
+        "gate",
+        "."
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "zig",
+        "build",
+        "test",
+        "-Dtarget=x86_64-linux-gnu",
+        "--summary",
+        "all"
+      ],
+      "timeoutSec": 600
+    }
+  ],
+  "nodes": [
+    {
+      "id": "buffer-bounds",
+      "type": "fix",
+      "phase": "remediation",
+      "requirementIds": [
+        "R1",
+        "R2"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2700,
+      "definitionOfDone": [
+        {
+          "id": "suite-passes",
+          "text": "The unit-test suite passes on the whole worktree",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        },
+        {
+          "id": "test-1",
+          "text": "appendStr is now a checked, error-returning copy",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"record.appendStr refuses a buffer too small\"' src/record.zig"
+          }
+        },
+        {
+          "id": "test-2",
+          "text": "transcriptPath refuses an oversized stem",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"transcriptPath refuses a stem that does not fit\"' src/playback.zig"
+          }
+        },
+        {
+          "id": "test-3",
+          "text": "transcribe --out rejects an oversized path and the source recording",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'out path must fit the buffer' src/transcribecmd.zig && grep -qF 'out must not be the source recording' src/transcribecmd.zig"
+          }
+        },
+        {
+          "id": "finding-1",
+          "text": "FINDING-SYNTH-01 is closed: no CLI-derived string can write past a fixed stack buffer on the `rec transcribe --out` path.",
+          "judgment": true
+        },
+        {
+          "id": "finding-2",
+          "text": "FINDING-SYNTH-02 is closed: a recording filename from disk can no longer overrun the 80-byte transcript-path buffer.",
+          "judgment": true
+        },
+        {
+          "id": "finding-3",
+          "text": "A.6.2 is closed: `rec transcribe --out <the recording>` is refused and the recording is left untouched.",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "runtime": "dsh-glm-5.3-flash",
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 2
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Make every stack-buffer copy these three files perform impossible to overflow, and stop `rec transcribe --out` from destroying the source recording.",
+        "instructions": [
+          "Read FINDING-SYNTH-01, FINDING-SYNTH-02 and section A.6.2 of docs/audits/AUDIT-REPORT.md (and the two surface reports) before editing.",
+          "SYNTH-01/SYNTH-02 root cause: `pub fn appendStr` at src/record.zig:616 copies `s` into `buf` starting at `n.*` with no bound check at all. Make the primitive impossible to overrun: check `buf.len - n.* >= s.len` first and return `error{NoSpaceLeft}!void` when it does not fit. Update every caller of the *public* helper (grep for `appendStr`; outside src/record.zig it is used only by src/transcribecmd.zig and src/playback.zig, both in your writeFiles - the other .zig files define their own private copy and belong to other nodes, do not touch them). Propagate the error: command entry points print the command's existing Portuguese usage-error line and return 1.",
+          "SYNTH-01 call site: src/transcribecmd.zig:160-163 copies the raw `--out` value into a `[std.Io.Dir.max_path_bytes]u8` stack buffer. Reject an `--out` that cannot fit (`transcribe: caminho de saída longo demais`) on the existing usage-error path; route the `.md` suffix append in the default branch through the same checked helper.",
+          "SYNTH-02 call site: src/playback.zig:577-583 (`transcriptPath`) copies `library.stripExt(name)` plus `.md` into an 80-byte stack buffer. Bound it and return `null` when the name does not fit, so the caller keeps reporting 'no transcript' exactly as today.",
+          "A.6.2: src/transcribecmd.zig:237 calls `createFile(io, out_path, .{})`, which truncates, with no guard that `out_path` is the recording being transcribed. Before creating the file, refuse when `--out` resolves to the source recording and print `transcribe: --out não pode ser o próprio arquivo de entrada`, returning 1. Resolve the candidate with `std.Io.Dir.cwd().realPathFile` and compare against the already-resolved `abs_buf` recording path; a path that cannot be resolved does not exist yet, so it cannot be the recording.",
+          "Add regression tests, inline in the file they test, named exactly: `record.appendStr refuses a buffer too small` (src/record.zig), `transcriptPath refuses a stem that does not fit` (src/playback.zig), `transcribe out path must fit the buffer` (src/transcribecmd.zig), `transcribe out must not be the source recording` (src/transcribecmd.zig). Where a decision lives inside a command function, extract it into a small pure helper (for example the path-equality predicate) so the test calls it directly."
+        ],
+        "readFiles": [
+          "docs/audits/AUDIT-REPORT.md",
+          "docs/audits/01-cli-and-input.md",
+          "docs/audits/04-audio-memory-safety.md",
+          "src/record.zig",
+          "src/transcribecmd.zig",
+          "src/playback.zig"
+        ],
+        "writeFiles": [
+          "src/record.zig",
+          "src/transcribecmd.zig",
+          "src/playback.zig"
+        ],
+        "symbols": [
+          "appendStr",
+          "transcriptPath",
+          "run"
+        ],
+        "decisions": [
+          "The seven finding reports under docs/audits/ and docs/audits/AUDIT-REPORT.md are the specification of this work; their evidence and suggested fixes are trusted, their severities are not re-litigated.",
+          "This is a bug-fix campaign: every behaviour change lands with a regression test in the same file (AGENTS.md: 'Bug fixes start with a failing regression test').",
+          "Keep the diff surgical: fix the reported defect, add its test, change nothing else. No opportunistic refactors, no comment-only churn, no new dependencies, no version bump.",
+          "Code, comments and test names are in English; user-facing strings stay in the existing Brazilian Portuguese or English style of the command you are editing.",
+          "Do not edit AGENTS.md, CLAUDE.md, GEMINI.md, CURSOR.md or AGENT.md; never run git commit, git push, or any destructive git command - the controller seals and integrates your work.",
+          "Local gate: zig build test -Dtarget=x86_64-linux-gnu --summary all. A bare `zig build test` fails to link on this host (Zig 0.16.0 vs the host glibc .sframe relocations); naming the gnu target is required and is not a repository change."
+        ],
+        "nonGoals": [
+          "Fixing findings owned by another node of this contract (their files are not in writeFiles).",
+          "Reformatting, renaming, or restructuring code the finding did not name.",
+          "Adding dependencies, ADRs, version bumps, or release changes.",
+          "Touching .runs/, .zig-cache/ or zig-out/."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "zig",
+              "build",
+              "test",
+              "-Dtarget=x86_64-linux-gnu",
+              "--summary",
+              "all"
+            ],
+            "timeoutSec": 600
+          }
+        ]
+      }
+    },
+    {
+      "id": "recording-file-safety",
+      "type": "fix",
+      "phase": "remediation",
+      "requirementIds": [
+        "R3"
+      ],
+      "dependsOn": [
+        "buffer-bounds"
+      ],
+      "timeoutSec": 2700,
+      "definitionOfDone": [
+        {
+          "id": "suite-passes",
+          "text": "The unit-test suite passes on the whole worktree",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        },
+        {
+          "id": "test-1",
+          "text": "finish releases the descriptor on the RIFF-ceiling error path",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"wav.finish releases the descriptor when the RIFF ceiling is hit\"' src/wav.zig"
+          }
+        },
+        {
+          "id": "test-2",
+          "text": "same-second recorders get distinct stems",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"recording stems stay unique when the second is taken\"' src/record.zig"
+          }
+        },
+        {
+          "id": "test-3",
+          "text": "the temp file is opened exclusively",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"wav.create_write_flags is exclusive\"' src/wav.zig"
+          }
+        },
+        {
+          "id": "finding-1",
+          "text": "FINDING-SYNTH-10 is closed: two recorders starting in the same wall-clock second cannot truncate or replace each other's recording.",
+          "judgment": true
+        },
+        {
+          "id": "finding-2",
+          "text": "FINDING-SYNTH-11 is closed: no error path out of `wav.Encoder.finish()` leaves the descriptor open.",
+          "judgment": true
+        },
+        {
+          "id": "finding-3",
+          "text": "FINDING-SYNTH-17 is closed: POSIX WAV files are created owner-only (0600).",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "runtime": "dsh-glm-5.3-flash",
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 2
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Make a recording file impossible to leak, to silently collide with another recorder, or to be world-readable.",
+        "instructions": [
+          "Read FINDING-SYNTH-10, FINDING-SYNTH-11 and FINDING-SYNTH-17 in docs/audits/AUDIT-REPORT.md before editing.",
+          "SYNTH-11: src/wav.zig `finish()` sets `self.closed = true` on entry, before the descriptor is actually closed, and every error return (`error.FinalizeFailed`) leaves the fd open; because `closed` is already true, the callers' `abort()` fallback is a no-op too. Close the descriptor unconditionally before returning any error, mirroring `m4a.zig`'s `finish()` (release resources first, inspect the status afterwards). The 4 GiB RIFF-ceiling path (`maxInt(u32) - 36` PCM bytes) fires deterministically; the existing test `wav.test.finish rejects bodies past the 4 GiB RIFF limit` must be extended to assert the descriptor was released, not only that the error came back.",
+          "SYNTH-17: src/wav.zig `openNew`'s POSIX branch opens with mode 0o644 while the Windows branch two lines above asks for owner-only. Use 0o600 on POSIX, matching Windows.",
+          "SYNTH-10: `create_write_flags` (src/wav.zig) is `O_WRONLY | O_CREAT | O_TRUNC` with no `O_EXCL`, and the recording name (src/record.zig, `localTimestamp` at one-second resolution) has no uniqueness component, so two recorders started in the same second truncate each other and the later `publish()` rename silently replaces the earlier finished file.",
+          "Fix it in two layers: (a) open the temp/`.part` file with `O_EXCL` so a taken name fails loudly instead of truncating another recorder's in-progress audio; (b) on `PathAlreadyExists`, retry with a bounded numeric suffix on the *stem* (`YYYYMMDD-HHMMSS`, then `YYYYMMDD-HHMMSS-2`, `-3`, ... up to a small bound) so a second recorder still records instead of failing. Extract the candidate-name computation into a pure, testable function (for example `candidateStem` / `nextStem` taking an existence predicate) rather than open-coding it in the command loop. Keep the published file name shape `YYYYMMDD-HHMMSS.<ext>` that README.md documents; only update README.md if you change that shape.",
+          "Add regression tests inline, named exactly: `wav.finish releases the descriptor when the RIFF ceiling is hit` (src/wav.zig), `recording stems stay unique when the second is taken` (src/record.zig), and keep `wav.create_write_flags` exclusive - assert the flag in a test named `wav.create_write_flags is exclusive` (src/wav.zig)."
+        ],
+        "readFiles": [
+          "docs/audits/AUDIT-REPORT.md",
+          "docs/audits/03-filesystem-and-update.md",
+          "docs/audits/04-audio-memory-safety.md",
+          "src/wav.zig",
+          "src/record.zig",
+          "README.md"
+        ],
+        "writeFiles": [
+          "src/wav.zig",
+          "src/record.zig",
+          "README.md"
+        ],
+        "symbols": [
+          "finish",
+          "openNew",
+          "create_write_flags",
+          "abort",
+          "publish",
+          "localTimestamp"
+        ],
+        "decisions": [
+          "The seven finding reports under docs/audits/ and docs/audits/AUDIT-REPORT.md are the specification of this work; their evidence and suggested fixes are trusted, their severities are not re-litigated.",
+          "This is a bug-fix campaign: every behaviour change lands with a regression test in the same file (AGENTS.md: 'Bug fixes start with a failing regression test').",
+          "Keep the diff surgical: fix the reported defect, add its test, change nothing else. No opportunistic refactors, no comment-only churn, no new dependencies, no version bump.",
+          "Code, comments and test names are in English; user-facing strings stay in the existing Brazilian Portuguese or English style of the command you are editing.",
+          "Do not edit AGENTS.md, CLAUDE.md, GEMINI.md, CURSOR.md or AGENT.md; never run git commit, git push, or any destructive git command - the controller seals and integrates your work.",
+          "Local gate: zig build test -Dtarget=x86_64-linux-gnu --summary all. A bare `zig build test` fails to link on this host (Zig 0.16.0 vs the host glibc .sframe relocations); naming the gnu target is required and is not a repository change.",
+          "The published recording name keeps the documented `YYYYMMDD-HHMMSS` shape; uniqueness comes from an `O_EXCL` open plus a bounded numeric suffix on collision, so no user-visible naming contract changes."
+        ],
+        "nonGoals": [
+          "Fixing findings owned by another node of this contract (their files are not in writeFiles).",
+          "Reformatting, renaming, or restructuring code the finding did not name.",
+          "Adding dependencies, ADRs, version bumps, or release changes.",
+          "Touching .runs/, .zig-cache/ or zig-out/."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "zig",
+              "build",
+              "test",
+              "-Dtarget=x86_64-linux-gnu",
+              "--summary",
+              "all"
+            ],
+            "timeoutSec": 600
+          }
+        ]
+      }
+    },
+    {
+      "id": "network-hardening",
+      "type": "fix",
+      "phase": "remediation",
+      "requirementIds": [
+        "R4"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2700,
+      "definitionOfDone": [
+        {
+          "id": "suite-passes",
+          "text": "The unit-test suite passes on the whole worktree",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        },
+        {
+          "id": "test-1",
+          "text": "the Authorization value is not an argv element",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"transcribe authorization never reaches argv\"' src/transcribe.zig"
+          }
+        },
+        {
+          "id": "test-2",
+          "text": "--language can no longer inject query parameters",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"transcribe listen url rejects an injected language\"' src/transcribe.zig"
+          }
+        },
+        {
+          "id": "finding-1",
+          "text": "FINDING-SYNTH-03 is closed: the Deepgram API key never appears on a child-process argv.",
+          "judgment": true
+        },
+        {
+          "id": "finding-2",
+          "text": "FINDING-SYNTH-05 is closed: --language cannot add, override or reorder a query parameter.",
+          "judgment": true
+        },
+        {
+          "id": "finding-3",
+          "text": "FINDING-SYNTH-07 is closed: the request has a wall-clock bound and cannot hang forever.",
+          "judgment": true
+        },
+        {
+          "id": "finding-4",
+          "text": "FINDING-SYNTH-08 is closed: the response body is capped and an oversized body fails loudly.",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "runtime": "dsh-glm-5.3-flash",
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 2
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Stop the Deepgram request from leaking the key through argv, from being steered by --language, from hanging forever, and from buffering an unbounded response.",
+        "instructions": [
+          "Read FINDING-SYNTH-03, FINDING-SYNTH-05, FINDING-SYNTH-07 and FINDING-SYNTH-08 in docs/audits/AUDIT-REPORT.md before editing. All four live in `transcribe()` in src/transcribe.zig.",
+          "SYNTH-03 (critical): `Authorization: Token <key>` is passed as a literal `-H` argv element, so the key is readable in `/proc/<pid>/cmdline` and `ps` for the whole request. Take it off argv: write the header line to a temporary file created 0600 (reuse the 0600 handling `storeKey` already uses in this file), pass it with curl's `@file` header syntax (`-H @<path>`), and delete the file in a `defer`. Do not log the header or the key anywhere.",
+          "SYNTH-07: the curl argv has no `--max-time`/`--connect-timeout` and `std.process.run` passes no timeout, so a stalled peer wedges the command forever - `src/update.zig` already bounds its own downloads, so match that. Add an explicit wall-clock bound to the curl argv (and/or `RunOptions.timeout`).",
+          "SYNTH-08: neither `stdout_limit` nor `stderr_limit` is set, so a hostile or buggy endpoint can return an unbounded body. Cap the response the way `src/llm.zig` already caps harness output; when the cap is exceeded, fail with the command's existing error path rather than truncating into a silently wrong transcript.",
+          "SYNTH-05: `buildListenUrl` (src/transcribe.zig:21-34) splices `--language` straight into the query string, so `en&callback=http://attacker.example/hook` injects a second parameter. Fix it at the source: either validate the value against Deepgram's code syntax (for example `auto`, or `^[a-z]{2}(-[A-Z]{2})?$`) and reject anything else on the command's usage-error path, or percent-encode it before splicing. Pick one, document why in a one-line comment, and keep the fixed parameter order the existing tests pin.",
+          "The two existing tests `transcribe.test.listen url splices custom languages verbatim without reordering` and `transcribe.test.listen url keeps the fixed parameter order with explicit Portuguese` encode the old behaviour; update them to the new contract (a behaviour change is expected here) and add tests named exactly: `transcribe authorization never reaches argv` (assert the argv built for a request contains no key material; extract the argv construction into a pure helper if needed), `transcribe listen url rejects an injected language` and `transcribe listen url bounds the language parameter`."
+        ],
+        "readFiles": [
+          "docs/audits/AUDIT-REPORT.md",
+          "docs/audits/02-network-and-secrets.md",
+          "src/transcribe.zig",
+          "src/llm.zig"
+        ],
+        "writeFiles": [
+          "src/transcribe.zig"
+        ],
+        "symbols": [
+          "transcribe",
+          "buildListenUrl",
+          "listenUrlLen",
+          "storeKey"
+        ],
+        "decisions": [
+          "The seven finding reports under docs/audits/ and docs/audits/AUDIT-REPORT.md are the specification of this work; their evidence and suggested fixes are trusted, their severities are not re-litigated.",
+          "This is a bug-fix campaign: every behaviour change lands with a regression test in the same file (AGENTS.md: 'Bug fixes start with a failing regression test').",
+          "Keep the diff surgical: fix the reported defect, add its test, change nothing else. No opportunistic refactors, no comment-only churn, no new dependencies, no version bump.",
+          "Code, comments and test names are in English; user-facing strings stay in the existing Brazilian Portuguese or English style of the command you are editing.",
+          "Do not edit AGENTS.md, CLAUDE.md, GEMINI.md, CURSOR.md or AGENT.md; never run git commit, git push, or any destructive git command - the controller seals and integrates your work.",
+          "Local gate: zig build test -Dtarget=x86_64-linux-gnu --summary all. A bare `zig build test` fails to link on this host (Zig 0.16.0 vs the host glibc .sframe relocations); naming the gnu target is required and is not a repository change."
+        ],
+        "nonGoals": [
+          "Fixing findings owned by another node of this contract (their files are not in writeFiles).",
+          "Reformatting, renaming, or restructuring code the finding did not name.",
+          "Adding dependencies, ADRs, version bumps, or release changes.",
+          "Touching .runs/, .zig-cache/ or zig-out/."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "zig",
+              "build",
+              "test",
+              "-Dtarget=x86_64-linux-gnu",
+              "--summary",
+              "all"
+            ],
+            "timeoutSec": 600
+          }
+        ]
+      }
+    },
+    {
+      "id": "path-and-input-hardening",
+      "type": "fix",
+      "phase": "remediation",
+      "requirementIds": [
+        "R1",
+        "R5"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2700,
+      "definitionOfDone": [
+        {
+          "id": "suite-passes",
+          "text": "The unit-test suite passes on the whole worktree",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        },
+        {
+          "id": "test-1",
+          "text": "--out equality is a resolved-path comparison",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"format out refuses the same file spelled differently\"' src/formatcmd.zig"
+          }
+        },
+        {
+          "id": "test-2",
+          "text": "readLine drains the rest of an over-length line",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"setup readLine drains an over-length line\"' src/setupcmd.zig"
+          }
+        },
+        {
+          "id": "test-3",
+          "text": "the llm.zig path builders are bounded",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"llm.configDirPath refuses a value that does not fit\"' src/llm.zig && grep -qF 'test \"llm.joinPath refuses a value that does not fit\"' src/llm.zig"
+          }
+        },
+        {
+          "id": "finding-1",
+          "text": "FINDING-SYNTH-06 is closed: no spelling of the source path lets `rec format --out` truncate its own input.",
+          "judgment": true
+        },
+        {
+          "id": "finding-2",
+          "text": "FINDING-SYNTH-15 is closed: an over-length line cannot desynchronise the following prompt.",
+          "judgment": true
+        },
+        {
+          "id": "finding-3",
+          "text": "A.6.1 is closed: `XDG_CONFIG_HOME` cannot write past a caller's buffer through configDirPath or joinPath.",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "runtime": "dsh-glm-5.3-flash",
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 2
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Compare paths instead of strings in `rec format --out`, drain over-length lines in `rec setup`, and bound the two unbounded path builders in `llm.zig`.",
+        "instructions": [
+          "Read FINDING-SYNTH-06, FINDING-SYNTH-15 and section A.6.1 of docs/audits/AUDIT-REPORT.md before editing.",
+          "SYNTH-06: src/formatcmd.zig:211-219 guards `--out` against overwriting the source transcript with `std.mem.eql` on raw strings, so `./x.md`, `x.md` and an absolute spelling all slip past and the source is truncated. Compare resolved paths instead (canonicalise both, then compare), and keep the existing Portuguese refusal message and exit code.",
+          "SYNTH-15: src/setupcmd.zig `readLine` (around :343-358) stops at `n == buf.len` without consuming the rest of the line, so the leftover bytes answer the *next* prompt. After a truncated read, keep reading and discarding bytes until `\\n` or EOF before returning; a line that exactly fills the buffer is truncated, not complete.",
+          "A.6.1: src/llm.zig `configDirPath` (:230-254) and `joinPath` (:1132-1142) copy their input into the caller's buffer through the file's private `appendStr` (:1144) with no bound at all. `XDG_CONFIG_HOME` is attacker-influenced and `configDirPath` runs on almost every command (src/main.zig:106 runs the auto-update check), so a huge value writes kilobytes past a `[std.Io.Dir.max_path_bytes]u8` stack buffer.",
+          "Fix A.6.1 the same way the other nodes fix theirs: make llm.zig's private `appendStr` bound-checked (a boolean or error return) and have `configDirPath` and `joinPath` return `null` when the result would not fit. Both already return an optional; every caller in the repository already handles `null` through `if (...) |v|` or `orelse` - verify that with `grep -rn \"configDirPath(\\|joinPath(\" src/` before you rely on it, and if a caller does not, say so in a `missingContext` entry instead of editing a file outside your writeFiles.",
+          "Add regression tests inline, named exactly: `format out refuses the same file spelled differently` (src/formatcmd.zig, call the extracted predicate directly), `setup readLine drains an over-length line` (src/setupcmd.zig), `llm.configDirPath refuses a value that does not fit` and `llm.joinPath refuses a value that does not fit` (src/llm.zig)."
+        ],
+        "readFiles": [
+          "docs/audits/AUDIT-REPORT.md",
+          "docs/audits/01-cli-and-input.md",
+          "docs/audits/03-filesystem-and-update.md",
+          "src/formatcmd.zig",
+          "src/setupcmd.zig",
+          "src/llm.zig",
+          "src/main.zig"
+        ],
+        "writeFiles": [
+          "src/formatcmd.zig",
+          "src/setupcmd.zig",
+          "src/llm.zig"
+        ],
+        "symbols": [
+          "configDirPath",
+          "joinPath",
+          "appendStr",
+          "readLine",
+          "appendStr"
+        ],
+        "decisions": [
+          "The seven finding reports under docs/audits/ and docs/audits/AUDIT-REPORT.md are the specification of this work; their evidence and suggested fixes are trusted, their severities are not re-litigated.",
+          "This is a bug-fix campaign: every behaviour change lands with a regression test in the same file (AGENTS.md: 'Bug fixes start with a failing regression test').",
+          "Keep the diff surgical: fix the reported defect, add its test, change nothing else. No opportunistic refactors, no comment-only churn, no new dependencies, no version bump.",
+          "Code, comments and test names are in English; user-facing strings stay in the existing Brazilian Portuguese or English style of the command you are editing.",
+          "Do not edit AGENTS.md, CLAUDE.md, GEMINI.md, CURSOR.md or AGENT.md; never run git commit, git push, or any destructive git command - the controller seals and integrates your work.",
+          "Local gate: zig build test -Dtarget=x86_64-linux-gnu --summary all. A bare `zig build test` fails to link on this host (Zig 0.16.0 vs the host glibc .sframe relocations); naming the gnu target is required and is not a repository change.",
+          "Bound the private helpers in place; do not change the public signatures of `configDirPath` or `joinPath` beyond what returning `null` already allows."
+        ],
+        "nonGoals": [
+          "Fixing findings owned by another node of this contract (their files are not in writeFiles).",
+          "Reformatting, renaming, or restructuring code the finding did not name.",
+          "Adding dependencies, ADRs, version bumps, or release changes.",
+          "Touching .runs/, .zig-cache/ or zig-out/."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "zig",
+              "build",
+              "test",
+              "-Dtarget=x86_64-linux-gnu",
+              "--summary",
+              "all"
+            ],
+            "timeoutSec": 600
+          }
+        ]
+      }
+    },
+    {
+      "id": "update-integrity",
+      "type": "fix",
+      "phase": "remediation",
+      "requirementIds": [
+        "R6"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2700,
+      "definitionOfDone": [
+        {
+          "id": "suite-passes",
+          "text": "The unit-test suite passes on the whole worktree",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        },
+        {
+          "id": "test-1",
+          "text": "the checksum parser and comparison are covered",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"update checksum text parses and rejects a mismatch\"' src/update.zig"
+          }
+        },
+        {
+          "id": "test-2",
+          "text": "an untrusted download host is refused",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"update rejects an untrusted download url\"' src/update.zig"
+          }
+        },
+        {
+          "id": "test-3",
+          "text": "the update temp file is created exclusively",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"update temp path must be created exclusively\"' src/update.zig"
+          }
+        },
+        {
+          "id": "finding-1",
+          "text": "FINDING-SYNTH-09 is closed for the self-updater: a tampered or unreachable checksum aborts the update and leaves the installed binary in place.",
+          "judgment": true
+        },
+        {
+          "id": "finding-2",
+          "text": "FINDING-SYNTH-16 is closed: the temp path can no longer be pre-planted as a symlink that curl writes through.",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "runtime": "dsh-glm-5.3-flash",
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 2
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Make the self-updater verify the release artifact it downloads and stop trusting an unchecked, predictable temp path.",
+        "instructions": [
+          "Read FINDING-SYNTH-09 (the src/update.zig leg) and FINDING-SYNTH-16 in docs/audits/AUDIT-REPORT.md before editing.",
+          "SYNTH-09: `apply()` downloads `download_url` from the GitHub Releases API JSON and renames it over the running executable with no checksum, signature or provenance check; this same path runs unattended once a day from `autoCheck`. Add verification that fails closed.",
+          "Checksum convention, shared with the workflow/installer node: `release.yml` publishes one extra asset per artifact, named `<artifact>.sha256`, whose entire content is `<64 lowercase hex><two spaces><artifact basename>\\n` (the `sha256sum` text format). The updater must locate that sibling asset in the same release JSON (extend `extractRelease`, do not write a second JSON parser), fetch it with the existing `fetch` helper, parse the digest, and compare it against the SHA-256 of the downloaded bytes (`std.crypto.hash.sha2.Sha256`). On any mismatch, missing checksum asset, or unparseable digest: delete the temp file, report failure, and leave the running executable untouched. Never fall back to installing an unverified binary.",
+          "Also validate the download URL before fetching it: accept only `https://github.com/feliperun/rec/releases/download/` URLs (reject any other host or scheme), because the JSON is the only input and a rogue/compromised API response must not be able to redirect the updater to an arbitrary host. `extractRelease` is the place to reject it.",
+          "SYNTH-16: the temp path is the fixed, predictable `<exe>.update.tmp`, deleted and then recreated by curl with `O_CREAT` but not `O_EXCL`, so a symlink planted there in a shared install directory is followed. Create the temp file exclusively (or use a per-run unique name), and make sure a pre-existing file or symlink at the temp path makes the update fail loudly rather than being followed or clobbered.",
+          "Add regression tests inline, named exactly: `update checksum text parses and rejects a mismatch` (a pure parser + compare helper), `update rejects an untrusted download url`, and `update temp path must be created exclusively` (extract the flag choice into a pure helper if the open is not directly callable)."
+        ],
+        "readFiles": [
+          "docs/audits/AUDIT-REPORT.md",
+          "docs/audits/03-filesystem-and-update.md",
+          "docs/audits/02-network-and-secrets.md",
+          "src/update.zig",
+          ".github/workflows/release.yml",
+          "install.sh"
+        ],
+        "writeFiles": [
+          "src/update.zig"
+        ],
+        "symbols": [
+          "apply",
+          "downloadTo",
+          "extractRelease",
+          "fetch",
+          "latestRelease"
+        ],
+        "decisions": [
+          "The seven finding reports under docs/audits/ and docs/audits/AUDIT-REPORT.md are the specification of this work; their evidence and suggested fixes are trusted, their severities are not re-litigated.",
+          "This is a bug-fix campaign: every behaviour change lands with a regression test in the same file (AGENTS.md: 'Bug fixes start with a failing regression test').",
+          "Keep the diff surgical: fix the reported defect, add its test, change nothing else. No opportunistic refactors, no comment-only churn, no new dependencies, no version bump.",
+          "Code, comments and test names are in English; user-facing strings stay in the existing Brazilian Portuguese or English style of the command you are editing.",
+          "Do not edit AGENTS.md, CLAUDE.md, GEMINI.md, CURSOR.md or AGENT.md; never run git commit, git push, or any destructive git command - the controller seals and integrates your work.",
+          "Local gate: zig build test -Dtarget=x86_64-linux-gnu --summary all. A bare `zig build test` fails to link on this host (Zig 0.16.0 vs the host glibc .sframe relocations); naming the gnu target is required and is not a repository change.",
+          "Checksum contract: asset `<artifact>.sha256`, content `<64 lowercase hex><two spaces><artifact basename>\\n`; the updater, install.sh and install.ps1 all use exactly this.",
+          "The Windows branch of apply() cannot be executed on this host (no Windows machine, and the closed-packet worker has no Windows toolchain). Make the verification happen before the platform branch so both platforms are covered by the same check, and say in your summary that the Windows rename dance itself was not run."
+        ],
+        "nonGoals": [
+          "Fixing findings owned by another node of this contract (their files are not in writeFiles).",
+          "Reformatting, renaming, or restructuring code the finding did not name.",
+          "Adding dependencies, ADRs, version bumps, or release changes.",
+          "Touching .runs/, .zig-cache/ or zig-out/."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "zig",
+              "build",
+              "test",
+              "-Dtarget=x86_64-linux-gnu",
+              "--summary",
+              "all"
+            ],
+            "timeoutSec": 600
+          }
+        ]
+      }
+    },
+    {
+      "id": "supply-chain-hardening",
+      "type": "fix",
+      "phase": "remediation",
+      "requirementIds": [
+        "R7"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2700,
+      "definitionOfDone": [
+        {
+          "id": "suite-passes",
+          "text": "The unit-test suite passes on the whole worktree",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        },
+        {
+          "id": "test-1",
+          "text": "no workflow still references an action by mutable tag",
+          "proof": {
+            "kind": "command",
+            "ref": "! grep -REn 'uses: *(actions/checkout|actions/upload-artifact|mlugg/setup-zig|googleapis/release-please-action)@v' .github/workflows/"
+          }
+        },
+        {
+          "id": "test-2",
+          "text": "the installers verify a checksum",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -q 'sha256' install.sh && grep -qi 'Get-FileHash' install.ps1"
+          }
+        },
+        {
+          "id": "test-3",
+          "text": "release.yml publishes a checksum asset",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -q '.sha256' .github/workflows/release.yml"
+          }
+        },
+        {
+          "id": "test-4",
+          "text": "release.yml no longer grants pull-requests: write workflow-wide",
+          "proof": {
+            "kind": "command",
+            "ref": "python3 -c \"import re,sys; s=open('.github/workflows/release.yml').read(); head=s.split('jobs:')[0]; assert 'pull-requests' not in head, 'workflow-level pull-requests still present'\""
+          }
+        },
+        {
+          "id": "finding-1",
+          "text": "FINDING-SYNTH-04 is closed: quality.yml verifies the Sentrux binary's SHA-256 before it is made executable.",
+          "judgment": true
+        },
+        {
+          "id": "finding-2",
+          "text": "FINDING-SYNTH-09 is closed for the installers: install.sh and install.ps1 fail closed when the published checksum is missing or does not match.",
+          "judgment": true
+        },
+        {
+          "id": "finding-3",
+          "text": "FINDING-SYNTH-14 is closed: pull-requests: write is scoped to the release-please job only.",
+          "judgment": true
+        },
+        {
+          "id": "finding-4",
+          "text": "FINDING-SYNTH-19 is closed: every third-party action is pinned to a commit SHA.",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "runtime": "dsh-glm-5.3-flash",
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 2
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Pin every third-party action, shrink the release job's token, checksum-verify the Sentrux binary, and publish and verify release checksums.",
+        "instructions": [
+          "Read FINDING-SYNTH-04, FINDING-SYNTH-09 (release/installer legs), FINDING-SYNTH-14 and FINDING-SYNTH-19 in docs/audits/AUDIT-REPORT.md before editing.",
+          "SYNTH-19: replace every `uses: <action>@<tag>` with the full commit SHA plus a trailing version comment. The exact SHAs were resolved with `git ls-remote https://github.com/<repo> refs/tags/<tag>` on 2026-09-22 and are given so you do not have to guess: actions/checkout@v4 -> 11d5960a326750d5838078e36cf38b85af677262, actions/upload-artifact@v4 -> ea165f8d65b6e75b540449e92b4886f43607fa02, mlugg/setup-zig@v2 -> d1434d08867e3ee9daa34448df10607b98908d29, googleapis/release-please-action@v5 -> 45996ed1f6d02564a971a2fa1b5860e934307cf7 (this one is an annotated tag; the SHA is its peeled commit). Use them verbatim.",
+          "SYNTH-14: `permissions:` is declared once at workflow level in release.yml and applies to every job, so the `build` job carries `pull-requests: write` it never uses. Set the workflow-level permissions to the minimum (contents: read) and give each job only what it needs: `release-please` keeps `contents: write` + `pull-requests: write`, `build` keeps `contents: write` for `gh release upload`.",
+          "SYNTH-04: quality.yml downloads `sentrux-linux-x86_64` by version tag, chmods it and runs it, with no integrity check. Pin the expected digest in the step and verify before `chmod`: the v0.5.7 asset's SHA-256, measured locally on this machine from the same URL the workflow uses, is `3237f80fe20d54aad4deefa8a143f0d60543bb5d2d6ad891eb42432f155725a6`. Use `sha256sum -c` (or `shasum -a 256 -c`) with a heredoc and fail the job on mismatch.",
+          "SYNTH-09 (release + installers): release.yml must publish a checksum next to every artifact and both installers must verify it. Checksum contract, shared with the src/update.zig node: one asset per artifact named `<artifact>.sha256` whose entire content is `<64 lowercase hex><two spaces><artifact basename>\\n` (the `sha256sum` text format).",
+          "In release.yml, after staging `dist/<artifact>` and before uploading, generate `dist/<artifact>.sha256` with a step that works on all three runner OSes (the matrix mixes macos-14, ubuntu-latest and windows-latest; python3 is present on all of them, so a short `python3 -c` writing the digest is the portable choice; `sha256sum`/`shasum` are not). Upload both the artifact and its `.sha256` in the same `gh release upload` call.",
+          "In install.sh (POSIX sh, `set -eu`): find the `<asset>.sha256` asset URL in the release JSON next to the artifact URL, download it to a temp file, and verify the downloaded binary with `sha256sum` or `shasum -a 256` before `chmod 755`. Fail closed with a clear error and a non-zero exit on a missing checksum, an unparseable digest, or a mismatch. Also require the artifact URL to start with `https://github.com/feliperun/rec/releases/download/`. Keep the script idempotent and shellcheck-clean.",
+          "In install.ps1: do the same with `Get-FileHash -Algorithm SHA256`; fail closed before `& $dest --help`.",
+          "Nothing here can be executed on this host (no GitHub Actions runner, no Windows, no real release). Be conservative: keep the YAML minimal and syntactically valid, keep the shell POSIX, and verify what you can locally - `sh -n install.sh` for syntax, and `python3 -c \"import yaml,sys; yaml.safe_load(open(f))\"` for each workflow if PyYAML is available (if it is not, say so rather than skipping silently)."
+        ],
+        "readFiles": [
+          "docs/audits/AUDIT-REPORT.md",
+          "docs/audits/06-build-and-supply-chain.md",
+          ".github/workflows/ci.yml",
+          ".github/workflows/quality.yml",
+          ".github/workflows/release.yml",
+          "install.sh",
+          "install.ps1"
+        ],
+        "writeFiles": [
+          ".github/workflows/ci.yml",
+          ".github/workflows/quality.yml",
+          ".github/workflows/release.yml",
+          "install.sh",
+          "install.ps1"
+        ],
+        "symbols": [],
+        "decisions": [
+          "The seven finding reports under docs/audits/ and docs/audits/AUDIT-REPORT.md are the specification of this work; their evidence and suggested fixes are trusted, their severities are not re-litigated.",
+          "This is a bug-fix campaign: every behaviour change lands with a regression test in the same file (AGENTS.md: 'Bug fixes start with a failing regression test').",
+          "Keep the diff surgical: fix the reported defect, add its test, change nothing else. No opportunistic refactors, no comment-only churn, no new dependencies, no version bump.",
+          "Code, comments and test names are in English; user-facing strings stay in the existing Brazilian Portuguese or English style of the command you are editing.",
+          "Do not edit AGENTS.md, CLAUDE.md, GEMINI.md, CURSOR.md or AGENT.md; never run git commit, git push, or any destructive git command - the controller seals and integrates your work.",
+          "Local gate: zig build test -Dtarget=x86_64-linux-gnu --summary all. A bare `zig build test` fails to link on this host (Zig 0.16.0 vs the host glibc .sframe relocations); naming the gnu target is required and is not a repository change.",
+          "Checksum contract: asset `<artifact>.sha256`, content `<lowercase hex><two spaces><artifact basename>\\n`; release.yml, install.sh, install.ps1 and src/update.zig all use exactly this.",
+          "Action SHAs were resolved with `git ls-remote` against github.com on 2026-09-22; use the values in the instructions verbatim instead of inventing or looking up others."
+        ],
+        "nonGoals": [
+          "Fixing findings owned by another node of this contract (their files are not in writeFiles).",
+          "Reformatting, renaming, or restructuring code the finding did not name.",
+          "Adding dependencies, ADRs, version bumps, or release changes.",
+          "Touching .runs/, .zig-cache/ or zig-out/."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "zig",
+              "build",
+              "test",
+              "-Dtarget=x86_64-linux-gnu",
+              "--summary",
+              "all"
+            ],
+            "timeoutSec": 600
+          }
+        ]
+      }
+    },
+    {
+      "id": "terminal-escape-filtering",
+      "type": "fix",
+      "phase": "remediation",
+      "requirementIds": [
+        "R8"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2700,
+      "definitionOfDone": [
+        {
+          "id": "suite-passes",
+          "text": "The unit-test suite passes on the whole worktree",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        },
+        {
+          "id": "test-1",
+          "text": "DEL is stripped by the shared filter",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"viewport strips DEL like deck.cleanTitle\"' src/viewport.zig"
+          }
+        },
+        {
+          "id": "test-2",
+          "text": "filenames from disk reach the terminal filtered",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"library row filters control bytes in a filename\"' src/library.zig && grep -qF 'test \"command output filters control bytes\"' src/command_ui.zig"
+          }
+        },
+        {
+          "id": "test-3",
+          "text": "the non-tty markdown path filters escapes",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"markdown non-tty output filters escapes\"' src/markdown.zig"
+          }
+        },
+        {
+          "id": "test-4",
+          "text": "the library row buffer is bounded",
+          "proof": {
+            "kind": "command",
+            "ref": "grep -qF 'test \"library row never overruns its line buffer\"' src/library.zig"
+          }
+        },
+        {
+          "id": "finding-1",
+          "text": "FINDING-SYNTH-12 is closed: a crafted recording filename cannot inject control sequences through rec list, transcribe or format.",
+          "judgment": true
+        },
+        {
+          "id": "finding-2",
+          "text": "FINDING-SYNTH-13 is closed: a document with raw escapes is filtered on the non-tty path too.",
+          "judgment": true
+        },
+        {
+          "id": "finding-3",
+          "text": "FINDING-SYNTH-18 is closed: byte 127 is stripped wherever the viewport filter runs.",
+          "judgment": true
+        },
+        {
+          "id": "finding-4",
+          "text": "A.6.3 is closed: the library row buffer is bounded by code, not by a filesystem limit nobody documents.",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "runtime": "dsh-glm-5.3-flash",
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 2
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Strip control bytes and escape sequences from every filesystem- or document-derived string before it reaches the terminal.",
+        "instructions": [
+          "Read FINDING-SYNTH-12, FINDING-SYNTH-13, FINDING-SYNTH-18 and section A.6.3 of docs/audits/AUDIT-REPORT.md before editing.",
+          "SYNTH-18 (smallest, do it first): src/viewport.zig:45 strips bytes below 32 except tab but not byte 127, while `deck.cleanTitle` strips both. Change the condition to `token[0] < 32 or token[0] == 127`, preserving the tab exception.",
+          "SYNTH-12: `library.scan` stores the raw filesystem entry name with no validation, `appendRow` (src/library.zig, around :246-263) copies it byte-for-byte into the row buffer written straight to stdout by `rec list`, and `command_ui.zig`'s `Mode.print` (:9-11) writes unfiltered text to stderr for every command's messages. A file named with `\\x1b]0;...\\x07` reaches the real terminal on `rec list`, `rec transcribe <bad-selection>` and `rec format <bad-selection>`. Apply one shared filter - the same byte class `deck.cleanTitle` already strips - to the filename before it is stored or before it is copied into the row, and to the text `Mode.print` emits. Prefer one exported helper over two copies; if `deck.cleanTitle` is already public, call it.",
+          "SYNTH-13: src/markdown.zig `show()` routes rendered output through the escape-filtering `viewport.Document.set` only when both stdin and stderr are a tty; the `!tty` branch calls `write(io, rendered)` directly, so `rec view notes.md </dev/null` prints raw ANSI/OSC bytes from the document. Filter `rendered` through the same stripping before writing on the `!tty` branch. Do not change the tty branch's behaviour.",
+          "A.6.3: src/library.zig:221 declares `var line: [512]u8` and `appendRow` copies the name in unbounded. Today `NAME_MAX` keeps it under the limit, so this is latent, not live - make the copy bounded anyway (truncate or drop the row deliberately) and say in a comment that the bound, not the filesystem, is now the guarantee.",
+          "Add regression tests inline, named exactly: `viewport strips DEL like deck.cleanTitle` (src/viewport.zig), `library row filters control bytes in a filename` (src/library.zig), `command output filters control bytes` (src/command_ui.zig), `markdown non-tty output filters escapes` (src/markdown.zig), and `library row never overruns its line buffer` (src/library.zig). The existing `deck.test.a recording title cannot inject terminal commands or extra rows` shows the test style to follow."
+        ],
+        "readFiles": [
+          "docs/audits/AUDIT-REPORT.md",
+          "docs/audits/05-terminal-and-rendering.md",
+          "src/library.zig",
+          "src/command_ui.zig",
+          "src/markdown.zig",
+          "src/viewport.zig",
+          "src/deck.zig"
+        ],
+        "writeFiles": [
+          "src/library.zig",
+          "src/command_ui.zig",
+          "src/markdown.zig",
+          "src/viewport.zig"
+        ],
+        "symbols": [
+          "appendRow",
+          "scan",
+          "cleanTitle",
+          "show",
+          "render",
+          "set",
+          "print"
+        ],
+        "decisions": [
+          "The seven finding reports under docs/audits/ and docs/audits/AUDIT-REPORT.md are the specification of this work; their evidence and suggested fixes are trusted, their severities are not re-litigated.",
+          "This is a bug-fix campaign: every behaviour change lands with a regression test in the same file (AGENTS.md: 'Bug fixes start with a failing regression test').",
+          "Keep the diff surgical: fix the reported defect, add its test, change nothing else. No opportunistic refactors, no comment-only churn, no new dependencies, no version bump.",
+          "Code, comments and test names are in English; user-facing strings stay in the existing Brazilian Portuguese or English style of the command you are editing.",
+          "Do not edit AGENTS.md, CLAUDE.md, GEMINI.md, CURSOR.md or AGENT.md; never run git commit, git push, or any destructive git command - the controller seals and integrates your work.",
+          "Local gate: zig build test -Dtarget=x86_64-linux-gnu --summary all. A bare `zig build test` fails to link on this host (Zig 0.16.0 vs the host glibc .sframe relocations); naming the gnu target is required and is not a repository change.",
+          "One shared escaping filter, not four copies; src/deck.zig is not in writeFiles, so call its helper if it is public and otherwise put the shared helper in one of the four files you own."
+        ],
+        "nonGoals": [
+          "Fixing findings owned by another node of this contract (their files are not in writeFiles).",
+          "Reformatting, renaming, or restructuring code the finding did not name.",
+          "Adding dependencies, ADRs, version bumps, or release changes.",
+          "Touching .runs/, .zig-cache/ or zig-out/."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "zig",
+              "build",
+              "test",
+              "-Dtarget=x86_64-linux-gnu",
+              "--summary",
+              "all"
+            ],
+            "timeoutSec": 600
+          }
+        ]
+      }
+    },
+    {
+      "id": "remediation-report",
+      "type": "docs",
+      "phase": "remediation",
+      "requirementIds": [
+        "R9"
+      ],
+      "dependsOn": [
+        "buffer-bounds",
+        "recording-file-safety",
+        "network-hardening",
+        "path-and-input-hardening",
+        "update-integrity",
+        "supply-chain-hardening",
+        "terminal-escape-filtering"
+      ],
+      "timeoutSec": 2100,
+      "definitionOfDone": [
+        {
+          "id": "suite-passes",
+          "text": "The unit-test suite passes on the whole worktree",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        },
+        {
+          "id": "test-1",
+          "text": "both deliverables exist and are substantial",
+          "proof": {
+            "kind": "command",
+            "ref": "python3 -c \"import os; a=open('docs/campaigns/rec-audit-remediation/REMEDIATION.md',encoding='utf-8').read(); b=open('docs/audits/AUDIT-REPORT-ADDENDUM.md',encoding='utf-8').read(); assert len(a.splitlines())>=60, 'REMEDIATION.md too short'; assert len(b.splitlines())>=25, 'addendum too short'; missing=[i for i in range(1,20) if f'FINDING-SYNTH-{i:02d}' not in a]; assert not missing, 'findings missing from the table: '+str(missing); assert all(x in a for x in ['A.6.1','A.6.2','A.6.3']), 'late findings missing'; print('report complete')\""
+          }
+        },
+        {
+          "id": "finding-1",
+          "text": "Every one of the 22 findings is either traced to a change visible in this worktree's diff or explicitly marked unfixed with a reason.",
+          "judgment": true
+        },
+        {
+          "id": "finding-2",
+          "text": "The original AUDIT-REPORT.md is untouched and the addendum carries the three corrections and the three late findings.",
+          "judgment": true
+        }
+      ],
+      "gate": {
+        "runtime": "dsh-glm-5.3-flash",
+        "review": "advisory",
+        "failOn": [
+          "critical"
+        ],
+        "maxRevisions": 1
+      },
+      "taskPacket": {
+        "mode": "execution",
+        "objective": "Record, for every finding, what changed, where, and what proves it - and correct the audit report's factual errors in an addendum.",
+        "instructions": [
+          "This node runs last: your worktree already contains every fix this campaign integrated. Read the actual diff before writing anything: `git log --oneline -30` and `git diff 3c7f5cb..HEAD --stat` (3c7f5cb is the audit branch this campaign was cut from). Never describe a change you have not seen in that diff.",
+          "Write docs/campaigns/rec-audit-remediation/REMEDIATION.md with: (a) a short header naming the campaign, the base commit 3c7f5cb, and the audit baseline 1a21cf271f98690ef93e09306e7ed9169a444f0f; (b) one table with a row per finding - FINDING-SYNTH-01..19 plus A.6.1, A.6.2, A.6.3 - giving id, severity, status (`fixed`, or `fixed differently` with one clause of why), the files that changed, and the verification that proves it (the exact test name or command); (c) a short section per finding worth a sentence, quoting the code change; (d) a `Not fixed here` section listing anything the diff did not close, with the reason (for example the Windows-only rename dance in src/update.zig, which no host here can execute); (e) a `How this was verified` section naming the three gates and their exact invocations, including `zig build test -Dtarget=x86_64-linux-gnu --summary all` and why the gnu target is required on this machine.",
+          "The table must cover all 22 findings. If one of them is not in the diff, do not invent a fix: mark it `not fixed` and give the reason. A missing finding in this table is worse than an admitted gap.",
+          "Write docs/audits/AUDIT-REPORT-ADDENDUM.md: do not edit docs/audits/AUDIT-REPORT.md, which stays the historical record. The addendum corrects the three factual errors the independent review found and records the three findings the audit missed. Corrections: (1) the de-duplication accounting says '25 findings ... 21 retained 1:1' but the six surface reports hold 22 findings and 18 are retained 1:1, and the enumerated id list omits FINDING-SYNTH-04, a critical; (2) FINDING-SYNTH-02 says 'stdout/stdin' where the code tests stdin and stderr; (3) FINDING-SYNTH-01's claim that its call site is 'the one place that does not' bound-check is false - A.6.1 shows src/llm.zig doing the same thing on a wider surface. Late findings: A.6.1 (XDG_CONFIG_HOME overruns a stack buffer via llm.configDirPath/joinPath), A.6.2 (rec transcribe --out truncates the source recording), A.6.3 (library.appendRow's 512-byte line is bounded only by NAME_MAX). For each, give location, why it matters, and its remediation in this campaign.",
+          "Keep both documents in the style of the existing reports: English, markdown, no emoji, concrete file:line references, no marketing."
+        ],
+        "readFiles": [
+          "docs/audits/AUDIT-REPORT.md",
+          "docs/audits/01-cli-and-input.md",
+          "docs/audits/02-network-and-secrets.md",
+          "docs/audits/03-filesystem-and-update.md",
+          "docs/audits/04-audio-memory-safety.md",
+          "docs/audits/05-terminal-and-rendering.md",
+          "docs/audits/06-build-and-supply-chain.md"
+        ],
+        "writeFiles": [
+          "docs/campaigns/rec-audit-remediation/REMEDIATION.md",
+          "docs/audits/AUDIT-REPORT-ADDENDUM.md"
+        ],
+        "symbols": [],
+        "decisions": [
+          "The seven finding reports under docs/audits/ and docs/audits/AUDIT-REPORT.md are the specification of this work; their evidence and suggested fixes are trusted, their severities are not re-litigated.",
+          "This is a bug-fix campaign: every behaviour change lands with a regression test in the same file (AGENTS.md: 'Bug fixes start with a failing regression test').",
+          "Keep the diff surgical: fix the reported defect, add its test, change nothing else. No opportunistic refactors, no comment-only churn, no new dependencies, no version bump.",
+          "Code, comments and test names are in English; user-facing strings stay in the existing Brazilian Portuguese or English style of the command you are editing.",
+          "Do not edit AGENTS.md, CLAUDE.md, GEMINI.md, CURSOR.md or AGENT.md; never run git commit, git push, or any destructive git command - the controller seals and integrates your work.",
+          "Local gate: zig build test -Dtarget=x86_64-linux-gnu --summary all. A bare `zig build test` fails to link on this host (Zig 0.16.0 vs the host glibc .sframe relocations); naming the gnu target is required and is not a repository change.",
+          "The addendum is a new document; AUDIT-REPORT.md is never edited, because it is the historical record of what the audit found at baseline."
+        ],
+        "nonGoals": [
+          "Fixing findings owned by another node of this contract (their files are not in writeFiles).",
+          "Reformatting, renaming, or restructuring code the finding did not name.",
+          "Adding dependencies, ADRs, version bumps, or release changes.",
+          "Touching .runs/, .zig-cache/ or zig-out/."
+        ],
+        "verification": [
+          {
+            "argv": [
+              "zig",
+              "build",
+              "test",
+              "-Dtarget=x86_64-linux-gnu",
+              "--summary",
+              "all"
+            ],
+            "timeoutSec": 600
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,226 @@
+{
+  "id": "rec-audit-remediation",
+  "goal": "Corrigir todos os achados da auditoria de bugs e seguranca do rec (FINDING-SYNTH-01 a -19 e os achados tardios A.6.1, A.6.2 e A.6.3), cada correcao com teste de regressao, mantendo os gates do repositorio verdes.",
+  "status": "closed",
+  "linkedRunIds": [
+    "rec-audit-remediation-fixes",
+    "rec-audit-remediation-hygiene",
+    "rec-audit-remediation-hygiene-v2",
+    "rec-audit-remediation-hygiene-v3",
+    "rec-audit-remediation-cleanup"
+  ],
+  "contracts": [
+    {
+      "path": "/home/frb/.faberun/projects/cc5793cd-0093-4c7c-b1eb-381100f83ec6/runs/campaigns/rec-audit-remediation/remediation.contract.json",
+      "digest": "7b240373ae5e011f19788ee1225e8fdccdbaede7c01c68305c6d6231a3339804"
+    },
+    {
+      "path": "/home/frb/.faberun/projects/cc5793cd-0093-4c7c-b1eb-381100f83ec6/runs/campaigns/rec-audit-remediation/hygiene-v3.contract.json",
+      "digest": "99820524cfbb8a9336427a9ad1340df1c0be67245c17d7111649ba05e06d22ef"
+    },
+    {
+      "path": "/home/frb/.faberun/projects/cc5793cd-0093-4c7c-b1eb-381100f83ec6/runs/campaigns/rec-audit-remediation/cleanup.contract.json",
+      "digest": "92e1cd6b191fc42e45ba12ed03034fab473396b283cf006b3a8c63b068c0cb3d"
+    }
+  ],
+  "landBranch": "campaign/rec-audit-remediation",
+  "promotions": [
+    {
+      "runId": "rec-audit-remediation-fixes",
+      "contractPath": "/home/frb/.faberun/projects/cc5793cd-0093-4c7c-b1eb-381100f83ec6/runs/campaigns/rec-audit-remediation/remediation.contract.json",
+      "branch": "campaign/rec-audit-remediation",
+      "sha": "07594a6446f727414c1a6b0c82bad931cb744ab8",
+      "previousSha": "3c7f5cb96798ccca1aa170886472db6eaf76582d",
+      "at": "2026-09-22T23:45:37.077Z"
+    },
+    {
+      "runId": "rec-audit-remediation-hygiene-v3",
+      "contractPath": "/home/frb/.faberun/projects/cc5793cd-0093-4c7c-b1eb-381100f83ec6/runs/campaigns/rec-audit-remediation/hygiene-v3.contract.json",
+      "branch": "campaign/rec-audit-remediation",
+      "sha": "9bcdcf3b7bf16a61c5148c9fbf7b0616f1cc0665",
+      "previousSha": "07594a6446f727414c1a6b0c82bad931cb744ab8",
+      "at": "2026-09-23T00:29:38.939Z"
+    },
+    {
+      "runId": "rec-audit-remediation-cleanup",
+      "contractPath": "/home/frb/.faberun/projects/cc5793cd-0093-4c7c-b1eb-381100f83ec6/runs/campaigns/rec-audit-remediation/cleanup.contract.json",
+      "branch": "campaign/rec-audit-remediation",
+      "sha": "daa85eea2704c3a349b9181dcde0c39c89ccea6e",
+      "previousSha": "9bcdcf3b7bf16a61c5148c9fbf7b0616f1cc0665",
+      "at": "2026-09-23T00:32:15.307Z"
+    }
+  ],
+  "createdAt": "2026-09-22T22:56:38.702Z",
+  "updatedAt": "2026-09-23T00:33:01.924Z",
+  "closedAt": "2026-09-23T00:33:01.924Z",
+  "requirements": [
+    {
+      "requirementId": "R1",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "rec-audit-remediation-fixes",
+          "node": "buffer-bounds",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "rec-audit-remediation-fixes",
+          "node": "path-and-input-hardening",
+          "passed": true,
+          "verdict": "fail"
+        }
+      ]
+    },
+    {
+      "requirementId": "R10",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "rec-audit-remediation-hygiene",
+          "node": "residual-fixes",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "rec-audit-remediation-hygiene-v2",
+          "node": "residual-fixes",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "rec-audit-remediation-hygiene-v3",
+          "node": "residual-fixes",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R11",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "rec-audit-remediation-cleanup",
+          "node": "artifact-cleanup",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "rec-audit-remediation-hygiene-v3",
+          "node": "test-hygiene",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R12",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "rec-audit-remediation-hygiene-v3",
+          "node": "residual-report",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R2",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "rec-audit-remediation-fixes",
+          "node": "buffer-bounds",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R3",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "rec-audit-remediation-fixes",
+          "node": "recording-file-safety",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R4",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "rec-audit-remediation-fixes",
+          "node": "network-hardening",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R5",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "rec-audit-remediation-fixes",
+          "node": "path-and-input-hardening",
+          "passed": true,
+          "verdict": "fail"
+        }
+      ]
+    },
+    {
+      "requirementId": "R6",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "rec-audit-remediation-fixes",
+          "node": "update-integrity",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R7",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "rec-audit-remediation-fixes",
+          "node": "supply-chain-hardening",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R8",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "rec-audit-remediation-fixes",
+          "node": "terminal-escape-filtering",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R9",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "rec-audit-remediation-fixes",
+          "node": "remediation-report",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    }
+  ]
+}
