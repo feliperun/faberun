@@ -52,7 +52,7 @@ import {
   workerResultPath,
 } from "./result-file.mjs";
 import { canReuseResultEvidence, checkResultMaterializationScope, checkWorkerScope, recordScopeFinding, sourceWorkerRuntime } from "./scope.mjs";
-import { startJudge, startResultMaterialization } from "./dispatch.mjs";
+import { startJudge, startMechanicalGate, startResultMaterialization } from "./dispatch.mjs";
 import { raiseNodeAttention, settleDone } from "./settle.mjs";
 import { applyRejection, applyVerificationFailure } from "./settle.mjs";
 import { emitNodeAdvisories } from "./notify-queue.mjs";
@@ -587,11 +587,10 @@ export async function finalizeClosedJobs(contract, runDir, states, closed, lock,
         continue;
       }
       if (job.scopeViolation) recordScopeFinding(runDir, state, lock);
-      if (job.node.gate.enabled) {
-        await applyJudgeRound(await startJudge(contract, job.node, state, runDir, running, workerResult, lock, states, campaignPath),
-          contract, job.node, state, runDir, running, lock, states, campaignPath, workerResult);
-      }
-      else await settleDone(contract, job.node, state, runDir, lock, states, campaignPath, { phase: "complete", result: workerResult });
+      const round = job.node.gate.enabled
+        ? await startJudge(contract, job.node, state, runDir, running, workerResult, lock, states, campaignPath)
+        : await startMechanicalGate(contract, job.node, state);
+      await applyJudgeRound(round, contract, job.node, state, runDir, running, lock, states, campaignPath, workerResult);
       continue;
     }
   }
