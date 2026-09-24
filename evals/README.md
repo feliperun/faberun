@@ -163,6 +163,10 @@ The matrix reads one or more judge-canary result files (the versioned
 all the files and repetitions given for it, and prints a markdown table: one
 row per worker vendor family, one column per measured judge, each cell reading
 recall / false-alarm rate / US$ per case, with the best allowed judge marked.
+The JSON also gives each judge's `blocking` recall and false-alarm rate for a
+gate whose `failOn` includes `minor` and for one that stops at `major`, and its
+`pricedCostPerVerdictUsd`, which leaves out refused calls booked at their
+estimate.
 The vendor rule (`src/contract/index.mjs`) forbids a judge of the worker's own
 vendor, so a family's cells are blank where the rule blocks it and a family
 with no allowed judge says so. The best allowed judge is the highest recall;

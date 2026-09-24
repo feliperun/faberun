@@ -55,7 +55,18 @@ const USAGE = "usage: node evals/judge-canary-matrix.mjs [--result-dir <dir>] <r
  * @property {number|null} falseAlarmRate
  * @property {number} costUsd
  * @property {number|null} costPerCaseUsd
+ * @property {number|null} pricedCostPerVerdictUsd
+ * @property {Record<string, {recall: number|null, falseAlarmRate: number|null}>} blocking
  */
+
+/**
+ * The severity sets a blocking gate is measured at. A case blocks when its
+ * verdict is `fail` and its highest severity is in `failOn` (the rule of
+ * `src/engine/review.mjs`); a defect also needs a cited finding. Measured
+ * 2026-09-24: a third of the planted defects drew only `minor`, so the two
+ * sets give different judges (D9).
+ */
+const BLOCKING_SETS = { "minor-and-above": ["minor", "major", "critical"], "major-and-above": ["major", "critical"] };
 
 /**
  * @typedef {PooledCounts & {family: string}} FamilyScore
@@ -226,7 +237,23 @@ function poolOutcomes(outcomes) {
     falseAlarmRate: ratio(cleanRejected, clean.length),
     costUsd,
     costPerCaseUsd: invocations > 0 ? round4(costUsd / invocations) : null,
+    // What a verdict really cost: a refused call booked at its estimate is not spend.
+    pricedCostPerVerdictUsd: pricedPerVerdict(verdicts),
+    blocking: Object.fromEntries(Object.entries(BLOCKING_SETS).map(([name, failOn]) => {
+      /** @param {JsonObject} outcome */
+      const blocks = (outcome) => outcome.verdict === "fail" && failOn.includes(String(outcome.maxSeverity));
+      return [name, {
+        recall: ratio(defects.filter((outcome) => blocks(outcome) && outcome.cited === true).length, defects.length),
+        falseAlarmRate: ratio(clean.filter(blocks).length, clean.length),
+      }];
+    })),
   };
+}
+
+/** @param {JsonObject[]} verdicts @returns {number|null} */
+function pricedPerVerdict(verdicts) {
+  const priced = verdicts.filter((outcome) => outcome.costProvenance === "priced" && typeof outcome.costUsd === "number");
+  return priced.length > 0 ? round4(priced.reduce((total, outcome) => total + Number(outcome.costUsd), 0) / priced.length) : null;
 }
 
 /**

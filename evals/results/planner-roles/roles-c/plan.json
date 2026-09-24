@@ -1,0 +1,19 @@
+{
+  "formatVersion": 1,
+  "status": "contested",
+  "rounds": 4,
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "major",
+      "nodeId": "revise-validated-and-converging",
+      "text": "Seven DoD command references have no matching command in their node's verification array: unique-repair and one-free-retry in revise-validated-and-converging; absence-grep-flagged and no-model-call in proof-writable-before-review; contested-output in contested-plan-resolves-from-answers; and run-refuses-other and supervise-refuses-other in managed-block-does-not-block-launch. Each references an unfiltered single-file invocation, while verification declares a filtered invocation and a directory-wide suite. Those are different commands, so the references have no corresponding verification index when frozen. Register the referenced invocations or bind these proofs to the existing unfiltered suite entries."
+    },
+    {
+      "id": "plan-shape-freeze-r4",
+      "severity": "critical",
+      "nodeId": "plan",
+      "text": "nodes[0] (human-step-carried-by-frozen-plan) has verification but worker runtime claude-opus uses permissionMode=acceptEdits; claude executes commands only in bypassPermissions"
+    }
+  ]
+}
