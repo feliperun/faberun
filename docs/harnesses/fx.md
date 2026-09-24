@@ -18,7 +18,11 @@ machine can hold (see [Measured](#measured) for the runner's share).
 
 ## How a turn runs
 
-The adapter spawns `src/harnesses/fx/runner.mjs`, not `fx`. The runner:
+The adapter spawns Faberun's fx client, not `fx`. The client exists twice with
+one transcript: `src/harnesses/fx/native/` in Zig, which the adapter runs once
+`zig build` (Zig 0.16) has produced `native/zig-out/bin/faberun-fx-runner`, and
+`src/harnesses/fx/runner.mjs`, which it runs otherwise. `test/harnesses/fx.test.mjs`
+runs the same end-to-end cases against both. The client:
 
 1. starts a loopback relay (`usage-proxy.mjs`) in front of the provider;
 2. builds a throwaway HOME (`home.mjs`) whose `.fx/settings.json` points a
@@ -65,11 +69,16 @@ One parseDuration turn through the runner, 2026-09-24: 33 s, suite passing,
 12 tool calls streamed, 12 provider requests, 11,599 uncached and 156,544 cached
 input tokens (93.1% hit), 2,854 output tokens.
 
-Memory per worker, measured the same day on the same fixture: the runner's
-Node process (ACP client plus relay) peaked at 83 MB resident and `fx acp` at
-9 MB, about 92 MB for the pair. `dsh --profile headless` alone peaked at
-310-370 MB, before the Node runner Faberun puts in front of it. The runner, not
-fx, is now most of an fx worker's footprint.
+Memory per worker, measured the same day on the same fixture:
+
+| Client | Client peak | `fx acp` peak | Worker total |
+| --- | ---: | ---: | ---: |
+| `native/` (Zig, ReleaseSafe, 1.3 MB binary), three turns | 15-16 MB | 9 MB | ~25 MB |
+| `runner.mjs` (Node), one turn | 83 MB | 9 MB | ~92 MB |
+| `dsh --profile headless`, three turns, no Faberun runner | — | — | 310-370 MB |
+
+A Faberun run of the same contract through the native client peaked at 16.6 MB
+for the client, 62k cached input tokens, and a passing Definition of Done.
 
 GLM is not routed through fx: Z.ai's Coding Plan lists its supported tools and
 fx is not one of them.

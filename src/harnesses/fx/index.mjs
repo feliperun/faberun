@@ -4,6 +4,7 @@
  * client, not the `fx` binary, is what the gate spawns.
  */
 
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseVersion } from "../protocol.mjs";
@@ -20,6 +21,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  * binary exists".
  */
 const RUNNER = join(HERE, "runner.mjs");
+
+/**
+ * The same client in Zig (`native/`), built by `zig build` in that directory.
+ * Measured 2026-09-24 over three parseDuration turns: 15-16 MB resident
+ * against 83 MB for `runner.mjs`, with the same transcript. Until a release
+ * ships the binary, a checkout that has not built it runs `runner.mjs`.
+ */
+const NATIVE_RUNNER = join(HERE, "native", "zig-out", "bin", process.platform === "win32" ? "faberun-fx-runner.exe" : "faberun-fx-runner");
 
 /**
  * Measured 2026-09-24 on the parseDuration fixture on one macOS machine: this
@@ -81,15 +90,16 @@ export const fxHarness = {
    * @returns {import("../index.mjs").HarnessCommand}
    */
   command(runtime, prompt, options = {}) {
-    const args = [RUNNER, "--fx", this.executable(runtime), "--model", runtime.model];
+    const args = ["--fx", this.executable(runtime), "--model", runtime.model];
     if (runtime.sandbox) args.push("--sandbox", runtime.sandbox);
     const config = runtime.config ?? {};
     if (typeof config.base_url === "string" && config.base_url) args.push("--base-url", config.base_url);
     if (typeof config["api_key.env_key"] === "string" && config["api_key.env_key"]) args.push("--key-env", config["api_key.env_key"]);
     if (typeof config.context_window === "number") args.push("--context-window", String(config.context_window));
+    const native = existsSync(NATIVE_RUNNER);
     return {
-      executable: process.execPath,
-      args,
+      executable: native ? NATIVE_RUNNER : process.execPath,
+      args: native ? args : [RUNNER, ...args],
       promptTransport: "stdin",
       input: withSchema(prompt, options.schema),
       env: runnerEnvironmentOverlay(process.env),
