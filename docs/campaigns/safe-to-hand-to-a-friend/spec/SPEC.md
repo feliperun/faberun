@@ -1,12 +1,12 @@
 ---
 id: safe-to-hand-to-a-friend
 title: "Um estranho instala, roda e desinstala sem ajuda e sem expor as credenciais dele"
-version: 1.2.0
+version: 1.3.0
 status: draft
 date: 2026-09-24
 owner: Felipe Broering
 target: feliperun/faberun
-baseline: 1357ea6
+baseline: 3847121
 derived_from: evals-with-a-budget
 followed_by: friends-pilot
 ---
@@ -124,7 +124,7 @@ dentro da recusa.
 
 ## Estado medido
 
-`1357ea6` (0.24.0), com a evidência dos journals das campanhas 0, 1 e 2.
+`3847121` (0.25.0), com a evidência dos journals das campanhas 0, 1, 2 e 2b.
 
 | Indicador | Hoje | Alvo |
 | --- | --- | --- |
@@ -143,6 +143,11 @@ dentro da recusa.
 | Lançamentos recusados só pelo bloco gerenciado do `AGENTS.md` | todos, na campanha zero | 0 |
 | Nó recusado por contexto que continua sem intervenção manual no pacote | não | sim, com aprovação do operador |
 | Verbo que remove o que o faberun escreveu fora do repositório | não | `faberun uninstall` |
+| Juiz de nó escolhido de uma lista ordenada (D9) | não: o contrato nomeia um juiz e um fallback | primeiro elegível da lista, com fallback de vários saltos |
+| Regra de vendor que compara o provedor canônico | não: compara o campo `vendor`, texto livre (o exemplo da skill usa `openai-sol` e `zhipu-flash`) | provedor derivado do harness e do modelo |
+| Revisor do planner configurado à parte do juiz do contrato (D11) | não: um `--runtime-defaults judge=` nomeia os dois | lista própria de revisores |
+| Operador de um provedor só consegue juiz | não | sim, por opt-in, marcado em tudo o que um humano lê |
+| Planos contestados por `proof.ref` escrito como texto | os dois configs de worker do R5 da `choose-the-judges` | 0 |
 
 Peças existentes que o trabalho reusa: `childEnv` de `src/engine/gate.mjs`,
 `missingEnvironmentVariables` e o `env_key` dos runtimes, `redactSecrets`,
@@ -292,10 +297,9 @@ scaffold`, o pipeline de plano com seus estágios, `validateContract` com
 ### R14. O revise não piora o plano
 
 - **statement:** toda saída do revise passa pela validação determinística do
-  plano antes de contar como rodada. Um defeito mecânico com reparo único (um
-  `proof.ref` escrito como o texto de um comando de verificação que existe no
-  nó vira o índice desse comando) é reparado e registrado; um defeito sem
-  reparo único volta ao mesmo revise uma vez, com as mensagens do validador, sem
+  plano antes de contar como rodada. Um defeito mecânico com reparo único é
+  reparado e registrado (o `proof.ref` escrito como texto deixa de ser defeito:
+  R21 o aceita); um defeito sem reparo único volta ao mesmo revise uma vez, com as mensagens do validador, sem
   consumir rodada de revisão. O pipeline para e contesta, com um finding
   `revision_not_converging` que mostra a contagem de críticos por rodada, quando
   uma rodada termina com tantos ou mais críticos que a anterior, em vez de gastar
@@ -334,6 +338,57 @@ scaffold`, o pipeline de plano com seus estágios, `validateContract` com
   `1357ea6`, o requisito fecha com o teste de regressão.
 - **proof:** `command: node --test --test-name-pattern="the managed signal block alone does not block a launch"`
 
+### R18. O juiz de cada nó sai de uma lista ordenada, com fallback de vários saltos
+
+- **statement:** a lista de juízes é estática e ordenada, declarada no contrato
+  e no config da máquina (`faberun setup`); a do contrato ganha, como já é com o
+  worker. Para cada nó, o engine escolhe o primeiro da lista cujo provedor
+  canônico (`openai`, `anthropic`, `zhipu`, `deepseek`, `google`) é diferente do
+  provedor do worker, pulando quem tiver recusa registrada na máquina ou janela
+  de uso acima de 90%. Se o juiz escolhido for recusado durante a run, a vez
+  passa ao próximo elegível, quantas vezes for preciso, sem voltar a um que já
+  foi recusado. A run registra o juiz escolhido e, para cada um pulado, o
+  motivo. O provedor canônico é derivado do harness e do modelo, e não do campo
+  `vendor`: a regra de vendor de `validateContract` passa a compará-lo, e um
+  `vendor` que o contradiz é recusado. A lista da D9 é `gpt-6-sol`,
+  `claude-opus-5-5`, `glm-5.3-flash`.
+- **proof:** `command: node --test --test-name-pattern="the judge is the first eligible entry of the list and falls back hop by hop" test/engine/judge-list.test.mjs`
+
+### R19. O planner tem uma lista própria de revisores, separada do juiz do contrato
+
+- **statement:** `faberun plan` recebe uma lista ordenada de revisores,
+  declarada como a de juízes (contrato do plano ou config da máquina), e o
+  estágio `review` usa o primeiro elegível dela. O juiz de cada nó do contrato
+  congelado sai da lista de juízes de R18, e nunca da de revisores: um revisor de
+  planejamento não julga nó de worker (D11: Fable e Astra revisam planos). Um
+  revisor do mesmo provedor do planner deixa de tornar o contrato congelado
+  impossível de rotear, porque os dois papéis não compartilham mais o
+  `--runtime-defaults judge=`.
+- **proof:** `command: node --test --test-name-pattern="the plan reviewer comes from its own list and never judges a node" test/plan/reviewer-list.test.mjs`
+
+### R20. O modo de um provedor só é opt-in e aparece em tudo o que um humano lê
+
+- **statement:** um operador com um provedor só declara, de forma explícita,
+  `judgeIndependence: "same-vendor"` no contrato ou no config da máquina; sem
+  isso, um nó sem juiz de outro provedor continua recusado. No modo, o juiz é
+  outro modelo, com `tier` igual ou acima do `tier` do worker no catálogo
+  (Sonnet trabalha, Opus ou Fable julga), e um juiz de `tier` menor é recusado. O
+  Campaign Brief, o relatório da run e as métricas marcam cada nó assim como
+  "revisão do mesmo provedor". O canário ganha a leitura desse cenário: um juiz
+  sobre os defeitos escritos por outro modelo da mesma família, lido à parte.
+- **proof:** `command: node --test --test-name-pattern="same-vendor review is opt-in, needs a judge of equal or higher tier and is marked everywhere" test/contract/judge-independence.test.mjs`
+
+### R21. O `proof.ref` de um plano é aceito pelo texto do comando ou pelo índice
+
+- **statement:** no plano, o `proof.ref` de uma prova de verificação pode ser o
+  índice do comando ou o texto exato de um comando da verificação do nó; o
+  congelamento normaliza o texto para o índice. Um texto que não casa com nenhum
+  comando continua sendo defeito, com o nó e os comandos que existem na
+  mensagem. Medido na `choose-the-judges` (R5): o `proof.ref` inválido veio do
+  revise do `gpt-5.6-luna` e do rascunho do `claude-opus-5-5`, então é formato,
+  não modelo.
+- **proof:** `command: node --test --test-name-pattern="a plan proof names its verification by text or by index" test/plan/proof-ref.test.mjs`
+
 ## Não-objetivos
 
 - Sandbox de container, microVM ou `ai-jail` (RM-027 a RM-029, RM-048). A lista
@@ -344,16 +399,17 @@ scaffold`, o pipeline de plano com seus estágios, `validateContract` com
 - Instalador gráfico, app ou página web.
 - Reautoria automática sem aprovação para risco `high`.
 - Suporte a Windows além do que o CI já cobre hoje.
-- Reescrever o revise com outro modelo ou mudar o modelo padrão do planner. R14
-  mede e para; escolher o revisor é roteamento.
+- Escolher quais modelos estão nas listas de juízes e de revisores, ou a ordem
+  delas. R18 e R19 dão o mecanismo; as listas são a D9 e a D11.
 - `RM-086` (o `faberun plan` que morreu dentro de um painel tmux sem reproduzir
   fora dele). Fica medido e não reproduzido; o programa usa `plan --detach`.
-- Revisar a D9. É decisão do dono, fora desta spec.
+- Revisar a D9 ou a D11. São decisões do dono, fora desta spec.
+- Calibrar a severidade dos findings (RM-103).
 
 ## Restrições
 
-- **Ordem das fases.** A fase 1 é o planner e o lançamento (R14, R15, R16, R17 e
-  R9). Só ela pode ter contrato escrito à mão, registrado como `hand-authored`.
+- **Ordem das fases.** A fase 1 é o planner e o lançamento (R14, R15, R16, R17,
+  R9 e R18 a R21). Só ela pode ter contrato escrito à mão, registrado como `hand-authored`.
   Da fase 2 em diante, todo contrato desta campanha sai do `faberun plan`; um
   contrato escrito à mão depois da fase 1 é registrado e conta contra o critério
   de sucesso, não é proibido.
@@ -383,6 +439,7 @@ scaffold`, o pipeline de plano com seus estágios, `validateContract` com
 | Tempo da primeira campanha offline de ponta a ponta | não existe | menos de 60 s |
 | Contratos escritos à mão nas fases 2 em diante desta campanha | 10 de 10 nas três campanhas anteriores | 0 |
 | Rodadas de revisão gastas depois que os críticos pararam de cair | até 2 por plano | 0 |
+| Nós cujo juiz sai da lista da D9 sem juiz nomeado à mão | 0 | todos os desta campanha da fase 2 em diante |
 
 ## Riscos
 
