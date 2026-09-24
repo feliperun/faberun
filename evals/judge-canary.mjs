@@ -88,6 +88,31 @@ const COMMON_JUDGMENT_ITEMS = [
 ];
 const BEHAVIOUR_REASON = "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there.";
 
+/** The archive's name inside the tree it is extracted into, removed once the tree is out. */
+const ARCHIVE_FILE = ".faberun-canary-tree.tar";
+
+/**
+ * Extract a commit's tree (or some of its paths) into `dir` through a file, not
+ * a pipe, and with a relative name. Measured 2026-09-24 on CI: macOS's bsdtar
+ * stops reading at the end-of-archive marker, so the padding `git archive`
+ * writes after it hit EPIPE on a piped extraction; and GNU tar on Windows reads
+ * `C:\...` in `-C` or `-f` as a remote host, so no absolute path reaches it.
+ *
+ * @param {string} sha
+ * @param {string[]} paths every path when empty
+ * @param {string} dir
+ * @returns {void}
+ */
+function extractArchive(sha, paths, dir) {
+  const file = join(dir, ARCHIVE_FILE);
+  try {
+    execFileSync("git", ["-C", REPO_ROOT, "archive", "--output", file, sha, ...(paths.length ? ["--", ...paths] : [])], { stdio: ["ignore", "ignore", "pipe"], timeout: EXTRACT_TIMEOUT_MS, killSignal: "SIGKILL" });
+    execFileSync("tar", ["-xf", ARCHIVE_FILE], { cwd: dir, stdio: ["ignore", "ignore", "pipe"], timeout: EXTRACT_TIMEOUT_MS, killSignal: "SIGKILL" });
+  } finally {
+    rmSync(file, { force: true });
+  }
+}
+
 /** @param {string[]} args @param {string} cwd @returns {string} */
 function runGit(args, cwd = REPO_ROOT) {
   return runGitPreservingOutput(args, cwd).trim();
@@ -232,9 +257,7 @@ function sealedDiff(task, writeFiles, edits, caseId) {
   try {
     const present = runGit(["ls-tree", "-r", "--name-only", task.meta.parentSha, "--", ...writeFiles]).split("\n").filter(Boolean);
     if (present.length > 0) {
-      const archive = execFileSync("git", ["-C", REPO_ROOT, "archive", task.meta.parentSha, "--", ...present], { maxBuffer: 64 * 1024 * 1024, timeout: EXTRACT_TIMEOUT_MS, killSignal: "SIGKILL" });
-      // `-C C:\...` reads as a remote host to GNU tar on Windows (measured 2026-09-24, CI); cwd has no colon.
-      execFileSync("tar", ["-x"], { cwd: temp, input: archive, stdio: ["pipe", "ignore", "pipe"], timeout: EXTRACT_TIMEOUT_MS, killSignal: "SIGKILL" });
+      extractArchive(task.meta.parentSha, present, temp);
     }
     runGit(["init", "-q"], temp);
     runGit(["add", "-A"], temp);
@@ -354,8 +377,7 @@ export async function assertDiscriminatingArtifacts(artifacts) {
 function extractParentTree(parentSha, root = tmpdir(), prefix = "faberun-canary-base-") {
   const dir = mkdtempSync(join(root, prefix));
   try {
-    const archive = execFileSync("git", ["-C", REPO_ROOT, "archive", parentSha], { maxBuffer: 64 * 1024 * 1024, timeout: EXTRACT_TIMEOUT_MS, killSignal: "SIGKILL" });
-    execFileSync("tar", ["-x", "-C", dir], { input: archive, stdio: ["pipe", "ignore", "pipe"], timeout: EXTRACT_TIMEOUT_MS, killSignal: "SIGKILL" });
+    extractArchive(parentSha, [], dir);
     return dir;
   } catch (error) {
     rmSync(dir, { recursive: true, force: true });
