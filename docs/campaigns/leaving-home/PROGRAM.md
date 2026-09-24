@@ -58,6 +58,11 @@ depende do anterior:
    versionada, com banda e orçamento duro. O juiz ganha um canário que mede se
    ele pega defeitos que a prova mecânica não vê. É aqui que o projeto passa a
    gerar eval de verdade.
+2b. **`choose-the-judges`.** Curta, entre a 2 e a 3: o canário ganha casos
+   escritos fora da família Anthropic e duas repetições, mede os juízes
+   candidatos (DeepSeek v4 Pro, GLM 5.3 Pro, GPT Sol 6, Opus 5.5) e três
+   configurações de papel do planner, e troca o juiz único da D9 por uma matriz
+   de juiz permitido por vendor de worker.
 3. **`safe-to-hand-to-a-friend`.** O planner para de divergir, acha prova
    impossível antes da revisão e representa passo humano (ficou em 0 de 10
    contratos nas campanhas 1 e 2 e na anterior); o worker deixa de herdar o ambiente inteiro,
@@ -82,6 +87,7 @@ Toda campanha fecha com `faberun spec validate <spec> --strict-traceability
 | 0 para 1 | a suíte passa sob carga no macOS do operador; nó que escreve fonte de ignore é avisado; nenhum juiz precisa de `workspace-write` |
 | 1 para 2 | `evals/baseline.json` recomputa a partir de ledgers versionados; o registro do `orchestration-arms` está em main; o orçamento de bytes da skill está em vigor |
 | 2 para 3 | três repetições do round complexo com banda; canário medido em pelo menos dois runtimes de juiz; D9 registrada |
+| 2b para 3 | D9 revisada com a matriz de juízes; D11 sobre os papéis do planner registrada |
 | 3 para 4 | segredo plantado não chega ao worker; `GETTING-STARTED.md` conferido no CI; primeira campanha offline de um estranho verde; a próxima campanha do próprio operador fecha sem contrato escrito à mão |
 | 4 para divulgação | D10 registrada |
 
@@ -120,6 +126,7 @@ Toda campanha fecha com `faberun spec validate <spec> --strict-traceability
 | `first-target-frictions` | até US$ 5 | 0 |
 | `evidence-you-can-recompute` | até US$ 15 com writers baratos | 0 |
 | `evals-with-a-budget` | até US$ 20 | até US$ 100 (R11) |
+| `choose-the-judges` | até US$ 5 | até US$ 70 (R4 e R5) |
 | `safe-to-hand-to-a-friend` | até US$ 25 | 0 |
 | `friends-pilot` | até US$ 10 | 0 (o custo do participante é dele, com teto sugerido) |
 
