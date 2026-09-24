@@ -24,12 +24,13 @@ import { spawnInvocation } from "../host/platform.mjs";
  * opt-in that reads the host.
  */
 
-/** Display order of the registered harnesses: claude, codex, agy, dsh, zcode, exec-jsonl, replay. */
+/** Display order of the registered harnesses: claude, codex, agy, dsh, fx, zcode, exec-jsonl, replay. */
 export const MODEL_HARNESS_ORDER = Object.freeze([
   "claude",
   "codex",
   "agy",
   "dsh",
+  "fx",
   "zcode",
   "exec-jsonl",
   "replay",
@@ -93,6 +94,13 @@ export const DECLARED_MODEL_CATALOGUES = Object.freeze({
     declaredModel("deepseek-v4-pro", { contextWindowTokens: DSH_CONTEXT_WINDOW_TOKENS, efforts: DSH_EFFORTS, defaultEffort: "high" }),
     declaredModel("deepseek-v4-flash-vision-exp", { contextWindowTokens: DSH_CONTEXT_WINDOW_TOKENS, efforts: DSH_EFFORTS, defaultEffort: "high" }),
   ]),
+  // The two ids api.deepseek.com/models listed on 2026-09-24. No efforts:
+  // fx's settings carry one `effort` for the Gateway catalogue and send
+  // nothing a custom Chat Completions connection is known to honour.
+  fx: Object.freeze([
+    declaredModel("deepseek-flash", { contextWindowTokens: DSH_CONTEXT_WINDOW_TOKENS, efforts: NO_EFFORTS }),
+    declaredModel("deepseek-v4-pro", { contextWindowTokens: DSH_CONTEXT_WINDOW_TOKENS, efforts: NO_EFFORTS }),
+  ]),
   zcode: Object.freeze([
     declaredModel("glm-5.3-flash", { contextWindowTokens: GLM_CONTEXT_WINDOW_TOKENS, efforts: NO_EFFORTS }),
     // No `[1m]` row: the suffix is a Claude Code convention the ZCode CLI does
@@ -110,6 +118,7 @@ const CATALOGUE_SOURCES = Object.freeze({
   claude: "declared",
   codex: "declared",
   dsh: "declared",
+  fx: "declared",
   zcode: "declared",
   "exec-jsonl": "runtime-declared",
   replay: "runtime-declared",
@@ -125,18 +134,20 @@ const EFFORT_TRANSPORT = Object.freeze({
   codex: "config.model_reasoning_effort",
   agy: "--effort",
   dsh: "--reasoning (harness reasoningEffort)",
+  fx: null,
   zcode: null,
   "exec-jsonl": null,
   replay: null,
 });
 
 /**
- * Why a harness resolves no vendor: dsh, exec-jsonl, and replay declare none.
+ * Why a harness resolves no vendor: dsh, fx, exec-jsonl, and replay declare none.
  *
  * @type {Readonly<Record<string, string>>}
  */
 const VENDOR_NOTES = Object.freeze({
   dsh: "unresolved: dsh declares no default vendor; the contract names it",
+  fx: "unresolved: fx declares no default vendor; the contract names it",
   "exec-jsonl": "unresolved: exec-jsonl declares no default vendor; the contract names it",
   replay: "unresolved: replay declares no default vendor; the contract names it",
 });

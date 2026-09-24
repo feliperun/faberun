@@ -3,6 +3,7 @@ import { claudeHarness } from "./claude/index.mjs";
 import { codexHarness } from "./codex/index.mjs";
 import { agyHarness } from "./agy/index.mjs";
 import { dshHarness } from "./dsh/index.mjs";
+import { fxHarness } from "./fx/index.mjs";
 import { zcodeHarness } from "./zcode/index.mjs";
 import { execJsonlHarness } from "./exec-jsonl/index.mjs";
 import { replayHarness } from "./replay/index.mjs";
@@ -20,6 +21,7 @@ const HARNESSES = new Map([
   ["codex", codexHarness],
   ["agy", agyHarness],
   ["dsh", dshHarness],
+  ["fx", fxHarness],
   ["zcode", zcodeHarness],
   ["exec-jsonl", execJsonlHarness],
   ["replay", replayHarness],
@@ -65,7 +67,7 @@ const CAPABILITY_NAMES = new Set([
 
 /**
  * One declared runtime. `harness` names a registered adapter (`claude`,
- * `codex`, `agy`, `dsh`, `zcode`, `exec-jsonl`, or `replay`) and `model` names
+ * `codex`, `agy`, `dsh`, `fx`, `zcode`, `exec-jsonl`, or `replay`) and `model` names
  * what that harness asks; the two are independent. replay requires
  * `config["replay.recording"]` for commands, and dsh requires
  * `config.provider` for the provider route every attempt runs on.

@@ -140,7 +140,7 @@ function createLivePreflightRepo() {
  */
 function safeLiveRuntime(runtime) {
   if (runtime.harness === "codex") return { ...runtime, sandbox: "read-only" };
-  if (runtime.harness === "dsh") return { ...runtime, sandbox: "read-only" };
+  if (runtime.harness === "dsh" || runtime.harness === "fx") return { ...runtime, sandbox: "read-only" };
   if (runtime.harness === "claude") return { ...runtime, permissionMode: "plan" };
   // `plan` is the ZCode mode that reads without writing; the adapter's own
   // default is `yolo`, which a preflight prompt must never reach.

@@ -187,8 +187,8 @@ after a `retrospective` note. A campaign refuses to close without one.
   Values stay in the shell and in the harness's own session.
 - **`bypassPermissions` only in a recoverable repository.** Headless
   `acceptEdits` denies execution, so a node that runs commands needs
-  `bypassPermissions` (claude) or `yolo` (zcode); `dsh` defaults to
-  `workspace-write` and uses `danger-full-access` only for effects outside the
+  `bypassPermissions` (claude) or `yolo` (zcode); `dsh` and `fx` default to
+  `workspace-write` and use `danger-full-access` only for effects outside the
   worktree. The target is a git work tree, so every attempt is recoverable from
   its worktree and the run ref.
 - **Snapshot and install.** The workspace snapshot skips `.runs`, `.git`,
@@ -204,6 +204,6 @@ after a `retrospective` note. A campaign refuses to close without one.
 - [VISION.md](VISION.md) · [CONCEPTS.md](CONCEPTS.md) · [COMMANDS.md](COMMANDS.md)
 - [GETTING-STARTED.md](GETTING-STARTED.md) · [ADRs](adr/README.md)
 - [FIELD-OWNERSHIP.md](FIELD-OWNERSHIP.md) · [history/README.md](history/README.md)
-- [harnesses/zcode-cli.md](harnesses/zcode-cli.md) · [AGENTS.md](../AGENTS.md)
+- [harnesses/zcode-cli.md](harnesses/zcode-cli.md) · [harnesses/fx.md](harnesses/fx.md) · [AGENTS.md](../AGENTS.md)
 - [contract reference](../skills/faberun/references/contract.md) ·
   [operations reference](../skills/faberun/references/operations.md)

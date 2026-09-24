@@ -51,6 +51,16 @@ export const DISCOVERY_RUNTIME_DEFINITIONS = Object.freeze({
     tier: 1,
     costRank: 1,
   },
+  // Declared after dsh, so dsh still wins the tier-1 tie-break until a
+  // parallel campaign measures fx against it.
+  "fx-deepseek": {
+    harness: "fx",
+    model: "deepseek-flash",
+    vendor: "deepseek",
+    config: { "api_key.env_key": "DEEPSEEK_API_KEY" },
+    tier: 1,
+    costRank: 1,
+  },
   "zcode-glm": {
     harness: "zcode",
     model: "glm-5.3",

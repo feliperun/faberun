@@ -313,6 +313,7 @@ const SIDE_EFFECT_ENV_KEYS = [
   "FABERUN_CLAUDE_BIN", // same, for the claude harness
   "FABERUN_AGY_BIN", // same, for the agy harness
   "FABERUN_DSH_BIN", // same, for the dsh harness
+  "FABERUN_FX_BIN", // same, for the fx harness
   "FABERUN_ZCODE_BIN", // same, for the zcode harness
   "FABERUN_EXEC_JSONL_BIN", // same, for the exec-jsonl harness
 ];
@@ -641,7 +642,7 @@ export async function doctorCommand(contractPath, values) {
   // already validated whatever the runtime actually resolves to. `zcode` is
   // absent on purpose — its binary is a shim the harness writes on first use, so
   // a PATH miss here is the normal state of a fresh machine, not a missing
-  // dependency; `dsh` runs through its own SDK client, not a PATH binary.
+  // dependency; `dsh` and `fx` run through Faberun's own clients, not a PATH binary.
   for (const binary of ["codex", "claude", "agy", "exec-jsonl"]) {
     const overrideName = /** @type {Record<string, string>} */ (HARNESS_BIN_OVERRIDES)[binary];
     const overridden = overriddenHarnesses.has(binary) || Boolean(process.env[overrideName]);
