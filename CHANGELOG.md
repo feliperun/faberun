@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.24.0](https://github.com/feliperun/faberun/compare/v0.23.1...v0.24.0) (2026-09-24)
+
+
+### Features
+
+* evals that spend money have a budget, a band and a place on main ([6dd2117](https://github.com/feliperun/faberun/commit/6dd21170c9c6d9018c7685fd0dd0e41a27de9f74))
+
 ## [0.23.1](https://github.com/feliperun/faberun/compare/v0.23.0...v0.23.1) (2026-09-23)
 
 
