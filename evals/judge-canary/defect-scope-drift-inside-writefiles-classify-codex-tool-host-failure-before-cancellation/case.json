@@ -1,0 +1,173 @@
+{
+  "schemaVersion": 2,
+  "id": "defect-scope-drift-inside-writefiles-classify-codex-tool-host-failure-before-cancellation",
+  "label": "defect:scope-drift-inside-writefiles",
+  "sourceTask": "classify-codex-tool-host-failure-before-cancellation",
+  "source": {
+    "commitSha": "717d8bfc83dc120be1d453e0c3c30f7186bd79ad",
+    "parentSha": "0f04e2cc8490a19821cb253592d8d0cbe7fd2b8c",
+    "runtimeOriginal": null,
+    "costUsdOriginal": null,
+    "wallClockSecOriginal": null,
+    "statementSource": "commit-message",
+    "parentTreeSha": "30441a654df7153586afe022a1e8499fe900f4d7"
+  },
+  "nodeId": "codex-tool-host-precedence",
+  "diffPaths": [
+    "skills/mine/intent-factory/scripts/drivers/codex.mjs",
+    "skills/mine/intent-factory/scripts/drivers/exec-jsonl.mjs",
+    "skills/mine/intent-factory/test/drivers.test.mjs"
+  ],
+  "verification": [
+    {
+      "argv": [
+        "node",
+        "--check",
+        "skills/mine/intent-factory/scripts/drivers/codex.mjs"
+      ]
+    },
+    {
+      "argv": [
+        "node",
+        "--check",
+        "skills/mine/intent-factory/scripts/drivers/exec-jsonl.mjs"
+      ]
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "skills/mine/intent-factory/test/drivers.test.mjs"
+      ]
+    }
+  ],
+  "taskPacket": {
+    "mode": "execution",
+    "objective": "normalizeCodexResult classifies a disabled code-mode host before a termination signal, and bounded codex diagnostics never exceed 512 UTF-8 bytes.",
+    "instructions": [
+      "In normalizeCodexResult (scripts/drivers/exec-jsonl.mjs), classify a code-mode-host-disabled item error before the termination signal and before any later turn.completed or agent_message: a harness that dies after the host error is a provider failure (tool_host_unavailable), never a cancellation, and still reports the completed turn's usage.",
+      "A signal with no tool-host error still cancels.",
+      "boundedMessage cuts before the character that starts at the byte ceiling instead of backing up onto a dangling lead byte, so a truncated multibyte diagnostic re-encodes to at most 512 UTF-8 bytes with no U+FFFD.",
+      "The CODEX_PREAMBLE_OVERRIDES comment (scripts/drivers/codex.mjs) records all four measured host outcomes: gpt-5.6-sol 35,130 fabricated vs 35,199 correct tool-backed; deepseek-v4-flash 25,795 vs 25,783, both correct.",
+      "Regression tests pin the precedence, the byte bound and the measurements."
+    ],
+    "readFiles": [
+      "skills/mine/intent-factory/scripts/drivers/codex.mjs",
+      "skills/mine/intent-factory/scripts/drivers/exec-jsonl.mjs",
+      "skills/mine/intent-factory/test/drivers.test.mjs"
+    ],
+    "writeFiles": [
+      "skills/mine/intent-factory/scripts/drivers/codex.mjs",
+      "skills/mine/intent-factory/scripts/drivers/exec-jsonl.mjs",
+      "skills/mine/intent-factory/test/drivers.test.mjs"
+    ],
+    "writeRoots": [],
+    "symbols": [],
+    "decisions": [],
+    "nonGoals": [
+      "Changing how other item-level error records (rollout_budget warnings, missing model metadata) are treated: they stay ignored diagnostics."
+    ],
+    "verification": [
+      {
+        "argv": [
+          "node",
+          "--check",
+          "skills/mine/intent-factory/scripts/drivers/codex.mjs"
+        ]
+      },
+      {
+        "argv": [
+          "node",
+          "--check",
+          "skills/mine/intent-factory/scripts/drivers/exec-jsonl.mjs"
+        ]
+      },
+      {
+        "argv": [
+          "node",
+          "--test",
+          "skills/mine/intent-factory/test/drivers.test.mjs"
+        ]
+      }
+    ]
+  },
+  "definitionOfDone": [
+    {
+      "id": "verification",
+      "text": "The declared verification commands pass on the sealed tree.",
+      "proof": {
+        "kind": "command",
+        "ref": "node --check skills/mine/intent-factory/scripts/drivers/codex.mjs && node --check skills/mine/intent-factory/scripts/drivers/exec-jsonl.mjs && node --test skills/mine/intent-factory/test/drivers.test.mjs"
+      }
+    },
+    {
+      "id": "host-error-before-signal",
+      "text": "A tool-host error followed by a termination signal normalizes to a failed tool_host_unavailable envelope with the turn's usage; a signal alone still cancels.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "diagnostics-bounded",
+      "text": "Bounded codex diagnostics are at most 512 UTF-8 bytes and never end in a dangling multibyte sequence.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "measurements-recorded",
+      "text": "The preamble comment records the four measured host outcomes.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "in-scope",
+      "text": "Every change in the diff serves the objective, and none does what a non-goal excludes.",
+      "judgment": true,
+      "reason": "The write boundary admits any edit inside the declared files; no command tells a requested edit from an unrequested one."
+    },
+    {
+      "id": "docs-match-code",
+      "text": "Every comment and document the diff adds or edits describes what the code does.",
+      "judgment": true,
+      "reason": "No command compares prose with behaviour."
+    },
+    {
+      "id": "tests-assert-behaviour",
+      "text": "Every test the diff adds or edits asserts the behaviour its name and the instructions claim, and no assertion is removed or loosened.",
+      "judgment": true,
+      "reason": "A loosened assertion still passes; only reading the test shows what it no longer checks."
+    }
+  ],
+  "workerResult": {
+    "status": "done",
+    "summary": "normalizeCodexResult now classifies the tool-host error ahead of the signal, boundedMessage cuts on a character boundary, and the preamble comment records the four measurements; tests pin all three.",
+    "verification": [
+      "node --check skills/mine/intent-factory/scripts/drivers/codex.mjs",
+      "node --check skills/mine/intent-factory/scripts/drivers/exec-jsonl.mjs",
+      "node --test skills/mine/intent-factory/test/drivers.test.mjs"
+    ],
+    "artifacts": [
+      "skills/mine/intent-factory/scripts/drivers/codex.mjs",
+      "skills/mine/intent-factory/scripts/drivers/exec-jsonl.mjs",
+      "skills/mine/intent-factory/test/drivers.test.mjs"
+    ],
+    "missingContext": []
+  },
+  "mutation": {
+    "kind": "scope-drift-inside-writefiles",
+    "description": "features.computer_use=false is dropped from the preamble overrides, an unrequested behaviour change inside codex.mjs.",
+    "edits": [
+      {
+        "path": "skills/mine/intent-factory/scripts/drivers/codex.mjs",
+        "find": [
+          "  \"features.browser_use_external=false\",",
+          "  \"features.computer_use=false\","
+        ],
+        "replace": [
+          "  \"features.browser_use_external=false\","
+        ]
+      }
+    ]
+  },
+  "diff": "diff.patch",
+  "diffSha256": "46fd2cf83912aef9ef01d961d3167ddf0900aea2b66dc6490cf9de3fb3e48079"
+}

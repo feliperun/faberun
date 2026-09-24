@@ -50,6 +50,95 @@ node evals/run.mjs --class deterministic [--case <id>] [--repeat <n>] [--assert-
 - `--json` prints the report as JSON instead of a human-readable summary.
 - An unknown flag exits 2.
 
+## Paired class
+
+```
+node evals/run.mjs --class paired --budget-usd <n> [--corpus <id>] [--repeat <n>] [--seed <n>] [--result-dir <dir>] [--json]
+```
+
+The paired class is the `orchestration-arms` driver brought into main
+(`evals/paired.mjs` plus `evals/paired/`). It runs the arms declared in
+`evals/paired/arms.json` -- the spike's A to J, with the same writers: A the
+faberun arms with a blocking codex judge, B and C one claude session without
+and with the `Agent` tool, D proof-only, E to J D with the writer swapped for
+DeepSeek Flash, opus, sol, luna, astra and GLM Flash -- over one corpus in
+`evals/paired/corpus/<id>/`. Arms run sequentially, in an order shuffled by
+the recorded seed (one shuffle per repetition), `--repeat <n>` times.
+
+It refuses to start without `--budget-usd` and reserves every arm's declared
+estimate through `evals/budget.mjs` before the arm begins; an arm that cannot
+fit the remaining allowance is reported as skipped rather than started. The
+result lands in `evals/results/paired/` (or `--result-dir`); the report gives,
+per arm, the proofs delivered (the proofs that pass only while every guard
+passes), the cost per delivered proof, wall clock, requests when the harness
+measures them, out-of-scope files, and the band: minimum and maximum always,
+and a 95% interval by resampling once `--repeat` is 3 or more. A metric a run
+did not measure is reported as no band, never as zero.
+
+Each acceptance check declares `kind: "proof"` or `guard`. The checks without
+`restore` run on the arm's tree exactly as the arm left it; then the corpus's
+accepted files are written over it and the `restore` checks run, so the landed
+acceptance never runs over the arm's own copy of it. The proof tests
+(`test/evals/paired.test.mjs`) drive the whole class with deterministic
+`replay` arms over a small fixture corpus and never call a provider.
+
+## Judge-canary class
+
+```
+node evals/run.mjs --class judge-canary --runtime <id> --budget-usd <n> [--repeat <k>] [--seed <n>] [--result-dir <dir>] [--json]
+node evals/judge-canary.mjs [--verify-discriminating [--json]]
+```
+
+The judge canary measures one judge runtime against sealed cases whose label
+is known. `--runtime` names an entry of `evals/judge-canary/runtimes.json`
+(id, harness, model, and `estimateUsd`, the amount reserved per invocation);
+the class refuses to start without a known runtime and without
+`--budget-usd`, and it spends through `evals/budget.mjs` like the paired class.
+
+**Corpus.** `evals/judge-canary/corpus.json` is the hand-authored source: for
+each of 10 golden tasks, the packet a real contract would give it (objective,
+instructions, non-goals, the task's behaviours as judgment items), and 25 defect
+edits, 5 per kind, each kind spread over 5 distinct tasks. `node
+evals/judge-canary.mjs` builds one case directory per clean control (the task's
+golden diff, byte for byte) and per defect (the golden diff with the edits
+applied), each holding `case.json` and `diff.patch`. A defect edits only files
+the golden diff already changes. The kinds are `nongoal-violated`,
+`requirement-half-done`, `scope-drift-inside-writefiles`,
+`doc-contradicts-code` and `test-weakened`. Every task's verification runs a
+`node --test` over the code it changed, so a passing verification means
+something.
+
+**Discrimination.** The builder runs every case's verification over its own
+tree, which is the parent tree plus the sealed diff. It refuses a clean control
+that fails and refuses, by case id, a defect that a verification catches,
+because such a defect does not measure the judge. `--verify-discriminating`
+reruns that check over the committed corpus. It takes about two minutes and
+needs POSIX, because the golden tasks' tests are this repository's own
+2026-09 suite.
+
+**What the judge sees.** Each case is asked through the product's own
+`judgePrompt` (`src/engine/prompts.mjs`): the task's node id, its packet, its
+Definition of Done, a worker result that claims the task was done, and, as
+diff paths, the paths the sealed diff changes. Every case of a task gets the
+same prompt, so the label, the case id and the defect's description never
+reach the judge. A harness judge reviews a git repository with the parent
+tree committed as `base` and the sealed diff left uncommitted. The product
+prompt carries no `nonGoals`, so a `nongoal-violated` reading measures a judge
+that has to find the violation without seeing the non-goal.
+
+**Score.** The result is written to
+`evals/results/judge-canary/<date>-<runtime>.json` (or `--result-dir`). A
+second run of the same runtime on the same day writes `<date>-<runtime>-2.json`
+and does not overwrite the first. Per label, the result gives invocations,
+verdicts, errors, rejections, and the cost per case. Recall is the share of a
+kind's verdicts that reject with a finding citing a judgment item id. The
+false-alarm rate is the share of clean verdicts that reject. An invocation
+that threw or returned a verdict `parseJudge` refuses counts as an error for
+its label and is left out of both rates. The provenance fields are the same
+as the paired class's. The proof tests (`test/evals/judge-canary.test.mjs`)
+score an always-pass and an always-reject `replay` judge and never call a
+provider.
+
 ## Indicator projection and comparison
 
 ```

@@ -1,0 +1,11 @@
+{"at":"2026-09-24T00:15:20.677Z","dedupeKey":"node.terminal:evals-with-a-budget-instruments:stochastic-budget:failed:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-24T00:15:20.706Z","dedupeKey":"node.terminal:evals-with-a-budget-instruments:paired-class:blocked:0:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-24T00:15:20.724Z","dedupeKey":"node.terminal:evals-with-a-budget-instruments:paired-corpus:blocked:0:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-24T00:15:20.748Z","dedupeKey":"node.terminal:evals-with-a-budget-instruments:canary-class-and-provenance:blocked:0:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-24T00:27:04.285Z","dedupeKey":"node.terminal:evals-with-a-budget-instruments:canary-corpus:failed:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-24T00:27:04.356Z","dedupeKey":"node.terminal:evals-with-a-budget-instruments:judge-yield-metrics:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-24T00:33:57.334Z","dedupeKey":"node.terminal:evals-with-a-budget-instruments:judgment-reason:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-24T00:33:57.400Z","dedupeKey":"run.terminal:evals-with-a-budget-instruments:attention","attempt":1,"status":"no_transport"}
+{"at":"2026-09-24T00:37:26.238Z","dedupeKey":"node.terminal:evals-with-a-budget-instruments:canary-corpus:done:2:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-24T00:39:25.799Z","dedupeKey":"node.terminal:evals-with-a-budget-instruments:stochastic-budget:done:2:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-24T00:48:38.811Z","dedupeKey":"node.terminal:evals-with-a-budget-instruments:paired-class:failed:1:0","attempt":1,"status":"filtered"}

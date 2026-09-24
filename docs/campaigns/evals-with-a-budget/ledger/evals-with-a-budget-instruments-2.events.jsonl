@@ -1,0 +1,16 @@
+{"at":"2026-09-24T00:50:26.917Z","node":"paired-class","to":"running","phase":"worker","runtime":"codex-luna"}
+{"at":"2026-09-24T00:50:30.390Z","node":"paired-class","to":"pending","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-24T00:50:30.390Z","node":"paired-class","to":"pending","phase":"worker","runtime":"dsh-deepseek","override":{}}
+{"at":"2026-09-24T00:50:33.128Z","node":"paired-class","to":"running","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-24T01:08:12.786Z","node":"paired-class","to":"done","phase":"complete","runtime":"dsh-deepseek","verdict":"pass"}
+{"at":"2026-09-24T01:08:14.836Z","node":"paired-corpus","to":"running","phase":"worker","runtime":"codex-luna"}
+{"at":"2026-09-24T01:08:18.295Z","node":"paired-corpus","to":"pending","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-24T01:08:18.295Z","node":"paired-corpus","to":"pending","phase":"worker","runtime":"dsh-deepseek","override":{}}
+{"at":"2026-09-24T01:08:20.828Z","node":"paired-corpus","to":"running","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-24T01:25:46.113Z","node":"paired-corpus","to":"done","phase":"complete","runtime":"dsh-deepseek","verdict":"pass"}
+{"at":"2026-09-24T01:25:47.891Z","node":"canary-class-and-provenance","to":"running","phase":"worker","runtime":"codex-luna"}
+{"at":"2026-09-24T01:25:51.346Z","node":"canary-class-and-provenance","to":"pending","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-24T01:25:51.346Z","node":"canary-class-and-provenance","to":"pending","phase":"worker","runtime":"dsh-deepseek","override":{}}
+{"at":"2026-09-24T01:25:53.924Z","node":"canary-class-and-provenance","to":"running","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-24T01:55:58.007Z","node":"canary-class-and-provenance","to":"running","phase":"worker","runtime":"dsh-deepseek","verdict":"fail","revisions":1}
+{"at":"2026-09-24T02:16:47.759Z","node":"canary-class-and-provenance","to":"done","phase":"complete","runtime":"dsh-deepseek","verdict":"pass","revisions":1}

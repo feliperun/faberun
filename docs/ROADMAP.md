@@ -219,9 +219,9 @@ satisfied*. Three levels:
 | --- | --- | --- | --- |
 | RM-011 | Intent evaluation report per campaign | none yet | idea |
 | RM-012 | Proof `kind: behavior \| preservation` on a `command` proof, checked at dispatch against the post-integration base | proposed by the Astra review; distinguishes `vacuous_proof`, `behavior_already_green`, `broken_baseline`, `baseline_inconclusive`. `spec validate --run-proofs` (#56) runs a proof but does not classify it | idea |
-| RM-013 | Judge calibration canary | 0 findings on 34 judged nodes in `orchestration-arms` while costing 24 to 45% of the bill; 1 real finding in 9 verdicts of the `glm-5.3-flash` judge in `rec-audit-remediation`, for 2.8% of its bill | specified: `evals-with-a-budget` R5 to R7, R11 |
+| RM-013 | Judge calibration canary | 0 findings on 34 judged nodes in `orchestration-arms` while costing 24 to 45% of the bill; 1 real finding in 9 verdicts of the `glm-5.3-flash` judge in `rec-audit-remediation`, for 2.8% of its bill. The canary (35 cases, 2026-09-24) gives gpt-5.6-sol recall 1.00 and false alarms 0.20, glm-5.3-flash 0.83 and 0, claude-sonnet-5 0.30 and 0; D9 reads it | landed: `evals-with-a-budget` R5 to R7, R11, 2026-09-24 |
 | RM-014 | Acceptance suite external to the writer, run against the sealed artefact | the paired benchmark already hides its acceptance from the arms; nothing does it for an ordinary campaign | idea |
-| RM-068 | A `judgment` item says what no command can check | every judged node in `orchestration-arms` carried a judgment item next to a mechanical proof, which is why arm A paid a judge | specified: `evals-with-a-budget` R10 |
+| RM-068 | A `judgment` item says what no command can check | every judged node in `orchestration-arms` carried a judgment item next to a mechanical proof, which is why arm A paid a judge | landed: `evals-with-a-budget` R10, 2026-09-24 |
 
 `RM-011` and `RM-013` were to be built in parallel (D3). The program builds the
 canary first: until it reports, an intent eval's confidence number is an
@@ -377,7 +377,7 @@ judgment; they do not transport information.
 | id | item | evidence | state |
 | --- | --- | --- | --- |
 | RM-030 | `campaign close` preserves `proposals/` in the ledger | 16 proposals lived only in gitignored `.runs/`; the close copies journal, record and usage, not these | landed: `evidence-you-can-recompute` R1, 2026-09-23 |
-| RM-031 | Emit `judgment` proofs only where no `command`/`path` proof covers the item, and support `gate.skipWhen` | `judgeRequired` already skips the judge when no `judgment` item exists, and `gate.skipWhen` exists | specified in part: `evals-with-a-budget` R10 |
+| RM-031 | Emit `judgment` proofs only where no `command`/`path` proof covers the item, and support `gate.skipWhen` | `judgeRequired` already skips the judge when no `judgment` item exists, and `gate.skipWhen` exists; R10 makes a `judgment` item name what no command checks, the emission half is still open | landed in part: `evals-with-a-budget` R10, 2026-09-24 |
 | RM-032 | Detect unproductive loops and stop them | 23 turns with no result accounted for 25% of one campaign's spend; `process.mjs` restarts the stall clock on any event | measured |
 | RM-033 | Ask the owner asynchronously (WhatsApp, then `campaign resolve`) instead of keeping a session alive to be present when a question appears | none yet | idea |
 | RM-070 | The getting-started walkthrough is executed, not only read | its first output shows `.runs/campaigns/hello`; the CLI prints a path under the home layout | specified: `safe-to-hand-to-a-friend` R5 |
@@ -396,11 +396,11 @@ its author.
 | id | item | evidence | state |
 | --- | --- | --- | --- |
 | RM-034 | State vendor neutrality explicitly in the README and public docs | none yet; waits for D10 | idea |
-| RM-035 | Permanent paired benchmark: versioned corpus, same writer/base/acceptance, randomised order, repetitions, CI95 resampled by task | the `spike/arms/` driver produced two rounds; the complex round has one repetition, and two identical sonnet runs differed by about 40% | specified: `evals-with-a-budget` R1 to R4, R8 |
+| RM-035 | Permanent paired benchmark: versioned corpus, same writer/base/acceptance, randomised order, repetitions, CI95 resampled by task | the `spike/arms/` driver produced two rounds; the complex round has one repetition, and two identical sonnet runs differed by about 40%. `evals --class paired` measured the complex round three times per arm on 2026-09-24 (`evals/results/paired/combined-*.json`): USD per proof A 3.49..4.73, B 2.01..2.22, D 1.93..2.07, E 0.048..0.050, H 0.077..0.113, J 0.074..0.095, every arm 2 of 2 proofs; H1 refuted for A against B, H4 refuted | landed: `evals-with-a-budget` R1 to R4, R8, R11, 2026-09-24 |
 | RM-036 | External validation with 3 to 5 developers who already use agents | the signal is spontaneous reuse, not "nice" | specified: `friends-pilot` R6 |
 | RM-064 | The skill and its references share one byte budget | 12 ceiling raises between 2026-09-13 and 2026-09-22, each justified, none offset | landed: `evidence-you-can-recompute` R8, 2026-09-23 |
 | RM-065 | The `orchestration-arms` record lives on `main` | the thesis above cites it; it exists only on `spike/orchestration-arms` | landed: `evidence-you-can-recompute` R7, 2026-09-23 |
-| RM-067 | Every stochastic eval class has a hard budget | no class has one; the complex round alone recorded US$ 28.85, including voided launches | specified: `evals-with-a-budget` R1 |
+| RM-067 | Every stochastic eval class has a hard budget | no class has one; the complex round alone recorded US$ 28.85, including voided launches. Both stochastic classes now take `--budget-usd`; R11 spent US$ 58.05 on the paired round and US$ 22.64 on the canary, with voided and unknown spend named | landed: `evals-with-a-budget` R1, 2026-09-24 |
 | RM-076 | A redacted campaign export a participant reads before sending | a ledger carries paths, requirement text, notes and the repository name | specified: `friends-pilot` R2 |
 | RM-077 | Friction is a journal type | 16 journal types, none for "this blocked me" | specified: `friends-pilot` R3 |
 | RM-078 | Pilot bundles aggregate into one deterministic table | none yet | specified: `friends-pilot` R4 to R5 |
@@ -556,12 +556,29 @@ that opens offline; Faberun also offers a minimal server bound to loopback so
 the operator can open that document through a local browser URL. External
 publication and automatic PR comments are not part of the first release.
 
+**D9: Keep the judge blocking, on every kind of node; gpt-5.6-sol judges and
+glm-5.3-flash is the fallback.** Owner delegated 2026-09-23 ("depends on the
+judge's vendor and on the product; run data"). Measured 2026-09-24 by
+`evals --class judge-canary`, 35 cases (5 per defect kind, 10 clean), one
+repetition, `evals/results/judge-canary/`:
+
+| runtime | recall | false alarms | errors | USD/case |
+| --- | --- | --- | --- | --- |
+| gpt-5.6-sol | 1.00 (25/25) | 0.20 (2/10) | 0 | 0.139 |
+| glm-5.3-flash | 0.83 | 0 | 2 | 0.012 |
+| claude-sonnet-5 | 0.30 | 0 | 3 | 0.263 |
+
+A judge that catches every planted defect at 14 cents a case is worth blocking
+on, so it stays blocking. Nothing here separates kinds of node, so no kind is
+exempted: restricting it would be a guess. Sonnet passes what it should reject,
+which also explains its first-pass rate of 1 in `rec-audit-remediation`
+(`blockingJudgeFirstPassRate`), and is not a judge. The fallback is the cheap
+cross-vendor reader that still catches most defects. Five cases per kind and
+one repetition is a small sample: Sol's two false alarms and GLM's per-kind
+misses are signal, not a rate. Revisit when a repeated canary disagrees.
+
 ### Reserved, not yet taken
 
-- **D9: the judge.** Keep it, restrict it to a kind of node, or make it advisory
-  by default; and which runtime judges and which is the fallback. Taken at the
-  close of `evals-with-a-budget`, from the canary results and the cost table of
-  `rec-audit-remediation`.
 - **D10: going public.** Announce or not, from the pilot's table, D9 and the
   open P0 items. Taken at the close of `friends-pilot`.
 

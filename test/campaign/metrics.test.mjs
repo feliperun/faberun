@@ -24,6 +24,8 @@ const DIRECTIONS = {
   usageTokensByKind: "informative",
   usageTokensByKindByRuntime: "informative",
   usageCostUsd: "down",
+  judgeFindingRate: "up",
+  judgeCostShare: "down",
   blockingJudgeFirstPassRate: "up",
   notifyReceiptRate: "up",
   silentStallRate: "down",
@@ -252,6 +254,62 @@ test("done-when 7: campaign metrics counts a priced record, not just a provider 
     unknownCount: 1,
     unknownCountByReason: { legacy: 1 },
     unknownFractionByReason: { legacy: 0.5 },
+  });
+});
+
+test("judge yield is reported per campaign", () => {
+  const sources = {
+    campaignId: "judge-yield",
+    runIds: ["run-a"],
+    events: [
+      event("run-a", "build", "running", { at: at(0), phase: "judge", verdict: "fail" }),
+      event("run-a", "ship", "done", { at: at(1), phase: "complete", verdict: "pass" }),
+    ],
+    usageRecords: [
+      { runId: "run-a", nodeId: "build", role: "worker", costUsd: 3, costProvenance: "provider" },
+      { runId: "run-a", nodeId: "build", role: "judge", costUsd: 2, costProvenance: "provider" },
+      { runId: "run-a", nodeId: "ship", role: "worker", costUsd: 4, costProvenance: "provider" },
+      { runId: "run-a", nodeId: "ship", role: "judge", costUsd: 1, costProvenance: "provider" },
+      { runId: "run-a", nodeId: "ship", role: "judge", costUsd: null, costProvenance: "unknown" },
+    ],
+    notifications: [],
+    nodes: [],
+    journal: [],
+    campaign: {},
+    excludedRunIds: [],
+    missingSources: [],
+  };
+  const metrics = projectMetrics(sources);
+  assert.deepEqual(metrics.judgeFindingRate, { value: 0.5, direction: "up", count: 2, numerator: 1, denominator: 2, excludedRunIds: [] });
+  assert.deepEqual(metrics.judgeCostShare, { value: 0.3, direction: "down", count: 4, unknownCount: 1 });
+
+  const text = renderMetricsReport(sources, metrics);
+  assert.match(text, /judgeFindingRate\s+up\s+0\.5/u);
+  assert.match(text, /judgeCostShare\s+down\s+0\.3\s+· 4 records · 1 unknown/u);
+  const json = JSON.parse(renderMetricsJson(sources, metrics));
+  assert.deepEqual(json.indicators.judgeFindingRate, metrics.judgeFindingRate);
+  assert.deepEqual(json.indicators.judgeCostShare, metrics.judgeCostShare);
+});
+
+test("judge yield excludes findings from excluded runs", () => {
+  const metrics = projectMetrics({
+    events: [
+      event("kept", "build", "running", { at: at(0), phase: "judge", verdict: "fail" }),
+      event("excluded", "build", "running", { at: at(1), phase: "judge", verdict: "fail" }),
+    ],
+    usageRecords: [
+      { runId: "kept", nodeId: "build", role: "judge", costUsd: 1, costProvenance: "provider" },
+      { runId: "excluded", nodeId: "build", role: "judge", costUsd: 1, costProvenance: "provider" },
+    ],
+    excludedRunIds: ["excluded"],
+  });
+  assert.deepEqual(metrics.judgeFindingRate, {
+    value: 1,
+    direction: "up",
+    count: 1,
+    numerator: 1,
+    denominator: 1,
+    excludedRunIds: ["excluded"],
   });
 });
 
@@ -541,7 +599,7 @@ test("metrics baseline report prints every indicator with its value and directio
   const report = renderMetricsReport(sources, metrics);
   const lines = report.trimEnd().split("\n");
   assert.equal(lines.length, Object.keys(metrics).length + 2, "a header, missing-source line and one line per indicator");
-  assert.match(lines[0], new RegExp(`${BASELINE_CAMPAIGN} · 29 runs · 181 events · 12 indicators`, "u"));
+  assert.match(lines[0], new RegExp(`${BASELINE_CAMPAIGN} · 29 runs · 181 events · 14 indicators`, "u"));
   for (const [name, indicator] of Object.entries(metrics)) {
     const line = lines.find((candidate) => candidate.startsWith(name));
     assert.ok(line, `${name} is missing from the report`);

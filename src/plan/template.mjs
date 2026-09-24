@@ -111,7 +111,7 @@ const REQUIRED_INPUTS = Object.freeze({
 // run had already succeeded. The id charset is requireId's
 // (contract/assert.mjs) verbatim, because an id that is present but invalid
 // fails that same validator just as late.
-const PLAN_OUTPUT_SHAPE = '{nodes: [{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: [{id, text, proof?: {kind: "command"|"path"|"verification", ref}, judgment?: true}], verification: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}], expectedTurns?}], phases?: [{id, requirementIds: [string], nodeIds: [string], deliverable}], justification?}; every id in it (node, phase, node assignment, and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly "." or ".."';
+const PLAN_OUTPUT_SHAPE = '{nodes: [{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: [{id, text, proof?: {kind: "command"|"path"|"verification", ref}, judgment?: true, reason?: string}], verification: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}], expectedTurns?}], phases?: [{id, requirementIds: [string], nodeIds: [string], deliverable}], justification?}; every id in it (node, phase, node assignment, and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly "." or ".."';
 /**
  * The size guidance every draft and revise carries. measured 2026-09-20 over
  * stored runs: median 49 provider requests per worker turn; cost per turn

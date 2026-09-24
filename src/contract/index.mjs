@@ -3,7 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { loadTaskPacket, renderWorkerPrompt } from "./task-packet.mjs";
 import { RESERVED_ARTICLES } from "./articles.mjs";
-import { unquotedFilterValueWarnings, validateDefinitionOfDone } from "./definition-of-done.mjs";
+import { judgmentReasonWarnings, unquotedFilterValueWarnings, validateDefinitionOfDone } from "./definition-of-done.mjs";
 import { validateFinalVerification, validateSharedVerification } from "./final-verification.mjs";
 import { VERIFICATION_LIMITS, requirementProofWarnings } from "./verification.mjs";
 import {
@@ -378,6 +378,7 @@ export function validateContract(raw, contractPath, options = {}) {
     ...nodes.flatMap((node, index) => [
       ...commandCoverageWarnings(node, index),
       ...unquotedFilterValueWarnings(node.definitionOfDone ?? [], index),
+      ...judgmentReasonWarnings(node.definitionOfDone ?? [], index),
       ...(persisted ? [] : mirrorCoverageWarnings(node, index, cwd, contractCommands, contractWrites)),
       ...(persisted ? [] : unsnapshottedWriteWarnings(node, index, cwd)),
       ...(persisted ? [] : ignoreSourceWriteWarnings(node, index)),

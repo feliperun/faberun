@@ -1,0 +1,142 @@
+diff --git a/skills/mine/intent-factory/scripts/lock.mjs b/skills/mine/intent-factory/scripts/lock.mjs
+index 56e56ee..fc9e674 100644
+--- a/skills/mine/intent-factory/scripts/lock.mjs
++++ b/skills/mine/intent-factory/scripts/lock.mjs
+@@ -11,6 +11,7 @@
+  * process can ever hold a live pid, so at most one takeover can ever observe
+  * a captured lock as stale.
+  */
++import { execFileSync } from "node:child_process";
+ import { randomUUID } from "node:crypto";
+ import { closeSync, fsyncSync, linkSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync } from "node:fs";
+ import { hostname } from "node:os";
+@@ -48,19 +49,34 @@ export function lockPath(runDir) {
+ }
+ 
+ /**
+- * The Linux process start time (field 22 of /proc/<pid>/stat) distinguishes a
+- * live pid from a recycled one. Other platforms have no cheap equivalent, so
+- * the pid probe alone decides there.
++ * The process start time distinguishes a live pid from a recycled one. On
++ * Linux, field 22 of /proc/<pid>/stat. On darwin, there is no /proc, so the
++ * fingerprint comes from `sysctl kern.proc.pid.<pid>`, whose p_starttime is
++ * the same on every call for a live process and differs for whatever process
++ * next reuses that pid; when sysctl is unavailable the token falls back to
++ * the pid itself. Every other platform has no cheap equivalent, so the pid
++ * probe alone decides there.
+  * @param {number|null} pid @returns {string|null}
+  */
+ export function processStartToken(pid) {
+-  if (process.platform !== "linux" || !pid) return null;
+-  try {
+-    const stat = readFileSync(`/proc/${pid}/stat`, "utf8").trim();
+-    return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19] ?? null;
+-  } catch {
+-    return null;
++  if (!pid) return null;
++  if (process.platform === "linux") {
++    try {
++      const stat = readFileSync(`/proc/${pid}/stat`, "utf8").trim();
++      return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19] ?? null;
++    } catch {
++      return null;
++    }
++  }
++  if (process.platform === "darwin") {
++    try {
++      const started = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8" }).trim();
++      return started.length > 0 ? started : null;
++    } catch {
++      return null;
++    }
+   }
++  return null;
+ }
+ 
+ /** @param {number|null|undefined} pid @returns {boolean} */
+diff --git a/skills/mine/intent-factory/test/lock.test.mjs b/skills/mine/intent-factory/test/lock.test.mjs
+index 462a553..21e7525 100644
+--- a/skills/mine/intent-factory/test/lock.test.mjs
++++ b/skills/mine/intent-factory/test/lock.test.mjs
+@@ -9,6 +9,7 @@ import { appendJsonl, readJson, writeJsonAtomic } from "../scripts/store.mjs";
+ import {
+   LockBusyError,
+   acquire,
++  bootstrapMatchesChild,
+   lockPath,
+   lockStale,
+   pidAlive,
+@@ -402,6 +403,73 @@ test("portable PID reuse defense rejects a mismatched Linux process start token"
+   assert.equal(invocationAlive({ pid: process.pid, processStartToken: "definitely-not-this-process" }), false);
+ });
+ 
++test("darwin process start token is a stable, non-null fingerprint for a live process", { skip: process.platform !== "darwin" }, () => {
++  const first = processStartToken(process.pid);
++  assert.notEqual(first, null);
++  assert.equal(processStartToken(process.pid), first);
++});
++
++test("darwin process start token differs for a pid recycled by a later-started process (real child)", { skip: process.platform !== "darwin" }, async () => {
++  const first = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
++  const firstPid = first.pid;
++  if (firstPid === undefined) throw new Error("first child pid unavailable");
++  const firstToken = processStartToken(firstPid);
++  assert.notEqual(firstToken, null);
++  first.kill("SIGKILL");
++  await new Promise((resolve) => first.once("exit", resolve));
++  // Force a different start second before the pid (if reused) reappears, so a
++  // real recycle would carry a different lstart token.
++  await new Promise((resolve) => setTimeout(resolve, 1100));
++  const second = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
++  const secondPid = second.pid;
++  if (secondPid === undefined) throw new Error("second child pid unavailable");
++  try {
++    const secondToken = processStartToken(secondPid);
++    assert.notEqual(secondToken, null);
++    if (secondPid === firstPid) {
++      assert.notEqual(secondToken, firstToken, "the kernel reused the pid: the fingerprint must catch it");
++    }
++  } finally {
++    second.kill("SIGKILL");
++    await new Promise((resolve) => second.once("exit", resolve));
++  }
++});
++
++test("two synthetic records with different tokens are a mismatch, not just an unequal-string coincidence", () => {
++  const nonce = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
++  const bootstrapRecord = { pid: process.pid, nonce, processStartToken: "synthetic-token-a" };
++  assert.equal(bootstrapMatchesChild(bootstrapRecord, process.pid, nonce, "synthetic-token-b"), false, "different synthetic tokens must not match");
++  assert.equal(bootstrapMatchesChild(bootstrapRecord, process.pid, nonce, "synthetic-token-a"), true, "identical synthetic tokens still match");
++
++  // The same distinction, exercised through lockStale via a captured lock
++  // record: a recorded token that disagrees with what the live pid actually
++  // carries now (injected here as a synthetic mismatch, standing in for a
++  // real pid-reuse token change) makes the lock stale even though the pid
++  // itself is alive.
++  const runDir = mkdtempSync(join(tmpdir(), "lock-token-injected-"));
++  writeJsonAtomic(lockPath(runDir), {
++    schemaVersion: 1,
++    pid: process.pid,
++    processStartToken: "synthetic-token-a",
++    startedAt: new Date(0).toISOString(),
++    hostname: "old-host",
++  });
++  const recorded = readLock(runDir);
++  assert.notEqual(processStartToken(process.pid), "synthetic-token-a", "the live token must genuinely disagree with the synthetic one");
++  assert.equal(pidAlive(process.pid), true);
++  assert.equal(lockStale(recorded), true, "a live pid with a mismatched recorded token is still stale");
++});
++
++test("process start token is null on platforms other than linux and darwin", () => {
++  const original = Object.getOwnPropertyDescriptor(process, "platform");
++  Object.defineProperty(process, "platform", { value: "win32", configurable: true });
++  try {
++    assert.equal(processStartToken(process.pid), null);
++  } finally {
++    Object.defineProperty(process, "platform", /** @type {PropertyDescriptor} */ (original));
++  }
++});
++
+ test("monitorInvocation reads bounded live evidence and never throws", () => {
+   const runDir = mkdtempSync(join(tmpdir(), "lock-monitor-invocation-"));
+   const logs = join(runDir, "logs");

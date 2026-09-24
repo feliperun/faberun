@@ -477,7 +477,7 @@ node src/cli.mjs contract validate contracts/feature-42.json
 Related: `faberun validate`, `faberun preflight`.
 ### faberun contract validate
 ```text
-faberun contract validate <contract.json>
+faberun contract validate <contract.json> [--strict-traceability]
 ```
 Validate an authored contract and print the report; a contract beside a
 `run.json` is treated as a persisted run copy and must match the digest recorded
@@ -485,7 +485,7 @@ at launch.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| — | — | No flags. | — |
+| `--strict-traceability` | none | Fail validation when judgment items omit a reason or sit beside mechanical proofs without one. | off |
 Reads `<contract.json>` and, for a persisted contract, its sibling `run.json`;
 writes nothing.
 ```bash

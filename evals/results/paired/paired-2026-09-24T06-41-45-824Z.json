@@ -1,0 +1,1311 @@
+{
+  "schemaVersion": 1,
+  "class": "paired",
+  "provenance": {
+    "class": "paired",
+    "commit": "7241f2d82ebfc45c6a9acbb79af630ad181ea467",
+    "dirtyTree": false,
+    "seed": 20260926,
+    "repeat": 1,
+    "corpus": "complex",
+    "corpusHash": "5115be4755a1f42557bd1dada61fb07bdce1936ad522e2059da9153311b16307",
+    "armsFileHash": "45c7d051c7c1f77b20488dd5c453c0e420551eedc5d8f905f3fbbd686b94c601",
+    "budgetUsd": 22,
+    "spendUsd": 16.5817,
+    "pricedSpendUsd": 8.7294,
+    "unknownSpendUsd": 7.8523,
+    "voidedSpendUsd": 0,
+    "overrunUsd": 0,
+    "generatedAt": "2026-09-24T06:41:45.824Z",
+    "arms": [
+      {
+        "name": "A",
+        "runner": "faberun",
+        "runtimeId": "claude-sonnet-worker"
+      },
+      {
+        "name": "B",
+        "runner": "session",
+        "runtimeId": "arm-B"
+      },
+      {
+        "name": "D",
+        "runner": "faberun",
+        "runtimeId": "claude-sonnet-worker"
+      },
+      {
+        "name": "E",
+        "runner": "faberun",
+        "runtimeId": "dsh-deepseek-flash-worker"
+      },
+      {
+        "name": "H",
+        "runner": "faberun",
+        "runtimeId": "codex-luna-worker"
+      },
+      {
+        "name": "J",
+        "runner": "faberun",
+        "runtimeId": "zcode-glm-flash-worker"
+      }
+    ],
+    "runtimes": [
+      {
+        "id": "claude-sonnet-worker",
+        "harness": "claude",
+        "model": "claude-sonnet-5",
+        "cliVersion": "2.1.281 (Claude Code)"
+      },
+      {
+        "id": "arm-B",
+        "harness": "claude",
+        "model": "claude-sonnet-5",
+        "cliVersion": "2.1.281 (Claude Code)"
+      },
+      {
+        "id": "dsh-deepseek-flash-worker",
+        "harness": "dsh",
+        "model": "deepseek-flash",
+        "cliVersion": "0.1.5-rc.1"
+      },
+      {
+        "id": "codex-luna-worker",
+        "harness": "codex",
+        "model": "gpt-5.6-luna",
+        "cliVersion": "codex-cli 0.156.1"
+      },
+      {
+        "id": "zcode-glm-flash-worker",
+        "harness": "zcode",
+        "model": "glm-5.3-flash",
+        "cliVersion": "0.16.5"
+      },
+      {
+        "id": "codex-sol-judge",
+        "harness": "codex",
+        "model": "gpt-5.6-sol",
+        "cliVersion": "codex-cli 0.156.1"
+      }
+    ]
+  },
+  "budget": {
+    "budgetUsd": 22,
+    "spendUsd": 16.581718146,
+    "pricedSpendUsd": 8.729426746,
+    "unknownSpendUsd": 7.8522914,
+    "reservedUsd": 0,
+    "voidedSpendUsd": 0,
+    "voidedInvocations": 0,
+    "overrunUsd": 0,
+    "highestObservedUsd": {
+      "glm-5.3-flash": 0.18950461000000002,
+      "claude-sonnet-5": 4.133226199999999,
+      "B": 4.3106824,
+      "deepseek-flash": 0.09601353600000001
+    }
+  },
+  "skipped": [],
+  "runs": [
+    {
+      "arm": "J",
+      "label": "r11-r3b",
+      "repetition": 1,
+      "runId": "arms-r11-r3b-j-r1-muf2m9aw",
+      "workerModel": "glm-5.3-flash",
+      "scopeAcknowledged": [],
+      "exitCode": 0,
+      "startedAt": "2026-09-24T05:07:58.250Z",
+      "finishedAt": "2026-09-24T05:42:59.987Z",
+      "wallMs": 2093591,
+      "baseSha": "d5f71a1aca26cd8a54eeb626dc03b2ddb1f242ea",
+      "finalSha": "9b9bd0300462f83ada859bf14cecbe36154ecfab",
+      "costUsd": 0.18950461000000002,
+      "budgetCostUsd": 0.18950461000000002,
+      "costProvenance": "priced",
+      "observedCostUsd": 0.06098404,
+      "workerCostUsd": 0.18950461000000002,
+      "judgeCostUsd": 0,
+      "unpricedInvocations": 0,
+      "tokens": {
+        "input": 304953,
+        "cacheRead": 3259072,
+        "output": 91979
+      },
+      "requests": null,
+      "toolCalls": 0,
+      "contextMax": null,
+      "invocations": 4,
+      "nodes": [
+        {
+          "id": "cli-repo-and-surface-callers-use-the-resolver",
+          "status": "done",
+          "attempt": 1,
+          "revisions": 0,
+          "error": null
+        },
+        {
+          "id": "engine-and-campaign-callers-use-the-resolver",
+          "status": "done",
+          "attempt": 1,
+          "revisions": 0,
+          "error": null
+        },
+        {
+          "id": "one-module-owns-the-run-paths",
+          "status": "done",
+          "attempt": 1,
+          "revisions": 0,
+          "error": null
+        },
+        {
+          "id": "the-centralization-guard-only-falls",
+          "status": "done",
+          "attempt": 1,
+          "revisions": 0,
+          "error": null
+        }
+      ],
+      "acceptance": [
+        {
+          "id": "src-centralization",
+          "kind": "proof",
+          "passed": true,
+          "ms": 42,
+          "tail": "only src/run/paths.mjs spells the runs directory literal\n"
+        },
+        {
+          "id": "typecheck",
+          "kind": "guard",
+          "passed": true,
+          "ms": 2617,
+          "tail": ""
+        },
+        {
+          "id": "source-shape",
+          "kind": "guard",
+          "passed": true,
+          "ms": 201,
+          "tail": "ings ...` to show where the warning was created)\n\u001b[32m✔ no file in the repository exceeds 800 lines \u001b[90m(4.424916ms)\u001b[39m\u001b[39m\n\u001b[32m✔ src/ has no runtime import cycle beyond the ones allowed by name \u001b[90m(41.739416ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no top-level body is defined twice in src/ \u001b[90m(2.89475ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no name is exported from two src/ modules \u001b[90m(0.695375ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no src/ module is a barrel \u001b[90m(1.615542ms)\u001b[39m\u001b[39m\n\u001b[32m✔ empty catch blocks in src/ never exceed 0 \u001b[90m(1.06775ms)\u001b[39m\u001b[39m\n\u001b[32m✔ every synchronous git spawn in src/ is bounded or a named exemption \u001b[90m(5.609167ms)\u001b[39m\u001b[39m\n\u001b[32m✔ src/ modules without a header never exceed 30 \u001b[90m(0.165542ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no test bounds a measured duration from above \u001b[90m(6.1825ms)\u001b[39m\u001b[39m\n\u001b[32m✔ tests racing a deadline under 60000ms never exceed 3 \u001b[90m(10.2255ms)\u001b[39m\u001b[39m\n\u001b[32m✔ tests blocking on wall-clock time never exceed 1 \u001b[90m(2.052417ms)\u001b[39m\u001b[39m\n\u001b[32m✔ src/ spells the runs directory only in its resolver \u001b[90m(0.900375ms)\u001b[39m\u001b[39m\n\u001b[32m✔ runs directory literal counts in test/ and evals/ never exceed their ceilings \u001b[90m(0.978125ms)\u001b[39m\u001b[39m\n\u001b[34mℹ tests 13\u001b[39m\n\u001b[34mℹ suites 0\u001b[39m\n\u001b[34mℹ pass 13\u001b[39m\n\u001b[34mℹ fail 0\u001b[39m\n\u001b[34mℹ cancelled 0\u001b[39m\n\u001b[34mℹ skipped 0\u001b[39m\n\u001b[34mℹ todo 0\u001b[39m\n\u001b[34mℹ duration_ms 166.216792\u001b[39m\n(node:48672) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+        },
+        {
+          "id": "resolver-api",
+          "kind": "proof",
+          "passed": true,
+          "ms": 85,
+          "tail": "(node:48848) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\u001b[32m✔ RUNS_DIR_NAME is the literal pathspec users need \u001b[90m(0.425917ms)\u001b[39m\u001b[39m\n\u001b[32m✔ runsRoot is <cwd>/.runs \u001b[90m(0.071375ms)\u001b[39m\u001b[39m\n\u001b[32m✔ runDirectory is <cwd>/.runs/<runId> \u001b[90m(0.0665ms)\u001b[39m\u001b[39m\n\u001b[32m✔ campaignsRoot is <cwd>/.runs/campaigns \u001b[90m(0.071959ms)\u001b[39m\u001b[39m\n\u001b[32m✔ campaignTree is <cwd>/.runs/campaigns/<campaignId> \u001b[90m(0.110958ms)\u001b[39m\u001b[39m\n\u001b[32m✔ attemptWorktreePath is <dirname(runDir)>/worktrees/<runId>/<nodeId>.<attempt> \u001b[90m(0.06625ms)\u001b[39m\u001b[39m\n\u001b[32m✔ candidateWorktreePath is <dirname(runDir)>/worktrees/<runId>/.candidate \u001b[90m(0.061875ms)\u001b[39m\u001b[39m\n\u001b[32m✔ a relative cwd resolves the same way it does today \u001b[90m(0.101583ms)\u001b[39m\u001b[39m\n\u001b[34mℹ tests 8\u001b[39m\n\u001b[34mℹ suites 0\u001b[39m\n\u001b[34mℹ pass 8\u001b[39m\n\u001b[34mℹ fail 0\u001b[39m\n\u001b[34mℹ cancelled 0\u001b[39m\n\u001b[34mℹ skipped 0\u001b[39m\n\u001b[34mℹ todo 0\u001b[39m\n\u001b[34mℹ duration_ms 49.53475\u001b[39m\n(node:48809) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+        }
+      ],
+      "proofsTotal": 2,
+      "proofsPassed": 2,
+      "guardsPassed": true,
+      "scope": {
+        "changed": [
+          "evals/compare.mjs",
+          "src/campaign/chain.mjs",
+          "src/campaign/metrics.mjs",
+          "src/cli.mjs",
+          "src/cli/campaign.mjs",
+          "src/cli/init.mjs",
+          "src/cli/launch.mjs",
+          "src/cli/plan.mjs",
+          "src/engine/dispatch.mjs",
+          "src/engine/live-preflight.mjs",
+          "src/engine/result-file.mjs",
+          "src/engine/resume.mjs",
+          "src/engine/run-identity.mjs",
+          "src/engine/scheduler.mjs",
+          "src/engine/settle.mjs",
+          "src/harnesses/replay/bin.mjs",
+          "src/host/preflight.mjs",
+          "src/plan/pipeline.mjs",
+          "src/repo/declared-paths.mjs",
+          "src/repo/integrate.mjs",
+          "src/repo/scope-closure.mjs",
+          "src/repo/workspace.mjs",
+          "src/repo/worktree.mjs",
+          "src/report/progress.mjs",
+          "src/run/paths.mjs",
+          "src/seat/index.mjs",
+          "src/web/server.mjs",
+          "test/repo/source-shape.test.mjs",
+          "test/run/paths.test.mjs"
+        ],
+        "outOfScope": [],
+        "proofsEdited": []
+      },
+      "runner": "faberun",
+      "model": "glm-5.3-flash"
+    },
+    {
+      "arm": "D",
+      "label": "r11-r3b",
+      "repetition": 1,
+      "runId": "arms-r11-r3b-d-r1-muf3vgyb",
+      "workerModel": "claude-sonnet-5",
+      "scopeAcknowledged": [],
+      "exitCode": 0,
+      "startedAt": "2026-09-24T05:43:08.271Z",
+      "finishedAt": "2026-09-24T06:05:04.613Z",
+      "wallMs": 1309475,
+      "baseSha": "2cf0765f73530725fc4b6b5f86316379cbed92da",
+      "finalSha": "804a90ce5816bfc2db091c2ed7ab4991e251cf15",
+      "costUsd": 4.133226199999999,
+      "budgetCostUsd": 4.133226199999999,
+      "costProvenance": "priced",
+      "observedCostUsd": 1.3414392000000002,
+      "workerCostUsd": 4.133226199999999,
+      "judgeCostUsd": 0,
+      "unpricedInvocations": 0,
+      "tokens": {
+        "input": 351212,
+        "cacheRead": 8990641,
+        "output": 93071
+      },
+      "requests": 297,
+      "toolCalls": 192,
+      "contextMax": 138211,
+      "invocations": 4,
+      "nodes": [
+        {
+          "id": "cli-repo-and-surface-callers-use-the-resolver",
+          "status": "done",
+          "attempt": 1,
+          "revisions": 0,
+          "error": null
+        },
+        {
+          "id": "engine-and-campaign-callers-use-the-resolver",
+          "status": "done",
+          "attempt": 1,
+          "revisions": 0,
+          "error": null
+        },
+        {
+          "id": "one-module-owns-the-run-paths",
+          "status": "done",
+          "attempt": 1,
+          "revisions": 0,
+          "error": null
+        },
+        {
+          "id": "the-centralization-guard-only-falls",
+          "status": "done",
+          "attempt": 1,
+          "revisions": 0,
+          "error": null
+        }
+      ],
+      "acceptance": [
+        {
+          "id": "src-centralization",
+          "kind": "proof",
+          "passed": true,
+          "ms": 40,
+          "tail": "only src/run/paths.mjs spells the runs directory literal\n"
+        },
+        {
+          "id": "typecheck",
+          "kind": "guard",
+          "passed": true,
+          "ms": 2565,
+          "tail": ""
+        },
+        {
+          "id": "source-shape",
+          "kind": "guard",
+          "passed": true,
+          "ms": 190,
+          "tail": "s \u001b[90m(4.002125ms)\u001b[39m\u001b[39m\n\u001b[32m✔ src/ has no runtime import cycle beyond the ones allowed by name \u001b[90m(39.168791ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no top-level body is defined twice in src/ \u001b[90m(2.641583ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no name is exported from two src/ modules \u001b[90m(0.703167ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no src/ module is a barrel \u001b[90m(1.515166ms)\u001b[39m\u001b[39m\n\u001b[32m✔ empty catch blocks in src/ never exceed 0 \u001b[90m(1.03275ms)\u001b[39m\u001b[39m\n\u001b[32m✔ every synchronous git spawn in src/ is bounded or a named exemption \u001b[90m(5.185125ms)\u001b[39m\u001b[39m\n\u001b[32m✔ src/ modules without a header never exceed 30 \u001b[90m(0.128709ms)\u001b[39m\u001b[39m\n\u001b[32m✔ src/ spells the runs directory literal only in its resolver \u001b[90m(1.755666ms)\u001b[39m\u001b[39m\n\u001b[32m✔ test/ occurrences of the runs directory literal never exceed 195 \u001b[90m(1.365125ms)\u001b[39m\u001b[39m\n\u001b[32m✔ evals/ occurrences of the runs directory literal never exceed 7 \u001b[90m(0.142084ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no test bounds a measured duration from above \u001b[90m(5.844625ms)\u001b[39m\u001b[39m\n\u001b[32m✔ tests racing a deadline under 60000ms never exceed 3 \u001b[90m(9.158083ms)\u001b[39m\u001b[39m\n\u001b[32m✔ tests blocking on wall-clock time never exceed 1 \u001b[90m(1.799792ms)\u001b[39m\u001b[39m\n\u001b[34mℹ tests 14\u001b[39m\n\u001b[34mℹ suites 0\u001b[39m\n\u001b[34mℹ pass 14\u001b[39m\n\u001b[34mℹ fail 0\u001b[39m\n\u001b[34mℹ cancelled 0\u001b[39m\n\u001b[34mℹ skipped 0\u001b[39m\n\u001b[34mℹ todo 0\u001b[39m\n\u001b[34mℹ duration_ms 154.869625\u001b[39m\n(node:10309) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+        },
+        {
+          "id": "resolver-api",
+          "kind": "proof",
+          "passed": true,
+          "ms": 87,
+          "tail": "(node:10383) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\u001b[32m✔ RUNS_DIR_NAME is the literal pathspec users need \u001b[90m(0.46875ms)\u001b[39m\u001b[39m\n\u001b[32m✔ runsRoot is <cwd>/.runs \u001b[90m(0.075166ms)\u001b[39m\u001b[39m\n\u001b[32m✔ runDirectory is <cwd>/.runs/<runId> \u001b[90m(0.067ms)\u001b[39m\u001b[39m\n\u001b[32m✔ campaignsRoot is <cwd>/.runs/campaigns \u001b[90m(0.078417ms)\u001b[39m\u001b[39m\n\u001b[32m✔ campaignTree is <cwd>/.runs/campaigns/<campaignId> \u001b[90m(0.111708ms)\u001b[39m\u001b[39m\n\u001b[32m✔ attemptWorktreePath is <dirname(runDir)>/worktrees/<runId>/<nodeId>.<attempt> \u001b[90m(0.07075ms)\u001b[39m\u001b[39m\n\u001b[32m✔ candidateWorktreePath is <dirname(runDir)>/worktrees/<runId>/.candidate \u001b[90m(0.055833ms)\u001b[39m\u001b[39m\n\u001b[32m✔ a relative cwd resolves the same way it does today \u001b[90m(0.1035ms)\u001b[39m\u001b[39m\n\u001b[34mℹ tests 8\u001b[39m\n\u001b[34mℹ suites 0\u001b[39m\n\u001b[34mℹ pass 8\u001b[39m\n\u001b[34mℹ fail 0\u001b[39m\n\u001b[34mℹ cancelled 0\u001b[39m\n\u001b[34mℹ skipped 0\u001b[39m\n\u001b[34mℹ todo 0\u001b[39m\n\u001b[34mℹ duration_ms 51.409208\u001b[39m\n(node:10362) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+        }
+      ],
+      "proofsTotal": 2,
+      "proofsPassed": 2,
+      "guardsPassed": true,
+      "scope": {
+        "changed": [
+          "evals/compare.mjs",
+          "src/campaign/chain.mjs",
+          "src/campaign/metrics.mjs",
+          "src/cli.mjs",
+          "src/cli/campaign.mjs",
+          "src/cli/init.mjs",
+          "src/cli/launch.mjs",
+          "src/cli/plan.mjs",
+          "src/engine/dispatch.mjs",
+          "src/engine/live-preflight.mjs",
+          "src/engine/result-file.mjs",
+          "src/engine/resume.mjs",
+          "src/engine/run-identity.mjs",
+          "src/engine/scheduler.mjs",
+          "src/engine/settle.mjs",
+          "src/harnesses/replay/bin.mjs",
+          "src/host/preflight.mjs",
+          "src/plan/pipeline.mjs",
+          "src/repo/declared-paths.mjs",
+          "src/repo/integrate.mjs",
+          "src/repo/scope-closure.mjs",
+          "src/repo/workspace.mjs",
+          "src/repo/worktree.mjs",
+          "src/report/progress.mjs",
+          "src/run/paths.mjs",
+          "src/seat/index.mjs",
+          "src/web/server.mjs",
+          "test/repo/source-shape.test.mjs",
+          "test/run/paths.test.mjs"
+        ],
+        "outOfScope": [],
+        "proofsEdited": []
+      },
+      "runner": "faberun",
+      "model": "claude-sonnet-5"
+    },
+    {
+      "arm": "A",
+      "label": "r11-r3b",
+      "repetition": 1,
+      "runId": "arms-r11-r3b-a-r1-muf4nv1h",
+      "workerModel": "claude-sonnet-5",
+      "scopeAcknowledged": [],
+      "exitCode": 1,
+      "startedAt": "2026-09-24T06:05:12.350Z",
+      "finishedAt": "2026-09-24T06:11:58.146Z",
+      "wallMs": 398565,
+      "baseSha": "8284c81f5d396a0d944521b7222569de98bc4e0c",
+      "finalSha": "3f93afd0b876bf7b5c06155de6d92f97ba04ca3f",
+      "costUsd": null,
+      "budgetCostUsd": 6.8522914,
+      "costProvenance": "unknown",
+      "observedCostUsd": 0.8522914000000001,
+      "workerCostUsd": 0.8522914000000001,
+      "judgeCostUsd": 0,
+      "unpricedInvocations": 1,
+      "tokens": {
+        "input": 73668,
+        "cacheRead": 1738397,
+        "output": 21004
+      },
+      "requests": 65,
+      "toolCalls": 40,
+      "contextMax": 89895,
+      "invocations": 2,
+      "nodes": [
+        {
+          "id": "cli-repo-and-surface-callers-use-the-resolver",
+          "status": "blocked",
+          "attempt": 0,
+          "revisions": 0,
+          "error": "dependency_failed"
+        },
+        {
+          "id": "engine-and-campaign-callers-use-the-resolver",
+          "status": "blocked",
+          "attempt": 0,
+          "revisions": 0,
+          "error": "dependency_failed"
+        },
+        {
+          "id": "one-module-owns-the-run-paths",
+          "status": "exhausted",
+          "attempt": 1,
+          "revisions": 0,
+          "error": "quota_exhausted"
+        },
+        {
+          "id": "the-centralization-guard-only-falls",
+          "status": "blocked",
+          "attempt": 0,
+          "revisions": 0,
+          "error": "dependency_failed"
+        }
+      ],
+      "acceptance": [
+        {
+          "id": "src-centralization",
+          "kind": "proof",
+          "passed": false,
+          "ms": 46,
+          "tail": "node:fs:621\n    return binding.readFileUtf8(path, stringToFlags(options.flag));\n                   ^\n\nError: ENOENT: no such file or directory, open 'src/run/paths.mjs'\n\u001b[90m    at readFileSync (node:fs:621:20)\u001b[39m\n    at runsDirNameFromTree (file:///Users/frb/dev/frb/faberun-leave/evals/paired/checks/centralization.mjs:19:18)\n    at offendersIn (file:///Users/frb/dev/frb/faberun-leave/evals/paired/checks/centralization.mjs:30:23)\n    at file:///Users/frb/dev/frb/faberun-leave/evals/paired/checks/centralization.mjs:51:21\n\u001b[90m    at ModuleJob.run (node:internal/modules/esm/module_job:569:25)\u001b[39m\n    at async node:internal/modules/esm/loader:650:26\n\u001b[90m    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)\u001b[39m {\n  errno: \u001b[33m-2\u001b[39m,\n  code: \u001b[32m'ENOENT'\u001b[39m,\n  syscall: \u001b[32m'open'\u001b[39m,\n  path: \u001b[32m'src/run/paths.mjs'\u001b[39m\n}\n\nNode.js v26.8.1\n"
+        },
+        {
+          "id": "typecheck",
+          "kind": "guard",
+          "passed": true,
+          "ms": 2933,
+          "tail": ""
+        },
+        {
+          "id": "source-shape",
+          "kind": "guard",
+          "passed": true,
+          "ms": 200,
+          "tail": "(node:60452) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\u001b[32m✔ no file in the repository exceeds 800 lines \u001b[90m(4.219334ms)\u001b[39m\u001b[39m\n\u001b[32m✔ src/ has no runtime import cycle beyond the ones allowed by name \u001b[90m(43.703959ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no top-level body is defined twice in src/ \u001b[90m(3.052ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no name is exported from two src/ modules \u001b[90m(0.785709ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no src/ module is a barrel \u001b[90m(1.603083ms)\u001b[39m\u001b[39m\n\u001b[32m✔ empty catch blocks in src/ never exceed 0 \u001b[90m(1.063333ms)\u001b[39m\u001b[39m\n\u001b[32m✔ every synchronous git spawn in src/ is bounded or a named exemption \u001b[90m(5.743833ms)\u001b[39m\u001b[39m\n\u001b[32m✔ src/ modules without a header never exceed 30 \u001b[90m(0.158292ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no test bounds a measured duration from above \u001b[90m(6.183208ms)\u001b[39m\u001b[39m\n\u001b[32m✔ tests racing a deadline under 60000ms never exceed 3 \u001b[90m(9.902ms)\u001b[39m\u001b[39m\n\u001b[32m✔ tests blocking on wall-clock time never exceed 1 \u001b[90m(1.882459ms)\u001b[39m\u001b[39m\n\u001b[34mℹ tests 11\u001b[39m\n\u001b[34mℹ suites 0\u001b[39m\n\u001b[34mℹ pass 11\u001b[39m\n\u001b[34mℹ fail 0\u001b[39m\n\u001b[34mℹ cancelled 0\u001b[39m\n\u001b[34mℹ skipped 0\u001b[39m\n\u001b[34mℹ todo 0\u001b[39m\n\u001b[34mℹ duration_ms 163.812917\u001b[39m\n(node:60356) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+        },
+        {
+          "id": "resolver-api",
+          "kind": "proof",
+          "passed": false,
+          "ms": 80,
+          "tail": "es/esm/resolve:272:11)\u001b[39m\n\u001b[90m    at moduleResolve (node:internal/modules/esm/resolve:879:10)\u001b[39m\n\u001b[90m    at defaultResolve (node:internal/modules/esm/resolve:1006:11)\u001b[39m\n\u001b[90m    at #cachedDefaultResolve (node:internal/modules/esm/loader:708:20)\u001b[39m\n\u001b[90m    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:728:38)\u001b[39m\n\u001b[90m    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:766:56)\u001b[39m\n\u001b[90m    at #resolve (node:internal/modules/esm/loader:690:17)\u001b[39m\n\u001b[90m    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:610:35)\u001b[39m\n\u001b[90m    at ModuleJob.syncLink (node:internal/modules/esm/module_job:277:33)\u001b[39m\n\u001b[90m    at ModuleJob.link (node:internal/modules/esm/module_job:389:17)\u001b[39m {\n  code: \u001b[32m'ERR_MODULE_NOT_FOUND'\u001b[39m,\n  url: \u001b[32m'file:///Users/frb/dev/frb/faberun-leave/evals/paired/.runs/worktrees/r11-r3b-A-r1-final/src/run/paths.mjs'\u001b[39m\n}\n\nNode.js v26.8.1\n\u001b[31m✖ test/run/paths.test.mjs \u001b[90m(39.997125ms)\u001b[39m\u001b[39m\n\u001b[34mℹ tests 1\u001b[39m\n\u001b[34mℹ suites 0\u001b[39m\n\u001b[34mℹ pass 0\u001b[39m\n\u001b[34mℹ fail 1\u001b[39m\n\u001b[34mℹ cancelled 0\u001b[39m\n\u001b[34mℹ skipped 0\u001b[39m\n\u001b[34mℹ todo 0\u001b[39m\n\u001b[34mℹ duration_ms 44.908125\u001b[39m\n\n\u001b[31m✖ failing tests:\u001b[39m\n\ntest at test/run/paths.test.mjs:1:1\n\u001b[31m✖ test/run/paths.test.mjs \u001b[90m(39.997125ms)\u001b[39m\u001b[39m\n  \u001b[32m'test failed'\u001b[39m\n(node:60614) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+        }
+      ],
+      "proofsTotal": 2,
+      "proofsPassed": 0,
+      "guardsPassed": true,
+      "scope": {
+        "changed": [],
+        "outOfScope": [],
+        "proofsEdited": []
+      },
+      "runner": "faberun",
+      "model": "claude-sonnet-5"
+    },
+    {
+      "arm": "H",
+      "label": "r11-r3b",
+      "repetition": 1,
+      "runId": "arms-r11-r3b-h-r1-muf4wq4i",
+      "workerModel": "gpt-5.6-luna",
+      "scopeAcknowledged": [],
+      "exitCode": 1,
+      "startedAt": "2026-09-24T06:12:07.408Z",
+      "finishedAt": "2026-09-24T06:12:27.009Z",
+      "wallMs": 12726,
+      "baseSha": "7dd74c3629c33d77d1c07bcf9a9a649a5a42df8f",
+      "finalSha": "956783fc5ad22abc21b68de75c619e8ac8fa7ce6",
+      "costUsd": null,
+      "budgetCostUsd": 1,
+      "costProvenance": "unknown",
+      "observedCostUsd": null,
+      "workerCostUsd": 0,
+      "judgeCostUsd": 0,
+      "unpricedInvocations": 1,
+      "tokens": {
+        "input": 0,
+        "cacheRead": 0,
+        "output": 0
+      },
+      "requests": null,
+      "toolCalls": 0,
+      "contextMax": null,
+      "invocations": 1,
+      "nodes": [
+        {
+          "id": "cli-repo-and-surface-callers-use-the-resolver",
+          "status": "blocked",
+          "attempt": 0,
+          "revisions": 0,
+          "error": "dependency_failed"
+        },
+        {
+          "id": "engine-and-campaign-callers-use-the-resolver",
+          "status": "blocked",
+          "attempt": 0,
+          "revisions": 0,
+          "error": "dependency_failed"
+        },
+        {
+          "id": "one-module-owns-the-run-paths",
+          "status": "exhausted",
+          "attempt": 1,
+          "revisions": 0,
+          "error": "quota_exhausted"
+        },
+        {
+          "id": "the-centralization-guard-only-falls",
+          "status": "blocked",
+          "attempt": 0,
+          "revisions": 0,
+          "error": "dependency_failed"
+        }
+      ],
+      "acceptance": [
+        {
+          "id": "src-centralization",
+          "kind": "proof",
+          "passed": false,
+          "ms": 36,
+          "tail": "node:fs:621\n    return binding.readFileUtf8(path, stringToFlags(options.flag));\n                   ^\n\nError: ENOENT: no such file or directory, open 'src/run/paths.mjs'\n\u001b[90m    at readFileSync (node:fs:621:20)\u001b[39m\n    at runsDirNameFromTree (file:///Users/frb/dev/frb/faberun-leave/evals/paired/checks/centralization.mjs:19:18)\n    at offendersIn (file:///Users/frb/dev/frb/faberun-leave/evals/paired/checks/centralization.mjs:30:23)\n    at file:///Users/frb/dev/frb/faberun-leave/evals/paired/checks/centralization.mjs:51:21\n\u001b[90m    at ModuleJob.run (node:internal/modules/esm/module_job:569:25)\u001b[39m\n    at async node:internal/modules/esm/loader:650:26\n\u001b[90m    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)\u001b[39m {\n  errno: \u001b[33m-2\u001b[39m,\n  code: \u001b[32m'ENOENT'\u001b[39m,\n  syscall: \u001b[32m'open'\u001b[39m,\n  path: \u001b[32m'src/run/paths.mjs'\u001b[39m\n}\n\nNode.js v26.8.1\n"
+        },
+        {
+          "id": "typecheck",
+          "kind": "guard",
+          "passed": true,
+          "ms": 2633,
+          "tail": ""
+        },
+        {
+          "id": "source-shape",
+          "kind": "guard",
+          "passed": true,
+          "ms": 187,
+          "tail": "(node:84559) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\u001b[32m✔ no file in the repository exceeds 800 lines \u001b[90m(4.019833ms)\u001b[39m\u001b[39m\n\u001b[32m✔ src/ has no runtime import cycle beyond the ones allowed by name \u001b[90m(39.56ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no top-level body is defined twice in src/ \u001b[90m(2.939334ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no name is exported from two src/ modules \u001b[90m(0.724208ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no src/ module is a barrel \u001b[90m(1.513ms)\u001b[39m\u001b[39m\n\u001b[32m✔ empty catch blocks in src/ never exceed 0 \u001b[90m(1.103792ms)\u001b[39m\u001b[39m\n\u001b[32m✔ every synchronous git spawn in src/ is bounded or a named exemption \u001b[90m(5.107334ms)\u001b[39m\u001b[39m\n\u001b[32m✔ src/ modules without a header never exceed 30 \u001b[90m(0.115375ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no test bounds a measured duration from above \u001b[90m(6.000167ms)\u001b[39m\u001b[39m\n\u001b[32m✔ tests racing a deadline under 60000ms never exceed 3 \u001b[90m(9.242083ms)\u001b[39m\u001b[39m\n\u001b[32m✔ tests blocking on wall-clock time never exceed 1 \u001b[90m(1.745167ms)\u001b[39m\u001b[39m\n\u001b[34mℹ tests 11\u001b[39m\n\u001b[34mℹ suites 0\u001b[39m\n\u001b[34mℹ pass 11\u001b[39m\n\u001b[34mℹ fail 0\u001b[39m\n\u001b[34mℹ cancelled 0\u001b[39m\n\u001b[34mℹ skipped 0\u001b[39m\n\u001b[34mℹ todo 0\u001b[39m\n\u001b[34mℹ duration_ms 151.116834\u001b[39m\n(node:84558) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+        },
+        {
+          "id": "resolver-api",
+          "kind": "proof",
+          "passed": false,
+          "ms": 75,
+          "tail": "es/esm/resolve:272:11)\u001b[39m\n\u001b[90m    at moduleResolve (node:internal/modules/esm/resolve:879:10)\u001b[39m\n\u001b[90m    at defaultResolve (node:internal/modules/esm/resolve:1006:11)\u001b[39m\n\u001b[90m    at #cachedDefaultResolve (node:internal/modules/esm/loader:708:20)\u001b[39m\n\u001b[90m    at #resolveAndMaybeBlockOnLoaderThread (node:internal/modules/esm/loader:728:38)\u001b[39m\n\u001b[90m    at ModuleLoader.resolveSync (node:internal/modules/esm/loader:766:56)\u001b[39m\n\u001b[90m    at #resolve (node:internal/modules/esm/loader:690:17)\u001b[39m\n\u001b[90m    at ModuleLoader.getOrCreateModuleJob (node:internal/modules/esm/loader:610:35)\u001b[39m\n\u001b[90m    at ModuleJob.syncLink (node:internal/modules/esm/module_job:277:33)\u001b[39m\n\u001b[90m    at ModuleJob.link (node:internal/modules/esm/module_job:389:17)\u001b[39m {\n  code: \u001b[32m'ERR_MODULE_NOT_FOUND'\u001b[39m,\n  url: \u001b[32m'file:///Users/frb/dev/frb/faberun-leave/evals/paired/.runs/worktrees/r11-r3b-H-r1-final/src/run/paths.mjs'\u001b[39m\n}\n\nNode.js v26.8.1\n\u001b[31m✖ test/run/paths.test.mjs \u001b[90m(35.181042ms)\u001b[39m\u001b[39m\n\u001b[34mℹ tests 1\u001b[39m\n\u001b[34mℹ suites 0\u001b[39m\n\u001b[34mℹ pass 0\u001b[39m\n\u001b[34mℹ fail 1\u001b[39m\n\u001b[34mℹ cancelled 0\u001b[39m\n\u001b[34mℹ skipped 0\u001b[39m\n\u001b[34mℹ todo 0\u001b[39m\n\u001b[34mℹ duration_ms 39.603542\u001b[39m\n\n\u001b[31m✖ failing tests:\u001b[39m\n\ntest at test/run/paths.test.mjs:1:1\n\u001b[31m✖ test/run/paths.test.mjs \u001b[90m(35.181042ms)\u001b[39m\u001b[39m\n  \u001b[32m'test failed'\u001b[39m\n(node:84560) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+        }
+      ],
+      "proofsTotal": 2,
+      "proofsPassed": 0,
+      "guardsPassed": true,
+      "scope": {
+        "changed": [],
+        "outOfScope": [],
+        "proofsEdited": []
+      },
+      "runner": "faberun",
+      "model": "gpt-5.6-luna"
+    },
+    {
+      "arm": "B",
+      "label": "r11-r3b",
+      "repetition": 1,
+      "exitCode": 0,
+      "signal": null,
+      "startedAt": "2026-09-24T06:12:28.807Z",
+      "finishedAt": "2026-09-24T06:29:39.194Z",
+      "wallMs": 1026212,
+      "baseSha": "4913ef2b607488da78522c739c0fb86bd7ce33be",
+      "finalSha": "277ae6f7e69689a2c43f2398a7edc5408610c640",
+      "resultSubtype": "success",
+      "costUsd": 4.3106824,
+      "tokens": {
+        "input": 280,
+        "cacheCreation": 143175,
+        "cacheRead": 16094262,
+        "output": 51857
+      },
+      "reportedTurns": 166,
+      "requests": 255,
+      "toolCalls": 165,
+      "contextMax": 159452,
+      "agentCalls": 0,
+      "finalMessage": "This matches exactly the combined write scope of all four requirements. All verification commands passed. Final status.\n\n{\"status\":\"done\",\"summary\":\"Implemented all four requirements: created src/run/paths.mjs as the single owner of run/campaign/worktree path shapes (RUNS_DIR_NAME, runsRoot, runDirectory, campaignsRoot, campaignTree, attemptWorktreePath, candidateWorktreePath) and moved attemptWorktreePath/candidateWorktreePath out of src/repo/worktree.mjs into it, updating dispatch.mjs, resume.mjs, settle.mjs, integrate.mjs and evals/compare.mjs to import from the new module while merging import statements to stay under the 800-line ceiling (R1); migrated all engine/campaign/plan/host callers (chain.mjs, metrics.mjs, live-preflight.mjs, result-file.mjs, run-identity.mjs, scheduler.mjs, preflight.mjs, pipeline.mjs) to use the resolver instead of the '.runs' literal (R2); migrated all cli/repo/surface callers (cli.mjs, cli/campaign.mjs, cli/init.mjs, cli/launch.mjs, cli/plan.mjs, replay/bin.mjs, declared-paths.mjs, scope-closure.mjs, workspace.mjs, worktree.mjs's remaining pathspec literal, report/progress.mjs, seat/index.mjs, web/server.mjs) to the resolver, confirming replay/bin.mjs's relative import resolves correctly despite being spawned as a standalone executable (R3); and added a centralization-guard ratchet to test/repo/source-shape.test.mjs asserting src/ spells the '.runs' literal only in src/run/paths.mjs, with test/ and evals/ ratcheted at freshly re-measured counts (187 occurrences/48 files and 7/4 respectively, corrected from the packet's line-based grep count to an occurrence-based count since some lines carry two matches) (R4). All verification commands (node --test test/run/, test/repo/, and tsc) pass with zero failures across all four nodes.\",\"requirements\":{\"one-module-owns-the-run-paths\":\"done\",\"engine-and-campaign-callers-use-the-resolver\":\"done\",\"cli-repo-and-surface-callers-use-the-resolver\":\"done\",\"the-centralization-guard-only-falls\":\"done\"}}",
+      "acceptance": [
+        {
+          "id": "src-centralization",
+          "kind": "proof",
+          "passed": true,
+          "ms": 53,
+          "tail": "only src/run/paths.mjs spells the runs directory literal\n"
+        },
+        {
+          "id": "typecheck",
+          "kind": "guard",
+          "passed": true,
+          "ms": 2629,
+          "tail": ""
+        },
+        {
+          "id": "source-shape",
+          "kind": "guard",
+          "passed": true,
+          "ms": 207,
+          "tail": "90m(5.475291ms)\u001b[39m\u001b[39m\n\u001b[32m✔ src/ has no runtime import cycle beyond the ones allowed by name \u001b[90m(42.690583ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no top-level body is defined twice in src/ \u001b[90m(2.934375ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no name is exported from two src/ modules \u001b[90m(0.764708ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no src/ module is a barrel \u001b[90m(1.65075ms)\u001b[39m\u001b[39m\n\u001b[32m✔ the runs directory literal is spelled only by its resolver in src/ \u001b[90m(1.1785ms)\u001b[39m\u001b[39m\n\u001b[32m✔ test/ never exceeds 187 occurrences of the runs directory literal \u001b[90m(1.336584ms)\u001b[39m\u001b[39m\n\u001b[32m✔ evals/ never exceeds 7 occurrences of the runs directory literal \u001b[90m(0.185291ms)\u001b[39m\u001b[39m\n\u001b[32m✔ empty catch blocks in src/ never exceed 0 \u001b[90m(2.447959ms)\u001b[39m\u001b[39m\n\u001b[32m✔ every synchronous git spawn in src/ is bounded or a named exemption \u001b[90m(4.514917ms)\u001b[39m\u001b[39m\n\u001b[32m✔ src/ modules without a header never exceed 30 \u001b[90m(0.103375ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no test bounds a measured duration from above \u001b[90m(5.987875ms)\u001b[39m\u001b[39m\n\u001b[32m✔ tests racing a deadline under 60000ms never exceed 3 \u001b[90m(9.666459ms)\u001b[39m\u001b[39m\n\u001b[32m✔ tests blocking on wall-clock time never exceed 1 \u001b[90m(1.8685ms)\u001b[39m\u001b[39m\n\u001b[34mℹ tests 14\u001b[39m\n\u001b[34mℹ suites 0\u001b[39m\n\u001b[34mℹ pass 14\u001b[39m\n\u001b[34mℹ fail 0\u001b[39m\n\u001b[34mℹ cancelled 0\u001b[39m\n\u001b[34mℹ skipped 0\u001b[39m\n\u001b[34mℹ todo 0\u001b[39m\n\u001b[34mℹ duration_ms 168.22175\u001b[39m\n(node:53597) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+        },
+        {
+          "id": "resolver-api",
+          "kind": "proof",
+          "passed": true,
+          "ms": 88,
+          "tail": "(node:53629) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\u001b[32m✔ RUNS_DIR_NAME is the literal pathspec users need \u001b[90m(0.512458ms)\u001b[39m\u001b[39m\n\u001b[32m✔ runsRoot is <cwd>/.runs \u001b[90m(0.081209ms)\u001b[39m\u001b[39m\n\u001b[32m✔ runDirectory is <cwd>/.runs/<runId> \u001b[90m(0.067833ms)\u001b[39m\u001b[39m\n\u001b[32m✔ campaignsRoot is <cwd>/.runs/campaigns \u001b[90m(0.109542ms)\u001b[39m\u001b[39m\n\u001b[32m✔ campaignTree is <cwd>/.runs/campaigns/<campaignId> \u001b[90m(0.135875ms)\u001b[39m\u001b[39m\n\u001b[32m✔ attemptWorktreePath is <dirname(runDir)>/worktrees/<runId>/<nodeId>.<attempt> \u001b[90m(0.087958ms)\u001b[39m\u001b[39m\n\u001b[32m✔ candidateWorktreePath is <dirname(runDir)>/worktrees/<runId>/.candidate \u001b[90m(0.064875ms)\u001b[39m\u001b[39m\n\u001b[32m✔ a relative cwd resolves the same way it does today \u001b[90m(0.104458ms)\u001b[39m\u001b[39m\n\u001b[34mℹ tests 8\u001b[39m\n\u001b[34mℹ suites 0\u001b[39m\n\u001b[34mℹ pass 8\u001b[39m\n\u001b[34mℹ fail 0\u001b[39m\n\u001b[34mℹ cancelled 0\u001b[39m\n\u001b[34mℹ skipped 0\u001b[39m\n\u001b[34mℹ todo 0\u001b[39m\n\u001b[34mℹ duration_ms 52.749708\u001b[39m\n(node:53628) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+        }
+      ],
+      "proofsTotal": 2,
+      "proofsPassed": 2,
+      "guardsPassed": true,
+      "scope": {
+        "changed": [
+          "evals/compare.mjs",
+          "src/campaign/chain.mjs",
+          "src/campaign/metrics.mjs",
+          "src/cli.mjs",
+          "src/cli/campaign.mjs",
+          "src/cli/init.mjs",
+          "src/cli/launch.mjs",
+          "src/cli/plan.mjs",
+          "src/engine/dispatch.mjs",
+          "src/engine/live-preflight.mjs",
+          "src/engine/result-file.mjs",
+          "src/engine/resume.mjs",
+          "src/engine/run-identity.mjs",
+          "src/engine/scheduler.mjs",
+          "src/engine/settle.mjs",
+          "src/harnesses/replay/bin.mjs",
+          "src/host/preflight.mjs",
+          "src/plan/pipeline.mjs",
+          "src/repo/declared-paths.mjs",
+          "src/repo/integrate.mjs",
+          "src/repo/scope-closure.mjs",
+          "src/repo/workspace.mjs",
+          "src/repo/worktree.mjs",
+          "src/report/progress.mjs",
+          "src/run/paths.mjs",
+          "src/seat/index.mjs",
+          "src/web/server.mjs",
+          "test/repo/source-shape.test.mjs",
+          "test/run/paths.test.mjs"
+        ],
+        "outOfScope": [],
+        "proofsEdited": []
+      },
+      "logPath": "/Users/frb/dev/frb/faberun-leave/evals/paired/.runs/logs/r11-r3b-B-r1.stream.jsonl",
+      "runner": "session",
+      "model": "claude-sonnet-5"
+    },
+    {
+      "arm": "E",
+      "label": "r11-r3b",
+      "repetition": 1,
+      "runId": "arms-r11-r3b-e-r1-muf5jgu2",
+      "workerModel": "deepseek-flash",
+      "scopeAcknowledged": [],
+      "exitCode": 0,
+      "startedAt": "2026-09-24T06:29:48.552Z",
+      "finishedAt": "2026-09-24T06:41:45.824Z",
+      "wallMs": 710941,
+      "baseSha": "8bb68e9f74645e1f0f004e83bac04e0a12649c8e",
+      "finalSha": "e0c30a1a6377f73d1f6c2cef7eb4935bf582e7bb",
+      "costUsd": 0.09601353600000001,
+      "budgetCostUsd": 0.09601353600000001,
+      "costProvenance": "priced",
+      "observedCostUsd": 0.032471064,
+      "workerCostUsd": 0.09601353600000001,
+      "judgeCostUsd": 0,
+      "unpricedInvocations": 0,
+      "tokens": {
+        "input": 179480,
+        "cacheRead": 4554112,
+        "output": 92382
+      },
+      "requests": 91,
+      "toolCalls": 203,
+      "contextMax": 80652,
+      "invocations": 4,
+      "nodes": [
+        {
+          "id": "cli-repo-and-surface-callers-use-the-resolver",
+          "status": "done",
+          "attempt": 1,
+          "revisions": 0,
+          "error": null
+        },
+        {
+          "id": "engine-and-campaign-callers-use-the-resolver",
+          "status": "done",
+          "attempt": 1,
+          "revisions": 0,
+          "error": null
+        },
+        {
+          "id": "one-module-owns-the-run-paths",
+          "status": "done",
+          "attempt": 1,
+          "revisions": 0,
+          "error": null
+        },
+        {
+          "id": "the-centralization-guard-only-falls",
+          "status": "done",
+          "attempt": 1,
+          "revisions": 0,
+          "error": null
+        }
+      ],
+      "acceptance": [
+        {
+          "id": "src-centralization",
+          "kind": "proof",
+          "passed": true,
+          "ms": 39,
+          "tail": "only src/run/paths.mjs spells the runs directory literal\n"
+        },
+        {
+          "id": "typecheck",
+          "kind": "guard",
+          "passed": true,
+          "ms": 2542,
+          "tail": ""
+        },
+        {
+          "id": "source-shape",
+          "kind": "guard",
+          "passed": true,
+          "ms": 210,
+          "tail": "tory exceeds 800 lines \u001b[90m(4.460209ms)\u001b[39m\u001b[39m\n\u001b[32m✔ src/ has no runtime import cycle beyond the ones allowed by name \u001b[90m(38.493708ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no top-level body is defined twice in src/ \u001b[90m(2.920541ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no name is exported from two src/ modules \u001b[90m(0.716458ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no src/ module is a barrel \u001b[90m(1.508333ms)\u001b[39m\u001b[39m\n\u001b[32m✔ empty catch blocks in src/ never exceed 0 \u001b[90m(1.121ms)\u001b[39m\u001b[39m\n\u001b[32m✔ every synchronous git spawn in src/ is bounded or a named exemption \u001b[90m(5.24325ms)\u001b[39m\u001b[39m\n\u001b[32m✔ src/ modules without a header never exceed 30 \u001b[90m(0.121ms)\u001b[39m\u001b[39m\n\u001b[32m✔ src/ spells the runs directory only through its resolver \u001b[90m(1.132625ms)\u001b[39m\u001b[39m\n\u001b[32m✔ test/ spells the runs directory in no more than 184 places \u001b[90m(8.734541ms)\u001b[39m\u001b[39m\n\u001b[32m✔ evals/ spells the runs directory in no more than 7 places \u001b[90m(0.162125ms)\u001b[39m\u001b[39m\n\u001b[32m✔ no test bounds a measured duration from above \u001b[90m(5.864583ms)\u001b[39m\u001b[39m\n\u001b[32m✔ tests racing a deadline under 60000ms never exceed 3 \u001b[90m(9.022875ms)\u001b[39m\u001b[39m\n\u001b[32m✔ tests blocking on wall-clock time never exceed 1 \u001b[90m(1.834791ms)\u001b[39m\u001b[39m\n\u001b[34mℹ tests 14\u001b[39m\n\u001b[34mℹ suites 0\u001b[39m\n\u001b[34mℹ pass 14\u001b[39m\n\u001b[34mℹ fail 0\u001b[39m\n\u001b[34mℹ cancelled 0\u001b[39m\n\u001b[34mℹ skipped 0\u001b[39m\n\u001b[34mℹ todo 0\u001b[39m\n\u001b[34mℹ duration_ms 164.111167\u001b[39m\n(node:62956) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+        },
+        {
+          "id": "resolver-api",
+          "kind": "proof",
+          "passed": true,
+          "ms": 83,
+          "tail": "(node:62968) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n\u001b[32m✔ RUNS_DIR_NAME is the literal pathspec users need \u001b[90m(0.45275ms)\u001b[39m\u001b[39m\n\u001b[32m✔ runsRoot is <cwd>/.runs \u001b[90m(0.082375ms)\u001b[39m\u001b[39m\n\u001b[32m✔ runDirectory is <cwd>/.runs/<runId> \u001b[90m(0.065833ms)\u001b[39m\u001b[39m\n\u001b[32m✔ campaignsRoot is <cwd>/.runs/campaigns \u001b[90m(0.070667ms)\u001b[39m\u001b[39m\n\u001b[32m✔ campaignTree is <cwd>/.runs/campaigns/<campaignId> \u001b[90m(0.109208ms)\u001b[39m\u001b[39m\n\u001b[32m✔ attemptWorktreePath is <dirname(runDir)>/worktrees/<runId>/<nodeId>.<attempt> \u001b[90m(0.065334ms)\u001b[39m\u001b[39m\n\u001b[32m✔ candidateWorktreePath is <dirname(runDir)>/worktrees/<runId>/.candidate \u001b[90m(0.057375ms)\u001b[39m\u001b[39m\n\u001b[32m✔ a relative cwd resolves the same way it does today \u001b[90m(0.093958ms)\u001b[39m\u001b[39m\n\u001b[34mℹ tests 8\u001b[39m\n\u001b[34mℹ suites 0\u001b[39m\n\u001b[34mℹ pass 8\u001b[39m\n\u001b[34mℹ fail 0\u001b[39m\n\u001b[34mℹ cancelled 0\u001b[39m\n\u001b[34mℹ skipped 0\u001b[39m\n\u001b[34mℹ todo 0\u001b[39m\n\u001b[34mℹ duration_ms 49.012333\u001b[39m\n(node:62967) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.\n(Use `node --trace-warnings ...` to show where the warning was created)\n"
+        }
+      ],
+      "proofsTotal": 2,
+      "proofsPassed": 2,
+      "guardsPassed": true,
+      "scope": {
+        "changed": [
+          "evals/compare.mjs",
+          "src/campaign/chain.mjs",
+          "src/campaign/metrics.mjs",
+          "src/cli.mjs",
+          "src/cli/campaign.mjs",
+          "src/cli/init.mjs",
+          "src/cli/launch.mjs",
+          "src/cli/plan.mjs",
+          "src/engine/dispatch.mjs",
+          "src/engine/live-preflight.mjs",
+          "src/engine/result-file.mjs",
+          "src/engine/resume.mjs",
+          "src/engine/run-identity.mjs",
+          "src/engine/scheduler.mjs",
+          "src/engine/settle.mjs",
+          "src/harnesses/replay/bin.mjs",
+          "src/host/preflight.mjs",
+          "src/plan/pipeline.mjs",
+          "src/repo/declared-paths.mjs",
+          "src/repo/integrate.mjs",
+          "src/repo/scope-closure.mjs",
+          "src/repo/workspace.mjs",
+          "src/repo/worktree.mjs",
+          "src/report/progress.mjs",
+          "src/run/paths.mjs",
+          "src/seat/index.mjs",
+          "src/web/server.mjs",
+          "test/repo/source-shape.test.mjs",
+          "test/run/paths.test.mjs"
+        ],
+        "outOfScope": [],
+        "proofsEdited": []
+      },
+      "runner": "faberun",
+      "model": "deepseek-flash"
+    }
+  ],
+  "arms": [
+    {
+      "arm": "A",
+      "runner": "faberun",
+      "model": "claude-sonnet-5",
+      "runs": 1,
+      "measuredRuns": 1,
+      "erroredRuns": 0,
+      "deliveredProofs": 0,
+      "proofsTotal": 2,
+      "guardsPassed": true,
+      "proofsDelivered": 0,
+      "costUsd": null,
+      "costPerDeliveredProof": null,
+      "wallClockMs": 398565,
+      "requests": 65,
+      "outOfScopeFiles": 0,
+      "perRun": [
+        {
+          "repetition": 1,
+          "error": null,
+          "proofsDelivered": 0,
+          "costUsd": null,
+          "costPerDeliveredProof": null,
+          "wallClockMs": 398565,
+          "requests": 65,
+          "outOfScopeFiles": 0
+        }
+      ],
+      "band": {
+        "proofsDelivered": {
+          "min": 0,
+          "max": 0,
+          "median": 0,
+          "n": 1,
+          "interval95": null
+        },
+        "costUsd": {
+          "min": null,
+          "max": null,
+          "median": null,
+          "n": 0,
+          "interval95": null
+        },
+        "costPerDeliveredProof": {
+          "min": null,
+          "max": null,
+          "median": null,
+          "n": 0,
+          "interval95": null
+        },
+        "wallClockMs": {
+          "min": 398565,
+          "max": 398565,
+          "median": 398565,
+          "n": 1,
+          "interval95": null
+        },
+        "requests": {
+          "min": 65,
+          "max": 65,
+          "median": 65,
+          "n": 1,
+          "interval95": null
+        },
+        "outOfScopeFiles": {
+          "min": 0,
+          "max": 0,
+          "median": 0,
+          "n": 1,
+          "interval95": null
+        }
+      }
+    },
+    {
+      "arm": "B",
+      "runner": "session",
+      "model": "claude-sonnet-5",
+      "runs": 1,
+      "measuredRuns": 1,
+      "erroredRuns": 0,
+      "deliveredProofs": 2,
+      "proofsTotal": 2,
+      "guardsPassed": true,
+      "proofsDelivered": 2,
+      "costUsd": 4.3106824,
+      "costPerDeliveredProof": 2.1553412,
+      "wallClockMs": 1026212,
+      "requests": 255,
+      "outOfScopeFiles": 0,
+      "perRun": [
+        {
+          "repetition": 1,
+          "error": null,
+          "proofsDelivered": 2,
+          "costUsd": 4.3106824,
+          "costPerDeliveredProof": 2.1553412,
+          "wallClockMs": 1026212,
+          "requests": 255,
+          "outOfScopeFiles": 0
+        }
+      ],
+      "band": {
+        "proofsDelivered": {
+          "min": 2,
+          "max": 2,
+          "median": 2,
+          "n": 1,
+          "interval95": null
+        },
+        "costUsd": {
+          "min": 4.3106824,
+          "max": 4.3106824,
+          "median": 4.3106824,
+          "n": 1,
+          "interval95": null
+        },
+        "costPerDeliveredProof": {
+          "min": 2.1553412,
+          "max": 2.1553412,
+          "median": 2.1553412,
+          "n": 1,
+          "interval95": null
+        },
+        "wallClockMs": {
+          "min": 1026212,
+          "max": 1026212,
+          "median": 1026212,
+          "n": 1,
+          "interval95": null
+        },
+        "requests": {
+          "min": 255,
+          "max": 255,
+          "median": 255,
+          "n": 1,
+          "interval95": null
+        },
+        "outOfScopeFiles": {
+          "min": 0,
+          "max": 0,
+          "median": 0,
+          "n": 1,
+          "interval95": null
+        }
+      }
+    },
+    {
+      "arm": "D",
+      "runner": "faberun",
+      "model": "claude-sonnet-5",
+      "runs": 1,
+      "measuredRuns": 1,
+      "erroredRuns": 0,
+      "deliveredProofs": 2,
+      "proofsTotal": 2,
+      "guardsPassed": true,
+      "proofsDelivered": 2,
+      "costUsd": 4.133226199999999,
+      "costPerDeliveredProof": 2.0666130999999996,
+      "wallClockMs": 1309475,
+      "requests": 297,
+      "outOfScopeFiles": 0,
+      "perRun": [
+        {
+          "repetition": 1,
+          "error": null,
+          "proofsDelivered": 2,
+          "costUsd": 4.133226199999999,
+          "costPerDeliveredProof": 2.0666130999999996,
+          "wallClockMs": 1309475,
+          "requests": 297,
+          "outOfScopeFiles": 0
+        }
+      ],
+      "band": {
+        "proofsDelivered": {
+          "min": 2,
+          "max": 2,
+          "median": 2,
+          "n": 1,
+          "interval95": null
+        },
+        "costUsd": {
+          "min": 4.133226199999999,
+          "max": 4.133226199999999,
+          "median": 4.133226199999999,
+          "n": 1,
+          "interval95": null
+        },
+        "costPerDeliveredProof": {
+          "min": 2.0666130999999996,
+          "max": 2.0666130999999996,
+          "median": 2.0666130999999996,
+          "n": 1,
+          "interval95": null
+        },
+        "wallClockMs": {
+          "min": 1309475,
+          "max": 1309475,
+          "median": 1309475,
+          "n": 1,
+          "interval95": null
+        },
+        "requests": {
+          "min": 297,
+          "max": 297,
+          "median": 297,
+          "n": 1,
+          "interval95": null
+        },
+        "outOfScopeFiles": {
+          "min": 0,
+          "max": 0,
+          "median": 0,
+          "n": 1,
+          "interval95": null
+        }
+      }
+    },
+    {
+      "arm": "E",
+      "runner": "faberun",
+      "model": "deepseek-flash",
+      "runs": 1,
+      "measuredRuns": 1,
+      "erroredRuns": 0,
+      "deliveredProofs": 2,
+      "proofsTotal": 2,
+      "guardsPassed": true,
+      "proofsDelivered": 2,
+      "costUsd": 0.09601353600000001,
+      "costPerDeliveredProof": 0.048006768000000005,
+      "wallClockMs": 710941,
+      "requests": 91,
+      "outOfScopeFiles": 0,
+      "perRun": [
+        {
+          "repetition": 1,
+          "error": null,
+          "proofsDelivered": 2,
+          "costUsd": 0.09601353600000001,
+          "costPerDeliveredProof": 0.048006768000000005,
+          "wallClockMs": 710941,
+          "requests": 91,
+          "outOfScopeFiles": 0
+        }
+      ],
+      "band": {
+        "proofsDelivered": {
+          "min": 2,
+          "max": 2,
+          "median": 2,
+          "n": 1,
+          "interval95": null
+        },
+        "costUsd": {
+          "min": 0.09601353600000001,
+          "max": 0.09601353600000001,
+          "median": 0.09601353600000001,
+          "n": 1,
+          "interval95": null
+        },
+        "costPerDeliveredProof": {
+          "min": 0.048006768000000005,
+          "max": 0.048006768000000005,
+          "median": 0.048006768000000005,
+          "n": 1,
+          "interval95": null
+        },
+        "wallClockMs": {
+          "min": 710941,
+          "max": 710941,
+          "median": 710941,
+          "n": 1,
+          "interval95": null
+        },
+        "requests": {
+          "min": 91,
+          "max": 91,
+          "median": 91,
+          "n": 1,
+          "interval95": null
+        },
+        "outOfScopeFiles": {
+          "min": 0,
+          "max": 0,
+          "median": 0,
+          "n": 1,
+          "interval95": null
+        }
+      }
+    },
+    {
+      "arm": "H",
+      "runner": "faberun",
+      "model": "gpt-5.6-luna",
+      "runs": 1,
+      "measuredRuns": 1,
+      "erroredRuns": 0,
+      "deliveredProofs": 0,
+      "proofsTotal": 2,
+      "guardsPassed": true,
+      "proofsDelivered": 0,
+      "costUsd": null,
+      "costPerDeliveredProof": null,
+      "wallClockMs": 12726,
+      "requests": null,
+      "outOfScopeFiles": 0,
+      "perRun": [
+        {
+          "repetition": 1,
+          "error": null,
+          "proofsDelivered": 0,
+          "costUsd": null,
+          "costPerDeliveredProof": null,
+          "wallClockMs": 12726,
+          "requests": null,
+          "outOfScopeFiles": 0
+        }
+      ],
+      "band": {
+        "proofsDelivered": {
+          "min": 0,
+          "max": 0,
+          "median": 0,
+          "n": 1,
+          "interval95": null
+        },
+        "costUsd": {
+          "min": null,
+          "max": null,
+          "median": null,
+          "n": 0,
+          "interval95": null
+        },
+        "costPerDeliveredProof": {
+          "min": null,
+          "max": null,
+          "median": null,
+          "n": 0,
+          "interval95": null
+        },
+        "wallClockMs": {
+          "min": 12726,
+          "max": 12726,
+          "median": 12726,
+          "n": 1,
+          "interval95": null
+        },
+        "requests": {
+          "min": null,
+          "max": null,
+          "median": null,
+          "n": 0,
+          "interval95": null
+        },
+        "outOfScopeFiles": {
+          "min": 0,
+          "max": 0,
+          "median": 0,
+          "n": 1,
+          "interval95": null
+        }
+      }
+    },
+    {
+      "arm": "J",
+      "runner": "faberun",
+      "model": "glm-5.3-flash",
+      "runs": 1,
+      "measuredRuns": 1,
+      "erroredRuns": 0,
+      "deliveredProofs": 2,
+      "proofsTotal": 2,
+      "guardsPassed": true,
+      "proofsDelivered": 2,
+      "costUsd": 0.18950461000000002,
+      "costPerDeliveredProof": 0.09475230500000001,
+      "wallClockMs": 2093591,
+      "requests": null,
+      "outOfScopeFiles": 0,
+      "perRun": [
+        {
+          "repetition": 1,
+          "error": null,
+          "proofsDelivered": 2,
+          "costUsd": 0.18950461000000002,
+          "costPerDeliveredProof": 0.09475230500000001,
+          "wallClockMs": 2093591,
+          "requests": null,
+          "outOfScopeFiles": 0
+        }
+      ],
+      "band": {
+        "proofsDelivered": {
+          "min": 2,
+          "max": 2,
+          "median": 2,
+          "n": 1,
+          "interval95": null
+        },
+        "costUsd": {
+          "min": 0.18950461000000002,
+          "max": 0.18950461000000002,
+          "median": 0.18950461000000002,
+          "n": 1,
+          "interval95": null
+        },
+        "costPerDeliveredProof": {
+          "min": 0.09475230500000001,
+          "max": 0.09475230500000001,
+          "median": 0.09475230500000001,
+          "n": 1,
+          "interval95": null
+        },
+        "wallClockMs": {
+          "min": 2093591,
+          "max": 2093591,
+          "median": 2093591,
+          "n": 1,
+          "interval95": null
+        },
+        "requests": {
+          "min": null,
+          "max": null,
+          "median": null,
+          "n": 0,
+          "interval95": null
+        },
+        "outOfScopeFiles": {
+          "min": 0,
+          "max": 0,
+          "median": 0,
+          "n": 1,
+          "interval95": null
+        }
+      }
+    }
+  ],
+  "hypotheses": [
+    {
+      "id": "H1",
+      "hypothesis": "faberun cheaper per delivered proof than one session",
+      "metric": "costPerDeliveredProof",
+      "status": "not resolved",
+      "pairs": [
+        {
+          "candidate": "A",
+          "reference": "B",
+          "status": "not resolved: insufficient data"
+        },
+        {
+          "candidate": "D",
+          "reference": "B",
+          "status": "held"
+        }
+      ]
+    },
+    {
+      "id": "H2",
+      "hypothesis": "faberun cheaper than native subagents",
+      "metric": "costPerDeliveredProof",
+      "status": "not resolved: insufficient data",
+      "pairs": [
+        {
+          "candidate": "A",
+          "reference": "C",
+          "status": "not resolved: insufficient data"
+        },
+        {
+          "candidate": "D",
+          "reference": "C",
+          "status": "not resolved: insufficient data"
+        }
+      ]
+    },
+    {
+      "id": "H3",
+      "hypothesis": "faberun delivers at least as many proofs",
+      "metric": "proofsDelivered",
+      "status": "not resolved",
+      "pairs": [
+        {
+          "candidate": "A",
+          "reference": "B",
+          "status": "refuted"
+        },
+        {
+          "candidate": "D",
+          "reference": "B",
+          "status": "not resolved: difference fits inside the band"
+        }
+      ]
+    },
+    {
+      "id": "H4",
+      "hypothesis": "faberun finishes in less wall clock than one session",
+      "metric": "wallClockMs",
+      "status": "not resolved",
+      "pairs": [
+        {
+          "candidate": "A",
+          "reference": "B",
+          "status": "held"
+        },
+        {
+          "candidate": "D",
+          "reference": "B",
+          "status": "refuted"
+        }
+      ]
+    }
+  ]
+}

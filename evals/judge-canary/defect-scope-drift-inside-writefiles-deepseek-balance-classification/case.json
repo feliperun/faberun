@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 2,
+  "id": "defect-scope-drift-inside-writefiles-deepseek-balance-classification",
+  "label": "defect:scope-drift-inside-writefiles",
+  "sourceTask": "deepseek-balance-classification",
+  "source": {
+    "commitSha": "124f34e75eb2b012c09ca24baf2ec2f8483ee0ba",
+    "parentSha": "20b17af4d56d523880585cfaf73ca50f5b849d8f",
+    "runtimeOriginal": null,
+    "costUsdOriginal": null,
+    "wallClockSecOriginal": null,
+    "statementSource": "commit-message",
+    "parentTreeSha": "606fb1cefc0797699da27e6887f86f5592226a2e"
+  },
+  "nodeId": "deepseek-balance-classification",
+  "diffPaths": [
+    "skills/mine/intent-factory/scripts/drivers/index.mjs",
+    "skills/mine/intent-factory/test/drivers.test.mjs"
+  ],
+  "verification": [
+    {
+      "argv": [
+        "node",
+        "--check",
+        "skills/mine/intent-factory/scripts/drivers/index.mjs"
+      ]
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "skills/mine/intent-factory/test/drivers.test.mjs"
+      ]
+    }
+  ],
+  "taskPacket": {
+    "mode": "execution",
+    "objective": "normalizeProviderAvailability reports DeepSeek's 402 'Insufficient Balance' stop as its own reason, insufficient_balance, with no reset instant, distinct from quota exhaustion and authentication failure.",
+    "instructions": [
+      "In normalizeProviderAvailability (scripts/drivers/index.mjs), classify a text matching 'insufficient balance' or a standalone 402 as {available: false, exhaustedUntil: null, reason: 'insufficient_balance'}, before the quota branch.",
+      "The wording alone, without the numeric code, classifies the same way.",
+      "A drivers test pins both the codex stream shape and the wording-only envelope, and that the reason is neither quota_exhausted nor authentication_failed."
+    ],
+    "readFiles": [
+      "skills/mine/intent-factory/scripts/drivers/index.mjs",
+      "skills/mine/intent-factory/test/drivers.test.mjs"
+    ],
+    "writeFiles": [
+      "skills/mine/intent-factory/scripts/drivers/index.mjs",
+      "skills/mine/intent-factory/test/drivers.test.mjs"
+    ],
+    "writeRoots": [],
+    "symbols": [],
+    "decisions": [],
+    "nonGoals": [
+      "Changing how quota exhaustion, rate limits or authentication failures are classified: their patterns and reasons stay as they are."
+    ],
+    "verification": [
+      {
+        "argv": [
+          "node",
+          "--check",
+          "skills/mine/intent-factory/scripts/drivers/index.mjs"
+        ]
+      },
+      {
+        "argv": [
+          "node",
+          "--test",
+          "skills/mine/intent-factory/test/drivers.test.mjs"
+        ]
+      }
+    ]
+  },
+  "definitionOfDone": [
+    {
+      "id": "verification",
+      "text": "The declared verification commands pass on the sealed tree.",
+      "proof": {
+        "kind": "command",
+        "ref": "node --check skills/mine/intent-factory/scripts/drivers/index.mjs && node --test skills/mine/intent-factory/test/drivers.test.mjs"
+      }
+    },
+    {
+      "id": "balance-reason",
+      "text": "A 402 or 'Insufficient Balance' stop, with or without the numeric code, is insufficient_balance with exhaustedUntil null.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "in-scope",
+      "text": "Every change in the diff serves the objective, and none does what a non-goal excludes.",
+      "judgment": true,
+      "reason": "The write boundary admits any edit inside the declared files; no command tells a requested edit from an unrequested one."
+    },
+    {
+      "id": "docs-match-code",
+      "text": "Every comment and document the diff adds or edits describes what the code does.",
+      "judgment": true,
+      "reason": "No command compares prose with behaviour."
+    },
+    {
+      "id": "tests-assert-behaviour",
+      "text": "Every test the diff adds or edits asserts the behaviour its name and the instructions claim, and no assertion is removed or loosened.",
+      "judgment": true,
+      "reason": "A loosened assertion still passes; only reading the test shows what it no longer checks."
+    }
+  ],
+  "workerResult": {
+    "status": "done",
+    "summary": "normalizeProviderAvailability classifies the 402 balance stop as insufficient_balance ahead of the quota branch; a drivers test pins the stream and wording-only shapes.",
+    "verification": [
+      "node --check skills/mine/intent-factory/scripts/drivers/index.mjs",
+      "node --test skills/mine/intent-factory/test/drivers.test.mjs"
+    ],
+    "artifacts": [
+      "skills/mine/intent-factory/scripts/drivers/index.mjs",
+      "skills/mine/intent-factory/test/drivers.test.mjs"
+    ],
+    "missingContext": []
+  },
+  "mutation": {
+    "kind": "scope-drift-inside-writefiles",
+    "description": "A normalizer that throws is now reported as provider_unavailable instead of its own message, an unrequested behaviour change inside index.mjs.",
+    "edits": [
+      {
+        "path": "skills/mine/intent-factory/scripts/drivers/index.mjs",
+        "find": [
+          "    return { available: false, exhaustedUntil: null, reason: error instanceof Error ? error.message : \"provider_unavailable\" };"
+        ],
+        "replace": [
+          "    return { available: false, exhaustedUntil: null, reason: \"provider_unavailable\" };"
+        ]
+      }
+    ]
+  },
+  "diff": "diff.patch",
+  "diffSha256": "935749082d33bc047b468af5f4aaafa76e30e5b047e5d7c7734e856dbe36689d"
+}

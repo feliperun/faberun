@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 2,
+  "id": "defect-requirement-half-done-carry-git-s-own-reason-into-a-failed-git-command",
+  "label": "defect:requirement-half-done",
+  "sourceTask": "carry-git-s-own-reason-into-a-failed-git-command",
+  "source": {
+    "commitSha": "038c7420366e8ba3cf4a1fce70ede05f3eae0f89",
+    "parentSha": "90e13178c110afade57381cb48077b0c8f418ed2",
+    "runtimeOriginal": null,
+    "costUsdOriginal": null,
+    "wallClockSecOriginal": null,
+    "statementSource": "commit-message",
+    "parentTreeSha": "ff3d63a75f60254cd705c9a0fb000f9446ef8e5b"
+  },
+  "nodeId": "carry-git-failure-reason",
+  "diffPaths": [
+    "skills/mine/intent-factory/scripts/worktree.mjs",
+    "skills/mine/intent-factory/test/integration.test.mjs"
+  ],
+  "verification": [
+    {
+      "argv": [
+        "node",
+        "--check",
+        "skills/mine/intent-factory/scripts/worktree.mjs"
+      ]
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "skills/mine/intent-factory/test/integration.test.mjs"
+      ]
+    }
+  ],
+  "taskPacket": {
+    "mode": "execution",
+    "objective": "A failed git command in worktree.mjs carries git's own reason into the error instead of only 'Command failed'.",
+    "instructions": [
+      "Every git call in scripts/worktree.mjs runs through one helper, runGit, which on failure appends git's stderr (or its stdout when stderr is empty) to the first line of the error message and rethrows.",
+      "git() and every direct execFileSync git call in the module (update-ref, worktree add and remove, add, rm --cached, commit, diff --quiet) use that helper.",
+      "An integration test pins that a failing git() call keeps 'Command failed' and adds git's reason."
+    ],
+    "readFiles": [
+      "skills/mine/intent-factory/scripts/worktree.mjs",
+      "skills/mine/intent-factory/test/integration.test.mjs"
+    ],
+    "writeFiles": [
+      "skills/mine/intent-factory/scripts/worktree.mjs",
+      "skills/mine/intent-factory/test/integration.test.mjs"
+    ],
+    "writeRoots": [],
+    "symbols": [],
+    "decisions": [],
+    "nonGoals": [
+      "Changing the identity or message sealAttempt commits with."
+    ],
+    "verification": [
+      {
+        "argv": [
+          "node",
+          "--check",
+          "skills/mine/intent-factory/scripts/worktree.mjs"
+        ]
+      },
+      {
+        "argv": [
+          "node",
+          "--test",
+          "skills/mine/intent-factory/test/integration.test.mjs"
+        ]
+      }
+    ]
+  },
+  "definitionOfDone": [
+    {
+      "id": "verification",
+      "text": "The declared verification commands pass on the sealed tree.",
+      "proof": {
+        "kind": "command",
+        "ref": "node --check skills/mine/intent-factory/scripts/worktree.mjs && node --test skills/mine/intent-factory/test/integration.test.mjs"
+      }
+    },
+    {
+      "id": "every-call-wrapped",
+      "text": "Every git call in worktree.mjs goes through runGit, the sealing commit included.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "reason-appended",
+      "text": "A failing git call's error keeps its first line and appends git's stderr, or its stdout when stderr is empty.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "in-scope",
+      "text": "Every change in the diff serves the objective, and none does what a non-goal excludes.",
+      "judgment": true,
+      "reason": "The write boundary admits any edit inside the declared files; no command tells a requested edit from an unrequested one."
+    },
+    {
+      "id": "docs-match-code",
+      "text": "Every comment and document the diff adds or edits describes what the code does.",
+      "judgment": true,
+      "reason": "No command compares prose with behaviour."
+    },
+    {
+      "id": "tests-assert-behaviour",
+      "text": "Every test the diff adds or edits asserts the behaviour its name and the instructions claim, and no assertion is removed or loosened.",
+      "judgment": true,
+      "reason": "A loosened assertion still passes; only reading the test shows what it no longer checks."
+    }
+  ],
+  "workerResult": {
+    "status": "done",
+    "summary": "Added runGit, which appends git's own reason to a failed command, and routed every git call in worktree.mjs through it; an integration test pins the reason.",
+    "verification": [
+      "node --check skills/mine/intent-factory/scripts/worktree.mjs",
+      "node --test skills/mine/intent-factory/test/integration.test.mjs"
+    ],
+    "artifacts": [
+      "skills/mine/intent-factory/scripts/worktree.mjs",
+      "skills/mine/intent-factory/test/integration.test.mjs"
+    ],
+    "missingContext": []
+  },
+  "mutation": {
+    "kind": "requirement-half-done",
+    "description": "The sealing commit, the call the reason was missing from, still runs through a bare execFileSync with stdio ignored.",
+    "edits": [
+      {
+        "path": "skills/mine/intent-factory/scripts/worktree.mjs",
+        "find": [
+          "    runGit([",
+          "      \"-C\", path,",
+          "      \"-c\", \"user.email=runner@example.test\",",
+          "      \"-c\", \"user.name=intent-factory\",",
+          "      \"-c\", \"commit.gpgSign=false\",",
+          "      \"commit\", \"-qm\", `intent-factory ${runId} ${nodeId} attempt ${attempt}`,",
+          "    ]);"
+        ],
+        "replace": [
+          "    execFileSync(\"git\", [",
+          "      \"-C\", path,",
+          "      \"-c\", \"user.email=runner@example.test\",",
+          "      \"-c\", \"user.name=intent-factory\",",
+          "      \"-c\", \"commit.gpgSign=false\",",
+          "      \"commit\", \"-qm\", `intent-factory ${runId} ${nodeId} attempt ${attempt}`,",
+          "    ], { stdio: \"ignore\" });"
+        ]
+      }
+    ]
+  },
+  "diff": "diff.patch",
+  "diffSha256": "262420f61c5c510a87f1faea97dc14818936d894bec15b25eb2c4bbdb012f5ea"
+}

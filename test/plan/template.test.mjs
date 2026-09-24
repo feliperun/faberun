@@ -169,7 +169,7 @@ test("draft and revise instructions spell the nested definitionOfDone and verifi
   for (const kind of /** @type {const} */ (["draft", "revise"])) {
     const contract = validateContract(buildPlanningContract(kind, baseInputs()), contractPath);
     const instructions = contract.nodes[0].taskPacket.instructions.join("\n");
-    assert.match(instructions, /definitionOfDone: \[\{id, text, proof\?: \{kind: "command"\|"path"\|"verification", ref\}, judgment\?: true\}\]/);
+    assert.match(instructions, /definitionOfDone: \[\{id, text, proof\?: \{kind: "command"\|"path"\|"verification", ref\}, judgment\?: true, reason\?: string\}\]/);
     assert.match(instructions, /verification: \[\{argv: \[string\], cwd\?, timeoutSec\?, repeat\?, env\?, mutation\?: \{threshold\}\}\]/);
     // The id charset is requireId's (contract/assert.mjs) verbatim: an id that
     // is present but invalid fails validatePlanOutput just as late as an

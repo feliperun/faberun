@@ -1,0 +1,181 @@
+{
+  "schemaVersion": 2,
+  "id": "defect-doc-contradicts-code-stop-a-failing-proof-from-killing-the-controller",
+  "label": "defect:doc-contradicts-code",
+  "sourceTask": "stop-a-failing-proof-from-killing-the-controller",
+  "source": {
+    "commitSha": "4393992fe98234ec3f89664cc611da4b54e58d88",
+    "parentSha": "27bc7cd84c03bba6d7ef08e9341f12edc7f97c79",
+    "runtimeOriginal": null,
+    "costUsdOriginal": null,
+    "wallClockSecOriginal": null,
+    "statementSource": "commit-message",
+    "parentTreeSha": "0f1ac86486e12be7a2f0550436065188999f1d1e"
+  },
+  "nodeId": "bound-failing-proof-evidence",
+  "diffPaths": [
+    "skills/mine/intent-factory/references/contract.md",
+    "skills/mine/intent-factory/scripts/judge-gate.mjs",
+    "skills/mine/intent-factory/scripts/verification.mjs",
+    "skills/mine/intent-factory/test/verification.test.mjs"
+  ],
+  "verification": [
+    {
+      "argv": [
+        "node",
+        "--check",
+        "skills/mine/intent-factory/scripts/judge-gate.mjs"
+      ]
+    },
+    {
+      "argv": [
+        "node",
+        "--check",
+        "skills/mine/intent-factory/scripts/verification.mjs"
+      ]
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "skills/mine/intent-factory/test/verification.test.mjs"
+      ]
+    }
+  ],
+  "taskPacket": {
+    "mode": "execution",
+    "objective": "A failing command proof with oversized output can no longer crash the controller mid-gate, a Python virtual environment no longer moves the ignore-source fingerprint, and the contract reference states what a gate costs and what it will not see.",
+    "instructions": [
+      "boundedText (scripts/judge-gate.mjs) reserves the ellipsis marker's 3 bytes and shrinks until the encoded result fits, so a finding's evidence never exceeds the 4 KiB ceiling even when the cut lands inside a multibyte character.",
+      "captureIgnoreSources (scripts/verification.mjs) skips a virtual environment like node_modules: .venv and venv by name, and any directory holding pyvenv.cfg.",
+      "references/contract.md gains a section stating three gate properties: a command proof is executed at gate time under a 120-second cap; failOn ['critical'] is close to no gate at all against a judge that works at major; a worker reads only inside its worktree, so text a node must read belongs in the packet.",
+      "verification tests pin the oversized failing proof accepted by validateNodeSnapshot and the venv-neutral fingerprint."
+    ],
+    "readFiles": [
+      "skills/mine/intent-factory/references/contract.md",
+      "skills/mine/intent-factory/scripts/judge-gate.mjs",
+      "skills/mine/intent-factory/scripts/verification.mjs",
+      "skills/mine/intent-factory/test/verification.test.mjs"
+    ],
+    "writeFiles": [
+      "skills/mine/intent-factory/references/contract.md",
+      "skills/mine/intent-factory/scripts/judge-gate.mjs",
+      "skills/mine/intent-factory/scripts/verification.mjs",
+      "skills/mine/intent-factory/test/verification.test.mjs"
+    ],
+    "writeRoots": [],
+    "symbols": [],
+    "decisions": [],
+    "nonGoals": [
+      "Changing the 4 KiB evidence ceiling or the validator that enforces it."
+    ],
+    "verification": [
+      {
+        "argv": [
+          "node",
+          "--check",
+          "skills/mine/intent-factory/scripts/judge-gate.mjs"
+        ]
+      },
+      {
+        "argv": [
+          "node",
+          "--check",
+          "skills/mine/intent-factory/scripts/verification.mjs"
+        ]
+      },
+      {
+        "argv": [
+          "node",
+          "--test",
+          "skills/mine/intent-factory/test/verification.test.mjs"
+        ]
+      }
+    ]
+  },
+  "definitionOfDone": [
+    {
+      "id": "verification",
+      "text": "The declared verification commands pass on the sealed tree.",
+      "proof": {
+        "kind": "command",
+        "ref": "node --check skills/mine/intent-factory/scripts/judge-gate.mjs && node --check skills/mine/intent-factory/scripts/verification.mjs && node --test skills/mine/intent-factory/test/verification.test.mjs"
+      }
+    },
+    {
+      "id": "evidence-fits",
+      "text": "A failing proof's evidence is at most 4 KiB after truncation, multibyte cuts included, and the snapshot validator accepts it.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "venv-ignored",
+      "text": "A virtual environment, by name or by its pyvenv.cfg marker, adds no ignore source.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "gate-properties-documented",
+      "text": "The contract reference states all three gate properties.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "in-scope",
+      "text": "Every change in the diff serves the objective, and none does what a non-goal excludes.",
+      "judgment": true,
+      "reason": "The write boundary admits any edit inside the declared files; no command tells a requested edit from an unrequested one."
+    },
+    {
+      "id": "docs-match-code",
+      "text": "Every comment and document the diff adds or edits describes what the code does.",
+      "judgment": true,
+      "reason": "No command compares prose with behaviour."
+    },
+    {
+      "id": "tests-assert-behaviour",
+      "text": "Every test the diff adds or edits asserts the behaviour its name and the instructions claim, and no assertion is removed or loosened.",
+      "judgment": true,
+      "reason": "A loosened assertion still passes; only reading the test shows what it no longer checks."
+    }
+  ],
+  "workerResult": {
+    "status": "done",
+    "summary": "boundedText now reserves the marker and shrinks to fit, the ignore-source walk skips virtual environments, and contract.md documents three gate properties; verification tests pin the first two.",
+    "verification": [
+      "node --check skills/mine/intent-factory/scripts/judge-gate.mjs",
+      "node --check skills/mine/intent-factory/scripts/verification.mjs",
+      "node --test skills/mine/intent-factory/test/verification.test.mjs"
+    ],
+    "artifacts": [
+      "skills/mine/intent-factory/references/contract.md",
+      "skills/mine/intent-factory/scripts/judge-gate.mjs",
+      "skills/mine/intent-factory/scripts/verification.mjs",
+      "skills/mine/intent-factory/test/verification.test.mjs"
+    ],
+    "missingContext": []
+  },
+  "mutation": {
+    "kind": "doc-contradicts-code",
+    "description": "The boundedText comment says an overshoot is harmless because the validator truncates downstream and no loop is needed, while the code loops to fit and the validator throws.",
+    "edits": [
+      {
+        "path": "skills/mine/intent-factory/scripts/judge-gate.mjs",
+        "find": [
+          "  // The marker costs 3 bytes in UTF-8 and a byte-aligned cut can land inside a",
+          "  // multibyte character, whose replacement costs 3 more. Reserve the marker and",
+          "  // then shrink until the encoded result actually fits: a finding that exceeds",
+          "  // the validator's evidence ceiling is not truncated downstream, it throws, and",
+          "  // the throw kills the controller mid-gate."
+        ],
+        "replace": [
+          "  // The marker costs 3 bytes in UTF-8. Cut to the limit and append it: the",
+          "  // validator truncates evidence past its ceiling downstream, so an overshoot",
+          "  // of a few bytes is harmless and the cut needs no retry."
+        ]
+      }
+    ]
+  },
+  "diff": "diff.patch",
+  "diffSha256": "40c33e7f4106a046d50ea8bbe304503f0012ee9cb12ab5fc76e57d1e436e93a3"
+}

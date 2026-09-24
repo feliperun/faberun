@@ -6,12 +6,20 @@
  * the fix a case is meant to cover and asserts the case then fails. A green
  * eval suite where every case would pass without the fix is a suite that
  * measures nothing, which is what `--verify-discriminating` refuses.
+ *
+ * `runCompare` is the `--compare` entry point: it reduces the older indicator
+ * reports through `compareEvalReports`, and a pair of stochastic class results
+ * (R8) through their provenance — refusing two different classes. It lives here
+ * rather than in `run.mjs` because `run.mjs` is at the file ceiling and this is
+ * the one module that already owns "compare these two things".
  */
 import { gitHead, runRefName } from "../src/repo/worktree.mjs";
 import { attemptWorktreePath, candidateWorktreePath, runsRoot } from "../src/run/paths.mjs";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { readIntegrationJournal } from "../src/repo/integrate.mjs";
+import { compareEvalReports, renderEvalComparisonReport } from "./metrics.mjs";
+import { usageError } from "./paths.mjs";
 
 /**
  * @param {string} nodeId
@@ -256,4 +264,150 @@ export function applyDiscriminator(spec, discriminator) {
   }
 
   throw new Error(`unknown discriminator type: ${discriminator.type}`);
+}
+
+/**
+ * Whether a parsed JSON document is a stochastic class result: it names its
+ * class at the top level and carries the provenance block R8 requires. A bare
+ * indicator report (`--project`) names no class and stays on the older
+ * comparison path.
+ *
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isStochasticResult(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = /** @type {Record<string, unknown>} */ (value);
+  return typeof record.class === "string" && Boolean(record.provenance) && typeof record.provenance === "object";
+}
+
+/**
+ * Compare two stochastic class results. A same-class pair is accepted and
+ * reduced to the provenance fields both sides carry; a pair of different
+ * classes is refused, because a `paired` result and a `judge-canary` result
+ * measure different quantities and their numbers are not comparable.
+ *
+ * @param {unknown} before
+ * @param {unknown} after
+ * @returns {{schemaVersion: number, class: string, before: Record<string, unknown>, after: Record<string, unknown>, deltas: Record<string, number|null>, armBands?: {before: Record<string, unknown>, after: Record<string, unknown>}, hypotheses?: {before: unknown, after: unknown}}}
+ */
+export function compareStochasticResults(before, after) {
+  if (!isStochasticResult(before) || !isStochasticResult(after)) {
+    throw new Error("--compare needs two stochastic class results");
+  }
+  const beforeClass = String(/** @type {Record<string, unknown>} */ (before).class);
+  const afterClass = String(/** @type {Record<string, unknown>} */ (after).class);
+  if (beforeClass !== afterClass) {
+    throw new Error(`--compare refuses a ${beforeClass} result beside a ${afterClass} result: different classes`);
+  }
+  const beforeProvenance = /** @type {Record<string, unknown>} */ (/** @type {Record<string, unknown>} */ (before).provenance);
+  const afterProvenance = /** @type {Record<string, unknown>} */ (/** @type {Record<string, unknown>} */ (after).provenance);
+  if (beforeClass === "paired") {
+    for (const field of ["corpusHash", "armsFileHash"]) {
+      if (beforeProvenance[field] !== afterProvenance[field]) {
+        throw new Error(`--compare refuses paired results with different ${field}`);
+      }
+    }
+  }
+  /** @type {Record<string, number|null>} */
+  const deltas = {};
+  for (const field of ["seed", "repeat", "budgetUsd", "pricedSpendUsd", "voidedSpendUsd"]) {
+    const left = beforeProvenance[field];
+    const right = afterProvenance[field];
+    deltas[field] = typeof left === "number" && typeof right === "number" ? Math.round((right - left) * 10_000) / 10_000 : null;
+  }
+  const beforeResult = /** @type {any} */ (before);
+  const afterResult = /** @type {any} */ (after);
+  const comparison = /** @type {any} */ ({ schemaVersion: 1, class: beforeClass, before: beforeProvenance, after: afterProvenance, deltas });
+  if (beforeClass === "paired") {
+    comparison.armBands = {
+      before: Object.fromEntries((/** @type {any[]} */ (beforeResult.arms ?? [])).map((/** @type {any} */ arm) => [arm.arm, arm.band])),
+      after: Object.fromEntries((/** @type {any[]} */ (afterResult.arms ?? [])).map((/** @type {any} */ arm) => [arm.arm, arm.band])),
+    };
+    comparison.hypotheses = { before: beforeResult.hypotheses ?? null, after: afterResult.hypotheses ?? null };
+  }
+  return comparison;
+}
+
+/**
+ * Render `--compare`'s stochastic comparison as text.
+ *
+ * @param {{class: string, before: Record<string, unknown>, after: Record<string, unknown>, deltas: Record<string, number|null>, armBands?: {before: Record<string, unknown>, after: Record<string, unknown>}, hypotheses?: {before: unknown, after: unknown}}} comparison
+ * @returns {string}
+ */
+function renderStochasticComparison(comparison) {
+  const lines = [`${comparison.class} compared with itself: before → after`];
+  for (const [field, delta] of Object.entries(comparison.deltas)) {
+    const left = comparison.before[field];
+    const right = comparison.after[field];
+    lines.push(`${field}: ${JSON.stringify(left)} → ${JSON.stringify(right)}${delta === null ? "" : ` (delta ${delta})`}`);
+  }
+  if (comparison.armBands) {
+    lines.push("arm bands:");
+    for (const arm of Object.keys(comparison.armBands.before)) {
+      lines.push(`${arm}: ${JSON.stringify(comparison.armBands.before[arm])} → ${JSON.stringify(comparison.armBands.after[arm] ?? null)}`);
+    }
+  }
+  if (comparison.hypotheses) lines.push(`hypotheses: ${JSON.stringify(comparison.hypotheses)}`);
+  return `${lines.join("\n")}\n`;
+}
+
+/**
+ * A report file on disk is either a bare indicator map (the `EvalReport`
+ * shape `projectEvalIndicators` returns) or that same map wrapped with a
+ * `provenance` block (what `--project` writes and what `evals/baseline.json`
+ * and `evals/fixtures/*.json` carry). Either way, `compareEvalReports` only
+ * ever wants the indicator map.
+ *
+ * @param {unknown} parsed
+ * @returns {Record<string, unknown>}
+ */
+function evalIndicatorsOf(parsed) {
+  const object = /** @type {Record<string, unknown>} */ (parsed);
+  return object && typeof object.indicators === "object" && object.indicators !== null ? /** @type {Record<string, unknown>} */ (object.indicators) : object;
+}
+
+/**
+ * `evals/run.mjs --compare <before.json> <after.json> [--json]`: compare two
+ * already-projected eval reports and print the result, or two stochastic class
+ * results by their provenance — and refuse a pair of different classes.
+ *
+ * @param {string[]} rest
+ * @returns {void}
+ */
+export function runCompare(rest) {
+  const asJson = rest.includes("--json");
+  const bandIndex = rest.indexOf("--band");
+  const bandPath = bandIndex >= 0 ? rest[bandIndex + 1] : undefined;
+  if (bandIndex >= 0 && (bandPath === undefined || bandPath.startsWith("--"))) {
+    usageError("--band needs the path of a report written by `--band <report.json>...`");
+    return;
+  }
+  const positionals = rest.filter((arg, index) => arg !== "--json" && (bandIndex < 0 || (index !== bandIndex && index !== bandIndex + 1)));
+  if (positionals.length !== 2) {
+    usageError("--compare needs exactly two report paths: <before.json> <after.json>");
+    return;
+  }
+  const [beforePath, afterPath] = positionals;
+  const beforeParsed = JSON.parse(readFileSync(resolve(beforePath), "utf8"));
+  const afterParsed = JSON.parse(readFileSync(resolve(afterPath), "utf8"));
+  // A paired or judge-canary result carries its class and provenance; two of
+  // those are compared by that provenance, and a pair of different classes is
+  // refused rather than folded into the indicator diff.
+  if (isStochasticResult(beforeParsed) || isStochasticResult(afterParsed)) {
+    let comparison;
+    try {
+      comparison = compareStochasticResults(beforeParsed, afterParsed);
+    } catch (error) {
+      usageError(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    process.stdout.write(asJson ? `${JSON.stringify(comparison, null, 2)}\n` : renderStochasticComparison(comparison));
+    return;
+  }
+  const before = evalIndicatorsOf(beforeParsed);
+  const after = evalIndicatorsOf(afterParsed);
+  const bands = bandPath === undefined ? undefined : evalIndicatorsOf(JSON.parse(readFileSync(resolve(bandPath), "utf8")));
+  const comparison = compareEvalReports(before, after, bands);
+  process.stdout.write(asJson ? `${JSON.stringify({ schemaVersion: 1, indicators: comparison }, null, 2)}\n` : renderEvalComparisonReport(comparison));
 }

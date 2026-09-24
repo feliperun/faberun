@@ -1,0 +1,790 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "evals-with-a-budget-instruments",
+  "campaignId": "evals-with-a-budget",
+  "goal": "The stochastic instruments land in main with a budget, a band and provenance: the paired class and corpus, the judge canary, judge yield, and judgment reasons (R1 to R10).",
+  "cwd": "../../../..",
+  "maxParallel": 2,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 2700,
+  "maxTurns": 400,
+  "runtimeDefaults": {
+    "worker": "codex-luna",
+    "judge": "claude-opus"
+  },
+  "runtimes": {
+    "codex-luna": {
+      "harness": "codex",
+      "model": "gpt-5.6-luna",
+      "vendor": "openai",
+      "reasoning": "high",
+      "sandbox": "danger-full-access",
+      "fallback": "dsh-deepseek",
+      "tier": 2,
+      "costRank": 2
+    },
+    "dsh-deepseek": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "danger-full-access",
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "stallTimeoutSec": 900,
+      "tier": 1,
+      "costRank": 1
+    },
+    "claude-opus": {
+      "harness": "claude",
+      "model": "claude-opus-5-5",
+      "vendor": "anthropic",
+      "reasoning": "high",
+      "tier": 3,
+      "costRank": 3
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "timeoutSec": 60
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 60
+    },
+    {
+      "argv": [
+        "npm",
+        "run",
+        "docs:check"
+      ],
+      "timeoutSec": 60
+    }
+  ],
+  "nodes": [
+    {
+      "id": "stochastic-budget",
+      "type": "backend",
+      "phase": "instruments",
+      "requirementIds": [
+        "R1"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2700,
+      "gate": false,
+      "definitionOfDone": [
+        {
+          "id": "r1-budget-exists",
+          "text": "test/evals/budget.test.mjs carries a test named exactly \"a stochastic class stops at its budget\"",
+          "proof": {
+            "kind": "command",
+            "ref": "node -e \"process.exit(require('fs').readFileSync('test/evals/budget.test.mjs','utf8').includes('a stochastic class stops at its budget')?0:1)\""
+          }
+        },
+        {
+          "id": "r1-budget",
+          "text": "A stochastic class refuses to start without a budget and stops launching at it, counting unknown cost at the highest observed price",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"a stochastic class stops at its budget\" test/evals/budget.test.mjs"
+          }
+        }
+      ],
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "One budget module serves every eval class that invokes a real model (R1).",
+        "instructions": [
+          "Create evals/budget.mjs: a class refuses to start without --budget-usd; before launching each invocation it stops when priced spend plus the estimate of invocations in flight reaches the budget; it records voided spend (invocations discarded or killed) in the result; an invocation whose cost is unknown counts at the highest price already observed for that runtime, never zero. It reads the product's own pricing (the vendored seed behind src/engine/pricing-seed.mjs) rather than a second price table.",
+          "Write the proof test in test/evals/budget.test.mjs, named exactly: a stochastic class stops at its budget. Drive it with fabricated usage records; no provider."
+        ],
+        "readFiles": [
+          "docs/campaigns/evals-with-a-budget/spec/SPEC.md",
+          "AGENTS.md",
+          "evals/run.mjs",
+          "src/engine/pricing-seed.mjs"
+        ],
+        "writeRoots": [
+          "evals/budget.mjs",
+          "test/evals/budget.test.mjs"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evals-with-a-budget of the leaving-home program; docs/campaigns/evals-with-a-budget/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (evals/run.mjs is already 710: new classes live in their own modules), no name exported from two modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new module saying what it owns and why it is separate, comments record measurement not intent.",
+          "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"); a source-shape ratchet enforces it.",
+          "No new runtime dependency. No test and no deterministic eval calls a provider: model-backed arms and judges run through the replay harness in tests. No test writes to the operator's real home.",
+          "The skill documents share one byte budget with 3 bytes of room: do not edit skills/faberun/SKILL.md or skills/faberun/references/*.md.",
+          "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work.",
+          "The proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names; the DoD checks the name exists and runs it.",
+          "The spike code this campaign brings to main lives on the branch origin/spike/orchestration-arms, readable from this worktree with `git show origin/spike/orchestration-arms:<path>` and `git ls-tree -r --name-only origin/spike/orchestration-arms -- spike/`. Bring it, do not rewrite it from zero, and keep the arm and hypothesis names of docs/campaigns/orchestration-arms/STATE.md.",
+          "Code, comments and documents are in English."
+        ],
+        "nonGoals": [
+          "Running any stochastic eval with a real model (that is R11, the operator's step)"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/evals/budget.test.mjs",
+              "test/repo/source-shape.test.mjs"
+            ],
+            "timeoutSec": 900
+          }
+        ]
+      }
+    },
+    {
+      "id": "paired-class",
+      "type": "backend",
+      "phase": "instruments",
+      "requirementIds": [
+        "R2",
+        "R3"
+      ],
+      "dependsOn": [
+        "stochastic-budget"
+      ],
+      "timeoutSec": 2700,
+      "gate": false,
+      "definitionOfDone": [
+        {
+          "id": "r2-band-exists",
+          "text": "test/evals/paired.test.mjs carries a test named exactly \"the paired class reports a band per arm\"",
+          "proof": {
+            "kind": "command",
+            "ref": "node -e \"process.exit(require('fs').readFileSync('test/evals/paired.test.mjs','utf8').includes('the paired class reports a band per arm')?0:1)\""
+          }
+        },
+        {
+          "id": "r2-band",
+          "text": "The paired class reports proofs, cost per proof, wall clock, requests, scope and a band per arm",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"the paired class reports a band per arm\" test/evals/paired.test.mjs"
+          }
+        },
+        {
+          "id": "r3-zero-exists",
+          "text": "test/evals/paired.test.mjs carries a test named exactly \"a paired arm that changes nothing delivers zero\"",
+          "proof": {
+            "kind": "command",
+            "ref": "node -e \"process.exit(require('fs').readFileSync('test/evals/paired.test.mjs','utf8').includes('a paired arm that changes nothing delivers zero')?0:1)\""
+          }
+        },
+        {
+          "id": "r3-zero",
+          "text": "An arm that changes nothing delivers zero; guards gate delivery",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"a paired arm that changes nothing delivers zero\" test/evals/paired.test.mjs"
+          }
+        },
+        {
+          "id": "evals-green",
+          "text": "node evals/run.mjs --class deterministic --assert-no-model stays green",
+          "proof": {
+            "kind": "verification",
+            "ref": 1
+          }
+        }
+      ],
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "`node evals/run.mjs --class paired` runs declared arms over a corpus with a seeded shuffle, --repeat, a per-arm band, and delivery counted only as passing proofs with every guard passing (R2, R3).",
+        "instructions": [
+          "Port the driver from origin/spike/orchestration-arms:spike/arms/ (measure.mjs, analyse.mjs, arm-faberun.mjs, arm-session.mjs, contract.mjs, corpus.mjs, fork.mjs, lib.mjs, prompt.mjs, checks/) into evals/paired/ as modules of this tree, and wire `--class paired` in evals/run.mjs through a module of its own. Arms are declared in evals/paired/arms.json with the spike's names (A, B, C, D, E, F-J) and runtimes; a corpus lives in evals/paired/corpus/<id>/.",
+          "Arms run in an order shuffled by a recorded seed, with --repeat <n>. The report gives per arm: proofs delivered, cost per delivered proof, wall clock, requests when the harness measures them, out-of-scope files, and the band: minimum and maximum always, and a 95% interval by resampling when n is 3 or more. It spends through evals/budget.mjs and refuses to start without --budget-usd.",
+          "R3: every hidden acceptance check has a kind, proof or guard. A run delivers the proofs that pass while every guard passes; an arm that changes nothing delivers zero. The acceptance runs on the arm's tree before any accepted file is restored over it (the spike's two measurement defects).",
+          "Write two proof tests in test/evals/paired.test.mjs, named exactly: the paired class reports a band per arm; and: a paired arm that changes nothing delivers zero. Both run the whole class with replay arms on a small fixture corpus; no provider."
+        ],
+        "readFiles": [
+          "docs/campaigns/evals-with-a-budget/spec/SPEC.md",
+          "AGENTS.md",
+          "evals/run.mjs",
+          "evals/metrics.mjs",
+          "evals/budget.mjs",
+          "docs/campaigns/orchestration-arms/STATE.md"
+        ],
+        "writeRoots": [
+          "evals/paired/",
+          "evals/run.mjs",
+          "evals/paired.mjs",
+          "evals/metrics.mjs",
+          "evals/README.md",
+          "test/evals/paired.test.mjs",
+          "test/evals/"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evals-with-a-budget of the leaving-home program; docs/campaigns/evals-with-a-budget/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (evals/run.mjs is already 710: new classes live in their own modules), no name exported from two modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new module saying what it owns and why it is separate, comments record measurement not intent.",
+          "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"); a source-shape ratchet enforces it.",
+          "No new runtime dependency. No test and no deterministic eval calls a provider: model-backed arms and judges run through the replay harness in tests. No test writes to the operator's real home.",
+          "The skill documents share one byte budget with 3 bytes of room: do not edit skills/faberun/SKILL.md or skills/faberun/references/*.md.",
+          "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work.",
+          "The proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names; the DoD checks the name exists and runs it.",
+          "The spike code this campaign brings to main lives on the branch origin/spike/orchestration-arms, readable from this worktree with `git show origin/spike/orchestration-arms:<path>` and `git ls-tree -r --name-only origin/spike/orchestration-arms -- spike/`. Bring it, do not rewrite it from zero, and keep the arm and hypothesis names of docs/campaigns/orchestration-arms/STATE.md.",
+          "Code, comments and documents are in English."
+        ],
+        "nonGoals": [
+          "Running any stochastic eval with a real model (that is R11, the operator's step)"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/evals/",
+              "test/repo/source-shape.test.mjs"
+            ],
+            "timeoutSec": 900
+          },
+          {
+            "argv": [
+              "node",
+              "evals/run.mjs",
+              "--class",
+              "deterministic",
+              "--assert-no-model"
+            ],
+            "timeoutSec": 900
+          }
+        ]
+      }
+    },
+    {
+      "id": "paired-corpus",
+      "type": "backend",
+      "phase": "instruments",
+      "requirementIds": [
+        "R4"
+      ],
+      "dependsOn": [
+        "paired-class"
+      ],
+      "timeoutSec": 2700,
+      "gate": false,
+      "definitionOfDone": [
+        {
+          "id": "r4-corpus-exists",
+          "text": "test/evals/paired-corpus.test.mjs carries a test named exactly \"every paired corpus entry fails its proofs and passes its guards at base\"",
+          "proof": {
+            "kind": "command",
+            "ref": "node -e \"process.exit(require('fs').readFileSync('test/evals/paired-corpus.test.mjs','utf8').includes('every paired corpus entry fails its proofs and passes its guards at base')?0:1)\""
+          }
+        },
+        {
+          "id": "r4-corpus",
+          "text": "Every corpus entry resolves in the bundle, fails its proofs and passes its guards at base",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"every paired corpus entry fails its proofs and passes its guards at base\" test/evals/paired-corpus.test.mjs"
+          }
+        },
+        {
+          "id": "evals-green",
+          "text": "node evals/run.mjs --class deterministic --assert-no-model stays green",
+          "proof": {
+            "kind": "verification",
+            "ref": 1
+          }
+        }
+      ],
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "The paired corpus starts with the two phases already measured, and --validate-corpus proves every entry (R4).",
+        "instructions": [
+          "Build evals/paired/corpus/simple/ from origin/spike/orchestration-arms:spike/corpus/ (the ten requirements on fork a1117f7) and evals/paired/corpus/complex/ from origin/spike/orchestration-arms:spike/corpus-complex/nodes.json (phase 1c-run-path-resolver, base 4913ef2): each entry carries its base sha, the packets word for word, its hidden acceptance typed proof or guard, and the historical cost and time reference from docs/campaigns/orchestration-arms/results/.",
+          "`node evals/run.mjs --class paired --validate-corpus` checks, without a model, that each sha resolves in the fixtures bundle (evals/golden/fixtures.bundle; extend it through evals/build-golden.mjs if a sha is missing), that every proof fails at the base, and that every guard passes at the base.",
+          "Write the proof test in test/evals/paired-corpus.test.mjs, named exactly: every paired corpus entry fails its proofs and passes its guards at base."
+        ],
+        "readFiles": [
+          "docs/campaigns/evals-with-a-budget/spec/SPEC.md",
+          "AGENTS.md",
+          "evals/build-golden.mjs",
+          "docs/campaigns/orchestration-arms/results/runs.jsonl"
+        ],
+        "writeRoots": [
+          "evals/paired/",
+          "evals/golden/fixtures.bundle",
+          "evals/build-golden.mjs",
+          "evals/run.mjs",
+          "evals/paired.mjs",
+          "test/evals/paired-corpus.test.mjs",
+          "test/evals/"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evals-with-a-budget of the leaving-home program; docs/campaigns/evals-with-a-budget/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (evals/run.mjs is already 710: new classes live in their own modules), no name exported from two modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new module saying what it owns and why it is separate, comments record measurement not intent.",
+          "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"); a source-shape ratchet enforces it.",
+          "No new runtime dependency. No test and no deterministic eval calls a provider: model-backed arms and judges run through the replay harness in tests. No test writes to the operator's real home.",
+          "The skill documents share one byte budget with 3 bytes of room: do not edit skills/faberun/SKILL.md or skills/faberun/references/*.md.",
+          "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work.",
+          "The proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names; the DoD checks the name exists and runs it.",
+          "The spike code this campaign brings to main lives on the branch origin/spike/orchestration-arms, readable from this worktree with `git show origin/spike/orchestration-arms:<path>` and `git ls-tree -r --name-only origin/spike/orchestration-arms -- spike/`. Bring it, do not rewrite it from zero, and keep the arm and hypothesis names of docs/campaigns/orchestration-arms/STATE.md.",
+          "Code, comments and documents are in English."
+        ],
+        "nonGoals": [
+          "Running any stochastic eval with a real model (that is R11, the operator's step)"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/evals/",
+              "test/repo/source-shape.test.mjs"
+            ],
+            "timeoutSec": 900
+          },
+          {
+            "argv": [
+              "node",
+              "evals/run.mjs",
+              "--class",
+              "deterministic",
+              "--assert-no-model"
+            ],
+            "timeoutSec": 900
+          }
+        ]
+      }
+    },
+    {
+      "id": "canary-corpus",
+      "type": "backend",
+      "phase": "instruments",
+      "requirementIds": [
+        "R5",
+        "R6"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2700,
+      "gate": false,
+      "definitionOfDone": [
+        {
+          "id": "r5-corpus-exists",
+          "text": "test/evals/judge-canary.test.mjs carries a test named exactly \"the judge canary corpus has every defect kind and clean controls\"",
+          "proof": {
+            "kind": "command",
+            "ref": "node -e \"process.exit(require('fs').readFileSync('test/evals/judge-canary.test.mjs','utf8').includes('the judge canary corpus has every defect kind and clean controls')?0:1)\""
+          }
+        },
+        {
+          "id": "r5-corpus",
+          "text": "The canary has at least 5 cases per defect kind and 10 clean, built deterministically",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"the judge canary corpus has every defect kind and clean controls\" test/evals/judge-canary.test.mjs"
+          }
+        },
+        {
+          "id": "r6-discriminating-exists",
+          "text": "test/evals/judge-canary.test.mjs carries a test named exactly \"every canary defect passes the mechanical proof it hides behind\"",
+          "proof": {
+            "kind": "command",
+            "ref": "node -e \"process.exit(require('fs').readFileSync('test/evals/judge-canary.test.mjs','utf8').includes('every canary defect passes the mechanical proof it hides behind')?0:1)\""
+          }
+        },
+        {
+          "id": "r6-discriminating",
+          "text": "Every defect case passes the mechanical verification it hides behind; a caught case is rejected by name",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"every canary defect passes the mechanical proof it hides behind\" test/evals/judge-canary.test.mjs"
+          }
+        }
+      ],
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "evals/judge-canary/ holds deterministic cases whose defects no mechanical proof sees, and a builder that rejects any case a verification catches (R5, R6).",
+        "instructions": [
+          "Build cases from tasks of the golden set (evals/golden/). Each case is a sealed diff, the node's packet and DoD, and a label: clean or defect:<kind>, kinds nongoal-violated, requirement-half-done (tests pass, a declared behaviour is missing), scope-drift-inside-writefiles, doc-contradicts-code, test-weakened (an assertion removed or loosened). At least 5 cases per kind and 10 clean. Construction is deterministic and versioned (a builder script plus its committed output).",
+          "R6: for every defect case the node's verifications run on the defective tree and pass; the builder rejects, naming it, any case a verification catches, because it would not measure the judge. That check is the canary's --verify-discriminating and runs without a model.",
+          "Write two proof tests in test/evals/judge-canary.test.mjs, named exactly: the judge canary corpus has every defect kind and clean controls; and: every canary defect passes the mechanical proof it hides behind."
+        ],
+        "readFiles": [
+          "docs/campaigns/evals-with-a-budget/spec/SPEC.md",
+          "AGENTS.md",
+          "evals/golden.mjs",
+          "evals/build-golden.mjs",
+          "evals/case.mjs"
+        ],
+        "writeRoots": [
+          "evals/judge-canary/",
+          "evals/judge-canary.mjs",
+          "test/evals/judge-canary.test.mjs"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evals-with-a-budget of the leaving-home program; docs/campaigns/evals-with-a-budget/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (evals/run.mjs is already 710: new classes live in their own modules), no name exported from two modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new module saying what it owns and why it is separate, comments record measurement not intent.",
+          "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"); a source-shape ratchet enforces it.",
+          "No new runtime dependency. No test and no deterministic eval calls a provider: model-backed arms and judges run through the replay harness in tests. No test writes to the operator's real home.",
+          "The skill documents share one byte budget with 3 bytes of room: do not edit skills/faberun/SKILL.md or skills/faberun/references/*.md.",
+          "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work.",
+          "The proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names; the DoD checks the name exists and runs it.",
+          "The spike code this campaign brings to main lives on the branch origin/spike/orchestration-arms, readable from this worktree with `git show origin/spike/orchestration-arms:<path>` and `git ls-tree -r --name-only origin/spike/orchestration-arms -- spike/`. Bring it, do not rewrite it from zero, and keep the arm and hypothesis names of docs/campaigns/orchestration-arms/STATE.md.",
+          "Code, comments and documents are in English."
+        ],
+        "nonGoals": [
+          "Running any stochastic eval with a real model (that is R11, the operator's step)"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/evals/judge-canary.test.mjs",
+              "test/repo/source-shape.test.mjs"
+            ],
+            "timeoutSec": 900
+          }
+        ]
+      }
+    },
+    {
+      "id": "canary-class-and-provenance",
+      "type": "backend",
+      "phase": "instruments",
+      "requirementIds": [
+        "R7",
+        "R8"
+      ],
+      "dependsOn": [
+        "paired-corpus",
+        "canary-corpus"
+      ],
+      "timeoutSec": 2700,
+      "gate": false,
+      "definitionOfDone": [
+        {
+          "id": "r7-scores-exists",
+          "text": "test/evals/judge-canary.test.mjs carries a test named exactly \"the canary scores a judge that always passes and one that always rejects\"",
+          "proof": {
+            "kind": "command",
+            "ref": "node -e \"process.exit(require('fs').readFileSync('test/evals/judge-canary.test.mjs','utf8').includes('the canary scores a judge that always passes and one that always rejects')?0:1)\""
+          }
+        },
+        {
+          "id": "r7-scores",
+          "text": "The canary reports recall, false alarm and cost per case per defect kind",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"the canary scores a judge that always passes and one that always rejects\" test/evals/judge-canary.test.mjs"
+          }
+        },
+        {
+          "id": "r8-provenance-exists",
+          "text": "test/evals/provenance.test.mjs carries a test named exactly \"a stochastic result names everything that produced it\"",
+          "proof": {
+            "kind": "command",
+            "ref": "node -e \"process.exit(require('fs').readFileSync('test/evals/provenance.test.mjs','utf8').includes('a stochastic result names everything that produced it')?0:1)\""
+          }
+        },
+        {
+          "id": "r8-provenance",
+          "text": "Every stochastic result records commit, seed, repetitions, budget, spend and runtimes; compare refuses mixed classes",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"a stochastic result names everything that produced it\" test/evals/provenance.test.mjs"
+          }
+        },
+        {
+          "id": "evals-green",
+          "text": "node evals/run.mjs --class deterministic --assert-no-model stays green",
+          "proof": {
+            "kind": "verification",
+            "ref": 1
+          }
+        }
+      ],
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "`node evals/run.mjs --class judge-canary` scores a judge runtime by defect kind, and every paired and canary result names what produced it (R7, R8).",
+        "instructions": [
+          "R7: `node evals/run.mjs --class judge-canary --runtime <id> --budget-usd <n> [--repeat <k>]` asks the judge through the product's own judge path, and reports per defect kind the recall (defects rejected with a finding citing the item), the false-alarm rate on clean cases and the cost per case, into evals/results/judge-canary/<date>-<runtime>.json. It spends through evals/budget.mjs.",
+          "R8: every paired and judge-canary result records the commit, the seed, the repetitions, the budget, priced spend, voided spend and, per runtime, harness, model and CLI version when the harness reports it. `--compare` accepts two results of the same class and refuses different classes.",
+          "Write two proof tests: in test/evals/judge-canary.test.mjs, named exactly: the canary scores a judge that always passes and one that always rejects (a replay judge that always passes has recall 0, one that always rejects has false alarm 1); and in test/evals/provenance.test.mjs, named exactly: a stochastic result names everything that produced it."
+        ],
+        "readFiles": [
+          "docs/campaigns/evals-with-a-budget/spec/SPEC.md",
+          "AGENTS.md",
+          "evals/run.mjs",
+          "evals/compare.mjs",
+          "src/engine/prompts.mjs"
+        ],
+        "writeRoots": [
+          "evals/judge-canary/",
+          "evals/judge-canary.mjs",
+          "evals/paired/",
+          "evals/paired.mjs",
+          "evals/run.mjs",
+          "evals/compare.mjs",
+          "evals/budget.mjs",
+          "evals/results/",
+          "test/evals/"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evals-with-a-budget of the leaving-home program; docs/campaigns/evals-with-a-budget/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (evals/run.mjs is already 710: new classes live in their own modules), no name exported from two modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new module saying what it owns and why it is separate, comments record measurement not intent.",
+          "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"); a source-shape ratchet enforces it.",
+          "No new runtime dependency. No test and no deterministic eval calls a provider: model-backed arms and judges run through the replay harness in tests. No test writes to the operator's real home.",
+          "The skill documents share one byte budget with 3 bytes of room: do not edit skills/faberun/SKILL.md or skills/faberun/references/*.md.",
+          "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work.",
+          "The proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names; the DoD checks the name exists and runs it.",
+          "The spike code this campaign brings to main lives on the branch origin/spike/orchestration-arms, readable from this worktree with `git show origin/spike/orchestration-arms:<path>` and `git ls-tree -r --name-only origin/spike/orchestration-arms -- spike/`. Bring it, do not rewrite it from zero, and keep the arm and hypothesis names of docs/campaigns/orchestration-arms/STATE.md.",
+          "Code, comments and documents are in English."
+        ],
+        "nonGoals": [
+          "Running any stochastic eval with a real model (that is R11, the operator's step)"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/evals/",
+              "test/repo/source-shape.test.mjs"
+            ],
+            "timeoutSec": 900
+          },
+          {
+            "argv": [
+              "node",
+              "evals/run.mjs",
+              "--class",
+              "deterministic",
+              "--assert-no-model"
+            ],
+            "timeoutSec": 900
+          }
+        ]
+      }
+    },
+    {
+      "id": "judge-yield-metrics",
+      "type": "backend",
+      "phase": "instruments",
+      "requirementIds": [
+        "R9"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2700,
+      "gate": false,
+      "definitionOfDone": [
+        {
+          "id": "r9-yield-exists",
+          "text": "test/campaign/metrics.test.mjs carries a test named exactly \"judge yield is reported per campaign\"",
+          "proof": {
+            "kind": "command",
+            "ref": "node -e \"process.exit(require('fs').readFileSync('test/campaign/metrics.test.mjs','utf8').includes('judge yield is reported per campaign')?0:1)\""
+          }
+        },
+        {
+          "id": "r9-yield",
+          "text": "judgeFindingRate and judgeCostShare are projected per campaign",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"judge yield is reported per campaign\" test/campaign/metrics.test.mjs"
+          }
+        }
+      ],
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "faberun metrics reports judgeFindingRate and judgeCostShare from the versioned ledger (R9).",
+        "instructions": [
+          "judgeFindingRate: nodes with at least one judge finding over judged nodes. judgeCostShare: judge cost over total priced cost. Computed by projectMetrics (src/campaign/metrics.mjs) from the ledger sources, shown in the text and --json report, and equal whether read from run directories or a ledger (the equivalence test in test/campaign/metrics-evals.test.mjs must keep passing).",
+          "Write the proof test in test/campaign/metrics.test.mjs, named exactly: judge yield is reported per campaign."
+        ],
+        "readFiles": [
+          "docs/campaigns/evals-with-a-budget/spec/SPEC.md",
+          "AGENTS.md",
+          "src/campaign/metrics.mjs",
+          "src/campaign/metrics-command.mjs",
+          "src/report/metrics-report.mjs"
+        ],
+        "writeRoots": [
+          "src/campaign/metrics.mjs",
+          "src/campaign/metrics-command.mjs",
+          "src/report/metrics-report.mjs",
+          "evals/metrics.mjs",
+          "test/campaign/",
+          "test/evals/"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evals-with-a-budget of the leaving-home program; docs/campaigns/evals-with-a-budget/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (evals/run.mjs is already 710: new classes live in their own modules), no name exported from two modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new module saying what it owns and why it is separate, comments record measurement not intent.",
+          "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"); a source-shape ratchet enforces it.",
+          "No new runtime dependency. No test and no deterministic eval calls a provider: model-backed arms and judges run through the replay harness in tests. No test writes to the operator's real home.",
+          "The skill documents share one byte budget with 3 bytes of room: do not edit skills/faberun/SKILL.md or skills/faberun/references/*.md.",
+          "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work.",
+          "The proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names; the DoD checks the name exists and runs it.",
+          "The spike code this campaign brings to main lives on the branch origin/spike/orchestration-arms, readable from this worktree with `git show origin/spike/orchestration-arms:<path>` and `git ls-tree -r --name-only origin/spike/orchestration-arms -- spike/`. Bring it, do not rewrite it from zero, and keep the arm and hypothesis names of docs/campaigns/orchestration-arms/STATE.md.",
+          "Code, comments and documents are in English."
+        ],
+        "nonGoals": [
+          "Running any stochastic eval with a real model (that is R11, the operator's step)"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/campaign/",
+              "test/evals/",
+              "test/repo/source-shape.test.mjs"
+            ],
+            "timeoutSec": 900
+          }
+        ]
+      }
+    },
+    {
+      "id": "judgment-reason",
+      "type": "backend",
+      "phase": "instruments",
+      "requirementIds": [
+        "R10"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 2700,
+      "gate": false,
+      "definitionOfDone": [
+        {
+          "id": "r10-reason-exists",
+          "text": "test/contract/judgment-reason.test.mjs carries a test named exactly \"a judgment item without a reason is a finding\"",
+          "proof": {
+            "kind": "command",
+            "ref": "node -e \"process.exit(require('fs').readFileSync('test/contract/judgment-reason.test.mjs','utf8').includes('a judgment item without a reason is a finding')?0:1)\""
+          }
+        },
+        {
+          "id": "r10-reason",
+          "text": "A judgment item without a reason is reported by contract validate",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"a judgment item without a reason is a finding\" test/contract/judgment-reason.test.mjs"
+          }
+        }
+      ],
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "A judgment item can declare what no command verifies, and contract validate flags one that does not (R10).",
+        "instructions": [
+          "Accept `reason` (one sentence) on a DoD item with judgment: true, in the contract schema and the persisted snapshot validators. `faberun contract validate` emits judgment_without_reason for an item with none, and judgment_beside_mechanical_proof for a node whose every judgment item shares the node with mechanical-proof items and declares no reason. Both are advisory by default and blocking under `faberun spec validate --strict-traceability`'s contract counterpart where one exists; if no strict flag exists for contracts, keep them advisory and say so in a code comment.",
+          "The planner's output shape (src/plan/template.mjs PLAN_OUTPUT_SHAPE and its validator) includes reason on judgment items.",
+          "Write the proof test in test/contract/judgment-reason.test.mjs, named exactly: a judgment item without a reason is a finding."
+        ],
+        "readFiles": [
+          "docs/campaigns/evals-with-a-budget/spec/SPEC.md",
+          "AGENTS.md",
+          "src/contract/definition-of-done.mjs",
+          "src/contract/index.mjs",
+          "src/plan/template.mjs"
+        ],
+        "writeRoots": [
+          "src/contract/",
+          "src/plan/template.mjs",
+          "test/contract/",
+          "test/plan/"
+        ],
+        "symbols": [],
+        "decisions": [
+          "This is campaign evals-with-a-budget of the leaving-home program; docs/campaigns/evals-with-a-budget/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (evals/run.mjs is already 710: new classes live in their own modules), no name exported from two modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new module saying what it owns and why it is separate, comments record measurement not intent.",
+          "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"); a source-shape ratchet enforces it.",
+          "No new runtime dependency. No test and no deterministic eval calls a provider: model-backed arms and judges run through the replay harness in tests. No test writes to the operator's real home.",
+          "The skill documents share one byte budget with 3 bytes of room: do not edit skills/faberun/SKILL.md or skills/faberun/references/*.md.",
+          "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work.",
+          "The proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names; the DoD checks the name exists and runs it.",
+          "The spike code this campaign brings to main lives on the branch origin/spike/orchestration-arms, readable from this worktree with `git show origin/spike/orchestration-arms:<path>` and `git ls-tree -r --name-only origin/spike/orchestration-arms -- spike/`. Bring it, do not rewrite it from zero, and keep the arm and hypothesis names of docs/campaigns/orchestration-arms/STATE.md.",
+          "Code, comments and documents are in English."
+        ],
+        "nonGoals": [
+          "Running any stochastic eval with a real model (that is R11, the operator's step)"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=1",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/contract/",
+              "test/plan/",
+              "test/repo/source-shape.test.mjs"
+            ],
+            "timeoutSec": 900
+          }
+        ]
+      }
+    }
+  ]
+}

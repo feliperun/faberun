@@ -1,0 +1,184 @@
+{
+  "schemaVersion": 2,
+  "id": "defect-nongoal-violated-report-the-provider-s-startup-error-not-just-an-empty-stream",
+  "label": "defect:nongoal-violated",
+  "sourceTask": "report-the-provider-s-startup-error-not-just-an-empty-stream",
+  "source": {
+    "commitSha": "4b28e04d1423f98648f3125d9f8f50296a0810b8",
+    "parentSha": "038c7420366e8ba3cf4a1fce70ede05f3eae0f89",
+    "runtimeOriginal": null,
+    "costUsdOriginal": null,
+    "wallClockSecOriginal": null,
+    "statementSource": "commit-message",
+    "parentTreeSha": "452b1449fe59f349d9dfc6ffad590bf4eee2f9eb"
+  },
+  "nodeId": "report-provider-startup-error",
+  "diffPaths": [
+    "skills/mine/intent-factory/scripts/drivers/index.mjs",
+    "skills/mine/intent-factory/scripts/drivers/protocol.mjs",
+    "skills/mine/intent-factory/scripts/node.mjs",
+    "skills/mine/intent-factory/test/drivers.test.mjs"
+  ],
+  "verification": [
+    {
+      "argv": [
+        "node",
+        "--check",
+        "skills/mine/intent-factory/scripts/drivers/index.mjs"
+      ]
+    },
+    {
+      "argv": [
+        "node",
+        "--check",
+        "skills/mine/intent-factory/scripts/drivers/protocol.mjs"
+      ]
+    },
+    {
+      "argv": [
+        "node",
+        "--check",
+        "skills/mine/intent-factory/scripts/node.mjs"
+      ]
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "skills/mine/intent-factory/test/drivers.test.mjs"
+      ]
+    }
+  ],
+  "taskPacket": {
+    "mode": "execution",
+    "objective": "When a provider's stream ends with no completion event, the claude, codex and agy normalizers report the process's own stderr instead of only an empty-stream message.",
+    "instructions": [
+      "NormalizeOptions (scripts/drivers/index.mjs) carries an optional stderr string.",
+      "normalizeClaudeResult, normalizeAgyResult and normalizeCodexResult (scripts/drivers/protocol.mjs) append the trimmed stderr, bounded to 512 bytes, to their incomplete_stream message when the stream carries no completion event; with no stderr the message is unchanged.",
+      "recordInvocationUsage (scripts/node.mjs) passes the stderr tail it already reads to normalizeProviderResult.",
+      "A drivers test pins a codex config-load error reaching the message, and the unchanged message without stderr."
+    ],
+    "readFiles": [
+      "skills/mine/intent-factory/scripts/drivers/index.mjs",
+      "skills/mine/intent-factory/scripts/drivers/protocol.mjs",
+      "skills/mine/intent-factory/scripts/node.mjs",
+      "skills/mine/intent-factory/test/drivers.test.mjs"
+    ],
+    "writeFiles": [
+      "skills/mine/intent-factory/scripts/drivers/index.mjs",
+      "skills/mine/intent-factory/scripts/drivers/protocol.mjs",
+      "skills/mine/intent-factory/scripts/node.mjs",
+      "skills/mine/intent-factory/test/drivers.test.mjs"
+    ],
+    "writeRoots": [],
+    "symbols": [],
+    "decisions": [],
+    "nonGoals": [
+      "Changing how much of the stderr log the invocation path reads: it keeps its existing 512 KiB tail."
+    ],
+    "verification": [
+      {
+        "argv": [
+          "node",
+          "--check",
+          "skills/mine/intent-factory/scripts/drivers/index.mjs"
+        ]
+      },
+      {
+        "argv": [
+          "node",
+          "--check",
+          "skills/mine/intent-factory/scripts/drivers/protocol.mjs"
+        ]
+      },
+      {
+        "argv": [
+          "node",
+          "--check",
+          "skills/mine/intent-factory/scripts/node.mjs"
+        ]
+      },
+      {
+        "argv": [
+          "node",
+          "--test",
+          "skills/mine/intent-factory/test/drivers.test.mjs"
+        ]
+      }
+    ]
+  },
+  "definitionOfDone": [
+    {
+      "id": "verification",
+      "text": "The declared verification commands pass on the sealed tree.",
+      "proof": {
+        "kind": "command",
+        "ref": "node --check skills/mine/intent-factory/scripts/drivers/index.mjs && node --check skills/mine/intent-factory/scripts/drivers/protocol.mjs && node --check skills/mine/intent-factory/scripts/node.mjs && node --test skills/mine/intent-factory/test/drivers.test.mjs"
+      }
+    },
+    {
+      "id": "stderr-in-all-three",
+      "text": "All three normalizers (claude, codex and agy) append the bounded stderr to an incomplete_stream message, and leave it unchanged without stderr.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "invocation-passes-stderr",
+      "text": "The invocation path hands its stderr tail to the normalizer.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "in-scope",
+      "text": "Every change in the diff serves the objective, and none does what a non-goal excludes.",
+      "judgment": true,
+      "reason": "The write boundary admits any edit inside the declared files; no command tells a requested edit from an unrequested one."
+    },
+    {
+      "id": "docs-match-code",
+      "text": "Every comment and document the diff adds or edits describes what the code does.",
+      "judgment": true,
+      "reason": "No command compares prose with behaviour."
+    },
+    {
+      "id": "tests-assert-behaviour",
+      "text": "Every test the diff adds or edits asserts the behaviour its name and the instructions claim, and no assertion is removed or loosened.",
+      "judgment": true,
+      "reason": "A loosened assertion still passes; only reading the test shows what it no longer checks."
+    }
+  ],
+  "workerResult": {
+    "status": "done",
+    "summary": "The claude, codex and agy normalizers append the process's stderr to an incomplete_stream message, and recordInvocationUsage passes the stderr tail it reads; a drivers test pins the codex config-load case.",
+    "verification": [
+      "node --check skills/mine/intent-factory/scripts/drivers/index.mjs",
+      "node --check skills/mine/intent-factory/scripts/drivers/protocol.mjs",
+      "node --check skills/mine/intent-factory/scripts/node.mjs",
+      "node --test skills/mine/intent-factory/test/drivers.test.mjs"
+    ],
+    "artifacts": [
+      "skills/mine/intent-factory/scripts/drivers/index.mjs",
+      "skills/mine/intent-factory/scripts/drivers/protocol.mjs",
+      "skills/mine/intent-factory/scripts/node.mjs",
+      "skills/mine/intent-factory/test/drivers.test.mjs"
+    ],
+    "missingContext": []
+  },
+  "mutation": {
+    "kind": "nongoal-violated",
+    "description": "The invocation path now reads 8 MiB of the stderr log instead of its 512 KiB tail, which a non-goal excludes.",
+    "edits": [
+      {
+        "path": "skills/mine/intent-factory/scripts/node.mjs",
+        "find": [
+          "    const boundedStderr = readBoundedTail(job.paths.stderr, 512 * 1024);"
+        ],
+        "replace": [
+          "    const boundedStderr = readBoundedTail(job.paths.stderr, 8 * 1024 * 1024);"
+        ]
+      }
+    ]
+  },
+  "diff": "diff.patch",
+  "diffSha256": "29cd1567ce108650b5c9e5010a873ea5dc4c2d41ed2248664a0ade57cd82fad5"
+}
