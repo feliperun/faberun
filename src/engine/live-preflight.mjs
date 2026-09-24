@@ -16,7 +16,7 @@ import { emptyUsage } from "../run/usage.mjs";
 import { errorMessage } from "../util.mjs";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { normalizeProviderResult, probeRuntime, providerCommand } from "../harnesses/index.mjs";
+import { normalizeProviderAvailability, normalizeProviderResult, probeRuntime, providerCommand } from "../harnesses/index.mjs";
 import { killTarget, spawnInvocation } from "../host/platform.mjs";
 import { reachableRuntimes } from "../host/preflight.mjs";
 import { spawn } from "node:child_process";
@@ -106,6 +106,9 @@ export async function preflightRuntimes(entries, options = {}) {
         liveStatus: live.status,
         usage: live.usage,
         costUsd: live.costUsd,
+        // A failed ask carries its classified cause (quota, balance, model) and
+        // reset instant, so a refusal can be recorded as one instead of as an answer.
+        ...(live.status === "done" ? {} : { availability: normalizeProviderAvailability(/** @type {any} */ (runtimes[index]), live) }),
         detail: `${check.detail ?? "static probe failed"} · ${liveDetail}`,
       };
     }));

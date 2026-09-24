@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "clean-anthropic-soft-limit-fixture",
   "label": "clean",
   "sourceTask": "anthropic-soft-limit-fixture",
@@ -105,6 +105,10 @@
       "skills/mine/intent-factory/test/drivers.test.mjs"
     ],
     "missingContext": []
+  },
+  "authoredBy": {
+    "runtime": "claude-opus-5-5",
+    "family": "anthropic"
   },
   "diff": "diff.patch",
   "diffSha256": "9279537b6daf52ecb4b063c7c2b14d2e2f417bfaf997e9ab1fa63cb44bd3ee7b"

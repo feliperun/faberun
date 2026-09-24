@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "defect-requirement-half-done-strip-the-notification-transport-from-worker-provider-enviro",
   "label": "defect:requirement-half-done",
   "sourceTask": "strip-the-notification-transport-from-worker-provider-enviro",
@@ -124,6 +124,10 @@
       "skills/mine/intent-factory/test/supervisor.test.mjs"
     ],
     "missingContext": []
+  },
+  "authoredBy": {
+    "runtime": "claude-opus-5-5",
+    "family": "anthropic"
   },
   "mutation": {
     "kind": "requirement-half-done",

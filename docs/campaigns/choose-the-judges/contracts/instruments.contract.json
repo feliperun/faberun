@@ -1,0 +1,580 @@
+{
+ "schemaVersion": 3,
+ "contractVersion": "0.3.0",
+ "id": "choose-the-judges-instruments",
+ "campaignId": "choose-the-judges",
+ "goal": "The judge canary says who wrote each case, a third of its defects come from outside the Anthropic family, and one command gives the judge matrix per worker vendor (R1 to R3).",
+ "cwd": "../../../..",
+ "maxParallel": 2,
+ "stallTimeoutSec": 900,
+ "timeoutSec": 3600,
+ "maxTurns": 400,
+ "runtimeDefaults": {
+  "worker": "dsh-deepseek",
+  "judge": "codex-sol"
+ },
+ "runtimes": {
+  "dsh-deepseek": {
+   "harness": "dsh",
+   "model": "deepseek-flash",
+   "reasoning": "high",
+   "vendor": "deepseek",
+   "sandbox": "danger-full-access",
+   "config": {
+    "provider": "deepseek-official",
+    "api_key.env_key": "DEEPSEEK_API_KEY"
+   },
+   "stallTimeoutSec": 900,
+   "tier": 1,
+   "costRank": 1
+  },
+  "dsh-v4-pro-author": {
+   "harness": "dsh",
+   "model": "deepseek-v4-pro",
+   "reasoning": "high",
+   "vendor": "deepseek",
+   "sandbox": "danger-full-access",
+   "config": {
+    "provider": "deepseek-official",
+    "api_key.env_key": "DEEPSEEK_API_KEY"
+   },
+   "stallTimeoutSec": 900,
+   "tier": 2,
+   "costRank": 2
+  },
+  "codex-sol6-author": {
+   "harness": "codex",
+   "model": "gpt-6-sol",
+   "vendor": "openai",
+   "reasoning": "high",
+   "sandbox": "danger-full-access",
+   "tier": 2,
+   "costRank": 3,
+   "pricing": {
+    "inputPerMTok": 2,
+    "cachedInputPerMTok": 0.2,
+    "outputPerMTok": 10
+   }
+  },
+  "codex-sol": {
+   "harness": "codex",
+   "model": "gpt-5.6-sol",
+   "vendor": "openai",
+   "reasoning": "high",
+   "sandbox": "read-only",
+   "tier": 2,
+   "costRank": 3
+  },
+  "claude-opus": {
+   "harness": "claude",
+   "model": "claude-opus-5-5",
+   "vendor": "anthropic",
+   "reasoning": "high",
+   "tier": 3,
+   "costRank": 4,
+   "pricing": {
+    "inputPerMTok": 4,
+    "cachedInputPerMTok": 0.2,
+    "outputPerMTok": 20
+   }
+  }
+ },
+ "sharedVerification": [
+  {
+   "argv": [
+    "npm",
+    "run",
+    "typecheck"
+   ],
+   "timeoutSec": 120
+  }
+ ],
+ "finalVerification": [
+  {
+   "argv": [
+    "npm",
+    "run",
+    "check"
+   ],
+   "timeoutSec": 120
+  },
+  {
+   "argv": [
+    "npm",
+    "run",
+    "docs:check"
+   ],
+   "timeoutSec": 120
+  }
+ ],
+ "nodes": [
+  {
+   "id": "canary-authorship",
+   "type": "implementation",
+   "phase": "instruments",
+   "requirementIds": [
+    "R1"
+   ],
+   "timeoutSec": 3600,
+   "gate": {
+    "runtime": "codex-sol",
+    "review": "blocking",
+    "failOn": [
+     "major",
+     "critical"
+    ],
+    "maxRevisions": 2
+   },
+   "definitionOfDone": [
+    {
+     "id": "r1-named",
+     "text": "The test 'the canary reports recall by the family that authored each defect' exists in test/evals/judge-canary.test.mjs",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"process.exit(require('fs').readFileSync('test/evals/judge-canary.test.mjs','utf8').includes('the canary reports recall by the family that authored each defect')?0:1)\""
+     }
+    },
+    {
+     "id": "r1-passes",
+     "text": "The test 'the canary reports recall by the family that authored each defect' passes",
+     "proof": {
+      "kind": "command",
+      "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"the canary reports recall by the family that authored each defect\" test/evals/judge-canary.test.mjs"
+     }
+    },
+    {
+     "id": "consistent-named",
+     "text": "The test 'the committed canary cases are what the corpus builds' exists in test/evals/judge-canary.test.mjs",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"process.exit(require('fs').readFileSync('test/evals/judge-canary.test.mjs','utf8').includes('the committed canary cases are what the corpus builds')?0:1)\""
+     }
+    },
+    {
+     "id": "consistent-passes",
+     "text": "The test 'the committed canary cases are what the corpus builds' passes",
+     "proof": {
+      "kind": "command",
+      "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"the committed canary cases are what the corpus builds\" test/evals/judge-canary.test.mjs"
+     }
+    },
+    {
+     "id": "suite",
+     "text": "The canary and repository suites pass",
+     "proof": {
+      "kind": "verification",
+      "ref": 0
+     }
+    },
+    {
+     "id": "no-leak",
+     "text": "authoredBy never reaches the judge: the prompt and the judge workspace carry no runtime id or family of the author.",
+     "judgment": true,
+     "reason": "A test can check the prompt string; whether no other path (workspace files, case.json read by a harness judge) exposes the author is read in the code."
+    }
+   ],
+   "taskPacket": {
+    "mode": "autonomous",
+    "objective": "Every judge canary case says who wrote it, and the canary report gives recall and false alarms per author family as well as in total (R1).",
+    "instructions": [
+     "Add authoredBy to every task packet and every defect in evals/judge-canary/corpus.json. authoredBy is an object {runtime, family}: runtime is the runtime id that wrote the text (for example claude-opus-5-5), family is its vendor family, one of anthropic, openai, deepseek, zhipu, google (the vocabulary of evals/judge-canary/runtimes.json's vendor field). Every one of the 10 tasks and 25 defects today was written by the node canary-rebuilt of evals-with-a-budget (worker claude-opus-5-5, no failover; measured 2026-09-24 from its usage ledger and git history), so each gets {\"runtime\": \"claude-opus-5-5\", \"family\": \"anthropic\"}.",
+     "The builder (evals/judge-canary.mjs) refuses a task or defect without a valid authoredBy, and carries it into each built case (case.json): a defect case carries its defect's authoredBy, a clean control carries its task's (the packet's author). Bump BUILDER_VERSION, since the case format changes, and rebuild the committed cases with `node evals/judge-canary.mjs` (about two minutes).",
+     "authoredBy must never reach the judge: not in the prompt, not in any file of the workspace a harness judge reviews. Extend the existing leak test so it also covers authoredBy.",
+     "evals/judge-canary/class.mjs: each outcome carries the case's author family, and the report gains byAuthorFamily: for each family, the defect verdicts, rejected, cited rejections and recall (computed exactly as the per-label recall is), and the clean verdicts and false-alarm rate. Errored verdicts stay outside both rates, as they are today. The rendered report shows it. Provenance's runtimes entries also carry the judge's vendor, read from evals/judge-canary/runtimes.json.",
+     "Pin two tests in test/evals/judge-canary.test.mjs: 'the canary reports recall by the family that authored each defect' (a fake judge over cases from two author families gives different recall per family and the right totals), and 'the committed canary cases are what the corpus builds' (the case ids, each diffSha256 and each authoredBy on disk equal what buildCanaryArtifacts produces from corpus.json; it must not run the verifications)."
+    ],
+    "readFiles": [
+     "docs/campaigns/choose-the-judges/spec/SPEC.md",
+     "AGENTS.md",
+     "evals/README.md",
+     "evals/judge-canary.mjs",
+     "evals/judge-canary/corpus.json",
+     "evals/judge-canary/class.mjs",
+     "evals/judge-canary/judge.mjs",
+     "evals/judge-canary/runtimes.json",
+     "test/evals/judge-canary.test.mjs"
+    ],
+    "writeRoots": [
+     "evals/judge-canary/",
+     "evals/judge-canary.mjs",
+     "test/evals/judge-canary.test.mjs",
+     "evals/README.md"
+    ],
+    "symbols": [],
+    "decisions": [
+     "This is campaign choose-the-judges of the leaving-home program; docs/campaigns/choose-the-judges/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+     "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines, no name exported from two modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new module saying what it owns and why it is separate, comments record measurement not intent.",
+     "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"); a source-shape ratchet enforces it.",
+     "No new runtime dependency. No test calls a provider: judges in tests are fakes or the replay harness. No test writes to the operator's real home.",
+     "The skill documents share one byte budget with 3 bytes of room: do not edit skills/faberun/SKILL.md or skills/faberun/references/*.md.",
+     "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work.",
+     "A proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names; the DoD checks the name exists and runs it.",
+     "Code, comments and documents are in English."
+    ],
+    "nonGoals": [
+     "Adding or changing any defect's edits",
+     "Running a real judge"
+    ],
+    "verification": [
+     {
+      "argv": [
+       "node",
+       "--test",
+       "--test-concurrency=1",
+       "--import",
+       "./test/scoped-home.mjs",
+       "--import",
+       "./test/git-env.mjs",
+       "--import",
+       "./test/setup.mjs",
+       "test/evals/judge-canary.test.mjs",
+       "test/repo/"
+      ],
+      "timeoutSec": 900
+     }
+    ]
+   }
+  },
+  {
+   "id": "judge-matrix",
+   "type": "implementation",
+   "phase": "instruments",
+   "requirementIds": [
+    "R3"
+   ],
+   "dependsOn": [
+    "canary-authorship"
+   ],
+   "timeoutSec": 3600,
+   "gate": {
+    "runtime": "codex-sol",
+    "review": "blocking",
+    "failOn": [
+     "major",
+     "critical"
+    ],
+    "maxRevisions": 2
+   },
+   "definitionOfDone": [
+    {
+     "id": "r3-named",
+     "text": "The test 'the canary report says which judges may judge each worker vendor' exists in test/evals/judge-canary-matrix.test.mjs",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"process.exit(require('fs').readFileSync('test/evals/judge-canary-matrix.test.mjs','utf8').includes('the canary report says which judges may judge each worker vendor')?0:1)\""
+     }
+    },
+    {
+     "id": "r3-passes",
+     "text": "The test 'the canary report says which judges may judge each worker vendor' passes",
+     "proof": {
+      "kind": "command",
+      "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"the canary report says which judges may judge each worker vendor\" test/evals/judge-canary-matrix.test.mjs"
+     }
+    },
+    {
+     "id": "suite",
+     "text": "The matrix and repository suites pass",
+     "proof": {
+      "kind": "verification",
+      "ref": 0
+     }
+    },
+    {
+     "id": "rule",
+     "text": "The allowed set per worker family is exactly the vendor rule of validateContract (a judge may not share the worker's vendor), and the best-judge rule is the one the packet states.",
+     "judgment": true,
+     "reason": "The test covers the cases it names; whether the rule matches src/contract/index.mjs in general is read."
+    }
+   ],
+   "taskPacket": {
+    "mode": "autonomous",
+    "objective": "One command turns the versioned judge canary results into a matrix: for each worker vendor family, the judges the vendor rule allows, with their numbers, and the best one marked (R3).",
+    "instructions": [
+     "New module evals/judge-canary-matrix.mjs, runnable as `node evals/judge-canary-matrix.mjs [--result-dir <dir>] <result.json>...`. It reads judge-canary result files (the shape evals/judge-canary/class.mjs writes), pools each judge runtime's outcomes over every file and repetition given for it, and never invokes a model.",
+     "It refuses (exit 2, naming the file) a result that is not class judge-canary, that has no provenance.corpusHash, or whose corpusHash differs from the others: judges are only comparable on one corpus.",
+     "Per judge runtime: id, vendor (provenance runtimes' vendor, added by the canary-authorship node; a result without it is refused), result files, repetitions, cases, recall, false-alarm rate, errors, cost per case in USD, and recall and false-alarm rate per author family (byAuthorFamily). Compute pooled rates from the pooled counts, not by averaging per-file rates.",
+     "Worker families: anthropic, deepseek, google, openai, zhipu, the five vendors the product's harnesses talk to (see the header of src/engine/pricing-seed.mjs; zhipuai there is zhipu here). For each family, the allowed judges are the measured judges whose vendor differs from that family (the rule in src/contract/index.mjs near line 293). The best allowed judge: take the highest recall among the allowed; among the allowed judges whose recall is at least that minus 0.05, pick the lowest cost per case; break a remaining tie by the lower false-alarm rate, then by id. A family with no allowed judge says so.",
+     "Output: a JSON file matrix-<timestamp>.json in --result-dir (default evals/results/judge-canary/) with the inputs (paths and corpusHash), the per-judge table and the per-family rows, and a markdown table on stdout (one row per worker family, one column per allowed judge showing recall / false alarm / USD per case, the best marked). Document the command in evals/README.md in a short paragraph.",
+     "Pin the test 'the canary report says which judges may judge each worker vendor' in the new file test/evals/judge-canary-matrix.test.mjs, over fixture result objects written to a temp directory: it checks the allowed sets, the best-judge rule including the 0.05 cost window, pooling across two files of one judge, and the refusal of mixed corpus hashes."
+    ],
+    "readFiles": [
+     "docs/campaigns/choose-the-judges/spec/SPEC.md",
+     "AGENTS.md",
+     "evals/README.md",
+     "evals/judge-canary/class.mjs",
+     "evals/judge-canary/runtimes.json",
+     "src/contract/index.mjs",
+     "src/engine/pricing-seed.mjs",
+     "evals/results/judge-canary/2026-09-24-gpt-5.6-sol-2.json"
+    ],
+    "writeRoots": [
+     "evals/judge-canary-matrix.mjs",
+     "test/evals/judge-canary-matrix.test.mjs",
+     "evals/README.md"
+    ],
+    "symbols": [],
+    "decisions": [
+     "This is campaign choose-the-judges of the leaving-home program; docs/campaigns/choose-the-judges/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+     "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines, no name exported from two modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new module saying what it owns and why it is separate, comments record measurement not intent.",
+     "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"); a source-shape ratchet enforces it.",
+     "No new runtime dependency. No test calls a provider: judges in tests are fakes or the replay harness. No test writes to the operator's real home.",
+     "The skill documents share one byte budget with 3 bytes of room: do not edit skills/faberun/SKILL.md or skills/faberun/references/*.md.",
+     "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work.",
+     "A proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names; the DoD checks the name exists and runs it.",
+     "Code, comments and documents are in English."
+    ],
+    "nonGoals": [
+     "Changing the canary class or corpus",
+     "Running a real judge"
+    ],
+    "verification": [
+     {
+      "argv": [
+       "node",
+       "--test",
+       "--test-concurrency=1",
+       "--import",
+       "./test/scoped-home.mjs",
+       "--import",
+       "./test/git-env.mjs",
+       "--import",
+       "./test/setup.mjs",
+       "test/evals/judge-canary-matrix.test.mjs",
+       "test/repo/"
+      ],
+      "timeoutSec": 900
+     }
+    ]
+   }
+  },
+  {
+   "id": "defects-openai",
+   "type": "implementation",
+   "phase": "authors",
+   "requirementIds": [
+    "R2"
+   ],
+   "dependsOn": [
+    "canary-authorship"
+   ],
+   "timeoutSec": 5400,
+   "runtime": "codex-sol6-author",
+   "gate": {
+    "runtime": "claude-opus",
+    "review": "blocking",
+    "failOn": [
+     "major",
+     "critical"
+    ],
+    "maxRevisions": 2
+   },
+   "definitionOfDone": [
+    {
+     "id": "five",
+     "text": "Exactly five defects carry authoredBy family openai, one per kind, on distinct pairs",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"const d=JSON.parse(require('fs').readFileSync('evals/judge-canary/corpus.json','utf8')).defects.filter(x=>x.authoredBy&&x.authoredBy.family==='openai');process.exit(d.length===5&&new Set(d.map(x=>x.kind)).size===5&&d.length===new Set(d.map(x=>x.kind+'/'+x.task)).size?0:1)\""
+     }
+    },
+    {
+     "id": "suite",
+     "text": "The canary suite passes: every defect passes its mechanical proof and the committed cases are what the corpus builds",
+     "proof": {
+      "kind": "verification",
+      "ref": 0
+     }
+    },
+    {
+     "id": "defects-real",
+     "text": "Each new defect is the kind it claims, sits inside its task's golden files, and is findable by a careful reviewer reading the diff against the packet; none restates or varies an existing defect.",
+     "judgment": true,
+     "reason": "The builder proves only that the task's verification misses the defect; whether it is a real defect of its kind is read, not run."
+    }
+   ],
+   "taskPacket": {
+    "mode": "autonomous",
+    "objective": "Five judge canary defects, one per kind, are written by gpt-6-sol and replace five written by claude-opus-5-5 (R2, first half).",
+    "instructions": [
+     "You write five new defect cases for the judge canary, one per kind, and each replaces one existing defect written by claude-opus-5-5. You are the author: every new entry carries authoredBy {\"runtime\": \"gpt-6-sol\", \"family\": \"openai\"}. The point of the work is that these defects come from a model family other than the one that wrote the rest of the corpus, so write each one yourself from the task's golden diff and packet. Do not copy, paraphrase or vary an existing defect's edits, and do not ask for or reuse text from any other source.",
+     "Remove exactly these defect entries from evals/judge-canary/corpus.json (by task and kind): nongoal-violated on deny-the-out-of-scope-write-before-the-file-exists; requirement-half-done on report-the-provider-s-startup-error-not-just-an-empty-stream; scope-drift-inside-writefiles on classify-codex-tool-host-failure-before-cancellation; doc-contradicts-code on deny-the-out-of-scope-write-before-the-file-exists; test-weakened on deny-the-out-of-scope-write-before-the-file-exists.",
+     "Add exactly these defect entries (by kind and task), each with kind, task, description, edits and authoredBy: nongoal-violated on anthropic-soft-limit-fixture; requirement-half-done on stop-re-sealing-a-clean-attempt-from-failing-the-retry; scope-drift-inside-writefiles on strip-the-notification-transport-from-worker-provider-enviro; doc-contradicts-code on deepseek-balance-classification; test-weakened on carry-git-s-own-reason-into-a-failed-git-command.",
+     "The five kinds, as evals/README.md and the existing corpus use them: nongoal-violated (the diff does something the packet's non-goals exclude), requirement-half-done (a behaviour the packet requires is only partly implemented while the result claims it done), scope-drift-inside-writefiles (an unrequested change inside the files the task may write), doc-contradicts-code (a comment or document the diff adds or edits states something the code does not do), test-weakened (a test the diff adds or edits no longer asserts what its name and the instructions claim).",
+     "How a defect is built: evals/judge-canary.mjs applies each defect's edits (find/replace line arrays) to the task's golden diff, only inside files the golden diff already changes. Read the golden task under evals/golden/<task>/ (statement.md, meta.json, verify.json) and its golden diff with `git diff <parentSha> <commitSha>` from meta.json. The packet the judge sees is the task's entry in corpus.json. A good defect is one a careful reviewer finds by reading the diff against the packet, and that the task's own verification does not catch.",
+     "Rebuild with `node evals/judge-canary.mjs` (about two minutes). The builder refuses, by case id, a defect the task's verification catches, and a corpus with fewer than five defects per kind over distinct tasks; when it refuses one of yours, change that defect until it passes. Commit nothing yourself; leave the rebuilt case directories and manifest.json in the worktree.",
+     "Do not edit any other defect, any task packet or any clean control. The description of each new defect states the defect plainly (it never reaches the judge)."
+    ],
+    "readFiles": [
+     "docs/campaigns/choose-the-judges/spec/SPEC.md",
+     "AGENTS.md",
+     "evals/README.md",
+     "evals/judge-canary.mjs",
+     "evals/judge-canary/corpus.json",
+     "evals/judge-canary/class.mjs",
+     "evals/judge-canary/judge.mjs",
+     "evals/judge-canary/runtimes.json",
+     "test/evals/judge-canary.test.mjs"
+    ],
+    "writeRoots": [
+     "evals/judge-canary/"
+    ],
+    "symbols": [],
+    "decisions": [
+     "This is campaign choose-the-judges of the leaving-home program; docs/campaigns/choose-the-judges/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+     "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines, no name exported from two modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new module saying what it owns and why it is separate, comments record measurement not intent.",
+     "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"); a source-shape ratchet enforces it.",
+     "No new runtime dependency. No test calls a provider: judges in tests are fakes or the replay harness. No test writes to the operator's real home.",
+     "The skill documents share one byte budget with 3 bytes of room: do not edit skills/faberun/SKILL.md or skills/faberun/references/*.md.",
+     "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work.",
+     "A proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names; the DoD checks the name exists and runs it.",
+     "Code, comments and documents are in English."
+    ],
+    "nonGoals": [
+     "Changing the builder, the class or the judge",
+     "Editing any defect other than the ten named"
+    ],
+    "verification": [
+     {
+      "argv": [
+       "node",
+       "--test",
+       "--test-concurrency=1",
+       "--import",
+       "./test/scoped-home.mjs",
+       "--import",
+       "./test/git-env.mjs",
+       "--import",
+       "./test/setup.mjs",
+       "test/evals/judge-canary.test.mjs"
+      ],
+      "timeoutSec": 1200
+     }
+    ]
+   }
+  },
+  {
+   "id": "defects-deepseek",
+   "type": "implementation",
+   "phase": "authors",
+   "requirementIds": [
+    "R2"
+   ],
+   "dependsOn": [
+    "defects-openai"
+   ],
+   "timeoutSec": 5400,
+   "runtime": "dsh-v4-pro-author",
+   "gate": {
+    "runtime": "codex-sol",
+    "review": "blocking",
+    "failOn": [
+     "major",
+     "critical"
+    ],
+    "maxRevisions": 2
+   },
+   "definitionOfDone": [
+    {
+     "id": "five",
+     "text": "Exactly five defects carry authoredBy family deepseek, one per kind, on distinct pairs",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"const d=JSON.parse(require('fs').readFileSync('evals/judge-canary/corpus.json','utf8')).defects.filter(x=>x.authoredBy&&x.authoredBy.family==='deepseek');process.exit(d.length===5&&new Set(d.map(x=>x.kind)).size===5&&d.length===new Set(d.map(x=>x.kind+'/'+x.task)).size?0:1)\""
+     }
+    },
+    {
+     "id": "r2-named",
+     "text": "The test 'a third of the canary defects come from outside the anthropic family' exists in test/evals/judge-canary.test.mjs",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"process.exit(require('fs').readFileSync('test/evals/judge-canary.test.mjs','utf8').includes('a third of the canary defects come from outside the anthropic family')?0:1)\""
+     }
+    },
+    {
+     "id": "r2-passes",
+     "text": "The test 'a third of the canary defects come from outside the anthropic family' passes",
+     "proof": {
+      "kind": "command",
+      "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"a third of the canary defects come from outside the anthropic family\" test/evals/judge-canary.test.mjs"
+     }
+    },
+    {
+     "id": "suite",
+     "text": "The canary suite passes",
+     "proof": {
+      "kind": "verification",
+      "ref": 0
+     }
+    },
+    {
+     "id": "defects-real",
+     "text": "Each new defect is the kind it claims, sits inside its task's golden files, and is findable by a careful reviewer reading the diff against the packet; none restates or varies an existing defect.",
+     "judgment": true,
+     "reason": "The builder proves only that the task's verification misses the defect; whether it is a real defect of its kind is read, not run."
+    }
+   ],
+   "taskPacket": {
+    "mode": "autonomous",
+    "objective": "Five more judge canary defects, one per kind, are written by deepseek-v4-pro, so 10 of the 25 come from outside the Anthropic family (R2, second half).",
+    "instructions": [
+     "You write five new defect cases for the judge canary, one per kind, and each replaces one existing defect written by claude-opus-5-5. You are the author: every new entry carries authoredBy {\"runtime\": \"deepseek-v4-pro\", \"family\": \"deepseek\"}. The point of the work is that these defects come from a model family other than the one that wrote the rest of the corpus, so write each one yourself from the task's golden diff and packet. Do not copy, paraphrase or vary an existing defect's edits, and do not ask for or reuse text from any other source.",
+     "Remove exactly these defect entries from evals/judge-canary/corpus.json (by task and kind): nongoal-violated on deepseek-balance-classification; requirement-half-done on carry-git-s-own-reason-into-a-failed-git-command; scope-drift-inside-writefiles on carry-git-s-own-reason-into-a-failed-git-command; doc-contradicts-code on classify-codex-tool-host-failure-before-cancellation; test-weakened on deepseek-balance-classification.",
+     "Add exactly these defect entries (by kind and task), each with kind, task, description, edits and authoredBy: nongoal-violated on macos-process-start-token; requirement-half-done on classify-codex-tool-host-failure-before-cancellation; scope-drift-inside-writefiles on stop-a-failing-proof-from-killing-the-controller; doc-contradicts-code on report-the-provider-s-startup-error-not-just-an-empty-stream; test-weakened on macos-process-start-token.",
+     "The five kinds, as evals/README.md and the existing corpus use them: nongoal-violated (the diff does something the packet's non-goals exclude), requirement-half-done (a behaviour the packet requires is only partly implemented while the result claims it done), scope-drift-inside-writefiles (an unrequested change inside the files the task may write), doc-contradicts-code (a comment or document the diff adds or edits states something the code does not do), test-weakened (a test the diff adds or edits no longer asserts what its name and the instructions claim).",
+     "How a defect is built: evals/judge-canary.mjs applies each defect's edits (find/replace line arrays) to the task's golden diff, only inside files the golden diff already changes. Read the golden task under evals/golden/<task>/ (statement.md, meta.json, verify.json) and its golden diff with `git diff <parentSha> <commitSha>` from meta.json. The packet the judge sees is the task's entry in corpus.json. A good defect is one a careful reviewer finds by reading the diff against the packet, and that the task's own verification does not catch.",
+     "Rebuild with `node evals/judge-canary.mjs` (about two minutes). The builder refuses, by case id, a defect the task's verification catches, and a corpus with fewer than five defects per kind over distinct tasks; when it refuses one of yours, change that defect until it passes. Commit nothing yourself; leave the rebuilt case directories and manifest.json in the worktree.",
+     "Do not edit any other defect, any task packet or any clean control. The description of each new defect states the defect plainly (it never reaches the judge).",
+     "Pin the test 'a third of the canary defects come from outside the anthropic family' in test/evals/judge-canary.test.mjs: it reads corpus.json and asserts at least 9 of the 25 defects carry a family other than anthropic and that those cover all five kinds. It reads the corpus only; it must not run the verifications."
+    ],
+    "readFiles": [
+     "docs/campaigns/choose-the-judges/spec/SPEC.md",
+     "AGENTS.md",
+     "evals/README.md",
+     "evals/judge-canary.mjs",
+     "evals/judge-canary/corpus.json",
+     "evals/judge-canary/class.mjs",
+     "evals/judge-canary/judge.mjs",
+     "evals/judge-canary/runtimes.json",
+     "test/evals/judge-canary.test.mjs"
+    ],
+    "writeRoots": [
+     "evals/judge-canary/",
+     "test/evals/judge-canary.test.mjs"
+    ],
+    "symbols": [],
+    "decisions": [
+     "This is campaign choose-the-judges of the leaving-home program; docs/campaigns/choose-the-judges/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+     "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines, no name exported from two modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new module saying what it owns and why it is separate, comments record measurement not intent.",
+     "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"); a source-shape ratchet enforces it.",
+     "No new runtime dependency. No test calls a provider: judges in tests are fakes or the replay harness. No test writes to the operator's real home.",
+     "The skill documents share one byte budget with 3 bytes of room: do not edit skills/faberun/SKILL.md or skills/faberun/references/*.md.",
+     "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work.",
+     "A proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names; the DoD checks the name exists and runs it.",
+     "Code, comments and documents are in English."
+    ],
+    "nonGoals": [
+     "Changing the builder, the class or the judge",
+     "Editing any defect other than the ten named"
+    ],
+    "verification": [
+     {
+      "argv": [
+       "node",
+       "--test",
+       "--test-concurrency=1",
+       "--import",
+       "./test/scoped-home.mjs",
+       "--import",
+       "./test/git-env.mjs",
+       "--import",
+       "./test/setup.mjs",
+       "test/evals/judge-canary.test.mjs"
+      ],
+      "timeoutSec": 1200
+     }
+    ]
+   }
+  }
+ ]
+}

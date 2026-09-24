@@ -43,7 +43,8 @@ import { NOTIFY_SESSION_ENV, sessionWakeNotice } from "../notify/session.mjs";
 import { findExecutable } from "./platform.mjs";
 import { colorLevel, statusToken } from "../cli/brand.mjs";
 import { RUNS_DIR_NAME } from "../run/paths.mjs";
-import { availabilityKey, readAvailability, recordAvailability } from "../run/availability.mjs";
+import { availabilityKey, readAvailability, recordProbeVerdicts } from "../run/availability.mjs";
+import { readUsageWindows, usageAccountOf } from "../run/usage-windows.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {import("../contract/index.mjs").RuntimeSnapshot} RuntimeSnapshot */
@@ -223,6 +224,35 @@ export function checkRuntimeBinaries(runtimes, harnessVersions, cwd = ".") {
 }
 
 /**
+ * How much of each routed account's provider-reported window is spent. A
+ * window at 100% blocks the dispatch until it resets, because every call would
+ * be refused; one at or above 90% is an advisory warning with the reset
+ * instant, so the operator can ration before the wall. The 90% line is a first
+ * guess, not a measurement. No check is added when no routed runtime spends
+ * from an account that reports windows.
+ *
+ * @param {ReachableRuntimes} runtimes
+ * @param {NodeJS.ProcessEnv} env
+ * @param {number} [now]
+ * @returns {EnvCheck[]}
+ */
+export function checkUsageWindows(runtimes, env, now = Date.now()) {
+  const accounts = new Set([...runtimes.values()].filter((entry) => entry.routed).map((entry) => usageAccountOf(entry.runtime, env)).filter((account) => account !== null));
+  /** @type {EnvCheck[]} */
+  const checks = [];
+  for (const account of accounts) {
+    const windows = readUsageWindows(/** @type {string} */ (account), now);
+    if (windows.length === 0) continue;
+    const worst = windows.reduce((a, b) => (b.usedPercent > a.usedPercent ? b : a));
+    const detail = `${account.split(":")[0]} ${windows.map((window) => `${window.window} ${window.usedPercent}% used, resets ${window.resetsAt}`).join(" · ")}`;
+    if (worst.usedPercent >= 100) checks.push(fail("usage window", `${detail}: every call would be refused until ${worst.resetsAt}`));
+    else if (worst.usedPercent >= 90) checks.push(fail("usage window", detail, true));
+    else checks.push(pass("usage window", detail));
+  }
+  return checks;
+}
+
+/**
  * @param {{cwd: string, runtimes: ReachableRuntimes, harnessVersions?: Record<string, string|null>, env?: NodeJS.ProcessEnv}} options
  * @returns {EnvReport}
  */
@@ -234,6 +264,7 @@ export function environmentPreflight(options) {
     checkGit(cwd),
     checkWorktree(cwd, env.FABERUN_REQUIRE_CLEAN_WORKTREE === "1"),
     checkRuntimeBinaries(options.runtimes, options.harnessVersions ?? {}, cwd),
+    ...checkUsageWindows(options.runtimes, env),
   ];
   return { schemaVersion: ENV_PREFLIGHT_SCHEMA_VERSION, ok: checks.every((check) => check.ok || check.advisory), checks };
 }
@@ -517,7 +548,7 @@ async function liveAvailabilityChecks(contractPath, runtimes) {
   const override = Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC);
   const timeoutSec = process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC !== undefined && Number.isFinite(override) && override > 0 ? override : 60;
   const probes = await preflightContract(contractPath, { liveTimeoutSec: timeoutSec });
-  recordAvailability(probes.filter((probe) => liveVerdict(probe).recorded).map((probe) => availabilityKey(probe)));
+  recordProbeVerdicts(probes.filter((probe) => liveVerdict(probe).recorded));
   return probes.map((probe) => {
     const verdict = liveVerdict(probe);
     return {

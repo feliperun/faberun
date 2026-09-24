@@ -53,7 +53,7 @@ node evals/run.mjs --class deterministic [--case <id>] [--repeat <n>] [--assert-
 ## Paired class
 
 ```
-node evals/run.mjs --class paired --budget-usd <n> [--corpus <id>] [--repeat <n>] [--seed <n>] [--result-dir <dir>] [--json]
+node evals/run.mjs --class paired --budget-usd <n> [--corpus <id>] [--repeat <n>] [--concurrency <n>] [--seed <n>] [--result-dir <dir>] [--json]
 ```
 
 The paired class is the `orchestration-arms` driver brought into main
@@ -63,7 +63,10 @@ faberun arms with a blocking codex judge, B and C one claude session without
 and with the `Agent` tool, D proof-only, E to J D with the writer swapped for
 DeepSeek Flash, opus, sol, luna, astra and GLM Flash -- over one corpus in
 `evals/paired/corpus/<id>/`. Arms run sequentially, in an order shuffled by
-the recorded seed (one shuffle per repetition), `--repeat <n>` times.
+the recorded seed (one shuffle per repetition), `--repeat <n>` times. `--concurrency <n>` runs up to `n`
+arms at once (default 1) and records it in the provenance: parallel arms share
+the machine and the providers, so their wall-clock band is not comparable to a
+serial one.
 
 It refuses to start without `--budget-usd` and reserves every arm's declared
 estimate through `evals/budget.mjs` before the arm begins; an arm that cannot
@@ -85,7 +88,7 @@ acceptance never runs over the arm's own copy of it. The proof tests
 ## Judge-canary class
 
 ```
-node evals/run.mjs --class judge-canary --runtime <id> --budget-usd <n> [--repeat <k>] [--seed <n>] [--result-dir <dir>] [--json]
+node evals/run.mjs --class judge-canary --runtime <id> --budget-usd <n> [--repeat <k>] [--concurrency <n>] [--seed <n>] [--result-dir <dir>] [--json]
 node evals/judge-canary.mjs [--verify-discriminating [--json]]
 ```
 
@@ -94,11 +97,18 @@ is known. `--runtime` names an entry of `evals/judge-canary/runtimes.json`
 (id, harness, model, and `estimateUsd`, the amount reserved per invocation);
 the class refuses to start without a known runtime and without
 `--budget-usd`, and it spends through `evals/budget.mjs` like the paired class.
+`--concurrency <n>` asks up to `n` cases at once (default 1); the scores keep
+the seeded order. A provider refusal (quota, balance, an unsupported model)
+stops the class at the first refused case, spends nothing on it, records
+`stoppedBy` with the reset instant when the provider names one, and exits 3.
 
 **Corpus.** `evals/judge-canary/corpus.json` is the hand-authored source: for
 each of 10 golden tasks, the packet a real contract would give it (objective,
 instructions, non-goals, the task's behaviours as judgment items), and 25 defect
-edits, 5 per kind, each kind spread over 5 distinct tasks. `node
+edits, 5 per kind, each kind spread over 5 distinct tasks. Every task and defect
+declares `authoredBy` (`{runtime, family}`); the builder refuses one without it
+and carries it into `case.json`, where a defect case takes its defect's author
+and a clean control its task's. `node
 evals/judge-canary.mjs` builds one case directory per clean control (the task's
 golden diff, byte for byte) and per defect (the golden diff with the edits
 applied), each holding `case.json` and `diff.patch`. A defect edits only files
@@ -134,10 +144,35 @@ verdicts, errors, rejections, and the cost per case. Recall is the share of a
 kind's verdicts that reject with a finding citing a judgment item id. The
 false-alarm rate is the share of clean verdicts that reject. An invocation
 that threw or returned a verdict `parseJudge` refuses counts as an error for
-its label and is left out of both rates. The provenance fields are the same
-as the paired class's. The proof tests (`test/evals/judge-canary.test.mjs`)
+its label and is left out of both rates. The same counts are split by the
+author family that wrote each case (`byAuthorFamily`), so a judge can be read
+on the subset its own family did not write. The provenance fields are the same
+as the paired class's, and each runtime entry carries the judge's `vendor`
+from `runtimes.json`. The proof tests (`test/evals/judge-canary.test.mjs`)
 score an always-pass and an always-reject `replay` judge and never call a
 provider.
+
+## Judge matrix
+
+```
+node evals/judge-canary-matrix.mjs [--result-dir <dir>] <result.json>...
+```
+
+The matrix reads one or more judge-canary result files (the versioned
+`evals/results/judge-canary/*.json`), pools every judge runtime's outcomes over
+all the files and repetitions given for it, and prints a markdown table: one
+row per worker vendor family, one column per measured judge, each cell reading
+recall / false-alarm rate / US$ per case, with the best allowed judge marked.
+The vendor rule (`src/contract/index.mjs`) forbids a judge of the worker's own
+vendor, so a family's cells are blank where the rule blocks it and a family
+with no allowed judge says so. The best allowed judge is the highest recall;
+inside 0.05 of it the lowest cost per case wins, then the lower false-alarm
+rate, then the id. It refuses (exit 2, naming the file) a result that is not
+class `judge-canary`, has no `provenance.corpusHash`, or was scored on a
+different corpus, and it never invokes a model. The same report lands as
+`matrix-<timestamp>.json` under `--result-dir` (default
+`evals/results/judge-canary/`); `test/evals/judge-canary-matrix.test.mjs`
+covers the rule and the refusals over fixture results.
 
 ## Indicator projection and comparison
 

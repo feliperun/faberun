@@ -1,0 +1,862 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-09-24T20:23:35.122Z",
+  "inputs": {
+    "resultFiles": [
+      "evals/results/judge-canary/2026-09-24-claude-opus-5-5.json",
+      "evals/results/judge-canary/2026-09-24-deepseek-v4-pro.json",
+      "evals/results/judge-canary/2026-09-24-glm-5.3-2.json",
+      "evals/results/judge-canary/2026-09-24-glm-5.3-3.json",
+      "evals/results/judge-canary/2026-09-24-glm-5.3-flash-2.json",
+      "evals/results/judge-canary/2026-09-24-glm-5.3-flash-3.json",
+      "evals/results/judge-canary/2026-09-24-glm-5.3-flash-4.json",
+      "evals/results/judge-canary/2026-09-24-glm-5.3.json",
+      "evals/results/judge-canary/2026-09-24-gpt-5.6-sol-3.json",
+      "evals/results/judge-canary/2026-09-24-gpt-6-sol-2.json",
+      "evals/results/judge-canary/2026-09-24-gpt-6-sol.json"
+    ],
+    "corpusHash": "2a1f87b66226f52e1d7ac60c717711f33bcd8fa97cbeb742b154635a0c27e156"
+  },
+  "judges": [
+    {
+      "id": "claude-opus-5-5",
+      "vendor": "anthropic",
+      "resultFiles": [
+        "evals/results/judge-canary/2026-09-24-claude-opus-5-5.json"
+      ],
+      "repetitions": 2,
+      "cases": 35,
+      "invocations": 70,
+      "errors": 0,
+      "defectVerdicts": 50,
+      "rejected": 38,
+      "citedRejections": 38,
+      "recall": 0.76,
+      "cleanVerdicts": 20,
+      "cleanRejected": 2,
+      "falseAlarmRate": 0.1,
+      "costUsd": 9.25,
+      "costPerCaseUsd": 0.1321,
+      "byAuthorFamily": {
+        "anthropic": {
+          "family": "anthropic",
+          "cases": 25,
+          "invocations": 50,
+          "errors": 0,
+          "defectVerdicts": 30,
+          "rejected": 24,
+          "citedRejections": 24,
+          "recall": 0.8,
+          "cleanVerdicts": 20,
+          "cleanRejected": 2,
+          "falseAlarmRate": 0.1,
+          "costUsd": 6.6498,
+          "costPerCaseUsd": 0.133
+        },
+        "openai": {
+          "family": "openai",
+          "cases": 5,
+          "invocations": 10,
+          "errors": 0,
+          "defectVerdicts": 10,
+          "rejected": 6,
+          "citedRejections": 6,
+          "recall": 0.6,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0.9841,
+          "costPerCaseUsd": 0.0984
+        },
+        "deepseek": {
+          "family": "deepseek",
+          "cases": 5,
+          "invocations": 10,
+          "errors": 0,
+          "defectVerdicts": 10,
+          "rejected": 8,
+          "citedRejections": 8,
+          "recall": 0.8,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 1.6161,
+          "costPerCaseUsd": 0.1616
+        },
+        "zhipu": {
+          "family": "zhipu",
+          "cases": 0,
+          "invocations": 0,
+          "errors": 0,
+          "defectVerdicts": 0,
+          "rejected": 0,
+          "citedRejections": 0,
+          "recall": null,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0,
+          "costPerCaseUsd": null
+        },
+        "google": {
+          "family": "google",
+          "cases": 0,
+          "invocations": 0,
+          "errors": 0,
+          "defectVerdicts": 0,
+          "rejected": 0,
+          "citedRejections": 0,
+          "recall": null,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0,
+          "costPerCaseUsd": null
+        }
+      }
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "vendor": "deepseek",
+      "resultFiles": [
+        "evals/results/judge-canary/2026-09-24-deepseek-v4-pro.json"
+      ],
+      "repetitions": 2,
+      "cases": 35,
+      "invocations": 70,
+      "errors": 0,
+      "defectVerdicts": 50,
+      "rejected": 30,
+      "citedRejections": 24,
+      "recall": 0.48,
+      "cleanVerdicts": 20,
+      "cleanRejected": 0,
+      "falseAlarmRate": 0,
+      "costUsd": 1.5957,
+      "costPerCaseUsd": 0.0228,
+      "byAuthorFamily": {
+        "anthropic": {
+          "family": "anthropic",
+          "cases": 25,
+          "invocations": 50,
+          "errors": 0,
+          "defectVerdicts": 30,
+          "rejected": 18,
+          "citedRejections": 17,
+          "recall": 0.5666666666666667,
+          "cleanVerdicts": 20,
+          "cleanRejected": 0,
+          "falseAlarmRate": 0,
+          "costUsd": 1.0682,
+          "costPerCaseUsd": 0.0214
+        },
+        "openai": {
+          "family": "openai",
+          "cases": 5,
+          "invocations": 10,
+          "errors": 0,
+          "defectVerdicts": 10,
+          "rejected": 6,
+          "citedRejections": 4,
+          "recall": 0.4,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0.2232,
+          "costPerCaseUsd": 0.0223
+        },
+        "deepseek": {
+          "family": "deepseek",
+          "cases": 5,
+          "invocations": 10,
+          "errors": 0,
+          "defectVerdicts": 10,
+          "rejected": 6,
+          "citedRejections": 3,
+          "recall": 0.3,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0.3043,
+          "costPerCaseUsd": 0.0304
+        },
+        "zhipu": {
+          "family": "zhipu",
+          "cases": 0,
+          "invocations": 0,
+          "errors": 0,
+          "defectVerdicts": 0,
+          "rejected": 0,
+          "citedRejections": 0,
+          "recall": null,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0,
+          "costPerCaseUsd": null
+        },
+        "google": {
+          "family": "google",
+          "cases": 0,
+          "invocations": 0,
+          "errors": 0,
+          "defectVerdicts": 0,
+          "rejected": 0,
+          "citedRejections": 0,
+          "recall": null,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0,
+          "costPerCaseUsd": null
+        }
+      }
+    },
+    {
+      "id": "glm-5.3",
+      "vendor": "zhipu",
+      "resultFiles": [
+        "evals/results/judge-canary/2026-09-24-glm-5.3-2.json",
+        "evals/results/judge-canary/2026-09-24-glm-5.3-3.json",
+        "evals/results/judge-canary/2026-09-24-glm-5.3.json"
+      ],
+      "repetitions": 5,
+      "cases": 35,
+      "invocations": 134,
+      "errors": 35,
+      "defectVerdicts": 67,
+      "rejected": 53,
+      "citedRejections": 53,
+      "recall": 0.7910447761194029,
+      "cleanVerdicts": 32,
+      "cleanRejected": 0,
+      "falseAlarmRate": 0,
+      "costUsd": 23.6018,
+      "costPerCaseUsd": 0.1761,
+      "byAuthorFamily": {
+        "anthropic": {
+          "family": "anthropic",
+          "cases": 25,
+          "invocations": 100,
+          "errors": 28,
+          "defectVerdicts": 40,
+          "rejected": 33,
+          "citedRejections": 33,
+          "recall": 0.825,
+          "cleanVerdicts": 32,
+          "cleanRejected": 0,
+          "falseAlarmRate": 0,
+          "costUsd": 18.6415,
+          "costPerCaseUsd": 0.1864
+        },
+        "openai": {
+          "family": "openai",
+          "cases": 5,
+          "invocations": 17,
+          "errors": 3,
+          "defectVerdicts": 14,
+          "rejected": 12,
+          "citedRejections": 12,
+          "recall": 0.8571428571428571,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 2.3522,
+          "costPerCaseUsd": 0.1384
+        },
+        "deepseek": {
+          "family": "deepseek",
+          "cases": 5,
+          "invocations": 17,
+          "errors": 4,
+          "defectVerdicts": 13,
+          "rejected": 8,
+          "citedRejections": 8,
+          "recall": 0.6153846153846154,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 2.6082,
+          "costPerCaseUsd": 0.1534
+        },
+        "zhipu": {
+          "family": "zhipu",
+          "cases": 0,
+          "invocations": 0,
+          "errors": 0,
+          "defectVerdicts": 0,
+          "rejected": 0,
+          "citedRejections": 0,
+          "recall": null,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0,
+          "costPerCaseUsd": null
+        },
+        "google": {
+          "family": "google",
+          "cases": 0,
+          "invocations": 0,
+          "errors": 0,
+          "defectVerdicts": 0,
+          "rejected": 0,
+          "citedRejections": 0,
+          "recall": null,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0,
+          "costPerCaseUsd": null
+        }
+      }
+    },
+    {
+      "id": "glm-5.3-flash",
+      "vendor": "zhipu",
+      "resultFiles": [
+        "evals/results/judge-canary/2026-09-24-glm-5.3-flash-2.json",
+        "evals/results/judge-canary/2026-09-24-glm-5.3-flash-3.json",
+        "evals/results/judge-canary/2026-09-24-glm-5.3-flash-4.json"
+      ],
+      "repetitions": 5,
+      "cases": 35,
+      "invocations": 145,
+      "errors": 77,
+      "defectVerdicts": 46,
+      "rejected": 40,
+      "citedRejections": 39,
+      "recall": 0.8478260869565217,
+      "cleanVerdicts": 22,
+      "cleanRejected": 0,
+      "falseAlarmRate": 0,
+      "costUsd": 4.929,
+      "costPerCaseUsd": 0.034,
+      "byAuthorFamily": {
+        "anthropic": {
+          "family": "anthropic",
+          "cases": 25,
+          "invocations": 105,
+          "errors": 55,
+          "defectVerdicts": 28,
+          "rejected": 25,
+          "citedRejections": 25,
+          "recall": 0.8928571428571429,
+          "cleanVerdicts": 22,
+          "cleanRejected": 0,
+          "falseAlarmRate": 0,
+          "costUsd": 4.196,
+          "costPerCaseUsd": 0.04
+        },
+        "openai": {
+          "family": "openai",
+          "cases": 5,
+          "invocations": 20,
+          "errors": 11,
+          "defectVerdicts": 9,
+          "rejected": 8,
+          "citedRejections": 8,
+          "recall": 0.8888888888888888,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0.3395,
+          "costPerCaseUsd": 0.017
+        },
+        "deepseek": {
+          "family": "deepseek",
+          "cases": 5,
+          "invocations": 20,
+          "errors": 11,
+          "defectVerdicts": 9,
+          "rejected": 7,
+          "citedRejections": 6,
+          "recall": 0.6666666666666666,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0.3935,
+          "costPerCaseUsd": 0.0197
+        },
+        "zhipu": {
+          "family": "zhipu",
+          "cases": 0,
+          "invocations": 0,
+          "errors": 0,
+          "defectVerdicts": 0,
+          "rejected": 0,
+          "citedRejections": 0,
+          "recall": null,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0,
+          "costPerCaseUsd": null
+        },
+        "google": {
+          "family": "google",
+          "cases": 0,
+          "invocations": 0,
+          "errors": 0,
+          "defectVerdicts": 0,
+          "rejected": 0,
+          "citedRejections": 0,
+          "recall": null,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0,
+          "costPerCaseUsd": null
+        }
+      }
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "vendor": "openai",
+      "resultFiles": [
+        "evals/results/judge-canary/2026-09-24-gpt-5.6-sol-3.json"
+      ],
+      "repetitions": 2,
+      "cases": 35,
+      "invocations": 38,
+      "errors": 19,
+      "defectVerdicts": 12,
+      "rejected": 12,
+      "citedRejections": 12,
+      "recall": 1,
+      "cleanVerdicts": 7,
+      "cleanRejected": 0,
+      "falseAlarmRate": 0,
+      "costUsd": 8.2444,
+      "costPerCaseUsd": 0.217,
+      "byAuthorFamily": {
+        "anthropic": {
+          "family": "anthropic",
+          "cases": 25,
+          "invocations": 28,
+          "errors": 13,
+          "defectVerdicts": 8,
+          "rejected": 8,
+          "citedRejections": 8,
+          "recall": 1,
+          "cleanVerdicts": 7,
+          "cleanRejected": 0,
+          "falseAlarmRate": 0,
+          "costUsd": 5.9695,
+          "costPerCaseUsd": 0.2132
+        },
+        "openai": {
+          "family": "openai",
+          "cases": 5,
+          "invocations": 5,
+          "errors": 2,
+          "defectVerdicts": 3,
+          "rejected": 3,
+          "citedRejections": 3,
+          "recall": 1,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0.9565,
+          "costPerCaseUsd": 0.1913
+        },
+        "deepseek": {
+          "family": "deepseek",
+          "cases": 5,
+          "invocations": 5,
+          "errors": 4,
+          "defectVerdicts": 1,
+          "rejected": 1,
+          "citedRejections": 1,
+          "recall": 1,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 1.3185,
+          "costPerCaseUsd": 0.2637
+        },
+        "zhipu": {
+          "family": "zhipu",
+          "cases": 0,
+          "invocations": 0,
+          "errors": 0,
+          "defectVerdicts": 0,
+          "rejected": 0,
+          "citedRejections": 0,
+          "recall": null,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0,
+          "costPerCaseUsd": null
+        },
+        "google": {
+          "family": "google",
+          "cases": 0,
+          "invocations": 0,
+          "errors": 0,
+          "defectVerdicts": 0,
+          "rejected": 0,
+          "citedRejections": 0,
+          "recall": null,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0,
+          "costPerCaseUsd": null
+        }
+      }
+    },
+    {
+      "id": "gpt-6-sol",
+      "vendor": "openai",
+      "resultFiles": [
+        "evals/results/judge-canary/2026-09-24-gpt-6-sol-2.json",
+        "evals/results/judge-canary/2026-09-24-gpt-6-sol.json"
+      ],
+      "repetitions": 4,
+      "cases": 35,
+      "invocations": 121,
+      "errors": 33,
+      "defectVerdicts": 61,
+      "rejected": 60,
+      "citedRejections": 60,
+      "recall": 0.9836065573770492,
+      "cleanVerdicts": 27,
+      "cleanRejected": 7,
+      "falseAlarmRate": 0.25925925925925924,
+      "costUsd": 10.8696,
+      "costPerCaseUsd": 0.0898,
+      "byAuthorFamily": {
+        "anthropic": {
+          "family": "anthropic",
+          "cases": 25,
+          "invocations": 88,
+          "errors": 24,
+          "defectVerdicts": 37,
+          "rejected": 36,
+          "citedRejections": 36,
+          "recall": 0.972972972972973,
+          "cleanVerdicts": 27,
+          "cleanRejected": 7,
+          "falseAlarmRate": 0.25925925925925924,
+          "costUsd": 8.0658,
+          "costPerCaseUsd": 0.0917
+        },
+        "openai": {
+          "family": "openai",
+          "cases": 5,
+          "invocations": 17,
+          "errors": 4,
+          "defectVerdicts": 13,
+          "rejected": 13,
+          "citedRejections": 13,
+          "recall": 1,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 1.2244,
+          "costPerCaseUsd": 0.072
+        },
+        "deepseek": {
+          "family": "deepseek",
+          "cases": 5,
+          "invocations": 16,
+          "errors": 5,
+          "defectVerdicts": 11,
+          "rejected": 11,
+          "citedRejections": 11,
+          "recall": 1,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 1.5794,
+          "costPerCaseUsd": 0.0987
+        },
+        "zhipu": {
+          "family": "zhipu",
+          "cases": 0,
+          "invocations": 0,
+          "errors": 0,
+          "defectVerdicts": 0,
+          "rejected": 0,
+          "citedRejections": 0,
+          "recall": null,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0,
+          "costPerCaseUsd": null
+        },
+        "google": {
+          "family": "google",
+          "cases": 0,
+          "invocations": 0,
+          "errors": 0,
+          "defectVerdicts": 0,
+          "rejected": 0,
+          "citedRejections": 0,
+          "recall": null,
+          "cleanVerdicts": 0,
+          "cleanRejected": 0,
+          "falseAlarmRate": null,
+          "costUsd": 0,
+          "costPerCaseUsd": null
+        }
+      }
+    }
+  ],
+  "families": [
+    {
+      "family": "anthropic",
+      "allowed": [
+        {
+          "id": "deepseek-v4-pro",
+          "vendor": "deepseek",
+          "recall": 0.48,
+          "falseAlarmRate": 0,
+          "costPerCaseUsd": 0.0228,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "glm-5.3",
+          "vendor": "zhipu",
+          "recall": 0.7910447761194029,
+          "falseAlarmRate": 0,
+          "costPerCaseUsd": 0.1761,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "glm-5.3-flash",
+          "vendor": "zhipu",
+          "recall": 0.8478260869565217,
+          "falseAlarmRate": 0,
+          "costPerCaseUsd": 0.034,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "gpt-5.6-sol",
+          "vendor": "openai",
+          "recall": 1,
+          "falseAlarmRate": 0,
+          "costPerCaseUsd": 0.217,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "gpt-6-sol",
+          "vendor": "openai",
+          "recall": 0.9836065573770492,
+          "falseAlarmRate": 0.25925925925925924,
+          "costPerCaseUsd": 0.0898,
+          "cases": 35,
+          "best": true
+        }
+      ],
+      "best": "gpt-6-sol",
+      "note": null
+    },
+    {
+      "family": "deepseek",
+      "allowed": [
+        {
+          "id": "claude-opus-5-5",
+          "vendor": "anthropic",
+          "recall": 0.76,
+          "falseAlarmRate": 0.1,
+          "costPerCaseUsd": 0.1321,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "glm-5.3",
+          "vendor": "zhipu",
+          "recall": 0.7910447761194029,
+          "falseAlarmRate": 0,
+          "costPerCaseUsd": 0.1761,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "glm-5.3-flash",
+          "vendor": "zhipu",
+          "recall": 0.8478260869565217,
+          "falseAlarmRate": 0,
+          "costPerCaseUsd": 0.034,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "gpt-5.6-sol",
+          "vendor": "openai",
+          "recall": 1,
+          "falseAlarmRate": 0,
+          "costPerCaseUsd": 0.217,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "gpt-6-sol",
+          "vendor": "openai",
+          "recall": 0.9836065573770492,
+          "falseAlarmRate": 0.25925925925925924,
+          "costPerCaseUsd": 0.0898,
+          "cases": 35,
+          "best": true
+        }
+      ],
+      "best": "gpt-6-sol",
+      "note": null
+    },
+    {
+      "family": "google",
+      "allowed": [
+        {
+          "id": "claude-opus-5-5",
+          "vendor": "anthropic",
+          "recall": 0.76,
+          "falseAlarmRate": 0.1,
+          "costPerCaseUsd": 0.1321,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "vendor": "deepseek",
+          "recall": 0.48,
+          "falseAlarmRate": 0,
+          "costPerCaseUsd": 0.0228,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "glm-5.3",
+          "vendor": "zhipu",
+          "recall": 0.7910447761194029,
+          "falseAlarmRate": 0,
+          "costPerCaseUsd": 0.1761,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "glm-5.3-flash",
+          "vendor": "zhipu",
+          "recall": 0.8478260869565217,
+          "falseAlarmRate": 0,
+          "costPerCaseUsd": 0.034,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "gpt-5.6-sol",
+          "vendor": "openai",
+          "recall": 1,
+          "falseAlarmRate": 0,
+          "costPerCaseUsd": 0.217,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "gpt-6-sol",
+          "vendor": "openai",
+          "recall": 0.9836065573770492,
+          "falseAlarmRate": 0.25925925925925924,
+          "costPerCaseUsd": 0.0898,
+          "cases": 35,
+          "best": true
+        }
+      ],
+      "best": "gpt-6-sol",
+      "note": null
+    },
+    {
+      "family": "openai",
+      "allowed": [
+        {
+          "id": "claude-opus-5-5",
+          "vendor": "anthropic",
+          "recall": 0.76,
+          "falseAlarmRate": 0.1,
+          "costPerCaseUsd": 0.1321,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "vendor": "deepseek",
+          "recall": 0.48,
+          "falseAlarmRate": 0,
+          "costPerCaseUsd": 0.0228,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "glm-5.3",
+          "vendor": "zhipu",
+          "recall": 0.7910447761194029,
+          "falseAlarmRate": 0,
+          "costPerCaseUsd": 0.1761,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "glm-5.3-flash",
+          "vendor": "zhipu",
+          "recall": 0.8478260869565217,
+          "falseAlarmRate": 0,
+          "costPerCaseUsd": 0.034,
+          "cases": 35,
+          "best": true
+        }
+      ],
+      "best": "glm-5.3-flash",
+      "note": null
+    },
+    {
+      "family": "zhipu",
+      "allowed": [
+        {
+          "id": "claude-opus-5-5",
+          "vendor": "anthropic",
+          "recall": 0.76,
+          "falseAlarmRate": 0.1,
+          "costPerCaseUsd": 0.1321,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "deepseek-v4-pro",
+          "vendor": "deepseek",
+          "recall": 0.48,
+          "falseAlarmRate": 0,
+          "costPerCaseUsd": 0.0228,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "gpt-5.6-sol",
+          "vendor": "openai",
+          "recall": 1,
+          "falseAlarmRate": 0,
+          "costPerCaseUsd": 0.217,
+          "cases": 35,
+          "best": false
+        },
+        {
+          "id": "gpt-6-sol",
+          "vendor": "openai",
+          "recall": 0.9836065573770492,
+          "falseAlarmRate": 0.25925925925925924,
+          "costPerCaseUsd": 0.0898,
+          "cases": 35,
+          "best": true
+        }
+      ],
+      "best": "gpt-6-sol",
+      "note": null
+    }
+  ]
+}

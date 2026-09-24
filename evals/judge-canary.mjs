@@ -29,7 +29,7 @@ import { EVALS_ROOT } from "./paths.mjs";
 const REPO_ROOT = resolve(EVALS_ROOT, "..");
 const CANARY_ROOT = join(EVALS_ROOT, "judge-canary");
 const CORPUS_SPEC = join(CANARY_ROOT, "corpus.json");
-const BUILDER_VERSION = 2;
+const BUILDER_VERSION = 3;
 /** R5 and review finding 5: the corpus floor, each count over distinct golden tasks. */
 const MIN_TASKS = 8;
 const MIN_CLEAN = 10;
@@ -47,15 +47,18 @@ export const CANARY_KINDS = [
   "doc-contradicts-code",
   "test-weakened",
 ];
+/** The vendor families a corpus entry may name; the vocabulary of runtimes.json's `vendor` field. */
+export const AUTHOR_FAMILIES = ["anthropic", "openai", "deepseek", "zhipu", "google"];
 
+/** @typedef {{runtime: string, family: string}} CanaryAuthoredBy */
 /** @typedef {{argv: string[]}} Verification */
 /** @typedef {{commitSha: string, parentSha: string, parentTreeSha?: string}} GoldenMeta */
 /** @typedef {{id: string, statement: string, meta: GoldenMeta, verify: {source?: string, commands: Verification[]}}} GoldenTask */
 /** @typedef {{path: string, find: string[], replace: string[]}} CanaryEdit */
-/** @typedef {{task: string, kind: string, description: string, edits: CanaryEdit[]}} CanaryDefect */
-/** @typedef {{task: string, node: string, objective: string, instructions: string[], nonGoals: string[], behaviours: {id: string, text: string}[], summary: string}} CanaryTaskSpec */
+/** @typedef {{task: string, kind: string, description: string, edits: CanaryEdit[], authoredBy: CanaryAuthoredBy}} CanaryDefect */
+/** @typedef {{task: string, node: string, objective: string, instructions: string[], nonGoals: string[], behaviours: {id: string, text: string}[], summary: string, authoredBy: CanaryAuthoredBy}} CanaryTaskSpec */
 /** @typedef {{schemaVersion: number, tasks: CanaryTaskSpec[], defects: CanaryDefect[]}} CanaryCorpusSpec */
-/** @typedef {{schemaVersion?: number, id: string, label: string, sourceTask: string, source: GoldenMeta, nodeId: string, diff: string, diffPaths: string[], verification: Verification[], taskPacket: Record<string, unknown>, definitionOfDone: Record<string, unknown>[], workerResult: Record<string, unknown>, mutation?: {kind: string, description: string, edits: CanaryEdit[]}}} CanaryArtifact */
+/** @typedef {{schemaVersion?: number, id: string, label: string, sourceTask: string, source: GoldenMeta, nodeId: string, diff: string, diffPaths: string[], verification: Verification[], taskPacket: Record<string, unknown>, definitionOfDone: Record<string, unknown>[], workerResult: Record<string, unknown>, authoredBy: CanaryAuthoredBy, mutation?: {kind: string, description: string, edits: CanaryEdit[]}}} CanaryArtifact */
 /** @typedef {{id: string, label: string, sourceTask: string, ok: boolean, failures: string[]}} CanaryVerification */
 
 /**
@@ -117,6 +120,25 @@ function goldenTask(id) {
  */
 export function loadCorpusSpec(file = CORPUS_SPEC) {
   return /** @type {CanaryCorpusSpec} */ (/** @type {unknown} */ (readJson(file)));
+}
+
+/**
+ * The author of one corpus entry, refused unless it names a runtime and a known
+ * vendor family. Why the builder refuses: the report separates recall by author
+ * family, so a case with no author would mislabel the measurement it feeds.
+ *
+ * @param {unknown} value
+ * @param {string} context
+ * @returns {CanaryAuthoredBy}
+ */
+function authoredByOf(value, context) {
+  const entry = /** @type {{runtime?: unknown, family?: unknown}|null|undefined} */ (value);
+  if (entry === null || typeof entry !== "object") throw new Error(`${context} has no authoredBy`);
+  if (typeof entry.runtime !== "string" || entry.runtime.length === 0) throw new Error(`${context} declares no author runtime`);
+  if (typeof entry.family !== "string" || !AUTHOR_FAMILIES.includes(entry.family)) {
+    throw new Error(`${context} names author family ${JSON.stringify(entry.family)}, not one of ${AUTHOR_FAMILIES.join(", ")}`);
+  }
+  return { runtime: entry.runtime, family: entry.family };
 }
 
 /**
@@ -233,6 +255,9 @@ function makeArtifact(spec, defect) {
   const task = goldenTask(spec.task);
   const label = defect ? `defect:${defect.kind}` : "clean";
   const id = `${defect ? `defect-${defect.kind}` : "clean"}-${task.id}`;
+  const authoredBy = authoredByOf(defect ? defect.authoredBy : spec.authoredBy, defect
+    ? `judge canary defect ${defect.kind} on ${spec.task}`
+    : `judge canary task ${spec.task}`);
   const writeFiles = goldenChangedPaths(task);
   const diff = sealedDiff(task, writeFiles, defect ? defect.edits : null, id);
   const diffPaths = sealedDiffPaths(diff);
@@ -254,6 +279,7 @@ function makeArtifact(spec, defect) {
       artifacts: diffPaths,
       missingContext: [],
     },
+    authoredBy,
     ...(defect ? { mutation: { kind: defect.kind, description: defect.description, edits: defect.edits } } : {}),
   };
 }
@@ -499,7 +525,12 @@ async function verifyArtifacts(artifacts) {
         }
         tree = materializeFromBase(artifact, baseDir);
         for (const verification of artifact.verification) {
-          const failure = await runVerification(verification, tree);
+          // A failure is asked once more before it counts: the golden tasks'
+          // 2026-09 suites are load-sensitive. Measured 2026-09-24: under a
+          // loaded full suite the supervisor test failed a canary case once in
+          // three runs and passed it four times in four alone. A defect a
+          // verification really catches fails both times and is still refused.
+          const failure = await runVerification(verification, tree) && await runVerification(verification, tree);
           if (failure) failures.push(failure);
         }
       } catch (error) {

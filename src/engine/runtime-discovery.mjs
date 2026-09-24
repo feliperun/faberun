@@ -51,9 +51,12 @@ export const DISCOVERY_RUNTIME_DEFINITIONS = Object.freeze({
     tier: 1,
     costRank: 1,
   },
+  // The flash tier, not the unsuffixed pro: measured 2026-09-24 in the judge
+  // canary, glm-5.3 recalled 0.79 against glm-5.3-flash's 0.85 at about nine
+  // times the price, which the owner confirmed matches the public benchmarks.
   "zcode-glm": {
     harness: "zcode",
-    model: "glm-5.3",
+    model: "glm-5.3-flash",
     vendor: "zhipu",
     config: { "auth_token.env_key": "ZAI_API_KEY" },
     tier: 1,

@@ -33,6 +33,8 @@ import {
   upsertTierExhaustionCandidate,
 } from "./backoff.mjs";
 import { exhaustedUntilOf } from "./runtime-discovery.mjs";
+import { getHarness, normalizeProviderAvailability } from "../harnesses/index.mjs";
+import { availabilityKey, recordRefusal, refusalOfAvailability } from "../run/availability.mjs";
 
 import { acquire as acquireLock } from "../run/lock.mjs";
 import { parseDiscoveryResult } from "../contract/worker-result.mjs";
@@ -635,6 +637,10 @@ export function handleProviderExhaustion(contract, runDir, node, state, role, en
     now,
   });
   const exhaustedUntil = exhaustedUntilOf(envelope);
+  // Every other process on this machine learns the refusal now, not from its own failed call.
+  const runtime = contract.runtimes?.[current];
+  const refusal = runtime ? refusalOfAvailability(normalizeProviderAvailability(runtime, envelope)) : null;
+  if (runtime && refusal) recordRefusal(availabilityKey({ harness: runtime.harness, model: runtime.model, executable: getHarness(runtime.harness).executable(runtime) }), refusal);
   const plan = planRoute(contract, node, state, role, error, current, schedule, now, exhaustedUntil);
   const status = envelope.status === "failed" ? "failed" : "exhausted";
   if (plan.blocked) {

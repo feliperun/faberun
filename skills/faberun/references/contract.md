@@ -25,7 +25,6 @@ typecheck`). Schema version is `3`.
     "sol": { "harness": "codex", "model": "gpt-5.6-sol", "reasoning": "xhigh", "vendor": "openai-sol" },
     "opus": { "harness": "claude", "model": "opus", "permissionMode": "acceptEdits" },
     "zcode-flash": { "harness": "zcode", "model": "glm-5.3-flash", "vendor": "zhipu-flash", "permissionMode": "edit" },
-    "zcode-pro": { "harness": "zcode", "model": "glm-5.3", "vendor": "zhipu-pro", "permissionMode": "plan" },
     "agy-flash": { "harness": "agy", "model": "gemini-3.8-flash-low" }
   },
   "nodes": [

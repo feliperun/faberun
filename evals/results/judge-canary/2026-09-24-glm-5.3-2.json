@@ -1,0 +1,288 @@
+{
+  "schemaVersion": 1,
+  "class": "judge-canary",
+  "provenance": {
+    "class": "judge-canary",
+    "commit": "a10756dbf4f2fd19c6a6ca0fdd0a95a12e748704",
+    "dirtyTree": true,
+    "corpusHash": "2a1f87b66226f52e1d7ac60c717711f33bcd8fa97cbeb742b154635a0c27e156",
+    "builderVersion": 3,
+    "seed": 20260923,
+    "repeat": 2,
+    "budgetUsd": 10,
+    "pricedSpendUsd": 0,
+    "voidedSpendUsd": 9,
+    "generatedAt": "2026-09-24T16:53:01.914Z",
+    "runtimes": [
+      {
+        "id": "glm-5.3",
+        "harness": "zcode",
+        "model": "glm-5.3",
+        "cliVersion": "0.16.5",
+        "vendor": "zhipu"
+      }
+    ]
+  },
+  "budget": {
+    "budgetUsd": 10,
+    "spendUsd": 0,
+    "pricedSpendUsd": 0,
+    "unknownSpendUsd": 0,
+    "reservedUsd": 0,
+    "voidedSpendUsd": 9,
+    "voidedInvocations": 9,
+    "overrunUsd": 0,
+    "highestObservedUsd": {}
+  },
+  "skipped": [
+    {
+      "id": "clean-strip-the-notification-transport-from-worker-provider-enviro",
+      "label": "clean",
+      "repetition": 1,
+      "reason": "budget"
+    }
+  ],
+  "byLabel": {
+    "clean": {
+      "label": "clean",
+      "cases": 3,
+      "invocations": 3,
+      "verdicts": 0,
+      "errors": 3,
+      "rejected": 0,
+      "citedRejections": 0,
+      "recall": null,
+      "falseAlarmRate": null,
+      "costUsd": 3,
+      "costPerCaseUsd": 1
+    },
+    "defect:nongoal-violated": {
+      "label": "defect:nongoal-violated",
+      "cases": 1,
+      "invocations": 1,
+      "verdicts": 0,
+      "errors": 1,
+      "rejected": 0,
+      "citedRejections": 0,
+      "recall": null,
+      "falseAlarmRate": null,
+      "costUsd": 1,
+      "costPerCaseUsd": 1
+    },
+    "defect:requirement-half-done": {
+      "label": "defect:requirement-half-done",
+      "cases": 3,
+      "invocations": 3,
+      "verdicts": 0,
+      "errors": 3,
+      "rejected": 0,
+      "citedRejections": 0,
+      "recall": null,
+      "falseAlarmRate": null,
+      "costUsd": 3,
+      "costPerCaseUsd": 1
+    },
+    "defect:scope-drift-inside-writefiles": {
+      "label": "defect:scope-drift-inside-writefiles",
+      "cases": 0,
+      "invocations": 0,
+      "verdicts": 0,
+      "errors": 0,
+      "rejected": 0,
+      "citedRejections": 0,
+      "recall": null,
+      "falseAlarmRate": null,
+      "costUsd": 0,
+      "costPerCaseUsd": null
+    },
+    "defect:doc-contradicts-code": {
+      "label": "defect:doc-contradicts-code",
+      "cases": 0,
+      "invocations": 0,
+      "verdicts": 0,
+      "errors": 0,
+      "rejected": 0,
+      "citedRejections": 0,
+      "recall": null,
+      "falseAlarmRate": null,
+      "costUsd": 0,
+      "costPerCaseUsd": null
+    },
+    "defect:test-weakened": {
+      "label": "defect:test-weakened",
+      "cases": 2,
+      "invocations": 2,
+      "verdicts": 0,
+      "errors": 2,
+      "rejected": 0,
+      "citedRejections": 0,
+      "recall": null,
+      "falseAlarmRate": null,
+      "costUsd": 2,
+      "costPerCaseUsd": 1
+    }
+  },
+  "byAuthorFamily": {
+    "anthropic": {
+      "family": "anthropic",
+      "cases": 8,
+      "invocations": 8,
+      "errors": 8,
+      "defectVerdicts": 0,
+      "rejected": 0,
+      "citedRejections": 0,
+      "recall": null,
+      "cleanVerdicts": 0,
+      "cleanRejected": 0,
+      "falseAlarmRate": null
+    },
+    "openai": {
+      "family": "openai",
+      "cases": 1,
+      "invocations": 1,
+      "errors": 1,
+      "defectVerdicts": 0,
+      "rejected": 0,
+      "citedRejections": 0,
+      "recall": null,
+      "cleanVerdicts": 0,
+      "cleanRejected": 0,
+      "falseAlarmRate": null
+    },
+    "deepseek": {
+      "family": "deepseek",
+      "cases": 0,
+      "invocations": 0,
+      "errors": 0,
+      "defectVerdicts": 0,
+      "rejected": 0,
+      "citedRejections": 0,
+      "recall": null,
+      "cleanVerdicts": 0,
+      "cleanRejected": 0,
+      "falseAlarmRate": null
+    },
+    "zhipu": {
+      "family": "zhipu",
+      "cases": 0,
+      "invocations": 0,
+      "errors": 0,
+      "defectVerdicts": 0,
+      "rejected": 0,
+      "citedRejections": 0,
+      "recall": null,
+      "cleanVerdicts": 0,
+      "cleanRejected": 0,
+      "falseAlarmRate": null
+    },
+    "google": {
+      "family": "google",
+      "cases": 0,
+      "invocations": 0,
+      "errors": 0,
+      "defectVerdicts": 0,
+      "rejected": 0,
+      "citedRejections": 0,
+      "recall": null,
+      "cleanVerdicts": 0,
+      "cleanRejected": 0,
+      "falseAlarmRate": null
+    }
+  },
+  "overall": {
+    "cases": 9,
+    "invocations": 9,
+    "errors": 9,
+    "defectInvocations": 6,
+    "cleanInvocations": 3,
+    "defectVerdicts": 0,
+    "cleanVerdicts": 0,
+    "recall": null,
+    "falseAlarmRate": null,
+    "costUsd": 9,
+    "costPerCaseUsd": 1
+  },
+  "cases": [
+    {
+      "id": "clean-anthropic-soft-limit-fixture",
+      "label": "clean",
+      "kind": null,
+      "authorFamily": "anthropic",
+      "repetition": 1,
+      "error": "ZCode emitted no result object",
+      "voidedUsd": 1
+    },
+    {
+      "id": "defect-requirement-half-done-anthropic-soft-limit-fixture",
+      "label": "defect:requirement-half-done",
+      "kind": "requirement-half-done",
+      "authorFamily": "anthropic",
+      "repetition": 1,
+      "error": "ZCode emitted no result object",
+      "voidedUsd": 1
+    },
+    {
+      "id": "defect-requirement-half-done-stop-a-failing-proof-from-killing-the-controller",
+      "label": "defect:requirement-half-done",
+      "kind": "requirement-half-done",
+      "authorFamily": "anthropic",
+      "repetition": 1,
+      "error": "ZCode emitted no result object",
+      "voidedUsd": 1
+    },
+    {
+      "id": "clean-report-the-provider-s-startup-error-not-just-an-empty-stream",
+      "label": "clean",
+      "kind": null,
+      "authorFamily": "anthropic",
+      "repetition": 1,
+      "error": "ZCode emitted no result object",
+      "voidedUsd": 1
+    },
+    {
+      "id": "defect-nongoal-violated-strip-the-notification-transport-from-worker-provider-enviro",
+      "label": "defect:nongoal-violated",
+      "kind": "nongoal-violated",
+      "authorFamily": "anthropic",
+      "repetition": 1,
+      "error": "ZCode emitted no result object",
+      "voidedUsd": 1
+    },
+    {
+      "id": "defect-test-weakened-stop-re-sealing-a-clean-attempt-from-failing-the-retry",
+      "label": "defect:test-weakened",
+      "kind": "test-weakened",
+      "authorFamily": "anthropic",
+      "repetition": 1,
+      "error": "ZCode emitted no result object",
+      "voidedUsd": 1
+    },
+    {
+      "id": "defect-test-weakened-anthropic-soft-limit-fixture",
+      "label": "defect:test-weakened",
+      "kind": "test-weakened",
+      "authorFamily": "anthropic",
+      "repetition": 1,
+      "error": "ZCode emitted no result object",
+      "voidedUsd": 1
+    },
+    {
+      "id": "defect-requirement-half-done-stop-re-sealing-a-clean-attempt-from-failing-the-retry",
+      "label": "defect:requirement-half-done",
+      "kind": "requirement-half-done",
+      "authorFamily": "openai",
+      "repetition": 1,
+      "error": "ZCode emitted no result object",
+      "voidedUsd": 1
+    },
+    {
+      "id": "clean-stop-re-sealing-a-clean-attempt-from-failing-the-retry",
+      "label": "clean",
+      "kind": null,
+      "authorFamily": "anthropic",
+      "repetition": 1,
+      "error": "ZCode emitted no result object",
+      "voidedUsd": 1
+    }
+  ]
+}

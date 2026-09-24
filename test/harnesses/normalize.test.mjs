@@ -542,7 +542,7 @@ test("the zcode adapter finds the app bundle on Linux and through the app-dir ov
   writeFileSync(electron, "electron");
   writeFileSync(cli, "cli");
 
-  ensureZcodeAvailable({ pathDirs: [bin], home, env: { FABERUN_ZCODE_APP_DIR: appDir } });
+  ensureZcodeAvailable({ pathDirs: [bin], home, env: { FABERUN_ZCODE_APP_DIR: appDir }, host: { arch: "x64", nodeMajor: 24, node: "/usr/bin/node" } });
   const body = readFileSync(join(bin, "zcode"), "utf8");
   assert.ok(body.includes(`exec ${electron}`), "the overridden app's Electron runs the bundle");
   assert.ok(body.includes(cli), "and is handed the overridden app's CLI");
@@ -566,7 +566,7 @@ test("the zcode adapter installs its CLI onto the PATH when the app is bundled",
   const pathDirs = [bin, "/usr/bin"];
   const shim = join(bin, "zcode");
 
-  ensureZcodeAvailable({ pathDirs, home, bundle });
+  ensureZcodeAvailable({ pathDirs, home, bundle, host: { arch: "x64", nodeMajor: 24, node: "/usr/bin/node" } });
 
   if (process.platform !== "win32") assert.equal(statSync(shim).mode & 0o777, 0o755, "a shim nothing can execute is not on the PATH in any useful sense"); // guard-exempt: host-layout Windows carries no exec bit; the shebang below is what runs the shim there
   const body = readFileSync(shim, "utf8");
@@ -777,4 +777,21 @@ test("the Claude subscription's session limit is exhaustion, and its wall-clock 
   // A time in the morning and an unknown zone.
   assert.equal(exhaustedUntilOf({ error: { code: "quota_exhausted", message: "usage limit reached, resets 12:05am (UTC)" } }, Date.parse("2026-09-20T20:00:00Z")), "2026-09-21T00:05:00.000Z");
   assert.equal(exhaustedUntilOf({ error: { code: "quota_exhausted", message: "usage limit reached, resets 6:40pm (Mars/Olympus_Mons)" } }, Date.parse("2026-09-20T20:00:00Z")), null, "an unknown zone names no instant, and the failover edge is taken instead");
+});
+
+// Measured 2026-09-24 on darwin arm64, node 26.8.1: under the app's Electron
+// every zcode process showed an icon in the macOS Dock, and the bundled CLI
+// answered a 3.2 KB response intact under the system node.
+test("on arm64 with node 26 or later the zcode shim runs the CLI under the system node", () => {
+  const root = mkdtempSync(join(tmpdir(), "zcode-shim-node-"));
+  const home = join(root, "home");
+  const bin = join(home, ".local", "bin");
+  mkdirSync(bin, { recursive: true });
+  const bundle = { electron: join(root, "ZCode"), cli: join(root, "zcode.cjs") };
+  writeFileSync(bundle.electron, "");
+  writeFileSync(bundle.cli, "");
+  ensureZcodeAvailable({ pathDirs: [bin, "/usr/bin"], home, bundle, host: { arch: "arm64", nodeMajor: 26, node: "/opt/node/bin/node" } });
+  const body = readFileSync(join(bin, "zcode"), "utf8");
+  assert.ok(body.includes(`exec /opt/node/bin/node \\\n  ${bundle.cli}`), "the system node runs the bundled CLI");
+  assert.equal(body.includes("ELECTRON_RUN_AS_NODE"), false, "the app's Electron is not started, so nothing reaches the Dock");
 });
