@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.25.0](https://github.com/feliperun/faberun/compare/v0.24.0...v0.25.0) (2026-09-24)
+
+
+### Features
+
+* judges and planner roles are chosen by measurement, over a canary not written by one family ([5facc9e](https://github.com/feliperun/faberun/commit/5facc9e9124650cb72fe14da6967ade101ef05fc))
+
 ## [0.24.0](https://github.com/feliperun/faberun/compare/v0.23.1...v0.24.0) (2026-09-24)
 
 
