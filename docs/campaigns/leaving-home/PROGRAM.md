@@ -58,7 +58,9 @@ depende do anterior:
    versionada, com banda e orçamento duro. O juiz ganha um canário que mede se
    ele pega defeitos que a prova mecânica não vê. É aqui que o projeto passa a
    gerar eval de verdade.
-3. **`safe-to-hand-to-a-friend`.** O worker deixa de herdar o ambiente inteiro,
+3. **`safe-to-hand-to-a-friend`.** O planner para de divergir, acha prova
+   impossível antes da revisão e representa passo humano (ficou em 0 de 10
+   contratos nas campanhas 1 e 2 e na anterior); o worker deixa de herdar o ambiente inteiro,
    o modo de sandbox diz o que custa, o guia de primeiros passos passa a ser
    executado, o planner enxerga repositório que não é Node, plano contestado,
    pacote recusado e pacote com defeito têm caminho de volta, e sair é um
@@ -141,7 +143,7 @@ seguem a D8 da PR #63: D9 (juiz) e D10 (divulgação).
 | `first-target-frictions` | RM-051, RM-052, RM-053 | RM-056 (orçamento de teste abaixo de 1 s), RM-057 (timeout congelado abaixo do medido), RM-058 (juiz somente-leitura); RM-059 (dependência inventada) fica registrado, sem requisito |
 | `evidence-you-can-recompute` | RM-030, RM-016 (parcial), RM-055 | RM-060 (ledger completo), RM-061 (`reledger`), RM-062 (motivo de custo desconhecido), RM-063 (North Star), RM-064 (orçamento de bytes), RM-065 (`orchestration-arms` em main), RM-066 (baseline recomputável) |
 | `evals-with-a-budget` | RM-013, RM-035, RM-031 (parcial) | RM-067 (orçamento estocástico), RM-068 (`reason` em item de julgamento) |
-| `safe-to-hand-to-a-friend` | RM-025, RM-050, RM-054, D2 (parcial) | RM-069 (ambiente permitido), RM-070 (guia executado), RM-071 (layout legado nas docs), RM-072 (fatos fora do Node), RM-073 (primeira campanha offline), RM-074 (`plan --resolve`), RM-075 (`uninstall`) |
+| `safe-to-hand-to-a-friend` | RM-025, RM-050, RM-054, D2 (parcial) | RM-069 (ambiente permitido), RM-070 (guia executado), RM-071 (layout legado nas docs), RM-072 (fatos fora do Node), RM-073 (primeira campanha offline), RM-074 (`plan --resolve`), RM-075 (`uninstall`), RM-087 (revise que não converge para), RM-088 (prova impossível achada antes da revisão), RM-089 (passo humano no plano), RM-090 (`AGENTS.md` não bloqueia o lançamento) |
 | `friends-pilot` | RM-036, RM-015 (parcial) | RM-076 (exportação redigida), RM-077 (atrito no journal), RM-078 (classe `pilot`), RM-079 (protocolo do piloto) |
 
 O lugar de cada item que ficou fora do programa, e o que o traria para dentro,
