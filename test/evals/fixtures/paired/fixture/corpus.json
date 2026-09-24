@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "fixture",
+  "fork": null,
+  "npmCi": false,
+  "visibleProofs": false,
+  "baseFiles": {
+    "README.md": "# paired fixture\n\nA tiny corpus the replay arms work over: the proofs fail at the base, the guards pass at the base.\n",
+    "src/status.txt": "pending\n"
+  },
+  "restore": [
+    { "path": "landed/acceptance.txt", "content": "landed proof\n" }
+  ],
+  "requirements": [
+    {
+      "id": "write-status",
+      "title": "write the status",
+      "objective": "Write done into src/status.txt.",
+      "instructions": ["Replace the contents of src/status.txt with the word done."],
+      "readFiles": ["src/status.txt"],
+      "writeFiles": ["src/status.txt"],
+      "symbols": [],
+      "dependsOn": [],
+      "decisions": [],
+      "nonGoals": ["Do not change files outside the write scope."],
+      "scopeAcknowledged": [],
+      "verification": [{ "argv": ["node", "-e", "process.exit(0)"], "timeoutSec": 30 }]
+    }
+  ],
+  "acceptance": [
+    { "id": "guard-base", "kind": "guard", "argv": ["node", "-e", "const fs=require('fs');process.exit(fs.existsSync('landed/acceptance.txt')?1:0)"], "timeoutSec": 30 },
+    { "id": "proof-status", "kind": "proof", "argv": ["node", "-e", "const fs=require('fs');process.exit(fs.readFileSync('src/status.txt','utf8').includes('done')?0:1)"], "timeoutSec": 30 },
+    { "id": "guard-restored", "kind": "guard", "restore": true, "argv": ["node", "-e", "const fs=require('fs');process.exit(fs.existsSync('landed/acceptance.txt')?0:1)"], "timeoutSec": 30 }
+  ]
+}

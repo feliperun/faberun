@@ -16,12 +16,17 @@ import { acquire as acquireControllerLock, lockPath, processStartToken as comput
 import { writeJsonAtomic } from "../src/run/store.mjs";
 import { createAttemptWorktree } from "../src/repo/worktree.mjs";
 import { RUNS_DIR_NAME, runsRoot } from "../src/run/paths.mjs";
-import { compareEvalReports, mergeEvalRunSources, noiseBandOf, projectEvalIndicators, readEvalRunSources, renderEvalComparisonReport } from "./metrics.mjs";
+import { mergeEvalRunSources, noiseBandOf, projectEvalIndicators, readEvalRunSources } from "./metrics.mjs";
 import { readEvalLedgerSources } from "./ledger.mjs";
 import { discoverCaseIds, loadCase, materializeCase, safeJoin, withEnvOverlay, withModelBinsUnavailable, withScopedFaberunHome } from "./case.mjs";
-import { applyDiscriminator, compareGc, compareIntegration, compareNode, comparePreflight, normalizedSteps } from "./compare.mjs";
+import { applyDiscriminator, compareGc, compareIntegration, compareNode, comparePreflight, normalizedSteps, runCompare } from "./compare.mjs";
 import { runValidateGolden, runVerifyFixtures } from "./golden.mjs";
+import { renderJudgeCanary, runJudgeCanaryClass } from "./judge-canary/class.mjs";
 import { EVALS_ROOT, UsageError, usageError } from "./paths.mjs";
+import { renderPaired, runPairedClass } from "./paired.mjs";
+import { combinePairedResults, parseVoids, readPairedResults } from "./paired/combine.mjs";
+import { validateCorpora } from "./paired/validate.mjs";
+import { PAIRED_RESULTS } from "./paired/lib.mjs";
 import { applyPlanDiscriminator, runPlanCase } from "./plan-case.mjs";
 import { plannerArm, qualifyingSessionCampaigns, sessionArm } from "./planner/arm.mjs";
 import { resilienceCases } from "./resilience.mjs";
@@ -38,9 +43,19 @@ const CLI_OPTIONS = {
   class: { type: "string" },
   case: { type: "string" },
   repeat: { type: "string" },
+  corpus: { type: "string" },
+  arms: { type: "string" },
+  combine: { type: "string" },
+  void: { type: "string", multiple: true },
+  label: { type: "string" },
+  seed: { type: "string" },
+  "budget-usd": { type: "string" },
+  runtime: { type: "string" },
+  "result-dir": { type: "string" },
   json: { type: "boolean" },
   "assert-no-model": { type: "boolean" },
   "verify-discriminating": { type: "boolean" },
+  "validate-corpus": { type: "boolean" },
 };
 
 /**
@@ -304,49 +319,6 @@ async function verifyDiscriminating(loaded) {
 }
 
 /**
- * A report file on disk is either a bare indicator map (the `EvalReport`
- * shape `projectEvalIndicators` returns) or that same map wrapped with a
- * `provenance` block (what `--project` writes and what `evals/baseline.json`
- * and `evals/fixtures/*.json` carry). Either way, `compareEvalReports` only
- * ever wants the indicator map.
- *
- * @param {unknown} parsed
- * @returns {JsonObject}
- */
-function evalIndicatorsOf(parsed) {
-  const object = /** @type {JsonObject} */ (parsed);
-  return object && typeof object.indicators === "object" && object.indicators !== null ? /** @type {JsonObject} */ (object.indicators) : object;
-}
-
-/**
- * `evals/run.mjs --compare <before.json> <after.json> [--json]`: compare two
- * already-projected eval reports and print the result.
- *
- * @param {string[]} rest
- * @returns {void}
- */
-function runCompare(rest) {
-  const asJson = rest.includes("--json");
-  const bandIndex = rest.indexOf("--band");
-  const bandPath = bandIndex >= 0 ? rest[bandIndex + 1] : undefined;
-  if (bandIndex >= 0 && (bandPath === undefined || bandPath.startsWith("--"))) {
-    usageError("--band needs the path of a report written by `--band <report.json>...`");
-    return;
-  }
-  const positionals = rest.filter((arg, index) => arg !== "--json" && index !== bandIndex && index !== bandIndex + 1);
-  if (positionals.length !== 2) {
-    usageError("--compare needs exactly two report paths: <before.json> <after.json>");
-    return;
-  }
-  const [beforePath, afterPath] = positionals;
-  const before = evalIndicatorsOf(JSON.parse(readFileSync(resolve(beforePath), "utf8")));
-  const after = evalIndicatorsOf(JSON.parse(readFileSync(resolve(afterPath), "utf8")));
-  const bands = bandPath === undefined ? undefined : evalIndicatorsOf(JSON.parse(readFileSync(resolve(bandPath), "utf8")));
-  const comparison = compareEvalReports(before, after, bands);
-  process.stdout.write(asJson ? `${JSON.stringify({ schemaVersion: 1, indicators: comparison }, null, 2)}\n` : renderEvalComparisonReport(comparison));
-}
-
-/**
  * `evals/run.mjs --project <runDir>... [--campaign <id>] [--note <text>] [--json]` or
  * `evals/run.mjs --project-ledger <dir>... [--campaign <id>] [--note <text>] [--json]`:
  * project indicators straight from one or more runs' own `events.jsonl`/
@@ -565,8 +537,72 @@ async function main(argv) {
     usageError("use --class or --case, not both");
     return;
   }
+  // The paired class is not discovered from case.json: it runs the arms
+  // declared in evals/paired/arms.json over a corpus and spends a declared
+  // budget, so it dispatches to its own module before case discovery. It
+  // refuses to start without --budget-usd (StochasticBudget).
+  if (className === "paired") {
+    // The corpus self-check runs no arm and spends nothing: it restores each
+    // corpus's base from the bundle and rejects a corpus whose proofs already
+    // pass or whose guards already fail there. It answers before the budget,
+    // which a class that invokes no model must not be asked for.
+    if (values["validate-corpus"] === true) {
+      const result = validateCorpora();
+      if (asJson) {
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      } else {
+        for (const corpus of result.corpora) {
+          process.stdout.write(`[${corpus.ok ? "ok" : "fail"}] ${corpus.id}: proofs ${corpus.proofsFailed ? "fail at base" : "NOT discriminated"}, guards ${corpus.guardsPassed ? "pass at base" : "NOT passing"}\n`);
+          for (const failure of corpus.failures) process.stdout.write(`      ${failure}\n`);
+        }
+        for (const failure of result.failures) if (result.corpora.length === 0) process.stdout.write(`${failure}\n`);
+      }
+      if (!result.ok) process.exitCode = 1;
+      return;
+    }
+    if (typeof values.combine === "string") {
+      const combined = combinePairedResults(readPairedResults(values.combine.split(",")), parseVoids(/** @type {string[]} */ (values.void ?? [])));
+      const target = join(/** @type {string} */ (values["result-dir"] ?? PAIRED_RESULTS), `combined-${new Date().toISOString().replace(/[:.]/gu, "-")}.json`);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, `${JSON.stringify(combined, null, 2)}\n`);
+      process.stdout.write(asJson ? `${JSON.stringify(combined, null, 2)}\n` : `${renderPaired(combined)}result: ${target}\n`);
+      return;
+    }
+    const { report, resultPath } = await runPairedClass({
+      argv,
+      repeat,
+      seed: values.seed === undefined ? undefined : Number(values.seed),
+      budgetUsd: values["budget-usd"] === undefined ? undefined : Number(values["budget-usd"]),
+      corpus: /** @type {string|undefined} */ (values.corpus),
+      resultDir: /** @type {string|undefined} */ (values["result-dir"]),
+      armNames: typeof values.arms === "string" ? values.arms.split(",").map((name) => name.trim()).filter(Boolean) : undefined,
+      label: /** @type {string|undefined} */ (values.label),
+      assertNoModel,
+    });
+    if (asJson) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    else process.stdout.write(`${renderPaired(report)}result: ${resultPath ?? "not written"}\n`);
+    return;
+  }
+  // The judge-canary class is not discovered either: it asks one declared
+  // judge runtime every sealed case and scores it, so it owns its runtime
+  // registry and spends through the same budget. It refuses without
+  // --budget-usd (StochasticBudget) and without a known --runtime.
+  if (className === "judge-canary") {
+    const { report, resultPath } = await runJudgeCanaryClass({
+      argv,
+      repeat,
+      seed: values.seed === undefined ? undefined : Number(values.seed),
+      budgetUsd: values["budget-usd"] === undefined ? undefined : Number(values["budget-usd"]),
+      runtimeId: /** @type {string|undefined} */ (values.runtime),
+      resultDir: /** @type {string|undefined} */ (values["result-dir"]),
+      assertNoModel,
+    });
+    if (asJson) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    else process.stdout.write(`${renderJudgeCanary(report)}result: ${resultPath ?? "not written"}\n`);
+    return;
+  }
   if (className !== undefined && className !== "resilience" && CLASS_KINDS[className] === undefined) {
-    usageError(`unknown --class: ${className} (known: ${Object.keys(CLASS_KINDS).join(", ")}, resilience)`);
+    usageError(`unknown --class: ${className} (known: ${Object.keys(CLASS_KINDS).join(", ")}, paired, judge-canary, resilience)`);
     return;
   }
 

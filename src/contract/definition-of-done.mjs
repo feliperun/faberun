@@ -9,7 +9,7 @@ import { rejectUnknown, requireId, requireString } from "./assert.mjs";
 
 /** @typedef {{kind: "command"|"path"|"verification", ref: string}} DefinitionOfDoneProof */
 
-/** @typedef {{id: string, text: string, proof?: DefinitionOfDoneProof, judgment?: true}} DefinitionOfDoneItem */
+/** @typedef {{id: string, text: string, proof?: DefinitionOfDoneProof, judgment?: true, reason?: string}} DefinitionOfDoneItem */
 
 /**
  * @param {unknown} value
@@ -28,11 +28,15 @@ export function validateDefinitionOfDone(value, label, options = {}) {
       throw new TypeError(`${itemLabel} must be an object with id, text, and proof or judgment: true`);
     }
     const record = /** @type {Record<string, unknown>} */ (item);
-    rejectUnknown(record, new Set(["id", "text", "proof", "judgment"]), itemLabel);
+    rejectUnknown(record, new Set(["id", "text", "proof", "judgment", "reason"]), itemLabel);
     requireId(record.id, `${itemLabel}.id`);
     requireString(record.text, `${itemLabel}.text`);
     if (record.judgment !== undefined && record.judgment !== true) {
       throw new TypeError(`${itemLabel}.judgment must be true when present`);
+    }
+    if (record.reason !== undefined) {
+      if (record.judgment !== true) throw new TypeError(`${itemLabel}.reason requires judgment: true`);
+      requireString(record.reason, `${itemLabel}.reason`);
     }
     const proof = record.proof === undefined
       ? undefined
@@ -45,8 +49,32 @@ export function validateDefinitionOfDone(value, label, options = {}) {
       text: /** @type {string} */ (record.text),
       ...(proof === undefined ? {} : { proof }),
       ...(record.judgment === true ? { judgment: true } : {}),
+      ...(record.reason === undefined ? {} : { reason: /** @type {string} */ (record.reason) }),
     };
   });
+}
+
+/**
+ * Report judgment items that do not explain what mechanical verification cannot
+ * observe. These remain advisory because `contract validate` has no strict
+ * traceability flag; a later strict contract command can promote these codes.
+ *
+ * @param {DefinitionOfDoneItem[]} items
+ * @param {number} index
+ * @returns {string[]}
+ */
+export function judgmentReasonWarnings(items, index) {
+  const judgmentItems = items.filter((item) => item.judgment === true);
+  const warnings = items.flatMap((item, itemIndex) => item.judgment === true && item.reason === undefined
+    ? [`nodes[${index}] (definitionOfDone[${itemIndex}]): judgment_without_reason: judgment item must say what no command verifies`]
+    : []);
+  const hasMechanicalProof = items.some((item) => item.proof !== undefined);
+  if (judgmentItems.length > 0 && hasMechanicalProof && judgmentItems.every((item) => item.reason === undefined)) {
+    warnings.push(
+      `nodes[${index}]: judgment_beside_mechanical_proof: every judgment item shares this node with mechanical-proof items but declares no reason`,
+    );
+  }
+  return warnings;
 }
 
 /**
@@ -144,4 +172,3 @@ export function unquotedFilterValueWarnings(items, index) {
 
 /** The node:test filter flags a `kind: "command"` proof's shell can split on an unquoted value. */
 const TEST_FILTER_FLAGS = ["--test-name-pattern", "--test-skip-pattern"];
-

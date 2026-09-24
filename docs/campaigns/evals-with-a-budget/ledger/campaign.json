@@ -1,0 +1,212 @@
+{
+  "id": "evals-with-a-budget",
+  "goal": "Evals que gastam dinheiro têm orçamento, banda e lugar em main",
+  "status": "closed",
+  "linkedRunIds": [
+    "evals-with-a-budget-instruments",
+    "evals-with-a-budget-instruments-2",
+    "evals-with-a-budget-review",
+    "evals-with-a-budget-review-fixes",
+    "evals-with-a-budget-review-2",
+    "evals-with-a-budget-review-2-glm"
+  ],
+  "contracts": [
+    {
+      "path": "/Users/frb/dev/frb/faberun-leave/docs/campaigns/evals-with-a-budget/contracts/instruments.contract.json",
+      "digest": "9b45a1fdfba7e9351e47512fd34612707480e9c6f55971c3dd42aeb3203972c4"
+    }
+  ],
+  "replacements": [],
+  "landBranch": "campaign/evals-with-a-budget",
+  "promotions": [],
+  "createdAt": "2026-09-24T00:08:27.263Z",
+  "updatedAt": "2026-09-24T08:48:21.906Z",
+  "attention": {
+    "code": "run_parked",
+    "message": "contract evals-with-a-budget-instruments run parked: node stochastic-budget failed [snapshot_ignore_changed]",
+    "contractPath": "/Users/frb/dev/frb/faberun-leave/docs/campaigns/evals-with-a-budget/contracts/instruments.contract.json",
+    "contractId": "evals-with-a-budget-instruments",
+    "runId": "evals-with-a-budget-instruments",
+    "node": "stochastic-budget",
+    "status": "failed",
+    "resume": "resume /Users/frb/.faberun/projects/9fc1d8c7-d994-44ec-9af5-817a649cbe73/runs/evals-with-a-budget-instruments",
+    "at": "2026-09-24T00:33:57.270Z"
+  },
+  "closedAt": "2026-09-24T08:48:21.906Z",
+  "requirements": [
+    {
+      "requirementId": "R1",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evals-with-a-budget-instruments",
+          "node": "stochastic-budget",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "evals-with-a-budget-review-fixes",
+          "node": "paired-honest-numbers",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R10",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evals-with-a-budget-instruments",
+          "node": "judgment-reason",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "evals-with-a-budget-review-fixes",
+          "node": "yield-and-reason-fixes",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R2",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evals-with-a-budget-instruments-2",
+          "node": "paired-class",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "evals-with-a-budget-review-fixes",
+          "node": "paired-honest-numbers",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R3",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evals-with-a-budget-instruments-2",
+          "node": "paired-class",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "evals-with-a-budget-review-fixes",
+          "node": "paired-honest-numbers",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R4",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evals-with-a-budget-instruments-2",
+          "node": "paired-corpus",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R5",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evals-with-a-budget-instruments",
+          "node": "canary-corpus",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "evals-with-a-budget-review-fixes",
+          "node": "canary-rebuilt",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R6",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evals-with-a-budget-instruments",
+          "node": "canary-corpus",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "evals-with-a-budget-review-fixes",
+          "node": "canary-rebuilt",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R7",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evals-with-a-budget-instruments-2",
+          "node": "canary-class-and-provenance",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "evals-with-a-budget-review-fixes",
+          "node": "canary-rebuilt",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R8",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evals-with-a-budget-instruments-2",
+          "node": "canary-class-and-provenance",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "evals-with-a-budget-review-fixes",
+          "node": "paired-honest-numbers",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R9",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "evals-with-a-budget-instruments",
+          "node": "judge-yield-metrics",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "evals-with-a-budget-review-fixes",
+          "node": "yield-and-reason-fixes",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    }
+  ]
+}

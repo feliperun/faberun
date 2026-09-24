@@ -6,6 +6,7 @@
  */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { parseArgs as parseFlags } from "node:util";
 import { loadPersistedContract, validateContract } from "../contract/index.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -13,7 +14,7 @@ import { loadPersistedContract, validateContract } from "../contract/index.mjs";
 /** Flags are scoped to the operation that declares them; all others are rejected. */
 /** @type {Record<string, import("node:util").ParseArgsOptionsConfig>} */
 const OPERATION_OPTIONS = {
-  validate: {},
+  validate: { "strict-traceability": { type: "boolean" } },
 };
 
 /**
@@ -23,9 +24,17 @@ const OPERATION_OPTIONS = {
 export function contractCli(args) {
   const operation = args[0];
   if (!operation || !Object.hasOwn(OPERATION_OPTIONS, operation)) return usage();
-  const target = args[1];
-  if (!target || args.length > 2) return usage();
-  if (operation === "validate") validateContractFile(resolve(target));
+  let parsed;
+  try {
+    parsed = parseFlags({ args: args.slice(1), options: OPERATION_OPTIONS[operation], allowPositionals: true, strict: true });
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    return usage();
+  }
+  const target = parsed.positionals[0];
+  if (!target || parsed.positionals.length > 1) return usage();
+  const values = /** @type {{"strict-traceability"?: boolean}} */ (parsed.values);
+  if (operation === "validate") validateContractFile(resolve(target), { strictTraceability: values["strict-traceability"] === true });
 }
 
 /**
@@ -38,17 +47,27 @@ export function contractCli(args) {
  * authoring validation, tree reads included.
  *
  * @param {string} path
+ * @param {{strictTraceability?: boolean}} [options]
  * @returns {ValidatedContract}
  */
-export function validateContractFile(path) {
+export function validateContractFile(path, { strictTraceability = false } = {}) {
   const runJsonPath = join(dirname(path), "run.json");
   const contract = existsSync(runJsonPath)
     ? loadPersistedContract(path, readRunDigest(runJsonPath))
     : validateContract(JSON.parse(readFileSync(path, "utf8")), path);
   const count = contract.warnings.length;
-  process.stdout.write(`valid${count ? ` (${count} warning${count === 1 ? "" : "s"})` : ""}\n`);
+  const blockingTraceability = strictTraceability
+    ? contract.warnings.filter((warning) => isTraceabilityFinding(warning))
+    : [];
+  process.stdout.write(`${blockingTraceability.length > 0 ? "invalid" : "valid"}${count ? ` (${count} warning${count === 1 ? "" : "s"})` : ""}\n`);
   for (const warning of contract.warnings) process.stdout.write(`[warn] ${warning}\n`);
+  if (blockingTraceability.length > 0) process.exitCode = 1;
   return contract;
+}
+
+/** @param {string} warning @returns {boolean} */
+function isTraceabilityFinding(warning) {
+  return warning.includes("judgment_without_reason") || warning.includes("judgment_beside_mechanical_proof");
 }
 
 /**
@@ -62,7 +81,7 @@ function readRunDigest(runJsonPath) {
 
 /** @returns {void} */
 function usage() {
-  process.stderr.write("usage: faberun contract validate <contract.json>\n");
+  process.stderr.write("usage: faberun contract validate <contract.json> [--strict-traceability]\n");
   process.exitCode = 2;
 }
 

@@ -1,0 +1,299 @@
+{
+  "schemaVersion": 1,
+  "class": "judge-canary",
+  "provenance": {
+    "class": "judge-canary",
+    "commit": "59837505ae5a1f36fe48ec5f25e86ce08b71e5f1",
+    "seed": 20260923,
+    "repeat": 1,
+    "budgetUsd": 8,
+    "pricedSpendUsd": 5.0994,
+    "voidedSpendUsd": 0,
+    "generatedAt": "2026-09-24T03:56:19.742Z",
+    "runtimes": [
+      {
+        "id": "claude-sonnet-5",
+        "harness": "claude",
+        "model": "claude-sonnet-5",
+        "cliVersion": "2.1.281 (Claude Code)"
+      }
+    ]
+  },
+  "budget": {
+    "budgetUsd": 8,
+    "spendUsd": 5.099418600000001,
+    "pricedSpendUsd": 5.099418600000001,
+    "unknownSpendUsd": 0,
+    "reservedUsd": 0,
+    "voidedSpendUsd": 0,
+    "voidedInvocations": 0
+  },
+  "skipped": [
+    {
+      "id": "defect-scope-drift-inside-writefiles-report-the-provider-s-startup-error-not-just-an-empty-stream",
+      "label": "defect:scope-drift-inside-writefiles",
+      "repetition": 1,
+      "reason": "budget"
+    }
+  ],
+  "byLabel": {
+    "clean": {
+      "label": "clean",
+      "cases": 4,
+      "invocations": 4,
+      "verdicts": 4,
+      "errors": 0,
+      "rejected": 0,
+      "citedRejections": 0,
+      "recall": null,
+      "falseAlarmRate": 0,
+      "costUsd": 1.0478,
+      "costPerCaseUsd": 0.262
+    },
+    "defect:nongoal-violated": {
+      "label": "defect:nongoal-violated",
+      "cases": 4,
+      "invocations": 4,
+      "verdicts": 4,
+      "errors": 0,
+      "rejected": 1,
+      "citedRejections": 1,
+      "recall": 0.25,
+      "falseAlarmRate": null,
+      "costUsd": 1.5147,
+      "costPerCaseUsd": 0.3787
+    },
+    "defect:requirement-half-done": {
+      "label": "defect:requirement-half-done",
+      "cases": 2,
+      "invocations": 2,
+      "verdicts": 2,
+      "errors": 0,
+      "rejected": 1,
+      "citedRejections": 1,
+      "recall": 0.5,
+      "falseAlarmRate": null,
+      "costUsd": 0.7099,
+      "costPerCaseUsd": 0.355
+    },
+    "defect:scope-drift-inside-writefiles": {
+      "label": "defect:scope-drift-inside-writefiles",
+      "cases": 1,
+      "invocations": 1,
+      "verdicts": 1,
+      "errors": 0,
+      "rejected": 0,
+      "citedRejections": 0,
+      "recall": 0,
+      "falseAlarmRate": null,
+      "costUsd": 0.4145,
+      "costPerCaseUsd": 0.4145
+    },
+    "defect:doc-contradicts-code": {
+      "label": "defect:doc-contradicts-code",
+      "cases": 2,
+      "invocations": 2,
+      "verdicts": 1,
+      "errors": 1,
+      "rejected": 1,
+      "citedRejections": 0,
+      "recall": 0,
+      "falseAlarmRate": null,
+      "costUsd": 1.0738,
+      "costPerCaseUsd": 0.5369
+    },
+    "defect:test-weakened": {
+      "label": "defect:test-weakened",
+      "cases": 1,
+      "invocations": 1,
+      "verdicts": 1,
+      "errors": 0,
+      "rejected": 1,
+      "citedRejections": 0,
+      "recall": 0,
+      "falseAlarmRate": null,
+      "costUsd": 0.3388,
+      "costPerCaseUsd": 0.3388
+    }
+  },
+  "overall": {
+    "cases": 14,
+    "invocations": 14,
+    "errors": 1,
+    "defectInvocations": 10,
+    "cleanInvocations": 4,
+    "defectVerdicts": 9,
+    "cleanVerdicts": 4,
+    "recall": 0.2222222222222222,
+    "falseAlarmRate": 0,
+    "costUsd": 5.0994,
+    "costPerCaseUsd": 0.3642
+  },
+  "cases": [
+    {
+      "id": "clean-classify-codex-tool-host-failure-before-cancellation",
+      "label": "clean",
+      "kind": null,
+      "repetition": 1,
+      "verdict": "pass",
+      "maxSeverity": "none",
+      "rejected": false,
+      "cited": false,
+      "costUsd": 0.411986,
+      "costProvenance": "priced"
+    },
+    {
+      "id": "defect-requirement-half-done-stop-a-failing-proof-from-killing-the-controller",
+      "label": "defect:requirement-half-done",
+      "kind": "requirement-half-done",
+      "repetition": 1,
+      "verdict": "fail",
+      "maxSeverity": "major",
+      "rejected": true,
+      "cited": true,
+      "costUsd": 0.47449800000000003,
+      "costProvenance": "priced"
+    },
+    {
+      "id": "defect-nongoal-violated-deny-the-out-of-scope-write-before-the-file-exists",
+      "label": "defect:nongoal-violated",
+      "kind": "nongoal-violated",
+      "repetition": 1,
+      "verdict": "pass",
+      "maxSeverity": "none",
+      "rejected": false,
+      "cited": false,
+      "costUsd": 0.12995840000000003,
+      "costProvenance": "priced"
+    },
+    {
+      "id": "defect-doc-contradicts-code-stop-a-failing-proof-from-killing-the-controller",
+      "label": "defect:doc-contradicts-code",
+      "kind": "doc-contradicts-code",
+      "repetition": 1,
+      "verdict": "fail",
+      "maxSeverity": "major",
+      "rejected": true,
+      "cited": false,
+      "costUsd": 0.5872820000000001,
+      "costProvenance": "priced"
+    },
+    {
+      "id": "clean-anthropic-soft-limit-fixture",
+      "label": "clean",
+      "kind": null,
+      "repetition": 1,
+      "verdict": "pass",
+      "maxSeverity": "none",
+      "rejected": false,
+      "cited": false,
+      "costUsd": 0.2850654,
+      "costProvenance": "priced"
+    },
+    {
+      "id": "defect-doc-contradicts-code-classify-codex-tool-host-failure-before-cancellation",
+      "label": "defect:doc-contradicts-code",
+      "kind": "doc-contradicts-code",
+      "repetition": 1,
+      "error": "unparseable verdict: judge maxSeverity does not match findings",
+      "costUsd": 0.4865108,
+      "costProvenance": "priced"
+    },
+    {
+      "id": "defect-requirement-half-done-anthropic-soft-limit-fixture",
+      "label": "defect:requirement-half-done",
+      "kind": "requirement-half-done",
+      "repetition": 1,
+      "verdict": "pass",
+      "maxSeverity": "none",
+      "rejected": false,
+      "cited": false,
+      "costUsd": 0.2354434,
+      "costProvenance": "priced"
+    },
+    {
+      "id": "defect-nongoal-violated-deepseek-balance-classification",
+      "label": "defect:nongoal-violated",
+      "kind": "nongoal-violated",
+      "repetition": 1,
+      "verdict": "fail",
+      "maxSeverity": "major",
+      "rejected": true,
+      "cited": true,
+      "costUsd": 0.6924138000000001,
+      "costProvenance": "priced"
+    },
+    {
+      "id": "clean-stop-re-sealing-a-clean-attempt-from-failing-the-retry",
+      "label": "clean",
+      "kind": null,
+      "repetition": 1,
+      "verdict": "pass",
+      "maxSeverity": "none",
+      "rejected": false,
+      "cited": false,
+      "costUsd": 0.20655620000000002,
+      "costProvenance": "priced"
+    },
+    {
+      "id": "defect-nongoal-violated-strip-the-notification-transport-from-worker-provider-enviro",
+      "label": "defect:nongoal-violated",
+      "kind": "nongoal-violated",
+      "repetition": 1,
+      "verdict": "pass",
+      "maxSeverity": "none",
+      "rejected": false,
+      "cited": false,
+      "costUsd": 0.20814480000000002,
+      "costProvenance": "priced"
+    },
+    {
+      "id": "defect-scope-drift-inside-writefiles-classify-codex-tool-host-failure-before-cancellation",
+      "label": "defect:scope-drift-inside-writefiles",
+      "kind": "scope-drift-inside-writefiles",
+      "repetition": 1,
+      "verdict": "pass",
+      "maxSeverity": "none",
+      "rejected": false,
+      "cited": false,
+      "costUsd": 0.4144622,
+      "costProvenance": "priced"
+    },
+    {
+      "id": "defect-test-weakened-deepseek-balance-classification",
+      "label": "defect:test-weakened",
+      "kind": "test-weakened",
+      "repetition": 1,
+      "verdict": "fail",
+      "maxSeverity": "major",
+      "rejected": true,
+      "cited": false,
+      "costUsd": 0.3387992,
+      "costProvenance": "priced"
+    },
+    {
+      "id": "clean-carry-git-s-own-reason-into-a-failed-git-command",
+      "label": "clean",
+      "kind": null,
+      "repetition": 1,
+      "verdict": "pass",
+      "maxSeverity": "none",
+      "rejected": false,
+      "cited": false,
+      "costUsd": 0.144153,
+      "costProvenance": "priced"
+    },
+    {
+      "id": "defect-nongoal-violated-report-the-provider-s-startup-error-not-just-an-empty-stream",
+      "label": "defect:nongoal-violated",
+      "kind": "nongoal-violated",
+      "repetition": 1,
+      "verdict": "pass",
+      "maxSeverity": "none",
+      "rejected": false,
+      "cited": false,
+      "costUsd": 0.4841454,
+      "costProvenance": "priced"
+    }
+  ]
+}

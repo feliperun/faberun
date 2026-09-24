@@ -19,10 +19,14 @@ import { runDirectory } from "../src/run/paths.mjs";
  */
 
 const EVALS_ROOT = fileURLToPath(new URL(".", import.meta.url));
-// `evals/` moved inside the skill (2026-09-12), so the git work tree and `.runs/`
-// are four levels up, not one.
-const REPO_ROOT = resolve(EVALS_ROOT, "..", "..", "..", "..");
-const SKILL_ROOT = resolve(EVALS_ROOT, "..");
+// This file lives at `evals/` in the repository root, so the git work tree is
+// one level up. Measured 2026-09-23: the four-levels-up math that was correct
+// while this file sat at `skills/<owner>/<skill>/evals/` resolved to `.../runs`
+// here and every git call failed with "not a git repository", so the corpus
+// bases could not be added to the bundle. The skill's own directory no longer
+// exists; `SKILL_ROOT` is the repository root.
+const REPO_ROOT = resolve(EVALS_ROOT, "..");
+const SKILL_ROOT = REPO_ROOT;
 /**
  * Repository-relative prefixes of the skill's source and test trees, derived
  * from where this file actually sits. They were hardcoded as `src/` and
@@ -52,6 +56,19 @@ const FACTORY_SHAS = [
   "772efa3aece4439fbd966e91f6df2684884383e1", // macos-process-start-token
   "124f34e75eb2b012c09ca24baf2ec2f8483ee0ba", // deepseek-balance-classification
   "f150386d2c9f9e3057617319652cb2c9c9262981", // lease-liveness-fold
+];
+
+/**
+ * Base commits the paired corpus materializes but that are not golden tasks.
+ * `a1117f7` is the simple round's fork and `4913ef2` the complex round's base
+ * (R4 of evals-with-a-budget); both postdate every golden task's parent, so
+ * they are not ancestors of the bundle's refs and have to be tagged in
+ * explicitly. Separate from `FACTORY_SHAS`: a corpus base gets a checkout to
+ * run acceptance on, not a `statement.md`/`verify.json` task directory.
+ */
+const CORPUS_BUNDLE_SHAS = [
+  "a1117f7254c82b6e08908d54df3c46aa6666b838", // paired corpus simple fork
+  "4913ef2b607488da78522c739c0fb86bd7ce33be", // paired corpus complex base, 1c-run-path-resolver
 ];
 
 /** Node fields in a `taskPacket`, per `src/contract/task-packet.mjs`. */
@@ -338,7 +355,29 @@ function orphanParentShas(taskIds) {
   return parents;
 }
 
+/**
+ * `--bundle-only`: re-tag the shas the current bundle already advertises plus
+ * the corpus bases and recreate the bundle, touching no task directory. The
+ * full build is the authority; this exists because adding a corpus base must
+ * not rewrite the 26 golden task directories a later history walk may select
+ * differently, and those directories belong to an earlier decision.
+ */
+function rebuildBundleOnly() {
+  if (!existsSync(BUNDLE_PATH)) throw new Error(`no bundle to extend at ${BUNDLE_PATH}`);
+  const existing = runGit(["bundle", "list-heads", BUNDLE_PATH])
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.split(/\s+/u)[0]);
+  const shas = [...existing, ...CORPUS_BUNDLE_SHAS];
+  buildBundle(shas);
+  process.stdout.write(`rebuilt ${BUNDLE_PATH} with ${new Set(shas).size} refs (${CORPUS_BUNDLE_SHAS.length} corpus base(s) added)\n`);
+}
+
 function main() {
+  if (process.argv.slice(2).includes("--bundle-only")) {
+    rebuildBundleOnly();
+    return;
+  }
   const shas = [...FACTORY_SHAS, ...discoverFixShas()];
   const fullShas = shas.map((sha) => runGit(["rev-parse", sha]));
   const uniqueShas = [...new Set(fullShas)];
@@ -375,7 +414,7 @@ function main() {
     );
   }
 
-  buildBundle([...tasks.map((task) => task.parentSha), ...keptParents]);
+  buildBundle([...tasks.map((task) => task.parentSha), ...keptParents, ...CORPUS_BUNDLE_SHAS]);
 
   process.stdout.write(`built ${tasks.length} golden tasks under ${GOLDEN_ROOT}\n`);
   for (const task of tasks) process.stdout.write(`  ${task.taskId} <- ${task.commitSha.slice(0, 7)} (parent ${task.parentSha.slice(0, 7)}, ${task.verify.source})\n`);

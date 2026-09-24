@@ -51,6 +51,7 @@ const UNKNOWN_COST_PROVENANCE = "unknown";
 /** @typedef {"down"|"up"|"informative"} Direction */
 /** @typedef {{value: number|null, direction: Direction, count: number, numerator?: number, denominator?: number, excludedRunIds?: string[], missingSources?: string[]}} Indicator */
 /** @typedef {Indicator & {unknownCount: number, unknownCountByReason: Record<string, number>, unknownFractionByReason: Record<string, number>}} CostIndicator */
+/** @typedef {Indicator & {unknownCount: number}} JudgeCostShareIndicator */
 /** @typedef {{value: Record<string, number>|null, direction: Direction, count: number, numerator?: Record<string, number>, denominator?: Record<string, number>, excludedRunIds?: string[], missingSources?: string[]}} GroupedIndicator */
 /** @typedef {{atMs: number, index: number, event: JsonObject}} RunEvent */
 /** @typedef {{runId: string, id: string, status: string, attempt?: number|null, revisions?: number|null, review?: string|null}} RunNode */
@@ -79,6 +80,8 @@ const UNKNOWN_COST_PROVENANCE = "unknown";
  *   usageTokensByKind: GroupedIndicator,
  *   usageTokensByKindByRuntime: GroupedIndicator,
  *   usageCostUsd: CostIndicator,
+ *   judgeFindingRate: Indicator,
+ *   judgeCostShare: JudgeCostShareIndicator,
  *   blockingJudgeFirstPassRate: GroupedIndicator,
  *   notifyReceiptRate: Indicator,
  *   silentStallRate: Indicator,
@@ -101,6 +104,10 @@ export function projectMetrics({ events = [], usageRecords = [], notifications =
   const excluded = excludedRunIdsFor(campaign, excludedRunIds);
   const eligibleNodes = nodes.filter((node) => !excluded.includes(node.runId));
   const eligibleEvents = eventList.filter((event) => typeof event.runId !== "string" || !excluded.includes(event.runId));
+  const eligibleUsageRecords = usageRecords.filter((record) => {
+    const object = jsonObjectOf(record);
+    return object === null || typeof object.runId !== "string" || !excluded.includes(object.runId);
+  });
   const eligibleNotifications = notifications.filter((record) => {
     const object = jsonObjectOf(record);
     return object === null || typeof object.runId !== "string" || !excluded.includes(object.runId);
@@ -110,6 +117,7 @@ export function projectMetrics({ events = [], usageRecords = [], notifications =
   const closedCheckpoints = closedCheckpointsOf(nodes);
   const span = eventSpanOf(eventList);
   const usage = usageTotalsOf(usageRecords);
+  const judgeYield = judgeYieldOf(eligibleEvents, eligibleUsageRecords);
   const gates = blockingJudgeFirstPassRateOf(eligibleNodes, eligibleEvents);
   const notify = notifyReceiptRateOf(eligibleNotifications);
   const stalls = silentStallRateOf(eligibleNodes, eligibleEvents);
@@ -128,6 +136,11 @@ export function projectMetrics({ events = [], usageRecords = [], notifications =
       unknownCount: usage.unknownCount,
       unknownCountByReason: usage.unknownCountByReason,
       unknownFractionByReason: usage.unknownFractionByReason,
+    },
+    judgeFindingRate: rate("up", judgeYield.findings, judgeYield.judged, excluded),
+    judgeCostShare: {
+      ...measured("down", usage.costCount, usage.costUsd === null ? null : usage.judgeCostUsd / usage.costUsd),
+      unknownCount: usage.unknownJudgeCount,
     },
     blockingJudgeFirstPassRate: groupedRate("up", gates, excluded),
     notifyReceiptRate: rate("up", notify.satisfied, notify.count, excluded),
@@ -162,6 +175,8 @@ function applyMissingSources(metrics, missingSources) {
     usageTokensByKind: withMissing(metrics.usageTokensByKind, ["usage.jsonl"]),
     usageTokensByKindByRuntime: withMissing(metrics.usageTokensByKindByRuntime, ["usage.jsonl"]),
     usageCostUsd: withMissing(metrics.usageCostUsd, ["usage.jsonl"]),
+    judgeFindingRate: withMissing(metrics.judgeFindingRate, ["events.jsonl", "usage.jsonl"]),
+    judgeCostShare: withMissing(metrics.judgeCostShare, ["usage.jsonl"]),
     blockingJudgeFirstPassRate: withMissing(metrics.blockingJudgeFirstPassRate, ["nodes.json", "events.jsonl"]),
     notifyReceiptRate: withMissing(metrics.notifyReceiptRate, ["notify.jsonl"]),
     silentStallRate: withMissing(metrics.silentStallRate, ["nodes.json", "events.jsonl"]),
@@ -397,7 +412,7 @@ function eventSpanOf(events) {
  * invocation is counted separately rather than folded into a measured zero.
  *
  * @param {unknown[]} usageRecords
- * @returns {{tokensByKind: Record<string, number>, tokensByKindByRuntime: Record<string, number>, tokenCount: number, costUsd: number|null, costCount: number, unknownCount: number, unknownCountByReason: Record<string, number>, unknownFractionByReason: Record<string, number>}}
+ * @returns {{tokensByKind: Record<string, number>, tokensByKindByRuntime: Record<string, number>, tokenCount: number, costUsd: number|null, judgeCostUsd: number, costCount: number, unknownCount: number, unknownJudgeCount: number, unknownCountByReason: Record<string, number>, unknownFractionByReason: Record<string, number>}}
  */
 function usageTotalsOf(usageRecords) {
   const tokensByKind = { inputTokens: 0, cacheReadInputTokens: 0, outputTokens: 0 };
@@ -405,8 +420,10 @@ function usageTotalsOf(usageRecords) {
   const tokensByKindByRuntime = {};
   let tokenCount = 0;
   let costUsd = 0;
+  let judgeCostUsd = 0;
   let costCount = 0;
   let unknownCount = 0;
+  let unknownJudgeCount = 0;
   /** @type {Record<string, number>} */
   const unknownCountByReason = {};
   const kinds = /** @type {("inputTokens"|"cacheReadInputTokens"|"outputTokens")[]} */ (["inputTokens", "cacheReadInputTokens", "outputTokens"]);
@@ -425,9 +442,11 @@ function usageTotalsOf(usageRecords) {
     if (measuredAny) tokenCount += 1;
     if (typeof record.costUsd === "number" && Number.isFinite(record.costUsd) && record.costProvenance !== UNKNOWN_COST_PROVENANCE) {
       costUsd += record.costUsd;
+      if (record.role === "judge") judgeCostUsd += record.costUsd;
       costCount += 1;
     } else {
       unknownCount += 1;
+      if (record.role === "judge") unknownJudgeCount += 1;
       const reason = typeof record.unknownReason === "string" && UNKNOWN_COST_REASONS.includes(record.unknownReason)
         ? record.unknownReason
         : "legacy";
@@ -443,11 +462,49 @@ function usageTotalsOf(usageRecords) {
     tokensByKindByRuntime,
     tokenCount,
     costUsd: costCount === 0 ? null : costUsd,
+    judgeCostUsd,
     costCount,
     unknownCount,
+    unknownJudgeCount,
     unknownCountByReason,
     unknownFractionByReason,
   };
+}
+
+/**
+ * Count logical nodes that reached a judge and those whose judge recorded at
+ * least one finding. A failed judge verdict is the durable ledger projection
+ * of a non-empty findings array; a complete-phase fail is included for
+ * advisory reviews that settle the node after reporting their finding.
+ *
+ * @param {JsonObject[]} events
+ * @param {unknown[]} usageRecords
+ * @returns {{judged: number, findings: number}}
+ */
+function judgeYieldOf(events, usageRecords) {
+  const judged = new Set();
+  const findings = new Set();
+  for (const raw of usageRecords) {
+    const record = jsonObjectOf(raw);
+    if (record === null || record.role !== "judge" || typeof record.nodeId !== "string") continue;
+    judged.add(logicalNodeKey(record.runId, record.nodeId));
+  }
+  for (const event of events) {
+    if (typeof event.node !== "string") continue;
+    const key = logicalNodeKey(event.runId, event.node);
+    if (event.phase === "judge") judged.add(key);
+    const hasFindingArray = Array.isArray(event.findings) && event.findings.length > 0;
+    if ((event.phase === "judge" || event.phase === "complete") && (event.verdict === "fail" || hasFindingArray)) {
+      judged.add(key);
+      findings.add(key);
+    }
+  }
+  return { judged: judged.size, findings: findings.size };
+}
+
+/** @param {unknown} runId @param {string} nodeId @returns {string} */
+function logicalNodeKey(runId, nodeId) {
+  return `${typeof runId === "string" ? runId : ""}:${nodeId}`;
 }
 
 /**

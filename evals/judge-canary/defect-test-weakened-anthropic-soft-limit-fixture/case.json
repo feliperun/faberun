@@ -1,0 +1,126 @@
+{
+  "schemaVersion": 2,
+  "id": "defect-test-weakened-anthropic-soft-limit-fixture",
+  "label": "defect:test-weakened",
+  "sourceTask": "anthropic-soft-limit-fixture",
+  "source": {
+    "commitSha": "57a35d9dfb8ebb6b54b8e4d559abdf7eeb3ea3ac",
+    "parentSha": "02530af7a07e3aeb95b5d9256cded8935de01fe6",
+    "runtimeOriginal": null,
+    "costUsdOriginal": null,
+    "wallClockSecOriginal": null,
+    "statementSource": "commit-message",
+    "parentTreeSha": "666687c4c65e597d2c01435e29cef2af6b79cc91"
+  },
+  "nodeId": "anthropic-soft-limit-fixture",
+  "diffPaths": [
+    "skills/mine/intent-factory/test/drivers.test.mjs"
+  ],
+  "verification": [
+    {
+      "argv": [
+        "node",
+        "--test",
+        "skills/mine/intent-factory/test/drivers.test.mjs"
+      ]
+    }
+  ],
+  "taskPacket": {
+    "mode": "execution",
+    "objective": "Pin with a regression fixture that Anthropic's soft session-limit stop normalizes to exhaustion with a reset instant, distinct from a hard stop that has none.",
+    "instructions": [
+      "Add a drivers test that feeds normalizeProviderResult a claude stream ending in the session-limit error ('Claude AI usage limit reached. Your limit will reset at 2026-09-08 20:30:00') and asserts status exhausted, error code quota_exhausted, the reset text in the message, and the session id as continuation.",
+      "The same test asserts that normalizeProviderAvailability reports it unavailable with reason quota_exhausted and exhaustedUntil exactly 2026-09-08T20:30:00.000Z.",
+      "The same test contrasts it with the hard, resetless balance stop ('402 Insufficient Balance'): reason insufficient_balance and no reset instant, so the two stops are shown to differ."
+    ],
+    "readFiles": [
+      "skills/mine/intent-factory/test/drivers.test.mjs"
+    ],
+    "writeFiles": [
+      "skills/mine/intent-factory/test/drivers.test.mjs"
+    ],
+    "writeRoots": [],
+    "symbols": [],
+    "decisions": [],
+    "nonGoals": [
+      "Changing any driver or normalizer: this node adds a test only."
+    ],
+    "verification": [
+      {
+        "argv": [
+          "node",
+          "--test",
+          "skills/mine/intent-factory/test/drivers.test.mjs"
+        ]
+      }
+    ]
+  },
+  "definitionOfDone": [
+    {
+      "id": "verification",
+      "text": "The declared verification commands pass on the sealed tree.",
+      "proof": {
+        "kind": "command",
+        "ref": "node --test skills/mine/intent-factory/test/drivers.test.mjs"
+      }
+    },
+    {
+      "id": "soft-limit-exhausted",
+      "text": "The test pins the soft limit as exhausted with code quota_exhausted, its message and continuation id, and its exact reset instant 2026-09-08T20:30:00.000Z.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "hard-stop-contrasted",
+      "text": "The test pins the hard balance stop as insufficient_balance with no reset instant, and shows the two stops differ.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "in-scope",
+      "text": "Every change in the diff serves the objective, and none does what a non-goal excludes.",
+      "judgment": true,
+      "reason": "The write boundary admits any edit inside the declared files; no command tells a requested edit from an unrequested one."
+    },
+    {
+      "id": "docs-match-code",
+      "text": "Every comment and document the diff adds or edits describes what the code does.",
+      "judgment": true,
+      "reason": "No command compares prose with behaviour."
+    },
+    {
+      "id": "tests-assert-behaviour",
+      "text": "Every test the diff adds or edits asserts the behaviour its name and the instructions claim, and no assertion is removed or loosened.",
+      "judgment": true,
+      "reason": "A loosened assertion still passes; only reading the test shows what it no longer checks."
+    }
+  ],
+  "workerResult": {
+    "status": "done",
+    "summary": "Added a drivers test pinning Anthropic's soft session limit as exhausted with its reset instant and contrasting it with the resetless 402 balance stop.",
+    "verification": [
+      "node --test skills/mine/intent-factory/test/drivers.test.mjs"
+    ],
+    "artifacts": [
+      "skills/mine/intent-factory/test/drivers.test.mjs"
+    ],
+    "missingContext": []
+  },
+  "mutation": {
+    "kind": "test-weakened",
+    "description": "The exact reset-instant assertion is loosened to a date-prefix match, so a wrong hour or timezone still passes.",
+    "edits": [
+      {
+        "path": "skills/mine/intent-factory/test/drivers.test.mjs",
+        "find": [
+          "  assert.equal(softLimit.exhaustedUntil, \"2026-09-08T20:30:00.000Z\", \"the reset instant is parsed from the error text, proving this is retryable-after-reset\");"
+        ],
+        "replace": [
+          "  assert.match(String(softLimit.exhaustedUntil), /^2026-09-08/u, \"the reset instant is parsed from the error text, proving this is retryable-after-reset\");"
+        ]
+      }
+    ]
+  },
+  "diff": "diff.patch",
+  "diffSha256": "2940a8e2dac4511d5e15567fb857ac72d3a86c899026dd94a521059a237da134"
+}

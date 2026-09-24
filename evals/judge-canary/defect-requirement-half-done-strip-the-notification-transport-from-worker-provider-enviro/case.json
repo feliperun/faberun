@@ -1,0 +1,145 @@
+{
+  "schemaVersion": 2,
+  "id": "defect-requirement-half-done-strip-the-notification-transport-from-worker-provider-enviro",
+  "label": "defect:requirement-half-done",
+  "sourceTask": "strip-the-notification-transport-from-worker-provider-enviro",
+  "source": {
+    "commitSha": "3be80e33135909ce78b46d8f3b4b3df37470f3e2",
+    "parentSha": "f4137aaca14c4fab0be8e887451722e0e38dc367",
+    "runtimeOriginal": null,
+    "costUsdOriginal": null,
+    "wallClockSecOriginal": null,
+    "statementSource": "commit-message",
+    "parentTreeSha": "25299bf5c643431313c052af9e766e3eea92d55b"
+  },
+  "nodeId": "strip-worker-notify-transport",
+  "diffPaths": [
+    "skills/mine/intent-factory/scripts/supervisor.mjs",
+    "skills/mine/intent-factory/test/supervisor.test.mjs"
+  ],
+  "verification": [
+    {
+      "argv": [
+        "node",
+        "--check",
+        "skills/mine/intent-factory/scripts/supervisor.mjs"
+      ]
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "skills/mine/intent-factory/test/supervisor.test.mjs"
+      ]
+    }
+  ],
+  "taskPacket": {
+    "mode": "execution",
+    "objective": "Worker providers never receive the controller-only notification transport PLAN_RUNNER_NOTIFY_BIN, and Job.budgetStop's type admits the wallclock outcome the live loop already produces.",
+    "instructions": [
+      "childEnv (scripts/supervisor.mjs) deletes PLAN_RUNNER_NOTIFY_BIN after the driver overlay, so no driver can reintroduce it.",
+      "The Job typedef's budgetStop widens to \"node\"|\"campaign\"|\"wallclock\".",
+      "A supervisor test starts a glm provider and asserts the transport is absent while ambient variables and the driver overlay still arrive."
+    ],
+    "readFiles": [
+      "skills/mine/intent-factory/scripts/supervisor.mjs",
+      "skills/mine/intent-factory/test/supervisor.test.mjs"
+    ],
+    "writeFiles": [
+      "skills/mine/intent-factory/scripts/supervisor.mjs",
+      "skills/mine/intent-factory/test/supervisor.test.mjs"
+    ],
+    "writeRoots": [],
+    "symbols": [],
+    "decisions": [],
+    "nonGoals": [
+      "Removing any other variable from the provider environment: the driver overlay and every other ambient variable reach the provider unchanged."
+    ],
+    "verification": [
+      {
+        "argv": [
+          "node",
+          "--check",
+          "skills/mine/intent-factory/scripts/supervisor.mjs"
+        ]
+      },
+      {
+        "argv": [
+          "node",
+          "--test",
+          "skills/mine/intent-factory/test/supervisor.test.mjs"
+        ]
+      }
+    ]
+  },
+  "definitionOfDone": [
+    {
+      "id": "verification",
+      "text": "The declared verification commands pass on the sealed tree.",
+      "proof": {
+        "kind": "command",
+        "ref": "node --check skills/mine/intent-factory/scripts/supervisor.mjs && node --test skills/mine/intent-factory/test/supervisor.test.mjs"
+      }
+    },
+    {
+      "id": "notify-stripped",
+      "text": "PLAN_RUNNER_NOTIFY_BIN never reaches a worker provider, even when a driver overlay sets it.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "budget-stop-type",
+      "text": "Job.budgetStop's type includes \"wallclock\".",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "in-scope",
+      "text": "Every change in the diff serves the objective, and none does what a non-goal excludes.",
+      "judgment": true,
+      "reason": "The write boundary admits any edit inside the declared files; no command tells a requested edit from an unrequested one."
+    },
+    {
+      "id": "docs-match-code",
+      "text": "Every comment and document the diff adds or edits describes what the code does.",
+      "judgment": true,
+      "reason": "No command compares prose with behaviour."
+    },
+    {
+      "id": "tests-assert-behaviour",
+      "text": "Every test the diff adds or edits asserts the behaviour its name and the instructions claim, and no assertion is removed or loosened.",
+      "judgment": true,
+      "reason": "A loosened assertion still passes; only reading the test shows what it no longer checks."
+    }
+  ],
+  "workerResult": {
+    "status": "done",
+    "summary": "childEnv strips PLAN_RUNNER_NOTIFY_BIN after the driver overlay and Job.budgetStop admits wallclock; a supervisor test pins the stripped environment.",
+    "verification": [
+      "node --check skills/mine/intent-factory/scripts/supervisor.mjs",
+      "node --test skills/mine/intent-factory/test/supervisor.test.mjs"
+    ],
+    "artifacts": [
+      "skills/mine/intent-factory/scripts/supervisor.mjs",
+      "skills/mine/intent-factory/test/supervisor.test.mjs"
+    ],
+    "missingContext": []
+  },
+  "mutation": {
+    "kind": "requirement-half-done",
+    "description": "The transport is stripped, but the Job.budgetStop type is not widened to include wallclock.",
+    "edits": [
+      {
+        "path": "skills/mine/intent-factory/scripts/supervisor.mjs",
+        "find": [
+          "budgetStop?: \"node\"|\"campaign\"|\"wallclock\""
+        ],
+        "replace": [
+          "budgetStop?: \"node\"|\"campaign\""
+        ]
+      }
+    ]
+  },
+  "diff": "diff.patch",
+  "diffSha256": "70903d8c5ca06f18e686be51089d20b27714bf5e6ce5bacafa3bea05886e5485"
+}

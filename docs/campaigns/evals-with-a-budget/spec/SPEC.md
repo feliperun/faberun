@@ -93,7 +93,7 @@ recomputáveis da campanha anterior.
   anulado (invocações descartadas ou mortas). Uma invocação de custo
   desconhecido conta pelo maior preço já observado para aquele runtime, nunca
   por zero.
-- **proof:** `command: node --test --test-name-pattern="a stochastic class stops at its budget"`
+- **proof:** `command: node --test --test-name-pattern="a stochastic class stops at its budget" test/evals/budget.test.mjs`
 
 ### R2. O benchmark pareado é uma classe versionada
 
@@ -104,7 +104,7 @@ recomputáveis da campanha anterior.
   requisições quando o harness mede, arquivos fora do escopo, e a banda: mínimo
   e máximo sempre, e intervalo de 95% por reamostragem quando `n` for 3 ou
   mais. A classe inteira roda com arms `replay` num teste determinístico.
-- **proof:** `command: node --test --test-name-pattern="the paired class reports a band per arm"`
+- **proof:** `command: node --test --test-name-pattern="the paired class reports a band per arm" test/evals/paired.test.mjs`
 - **constraints:** o código vem de `spike/arms/` e mantém os nomes de arm e
   de hipótese do `STATE.md`, para que as leituras antigas continuem
   comparáveis.
@@ -115,7 +115,7 @@ recomputáveis da campanha anterior.
   ou `guard`. Uma run entrega as provas que passam enquanto todas as guardas
   passam, e um arm que não altera nada entrega zero. A aceitação roda sobre a
   árvore do arm antes de qualquer arquivo aceito ser restaurado por cima.
-- **proof:** `command: node --test --test-name-pattern="a paired arm that changes nothing delivers zero"`
+- **proof:** `command: node --test --test-name-pattern="a paired arm that changes nothing delivers zero" test/evals/paired.test.mjs`
 
 ### R4. O corpus pareado começa com as duas fases já medidas
 
@@ -125,7 +125,7 @@ recomputáveis da campanha anterior.
   escondida tipada e a referência histórica de custo e tempo. `--validate-corpus`
   confere que cada sha resolve no bundle de fixtures, que toda prova falha na
   base e que toda guarda passa na base.
-- **proof:** `command: node --test --test-name-pattern="every paired corpus entry fails its proofs and passes its guards at base"`
+- **proof:** `command: node --test --test-name-pattern="every paired corpus entry fails its proofs and passes its guards at base" test/evals/paired-corpus.test.mjs`
 
 ### R5. O canário do juiz tem defeitos que a prova mecânica não vê
 
@@ -137,7 +137,7 @@ recomputáveis da campanha anterior.
   `doc-contradicts-code` e `test-weakened` (asserção removida ou afrouxada).
   São pelo menos 5 casos por tipo e 10 limpos. A construção é determinística e
   versionada.
-- **proof:** `command: node --test --test-name-pattern="the judge canary corpus has every defect kind and clean controls"`
+- **proof:** `command: node --test --test-name-pattern="the judge canary corpus has every defect kind and clean controls" test/evals/judge-canary.test.mjs`
 
 ### R6. Todo defeito do canário passa pela prova mecânica que ele esconde
 
@@ -145,7 +145,7 @@ recomputáveis da campanha anterior.
   sobre a árvore com o defeito e passam. Um caso cujo defeito uma verificação
   pega é rejeitado pelo construtor, com o nome do caso, porque não mede o juiz.
   Este é o `--verify-discriminating` do canário, e roda sem modelo.
-- **proof:** `command: node --test --test-name-pattern="every canary defect passes the mechanical proof it hides behind"`
+- **proof:** `command: node --test --test-name-pattern="every canary defect passes the mechanical proof it hides behind" test/evals/judge-canary.test.mjs`
 
 ### R7. O canário reporta recall e falso alarme por runtime de juiz
 
@@ -156,7 +156,7 @@ recomputáveis da campanha anterior.
   `evals/results/judge-canary/<data>-<runtime>.json`. Um juiz `replay` que
   sempre aprova tem recall 0, e um que sempre rejeita tem falso alarme 1, e as
   duas leituras são testadas.
-- **proof:** `command: node --test --test-name-pattern="the canary scores a judge that always passes and one that always rejects"`
+- **proof:** `command: node --test --test-name-pattern="the canary scores a judge that always passes and one that always rejects" test/evals/judge-canary.test.mjs`
 
 ### R8. Todo resultado estocástico carrega a própria proveniência
 
@@ -165,14 +165,14 @@ recomputáveis da campanha anterior.
   o gasto anulado e, por runtime, harness, modelo e versão do CLI quando o
   harness a reporta. `--compare` aceita dois resultados da mesma classe e recusa
   classes diferentes.
-- **proof:** `command: node --test --test-name-pattern="a stochastic result names everything that produced it"`
+- **proof:** `command: node --test --test-name-pattern="a stochastic result names everything that produced it" test/evals/provenance.test.mjs`
 
 ### R9. O rendimento do juiz aparece nas métricas da campanha
 
 - **statement:** `faberun metrics` reporta `judgeFindingRate` (nós com pelo
   menos um finding sobre nós julgados) e `judgeCostShare` (custo de juiz sobre
   custo total precificado), calculados a partir do ledger versionado.
-- **proof:** `command: node --test --test-name-pattern="judge yield is reported per campaign"`
+- **proof:** `command: node --test --test-name-pattern="judge yield is reported per campaign" test/campaign/metrics.test.mjs`
 
 ### R10. Um item de julgamento diz o que nenhum comando verifica
 
@@ -183,7 +183,7 @@ recomputáveis da campanha anterior.
   julgamento divide o nó com itens de prova mecânica e não declara motivo. Os
   dois são advisory por padrão e bloqueiam com `--strict-traceability`. O
   formato de saída do planner inclui `reason`.
-- **proof:** `command: node --test --test-name-pattern="a judgment item without a reason is a finding"`
+- **proof:** `command: node --test --test-name-pattern="a judgment item without a reason is a finding" test/contract/judgment-reason.test.mjs`
 
 ### R11. As primeiras leituras reais são feitas e registradas
 

@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "evals-with-a-budget-review-2",
+  "campaignId": "evals-with-a-budget",
+  "goal": "Cross-vendor review of the review fixes",
+  "cwd": "../../../..",
+  "maxParallel": 1,
+  "timeoutSec": 2700,
+  "runtimeDefaults": {
+    "worker": "codex-sol-review",
+    "judge": "claude-opus"
+  },
+  "runtimes": {
+    "codex-sol-review": {
+      "harness": "codex",
+      "model": "gpt-5.6-sol",
+      "vendor": "openai",
+      "reasoning": "high",
+      "sandbox": "read-only"
+    },
+    "claude-opus": {
+      "harness": "claude",
+      "model": "claude-opus-5-5",
+      "vendor": "anthropic"
+    }
+  },
+  "nodes": [
+    {
+      "id": "review",
+      "type": "review",
+      "phase": "review",
+      "gate": false,
+      "taskPacket": {
+        "mode": "discovery",
+        "objective": "Check that the fixes answer the first review (docs/campaigns/evals-with-a-budget/control/review-findings.json): git diff a3f8492..HEAD for the files in readFiles, plus a sample of evals/judge-canary/ cases.",
+        "instructions": [
+          "Read the spec and the first review. For each finding it rated critical or major, say whether the diff fixes it, citing file and line, and whether a regression test would fail without the fix. Read at least four judge-canary cases of different kinds (their diff.patch and case.json) and check that nothing the judge reads names the label, the kind or the case, and that each defect sits inside the writeFiles of its task.",
+          "Report any new defect that would make an R11 reading lie: spend counted as zero, runs dropped from a band, a recall that credits a rejection without a finding citing the item.",
+          "Return output as {findings: [{severity: critical|major|minor, where, defect, scenario}], fixed: [first-review finding indexes judged fixed]}. Do not modify any file."
+        ],
+        "readFiles": [
+          "docs/campaigns/evals-with-a-budget/spec/SPEC.md",
+          "docs/campaigns/evals-with-a-budget/control/review-findings.json",
+          "evals/README.md",
+          "evals/budget.mjs",
+          "evals/compare.mjs",
+          "evals/judge-canary.mjs",
+          "evals/judge-canary/class.mjs",
+          "evals/judge-canary/corpus.json",
+          "evals/judge-canary/judge.mjs",
+          "evals/judge-canary/manifest.json",
+          "evals/paired.mjs",
+          "evals/paired/analyse.mjs",
+          "evals/paired/arm-faberun.mjs",
+          "evals/paired/arm-session.mjs",
+          "evals/paired/checks/centralization.mjs",
+          "evals/paired/corpus.mjs",
+          "evals/paired/corpus/simple/corpus.json",
+          "evals/paired/measure.mjs",
+          "evals/run.mjs",
+          "src/campaign/metrics.mjs",
+          "src/cli/contract.mjs",
+          "test/campaign/metrics.test.mjs",
+          "test/contract/judgment-reason.test.mjs",
+          "test/evals/budget.test.mjs",
+          "test/evals/fixtures/paired/fixture/corpus.json",
+          "test/evals/judge-canary.test.mjs",
+          "test/evals/paired.test.mjs",
+          "test/evals/provenance.test.mjs"
+        ],
+        "writeFiles": [],
+        "symbols": [],
+        "decisions": [],
+        "nonGoals": [
+          "Editing code"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "true"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,176 @@
+{
+  "schemaVersion": 1,
+  "seed": 20260923,
+  "arms": [
+    {
+      "name": "A",
+      "runner": "faberun",
+      "judge": true,
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "runtimeId": "claude-sonnet-worker",
+      "estimateUsd": 6,
+      "runtime": {
+        "harness": "claude",
+        "model": "claude-sonnet-5",
+        "reasoning": "high",
+        "vendor": "anthropic-sonnet",
+        "permissionMode": "bypassPermissions",
+        "tier": 1,
+        "costRank": 1,
+        "maxConcurrent": 3
+      }
+    },
+    {
+      "name": "B",
+      "runner": "session",
+      "subagents": false,
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "estimateUsd": 6
+    },
+    {
+      "name": "C",
+      "runner": "session",
+      "subagents": true,
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "estimateUsd": 6
+    },
+    {
+      "name": "D",
+      "runner": "faberun",
+      "judge": false,
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "runtimeId": "claude-sonnet-worker",
+      "estimateUsd": 6,
+      "runtime": {
+        "harness": "claude",
+        "model": "claude-sonnet-5",
+        "reasoning": "high",
+        "vendor": "anthropic-sonnet",
+        "permissionMode": "bypassPermissions",
+        "tier": 1,
+        "costRank": 1,
+        "maxConcurrent": 3
+      }
+    },
+    {
+      "name": "E",
+      "runner": "faberun",
+      "judge": false,
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "runtimeId": "dsh-deepseek-flash-worker",
+      "estimateUsd": 0.5,
+      "runtime": {
+        "harness": "dsh",
+        "model": "deepseek-flash",
+        "reasoning": "high",
+        "vendor": "deepseek",
+        "sandbox": "workspace-write",
+        "config": { "provider": "deepseek-official", "api_key.env_key": "DEEPSEEK_API_KEY" },
+        "tier": 1,
+        "costRank": 1,
+        "maxConcurrent": 3
+      }
+    },
+    {
+      "name": "F",
+      "runner": "faberun",
+      "judge": false,
+      "harness": "claude",
+      "model": "claude-opus-5",
+      "runtimeId": "claude-opus-worker",
+      "estimateUsd": 6,
+      "runtime": {
+        "harness": "claude",
+        "model": "claude-opus-5",
+        "reasoning": "high",
+        "vendor": "anthropic-opus",
+        "permissionMode": "bypassPermissions",
+        "tier": 1,
+        "costRank": 1,
+        "maxConcurrent": 3
+      }
+    },
+    {
+      "name": "G",
+      "runner": "faberun",
+      "judge": false,
+      "harness": "codex",
+      "model": "gpt-5.6-sol",
+      "runtimeId": "codex-sol-worker",
+      "estimateUsd": 4,
+      "runtime": {
+        "harness": "codex",
+        "model": "gpt-5.6-sol",
+        "reasoning": "high",
+        "vendor": "openai-gpt-5.6-sol",
+        "sandbox": "workspace-write",
+        "tier": 1,
+        "costRank": 1,
+        "maxConcurrent": 3
+      }
+    },
+    {
+      "name": "H",
+      "runner": "faberun",
+      "judge": false,
+      "harness": "codex",
+      "model": "gpt-5.6-luna",
+      "runtimeId": "codex-luna-worker",
+      "estimateUsd": 1,
+      "runtime": {
+        "harness": "codex",
+        "model": "gpt-5.6-luna",
+        "reasoning": "high",
+        "vendor": "openai-gpt-5.6-luna",
+        "sandbox": "workspace-write",
+        "tier": 1,
+        "costRank": 1,
+        "maxConcurrent": 3
+      }
+    },
+    {
+      "name": "I",
+      "runner": "faberun",
+      "judge": false,
+      "harness": "codex",
+      "model": "gpt-6-astra",
+      "runtimeId": "codex-astra-worker",
+      "estimateUsd": 6,
+      "runtime": {
+        "harness": "codex",
+        "model": "gpt-6-astra",
+        "reasoning": "high",
+        "vendor": "openai-gpt-6-astra",
+        "sandbox": "workspace-write",
+        "tier": 1,
+        "costRank": 1,
+        "maxConcurrent": 3,
+        "pricing": { "inputPerMTok": 10, "cachedInputPerMTok": 1, "outputPerMTok": 50 }
+      }
+    },
+    {
+      "name": "J",
+      "runner": "faberun",
+      "judge": false,
+      "harness": "zcode",
+      "model": "glm-5.3-flash",
+      "runtimeId": "zcode-glm-flash-worker",
+      "estimateUsd": 0.5,
+      "runtime": {
+        "harness": "zcode",
+        "model": "glm-5.3-flash",
+        "vendor": "zhipu",
+        "permissionMode": "yolo",
+        "config": { "auth_token.env_key": "ZAI_API_KEY" },
+        "tier": 1,
+        "costRank": 1,
+        "maxConcurrent": 3
+      }
+    }
+  ]
+}

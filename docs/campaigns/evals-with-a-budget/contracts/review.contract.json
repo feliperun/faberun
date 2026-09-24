@@ -1,0 +1,102 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "evals-with-a-budget-review",
+  "campaignId": "evals-with-a-budget",
+  "goal": "Cross-vendor review of the campaign diff against its spec",
+  "cwd": "../../../..",
+  "maxParallel": 1,
+  "timeoutSec": 2700,
+  "runtimeDefaults": {
+    "worker": "claude-opus-review",
+    "judge": "codex-luna"
+  },
+  "runtimes": {
+    "claude-opus-review": {
+      "harness": "claude",
+      "model": "claude-opus-5-5",
+      "vendor": "anthropic",
+      "reasoning": "high",
+      "permissionMode": "bypassPermissions"
+    },
+    "codex-luna": {
+      "harness": "codex",
+      "model": "gpt-5.6-luna",
+      "vendor": "openai",
+      "sandbox": "read-only"
+    }
+  },
+  "nodes": [
+    {
+      "id": "review",
+      "type": "review",
+      "phase": "review",
+      "gate": false,
+      "taskPacket": {
+        "mode": "discovery",
+        "objective": "Review the campaign change (git diff origin/main..HEAD for the files in readFiles, plus a sample of evals/judge-canary/ and evals/paired/corpus/) against docs/campaigns/evals-with-a-budget/spec/SPEC.md and report defects.",
+        "instructions": [
+          "Read the spec. For each changed file run `git diff origin/main -- <file>` and read it. Sample at least three judge-canary cases of different kinds and one paired corpus entry. Do not modify any file.",
+          "For each requirement R1 to R10 say whether the change implements the statement and whether its proof would fail without the implementation. R11 is not implemented yet; skip it.",
+          "The purpose of these instruments is numbers that are real and meaningful. Look hardest for anything that would make a reading lie: a budget that can be overrun or reports voided spend as zero, a band computed on too few points, a delivered count that credits an arm for a guard that passes at base, a canary defect a mechanical check would catch or a clean case that is not clean, a recall that counts a rejection without a finding citing the item, a result that cannot be traced to its commit, seed and runtimes, a corpus entry whose proofs pass at base. Also note that the canary was built from only three golden tasks, and say whether that limits what it can measure.",
+          "Return output as {findings: [{severity: critical|major|minor, where, defect, scenario}], satisfied: [requirement ids]}. An empty findings list is a valid answer; do not invent defects."
+        ],
+        "readFiles": [
+          "docs/campaigns/evals-with-a-budget/spec/SPEC.md",
+          "evals/README.md",
+          "evals/budget.mjs",
+          "evals/build-golden.mjs",
+          "evals/compare.mjs",
+          "evals/judge-canary.mjs",
+          "evals/judge-canary/class.mjs",
+          "evals/judge-canary/judge.mjs",
+          "evals/judge-canary/manifest.json",
+          "evals/judge-canary/runtimes.json",
+          "evals/paired.mjs",
+          "evals/paired/analyse.mjs",
+          "evals/paired/arm-faberun.mjs",
+          "evals/paired/arm-session.mjs",
+          "evals/paired/arms.json",
+          "evals/paired/checks/centralization.mjs",
+          "evals/paired/contract.mjs",
+          "evals/paired/corpus.mjs",
+          "evals/paired/fork.mjs",
+          "evals/paired/lib.mjs",
+          "evals/paired/measure.mjs",
+          "evals/paired/prompt.mjs",
+          "evals/paired/provenance.mjs",
+          "evals/paired/replay.mjs",
+          "evals/paired/validate.mjs",
+          "evals/run.mjs",
+          "src/campaign/metrics.mjs",
+          "src/contract/definition-of-done.mjs",
+          "src/contract/index.mjs",
+          "src/plan/template.mjs",
+          "test/campaign/metrics.test.mjs",
+          "test/contract/judgment-reason.test.mjs",
+          "test/evals/budget.test.mjs",
+          "test/evals/fixtures/paired/fixture/corpus.json",
+          "test/evals/judge-canary.test.mjs",
+          "test/evals/paired-corpus.test.mjs",
+          "test/evals/paired.test.mjs",
+          "test/evals/provenance.test.mjs",
+          "test/plan/template.test.mjs",
+          "test/repo/brand.test.mjs"
+        ],
+        "writeFiles": [],
+        "symbols": [],
+        "decisions": [],
+        "nonGoals": [
+          "Editing code"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "true"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

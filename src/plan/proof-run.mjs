@@ -25,6 +25,13 @@ import { NOTIFY_SESSION_ENV } from "../notify/session.mjs";
 /** @typedef {{requirementId: string|null, kind: "command"|"path", ref: string, pass: boolean, detail: string}} RequirementProofResult */
 
 export const MEASURE_TIMEOUT_MS = 30_000;
+/**
+ * A proof is a test run, not a fact probe. Measured 2026-09-24: R6 of
+ * `evals-with-a-budget` takes 98 s pinned to its file, and under the 30 s fact
+ * bound the runner died on SIGTERM with exit 1, read as a failing proof. Ten
+ * minutes has no measurement behind it beyond covering the slowest proof seen.
+ */
+const PROOF_TIMEOUT_MS = 600_000;
 export const MEASURE_OUTPUT_CAP_BYTES = 4096;
 
 /** How much of a failing proof's own output a finding carries: enough to name the failure, never the whole log. */
@@ -82,9 +89,10 @@ export function runShellCapture(cwd, command, probes = {}) {
  * @param {string} cwd
  * @param {string} command
  * @param {MeasureProbes} [probes]
- * @returns {{output: string, exitCode: number|null, truncated: boolean}}
+ * @param {number} [timeoutMs]
+ * @returns {{output: string, exitCode: number|null, truncated: boolean, timedOut: boolean}}
  */
-function runShellFull(cwd, command, probes = {}) {
+function runShellFull(cwd, command, probes = {}, timeoutMs = MEASURE_TIMEOUT_MS) {
   const run = probes.run ?? spawnSync;
   const env = { ...process.env };
   for (const key of MEASURE_SIDE_EFFECT_ENV_KEYS) delete env[key];
@@ -92,9 +100,10 @@ function runShellFull(cwd, command, probes = {}) {
   // child and prints no result at all (measured 2026-09-21, AGENTS.md), so a
   // proof run from inside a test runner would have nothing to show.
   delete env.NODE_TEST_CONTEXT;
-  const result = run(command, { shell: true, cwd, timeout: MEASURE_TIMEOUT_MS, encoding: "utf8", env });
+  const result = run(command, { shell: true, cwd, timeout: timeoutMs, encoding: "utf8", env });
   const combined = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-  return { output: combined, exitCode: result.status, truncated: Buffer.byteLength(combined, "utf8") > MEASURE_OUTPUT_CAP_BYTES };
+  const timedOut = /** @type {NodeJS.ErrnoException|undefined} */ (result.error)?.code === "ETIMEDOUT";
+  return { output: combined, exitCode: result.status, truncated: Buffer.byteLength(combined, "utf8") > MEASURE_OUTPUT_CAP_BYTES, timedOut };
 }
 
 /** `--test-name-pattern` in a shell command, quoted or bare, `=` or space. */
@@ -146,9 +155,11 @@ export function proveRequirements(cwd, requirements, probes = {}) {
     const proof = requirement.proof;
     if (!proof?.ref) continue;
     if (proof.kind === "command") {
-      const { output, exitCode } = runShellFull(cwd, proof.ref, probes);
+      const { output, exitCode, timedOut } = runShellFull(cwd, proof.ref, probes, PROOF_TIMEOUT_MS);
       const matched = exitCode === 0 ? patternMatchedATest(proof.ref, output) : null;
-      const detail = exitCode !== 0
+      const detail = timedOut
+        ? `timed out after ${PROOF_TIMEOUT_MS / 1000} s`
+        : exitCode !== 0
         ? `exit ${exitCode ?? "no exit code (killed or never started)"}${output.trim() ? `: ${output.trim().slice(0, PROOF_DETAIL_CAP)}` : ""}`
         : matched === false ? "exit 0, but its --test-name-pattern matched no test: the proof ran nothing" : "exit 0";
       results.push({ requirementId: requirement.id, kind: "command", ref: proof.ref, pass: exitCode === 0 && matched !== false, detail });

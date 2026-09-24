@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 2,
+  "id": "defect-doc-contradicts-code-deny-the-out-of-scope-write-before-the-file-exists",
+  "label": "defect:doc-contradicts-code",
+  "sourceTask": "deny-the-out-of-scope-write-before-the-file-exists",
+  "source": {
+    "commitSha": "9a1d34e21846b88ab5171b355c007f4521712622",
+    "parentSha": "9d9d3280afa2c1bccba5cd63f94b1d6a939fb9d5",
+    "runtimeOriginal": null,
+    "costUsdOriginal": null,
+    "wallClockSecOriginal": null,
+    "statementSource": "commit-message",
+    "parentTreeSha": "c1f911b532ebb800bf9f029440f58b602d2afd80"
+  },
+  "nodeId": "deny-new-out-of-scope-writes",
+  "diffPaths": [
+    "skills/mine/intent-factory/src/host/tool-policy-decisions.mjs",
+    "skills/mine/intent-factory/test/host/tool-policy.test.mjs"
+  ],
+  "verification": [
+    {
+      "argv": [
+        "node",
+        "--check",
+        "skills/mine/intent-factory/src/host/tool-policy-decisions.mjs"
+      ]
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "skills/mine/intent-factory/test/host/tool-policy.test.mjs"
+      ]
+    }
+  ],
+  "taskPacket": {
+    "mode": "execution",
+    "objective": "The write-scope decision in the tool-policy hook denies a write whose target lies outside the declared scope even when the target does not exist yet: scope membership is a fact about the path, not about the disk.",
+    "instructions": [
+      "writeScopeDecision (src/host/tool-policy-decisions.mjs) stops consulting whether the target exists: a Write, Edit or NotebookEdit target outside the declared writeFiles and writeRoots is denied whether or not the file is on disk, and a declared target passes whether or not it exists.",
+      "The two read decisions keep passing a missing, unreadable or non-regular target through: a file that cannot be measured still cannot be judged.",
+      "The module header and the DECISION 1 comment state the new rule, and the helper that only served the existence check goes away.",
+      "The missing-path test asserts that creating a new file outside the scope is denied."
+    ],
+    "readFiles": [
+      "skills/mine/intent-factory/src/host/tool-policy-decisions.mjs",
+      "skills/mine/intent-factory/test/host/tool-policy.test.mjs"
+    ],
+    "writeFiles": [
+      "skills/mine/intent-factory/src/host/tool-policy-decisions.mjs",
+      "skills/mine/intent-factory/test/host/tool-policy.test.mjs"
+    ],
+    "writeRoots": [],
+    "symbols": [],
+    "decisions": [],
+    "nonGoals": [
+      "Changing the denial reason a denied write reports: its wording and the list of declared paths it shows stay as they are.",
+      "Catching writes made through Bash; the post-hoc scope gate owns those."
+    ],
+    "verification": [
+      {
+        "argv": [
+          "node",
+          "--check",
+          "skills/mine/intent-factory/src/host/tool-policy-decisions.mjs"
+        ]
+      },
+      {
+        "argv": [
+          "node",
+          "--test",
+          "skills/mine/intent-factory/test/host/tool-policy.test.mjs"
+        ]
+      }
+    ]
+  },
+  "definitionOfDone": [
+    {
+      "id": "verification",
+      "text": "The declared verification commands pass on the sealed tree.",
+      "proof": {
+        "kind": "command",
+        "ref": "node --check skills/mine/intent-factory/src/host/tool-policy-decisions.mjs && node --test skills/mine/intent-factory/test/host/tool-policy.test.mjs"
+      }
+    },
+    {
+      "id": "new-file-denied",
+      "text": "writeScopeDecision denies a write outside the declared scope whether or not its target exists, and passes a declared target whether or not it exists.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "reads-pass-missing",
+      "text": "readThresholdDecision and bashReadDecision still pass a missing or unmeasurable target through.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "in-scope",
+      "text": "Every change in the diff serves the objective, and none does what a non-goal excludes.",
+      "judgment": true,
+      "reason": "The write boundary admits any edit inside the declared files; no command tells a requested edit from an unrequested one."
+    },
+    {
+      "id": "docs-match-code",
+      "text": "Every comment and document the diff adds or edits describes what the code does.",
+      "judgment": true,
+      "reason": "No command compares prose with behaviour."
+    },
+    {
+      "id": "tests-assert-behaviour",
+      "text": "Every test the diff adds or edits asserts the behaviour its name and the instructions claim, and no assertion is removed or loosened.",
+      "judgment": true,
+      "reason": "A loosened assertion still passes; only reading the test shows what it no longer checks."
+    }
+  ],
+  "workerResult": {
+    "status": "done",
+    "summary": "writeScopeDecision no longer consults the disk: an out-of-scope target is denied whether or not it exists. The comments state the rule and the missing-path test asserts the denial.",
+    "verification": [
+      "node --check skills/mine/intent-factory/src/host/tool-policy-decisions.mjs",
+      "node --test skills/mine/intent-factory/test/host/tool-policy.test.mjs"
+    ],
+    "artifacts": [
+      "skills/mine/intent-factory/src/host/tool-policy-decisions.mjs",
+      "skills/mine/intent-factory/test/host/tool-policy.test.mjs"
+    ],
+    "missingContext": []
+  },
+  "mutation": {
+    "kind": "doc-contradicts-code",
+    "description": "The DECISION 1 comment keeps the old rule (a target that does not exist passes through) while the code denies it.",
+    "edits": [
+      {
+        "path": "skills/mine/intent-factory/src/host/tool-policy-decisions.mjs",
+        "find": [
+          " * not a closed one, and denies nothing. Existence is not consulted: a path is",
+          " * in the declared scope or it is not, and a file the attempt is about to",
+          " * create is exactly the case worth catching before it exists."
+        ],
+        "replace": [
+          " * not a closed one, and denies nothing. A target that does not exist cannot be",
+          " * shown to violate the scope, so it passes through same as an unmeasurable",
+          " * read target -- the post-hoc scope gate in `engine/scope.mjs` is what catches",
+          " * a genuinely out-of-scope file the attempt actually created."
+        ]
+      }
+    ]
+  },
+  "diff": "diff.patch",
+  "diffSha256": "28d2e3980397967b5fc263ac373d02446c9554ab27a6b3f4342d20d9931a988a"
+}

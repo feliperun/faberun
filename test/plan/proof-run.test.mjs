@@ -24,3 +24,19 @@ test("a proof whose test-name pattern matches no test fails", () => {
   assert.equal(prove(`node --test --test-name-pattern=${quoted} real.test.mjs`).pass, true, "quotes and a partial pattern still match");
   assert.equal(prove("node --test real.test.mjs").pass, true, "a proof with no pattern is judged by its exit code alone");
 });
+
+// Measured 2026-09-24 on evals-with-a-budget: R6's 98 s proof ran under the
+// 30 s fact bound, the runner died on SIGTERM with exit 1, and the finding
+// blamed the proof.
+test("a proof that runs out of time says so, and gets more than a fact probe", () => {
+  /** @type {number[]} */
+  const timeouts = [];
+  const run = /** @type {any} */ ((/** @type {string} */ _command, /** @type {{timeout: number}} */ options) => {
+    timeouts.push(options.timeout);
+    return { status: 1, stdout: "", stderr: "", error: Object.assign(new Error("spawnSync /bin/sh ETIMEDOUT"), { code: "ETIMEDOUT" }) };
+  });
+  const [result] = proveRequirements(tmpdir(), [/** @type {any} */ ({ id: "R1", proof: { kind: "command", ref: "node --test slow.test.mjs" } })], { run });
+  assert.equal(result.pass, false);
+  assert.match(result.detail, /^timed out after \d+ s$/u);
+  assert.ok(timeouts[0] > 98_000, "the slowest proof measured must fit");
+});

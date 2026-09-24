@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "seed": 20260923,
+  "runtimes": [
+    {
+      "id": "glm-5.3-flash",
+      "harness": "zcode",
+      "model": "glm-5.3-flash",
+      "vendor": "zhipu",
+      "permissionMode": "plan",
+      "estimateUsd": 0.5,
+      "config": { "auth_token.env_key": "ZAI_API_KEY" }
+    },
+    {
+      "id": "claude-sonnet-5",
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "vendor": "anthropic",
+      "permissionMode": "acceptEdits",
+      "tools": ["Read", "Glob", "Grep"],
+      "estimateUsd": 3,
+      "sandbox": "read-only"
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "harness": "codex",
+      "model": "gpt-5.6-sol",
+      "vendor": "openai",
+      "sandbox": "read-only",
+      "estimateUsd": 4
+    }
+  ]
+}

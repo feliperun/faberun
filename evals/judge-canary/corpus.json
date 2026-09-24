@@ -1,0 +1,753 @@
+{
+  "schemaVersion": 2,
+  "why": "Hand-authored sources of the judge canary: one packet per golden task, stated as a real contract would state it, and one in-file edit set per defect case. `node evals/judge-canary.mjs` builds the sealed cases from this file; the label and the description never reach the judge.",
+  "tasks": [
+    {
+      "task": "deny-the-out-of-scope-write-before-the-file-exists",
+      "node": "deny-new-out-of-scope-writes",
+      "objective": "The write-scope decision in the tool-policy hook denies a write whose target lies outside the declared scope even when the target does not exist yet: scope membership is a fact about the path, not about the disk.",
+      "instructions": [
+        "writeScopeDecision (src/host/tool-policy-decisions.mjs) stops consulting whether the target exists: a Write, Edit or NotebookEdit target outside the declared writeFiles and writeRoots is denied whether or not the file is on disk, and a declared target passes whether or not it exists.",
+        "The two read decisions keep passing a missing, unreadable or non-regular target through: a file that cannot be measured still cannot be judged.",
+        "The module header and the DECISION 1 comment state the new rule, and the helper that only served the existence check goes away.",
+        "The missing-path test asserts that creating a new file outside the scope is denied."
+      ],
+      "nonGoals": [
+        "Changing the denial reason a denied write reports: its wording and the list of declared paths it shows stay as they are.",
+        "Catching writes made through Bash; the post-hoc scope gate owns those."
+      ],
+      "behaviours": [
+        {
+          "id": "new-file-denied",
+          "text": "writeScopeDecision denies a write outside the declared scope whether or not its target exists, and passes a declared target whether or not it exists."
+        },
+        {
+          "id": "reads-pass-missing",
+          "text": "readThresholdDecision and bashReadDecision still pass a missing or unmeasurable target through."
+        }
+      ],
+      "summary": "writeScopeDecision no longer consults the disk: an out-of-scope target is denied whether or not it exists. The comments state the rule and the missing-path test asserts the denial."
+    },
+    {
+      "task": "anthropic-soft-limit-fixture",
+      "node": "anthropic-soft-limit-fixture",
+      "objective": "Pin with a regression fixture that Anthropic's soft session-limit stop normalizes to exhaustion with a reset instant, distinct from a hard stop that has none.",
+      "instructions": [
+        "Add a drivers test that feeds normalizeProviderResult a claude stream ending in the session-limit error ('Claude AI usage limit reached. Your limit will reset at 2026-09-08 20:30:00') and asserts status exhausted, error code quota_exhausted, the reset text in the message, and the session id as continuation.",
+        "The same test asserts that normalizeProviderAvailability reports it unavailable with reason quota_exhausted and exhaustedUntil exactly 2026-09-08T20:30:00.000Z.",
+        "The same test contrasts it with the hard, resetless balance stop ('402 Insufficient Balance'): reason insufficient_balance and no reset instant, so the two stops are shown to differ."
+      ],
+      "nonGoals": [
+        "Changing any driver or normalizer: this node adds a test only."
+      ],
+      "behaviours": [
+        {
+          "id": "soft-limit-exhausted",
+          "text": "The test pins the soft limit as exhausted with code quota_exhausted, its message and continuation id, and its exact reset instant 2026-09-08T20:30:00.000Z."
+        },
+        {
+          "id": "hard-stop-contrasted",
+          "text": "The test pins the hard balance stop as insufficient_balance with no reset instant, and shows the two stops differ."
+        }
+      ],
+      "summary": "Added a drivers test pinning Anthropic's soft session limit as exhausted with its reset instant and contrasting it with the resetless 402 balance stop."
+    },
+    {
+      "task": "classify-codex-tool-host-failure-before-cancellation",
+      "node": "codex-tool-host-precedence",
+      "objective": "normalizeCodexResult classifies a disabled code-mode host before a termination signal, and bounded codex diagnostics never exceed 512 UTF-8 bytes.",
+      "instructions": [
+        "In normalizeCodexResult (scripts/drivers/exec-jsonl.mjs), classify a code-mode-host-disabled item error before the termination signal and before any later turn.completed or agent_message: a harness that dies after the host error is a provider failure (tool_host_unavailable), never a cancellation, and still reports the completed turn's usage.",
+        "A signal with no tool-host error still cancels.",
+        "boundedMessage cuts before the character that starts at the byte ceiling instead of backing up onto a dangling lead byte, so a truncated multibyte diagnostic re-encodes to at most 512 UTF-8 bytes with no U+FFFD.",
+        "The CODEX_PREAMBLE_OVERRIDES comment (scripts/drivers/codex.mjs) records all four measured host outcomes: gpt-5.6-sol 35,130 fabricated vs 35,199 correct tool-backed; deepseek-v4-flash 25,795 vs 25,783, both correct.",
+        "Regression tests pin the precedence, the byte bound and the measurements."
+      ],
+      "nonGoals": [
+        "Changing how other item-level error records (rollout_budget warnings, missing model metadata) are treated: they stay ignored diagnostics."
+      ],
+      "behaviours": [
+        {
+          "id": "host-error-before-signal",
+          "text": "A tool-host error followed by a termination signal normalizes to a failed tool_host_unavailable envelope with the turn's usage; a signal alone still cancels."
+        },
+        {
+          "id": "diagnostics-bounded",
+          "text": "Bounded codex diagnostics are at most 512 UTF-8 bytes and never end in a dangling multibyte sequence."
+        },
+        {
+          "id": "measurements-recorded",
+          "text": "The preamble comment records the four measured host outcomes."
+        }
+      ],
+      "summary": "normalizeCodexResult now classifies the tool-host error ahead of the signal, boundedMessage cuts on a character boundary, and the preamble comment records the four measurements; tests pin all three."
+    },
+    {
+      "task": "deepseek-balance-classification",
+      "node": "deepseek-balance-classification",
+      "objective": "normalizeProviderAvailability reports DeepSeek's 402 'Insufficient Balance' stop as its own reason, insufficient_balance, with no reset instant, distinct from quota exhaustion and authentication failure.",
+      "instructions": [
+        "In normalizeProviderAvailability (scripts/drivers/index.mjs), classify a text matching 'insufficient balance' or a standalone 402 as {available: false, exhaustedUntil: null, reason: 'insufficient_balance'}, before the quota branch.",
+        "The wording alone, without the numeric code, classifies the same way.",
+        "A drivers test pins both the codex stream shape and the wording-only envelope, and that the reason is neither quota_exhausted nor authentication_failed."
+      ],
+      "nonGoals": [
+        "Changing how quota exhaustion, rate limits or authentication failures are classified: their patterns and reasons stay as they are."
+      ],
+      "behaviours": [
+        {
+          "id": "balance-reason",
+          "text": "A 402 or 'Insufficient Balance' stop, with or without the numeric code, is insufficient_balance with exhaustedUntil null."
+        }
+      ],
+      "summary": "normalizeProviderAvailability classifies the 402 balance stop as insufficient_balance ahead of the quota branch; a drivers test pins the stream and wording-only shapes."
+    },
+    {
+      "task": "macos-process-start-token",
+      "node": "darwin-process-start-token",
+      "objective": "processStartToken fingerprints a live process on darwin too, so a recycled pid is told apart from the lock holder there as it already is on Linux.",
+      "instructions": [
+        "On darwin, processStartToken (scripts/lock.mjs) returns the process's start time as reported by `ps -o lstart= -p <pid>`, and null when ps fails or prints nothing.",
+        "Linux keeps reading field 22 of /proc/<pid>/stat; every other platform returns null.",
+        "The processStartToken comment says where each platform's token comes from.",
+        "lock tests pin a stable darwin token for a live process, a different token for a recycled pid, a mismatch between synthetic tokens (bootstrapMatchesChild and lockStale), and null on other platforms."
+      ],
+      "nonGoals": [
+        "Adding a compiled addon or requiring elevated privileges."
+      ],
+      "behaviours": [
+        {
+          "id": "darwin-token",
+          "text": "On darwin the token is ps's lstart for the pid, null when ps fails or prints nothing."
+        },
+        {
+          "id": "other-platforms",
+          "text": "Linux keeps its /proc token and every other platform returns null."
+        }
+      ],
+      "summary": "processStartToken reads ps lstart on darwin, keeps /proc on Linux and returns null elsewhere; lock tests pin darwin stability, a recycled pid, synthetic mismatches and the other-platform null."
+    },
+    {
+      "task": "stop-a-failing-proof-from-killing-the-controller",
+      "node": "bound-failing-proof-evidence",
+      "objective": "A failing command proof with oversized output can no longer crash the controller mid-gate, a Python virtual environment no longer moves the ignore-source fingerprint, and the contract reference states what a gate costs and what it will not see.",
+      "instructions": [
+        "boundedText (scripts/judge-gate.mjs) reserves the ellipsis marker's 3 bytes and shrinks until the encoded result fits, so a finding's evidence never exceeds the 4 KiB ceiling even when the cut lands inside a multibyte character.",
+        "captureIgnoreSources (scripts/verification.mjs) skips a virtual environment like node_modules: .venv and venv by name, and any directory holding pyvenv.cfg.",
+        "references/contract.md gains a section stating three gate properties: a command proof is executed at gate time under a 120-second cap; failOn ['critical'] is close to no gate at all against a judge that works at major; a worker reads only inside its worktree, so text a node must read belongs in the packet.",
+        "verification tests pin the oversized failing proof accepted by validateNodeSnapshot and the venv-neutral fingerprint."
+      ],
+      "nonGoals": [
+        "Changing the 4 KiB evidence ceiling or the validator that enforces it."
+      ],
+      "behaviours": [
+        {
+          "id": "evidence-fits",
+          "text": "A failing proof's evidence is at most 4 KiB after truncation, multibyte cuts included, and the snapshot validator accepts it."
+        },
+        {
+          "id": "venv-ignored",
+          "text": "A virtual environment, by name or by its pyvenv.cfg marker, adds no ignore source."
+        },
+        {
+          "id": "gate-properties-documented",
+          "text": "The contract reference states all three gate properties."
+        }
+      ],
+      "summary": "boundedText now reserves the marker and shrinks to fit, the ignore-source walk skips virtual environments, and contract.md documents three gate properties; verification tests pin the first two."
+    },
+    {
+      "task": "report-the-provider-s-startup-error-not-just-an-empty-stream",
+      "node": "report-provider-startup-error",
+      "objective": "When a provider's stream ends with no completion event, the claude, codex and agy normalizers report the process's own stderr instead of only an empty-stream message.",
+      "instructions": [
+        "NormalizeOptions (scripts/drivers/index.mjs) carries an optional stderr string.",
+        "normalizeClaudeResult, normalizeAgyResult and normalizeCodexResult (scripts/drivers/protocol.mjs) append the trimmed stderr, bounded to 512 bytes, to their incomplete_stream message when the stream carries no completion event; with no stderr the message is unchanged.",
+        "recordInvocationUsage (scripts/node.mjs) passes the stderr tail it already reads to normalizeProviderResult.",
+        "A drivers test pins a codex config-load error reaching the message, and the unchanged message without stderr."
+      ],
+      "nonGoals": [
+        "Changing how much of the stderr log the invocation path reads: it keeps its existing 512 KiB tail."
+      ],
+      "behaviours": [
+        {
+          "id": "stderr-in-all-three",
+          "text": "All three normalizers (claude, codex and agy) append the bounded stderr to an incomplete_stream message, and leave it unchanged without stderr."
+        },
+        {
+          "id": "invocation-passes-stderr",
+          "text": "The invocation path hands its stderr tail to the normalizer."
+        }
+      ],
+      "summary": "The claude, codex and agy normalizers append the process's stderr to an incomplete_stream message, and recordInvocationUsage passes the stderr tail it reads; a drivers test pins the codex config-load case."
+    },
+    {
+      "task": "strip-the-notification-transport-from-worker-provider-enviro",
+      "node": "strip-worker-notify-transport",
+      "objective": "Worker providers never receive the controller-only notification transport PLAN_RUNNER_NOTIFY_BIN, and Job.budgetStop's type admits the wallclock outcome the live loop already produces.",
+      "instructions": [
+        "childEnv (scripts/supervisor.mjs) deletes PLAN_RUNNER_NOTIFY_BIN after the driver overlay, so no driver can reintroduce it.",
+        "The Job typedef's budgetStop widens to \"node\"|\"campaign\"|\"wallclock\".",
+        "A supervisor test starts a glm provider and asserts the transport is absent while ambient variables and the driver overlay still arrive."
+      ],
+      "nonGoals": [
+        "Removing any other variable from the provider environment: the driver overlay and every other ambient variable reach the provider unchanged."
+      ],
+      "behaviours": [
+        {
+          "id": "notify-stripped",
+          "text": "PLAN_RUNNER_NOTIFY_BIN never reaches a worker provider, even when a driver overlay sets it."
+        },
+        {
+          "id": "budget-stop-type",
+          "text": "Job.budgetStop's type includes \"wallclock\"."
+        }
+      ],
+      "summary": "childEnv strips PLAN_RUNNER_NOTIFY_BIN after the driver overlay and Job.budgetStop admits wallclock; a supervisor test pins the stripped environment."
+    },
+    {
+      "task": "carry-git-s-own-reason-into-a-failed-git-command",
+      "node": "carry-git-failure-reason",
+      "objective": "A failed git command in worktree.mjs carries git's own reason into the error instead of only 'Command failed'.",
+      "instructions": [
+        "Every git call in scripts/worktree.mjs runs through one helper, runGit, which on failure appends git's stderr (or its stdout when stderr is empty) to the first line of the error message and rethrows.",
+        "git() and every direct execFileSync git call in the module (update-ref, worktree add and remove, add, rm --cached, commit, diff --quiet) use that helper.",
+        "An integration test pins that a failing git() call keeps 'Command failed' and adds git's reason."
+      ],
+      "nonGoals": [
+        "Changing the identity or message sealAttempt commits with."
+      ],
+      "behaviours": [
+        {
+          "id": "every-call-wrapped",
+          "text": "Every git call in worktree.mjs goes through runGit, the sealing commit included."
+        },
+        {
+          "id": "reason-appended",
+          "text": "A failing git call's error keeps its first line and appends git's stderr, or its stdout when stderr is empty."
+        }
+      ],
+      "summary": "Added runGit, which appends git's own reason to a failed command, and routed every git call in worktree.mjs through it; an integration test pins the reason."
+    },
+    {
+      "task": "stop-re-sealing-a-clean-attempt-from-failing-the-retry",
+      "node": "reseal-probe-exclusions",
+      "objective": "Re-sealing an attempt whose only entry is the node_modules link is a no-op instead of an empty commit that fails the retry.",
+      "instructions": [
+        "sealAttempt's dirtiness probe (scripts/worktree.mjs) excludes exactly what the staging step unstages: the result sidecar directory and node_modules.",
+        "A comment beside the probe records why the two must match.",
+        "An integration test seals a repository whose only new entries are a node_modules symlink and the result sidecar, and asserts the existing seal is kept: the same sha, and empty against the base."
+      ],
+      "nonGoals": [
+        "Changing what the staging step stages or unstages."
+      ],
+      "behaviours": [
+        {
+          "id": "probe-matches-staging",
+          "text": "The probe excludes the result sidecar and node_modules, so an attempt with only those entries is not committed again."
+        }
+      ],
+      "summary": "sealAttempt's probe now excludes node_modules as the staging step does; an integration test pins that re-sealing keeps the existing seal."
+    }
+  ],
+  "defects": [
+    {
+      "task": "deny-the-out-of-scope-write-before-the-file-exists",
+      "kind": "test-weakened",
+      "description": "The missing-path assertion is loosened from 'the decision is deny' to 'the decision is not undefined', which a null pass-through also satisfies.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/test/host/tool-policy.test.mjs",
+          "find": [
+            "  assert.equal(",
+            "    writeScopeDecision({ workspace, writeFiles: [\"ghost.mjs\"], writeRoots: [] }, { tool_name: \"Write\", tool_input: { file_path: outOfScope } })",
+            "      ?.hookSpecificOutput.permissionDecision,",
+            "    \"deny\","
+          ],
+          "replace": [
+            "  assert.notEqual(",
+            "    writeScopeDecision({ workspace, writeFiles: [\"ghost.mjs\"], writeRoots: [] }, { tool_name: \"Write\", tool_input: { file_path: outOfScope } }),",
+            "    undefined,"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "anthropic-soft-limit-fixture",
+      "kind": "test-weakened",
+      "description": "The exact reset-instant assertion is loosened to a date-prefix match, so a wrong hour or timezone still passes.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/test/drivers.test.mjs",
+          "find": [
+            "  assert.equal(softLimit.exhaustedUntil, \"2026-09-08T20:30:00.000Z\", \"the reset instant is parsed from the error text, proving this is retryable-after-reset\");"
+          ],
+          "replace": [
+            "  assert.match(String(softLimit.exhaustedUntil), /^2026-09-08/u, \"the reset instant is parsed from the error text, proving this is retryable-after-reset\");"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "classify-codex-tool-host-failure-before-cancellation",
+      "kind": "test-weakened",
+      "description": "The precedence test no longer asserts status failed and code tool_host_unavailable; it only asserts the status is not done, which a cancellation also satisfies.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/test/drivers.test.mjs",
+          "find": [
+            "  assert.equal(envelope.status, \"failed\", \"the tool-host failure wins over the termination signal and stays a provider failure\");",
+            "  assert.equal(envelope.result, null);",
+            "  assert.equal(envelope.error?.code, \"tool_host_unavailable\");"
+          ],
+          "replace": [
+            "  assert.notEqual(envelope.status, \"done\", \"the tool-host failure wins over the termination signal and stays a provider failure\");",
+            "  assert.equal(envelope.result, null);"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "deepseek-balance-classification",
+      "kind": "test-weakened",
+      "description": "The wording-only assertion is loosened from the full availability record to available === false, so a wording-only stop classified under any reason passes.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/test/drivers.test.mjs",
+          "find": [
+            "  assert.deepEqual(wordingOnly, { available: false, exhaustedUntil: null, reason: \"insufficient_balance\" });"
+          ],
+          "replace": [
+            "  assert.equal(wordingOnly.available, false);"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "stop-re-sealing-a-clean-attempt-from-failing-the-retry",
+      "kind": "test-weakened",
+      "description": "The seal-kept assertion is loosened from 'the sha equals the existing seal' to 'a sha exists', so a new empty commit also passes.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/test/integration.test.mjs",
+          "find": [
+            "  assert.equal(result.sha, sealed, \"a clean attempt keeps its existing seal instead of failing to commit nothing\");"
+          ],
+          "replace": [
+            "  assert.ok(result.sha, \"a clean attempt keeps its existing seal instead of failing to commit nothing\");"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "deny-the-out-of-scope-write-before-the-file-exists",
+      "kind": "doc-contradicts-code",
+      "description": "The DECISION 1 comment keeps the old rule (a target that does not exist passes through) while the code denies it.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/src/host/tool-policy-decisions.mjs",
+          "find": [
+            " * not a closed one, and denies nothing. Existence is not consulted: a path is",
+            " * in the declared scope or it is not, and a file the attempt is about to",
+            " * create is exactly the case worth catching before it exists."
+          ],
+          "replace": [
+            " * not a closed one, and denies nothing. A target that does not exist cannot be",
+            " * shown to violate the scope, so it passes through same as an unmeasurable",
+            " * read target -- the post-hoc scope gate in `engine/scope.mjs` is what catches",
+            " * a genuinely out-of-scope file the attempt actually created."
+          ]
+        }
+      ]
+    },
+    {
+      "task": "classify-codex-tool-host-failure-before-cancellation",
+      "kind": "doc-contradicts-code",
+      "description": "The comment above the tool-host check says the termination signal is read first and wins, while the code classifies the tool-host error first.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/drivers/exec-jsonl.mjs",
+          "find": [
+            "  // fabricated result, never evidence. The tool-host failure is classified",
+            "  // first so it wins over a later termination signal, a completed turn, or an",
+            "  // agent_message verdict: a judge grounded in no inspection is rejected, and",
+            "  // a harness that dies after the host error is not a plain cancellation."
+          ],
+          "replace": [
+            "  // fabricated result, never evidence. A termination signal is still read",
+            "  // first: a harness killed after the host error is a plain cancellation, and",
+            "  // only a turn that ran to completion is reclassified as a tool-host failure",
+            "  // so a judge grounded in no inspection is rejected."
+          ]
+        }
+      ]
+    },
+    {
+      "task": "stop-a-failing-proof-from-killing-the-controller",
+      "kind": "doc-contradicts-code",
+      "description": "The boundedText comment says an overshoot is harmless because the validator truncates downstream and no loop is needed, while the code loops to fit and the validator throws.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/judge-gate.mjs",
+          "find": [
+            "  // The marker costs 3 bytes in UTF-8 and a byte-aligned cut can land inside a",
+            "  // multibyte character, whose replacement costs 3 more. Reserve the marker and",
+            "  // then shrink until the encoded result actually fits: a finding that exceeds",
+            "  // the validator's evidence ceiling is not truncated downstream, it throws, and",
+            "  // the throw kills the controller mid-gate."
+          ],
+          "replace": [
+            "  // The marker costs 3 bytes in UTF-8. Cut to the limit and append it: the",
+            "  // validator truncates evidence past its ceiling downstream, so an overshoot",
+            "  // of a few bytes is harmless and the cut needs no retry."
+          ]
+        }
+      ]
+    },
+    {
+      "task": "carry-git-s-own-reason-into-a-failed-git-command",
+      "kind": "doc-contradicts-code",
+      "description": "The runGit comment says stdout is never part of the reason, while gitFailureReason falls back to stdout.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/worktree.mjs",
+          "find": [
+            " * command, never git's \"nothing to commit\". Every git call here goes through",
+            " * this helper so a failure always says why."
+          ],
+          "replace": [
+            " * command, never git's \"nothing to commit\". Every git call here goes through",
+            " * this helper so a failure always says why. Only stderr is carried: git's",
+            " * stdout is never part of the reason."
+          ]
+        }
+      ]
+    },
+    {
+      "task": "macos-process-start-token",
+      "kind": "doc-contradicts-code",
+      "description": "The processStartToken comment says darwin reads sysctl kern.proc and falls back to the pid, while the code runs ps -o lstart= and returns null.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/lock.mjs",
+          "find": [
+            " * Linux, field 22 of /proc/<pid>/stat. On darwin, there is no /proc, so the",
+            " * fingerprint comes from the OS process table instead: `ps -o lstart=`",
+            " * reports the same live process's own start time on every call and a",
+            " * different one for whatever process next reuses that pid, without a",
+            " * compiled addon or elevated privileges. Every other platform has no cheap",
+            " * equivalent, so the pid probe alone decides there."
+          ],
+          "replace": [
+            " * Linux, field 22 of /proc/<pid>/stat. On darwin, there is no /proc, so the",
+            " * fingerprint comes from `sysctl kern.proc.pid.<pid>`, whose p_starttime is",
+            " * the same on every call for a live process and differs for whatever process",
+            " * next reuses that pid; when sysctl is unavailable the token falls back to",
+            " * the pid itself. Every other platform has no cheap equivalent, so the pid",
+            " * probe alone decides there."
+          ]
+        }
+      ]
+    },
+    {
+      "task": "anthropic-soft-limit-fixture",
+      "kind": "requirement-half-done",
+      "description": "The test pins the soft limit but drops the hard, resetless counterpart its instructions and its own title promise.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/test/drivers.test.mjs",
+          "find": [
+            "  assert.equal(softLimit.exhaustedUntil, \"2026-09-08T20:30:00.000Z\", \"the reset instant is parsed from the error text, proving this is retryable-after-reset\");",
+            "",
+            "  // The prior node's DeepSeek fixture is the hard, resetless counterpart: both",
+            "  // are unavailable, but only the soft limit reports a reset to wait out.",
+            "  const hardStop = normalizeProviderAvailability(\"codex\", {",
+            "    status: \"failed\",",
+            "    error: { code: \"provider_error\", message: \"402 Insufficient Balance\" },",
+            "  });",
+            "  assert.equal(hardStop.reason, \"insufficient_balance\");",
+            "  assert.equal(hardStop.exhaustedUntil, null, \"a hard balance stop has no reset instant to report\");",
+            "  assert.notEqual(softLimit.exhaustedUntil, hardStop.exhaustedUntil);",
+            "});"
+          ],
+          "replace": [
+            "  assert.equal(softLimit.exhaustedUntil, \"2026-09-08T20:30:00.000Z\", \"the reset instant is parsed from the error text, proving this is retryable-after-reset\");",
+            "});"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "report-the-provider-s-startup-error-not-just-an-empty-stream",
+      "kind": "requirement-half-done",
+      "description": "Only the codex normalizer appends stderr; the claude and agy normalizers still report the bare empty-stream message.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/drivers/protocol.mjs",
+          "find": [
+            "  if (!resultEvent) return failed(\"incomplete_stream\", withStartupReason(\"Claude emitted no result event\", options));"
+          ],
+          "replace": [
+            "  if (!resultEvent) return failed(\"incomplete_stream\", \"Claude emitted no result event\");"
+          ]
+        },
+        {
+          "path": "skills/mine/intent-factory/scripts/drivers/protocol.mjs",
+          "find": [
+            "    return failed(\"incomplete_stream\", withStartupReason(\"agy emitted no result event\", options));"
+          ],
+          "replace": [
+            "    return failed(\"incomplete_stream\", \"agy emitted no result event\");"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "stop-a-failing-proof-from-killing-the-controller",
+      "kind": "requirement-half-done",
+      "description": "The contract reference section states two of the three gate properties; the worker-reads-only-inside-the-worktree property is missing.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/references/contract.md",
+          "find": [
+            "Three properties of the gate are load-bearing and each one has cost a campaign"
+          ],
+          "replace": [
+            "Two properties of the gate are load-bearing and each one has cost a campaign"
+          ]
+        },
+        {
+          "path": "skills/mine/intent-factory/references/contract.md",
+          "find": [
+            "`failOn: [\"major\"]` unless there is a stated reason not to.",
+            "",
+            "**A worker reads only inside the worktree.** The `claude` driver passes no",
+            "`--add-dir`, and no contract field grants one, so an instruction naming an",
+            "absolute path outside `cwd` silently produces nothing — the worker scans, the",
+            "read fails, and the node proceeds on whatever it inferred. Embed the text the",
+            "node must read in the packet itself rather than pointing at a path outside the",
+            "repository."
+          ],
+          "replace": [
+            "`failOn: [\"major\"]` unless there is a stated reason not to."
+          ]
+        }
+      ]
+    },
+    {
+      "task": "carry-git-s-own-reason-into-a-failed-git-command",
+      "kind": "requirement-half-done",
+      "description": "The sealing commit, the call the reason was missing from, still runs through a bare execFileSync with stdio ignored.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/worktree.mjs",
+          "find": [
+            "    runGit([",
+            "      \"-C\", path,",
+            "      \"-c\", \"user.email=runner@example.test\",",
+            "      \"-c\", \"user.name=intent-factory\",",
+            "      \"-c\", \"commit.gpgSign=false\",",
+            "      \"commit\", \"-qm\", `intent-factory ${runId} ${nodeId} attempt ${attempt}`,",
+            "    ]);"
+          ],
+          "replace": [
+            "    execFileSync(\"git\", [",
+            "      \"-C\", path,",
+            "      \"-c\", \"user.email=runner@example.test\",",
+            "      \"-c\", \"user.name=intent-factory\",",
+            "      \"-c\", \"commit.gpgSign=false\",",
+            "      \"commit\", \"-qm\", `intent-factory ${runId} ${nodeId} attempt ${attempt}`,",
+            "    ], { stdio: \"ignore\" });"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "strip-the-notification-transport-from-worker-provider-enviro",
+      "kind": "requirement-half-done",
+      "description": "The transport is stripped, but the Job.budgetStop type is not widened to include wallclock.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/supervisor.mjs",
+          "find": [
+            "budgetStop?: \"node\"|\"campaign\"|\"wallclock\""
+          ],
+          "replace": [
+            "budgetStop?: \"node\"|\"campaign\""
+          ]
+        }
+      ]
+    },
+    {
+      "task": "deny-the-out-of-scope-write-before-the-file-exists",
+      "kind": "nongoal-violated",
+      "description": "The denial reason changes: it shows up to 32 declared paths instead of 12 and adds a hint to ask for a wider scope, which a non-goal excludes.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/src/host/tool-policy-decisions.mjs",
+          "find": [
+            "  const shown = declared.slice(0, 12);",
+            "  const omitted = declared.length - shown.length;",
+            "  const remainder = omitted > 0 ? ` (and ${omitted} more not shown)` : \"\";",
+            "  return `write denied: this path is outside the declared write scope. Declared write paths: ${shown.join(\", \")}${remainder}. Write only to one of those.`;"
+          ],
+          "replace": [
+            "  const shown = declared.slice(0, 32);",
+            "  const omitted = declared.length - shown.length;",
+            "  const remainder = omitted > 0 ? ` (and ${omitted} more not shown)` : \"\";",
+            "  return `write denied: this path is outside the declared write scope. Declared write paths: ${shown.join(\", \")}${remainder}. Write only to one of those, or ask the controller to widen the scope.`;"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "deepseek-balance-classification",
+      "kind": "nongoal-violated",
+      "description": "The quota pattern gains billing and credit, changing quota classification, which a non-goal excludes.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/drivers/index.mjs",
+          "find": [
+            "  if (envelope.status === \"exhausted\" || /quota|rate.?limit|usage limit|limit exhausted|1310/iu.test(text)) {"
+          ],
+          "replace": [
+            "  if (envelope.status === \"exhausted\" || /quota|rate.?limit|usage limit|limit exhausted|billing|credit|1310/iu.test(text)) {"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "report-the-provider-s-startup-error-not-just-an-empty-stream",
+      "kind": "nongoal-violated",
+      "description": "The invocation path now reads 8 MiB of the stderr log instead of its 512 KiB tail, which a non-goal excludes.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/node.mjs",
+          "find": [
+            "    const boundedStderr = readBoundedTail(job.paths.stderr, 512 * 1024);"
+          ],
+          "replace": [
+            "    const boundedStderr = readBoundedTail(job.paths.stderr, 8 * 1024 * 1024);"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "strip-the-notification-transport-from-worker-provider-enviro",
+      "kind": "nongoal-violated",
+      "description": "childEnv also deletes SSH_AUTH_SOCK, removing another ambient variable from the provider environment, which a non-goal excludes.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/supervisor.mjs",
+          "find": [
+            "  delete merged.PLAN_RUNNER_NOTIFY_BIN;",
+            "  return merged;"
+          ],
+          "replace": [
+            "  delete merged.PLAN_RUNNER_NOTIFY_BIN;",
+            "  delete merged.SSH_AUTH_SOCK;",
+            "  return merged;"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "stop-re-sealing-a-clean-attempt-from-failing-the-retry",
+      "kind": "nongoal-violated",
+      "description": "The staging step now also unstages .claude, changing what it unstages, which a non-goal excludes.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/worktree.mjs",
+          "find": [
+            "    execFileSync(\"git\", [\"-C\", path, \"rm\", \"-r\", \"-q\", \"--cached\", \"--ignore-unmatch\", \"--\", \".runs\", \"node_modules\"], { stdio: \"ignore\" });"
+          ],
+          "replace": [
+            "    execFileSync(\"git\", [\"-C\", path, \"rm\", \"-r\", \"-q\", \"--cached\", \"--ignore-unmatch\", \"--\", \".runs\", \"node_modules\", \".claude\"], { stdio: \"ignore\" });"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "classify-codex-tool-host-failure-before-cancellation",
+      "kind": "scope-drift-inside-writefiles",
+      "description": "features.computer_use=false is dropped from the preamble overrides, an unrequested behaviour change inside codex.mjs.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/drivers/codex.mjs",
+          "find": [
+            "  \"features.browser_use_external=false\",",
+            "  \"features.computer_use=false\","
+          ],
+          "replace": [
+            "  \"features.browser_use_external=false\","
+          ]
+        }
+      ]
+    },
+    {
+      "task": "macos-process-start-token",
+      "kind": "scope-drift-inside-writefiles",
+      "description": "pidAlive now treats EPERM as a dead process, an unrequested behaviour change inside lock.mjs.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/lock.mjs",
+          "find": [
+            "    return errorCode(error) === \"EPERM\";"
+          ],
+          "replace": [
+            "    return false;"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "report-the-provider-s-startup-error-not-just-an-empty-stream",
+      "kind": "scope-drift-inside-writefiles",
+      "description": "parseVersion now accepts two-part versions, an unrequested behaviour change inside protocol.mjs.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/drivers/protocol.mjs",
+          "find": [
+            "  return /(?:^|[\\s/])v?\\d+\\.\\d+\\.\\d+(?:[-+][0-9A-Za-z.-]+)?(?:$|\\s)/u.test(line)"
+          ],
+          "replace": [
+            "  return /(?:^|[\\s/])v?\\d+\\.\\d+(?:\\.\\d+)?(?:[-+][0-9A-Za-z.-]+)?(?:$|\\s)/u.test(line)"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "carry-git-s-own-reason-into-a-failed-git-command",
+      "kind": "scope-drift-inside-writefiles",
+      "description": "removeWorktree now swallows every failure when the path is gone, not only git's exit 128, an unrequested behaviour change inside worktree.mjs.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/worktree.mjs",
+          "find": [
+            "    if (existsSync(path)) rmSync(path, { recursive: true, force: true });",
+            "    else if (/** @type {{status?: number}} */ (error)?.status !== 128) throw error;"
+          ],
+          "replace": [
+            "    if (existsSync(path)) rmSync(path, { recursive: true, force: true });"
+          ]
+        }
+      ]
+    },
+    {
+      "task": "deepseek-balance-classification",
+      "kind": "scope-drift-inside-writefiles",
+      "description": "A normalizer that throws is now reported as provider_unavailable instead of its own message, an unrequested behaviour change inside index.mjs.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/drivers/index.mjs",
+          "find": [
+            "    return { available: false, exhaustedUntil: null, reason: error instanceof Error ? error.message : \"provider_unavailable\" };"
+          ],
+          "replace": [
+            "    return { available: false, exhaustedUntil: null, reason: \"provider_unavailable\" };"
+          ]
+        }
+      ]
+    }
+  ]
+}

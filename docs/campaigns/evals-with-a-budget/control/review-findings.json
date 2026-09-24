@@ -1,0 +1,130 @@
+{
+ "findings": [
+  {
+   "severity": "critical",
+   "where": "evals/judge-canary.mjs definitionOfDone()/mutationFor(); evals/judge-canary/judge.mjs canaryWorkerResult()",
+   "defect": "The case label reaches the judge by three routes. The judgment item text is `The sealed candidate is classified as <label>`, and its `reason` is the mutation's own description. The worker result summary interpolates `(${artifact.label})`. The planted file's path is `canary/defect-<kind>-NN-<task>/...`, and its content announces the defect: `// The assertion was removed; an empty test still passes.`, `// This candidate implements an explicitly out-of-scope behaviour.`. Clean cases carry no canary/ file at all. The item's meaning is also inverted: on a defect case, an accurate judge should PASS 'classified as defect:X'.",
+   "scenario": "A judge that reads the summary, or any rule like 'reject if the tree has a canary/ directory', scores recall 1.0 and false alarm 0.0. A careful judge that arbitrates the item as written passes every case and scores recall 0. D9 would then be decided on a number that measures label reading, not defect detection."
+  },
+  {
+   "severity": "critical",
+   "where": "evals/judge-canary.mjs mutationFor()/taskPacket()/makeArtifact()",
+   "defect": "The planted defects are not the kinds the spec asks for, and most of them are mechanically catchable. Every mutation adds a new file under canary/<id>/, and the node's verification never reads that file (it is only `node --check` on the golden files). So R6's discriminating check cannot fail for any case this builder produces. For 4 of the 5 kinds the file is outside writeFiles and outside writeRoots [src/, test/], which the product's scope audit catches without a model. Every packet has nonGoals: [], so there is no declared non-goal for `nongoal-violated` to violate. The objective and instructions are the commit subject ('intent-factory ... cli-usage-string attempt 2'), so `requirement-half-done` has no declared behaviour to leave half done. `test-weakened` adds a new empty test rather than weakening an existing assertion. `scope-drift-inside-writefiles` is only inside writeFiles because the builder appends the planted path to writeFiles.",
+   "scenario": "A mechanical out-of-scope check rejects 20 of the 25 defects. R6 stays green forever, including for a corpus where the defect would be caught by a real behavioural proof. Any recall reading is on synthetic, self-labelled files, not on the historical failure types the Risks table promised."
+  },
+  {
+   "severity": "critical",
+   "where": "evals/paired/arm-faberun.mjs return {costUsd: sum(usage, \"costUsd\")} + evals/paired/measure.mjs completeInvocation(reservation, {costUsd})",
+   "defect": "The faberun arm sums usage.jsonl costs and treats unpriced records as 0. It then hands that sum to the budget as a provider-reported cost, and priceUsage accepts any number as priced. When findRunDir returns null, or usage.jsonl is empty, the arm reports costUsd 0 and the budget records a priced $0. `unpricedInvocations` is computed and then ignored. This breaks R1's 'unknown cost counts at the highest observed price, never zero'.",
+   "scenario": "An arm E/J run whose zcode/dsh invocations are unpriced, or a run whose run dir the driver cannot find, settles at $0 or at a partial sum. The allowance is not charged, so later arms launch past the real cap. The report shows costUsd 0 and costPerDeliveredProof 0, which reads as a free writer."
+  },
+  {
+   "severity": "major",
+   "where": "evals/paired/analyse.mjs runIndicators()/armReport(); evals/paired/measure.mjs catch branch",
+   "defect": "Errored runs and zero-delivery runs drop out of the bands. An errored run has no proofsPassed and no costUsd, so it gives null and bandOf filters it out. costPerDeliveredProof is null whenever delivered is 0, so that run's spend disappears from the cost-per-proof band and its median. The row still says runs: 3, and interval95 is computed on the surviving points.",
+   "scenario": "An arm that delivers 0, 0 and 2 proofs at $5 each reports costPerDeliveredProof 2.5..2.5 (n=1) instead of $7.50 per delivered proof. An arm that crashed twice reports proofsDelivered from its one good run. Two arms can look equal when one of them failed most repetitions."
+  },
+  {
+   "severity": "major",
+   "where": "evals/judge-canary/class.mjs scoreByLabel()/scoreOverall()",
+   "defect": "The recall and false-alarm denominators count every invocation, including ones with a thrown error or an unparseable verdict. Neither table reports errors per label.",
+   "scenario": "A judge that times out or returns malformed JSON on clean cases gets a lower false-alarm rate: each error counts as 'did not reject'. A flaky judge therefore looks more precise than a working one, and the reader cannot see why."
+  },
+  {
+   "severity": "major",
+   "where": "evals/judge-canary/*/ (corpus built by buildCanaryArtifacts from canaryTasks())",
+   "defect": "The canary is cut from only 3 golden tasks (cli-usage-string, dead-export-sweep, lease-liveness-fold), chosen because their verification is `node --check` only. The 10 clean controls are 3 distinct diffs and packets, repeated 4+3+3 times; they differ only in the case-identity item text. Each kind's 5 cases use one fixed mutation template over at most 3 bases. All the code is intent-factory-era skills/mine/*, not the current product.",
+   "scenario": "Real limits: the false-alarm rate rests on 3 candidates but is reported as n=10; per-kind recall is effectively one template; the only 'mechanical proof' is a syntax check, so behaviour-level kinds (half-done, test-weakened) are never measured behind a real test; and the readings do not transfer to judging src/ nodes."
+  },
+  {
+   "severity": "major",
+   "where": "evals/judge-canary/judge.mjs canaryJudgePrompt() diff: artifact.taskPacket.writeFiles",
+   "defect": "The judge's 'Controller diff paths' come from the packet's writeFiles, not from the sealed diff. For every kind except scope-drift, the planted file is not in that list.",
+   "scenario": "The judge is told that only the golden files changed. A judge that trusts the controller's path list never opens the defect, so recall measures whether it wanders the tree, not whether it catches the defect."
+  },
+  {
+   "severity": "major",
+   "where": "evals/paired/analyse.mjs (ported 'reduced to what R2 needs'); evals/compare.mjs compareStochasticResults()",
+   "defect": "The spike's hypothesis names and readings (H1 to H4) are gone, although R2's constraint says the arm and hypothesis names must be kept so old readings stay comparable. Nothing reports 'not resolved' when a difference fits inside the band, which the Risks table relies on. --compare diffs only seed, repeat, budget and spend. It does not compare per-arm bands or recall, and it accepts two paired results over different corpora.",
+   "scenario": "After R11's 3 repetitions, no artifact says whether H1 to H4 resolved. Comparing a complex-corpus result with a simple-corpus result 'succeeds' and shows only budget deltas."
+  },
+  {
+   "severity": "major",
+   "where": "src/campaign/metrics.mjs judgeYieldOf(eventList, usageRecords)",
+   "defect": "judgeFindingRate is computed from all events and usage records, not from eligibleEvents, yet it passes `excluded` to rate(). The indicator lists excludedRunIds whose nodes it counted.",
+   "scenario": "A campaign with an excluded run (for example a harness-broken run whose judge failed every node) shows that run as excluded while its fails still inflate judgeFindingRate."
+  },
+  {
+   "severity": "major",
+   "where": "src/contract/definition-of-done.mjs judgmentReasonWarnings(); src/contract/index.mjs",
+   "defect": "R10 says the two findings block under --strict-traceability. The code comment says 'contract validate has no strict traceability flag'. No such flag exists for contract validate (only `spec validate` has one), and the proof never tests blocking.",
+   "scenario": "An operator who runs `faberun contract validate --strict-traceability` on a contract full of reasonless judgment items still gets exit 0."
+  },
+  {
+   "severity": "major",
+   "where": "evals/paired.mjs provenanceRuntimes; evals/paired/contract.mjs JUDGE_RUNTIME",
+   "defect": "The paired provenance records one runtime per arm, the writer. Arm A's blocking judge (codex-sol-judge / gpt-5.6-sol) spends money and gates delivery, but it is not in provenance.runtimes and its CLI version is never probed. The commit is HEAD with no dirty flag. arms.json is not hashed, and the canary provenance carries no corpus/manifest hash or builderVersion.",
+   "scenario": "An A-versus-D reading cannot be traced to the judge's model or CLI version. A run made with uncommitted edits to arms.json or to the canary cases records a commit that did not produce it."
+  },
+  {
+   "severity": "minor",
+   "where": "evals/judge-canary/class.mjs resultPath `${date}-${runtime}.json`",
+   "defect": "Two runs of the same runtime on the same day write to the same file, so the second overwrites the first. The proof test does exactly this: its always-pass result is overwritten by always-reject.",
+   "scenario": "An operator who reruns a canary after a budget stop loses the first result and its recorded spend."
+  },
+  {
+   "severity": "minor",
+   "where": "evals/budget.mjs startInvocation()/completeInvocation()",
+   "defect": "The cap binds on the estimate, not the settled cost, so the last invocation can push spend past budgetUsd by (actual - estimate). highestObservedUsd lives only for one process, so the first unknown-cost invocation of a run falls back to its own reservation. `--budget-usd \"\"` parses as 0.",
+   "scenario": "An arm F run estimated at $6 that costs $9 overruns a tight budget by $3, and the result does not flag it."
+  },
+  {
+   "severity": "minor",
+   "where": "test/evals/paired.test.mjs; test/evals/fixtures/paired/fixture/corpus.json",
+   "defect": "The R3 proof does not check the ordering clause: guard-restored passes whenever the restored file exists, whether or not the restore happened before the other checks. The R2 proof uses a single arm, so it never exercises the seeded shuffle, and it never asserts that n<3 gives no interval95.",
+   "scenario": "A regression that restores accepted files before the arm-tree checks, or one that ignores the seed, keeps both proofs green."
+  },
+  {
+   "severity": "minor",
+   "where": "evals/paired/corpus/simple/corpus.json; evals/paired/corpus.mjs KIND_BY_ID",
+   "defect": "The simple round declares no guard at all. The complex round has guards typecheck and source-shape, while KIND_BY_ID still names a spike-era `regression` guard that the corpus no longer declares. The historical proofsPassed may therefore have been taken under a different acceptance; I could not confirm this against the spike branch, which is outside the read set.",
+   "scenario": "In the simple round, an arm that breaks unrelated code still delivers 10/10. New complex readings may not be comparable one-to-one with history.arms."
+  },
+  {
+   "severity": "minor",
+   "where": "evals/paired/checks/centralization.mjs",
+   "defect": "The check imports RUNS_DIR_NAME from the driver's checkout rather than from the arm's tree, and it matches only a double-quoted literal.",
+   "scenario": "An arm that spells the runs dir with single quotes or a template literal passes the proof. So does every arm, if the product later renames the runs dir."
+  },
+  {
+   "severity": "minor",
+   "where": "src/campaign/metrics.mjs judgeCostShare",
+   "defect": "judgeCostShare counts only priced records. Unknown-cost judge invocations drop out of both numerator and denominator, and count does not say so.",
+   "scenario": "A campaign judged by an unpriced harness reports a judge share near 0."
+  },
+  {
+   "severity": "minor",
+   "where": "evals/README.md",
+   "defect": "The README documents the paired class but has no section for the judge-canary class, its runtimes.json, or its result path.",
+   "scenario": "An operator preparing R11 has no usage for `--class judge-canary --runtime`."
+  }
+ ],
+ "satisfied": [
+  "R3",
+  "R4",
+  "R7",
+  "R9"
+ ],
+ "perRequirement": {
+  "R1": "Module implemented and its proof discriminates. The statement is broken in the paired class: the faberun arm settles unknown spend as a priced 0.",
+  "R2": "Class, seed shuffle, repeat and band are implemented, and the proof fails without them. The hypothesis-name constraint is dropped, and errored or zero-delivery runs vanish from the bands.",
+  "R3": "Implemented: typed checks, deliveredOf, non-restore checks before restore. The proof catches guard-as-delivery but not the restore order.",
+  "R4": "Both rounds are present with shas a1117f7/4913ef2, typed acceptance, history, and a validator for sha resolution, proofs failing at base and guards passing at base. Verbatim packets were not verifiable inside the read set.",
+  "R5": "Counts are met (10 clean, 5 per kind, deterministic build). The kinds are not real: labels leak, and the defects are self-announcing new files that a scope check catches.",
+  "R6": "The verifier code exists, but it is vacuous: no mutation touches a file any verification reads, so it cannot fail for this builder.",
+  "R7": "Implemented, and the replay pass/reject proof discriminates. Errored invocations sit in the denominators.",
+  "R8": "Mostly implemented, and the proof discriminates. Arm A's judge runtime, a dirty flag, and the canary corpus hash are missing.",
+  "R9": "Implemented, and the proof discriminates. Excluded runs are still counted.",
+  "R10": "The reason field, both findings and the planner shape are implemented. Blocking under --strict-traceability is missing."
+ }
+}
