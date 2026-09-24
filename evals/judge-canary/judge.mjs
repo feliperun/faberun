@@ -11,9 +11,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { JUDGE_SCHEMA, judgePrompt } from "../../src/engine/prompts.mjs";
-import { normalizeProviderResult, providerCommand } from "../../src/harnesses/index.mjs";
+import { normalizeProviderAvailability, normalizeProviderResult, providerCommand } from "../../src/harnesses/index.mjs";
 import { sealedDiffPaths } from "../judge-canary.mjs";
 import { providerEnv } from "../paired/lib.mjs";
+import { recordInvocationWindows } from "../../src/run/usage-windows.mjs";
 
 /** @typedef {import("../judge-canary.mjs").CanaryArtifact} CanaryArtifact */
 
@@ -57,7 +58,14 @@ async function askHarnessJudge({ runtime, prompt, workspace }) {
     rmSync(schemaDir, { recursive: true, force: true });
   }
   const envelope = normalizeProviderResult(/** @type {any} */ (runtime), collected.stdout, collected.code, collected.signal, { preferStructured: true });
+  try {
+    recordInvocationWindows(/** @type {any} */ (runtime), envelope.continuationId);
+  } catch {
+    // Telemetry about the account; a missing session file is no reading, not a failed case.
+  }
   if (typeof envelope.result !== "string" || envelope.result.length === 0) {
+    const refusal = refusalOf(runtime, envelope, collected.stderr);
+    if (refusal) throw refusal;
     throw new Error(envelope.error?.message ?? "judge produced no verdict");
   }
   return {
@@ -65,6 +73,41 @@ async function askHarnessJudge({ runtime, prompt, workspace }) {
     ...(envelope.usage ? { usage: /** @type {Record<string, unknown>} */ (envelope.usage) } : {}),
     costUsd: typeof envelope.costUsd === "number" ? envelope.costUsd : null,
   };
+}
+
+/** Provider answers that no further case can change: every later call gets the same refusal. */
+const REFUSALS = new Set(["quota_exhausted", "insufficient_balance", "model_not_supported"]);
+
+/** A provider that refused the work before doing any: the class stops on it instead of asking the next case. */
+export class ProviderRefusal extends Error {
+  /** @param {string} reason @param {string|null} exhaustedUntil @param {string} message */
+  constructor(reason, exhaustedUntil, message) {
+    super(`provider refused the work (${reason}${exhaustedUntil ? `, back at ${exhaustedUntil}` : ""}): ${message}`);
+    this.reason = reason;
+    this.exhaustedUntil = exhaustedUntil;
+  }
+}
+
+/**
+ * The refusal a failed judge call carries, classified by the product's own
+ * availability rules over the envelope and the provider's stderr. Measured
+ * 2026-09-24: zcode printed `[1308] Usage limit reached for 5 hour` on stderr
+ * only, the envelope said "ZCode emitted no result object", and the class
+ * asked 70 more cases that all failed the same way.
+ *
+ * @param {Record<string, unknown>} runtime
+ * @param {{status?: string, error?: {code?: string, message?: string} | null}} envelope
+ * @param {string} stderr
+ * @returns {ProviderRefusal|null}
+ */
+export function refusalOf(runtime, envelope, stderr) {
+  // The whole bounded stderr is classified, not its tail. Measured 2026-09-24:
+  // zcode printed the [1308] line first and 3 KB of HTTP headers after it, so
+  // a 2000-character tail held no quota text and 39 refusals read as errors.
+  const text = [envelope.error?.message ?? "", stderr.slice(-65_536)].filter(Boolean).join("\n");
+  const availability = normalizeProviderAvailability(/** @type {any} */ (runtime), { ...envelope, status: envelope.status === "done" ? "failed" : envelope.status ?? "failed", error: { ...envelope.error, message: text } });
+  const line = text.split("\n").find((entry) => /quota|rate.?limit|usage limit|balance|not supported/iu.test(entry)) ?? text;
+  return REFUSALS.has(availability.reason) ? new ProviderRefusal(availability.reason, availability.exhaustedUntil, line.trim().slice(0, 400)) : null;
 }
 
 /**

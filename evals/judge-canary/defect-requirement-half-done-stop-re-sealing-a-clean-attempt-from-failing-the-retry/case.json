@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 3,
+  "id": "defect-requirement-half-done-stop-re-sealing-a-clean-attempt-from-failing-the-retry",
+  "label": "defect:requirement-half-done",
+  "sourceTask": "stop-re-sealing-a-clean-attempt-from-failing-the-retry",
+  "source": {
+    "commitSha": "6e1afef0e241cfff4c6a89a0dc90bc66b667580c",
+    "parentSha": "ce675f9ddc82859f729915a460378b05f8b880c2",
+    "runtimeOriginal": null,
+    "costUsdOriginal": null,
+    "wallClockSecOriginal": null,
+    "statementSource": "commit-message",
+    "parentTreeSha": "f0ea38b7b45cb721ecf2aa3867192fe580133b33"
+  },
+  "nodeId": "reseal-probe-exclusions",
+  "diffPaths": [
+    "skills/mine/intent-factory/scripts/worktree.mjs",
+    "skills/mine/intent-factory/test/integration.test.mjs"
+  ],
+  "verification": [
+    {
+      "argv": [
+        "node",
+        "--check",
+        "skills/mine/intent-factory/scripts/worktree.mjs"
+      ]
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "skills/mine/intent-factory/test/integration.test.mjs"
+      ]
+    }
+  ],
+  "taskPacket": {
+    "mode": "execution",
+    "objective": "Re-sealing an attempt whose only entry is the node_modules link is a no-op instead of an empty commit that fails the retry.",
+    "instructions": [
+      "sealAttempt's dirtiness probe (scripts/worktree.mjs) excludes exactly what the staging step unstages: the result sidecar directory and node_modules.",
+      "A comment beside the probe records why the two must match.",
+      "An integration test seals a repository whose only new entries are a node_modules symlink and the result sidecar, and asserts the existing seal is kept: the same sha, and empty against the base."
+    ],
+    "readFiles": [
+      "skills/mine/intent-factory/scripts/worktree.mjs",
+      "skills/mine/intent-factory/test/integration.test.mjs"
+    ],
+    "writeFiles": [
+      "skills/mine/intent-factory/scripts/worktree.mjs",
+      "skills/mine/intent-factory/test/integration.test.mjs"
+    ],
+    "writeRoots": [],
+    "symbols": [],
+    "decisions": [],
+    "nonGoals": [
+      "Changing what the staging step stages or unstages."
+    ],
+    "verification": [
+      {
+        "argv": [
+          "node",
+          "--check",
+          "skills/mine/intent-factory/scripts/worktree.mjs"
+        ]
+      },
+      {
+        "argv": [
+          "node",
+          "--test",
+          "skills/mine/intent-factory/test/integration.test.mjs"
+        ]
+      }
+    ]
+  },
+  "definitionOfDone": [
+    {
+      "id": "verification",
+      "text": "The declared verification commands pass on the sealed tree.",
+      "proof": {
+        "kind": "command",
+        "ref": "node --check skills/mine/intent-factory/scripts/worktree.mjs && node --test skills/mine/intent-factory/test/integration.test.mjs"
+      }
+    },
+    {
+      "id": "probe-matches-staging",
+      "text": "The probe excludes the result sidecar and node_modules, so an attempt with only those entries is not committed again.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "in-scope",
+      "text": "Every change in the diff serves the objective, and none does what a non-goal excludes.",
+      "judgment": true,
+      "reason": "The write boundary admits any edit inside the declared files; no command tells a requested edit from an unrequested one."
+    },
+    {
+      "id": "docs-match-code",
+      "text": "Every comment and document the diff adds or edits describes what the code does.",
+      "judgment": true,
+      "reason": "No command compares prose with behaviour."
+    },
+    {
+      "id": "tests-assert-behaviour",
+      "text": "Every test the diff adds or edits asserts the behaviour its name and the instructions claim, and no assertion is removed or loosened.",
+      "judgment": true,
+      "reason": "A loosened assertion still passes; only reading the test shows what it no longer checks."
+    }
+  ],
+  "workerResult": {
+    "status": "done",
+    "summary": "sealAttempt's probe now excludes node_modules as the staging step does; an integration test pins that re-sealing keeps the existing seal.",
+    "verification": [
+      "node --check skills/mine/intent-factory/scripts/worktree.mjs",
+      "node --test skills/mine/intent-factory/test/integration.test.mjs"
+    ],
+    "artifacts": [
+      "skills/mine/intent-factory/scripts/worktree.mjs",
+      "skills/mine/intent-factory/test/integration.test.mjs"
+    ],
+    "missingContext": []
+  },
+  "authoredBy": {
+    "runtime": "gpt-6-sol",
+    "family": "openai"
+  },
+  "mutation": {
+    "kind": "requirement-half-done",
+    "description": "The dirtiness probe excludes node_modules but still includes an unignored .runs result sidecar, so re-sealing a sidecar-only attempt still tries an empty commit.",
+    "edits": [
+      {
+        "path": "skills/mine/intent-factory/scripts/worktree.mjs",
+        "find": [
+          "  const dirty = git(path, [\"status\", \"--porcelain=v1\", \"--\", \".\", \":(exclude).runs\", \":(exclude)node_modules\"]);"
+        ],
+        "replace": [
+          "  const dirty = git(path, [\"status\", \"--porcelain=v1\", \"--\", \".\", \":(exclude)node_modules\"]);"
+        ]
+      }
+    ]
+  },
+  "diff": "diff.patch",
+  "diffSha256": "e9f092c639e11b83caa5059d63e3d7e14d1e4eb6c5a0a709d812e8c8cfdf30eb"
+}

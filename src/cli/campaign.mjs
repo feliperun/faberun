@@ -320,6 +320,7 @@ function close(campaignId, values) {
     process.stdout.write(`[campaign] ledger skipped · ${skipped.runId}/${skipped.source}\n`);
   }
   reportRequirementClosure(closed.campaign.requirements ?? []);
+  if (closed.worktrees.removed > 0) process.stdout.write(`[campaign] worktrees released · ${closed.worktrees.removed} · archived under refs/faberun-archive/\n`);
   if (syncAgentSignal(runsDir)) process.stdout.write(`[campaign] AGENTS.md signal updated\n`);
 }
 

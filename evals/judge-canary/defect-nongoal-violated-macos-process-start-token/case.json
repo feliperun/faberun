@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 3,
+  "id": "defect-nongoal-violated-macos-process-start-token",
+  "label": "defect:nongoal-violated",
+  "sourceTask": "macos-process-start-token",
+  "source": {
+    "commitSha": "772efa3aece4439fbd966e91f6df2684884383e1",
+    "parentSha": "02530af7a07e3aeb95b5d9256cded8935de01fe6",
+    "runtimeOriginal": null,
+    "costUsdOriginal": null,
+    "wallClockSecOriginal": null,
+    "statementSource": "commit-message",
+    "parentTreeSha": "666687c4c65e597d2c01435e29cef2af6b79cc91"
+  },
+  "nodeId": "darwin-process-start-token",
+  "diffPaths": [
+    "skills/mine/intent-factory/scripts/lock.mjs",
+    "skills/mine/intent-factory/test/lock.test.mjs"
+  ],
+  "verification": [
+    {
+      "argv": [
+        "node",
+        "--check",
+        "skills/mine/intent-factory/scripts/lock.mjs"
+      ]
+    },
+    {
+      "argv": [
+        "node",
+        "--test",
+        "skills/mine/intent-factory/test/lock.test.mjs"
+      ]
+    }
+  ],
+  "taskPacket": {
+    "mode": "execution",
+    "objective": "processStartToken fingerprints a live process on darwin too, so a recycled pid is told apart from the lock holder there as it already is on Linux.",
+    "instructions": [
+      "On darwin, processStartToken (scripts/lock.mjs) returns the process's start time as reported by `ps -o lstart= -p <pid>`, and null when ps fails or prints nothing.",
+      "Linux keeps reading field 22 of /proc/<pid>/stat; every other platform returns null.",
+      "The processStartToken comment says where each platform's token comes from.",
+      "lock tests pin a stable darwin token for a live process, a different token for a recycled pid, a mismatch between synthetic tokens (bootstrapMatchesChild and lockStale), and null on other platforms."
+    ],
+    "readFiles": [
+      "skills/mine/intent-factory/scripts/lock.mjs",
+      "skills/mine/intent-factory/test/lock.test.mjs"
+    ],
+    "writeFiles": [
+      "skills/mine/intent-factory/scripts/lock.mjs",
+      "skills/mine/intent-factory/test/lock.test.mjs"
+    ],
+    "writeRoots": [],
+    "symbols": [],
+    "decisions": [],
+    "nonGoals": [
+      "Adding a compiled addon or requiring elevated privileges."
+    ],
+    "verification": [
+      {
+        "argv": [
+          "node",
+          "--check",
+          "skills/mine/intent-factory/scripts/lock.mjs"
+        ]
+      },
+      {
+        "argv": [
+          "node",
+          "--test",
+          "skills/mine/intent-factory/test/lock.test.mjs"
+        ]
+      }
+    ]
+  },
+  "definitionOfDone": [
+    {
+      "id": "verification",
+      "text": "The declared verification commands pass on the sealed tree.",
+      "proof": {
+        "kind": "command",
+        "ref": "node --check skills/mine/intent-factory/scripts/lock.mjs && node --test skills/mine/intent-factory/test/lock.test.mjs"
+      }
+    },
+    {
+      "id": "darwin-token",
+      "text": "On darwin the token is ps's lstart for the pid, null when ps fails or prints nothing.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "other-platforms",
+      "text": "Linux keeps its /proc token and every other platform returns null.",
+      "judgment": true,
+      "reason": "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there."
+    },
+    {
+      "id": "in-scope",
+      "text": "Every change in the diff serves the objective, and none does what a non-goal excludes.",
+      "judgment": true,
+      "reason": "The write boundary admits any edit inside the declared files; no command tells a requested edit from an unrequested one."
+    },
+    {
+      "id": "docs-match-code",
+      "text": "Every comment and document the diff adds or edits describes what the code does.",
+      "judgment": true,
+      "reason": "No command compares prose with behaviour."
+    },
+    {
+      "id": "tests-assert-behaviour",
+      "text": "Every test the diff adds or edits asserts the behaviour its name and the instructions claim, and no assertion is removed or loosened.",
+      "judgment": true,
+      "reason": "A loosened assertion still passes; only reading the test shows what it no longer checks."
+    }
+  ],
+  "workerResult": {
+    "status": "done",
+    "summary": "processStartToken reads ps lstart on darwin, keeps /proc on Linux and returns null elsewhere; lock tests pin darwin stability, a recycled pid, synthetic mismatches and the other-platform null.",
+    "verification": [
+      "node --check skills/mine/intent-factory/scripts/lock.mjs",
+      "node --test skills/mine/intent-factory/test/lock.test.mjs"
+    ],
+    "artifacts": [
+      "skills/mine/intent-factory/scripts/lock.mjs",
+      "skills/mine/intent-factory/test/lock.test.mjs"
+    ],
+    "missingContext": []
+  },
+  "authoredBy": {
+    "runtime": "deepseek-v4-pro",
+    "family": "deepseek"
+  },
+  "mutation": {
+    "kind": "nongoal-violated",
+    "description": "processStartToken shells out through sudo on darwin, requiring elevated privileges to fingerprint a process, which the non-goal excludes.",
+    "edits": [
+      {
+        "path": "skills/mine/intent-factory/scripts/lock.mjs",
+        "find": [
+          "      const started = execFileSync(\"ps\", [\"-o\", \"lstart=\", \"-p\", String(pid)], { encoding: \"utf8\" }).trim();"
+        ],
+        "replace": [
+          "      const started = execFileSync(\"sudo\", [\"-n\", \"ps\", \"-o\", \"lstart=\", \"-p\", String(pid)], { encoding: \"utf8\" }).trim();"
+        ]
+      }
+    ]
+  },
+  "diff": "diff.patch",
+  "diffSha256": "af3956729ce7ceecdadc5c06846d6b1e15bf1aa5abd718a5a0d383765319007e"
+}

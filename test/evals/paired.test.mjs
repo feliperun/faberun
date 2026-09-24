@@ -158,3 +158,28 @@ test("paired bands count zero-delivery spend and show errored runs separately", 
   assert.equal(report.band.proofsDelivered.min, 0, "zero delivery remains in the band");
   assert.equal(report.perRun[0].costPerDeliveredProof, null, "the zero-delivery per-run value stays explicit");
 });
+
+// Measured 2026-09-24: R11 ran every arm one at a time, so each repetition of
+// the complex round took the sum of its arms' wall clock.
+test("paired arms run up to --concurrency at once and report in the serial order", async () => {
+  /** @param {string} name @param {number} cost */
+  const arm = (name, cost) => ({
+    name,
+    runner: "replay",
+    model: "replay-model",
+    harness: "replay",
+    config: { runs: [{ costUsd: cost, requests: 1, wallMs: 10, writes: WORKING_WRITES }, { costUsd: cost, requests: 1, wallMs: 10, writes: WORKING_WRITES }] },
+  });
+  const arms = [arm("R", 1), arm("S", 2), arm("T", 3)];
+  const serial = await runFixture({ arms, repeat: 2, seed: 7 });
+  const pooled = await runFixture({ arms, repeat: 2, seed: 7, concurrency: 3 });
+  try {
+    const order = (/** @type {any} */ report) => report.runs.map((/** @type {any} */ run) => `${run.arm}:${run.repetition}`);
+    assert.deepEqual(order(pooled.report), order(serial.report), "the runs keep the seeded order");
+    assert.deepEqual(/** @type {any} */ (pooled.report).arms, /** @type {any} */ (serial.report).arms, "and the same bands");
+    assert.equal(/** @type {any} */ (pooled.report).provenance.concurrency, 3, "the provenance says the arms ran in parallel");
+  } finally {
+    rmSync(serial.resultDir, { recursive: true, force: true });
+    rmSync(pooled.resultDir, { recursive: true, force: true });
+  }
+});

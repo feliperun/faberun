@@ -10,6 +10,7 @@ import { writeJsonAtomic } from "../run/store.mjs";
 import { projectIdForRunsDir, repositoryForRunsDir } from "../run/paths.mjs";
 import { requireId, requirePacketHash, requireString, requireTimestamp } from "../contract/assert.mjs";
 import { promoteRun } from "../repo/integrate.mjs";
+import { releaseRunWorktrees } from "../repo/worktree.mjs";
 import { CAMPAIGN_FILE, GOAL_TEXT_BYTES, PROJECTION_FILE, campaignDir, campaignsDir } from "./layout.mjs";
 import { readCampaign } from "./record.mjs";
 import { appendJournal, normalizeText, readJournalForDedupe } from "./journal.mjs";
@@ -130,7 +131,7 @@ export function resolveCampaign(runsDir, campaignId) {
 /**
  * @param {string} campaignPath
  * @param {{at?: string, eventId?: string}} options
- * @returns {{path: string, campaign: Campaign, ledgerFiles: string[], ledgerSkipped: {runId: string, source: string}[]}}
+ * @returns {{path: string, campaign: Campaign, ledgerFiles: string[], ledgerSkipped: {runId: string, source: string}[], worktrees: {removed: number, archived: string[]}}}
  */
 export function closeCampaign(campaignPath, { at = new Date().toISOString(), eventId = randomUUID() } = {}) {
   requireTimestamp(at, "at");
@@ -154,7 +155,16 @@ export function closeCampaign(campaignPath, { at = new Date().toISOString(), eve
   // Preserve after the closed record exists: the ledger is the recomputable
   // closed record, including requirements used by the north-star projector.
   const ledger = preserveCampaignLedger(campaignPath, campaignRepoRoot(campaignPath));
-  return { path: campaignPath, campaign: closed, ledgerFiles: ledger.written, ledgerSkipped: ledger.skipped };
+  // A closed campaign resumes nothing, so the attempt worktrees its runs left
+  // go now, each archived under a ref first (releaseRunWorktrees).
+  const runsDir = resolve(campaignPath, "..", "..");
+  const worktrees = { removed: 0, archived: /** @type {string[]} */ ([]) };
+  for (const runId of campaign.linkedRunIds) {
+    const released = releaseRunWorktrees(campaignRepoRoot(campaignPath), join(runsDir, runId), runId);
+    worktrees.removed += released.removed;
+    worktrees.archived.push(...released.archived);
+  }
+  return { path: campaignPath, campaign: closed, ledgerFiles: ledger.written, ledgerSkipped: ledger.skipped, worktrees };
 }
 
 /**

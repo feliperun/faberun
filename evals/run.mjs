@@ -43,6 +43,7 @@ const CLI_OPTIONS = {
   class: { type: "string" },
   case: { type: "string" },
   repeat: { type: "string" },
+  concurrency: { type: "string" },
   corpus: { type: "string" },
   arms: { type: "string" },
   combine: { type: "string" },
@@ -577,6 +578,7 @@ async function main(argv) {
       resultDir: /** @type {string|undefined} */ (values["result-dir"]),
       armNames: typeof values.arms === "string" ? values.arms.split(",").map((name) => name.trim()).filter(Boolean) : undefined,
       label: /** @type {string|undefined} */ (values.label),
+      concurrency: values.concurrency === undefined ? undefined : Number(values.concurrency),
       assertNoModel,
     });
     if (asJson) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
@@ -591,6 +593,7 @@ async function main(argv) {
     const { report, resultPath } = await runJudgeCanaryClass({
       argv,
       repeat,
+      concurrency: values.concurrency === undefined ? undefined : Number(values.concurrency),
       seed: values.seed === undefined ? undefined : Number(values.seed),
       budgetUsd: values["budget-usd"] === undefined ? undefined : Number(values["budget-usd"]),
       runtimeId: /** @type {string|undefined} */ (values.runtime),
@@ -599,6 +602,8 @@ async function main(argv) {
     });
     if (asJson) process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
     else process.stdout.write(`${renderJudgeCanary(report)}result: ${resultPath ?? "not written"}\n`);
+    // A partial reading must not look like a finished one to whatever chains the next step.
+    if (report.stoppedBy) process.exitCode = 3;
     return;
   }
   if (className !== undefined && className !== "resilience" && CLASS_KINDS[className] === undefined) {

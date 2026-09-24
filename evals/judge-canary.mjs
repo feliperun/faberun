@@ -29,7 +29,7 @@ import { EVALS_ROOT } from "./paths.mjs";
 const REPO_ROOT = resolve(EVALS_ROOT, "..");
 const CANARY_ROOT = join(EVALS_ROOT, "judge-canary");
 const CORPUS_SPEC = join(CANARY_ROOT, "corpus.json");
-const BUILDER_VERSION = 2;
+const BUILDER_VERSION = 3;
 /** R5 and review finding 5: the corpus floor, each count over distinct golden tasks. */
 const MIN_TASKS = 8;
 const MIN_CLEAN = 10;
@@ -47,15 +47,18 @@ export const CANARY_KINDS = [
   "doc-contradicts-code",
   "test-weakened",
 ];
+/** The vendor families a corpus entry may name; the vocabulary of runtimes.json's `vendor` field. */
+export const AUTHOR_FAMILIES = ["anthropic", "openai", "deepseek", "zhipu", "google"];
 
+/** @typedef {{runtime: string, family: string}} CanaryAuthoredBy */
 /** @typedef {{argv: string[]}} Verification */
 /** @typedef {{commitSha: string, parentSha: string, parentTreeSha?: string}} GoldenMeta */
 /** @typedef {{id: string, statement: string, meta: GoldenMeta, verify: {source?: string, commands: Verification[]}}} GoldenTask */
 /** @typedef {{path: string, find: string[], replace: string[]}} CanaryEdit */
-/** @typedef {{task: string, kind: string, description: string, edits: CanaryEdit[]}} CanaryDefect */
-/** @typedef {{task: string, node: string, objective: string, instructions: string[], nonGoals: string[], behaviours: {id: string, text: string}[], summary: string}} CanaryTaskSpec */
+/** @typedef {{task: string, kind: string, description: string, edits: CanaryEdit[], authoredBy: CanaryAuthoredBy}} CanaryDefect */
+/** @typedef {{task: string, node: string, objective: string, instructions: string[], nonGoals: string[], behaviours: {id: string, text: string}[], summary: string, authoredBy: CanaryAuthoredBy}} CanaryTaskSpec */
 /** @typedef {{schemaVersion: number, tasks: CanaryTaskSpec[], defects: CanaryDefect[]}} CanaryCorpusSpec */
-/** @typedef {{schemaVersion?: number, id: string, label: string, sourceTask: string, source: GoldenMeta, nodeId: string, diff: string, diffPaths: string[], verification: Verification[], taskPacket: Record<string, unknown>, definitionOfDone: Record<string, unknown>[], workerResult: Record<string, unknown>, mutation?: {kind: string, description: string, edits: CanaryEdit[]}}} CanaryArtifact */
+/** @typedef {{schemaVersion?: number, id: string, label: string, sourceTask: string, source: GoldenMeta, nodeId: string, diff: string, diffPaths: string[], verification: Verification[], taskPacket: Record<string, unknown>, definitionOfDone: Record<string, unknown>[], workerResult: Record<string, unknown>, authoredBy: CanaryAuthoredBy, mutation?: {kind: string, description: string, edits: CanaryEdit[]}}} CanaryArtifact */
 /** @typedef {{id: string, label: string, sourceTask: string, ok: boolean, failures: string[]}} CanaryVerification */
 
 /**
@@ -84,6 +87,31 @@ const COMMON_JUDGMENT_ITEMS = [
   },
 ];
 const BEHAVIOUR_REASON = "The verification exercises part of this behaviour at most; reading the change is what shows all of it is there.";
+
+/** The archive's name inside the tree it is extracted into, removed once the tree is out. */
+const ARCHIVE_FILE = ".faberun-canary-tree.tar";
+
+/**
+ * Extract a commit's tree (or some of its paths) into `dir` through a file, not
+ * a pipe, and with a relative name. Measured 2026-09-24 on CI: macOS's bsdtar
+ * stops reading at the end-of-archive marker, so the padding `git archive`
+ * writes after it hit EPIPE on a piped extraction; and GNU tar on Windows reads
+ * `C:\...` in `-C` or `-f` as a remote host, so no absolute path reaches it.
+ *
+ * @param {string} sha
+ * @param {string[]} paths every path when empty
+ * @param {string} dir
+ * @returns {void}
+ */
+function extractArchive(sha, paths, dir) {
+  const file = join(dir, ARCHIVE_FILE);
+  try {
+    execFileSync("git", ["-C", REPO_ROOT, "archive", "--output", file, sha, ...(paths.length ? ["--", ...paths] : [])], { stdio: ["ignore", "ignore", "pipe"], timeout: EXTRACT_TIMEOUT_MS, killSignal: "SIGKILL" });
+    execFileSync("tar", ["-xf", ARCHIVE_FILE], { cwd: dir, stdio: ["ignore", "ignore", "pipe"], timeout: EXTRACT_TIMEOUT_MS, killSignal: "SIGKILL" });
+  } finally {
+    rmSync(file, { force: true });
+  }
+}
 
 /** @param {string[]} args @param {string} cwd @returns {string} */
 function runGit(args, cwd = REPO_ROOT) {
@@ -117,6 +145,25 @@ function goldenTask(id) {
  */
 export function loadCorpusSpec(file = CORPUS_SPEC) {
   return /** @type {CanaryCorpusSpec} */ (/** @type {unknown} */ (readJson(file)));
+}
+
+/**
+ * The author of one corpus entry, refused unless it names a runtime and a known
+ * vendor family. Why the builder refuses: the report separates recall by author
+ * family, so a case with no author would mislabel the measurement it feeds.
+ *
+ * @param {unknown} value
+ * @param {string} context
+ * @returns {CanaryAuthoredBy}
+ */
+function authoredByOf(value, context) {
+  const entry = /** @type {{runtime?: unknown, family?: unknown}|null|undefined} */ (value);
+  if (entry === null || typeof entry !== "object") throw new Error(`${context} has no authoredBy`);
+  if (typeof entry.runtime !== "string" || entry.runtime.length === 0) throw new Error(`${context} declares no author runtime`);
+  if (typeof entry.family !== "string" || !AUTHOR_FAMILIES.includes(entry.family)) {
+    throw new Error(`${context} names author family ${JSON.stringify(entry.family)}, not one of ${AUTHOR_FAMILIES.join(", ")}`);
+  }
+  return { runtime: entry.runtime, family: entry.family };
 }
 
 /**
@@ -210,9 +257,7 @@ function sealedDiff(task, writeFiles, edits, caseId) {
   try {
     const present = runGit(["ls-tree", "-r", "--name-only", task.meta.parentSha, "--", ...writeFiles]).split("\n").filter(Boolean);
     if (present.length > 0) {
-      const archive = execFileSync("git", ["-C", REPO_ROOT, "archive", task.meta.parentSha, "--", ...present], { maxBuffer: 64 * 1024 * 1024, timeout: EXTRACT_TIMEOUT_MS, killSignal: "SIGKILL" });
-      // `-C C:\...` reads as a remote host to GNU tar on Windows (measured 2026-09-24, CI); cwd has no colon.
-      execFileSync("tar", ["-x"], { cwd: temp, input: archive, stdio: ["pipe", "ignore", "pipe"], timeout: EXTRACT_TIMEOUT_MS, killSignal: "SIGKILL" });
+      extractArchive(task.meta.parentSha, present, temp);
     }
     runGit(["init", "-q"], temp);
     runGit(["add", "-A"], temp);
@@ -233,6 +278,9 @@ function makeArtifact(spec, defect) {
   const task = goldenTask(spec.task);
   const label = defect ? `defect:${defect.kind}` : "clean";
   const id = `${defect ? `defect-${defect.kind}` : "clean"}-${task.id}`;
+  const authoredBy = authoredByOf(defect ? defect.authoredBy : spec.authoredBy, defect
+    ? `judge canary defect ${defect.kind} on ${spec.task}`
+    : `judge canary task ${spec.task}`);
   const writeFiles = goldenChangedPaths(task);
   const diff = sealedDiff(task, writeFiles, defect ? defect.edits : null, id);
   const diffPaths = sealedDiffPaths(diff);
@@ -254,6 +302,7 @@ function makeArtifact(spec, defect) {
       artifacts: diffPaths,
       missingContext: [],
     },
+    authoredBy,
     ...(defect ? { mutation: { kind: defect.kind, description: defect.description, edits: defect.edits } } : {}),
   };
 }
@@ -328,8 +377,7 @@ export async function assertDiscriminatingArtifacts(artifacts) {
 function extractParentTree(parentSha, root = tmpdir(), prefix = "faberun-canary-base-") {
   const dir = mkdtempSync(join(root, prefix));
   try {
-    const archive = execFileSync("git", ["-C", REPO_ROOT, "archive", parentSha], { maxBuffer: 64 * 1024 * 1024, timeout: EXTRACT_TIMEOUT_MS, killSignal: "SIGKILL" });
-    execFileSync("tar", ["-x", "-C", dir], { input: archive, stdio: ["pipe", "ignore", "pipe"], timeout: EXTRACT_TIMEOUT_MS, killSignal: "SIGKILL" });
+    extractArchive(parentSha, [], dir);
     return dir;
   } catch (error) {
     rmSync(dir, { recursive: true, force: true });
@@ -499,7 +547,12 @@ async function verifyArtifacts(artifacts) {
         }
         tree = materializeFromBase(artifact, baseDir);
         for (const verification of artifact.verification) {
-          const failure = await runVerification(verification, tree);
+          // A failure is asked once more before it counts: the golden tasks'
+          // 2026-09 suites are load-sensitive. Measured 2026-09-24: under a
+          // loaded full suite the supervisor test failed a canary case once in
+          // three runs and passed it four times in four alone. A defect a
+          // verification really catches fails both times and is still refused.
+          const failure = await runVerification(verification, tree) && await runVerification(verification, tree);
           if (failure) failures.push(failure);
         }
       } catch (error) {

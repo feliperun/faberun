@@ -25,6 +25,16 @@ import { writeJsonAtomic } from "./store.mjs";
 
 /** @typedef {import("../engine/runtime-discovery.mjs").RuntimeAvailability} RuntimeAvailability */
 
+/**
+ * Answers a provider gives before doing any work that no retry inside their
+ * window can change. Measured 2026-09-24: a probe answered
+ * `quota_exhausted` was stored as "answered", the next launches reused it
+ * without asking, and six processes spent into two exhausted accounts.
+ */
+const REFUSAL_REASONS = new Set(["quota_exhausted", "insufficient_balance", "model_not_supported"]);
+/** How long a refusal that names no reset instant is held. A first guess, not a measurement. */
+const REFUSAL_HOLD_MS = 15 * 60 * 1000;
+
 /** The store shape this module reads and writes; a foreign shape reads as empty. */
 const STORE_SCHEMA_VERSION = 1;
 
@@ -94,6 +104,69 @@ export function recordAvailability(keys, now = Date.now()) {
   const path = availabilityPath();
   mkdirSync(dirname(path), { recursive: true });
   writeJsonAtomic(path, store);
+}
+
+/**
+ * The refusal a probe or a provider envelope's classified availability
+ * carries, or null when it is anything else.
+ *
+ * @param {{available?: boolean, exhaustedUntil?: string|null, reason?: string}|null|undefined} availability
+ * @returns {{reason: string, exhaustedUntil: string|null}|null}
+ */
+export function refusalOfAvailability(availability) {
+  if (!availability || availability.available !== false || !REFUSAL_REASONS.has(String(availability.reason))) return null;
+  return { reason: String(availability.reason), exhaustedUntil: availability.exhaustedUntil ?? null };
+}
+
+/**
+ * Record that a provider refused the work, so every process on this machine
+ * knows until the reset: the launch gate asks again instead of reusing an old
+ * answer, and a class that spends one call per case stops before its next.
+ *
+ * @param {string} key
+ * @param {{reason: string, exhaustedUntil: string|null}} refusal
+ * @param {number} [now]
+ * @returns {void}
+ */
+export function recordRefusal(key, refusal, now = Date.now()) {
+  const store = loadStore();
+  store.verdicts[key] = {
+    available: false,
+    exhaustedUntil: refusal.exhaustedUntil ?? new Date(now + REFUSAL_HOLD_MS).toISOString(),
+    reason: refusal.reason,
+    observedAt: new Date(now).toISOString(),
+    window: PREFLIGHT_WINDOW,
+  };
+  const path = availabilityPath();
+  mkdirSync(dirname(path), { recursive: true });
+  writeJsonAtomic(path, store);
+}
+
+/**
+ * The refusal recorded for a provider that has not yet reset, or null.
+ *
+ * @param {string} key
+ * @param {number} [now]
+ * @returns {RuntimeAvailability|null}
+ */
+export function readRefusal(key, now = Date.now()) {
+  const record = loadVerdicts()[key];
+  if (!record || record.available !== false || !record.exhaustedUntil) return null;
+  return Date.parse(record.exhaustedUntil) > now ? record : null;
+}
+
+/**
+ * Record what a set of live probes learned: an answer as an answer, a refusal
+ * as a refusal until its reset.
+ *
+ * @param {{harness: string, model: string, executable: string, availability?: {available: boolean, exhaustedUntil: string|null, reason: string}}[]} probes
+ * @param {number} [now]
+ * @returns {void}
+ */
+export function recordProbeVerdicts(probes, now = Date.now()) {
+  const refused = probes.filter((probe) => refusalOfAvailability(probe.availability));
+  recordAvailability(probes.filter((probe) => !refused.includes(probe)).map((probe) => availabilityKey(probe)), now);
+  for (const probe of refused) recordRefusal(availabilityKey(probe), /** @type {{reason: string, exhaustedUntil: string|null}} */ (refusalOfAvailability(probe.availability)), now);
 }
 
 /**

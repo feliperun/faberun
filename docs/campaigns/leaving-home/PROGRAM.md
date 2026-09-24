@@ -108,11 +108,13 @@ Toda campanha fecha com `faberun spec validate <spec> --strict-traceability
   entregando com uma a duas ordens de grandeza a menos de custo (deepseek-flash,
   glm-5.3-flash, gpt-5.6-luna). Sonnet ou opus entram só por nó com
   `riskTier: high`, com o motivo no pacote.
-- **Juiz barato, fallback do mesmo nível.** Até a D9, item `judgment: true` só
-  entra em nó onde nenhum comando prova o requisito, com `reason` declarado. O
-  juiz padrão é um runtime barato de outro vendor, e o fallback declarado é de
-  custo parecido: na `rec-audit-remediation`, o juiz GLM custou 2,8% da campanha
-  e o fallback sonnet custou 62% por três nós.
+- **Juiz por lista ordenada (D9, 2026-09-24).** Item `judgment: true` só entra
+  em nó onde nenhum comando prova o requisito, com `reason` declarado. O juiz de
+  cada nó é o primeiro da lista `gpt-6-sol`, `claude-opus-5-5`,
+  `glm-5.3-flash` que não seja do provedor canônico do worker. Se ele estiver
+  sem quota ou com a janela do Codex acima de 90%, a vez passa ao próximo. Até o
+  `RM-101` chegar, o contrato declara à mão o juiz e um fallback tirados dessa
+  lista.
 - **O brief antes do play.** A partir da campanha zero, todo plano congelado
   passa por `faberun campaign brief generate` e é lido antes do primeiro run.
 - **Nada de repositório de terceiro entra aqui.** Nem de empregador, nem de
@@ -126,7 +128,7 @@ Toda campanha fecha com `faberun spec validate <spec> --strict-traceability
 | `first-target-frictions` | até US$ 5 | 0 |
 | `evidence-you-can-recompute` | até US$ 15 com writers baratos | 0 |
 | `evals-with-a-budget` | até US$ 20 | até US$ 100 (R11) |
-| `choose-the-judges` | até US$ 5 | até US$ 70 (R4 e R5) |
+| `choose-the-judges` | até US$ 5 | até US$ 100 (R4 e R5; elevado de 70 pelo dono em 24/09) |
 | `safe-to-hand-to-a-friend` | até US$ 25 | 0 |
 | `friends-pilot` | até US$ 10 | 0 (o custo do participante é dele, com teto sugerido) |
 
@@ -179,6 +181,7 @@ portão atingido.
 | `first-target-frictions` | 2026-09-23 | 1 h 50 min (02:32 a 04:22, sessão Opus direta) | US$ 0,08 via faberun (revisão cross-vendor deepseek-flash); a sessão Opus não é medida em `usage.jsonl` | 0 para 1 atingido: três suítes verdes com `--test-concurrency=16` neste macOS (1.571 pass, 0 fail, 411 a 431 s), `writes_ignore_source` no `validate`, juiz somente-leitura entrega o veredito |
 | `evidence-you-can-recompute` | 2026-09-23 | 5,1 h de relógio nas runs (07:16 a 14:30); `intentToVerifiedSeconds` 16.826 s | US$ 7,36 via faberun, 0 de 31 `unknown` (planejamento contestado 3,79; contratos luna 1,65; revisão Opus 1,92) | 1 para 2 atingido: o baseline recomputa a partir de ledgers versionados, o `orchestration-arms` está em main e as docs da skill têm um orçamento só (46.852 de 46.855 bytes). Os contratos foram escritos à mão depois de dois planos contestados |
 | `evals-with-a-budget` | 2026-09-24 | 8,7 h de campanha (21:08 a 05:48), das quais cerca de 3 h esperando a quota do Codex voltar | US$ 11,32 via faberun (4 de 18 `unknown`, `provider-reported-nothing` do codex) e US$ 80,69 nas leituras do R11 (pareado 58,05, canário 22,64) | 2 para 3 atingido: três repetições de cada arm do round complexo (`evals/results/paired/combined-*.json`), canário medido em três juízes e D9 registrada no ROADMAP. H1 refutado para o faberun com juiz contra uma sessão, H4 refutado; o writer barato (E, H, J) custa de 22 a 43 vezes menos por prova que a sessão B, com a mesma entrega |
+| `choose-the-judges` | 2026-09-24 | cerca de 8 h (09:35 a 17:45), a maior parte fora das runs: quota do Codex e da Z.ai, leituras em série antes do `--concurrency`, um plano que morreu calado | US$ 43,76 nas leituras (R4 30,57; R5 13,19) de US$ 100, mais US$ 3,55 via faberun (0 de 34 `unknown`); US$ 27,92 lançados por estimativa em chamadas recusadas não custaram nada | 2b para 3 atingido: D9 por lista ordenada (gpt-6-sol, claude-opus-5-5, glm-5.3-flash) com as tabelas bloqueantes, D11 com revisores de planejamento à parte, 10 de 25 defeitos do canário de fora da Anthropic. Nenhum dos três planos do R5 congelou; o (c) é insumo, não contrato, da fase 1 da campanha 3 |
 
 ## Fora do programa, de propósito
 

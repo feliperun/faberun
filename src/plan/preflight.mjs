@@ -9,7 +9,7 @@
 import { preflightRuntimes } from "../engine/live-preflight.mjs";
 import { liveSilenceCause } from "../engine/live-silence.mjs";
 import { harnessCapabilities } from "../harnesses/index.mjs";
-import { validateRuntime } from "../contract/runtime.mjs";
+import { assertRuntimeExecutesCommands, validateRuntime } from "../contract/runtime.mjs";
 
 /**
  * The runtimes a planning run will spend, asked once before its first stage.
@@ -74,4 +74,45 @@ export function refusePlanningSilence(checks, cwd) {
     new Error(`env_preflight_failed: ${silent.join(" · ")} · planning stays resumable: fix the environment and plan again in ${cwd}`),
     { code: "env_preflight_failed" },
   );
+}
+
+/**
+ * Refuse, before anything is spent, a runtime choice no frozen contract could
+ * carry. Both halves were measured on 2026-09-24 in `choose-the-judges` R5,
+ * where each surfaced only at freeze, after four rounds: a worker whose
+ * permission mode cannot run commands cannot carry an implementation node's
+ * verification (US$ 7.64 and an hour, contested), and a judge that shares the
+ * worker's vendor, or the vendor of any runtime its fallback reaches, is
+ * refused by the vendor rule on every frozen node (`runtime_routing_unmet` in
+ * all four rounds). The pipeline's defaults name both roles, so both are
+ * decidable here.
+ *
+ * @param {Record<string, Record<string, unknown>>} runtimes
+ * @param {{worker?: string, judge?: string}} runtimeDefaults
+ * @param {"implementation"|"exploratory"} packageMode
+ * @returns {void}
+ */
+export function refuseUnplannableRuntimes(runtimes, runtimeDefaults, packageMode) {
+  const worker = runtimeDefaults.worker;
+  if (!worker || !runtimes[worker]) return;
+  if (packageMode === "implementation") {
+    try {
+      assertRuntimeExecutesCommands(/** @type {any} */ (runtimes), worker, 0, "every implementation node", "worker runtime");
+    } catch (error) {
+      throw new Error(`--runtime-defaults worker=${worker} cannot run the verification an implementation plan carries: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  const judge = runtimeDefaults.judge;
+  if (!judge || !runtimes[judge]) return;
+  /** @type {Set<string>} */
+  const vendors = new Set();
+  const seen = new Set();
+  for (let id = /** @type {string|undefined} */ (worker); id && runtimes[id] && !seen.has(id); id = /** @type {string|undefined} */ (runtimes[id].fallback)) {
+    seen.add(id);
+    if (typeof runtimes[id].vendor === "string") vendors.add(/** @type {string} */ (runtimes[id].vendor));
+  }
+  const judgeVendor = runtimes[judge].vendor;
+  if (typeof judgeVendor === "string" && vendors.has(judgeVendor)) {
+    throw new Error(`--runtime-defaults judge=${judge} shares vendor ${judgeVendor} with worker ${worker} or its fallback, so no frozen node could route its judge; name a judge of another vendor`);
+  }
 }

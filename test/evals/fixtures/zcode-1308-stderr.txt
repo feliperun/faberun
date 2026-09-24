@@ -1,0 +1,55 @@
+ProviderBusinessError: [1308][Usage limit reached for 5 hour. Your limit will reset at 2026-09-25 06:32:25][REQUESTID]
+    at detectProviderBusinessError (/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs:1738:9096)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async /Applications/ZCode.app/Contents/Resources/glm/zcode.cjs:1738:8593
+    at async /Applications/ZCode.app/Contents/Resources/glm/zcode.cjs:1729:21405
+    at async postToApi (/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs:1684:22163)
+    at async AnthropicMessagesLanguageModel.doStream (/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs:1685:50884)
+    at async fn (/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs:1769:15441)
+    at async /Applications/ZCode.app/Contents/Resources/glm/zcode.cjs:1764:964
+    at async _retryWithExponentialBackoff (/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs:1764:5140)
+    at async streamStep (/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs:1769:14565) {
+  code: 'PROVIDER_BUSINESS_ERROR',
+  isProviderBusinessError: true,
+  providerCode: '1308',
+  providerId: 'zai',
+  providerKind: 'anthropic',
+  providerMessage: '[1308][Usage limit reached for 5 hour. Your limit will reset at 2026-09-25 06:32:25][REQUESTID]',
+  providerRequestId: 'REQUESTID',
+  responseBodySummary: {
+    keys: [ 'type', 'error', 'request_id' ],
+    success: undefined,
+    code: undefined,
+    error_code: undefined,
+    msg: undefined,
+    message: undefined,
+    request_id: 'REQUESTID',
+    requestId: undefined,
+    error: {
+      keys: [Array],
+      code: '1308',
+      error_code: undefined,
+      msg: undefined,
+      message: '[1308][Usage limit reached for 5 hour. Your limit will reset at 2026-09-25 06:32:25][REQUESTID]',
+      request_id: undefined,
+      requestId: undefined,
+      type: 'rate_limit_error'
+    }
+  },
+  responseHeaders: {
+    'alt-svc': 'h3=":443"; ma=3600',
+    'content-length': '241',
+    'content-type': 'application/json',
+    date: 'Thu, 24 Sep 2026 20:03:24 GMT',
+    'ga-traceid': '00000000000000000000000000000000',
+    'request-id': 'REQUESTID',
+    'set-cookie': 'acw_tc=REDACTED;path=/;HttpOnly;Max-Age=1800',
+    vary: 'Origin, Access-Control-Request-Method, Access-Control-Request-Headers, Origin, Access-Control-Request-Method, Access-Control-Request-Headers, Origin',
+    'x-log-id': 'REQUESTID',
+    'x-process-time': '0.493159',
+    'x-request-id': '00000000-0000-0000-0000-000000000000'
+  },
+  responseStatus: 429,
+  statusCode: undefined
+}
+Error: Turn execution failed (traceId: 00000000-0000-0000-0000-000000000000)

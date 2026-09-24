@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "defect-nongoal-violated-stop-re-sealing-a-clean-attempt-from-failing-the-retry",
   "label": "defect:nongoal-violated",
   "sourceTask": "stop-re-sealing-a-clean-attempt-from-failing-the-retry",
@@ -118,6 +118,10 @@
       "skills/mine/intent-factory/test/integration.test.mjs"
     ],
     "missingContext": []
+  },
+  "authoredBy": {
+    "runtime": "claude-opus-5-5",
+    "family": "anthropic"
   },
   "mutation": {
     "kind": "nongoal-violated",

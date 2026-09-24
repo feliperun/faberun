@@ -1,0 +1,10 @@
+{"at":"2026-09-24T12:40:14.133Z","node":"canary-authorship","to":"running","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-24T12:59:25.034Z","node":"canary-authorship","to":"running","phase":"judge","runtime":"codex-sol"}
+{"at":"2026-09-24T13:04:15.068Z","node":"canary-authorship","to":"done","phase":"complete","runtime":"codex-sol","verdict":"pass"}
+{"at":"2026-09-24T13:04:17.308Z","node":"judge-matrix","to":"running","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-24T13:04:18.751Z","node":"defects-openai","to":"running","phase":"worker","runtime":"codex-sol6-author"}
+{"at":"2026-09-24T13:11:48.375Z","node":"defects-openai","to":"running","phase":"worker","runtime":"codex-sol6-author","verdict":"fail","revisions":1}
+{"at":"2026-09-24T13:12:37.026Z","node":"judge-matrix","to":"running","phase":"judge","runtime":"codex-sol"}
+{"at":"2026-09-24T13:13:11.217Z","node":"defects-openai","to":"blocked","phase":"complete","runtime":"codex-sol6-author","verdict":"fail","error":"context_missing","revisions":1}
+{"at":"2026-09-24T13:13:12.263Z","node":"defects-deepseek","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-24T13:17:19.948Z","node":"judge-matrix","to":"done","phase":"complete","runtime":"codex-sol","verdict":"pass"}

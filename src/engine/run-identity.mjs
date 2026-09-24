@@ -13,7 +13,7 @@
  */
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, getHarness, harnessCapabilities, probeRuntime } from "../harnesses/index.mjs";
 import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
-import { availabilityKey, readAvailability, recordAvailability } from "../run/availability.mjs";
+import { availabilityKey, readAvailability, readRefusal, recordProbeVerdicts } from "../run/availability.mjs";
 import { blockingChecks, environmentPreflight, reachableRuntimes } from "../host/preflight.mjs";
 import { captureSourceIdentity } from "../repo/source-identity.mjs";
 import { boundedGitSync } from "../repo/worktree.mjs";
@@ -569,6 +569,46 @@ async function livePreflightProbes(contract, runDir, sourceIdentity, timeoutSec)
       if (verdict) fresh.set(id, verdict);
     }
   }
+  // A refusal another process met on this machine (quota, balance, model) is
+  // not asked again before its reset: the launch is refused on it, spending
+  // nothing, and the operator is told when the provider is back.
+  if (!pendingFreshPreflight) {
+    const refused = [...routed.entries()].map(([id, { runtime }]) => {
+      const executable = getHarness(runtime.harness).executable(runtime);
+      const held = readRefusal(availabilityKey({ harness: runtime.harness, model: runtime.model, executable }));
+      return held ? {
+        id,
+        harness: runtime.harness,
+        executable,
+        model: runtime.model,
+        version: sourceIdentity?.harnessVersions?.[id] ?? null,
+        capabilities: harnessCapabilities(runtime),
+        requiredCapabilities: {},
+        requiredCapabilitySets: [],
+        ok: false,
+        live: true,
+        liveStatus: "exhausted",
+        availability: { available: false, exhaustedUntil: held.exhaustedUntil, reason: held.reason },
+        detail: `live exhausted · ${held.reason}: refusal recorded on this machine at ${held.observedAt}, back at ${held.exhaustedUntil}`,
+      } : null;
+    });
+    if (refused.some(Boolean)) {
+      return [...routed.entries()].map(([id, { runtime }], index) => refused[index] ?? {
+        id,
+        harness: runtime.harness,
+        executable: getHarness(runtime.harness).executable(runtime),
+        model: runtime.model,
+        version: sourceIdentity?.harnessVersions?.[id] ?? null,
+        capabilities: harnessCapabilities(runtime),
+        requiredCapabilities: {},
+        requiredCapabilitySets: [],
+        ok: true,
+        live: false,
+        liveStatus: "not-asked",
+        detail: "not asked: another routed runtime is refused on this machine",
+      });
+    }
+  }
   if (routed.size > 0 && fresh.size === routed.size) {
     return [...routed.entries()].map(([id, { runtime }]) => {
       const verdict = /** @type {RuntimeAvailability} */ (fresh.get(id));
@@ -594,10 +634,8 @@ async function livePreflightProbes(contract, runDir, sourceIdentity, timeoutSec)
   // under the provider's own identity. Silence and a command that never
   // reached a provider are verdicts of nothing and are never recorded, so the
   // operator who fixes the host is never told the fix "already answered".
-  recordAvailability(
-    probes
-      .filter((probe) => probe.live === true && probe.liveStatus !== "reused" && liveVerdictRecorded(probe))
-      .map((probe) => availabilityKey(probe)),
+  recordProbeVerdicts(
+    probes.filter((probe) => probe.live === true && probe.liveStatus !== "reused" && liveVerdictRecorded(probe)),
     Date.now(),
   );
   return probes;

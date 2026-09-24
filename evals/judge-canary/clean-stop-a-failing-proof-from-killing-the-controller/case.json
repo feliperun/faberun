@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "clean-stop-a-failing-proof-from-killing-the-controller",
   "label": "clean",
   "sourceTask": "stop-a-failing-proof-from-killing-the-controller",
@@ -154,6 +154,10 @@
       "skills/mine/intent-factory/test/verification.test.mjs"
     ],
     "missingContext": []
+  },
+  "authoredBy": {
+    "runtime": "claude-opus-5-5",
+    "family": "anthropic"
   },
   "diff": "diff.patch",
   "diffSha256": "f00e0f62e552cfd1401654a97dbd3b4b0c8788988fe6d8137d50b59e7f67eecd"

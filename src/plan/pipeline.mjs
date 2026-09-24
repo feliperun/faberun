@@ -24,7 +24,7 @@ import { campaignCli } from "../cli/campaign.mjs";
 import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
 import { stableJson } from "../util.mjs";
 import { allowanceDelta, allowanceEventFields, sampleAllowance } from "../seat/allowance.mjs";
-import { askPlanningRuntimes, refusePlanningSilence } from "./preflight.mjs";
+import { askPlanningRuntimes, refusePlanningSilence, refuseUnplannableRuntimes } from "./preflight.mjs";
 import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
 import { RISK_TIERS, TASK_KIND_CATALOGUE_FILE, buildPlanningContract, renderTaskKindCatalogue, validateFindings, validatePlanOutput } from "./template.mjs";
@@ -111,6 +111,7 @@ export async function runPlanningPipeline(options) {
   const campaignPath = campaignTree(cwd, campaignId);
   const campaign = readCampaign(campaignPath);
   if (campaign.status !== "active") throw new Error(`campaign is closed: ${campaignId}`);
+  refuseUnplannableRuntimes(runtimes, runtimeDefaults, packageMode);
   refusePlanningSilence(await ask(runtimes, runtimeDefaults, cwd), cwd);
 
   const relativeSpecPath = repoRelativePath(cwd, specPath, "specPath");
