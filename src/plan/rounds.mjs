@@ -34,7 +34,7 @@ import { validateFindings, validatePlanOutput } from "./template.mjs";
 /** @typedef {import("./contest.mjs").ContestedPipelineResult} ContestedPipelineResult */
 /** @typedef {import("./pipeline.mjs").AssembledPlan} AssembledPlan */
 /** @typedef {(kind: PlanningKind, inputs: Record<string, unknown>) => Promise<{contract: ValidatedContract, output: Record<string, unknown>}>} RunStageFn */
-/** @typedef {(round: number, findings: PlanFindingOutput[]) => Promise<ContestedPipelineResult>} ContestFn */
+/** @typedef {(round: number, findings: PlanFindingOutput[], plan: PlanOutput|null) => Promise<ContestedPipelineResult>} ContestFn */
 /** @typedef {(label: string, error: unknown) => PlanFindingOutput} InvalidPlanFindingFn */
 /** @typedef {{resolved: true, plan: PlanOutput|null, findings: PlanFindingOutput[], roundsRun: number} | {resolved: false, result: ContestedPipelineResult}} RoundsResult */
 
@@ -328,9 +328,9 @@ export async function runReviewRounds(options) {
       const notConverging = revisionNotConvergingFinding(round, criticalHistory);
       findings = [...findings, notConverging];
       logStage("revision-not-converging", { round, criticalHistory });
-      return { resolved: false, result: await contest(round, findings) };
+      return { resolved: false, result: await contest(round, findings, plan) };
     }
-    if (round === reviewRounds) return { resolved: false, result: await contest(round, findings) };
+    if (round === reviewRounds) return { resolved: false, result: await contest(round, findings, plan) };
     // Kept for the write-drop and unresolved-finding comparisons below: the
     // plan the revise revises, against whichever attempt's output validates.
     const planBeforeRevise = plan;
@@ -340,7 +340,7 @@ export async function runReviewRounds(options) {
       // rather than carrying the still-unrevised plan into another round.
       findings = [...findings, revised.finding];
       logStage("revise", { round, retried: true, invalid: revised.finding.text, firstInvalid: revised.firstInvalid.text });
-      return { resolved: false, result: await contest(round, findings) };
+      return { resolved: false, result: await contest(round, findings, plan) };
     }
     plan = revised.plan;
     droppedWrites = droppedWriteFindings(planBeforeRevise, plan);

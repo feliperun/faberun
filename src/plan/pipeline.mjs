@@ -232,17 +232,28 @@ export async function runPlanningPipeline(options) {
    * End the pipeline the way an unresolvable plan already ends: the contested
    * result, the outstanding findings that forced it, and an open question on
    * the campaign journal. Every no-valid-plan exit funnels through here.
+   * `currentPlan` and the `resume` context ride along on the written record
+   * so `faberun plan --resolve` (R9) can continue from it without redrafting
+   * or re-collecting repo facts.
    *
    * @param {number} round
    * @param {PlanFindingOutput[]} currentFindings
+   * @param {PlanOutput|null} currentPlan
    * @returns {Promise<ContestedPipelineResult>}
    */
-  const contest = (round, currentFindings) => contestPlan({
+  const contest = (round, currentFindings, currentPlan) => contestPlan({
     campaignId, phase, cwd, plansDir, sessionId: PLANNER_SESSION_ID, findings: currentFindings, round, logStage,
+    plan: currentPlan ?? null,
+    resume: {
+      campaignId, phase, specPath: relativeSpecPath, specDigest, reviewRounds,
+      runtimeDefaults, runtimes, verification, packageMode, targetedFix, approveBelow, repoFacts,
+    },
   });
 
-  // Which deterministic stage is running, advanced by `assembleFrozenNodes`
-  // so the freeze-wrap catch below names the stage that threw.
+  // Which deterministic stage is running, so the freeze-wrap catch below
+  // names the stage that threw when the thrown error carries no `planStage`
+  // of its own (`assembleFrozenPlan` tags sizing and routing failures; a
+  // plain error reaching the catch after that call is `freezePlan`'s).
   let stage = "sizing";
   // The last review round entered, so the freeze-wrap catch contests with
   // the count of rounds that actually ran.
@@ -250,81 +261,25 @@ export async function runPlanningPipeline(options) {
 
   /**
    * The one assembly a plan freezes through, one home for the expression the
-   * in-round pre-flight and the final freeze must run identically: sizing
-   * reshapes the drafted nodes, routing assigns worker and judge, and
-   * `toContractNode` renders the contract shape. Local and cheap — no I/O,
-   * no model — so running it once per round costs nothing. It advances
-   * `stage` as it goes; see the declaration above.
+   * in-round pre-flight and the final freeze must run identically. Delegates
+   * to `assembleFrozenPlan`, exported below, so `resolve.mjs` can run the
+   * exact same reshape over a plan it read back off disk instead of holding
+   * it in this closure.
    *
    * @param {PlanOutput} currentPlan
    * @returns {AssembledPlan}
    */
-  const assembleFrozenNodes = (currentPlan) => {
-    stage = "sizing";
-    const sizing = applySizingRules(
-      { nodes: currentPlan.nodes.map(toSizingNode), justification: currentPlan.justification },
-      { nodeBudgetMs: DEFAULT_NODE_BUDGET_MS, facts: repoFacts, minWriteFiles: MIN_WRITE_FILES, turnCeiling: DEFAULT_MAX_TURNS, packageMode, readVolume: (path) => fileLineCount(join(cwd, path)), targetedFix },
-    );
-    stage = "routing";
-    const routing = resolveRuntimes(sizing.plan.nodes, {
-      table: [...DEFAULT_ROUTING_TABLE],
-      runtimes: /** @type {Record<string, import("./routing.mjs").RoutingRuntime>} */ (runtimes),
-      availability: availabilityOf(runtimes),
-      runtimeDefaults,
-    });
-    stage = "freeze";
-    return {
-      sizing,
-      routing,
-      nodes: sizing.plan.nodes.map((node) => toContractNode(/** @type {SizedPlanNode} */ (node), phase, routing.assignments[node.id])),
-      // The declarations a reviewer saw, remapped onto the nodes sizing
-      // actually produced: a merge removes a node id, and a declaration that
-      // named it must now name the node that absorbed it or freeze would see
-      // an unknown assignment.
-      phases: carryPhaseDeclarations(currentPlan.phases, sizing.transformations),
-    };
-  };
+  const assembleFrozenNodes = (currentPlan) => assembleFrozenPlan(currentPlan, { repoFacts, packageMode, targetedFix, phase, cwd, runtimes, runtimeDefaults });
 
   /**
-   * The raw contract exactly as `freezePlan` will assemble and validate it,
-   * schemaVersion and contractVersion included. It takes the whole assembly
-   * rather than its nodes because the contract carries a run-level conclusion
-   * of sizing's too (`maxParallel`), and the in-round pre-flight must validate
-   * the same bytes the freeze writes. `validateContract` never
-   * reads the path it is given — only `dirname(resolve(contractPath))` to
-   * resolve `raw.cwd` — so the pre-flight passes the path the contract will
-   * occupy, `contract.json` inside `plansDir`, and validates in memory
-   * without writing or deleting anything.
+   * The raw contract exactly as `freezePlan` will assemble and validate it.
+   * Delegates to `frozenContractRawOf`, exported below for the same reason
+   * as `assembleFrozenPlan`.
    *
    * @param {AssembledPlan} assembly
    * @returns {JsonObject}
    */
-  const frozenContractRaw = ({ sizing, nodes }) => ({
-    schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: CONTRACT_VERSION,
-    id: `${campaignId}-${phase}`,
-    campaignId,
-    goal: campaign.goal,
-    // `freezePlan` writes contract.json inside `outDir` (`plansDir`), so
-    // `cwd` has to point back at the repo root from there, exactly like
-    // `runStage` computes it for the nodes it writes under `plansDir/nodes/`.
-    cwd: relative(plansDir, cwd) || ".",
-    // Sizing's `parallelisable` conclusion, which nothing else carries: a
-    // contract node has no `parallel` field, so a plan that says nothing here
-    // freezes at the validator's default of 1 and every independent node it
-    // proved waits for its turn. What the engine does with the number is the
-    // scheduler's business; declaring it is this stage's.
-    maxParallel: provenParallelism(sizing.plan),
-    runtimes,
-    runtimeDefaults,
-    // The operator's ratchets, carried verbatim: which suites a repository
-    // runs on every node is the operator's policy, supplied through
-    // `--verification`, never derived from repository facts. Validated at the
-    // flag boundary, so freeze neither re-derives nor edits them.
-    ...(verification.sharedVerification ? { sharedVerification: verification.sharedVerification } : {}),
-    ...(verification.finalVerification ? { finalVerification: verification.finalVerification } : {}),
-    nodes,
-  });
+  const frozenContractRaw = (assembly) => frozenContractRawOf(assembly, { campaignId, phase, campaignGoal: campaign.goal, cwd, plansDir, runtimes, runtimeDefaults, verification });
 
   const roundsResult = await runReviewRounds({
     reviewRounds, plan, findings, cwd, plansDir, scratchDir, workingPlanPath, relativeWorkingPlanPath,
@@ -339,7 +294,7 @@ export async function runPlanningPipeline(options) {
   // Reached only when no review round is configured (reviewRounds <= 0) and
   // the draft never validated: no revise exists to reach, so contested is the
   // end rather than a silent crash at sizing.
-  if (plan === null) return await contest(0, findings);
+  if (plan === null) return await contest(0, findings, null);
 
   // The pre-flight ran this exact assembly through the same validator in the
   // round that just broke, so a failure here is nearly impossible — but
@@ -362,6 +317,7 @@ export async function runPlanningPipeline(options) {
     : ["the frozen contract carries neither sharedVerification nor finalVerification, so no repository ratchet runs on its nodes and no final check closes the phase; pass --verification <file> if the target repository has ratchets every node must run"];
   try {
     assembled = assembleFrozenNodes(plan);
+    stage = "freeze";
     logStage("sizing", { transformations: assembled.sizing.transformations.length, nodeCount: assembled.sizing.plan.nodes.length, overheadMinutes: assembled.sizing.estimate.overheadMinutes });
     logStage("routing", { assignments: Object.keys(assembled.routing.assignments).length });
     highestRiskTier = highestOf(assembled.sizing.plan.nodes.map((node) => node.riskTier ?? RISK_TIERS[0]));
@@ -384,14 +340,18 @@ export async function runPlanningPipeline(options) {
   } catch (error) {
     // The stage line the pipeline would otherwise have stopped short of, the
     // failure carried as the critical finding that names it, and the
-    // contested end every other unresolvable plan takes.
-    logStage(stage, { failed: error instanceof Error ? error.message : String(error) });
-    findings = [...findings, invalidPlanFinding(stage, error)];
+    // contested end every other unresolvable plan takes. `planStage` names a
+    // sizing or routing failure precisely; anything else reaching here is
+    // `freezePlan`'s, so the outer `stage` (bumped to "freeze" once assembly
+    // itself succeeded) is the fallback.
+    const failedStage = /** @type {{planStage?: string}} */ (error)?.planStage ?? stage;
+    logStage(failedStage, { failed: error instanceof Error ? error.message : String(error) });
+    findings = [...findings, invalidPlanFinding(failedStage, error)];
     // freezePlan removes contract.json itself when validation refuses it; a
     // failure after that write and before its return would otherwise leave a
     // contract.json no contested result may have.
     rmSync(join(plansDir, "contract.json"), { force: true });
-    return await contest(roundsRun, findings);
+    return await contest(roundsRun, findings, plan);
   }
 
   // A delta only means something between two samples of the same seat: freeze
@@ -484,13 +444,15 @@ const SCOPE_CLOSURE_RESOLUTION = "Resolve it by declaring each named file in wri
  * Used both outside any round (the draft validation above, and the freeze
  * catch inside `runPlanningPipeline`) and inside one, so `rounds.mjs` takes
  * it as an injected function rather than importing it, which would cycle
- * back into this module.
+ * back into this module. Exported for `resolve.mjs`, which reaches the same
+ * freeze catch from a plan read back off disk instead of one this module
+ * just assembled.
  *
  * @param {string} label
  * @param {unknown} error
  * @returns {PlanFindingOutput}
  */
-function invalidPlanFinding(label, error) {
+export function invalidPlanFinding(label, error) {
   const text = error instanceof Error ? error.message : String(error);
   const guided = text.startsWith(SCOPE_CLOSURE_MESSAGE_PREFIX) ? `${text} ${SCOPE_CLOSURE_RESOLUTION}` : text;
   return { id: `plan-shape-${label}`, severity: "critical", nodeId: "plan", text: guided };
@@ -537,6 +499,109 @@ export function carryPhaseDeclarations(phases, transformations) {
     if (phase.nodeIds === undefined) return phase;
     return { ...phase, nodeIds: [...new Set(phase.nodeIds.map(resolve))] };
   });
+}
+
+/**
+ * Tag an error with the sizing/routing sub-stage that threw it, so a catch
+ * far from here (this module's own freeze-wrap, or `resolve.mjs`'s) can name
+ * it precisely instead of defaulting to whichever stage it last saw start.
+ *
+ * @param {string} planStage
+ * @param {unknown} error
+ * @returns {Error}
+ */
+function taggedStageError(planStage, error) {
+  const wrapped = error instanceof Error ? error : new Error(String(error));
+  return Object.assign(wrapped, { planStage });
+}
+
+/**
+ * The one assembly a plan freezes through: sizing reshapes the drafted
+ * nodes, routing assigns worker and judge, and `toContractNode` renders the
+ * contract shape. Exported (rather than kept a `runPlanningPipeline`
+ * closure) so both the in-round pre-flight there and `resolve.mjs`'s
+ * freeze-only resume run the identical reshape over a plan, wherever that
+ * plan came from — a fresh draft/revise or one read back off a contested
+ * `plan.json`.
+ *
+ * @param {PlanOutput} currentPlan
+ * @param {{repoFacts: import("./repo-facts.mjs").RepoFacts, packageMode: import("./sizing.mjs").PackageMode, targetedFix: boolean, phase: string, cwd: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}}} ctx
+ * @returns {AssembledPlan}
+ */
+export function assembleFrozenPlan(currentPlan, ctx) {
+  const { repoFacts, packageMode, targetedFix, phase, cwd, runtimes, runtimeDefaults } = ctx;
+  let sizing;
+  try {
+    sizing = applySizingRules(
+      { nodes: currentPlan.nodes.map(toSizingNode), justification: currentPlan.justification },
+      { nodeBudgetMs: DEFAULT_NODE_BUDGET_MS, facts: repoFacts, minWriteFiles: MIN_WRITE_FILES, turnCeiling: DEFAULT_MAX_TURNS, packageMode, readVolume: (path) => fileLineCount(join(cwd, path)), targetedFix },
+    );
+  } catch (error) {
+    throw taggedStageError("sizing", error);
+  }
+  let routing;
+  try {
+    routing = resolveRuntimes(sizing.plan.nodes, {
+      table: [...DEFAULT_ROUTING_TABLE],
+      runtimes: /** @type {Record<string, import("./routing.mjs").RoutingRuntime>} */ (runtimes),
+      availability: availabilityOf(runtimes),
+      runtimeDefaults,
+    });
+  } catch (error) {
+    throw taggedStageError("routing", error);
+  }
+  return {
+    sizing,
+    routing,
+    nodes: sizing.plan.nodes.map((node) => toContractNode(/** @type {SizedPlanNode} */ (node), phase, routing.assignments[node.id])),
+    // The declarations a reviewer saw, remapped onto the nodes sizing
+    // actually produced: a merge removes a node id, and a declaration that
+    // named it must now name the node that absorbed it or freeze would see
+    // an unknown assignment.
+    phases: carryPhaseDeclarations(currentPlan.phases, sizing.transformations),
+  };
+}
+
+/**
+ * The raw contract exactly as `freezePlan` will assemble and validate it,
+ * schemaVersion and contractVersion included. It takes the whole assembly
+ * rather than its nodes because the contract carries a run-level conclusion
+ * of sizing's too (`maxParallel`), and the in-round pre-flight must validate
+ * the same bytes the freeze writes. Exported alongside `assembleFrozenPlan`
+ * for the same reason.
+ *
+ * @param {AssembledPlan} assembly
+ * @param {{campaignId: string, phase: string, campaignGoal: string, cwd: string, plansDir: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, verification: VerificationSuites}} ctx
+ * @returns {JsonObject}
+ */
+export function frozenContractRawOf({ sizing, nodes }, ctx) {
+  const { campaignId, phase, campaignGoal, cwd, plansDir, runtimes, runtimeDefaults, verification } = ctx;
+  return {
+    schemaVersion: PROTOCOL_SCHEMA_VERSION,
+    contractVersion: CONTRACT_VERSION,
+    id: `${campaignId}-${phase}`,
+    campaignId,
+    goal: campaignGoal,
+    // `freezePlan` writes contract.json inside `outDir` (`plansDir`), so
+    // `cwd` has to point back at the repo root from there, exactly like
+    // `runStage` computes it for the nodes it writes under `plansDir/nodes/`.
+    cwd: relative(plansDir, cwd) || ".",
+    // Sizing's `parallelisable` conclusion, which nothing else carries: a
+    // contract node has no `parallel` field, so a plan that says nothing here
+    // freezes at the validator's default of 1 and every independent node it
+    // proved waits for its turn. What the engine does with the number is the
+    // scheduler's business; declaring it is this stage's.
+    maxParallel: provenParallelism(sizing.plan),
+    runtimes,
+    runtimeDefaults,
+    // The operator's ratchets, carried verbatim: which suites a repository
+    // runs on every node is the operator's policy, supplied through
+    // `--verification`, never derived from repository facts. Validated at the
+    // flag boundary, so freeze neither re-derives nor edits them.
+    ...(verification.sharedVerification ? { sharedVerification: verification.sharedVerification } : {}),
+    ...(verification.finalVerification ? { finalVerification: verification.finalVerification } : {}),
+    nodes,
+  };
 }
 
 /**
