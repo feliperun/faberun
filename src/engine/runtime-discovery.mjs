@@ -21,7 +21,20 @@ export { exhaustedUntilOf, normalizeProviderAvailability } from "../harnesses/in
 /** @typedef {{harness: string, model: string, vendor: string, tier: number, costRank: number, config?: Record<string, unknown>}} DiscoveryRuntime */
 /** @typedef {{id: string, runtime: RuntimeLike, order: number}} RuntimeCandidate */
 /** @typedef {import("../host/config.mjs").UserConfig} UserConfig */
-/** @typedef {{config?: UserConfig|null, onWarning?: (message: string) => void}} ComposeOptions */
+/** @typedef {{id: string, gate: {enabled: boolean, runtime?: string}}} ComposeOptionsNode */
+/**
+ * `listJudge`'s return governs precedence, not just a value: `undefined`
+ * means no list applies to this node (its gate is disabled), so
+ * `composeAssignments` falls through to its own candidates unchanged; once a
+ * list applies, its pick is final and nothing else is tried, whether that
+ * pick is a runtime id (`chosen`) or `null` for an exhausted list. The full
+ * pick, not just `chosen`, is returned so an exhausted list's thrown error can
+ * name every skipped entry and why -- an operator reading an aborted run
+ * cannot otherwise tell the list was even consulted.
+ * @typedef {{id: string, reason: string}} JudgeListSkip
+ * @typedef {{chosen: string|null, skipped: JudgeListSkip[]}} JudgeListPick
+ * @typedef {{config?: UserConfig|null, onWarning?: (message: string) => void, listJudge?: (node: ComposeOptionsNode, workerId: string, workerProvider: string|undefined) => JudgeListPick|undefined}} ComposeOptions
+ */
 
 /**
  * Candidates used when a contract omits its runtime catalogue. The catalogue
@@ -125,6 +138,16 @@ export function availableCandidates(runtimes, availability = {}) {
  * `options.onWarning`; config never overrides an explicit node, gate or
  * runtime-default declaration, and the cross-vendor judge rule still applies.
  *
+ * `options.listJudge` (R18) is asked for an omitted judge before the single
+ * `config.judge` preference and the strongest-candidate default: it is the
+ * caller's own ordered-list selection (`engine/judge-list.mjs`), kept out of
+ * this module so a list pick's refusal- and usage-window reads never import a
+ * `run/` consumer of this very function back into a cycle. Returning
+ * `undefined` -- no list governs this node -- falls through to the candidates
+ * below exactly as if it had not been asked. A governed node's pick is final
+ * instead: a string is used as-is, and `null` -- every entry was skipped --
+ * throws rather than silently falling through to a judge outside the list.
+ *
  * @param {RuntimeContract} contract
  * @param {Record<string, RuntimeAvailability>} availability
  * @param {ComposeOptions} [options]
@@ -151,7 +174,23 @@ export function composeAssignments(contract, availability = {}, options = {}) {
     const judgeOmitted = node.gate.runtime === undefined && contract.runtimeDefaults?.judge === undefined;
     const preferredJudge = judgeOmitted ? candidateById(candidates, config?.judge) : undefined;
     const workerProvider = effectiveProvider(workerRuntime);
-    const judge = node.gate.runtime ?? contract.runtimeDefaults?.judge
+    const declaredJudge = node.gate.runtime ?? contract.runtimeDefaults?.judge;
+    // R18: once a list governs this node (`judgeListPick` is not
+    // `undefined`), its pick is final -- a string is used as-is, and `null`
+    // (every entry skipped) must not fall through to
+    // `preferredJudge`/`strongest` below, or the node would land on a judge
+    // outside the declared list and the skip evidence `listJudge` already
+    // recorded would go unused. The thrown error itself names every skipped
+    // entry and why: this is the only trace of the list an operator reading
+    // an aborted run has, since the caller's own record of `judgeListStates`
+    // is never reached when this constructor throws before returning.
+    const judgeListPick = declaredJudge === undefined && judgeOmitted ? options.listJudge?.(node, worker, workerProvider) : undefined;
+    if (judgeListPick && judgeListPick.chosen === null) {
+      const reasons = judgeListPick.skipped.map((entry) => `${entry.id}: ${entry.reason}`).join("; ");
+      throw new Error(`runtime_assignment_judge_unavailable: every entry of the judge list is unavailable for node ${node.id} and worker ${worker} (${reasons})`);
+    }
+    const judge = declaredJudge
+      ?? judgeListPick?.chosen
       ?? (preferredJudge && effectiveProvider(preferredJudge.runtime) !== workerProvider ? preferredJudge.id : undefined)
       ?? strongest(candidates, workerProvider)?.id;
     if (node.gate.enabled && (!judge || !contract.runtimes[judge])) {
