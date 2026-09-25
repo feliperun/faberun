@@ -11,6 +11,7 @@ import { PARKED } from "./prompts.mjs";
 import { composeAssignments, discoverRuntimes } from "./runtime-discovery.mjs";
 import { readUserConfig } from "../host/config.mjs";
 import { transition } from "./state.mjs";
+import { isHumanStepPending } from "../contract/human-step.mjs";
 import { initialJudgeListState, resolveJudgeList } from "./judge-list.mjs";
 
 /** @typedef {import("../cli.mjs").LockHandle} LockHandle */
@@ -115,6 +116,11 @@ export function blockDependents(contract, runDir, states, lock) {
     // automatic retry is still unspent is re-opened to `pending` before this
     // runs, so the dependants stay `pending`/`phase: "waiting"` until it parks.
     const blockedBy = node.dependsOn.filter((id) => PARKED.has(states.get(id)?.status ?? ""));
-    if (blockedBy.length) transition(runDir, state, "blocked", { phase: "dependency", blockedBy, error: { code: "dependency_failed", message: `blocked by ${blockedBy.join(", ")}` } }, lock);
+    // A dependant of a pending human step (R16) is waiting, not failed: the
+    // code stays `dependency_failed` so `resume --answer` re-opens it, and the
+    // message says what it waits for.
+    const waiting = blockedBy.every((id) => isHumanStepPending(/** @type {NodeSnapshot} */ (states.get(id))));
+    const message = waiting ? `waiting for human step ${blockedBy.join(", ")}` : `blocked by ${blockedBy.join(", ")}`;
+    if (blockedBy.length) transition(runDir, state, "blocked", { phase: "dependency", blockedBy, error: { code: "dependency_failed", message } }, lock);
   }
 }

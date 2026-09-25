@@ -44,6 +44,7 @@ import { captureNodeScopeBoundaries, checkWorkerScope, emptyScope } from "./scop
 import { validateContractForLaunch } from "../campaign/chain.mjs";
 import { finalVerificationCommands, gateProofTimeoutMs, sharedVerificationCommands } from "../contract/final-verification.mjs";
 import { startJudge, startWorker } from "./dispatch.mjs";
+import { raiseNodeAttention } from "./settle.mjs";
 import { HUMAN_STEP_ERROR_CODE, humanStepAttentionMessage } from "../contract/human-step.mjs";
 import { assertEnvironmentReady, captureRunIdentity, createRunMetadata, serializableContract, statesFingerprint } from "./run-identity.mjs";
 import { blockDependents, runtimeAssignments } from "./assignment.mjs";
@@ -639,6 +640,7 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
           phase: "complete",
           error: { code: HUMAN_STEP_ERROR_CODE, message: humanStepAttentionMessage(node.humanStep) },
         }, lock);
+        await raiseNodeAttention(campaign.path, runDir, /** @type {NodeSnapshot} */ (states.get(node.id)), HUMAN_STEP_ERROR_CODE);
       }
       const slots = contract.maxParallel - running.size;
       if (slots > 0) {

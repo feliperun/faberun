@@ -246,35 +246,46 @@ function humanStepsOf(humanSteps) {
 }
 
 /**
- * Stamp the node that carries a declared human step's requirement with that
- * step (R16): the frozen contract node the scheduler stops on instead of
- * dispatching (`contract/human-step.mjs` validates the shape at contract
- * validation; the scheduler reads it at dispatch time). Matched by the node's
- * already-inherited `requirementIds` (`stampPhaseRequirementIds` runs first),
- * so a phase declaration that never assigns the requirement to any node
- * leaves it unstamped -- the same graceful gap `stampPhaseRequirementIds`
- * itself leaves, not a reason to refuse the freeze. A node whose
- * requirementIds match more than one declared human step is refused: which of
- * two stops it becomes is not this function's call to make.
+ * Add one human node per declared step (R16): the frozen contract node the
+ * scheduler stops on instead of dispatching (`contract/human-step.mjs`
+ * validates the shape; the scheduler reads it at dispatch time). The node the
+ * planner drafted for the requirement keeps its own provider work: the human
+ * node depends on every node that carries the requirement (matched by the
+ * already-inherited `requirementIds`), and every node that depended on one of
+ * those carriers now waits for the human node too. A requirement no node
+ * carries still gets its stop, with no dependencies. The packet is a
+ * discovery packet with no files because it is never dispatched; only its
+ * `humanStep` is read.
  *
  * @param {unknown} nodes
  * @param {PlanHumanStep[]} humanSteps
  * @returns {unknown}
  */
-function stampHumanSteps(nodes, humanSteps) {
+function addHumanStepNodes(nodes, humanSteps) {
   if (!Array.isArray(nodes)) return nodes;
-  const byRequirementId = new Map(humanSteps.map((step) => [step.requirementId, step]));
-  return nodes.map((node) => {
-    const record = /** @type {Record<string, unknown>} */ (node && typeof node === "object" ? node : {});
-    const requirementIds = Array.isArray(record.requirementIds) ? record.requirementIds : [];
-    const matches = requirementIds.filter((id) => byRequirementId.has(id));
-    if (matches.length === 0) return node;
-    if (matches.length > 1) {
-      throw new TypeError(`node ${record.id} carries more than one declared human step (${matches.join(", ")})`);
-    }
-    const step = /** @type {PlanHumanStep} */ (byRequirementId.get(matches[0]));
-    return { ...record, humanStep: { step: step.step, command: step.command } };
-  });
+  let records = nodes.map((node) => /** @type {Record<string, unknown>} */ (node && typeof node === "object" ? node : {}));
+  for (const step of humanSteps) {
+    const id = `human-step-${step.requirementId.toLowerCase()}`;
+    if (records.some((record) => record.id === id)) throw new TypeError(`human step node id ${id} is already a planned node id`);
+    const carriers = records.filter((record) => Array.isArray(record.requirementIds) && record.requirementIds.includes(step.requirementId));
+    const carrierIds = new Set(carriers.map((record) => /** @type {string} */ (record.id)));
+    records = records.map((record) => {
+      const dependsOn = Array.isArray(record.dependsOn) ? /** @type {string[]} */ (record.dependsOn) : [];
+      if (carrierIds.has(/** @type {string} */ (record.id)) || !dependsOn.some((dependency) => carrierIds.has(dependency))) return record;
+      return { ...record, dependsOn: [...dependsOn, id] };
+    });
+    records.push({
+      id,
+      type: "human",
+      ...(carriers[0]?.phase === undefined ? {} : { phase: carriers[0].phase }),
+      requirementIds: [step.requirementId],
+      dependsOn: [...carrierIds],
+      gate: false,
+      humanStep: { step: step.step, command: step.command },
+      taskPacket: { mode: "discovery", objective: step.step, instructions: [`The operator runs \`${step.command}\` and records it done with faberun resume --answer.`], readFiles: [], writeFiles: [], symbols: [], decisions: [], nonGoals: [], verification: [] },
+    });
+  }
+  return records;
 }
 
 /**
@@ -358,7 +369,7 @@ export function freezePlan(plan, { outDir, provenance, phases, spec, humanSteps,
   mkdirSync(outDir, { recursive: true });
   const contractPath = join(outDir, "contract.json");
   const requirementStampedNodes = phaseDeclarations ? stampPhaseRequirementIds(plan.nodes, phaseDeclarations) : plan.nodes;
-  const stampedNodes = humanStepList ? stampHumanSteps(requirementStampedNodes, humanStepList) : requirementStampedNodes;
+  const stampedNodes = humanStepList ? addHumanStepNodes(requirementStampedNodes, humanStepList) : requirementStampedNodes;
   const raw = /** @type {JsonObject} */ ({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
     contractVersion: CONTRACT_VERSION,
