@@ -519,8 +519,8 @@ test("judge provider failover preserves the completed worker result", async () =
     runtimeDefaults: { worker: "worker", judge: "judge-first" },
     runtimes: {
       worker: { harness: "codex", model: "worker", executable: worker },
-      "judge-first": { harness: "codex", model: "judge-first", executable: judgeFirst, vendor: "openai-judge", fallback: "judge-second" },
-      "judge-second": { harness: "codex", model: "judge-second", executable: judgeSecond, vendor: "openai-judge" },
+      "judge-first": { harness: "codex", model: "judge-first", executable: judgeFirst, config: { model_provider: "deepseek" }, fallback: "judge-second" },
+      "judge-second": { harness: "codex", model: "judge-second", executable: judgeSecond, config: { model_provider: "deepseek" } },
     },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), definitionOfDone: [{ id: "works", text: "It works", judgment: true }], gate: {} }],
   }));

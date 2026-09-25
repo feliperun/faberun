@@ -19,10 +19,10 @@ import {
 } from "../../src/plan/template.mjs";
 
 const RUNTIMES = {
-  "anthropic-sonnet": { harness: "claude", model: "claude-sonnet-5", vendor: "anthropic-sonnet" },
-  "anthropic-opus": { harness: "claude", model: "claude-opus-5", vendor: "anthropic-opus" },
+  "anthropic-sonnet": { harness: "claude", model: "claude-sonnet-5" },
+  "openai-reviewer": { harness: "codex", model: "gpt-5.6" },
 };
-const RUNTIME_DEFAULTS = { worker: "anthropic-sonnet", judge: "anthropic-opus" };
+const RUNTIME_DEFAULTS = { worker: "anthropic-sonnet", judge: "openai-reviewer" };
 
 /**
  * @param {Record<string, unknown>} [overrides]
@@ -120,8 +120,8 @@ test("planner vendors distinct", () => {
   const reviewVendor = reviewContract.runtimes[/** @type {string} */ (reviewRuntimeId)].vendor;
 
   assert.notEqual(draftVendor, reviewVendor);
-  assert.equal(draftVendor, "anthropic-sonnet");
-  assert.equal(reviewVendor, "anthropic-opus");
+  assert.equal(draftVendor, "anthropic");
+  assert.equal(reviewVendor, "openai");
 });
 
 test("review finding shape", () => {
