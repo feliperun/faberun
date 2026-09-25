@@ -89,7 +89,8 @@ dentro da recusa.
 de worker, 3 intervenções do operador) deixou os achados F1 a F12 na sua
 retrospectiva. Conferidos contra a árvore da 0.25.1: F1 (veredito do dsh
 ilegível) e F2 (retomada de `judge_unavailable`) já estão corrigidos, e os
-outros dez viram R22 a R31. Cada um cita o achado de origem. Os dez são o que
+outros dez viram R22 a R31. Cada um cita o achado de origem. R32 a R36 vêm da
+própria campanha `planner-and-routing`, que achou esses defeitos enquanto rodava. Os dez são o que
 um estranho encontra na primeira campanha, fora do repositório do autor.
 
 ## Estado medido
@@ -339,6 +340,59 @@ scaffold`, o pipeline de plano com seus estágios, `validateContract` com
   das `invocations` que o snapshot já guarda. A linha de texto marca quando a
   soma das tentativas depois da primeira passa o custo da primeira.
 - **proof:** `command: node --test --test-name-pattern="status flags retries that out-spend the first attempt" test/report/cost.test.mjs`
+
+### R32. Um lançamento destacado recusado diz por quê e não deixa resto
+
+- **origin:** `planner-and-routing`, 2026-09-25: um `run --detach` que a
+  atribuição de runtimes recusou imprimiu só `detached bootstrap failed before
+  readiness`, e o diretório da run que ficou para trás (só o `contract.json`)
+  recusou a nova tentativa com `run already exists`.
+- **statement:** o bootstrap destacado repassa ao terminal a mensagem de erro
+  do controlador que morreu antes da prontidão. Um diretório de run que nunca
+  chegou a ter um nó é removido pelo próprio lançamento que falhou.
+- **proof:** `command: node --test --test-name-pattern="a refused detached launch prints the controller error and leaves no run directory" test/engine/detach.test.mjs`
+
+### R33. Um limite de sessão com hora de reset espera o reset
+
+- **origin:** `planner-and-routing`, 2026-09-25: três nós esgotaram com
+  `quota_exhausted` num 429 do Claude cujo texto dizia `You've hit your session
+  limit · resets 2:40pm (America/Sao_Paulo)`.
+- **statement:** a classificação de disponibilidade lê a hora de reset desse
+  texto, com o fuso que ele nomeia, e o nó espera o reset como já espera um
+  `exhaustedUntil` de outro provedor, em vez de esgotar.
+- **proof:** `command: node --test --test-name-pattern="a session limit that names its reset time waits for it" test/harnesses/claude.test.mjs`
+
+### R34. Uma prova que não roda nem na base é recusada no lançamento
+
+- **origin:** `planner-and-routing`, 2026-09-25: a prova `r9-named` de um
+  contrato escrito à mão tinha um apóstrofo dentro de uma string entre aspas
+  simples de `node -e`, e o nó pagou três tentativas antes de alguém ver que
+  nenhuma entrega passaria.
+- **statement:** antes do primeiro despacho, cada prova `command` que é um
+  `node -e` tem o corpo checado pelo parser. Um erro de sintaxe recusa o
+  lançamento, nomeando o nó e o item.
+- **proof:** `command: node --test --test-name-pattern="a proof command that cannot parse refuses the launch" test/contract/definition-of-done.test.mjs`
+
+### R35. A regra do juiz e a atribuição de runtimes dizem a mesma coisa
+
+- **origin:** `planner-and-routing`, 2026-09-25: o `validate` aceitou um
+  contrato em `judgeIndependence: "same-vendor"` que a atribuição de runtimes
+  recusou no lançamento (corrigido em `fix(engine): same-vendor mode admits a
+  same-provider judge at runtime assignment`).
+- **statement:** `faberun validate` roda a atribuição de runtimes do lançamento
+  sobre o contrato, com a disponibilidade dada como tudo disponível, e recusa o
+  que o lançamento recusaria.
+- **proof:** `command: node --test --test-name-pattern="validate refuses what runtime assignment would refuse" test/cli/validate.test.mjs`
+
+### R36. O modo de um provedor só também vale pelo config da máquina
+
+- **origin:** R20 da `planner-and-routing` pede o opt-in "no contrato ou no
+  config da máquina". Só a metade do contrato pousou, porque a validação do
+  contrato não lê o config da máquina.
+- **statement:** `judgeIndependence` no config da máquina vale para um contrato
+  que não o declara. O lançamento grava no snapshot da run o modo efetivo, e o
+  Brief, o relatório e as métricas leem esse modo.
+- **proof:** `command: node --test --test-name-pattern="the machine config opts a contract into same-vendor review" test/engine/runtime-discovery.test.mjs`
 
 ## Não-objetivos
 
