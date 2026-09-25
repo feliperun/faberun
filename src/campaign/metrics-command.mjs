@@ -15,7 +15,7 @@ import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
 import { runsRoot } from "../run/paths.mjs";
 
 /** @typedef {Record<string, unknown>} JsonObject */
-/** @typedef {{runId: string, id: string, status: string, attempt?: number|null, revisions?: number|null, review?: string|null}} RunNode */
+/** @typedef {{runId: string, id: string, status: string, attempt?: number|null, revisions?: number|null, review?: string|null, sameProviderReview?: boolean|null}} RunNode */
 
 /** Flags of `faberun metrics`, declared here so the router only names them. */
 /** @type {import("node:util").ParseArgsOptionsConfig} */
@@ -153,6 +153,7 @@ function readLedgerNodeSnapshots(path) {
         attempt: typeof object.attempt === "number" ? object.attempt : null,
         revisions: typeof object.revisions === "number" ? object.revisions : null,
         review: typeof object.review === "string" ? object.review : null,
+        sameProviderReview: typeof object.sameProviderReview === "boolean" ? object.sameProviderReview : null,
       }];
     });
   } catch {
@@ -187,6 +188,7 @@ export function readMetricNodeSnapshots(runDir) {
       attempt: typeof record.attempt === "number" ? record.attempt : null,
       revisions: typeof record.revisions === "number" ? record.revisions : null,
       review: typeof record.review === "string" ? record.review : null,
+      sameProviderReview: typeof record.sameProviderReview === "boolean" ? record.sameProviderReview : null,
     });
   }
   return nodes;

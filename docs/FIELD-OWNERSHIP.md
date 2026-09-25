@@ -203,6 +203,29 @@ and `runMutation` (`src/engine/mutation.mjs`) only reads the declared tier,
 resolving the kill fraction from `MUTATION_TIERS` — a reader, not a second
 writer. One writer (the packet's authoring), one moment.
 
+## Same-provider review, two facts and neither re-derived
+
+`sameProviderReview` (R20) names two distinct, already-decided facts — never a
+third re-derivation of the vendor-and-tier rule
+(`contract/judge-independence.mjs`) itself. `validateContract` decides the
+static one once, at contract validation: whether a node's worker runtime, or
+its one-hop fallback, could admit a same-vendor judge under
+`judgeIndependence: "same-vendor"`. It lands on the `ValidatedNode` and
+nowhere else writes it; the Campaign Brief's work graph
+(`src/campaign/campaign-brief-graph.mjs`), a plan-time surface with no run to
+read, reads this one. `engine/dispatch.mjs`'s `startJudge` decides the dynamic
+one, per attempt: the worker runtime that actually ran (fallback included)
+paired with the judge candidate routed for this attempt
+(`isSameProviderReviewPair`) — not a copy of the contract's static fact, which
+only says a pairing was admissible, primary or fallback alike, never which one
+ran. That dynamic fact is what `startJudge` stamps onto the node snapshot's
+`sameProviderReview` (`contract/snapshot.mjs`) at the same moment it stamps
+`review`, and the only value the campaign ledger's `readMetricNodeSnapshots`
+(`src/campaign/metrics-command.mjs`) carries into `.nodes.json`. The run report
+and status (`src/report/render.mjs`) and campaign metrics
+(`src/report/metrics-report.mjs`) read that persisted snapshot fact, never the
+contract's static one.
+
 ## The ratchet, measured
 
 Measured 2026-09-16: **15 entries have more than one writer.** They are a

@@ -130,6 +130,7 @@ export function validateNodeSnapshot(value, expectedNode = null) {
     "attempt", "revisions", "judgeFailures", "requirementIds", "runtime", "blockedBy", "startedAt", "updatedAt", "result", "gate", "error", "usage",
     "costUsd", "routing", "progress", "worktree", "invocations", "executionOverrides", "verification", "scope",
     "scopeFindings", "verificationArtifacts", "review", "previousAttempt", "sessionPolicy", "integratedHead", "declaredReadBytes",
+    "sameProviderReview",
   ]), "node snapshot");
   validateMetadata(value, "node snapshot");
   requireId(value.id, "node snapshot.id");
@@ -147,6 +148,11 @@ export function validateNodeSnapshot(value, expectedNode = null) {
   // surface can tell an advisory finding from a below-threshold blocking one.
   if (value.review !== undefined && !REVIEW_MODES.has(/** @type {string} */ (value.review))) {
     throw new TypeError("node snapshot.review is invalid");
+  }
+  // R20: whether this attempt's judge was admitted under same-vendor mode,
+  // stamped by `startJudge` from the contract's own `sameProviderReview`.
+  if (value.sameProviderReview !== undefined && typeof value.sameProviderReview !== "boolean") {
+    throw new TypeError("node snapshot.sameProviderReview must be a boolean");
   }
   requirePacketHash(value.packetHash, "node snapshot.packetHash");
   validateSourceIdentity(value.sourceIdentity, "node snapshot.sourceIdentity", { kind: "node" });
