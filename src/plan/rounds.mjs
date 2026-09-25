@@ -1,8 +1,10 @@
 /**
  * The planning pipeline's review/revise rounds: draft a plan once, then
  * alternate review and revise up to `reviewRounds` times until no critical
- * finding remains or the round budget runs out, contesting through the round
- * that exhausts it. Separate from `pipeline.mjs` (measured 2026-09-24:
+ * finding remains, the round budget runs out, or a round's own revise did not
+ * lower the critical count review found the round before it (R14) — every one
+ * of those ends contested, through the round that reached it. Separate from
+ * `pipeline.mjs` (measured 2026-09-24:
  * pipeline.mjs was 742 of 800 lines) because this is the one place a round's
  * finding bookkeeping — merge what is still open, drop what a revise
  * silently shrank, resolve what a revise touched — happens together with the
@@ -143,12 +145,37 @@ export function droppedWriteFindings(previousPlan, revisedPlan) {
 }
 
 /**
+ * The finding a round's break condition raises when a revise did not lower
+ * the critical count the reviewer found: `round`'s own count sits at or above
+ * `history[history.length - 2]`'s, the round right before it. Carries the
+ * whole per-round history rather than just the two counts being compared, so
+ * the contested record and the campaign journal note it drives both show the
+ * shape of the whole attempt, not just the round that finally gave up on it.
+ *
+ * @param {number} round
+ * @param {number[]} history critical counts, one per round measured so far, this round's last
+ * @returns {PlanFindingOutput}
+ */
+function revisionNotConvergingFinding(round, history) {
+  const current = history[history.length - 1];
+  const previous = history[history.length - 2];
+  return {
+    id: `revision-not-converging-r${round}`,
+    severity: "critical",
+    nodeId: "plan",
+    text: `Round ${round} review still finds ${current} critical finding(s), no fewer than round ${round - 1}'s ${previous}. Critical count by round: ${history.join(", ")}. The revise is not resolving what review keeps objecting to, so the pipeline stops here instead of spending the round(s) still in budget.`,
+  };
+}
+
+/**
  * Run the review/revise rounds against a draft plan, in place of the pipeline
  * running them itself. Returns `resolved: true` with the plan and findings a
  * round's break (no critical finding left) or an exhausted `reviewRounds`
  * without a review ever running (the draft never validated) leaves behind, or
- * `resolved: false` with the `contest` result the round that hit the budget
- * produced — `pipeline.mjs` returns that result as its own.
+ * `resolved: false` with the `contest` result the round that hit the budget,
+ * failed to converge (R14), or lost both of a round's revise attempts to
+ * `validatePlanOutput` produced — `pipeline.mjs` returns that result as its
+ * own.
  *
  * @param {{
  *   reviewRounds: number,
@@ -187,6 +214,51 @@ export async function runReviewRounds(options) {
   /** @type {PlanFindingOutput[]} */
   let droppedWrites = [];
   let roundsRun = 0;
+  // The critical count review found each round it actually ran, oldest
+  // first: what R14's stop condition compares one round against the one
+  // before it. A revise retry (`reviseOnce` below) never appends here — only
+  // a round whose own review ran counts toward this history, because a retry
+  // spends no round.
+  /** @type {number[]} */
+  const criticalHistory = [];
+
+  /**
+   * Run the revise stage once, validate its output, and on a rejection run it
+   * a second time with the validator's message appended to the same round's
+   * findings — the one retry R14 grants before a round contests. Every
+   * rejection this reaches is one `validatePlanOutput` has no deterministic
+   * fix for: R21 already normalizes the one shape variant that used to need
+   * one (a text `proof.ref`) inside the validator itself, so nothing here has
+   * a mechanical repair to apply instead of asking the worker again. Neither
+   * attempt is charged against `reviewRounds`; the caller's own round counter
+   * is untouched either way.
+   *
+   * @param {number} round
+   * @param {PlanFindingOutput[]} findingsForRevise
+   * @returns {Promise<{plan: PlanOutput, runId: string, firstInvalid: PlanFindingOutput|null} | {plan: null, finding: PlanFindingOutput, firstInvalid: PlanFindingOutput}>}
+   */
+  const reviseOnce = async (round, findingsForRevise) => {
+    const path = join(scratchDir, `findings-round-${round}.json`);
+    writeJsonAtomic(path, findingsForRevise);
+    const revise = await runStage("revise", {
+      specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, path), packageMode,
+    });
+    try {
+      return { plan: validatePlanOutput(revise.output.plan), runId: revise.contract.id, firstInvalid: null };
+    } catch (error) {
+      const firstInvalid = invalidPlanFinding(`revise-r${round}-attempt1`, error);
+      const retryPath = join(scratchDir, `findings-round-${round}-retry.json`);
+      writeJsonAtomic(retryPath, [...findingsForRevise, firstInvalid]);
+      const retry = await runStage("revise", {
+        specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, retryPath), packageMode,
+      });
+      try {
+        return { plan: validatePlanOutput(retry.output.plan), runId: retry.contract.id, firstInvalid };
+      } catch (secondError) {
+        return { plan: null, finding: invalidPlanFinding(`revise-r${round}-attempt2`, secondError), firstInvalid };
+      }
+    }
+  };
 
   for (let round = 1; round <= reviewRounds; round += 1) {
     roundsRun = round;
@@ -244,28 +316,33 @@ export async function runReviewRounds(options) {
     findings = mergeFindings(findings, droppedWrites);
     const criticalFindings = findings.filter((finding) => finding.severity === "critical");
     if (criticalFindings.length === 0) break;
-    if (round === reviewRounds) return { resolved: false, result: await contest(round, findings) };
-    const findingsPath = join(scratchDir, `findings-round-${round}.json`);
-    writeJsonAtomic(findingsPath, findings);
-    const revise = await runStage("revise", {
-      specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, findingsPath), packageMode,
-    });
-    // Kept for the write-drop comparison: the plan the revise revised, against
-    // the plan it produced.
-    const planBeforeRevise = plan;
-    /** @type {PlanFindingOutput|null} */
-    let invalid = null;
-    try {
-      plan = validatePlanOutput(revise.output.plan);
-    } catch (error) {
-      // The revise output was rejected wholesale, so the round's review
-      // findings are still outstanding and ride along to the next round.
-      invalid = invalidPlanFinding(`revise-r${round}`, error);
-      plan = null;
-      findings = [...findings, invalid];
+    // R14: a round that ends with as many or more criticals than the round
+    // before it is not converging, and the revise already had this round's
+    // own findings in front of it — spending the rounds still in budget would
+    // not change that. Checked before the round-budget exit below, so the
+    // more informative finding wins when a round is both the last one and a
+    // non-improvement over the one before it.
+    const previousCritical = criticalHistory[criticalHistory.length - 1];
+    criticalHistory.push(criticalFindings.length);
+    if (previousCritical !== undefined && criticalFindings.length >= previousCritical) {
+      const notConverging = revisionNotConvergingFinding(round, criticalHistory);
+      findings = [...findings, notConverging];
+      logStage("revision-not-converging", { round, criticalHistory });
+      return { resolved: false, result: await contest(round, findings) };
     }
-    // Null when the revise output was refused: there is no revised write set
-    // to compare, and the refused-output finding already drives the round.
+    if (round === reviewRounds) return { resolved: false, result: await contest(round, findings) };
+    // Kept for the write-drop and unresolved-finding comparisons below: the
+    // plan the revise revises, against whichever attempt's output validates.
+    const planBeforeRevise = plan;
+    const revised = await reviseOnce(round, findings);
+    if (revised.plan === null) {
+      // Both this round's revise attempts were rejected: the round contests
+      // rather than carrying the still-unrevised plan into another round.
+      findings = [...findings, revised.finding];
+      logStage("revise", { round, retried: true, invalid: revised.finding.text, firstInvalid: revised.firstInvalid.text });
+      return { resolved: false, result: await contest(round, findings) };
+    }
+    plan = revised.plan;
     droppedWrites = droppedWriteFindings(planBeforeRevise, plan);
     // What the next round starts from: the findings this revise did not move
     // the plan under. Everything else — a node it changed, a node it removed,
@@ -274,10 +351,10 @@ export async function runReviewRounds(options) {
     findings = unresolvedFindings(findings, planBeforeRevise, plan);
     logStage("revise", {
       round,
-      runId: revise.contract.id,
+      runId: revised.runId,
       droppedWrites: droppedWrites.length,
       carriedFindings: findings.length,
-      ...(invalid === null ? {} : { invalid: invalid.text }),
+      ...(revised.firstInvalid === null ? {} : { retried: true, firstInvalid: revised.firstInvalid.text }),
     });
   }
   return { resolved: true, plan, findings, roundsRun };
