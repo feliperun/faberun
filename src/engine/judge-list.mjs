@@ -124,7 +124,11 @@ export function selectListJudge(contract, list, workerId, options = {}) {
       skipped.push({ id, reason: `usage window ${window.window} at ${window.usedPercent}%, above ${JUDGE_USAGE_WINDOW_LIMIT_PERCENT}%` });
       continue;
     }
-    return { chosen: id, skipped };
+    // An attempted entry after the pick is still recorded: `nextListJudge`
+    // rebuilds the attempted set from these entries alone, so dropping one
+    // here would let a later hop return to a judge that already refused.
+    const after = list.slice(list.indexOf(id) + 1).filter((later) => attempted.has(later));
+    return { chosen: id, skipped: [...skipped, ...after.map((later) => ({ id: later, reason: "already attempted this run" }))] };
   }
   return { chosen: null, skipped };
 }

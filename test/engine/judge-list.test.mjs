@@ -304,3 +304,32 @@ test("a judge list exhausted mid-run blocks with judge_list_exhausted, not the d
   assert.equal(route.nextRuntime, "zcode-glm", "no edge remains, so the route stays put");
   assert.equal(route.blocked?.code, "judge_list_exhausted");
 });
+
+test("a judge refused on an earlier hop stays excluded after an earlier list entry becomes eligible again", () => {
+  const now = Date.now();
+  const runtimes = {
+    worker: RUNTIMES.worker,
+    early: { harness: "agy", model: "gemini-3.8-flash-low", vendor: "google", executable: "/nonexistent/agy-early" },
+    late: { harness: "claude", model: "claude-opus-5-5", vendor: "anthropic", executable: "/nonexistent/claude-late" },
+  };
+  const contract = /** @type {any} */ ({ runtimes });
+  /** @param {"early"|"late"} id */
+  const key = (id) => availabilityKey({ harness: runtimes[id].harness, model: runtimes[id].model, executable: getHarness(runtimes[id].harness).executable(runtimes[id]) });
+
+  // `early` is briefly refused, so the initial pick lands on `late`.
+  recordRefusal(key("early"), { reason: "quota_exhausted", exhaustedUntil: new Date(now + 500).toISOString() }, now);
+  let state = initialJudgeListState(contract, ["early", "late"], "worker", now);
+  assert.equal(state.chosen, "late");
+
+  // `late` refuses once `early`'s refusal has expired: the hop goes back up
+  // the list to `early`, and the evidence still names `late` as attempted.
+  state = nextListJudge(contract, state, "worker", now + 1_000);
+  assert.equal(state.chosen, "early");
+  assert.deepEqual(state.skipped, [{ id: "late", reason: "already attempted this run" }]);
+
+  // `early` refuses too: both entries have run and failed, so the list is
+  // exhausted rather than returning to `late`.
+  state = nextListJudge(contract, state, "worker", now + 2_000);
+  assert.equal(state.chosen, null);
+  assert.deepEqual(state.skipped.map((entry) => entry.id), ["early", "late"]);
+});
