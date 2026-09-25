@@ -284,7 +284,7 @@ export async function resumeRun(runDirPath, options = {}) {
             ? recoverWorkerResult(runDir, state, contract, node)
             : canonicalWorkerResultText(runDir, node.id) ?? recovery.result;
         } catch (error) {
-          await applyInvalidWorkerResult(contract, node, state, runDir, null, lock, errorMessage(error), states, campaign.path);
+          await applyInvalidWorkerResult(contract, node, state, runDir, null, lock, error, states, campaign.path);
           continue;
         }
         if (recovery.phase === "worker" && workerResult !== null && workerResult !== undefined) {
@@ -301,7 +301,7 @@ export async function resumeRun(runDirPath, options = {}) {
           try {
             parsedWorkerResult = parseWorkerResult(String(extractJson(workerResult) ?? workerResult));
           } catch (error) {
-            await applyInvalidWorkerResult(contract, node, state, runDir, null, lock, errorMessage(error), states, campaign.path);
+            await applyInvalidWorkerResult(contract, node, state, runDir, null, lock, error, states, campaign.path);
             continue;
           }
           // Same discriminator as lifecycle.mjs: the artifact is owed only by
@@ -311,7 +311,7 @@ export async function resumeRun(runDirPath, options = {}) {
             try {
               parseDiscoveryResult(parsedWorkerResult, attemptWorkspace(state) ?? contract.cwd);
             } catch (error) {
-              await applyInvalidWorkerResult(contract, node, state, runDir, null, lock, errorMessage(error), states, campaign.path);
+              await applyInvalidWorkerResult(contract, node, state, runDir, null, lock, error, states, campaign.path);
               continue;
             }
           }

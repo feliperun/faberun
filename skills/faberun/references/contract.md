@@ -140,8 +140,10 @@ missing something, never repository-wide exploration. Bounded: 32 KiB total,
 4 KiB summary, 32 entries each in `changedFiles`/`verification`/`artifacts`
 (16 in `missingContext`), 2 KiB per entry (16 KiB per artifact). Unknown
 provider-added fields are dropped; missing/malformed canonical fields are
-rejected (`worker-result.mjs`). A discovery node returns `done` with exactly
-one `artifacts` entry: the execution packet for the next node.
+rejected (`worker-result.mjs`). A discovery node without `readFiles` returns
+`done` with one `artifacts` entry, the next node's execution packet; one closed
+to its `readFiles` (every planning stage) delivers through `output`, `artifacts`
+`[]`.
 
 ## Runtimes and routing
 
