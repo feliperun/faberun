@@ -88,8 +88,10 @@ failed inside it with the shell working.
 The flavor is the official fx plus a short patch queue on the `flavor` branch of
 `feliperun/fx`: the cache counters of #1043, the skill walk of #1045, and a patch
 that keeps a flavor build from auto-upgrading itself to the official channel. A
-watcher workflow in that fork rebases the queue onto upstream every six hours,
-builds and tests it, and drops a patch once its pull request merges. Releases
+watcher rebases the queue onto upstream every six hours, builds and tests it,
+and drops a patch once its pull request merges; it runs as a workflow in that
+fork, or as `flavor/watch.sh` scheduled on the operator's machine by
+`flavor/watch-install.sh` when Actions are off. Releases
 are versioned `X.Y.Z-flavor.N` and only ever created as drafts; publishing is
 the owner's call. `install.sh` runs the flavor installer into the same bin
 directory as `faberun`; `FABERUN_NO_FX=1` skips it.
