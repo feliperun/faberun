@@ -14,7 +14,7 @@ import { rejectUnknown, requireId, requireString } from "./assert.mjs";
 /**
  * @param {unknown} value
  * @param {string} label
- * @param {{verificationCount?: number, recordableCount?: number}} [options]
+ * @param {{verificationCount?: number, recordableCount?: number, commands?: {argv: string[]}[], nodeId?: string}} [options]
  * @returns {DefinitionOfDoneItem[]}
  */
 export function validateDefinitionOfDone(value, label, options = {}) {
@@ -80,7 +80,7 @@ export function judgmentReasonWarnings(items, index) {
 /**
  * @param {unknown} value
  * @param {string} label
- * @param {{verificationCount?: number, recordableCount?: number}} options
+ * @param {{verificationCount?: number, recordableCount?: number, commands?: {argv: string[]}[], nodeId?: string}} options
  * @returns {DefinitionOfDoneProof}
  */
 function validateProof(value, label, options) {
@@ -100,20 +100,60 @@ function validateProof(value, label, options) {
 
 /**
  * A `verification` proof reuses a recorded controller verification result by
- * position, never by comparing command strings: a joined argv loses argument
- * boundaries and shell semantics, so the reference is the only sound name.
+ * position. It is authored as either the zero-based index or, when the
+ * node's verification commands are known to the caller (`options.commands`),
+ * the exact text of one of them -- the shape a planning model actually wrote
+ * (measured in `choose-the-judges` R5). A text ref is resolved to its index
+ * and normalized the same way a numeric ref is, so nothing downstream ever
+ * compares command strings again.
  *
  * @param {unknown} value
+ * @param {string} label
+ * @param {{verificationCount?: number, recordableCount?: number, commands?: {argv: string[]}[], nodeId?: string}} options
+ * @returns {string}
+ */
+function validateVerificationRef(value, label, options) {
+  if (typeof value === "string" && options.commands !== undefined && !isIndexLike(value)) {
+    return resolveTextRef(value, label, options);
+  }
+  const text = typeof value === "number" ? String(value) : value;
+  if (!isIndexLike(text)) {
+    throw new TypeError(`${label}.ref must be the zero-based index of a verification command, or the exact text of one`);
+  }
+  return checkedIndex(Number.parseInt(/** @type {string} */ (text).trim(), 10), label, options);
+}
+
+/** @param {unknown} text @returns {boolean} */
+function isIndexLike(text) {
+  return typeof text === "string" && /^\d+$/u.test(text.trim());
+}
+
+/**
+ * @param {string} value
+ * @param {string} label
+ * @param {{verificationCount?: number, recordableCount?: number, commands?: {argv: string[]}[], nodeId?: string}} options
+ * @returns {string}
+ */
+function resolveTextRef(value, label, options) {
+  const commands = /** @type {{argv: string[]}[]} */ (options.commands);
+  const index = commands.findIndex((command) => command.argv.join(" ") === value);
+  if (index === -1) {
+    const node = options.nodeId ?? "this node";
+    const existing = commands.length === 0
+      ? "(no verification commands)"
+      : commands.map((command, position) => `${position}: ${command.argv.join(" ")}`).join("\n");
+    throw new TypeError(`${label}.ref "${value}" names no verification command of ${node}; its verification commands are:\n${existing}`);
+  }
+  return checkedIndex(index, label, options);
+}
+
+/**
+ * @param {number} index
  * @param {string} label
  * @param {{verificationCount?: number, recordableCount?: number}} options
  * @returns {string}
  */
-function validateVerificationRef(value, label, options) {
-  const text = typeof value === "number" ? String(value) : value;
-  if (typeof text !== "string" || !/^\d+$/u.test(text.trim())) {
-    throw new TypeError(`${label}.ref must be the zero-based index of a verification command`);
-  }
-  const index = Number.parseInt(text, 10);
+function checkedIndex(index, label, options) {
   if (typeof options.verificationCount === "number" && index >= options.verificationCount) {
     throw new TypeError(`${label}.ref ${index} names no verification command: the packet declares ${options.verificationCount}`);
   }

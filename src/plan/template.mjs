@@ -328,8 +328,15 @@ export function validatePlanOutput(plan) {
     // round could not resolve the finding the preflight had just raised.
     const scopeAcknowledged = nodeRecord.scopeAcknowledged ?? [];
     requireStringArray(scopeAcknowledged, `${label}.scopeAcknowledged`);
-    const definitionOfDone = validateDefinitionOfDone(nodeRecord.definitionOfDone ?? [], `${label}.definitionOfDone`);
+    // Verification is validated first so a DoD proof that names a verification
+    // command by its exact text (R21) can be checked and normalized to that
+    // command's index against this node's own commands, in hand here.
     const verification = validateVerificationCommands(nodeRecord.verification ?? [], `${label}.verification`);
+    const definitionOfDone = validateDefinitionOfDone(
+      nodeRecord.definitionOfDone ?? [],
+      `${label}.definitionOfDone`,
+      { commands: verification, nodeId: /** @type {string} */ (nodeRecord.id) },
+    );
     const expectedTurns = nodeRecord.expectedTurns === undefined ? undefined : positiveInteger(nodeRecord.expectedTurns, `${label}.expectedTurns`);
     return /** @type {PlanOutputNode} */ ({
       id: /** @type {string} */ (nodeRecord.id),
