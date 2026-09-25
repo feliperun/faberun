@@ -48,8 +48,10 @@ pub fn prepare(arena: std.mem.Allocator, io: Io, real_home: []const u8, home: []
     const config = try std.fs.path.join(arena, &.{ home, ".config" });
     try Io.Dir.cwd().createDirPath(io, config);
     try linkEntries(arena, io, try std.fs.path.join(arena, &.{ real_home, ".config" }), config, &withheld_config, null);
+    // fx on Linux refuses a profile directory others can read
+    // (`private_state_permissions_unsupported`); macOS did not check.
     const fx_dir = try std.fs.path.join(arena, &.{ home, ".fx" });
-    try Io.Dir.cwd().createDirPath(io, fx_dir);
+    _ = try Io.Dir.cwd().createDirPathStatus(io, fx_dir, .fromMode(0o700));
     var dir = try Io.Dir.openDirAbsolute(io, fx_dir, .{});
     defer dir.close(io);
     try dir.writeFile(io, .{ .sub_path = "settings.json", .data = settings, .flags = .{ .permissions = .fromMode(0o600) } });

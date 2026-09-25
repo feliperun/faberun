@@ -30,7 +30,9 @@ export function prepareFxHome(realHome, home, settings) {
   const config = join(home, ".config");
   mkdirSync(config, { recursive: true });
   linkEntries(join(realHome, ".config"), config, WITHHELD_CONFIG, null);
-  mkdirSync(join(home, ".fx"), { recursive: true });
+  // fx on Linux refuses a profile directory others can read
+  // (`private_state_permissions_unsupported`); macOS did not check.
+  mkdirSync(join(home, ".fx"), { recursive: true, mode: 0o700 });
   writeFileSync(join(home, ".fx", "settings.json"), `${JSON.stringify(settings, null, 2)}\n`, { mode: 0o600 });
 }
 
