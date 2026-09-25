@@ -168,8 +168,13 @@ export function nextListJudge(contract, judgeListState, workerId, now = Date.now
     .filter((entry) => entry.reason === "already attempted this run")
     .map((entry) => entry.id);
   const attempted = new Set([...previouslyChosen, ...(judgeListState.chosen ? [judgeListState.chosen] : [])]);
+  // A fresh pass re-derives the whole prefix up to (and including) wherever
+  // it lands: every id the loop reaches before returning is pushed to
+  // `pick.skipped`, on the first hop as on the fifth. That is already a
+  // complete accounting of this hop, so carrying the previous hops' entries
+  // forward too would only repeat each of them once per later hop.
   const pick = selectListJudge(contract, judgeListState.list, workerId, { attempted, now });
-  return { list: judgeListState.list, chosen: pick.chosen, skipped: [...judgeListState.skipped, ...pick.skipped] };
+  return { list: judgeListState.list, chosen: pick.chosen, skipped: pick.skipped };
 }
 
 /**

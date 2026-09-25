@@ -673,12 +673,16 @@ export function handleProviderExhaustion(contract, runDir, node, state, role, en
       }, lock);
       void raiseNodeAttention(campaignPath, runDir, state, plan.blocked.code).catch(() => {});
     } else {
-      // Any other block reason is not this feature's evidence to keep.
+      // `judge_list_exhausted` reaches this branch (it is not
+      // `runtime_tier_exhausted`), and its evidence -- naming the judge that
+      // was just refused and why every remaining entry was ineligible -- is
+      // exactly this feature's evidence to keep; only `tierExhaustion` is not.
       clearTierExhaustion(state);
       transition(runDir, state, "exhausted", {
         phase: role,
         result: state.result,
         usage: state.usage,
+        ...(judgeListState ? { routing: { ...(state.routing ?? {}), judgeList: judgeListState } } : {}),
         error: { ...plan.blocked, ...(exhaustedUntil ? { exhaustedUntil } : {}) },
       }, lock);
     }

@@ -49,14 +49,15 @@ export async function runtimeAssignments(contract) {
   // (`judgeListStates`) as a side effect and returns `undefined` only for a
   // node the list does not govern (its gate is disabled), which falls through
   // to those candidates unchanged; once the list governs, its pick is final --
-  // a string when an entry is eligible, or `null` when every entry was
-  // skipped, which `composeAssignments` must not fall through either.
+  // the whole state, so an exhausted list's thrown error can still name every
+  // skip, not just `chosen` (`null` when every entry was skipped), which
+  // `composeAssignments` must not fall through either.
   const listJudge = list
     ? (/** @type {{id: string, gate: {enabled: boolean}}} */ node, /** @type {string} */ workerId) => {
       if (!node.gate.enabled) return undefined;
       const judgeListState = initialJudgeListState(contract, list, workerId);
       judgeListStates[node.id] = judgeListState;
-      return judgeListState.chosen;
+      return judgeListState;
     }
     : undefined;
   const assignments = composeAssignments(contract, availability, { config, listJudge });

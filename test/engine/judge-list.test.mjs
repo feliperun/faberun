@@ -1,9 +1,14 @@
 import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { composeAssignments } from "../../src/engine/runtime-discovery.mjs";
 import { runtimeAssignments } from "../../src/engine/assignment.mjs";
 import { planRoute } from "../../src/engine/backoff.mjs";
+import { handleProviderExhaustion } from "../../src/engine/lifecycle.mjs";
+import { runtimeSnapshot } from "../../src/engine/failover.mjs";
 import {
   JUDGE_USAGE_WINDOW_LIMIT_PERCENT,
   initialJudgeListState,
@@ -15,6 +20,7 @@ import { availabilityKey, recordRefusal } from "../../src/run/availability.mjs";
 import { recordUsageWindows, usageAccountOf } from "../../src/run/usage-windows.mjs";
 import { getHarness } from "../../src/harnesses/index.mjs";
 import { writeUserConfig } from "../../src/host/config.mjs";
+import { snapshot as nodeSnapshotFixture } from "../contract/helpers.mjs";
 
 /**
  * A worker plus a six-entry judge list: one shares the worker's provider (R18
@@ -74,7 +80,7 @@ test("the judge is the first eligible entry of the list and falls back hop by ho
   const listJudge = (/** @type {{id: string}} */ node, /** @type {string} */ workerId) => {
     const state = initialJudgeListState(contract, LIST, workerId, now);
     judgeListStates[node.id] = state;
-    return state.chosen ?? undefined;
+    return state;
   };
   const composed = composeAssignments(
     /** @type {any} */ ({ runtimes: RUNTIMES, runtimeDefaults: { worker: "worker" }, nodes: [{ id: "build", gate: { enabled: true } }] }),
@@ -174,20 +180,60 @@ test("an exhausted judge list blocks the node instead of falling through to conf
   const judgeListStates = {};
   // dsh-same is the only entry on this list, and shares the worker's
   // provider, so the list is exhausted for every candidate on the first pass.
+  // The callback returns the whole pick (not just `chosen`), exactly what
+  // `engine/assignment.mjs` wires in production, so `composeAssignments`
+  // itself -- not just this test's own map -- can name the skip in its error.
   const listJudge = (/** @type {{id: string}} */ node, /** @type {string} */ workerId) => {
     const state = initialJudgeListState(contract, ["dsh-same"], workerId);
     judgeListStates[node.id] = state;
-    return state.chosen;
+    return state;
   };
   assert.throws(
     () => composeAssignments(contract, {}, { config: { schemaVersion: 1, harnesses: [], judge: "codex-sol", updatedAt: new Date().toISOString() }, listJudge }),
-    /runtime_assignment_judge_unavailable/u,
-    "an exhausted list must not fall through to config.judge, even though one is set",
+    (/** @type {Error} */ error) => /runtime_assignment_judge_unavailable/u.test(error.message)
+      // The thrown error names the entry and its reason directly: an operator
+      // reading an aborted run has no other trace of the list, since this
+      // constructor throws before `runtimeAssignments` ever returns its own
+      // `judgeListStates` record.
+      && /dsh-same: same provider as the worker: deepseek/u.test(error.message),
+    "an exhausted list must not fall through to config.judge, even though one is set, and the error names the skip",
   );
-  // The evidence survives the throw: this is the whole reason this node's
-  // list was read in the first place.
+  // The evidence survives the throw in the caller's own side-channel too.
   assert.equal(judgeListStates.build.chosen, null);
   assert.deepEqual(judgeListStates.build.skipped, [{ id: "dsh-same", reason: "same provider as the worker: deepseek" }]);
+});
+
+test("a judge list exhausted mid-run persists the last pass's skip evidence instead of a stale chosen", () => {
+  // A single-entry list: codex-sol is the only judge, currently running, and
+  // this very failure is the last hop this list has.
+  const contract = /** @type {any} */ ({ runtimes: RUNTIMES });
+  const runDir = mkdtempSync(join(tmpdir(), "runner-judge-list-exhaustion-"));
+  mkdirSync(join(runDir, "nodes"), { recursive: true });
+  const state = /** @type {any} */ (nodeSnapshotFixture({
+    phase: "judge",
+    status: "running",
+    runtime: runtimeSnapshot(contract, "codex-sol"),
+    routing: {
+      history: [],
+      currentOverride: null,
+      assignments: { worker: "worker", judge: "codex-sol", composedWorker: false, composedJudge: true },
+      judgeList: { list: ["codex-sol"], chosen: "codex-sol", skipped: [] },
+    },
+  }));
+  const node = /** @type {any} */ ({ id: "build" });
+  const envelope = /** @type {any} */ ({ status: "failed", error: { code: "provider_exhausted", message: "quota" } });
+  handleProviderExhaustion(contract, runDir, node, state, "judge", envelope, "codex-sol", /** @type {any} */ (null), new Map(), "campaign-path");
+  // `judge_list_exhausted` is not `runtime_tier_exhausted`, so this went
+  // through the branch that used to write no routing at all -- the persisted
+  // node must still show the refused judge joining the excluded set and no
+  // entry left to pick, not the stale `chosen: "codex-sol"` it started with.
+  assert.equal(state.status, "exhausted");
+  assert.equal(state.error?.code, "judge_list_exhausted");
+  assert.deepEqual(state.routing?.judgeList, {
+    list: ["codex-sol"],
+    chosen: null,
+    skipped: [{ id: "codex-sol", reason: "already attempted this run" }],
+  });
 });
 
 test("a list-governed hop replaces a judge's own declared runtime.fallback edge instead of following it", () => {
