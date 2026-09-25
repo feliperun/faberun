@@ -322,7 +322,7 @@ export function exhaustedUntilOf(envelope, now = Date.now()) {
  * @returns {{available: false, exhaustedUntil: string|null, reason: string}|null} null when text names none of the known patterns
  */
 function classifyAvailabilityText(text) {
-  if (/insufficient balance/iu.test(text) || /\b402\b/u.test(text)) {
+  if (/insufficient balance|spend limit/iu.test(text) || /\b402\b/u.test(text)) {
     return { available: false, exhaustedUntil: null, reason: "insufficient_balance" };
   }
   if (/quota|rate.?limit|usage limit|session limit|limit exhausted|1310/iu.test(text)) {
