@@ -398,6 +398,7 @@ judgment; they do not transport information.
 | RM-102 | A single-provider mode, opt-in | an operator with one provider has no cross-vendor judge. Explicit opt-in (for example `judgeIndependence: same-vendor`); the judge is another model of the same or a higher class than the worker (Sonnet works, Opus or Fable judges); the Campaign Brief, the report and the metrics mark "same-provider review"; the judge canary gains a reading of that case | specified: `safe-to-hand-to-a-friend` R20 |
 | RM-103 | Finding severity is calibrated | in the `choose-the-judges` canary a third of the planted defects drew only `minor` findings, so a `[major, critical]` gate passes them: gpt-6-sol recalls 0.98 counting any cited rejection and 0.70 blocking | measured |
 | RM-104 | A plan's `proof.ref` is accepted as the verification command's text or its index | the invalid `proof.ref` that contested plans came from gpt-5.6-luna's revise and from claude-opus-5-5's draft alike (`choose-the-judges` R5), so it is the format, not a model | specified: `safe-to-hand-to-a-friend` R21 |
+| RM-105 | A contested plan's open-question always reaches the campaign | `choose-the-judges` R5: roles-a and roles-b contested, and the pipeline failed to record the open-question (`entry.text is 4706 bytes` and `11342 bytes, over the 2048-byte cap`, `bootstrap-failure.json`), so two contested plans told the campaign nothing | measured |
 | RM-033 | Ask the owner asynchronously (WhatsApp, then `campaign resolve`) instead of keeping a session alive to be present when a question appears | none yet | idea |
 | RM-070 | The getting-started walkthrough is executed, not only read | its first output shows `.runs/campaigns/hello`; the CLI prints a path under the home layout | specified: `safe-to-hand-to-a-friend` R5 |
 | RM-071 | No current document describes the legacy run layout as current | 31 lines cite `.runs` across `GETTING-STARTED.md`, `CONCEPTS.md`, `ARCHITECTURE.md` and `README.md` | specified: `safe-to-hand-to-a-friend` R6 |
@@ -593,7 +594,8 @@ deepseek-v4-pro), two repetitions, `evals/results/judge-canary/` at `3fcd6b0`.
 - The judge stays blocking.
 
 Blocking recall and false alarms, recomputed from the result files without a
-model. A case blocks when the verdict is `fail`, a finding cites an item, and
+model by `node evals/judge-canary-matrix.mjs` (its `blocking` field; the R5
+record is `evals/results/planner-roles/results.json`). A case blocks when the verdict is `fail`, a finding cites an item, and
 its highest severity is in `failOn` (`src/engine/review.mjs`). Verdicts are
 pooled over every reading of the corpus; refused calls are outside both rates.
 

@@ -1,0 +1,97 @@
+{
+  "formatVersion": 1,
+  "status": "contested",
+  "rounds": 4,
+  "findings": [
+    {
+      "id": "F1-r9-resume-from-review-unowned",
+      "severity": "critical",
+      "nodeId": "operator-resolution",
+      "text": "R9 requires `plan --resolve` to resume from the review stage without redrawing, and requires that a plan whose critical findings are all answered can freeze. or-r9-answer-command puts that on operator-resolution, but src/plan/pipeline.mjs and src/plan/freeze.mjs are in neither its readFiles nor its writeFiles. Resuming from review means adding a pipeline entry point there. plan-integrity does own pipeline.mjs and freeze.mjs, but no DoD there asks for a resume-from-review entry. Only pi-freeze-answered-findings touches answers, and the answer record format it must refuse or preserve is defined downstream in operator-resolution. As planned, no node can both change the pipeline and prove R9's resume."
+    },
+    {
+      "id": "F2-human-stop-contract-schema-not-writable",
+      "severity": "major",
+      "nodeId": "plan-integrity",
+      "text": "pi-r16-plan-human-stop and pi-freeze-answered-findings carry a named human stop, with its command and dependent-node links, into the frozen plan and contract. operator-resolution then schedules on it. That is a new persisted contract shape, yet src/contract/task-packet.mjs and src/contract/verification.mjs are only scopeAcknowledged in both nodes. src/contract/index.mjs (the typedefs) and src/contract/snapshot.mjs (the persisted validator) appear in neither node's scope, although both exist in the repo facts. validateContract will reject or drop the new stop unless some node can write the contract validator and typedef."
+    },
+    {
+      "id": "F3-r17-launch-call-sites-out-of-scope",
+      "severity": "major",
+      "nodeId": "managed-signal-launch",
+      "text": "R17 is about `faberun run` and `faberun campaign supervise`. msl-signal-scope claims that both launch call sites agree on the classification. The repo facts show src/engine/run-command.mjs, src/engine/supervise.mjs and src/cli/launch.mjs, but none of them is in the node's readFiles, writeFiles or scopeAcknowledged. The node can only change src/repo/signal.mjs, signal-block.mjs and workspace.mjs. If the uncommitted-path refusal is implemented at a call site, which the spec's diagnosis suggests (source identity already excludes the block, but the launch check does not), the node cannot fix it or even inspect it."
+    },
+    {
+      "id": "F4-r16-spec-proof-covers-only-parser",
+      "severity": "major",
+      "nodeId": "plan-integrity",
+      "text": "R16 has exactly one spec proof: the pattern 'a human step declared in the spec becomes a stop the plan carries'. The plan binds it to test/plan/spec.test.mjs, which only covers parsing and carrying the stop. The behaviour R16 actually requires is that dependents wait, the run stops with an attention naming the step and command, `campaign resolve` or `resume --answer` continues, and the Brief lists the step. Those are proven under other names in operator-resolution, which the spec's proof command never selects. R16 would close on its spec proof with only the plan side done. The test under the spec's own name has to exercise the stop and resume."
+    },
+    {
+      "id": "F5-or-typecheck-claim-proved-by-docs-check",
+      "severity": "major",
+      "nodeId": "operator-resolution",
+      "text": "The or-scope-and-types text says the CLI, campaign, journal, brief, scheduler, state and manual changes pass type checking, but its proof is verification[4], `npm run docs:check`. That only compares the generated manual. No verification entry of this node runs `npm run typecheck`, so the typing claim for its 16 written files is unproven. The other two nodes each run typecheck."
+    },
+    {
+      "id": "F6-msl-path-proof-is-vacuous",
+      "severity": "major",
+      "nodeId": "managed-signal-launch",
+      "text": "msl-r17-source-boundary claims that source identity still excludes the managed block and that the launch rule is implemented without modifying source identity. Its proof is kind 'path', ref src/repo/source-identity.mjs, a file that already exists and that this node does not write. The proof is satisfied at baseline and says nothing about either claim."
+    },
+    {
+      "id": "F7-brief-renderer-out-of-scope",
+      "severity": "minor",
+      "nodeId": "operator-resolution",
+      "text": "or-r16-brief-decisions needs the Campaign Brief to list the human step. The node writes src/campaign/campaign-brief.mjs and its test, but the repo facts also show src/report/campaign-brief.mjs, src/report/campaign-brief-html.mjs (the check:campaign-brief-render script) and test/cli/campaign-brief.test.mjs. None of them is in scope. If the list of human decisions is rendered in the report layer, the node cannot make the step visible."
+    },
+    {
+      "id": "F8-verification-bypasses-test-preloads",
+      "severity": "minor",
+      "nodeId": "managed-signal-launch",
+      "text": "The repo's `npm test` script preloads ./test/scoped-home.mjs, ./test/git-env.mjs and ./test/setup.mjs. Every plan verification runs `node --test <file>` without them. That includes the launch and supervise tests here, the CLI plan test, and the engine resume and answer tests in operator-resolution. Tests that start a run or campaign may then resolve the operator's real home or git environment instead of the scoped one, or behave differently from how they run in CI."
+    },
+    {
+      "id": "F9-signal-test-written-but-never-run",
+      "severity": "minor",
+      "nodeId": "managed-signal-launch",
+      "text": "test/repo/signal.test.mjs is in writeFiles, and msl-signal-scope claims that the signal writer and the managed-block parser agree. The only test verification runs test/engine/run-command.test.mjs and test/engine/supervise.test.mjs, so changes to signal.mjs and signal-block.mjs and their own test never run. Separately, msl-r17-managed-only says the test 'first records whether the baseline reproduces'. A regression test cannot record a baseline observation, so that part of the DoD cannot be proven as written."
+    },
+    {
+      "id": "plan-shape-freeze-r3",
+      "severity": "critical",
+      "nodeId": "plan",
+      "text": "task packet scope does not close; declare in readFiles or writeFiles, or acknowledge in scopeAcknowledged: nodes[1] (operator-resolution): test/cli/cli.test.mjs (imports: runs src/cli.mjs, which imports src/cli/campaign.mjs); nodes[0] (plan-integrity): test/cli/plan.test.mjs (cross-node: this node writes src/plan/pipeline.mjs, which operator-resolution wrote a test against; declare test/cli/plan.test.mjs in writeFiles or scopeAcknowledged so this node may change the test its work breaks); nodes[2] (managed-signal-launch): test/engine/resume.test.mjs (cross-node: this node writes src/repo/workspace.mjs, which operator-resolution wrote a test against; declare test/engine/resume.test.mjs in writeFiles or scopeAcknowledged so this node may change the test its work breaks); nodes[0] (plan-integrity): test/campaign/campaign-brief.test.mjs (cross-node: this node writes src/plan/freeze.mjs, which operator-resolution wrote a test against; declare test/campaign/campaign-brief.test.mjs in writeFiles or scopeAcknowledged so this node may change the test its work breaks); nodes[1] (operator-resolution): test/repo/signal.test.mjs (cross-node: this node writes src/campaign/journal.mjs, which managed-signal-launch wrote a test against; declare test/repo/signal.test.mjs in writeFiles or scopeAcknowledged so this node may change the test its work breaks) Resolve it by declaring each named file in writeFiles — or acknowledging it in scopeAcknowledged when the node must not change it — never by dropping a write the node needs: removing a file from writeFiles clears this failure too, and leaves the worker without a file the work requires."
+    },
+    {
+      "id": "dropped-write-managed-signal-launch-1",
+      "severity": "critical",
+      "nodeId": "managed-signal-launch",
+      "text": "Node managed-signal-launch no longer declares src/cli/launch.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-managed-signal-launch-2",
+      "severity": "critical",
+      "nodeId": "managed-signal-launch",
+      "text": "Node managed-signal-launch no longer declares src/repo/source-identity.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-managed-signal-launch-3",
+      "severity": "critical",
+      "nodeId": "managed-signal-launch",
+      "text": "Node managed-signal-launch no longer declares src/engine/run-command.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-managed-signal-launch-4",
+      "severity": "critical",
+      "nodeId": "managed-signal-launch",
+      "text": "Node managed-signal-launch no longer declares src/engine/supervise.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "plan-shape-revise-r3",
+      "severity": "critical",
+      "nodeId": "plan",
+      "text": "plan.nodes[0].definitionOfDone[0].proof.ref must be a non-empty string"
+    }
+  ]
+}

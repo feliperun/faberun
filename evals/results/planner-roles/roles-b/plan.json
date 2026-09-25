@@ -1,0 +1,151 @@
+{
+  "formatVersion": 1,
+  "status": "contested",
+  "rounds": 4,
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "major",
+      "nodeId": "plan-integrity",
+      "text": "R14's deterministic validation and repair of revise output are unassigned. This node covers proof preflight and critical-count convergence, but neither its objective nor its DoD requires validating every revision before counting it, repairing and recording uniquely resolvable proof.ref values, or retrying an ambiguous invalid revision once with validator messages without consuming a review round. All listed DoD items could pass while malformed revisions still consume rounds or reach review."
+    },
+    {
+      "id": "F2",
+      "severity": "major",
+      "nodeId": "human-step-stop",
+      "text": "R16 requires an operator step declared in a requirement's constraints to become an execution stop. This node starts with representing and serializing an already identified human step; no objective or DoD assigns extraction from spec constraints or verifies the complete constraints-to-frozen-stop path. Its DoD could pass with a manually constructed stop while plans generated from the required spec declaration still omit it."
+    },
+    {
+      "id": "F3",
+      "severity": "major",
+      "nodeId": "human-step-stop",
+      "text": "R16 explicitly requires the Campaign Brief to show the step in its human-decisions list. No node assigns or verifies that behavior. The repository facts list dedicated Campaign Brief modules, including src/campaign/brief.mjs, src/campaign/brief-text.mjs and src/campaign/campaign-brief.mjs, but none is in any node's read or write scope. Persisting an attention and documenting the mechanism does not establish the required Brief output."
+    },
+    {
+      "id": "plan-shape-freeze-r4",
+      "severity": "critical",
+      "nodeId": "plan",
+      "text": "runtime_routing_unmet: plan-integrity.judge (rule: runtimeDefaults); operator-resolve.judge (rule: runtimeDefaults); human-step-stop.judge (rule: runtimeDefaults); managed-signal-launch.judge (rule: runtimeDefaults); command-docs.judge (rule: runtimeDefaults)"
+    },
+    {
+      "id": "dropped-write-plan-integrity-1",
+      "severity": "critical",
+      "nodeId": "plan-integrity",
+      "text": "Node plan-integrity no longer declares src/contract/definition-of-done.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-plan-integrity-2",
+      "severity": "critical",
+      "nodeId": "plan-integrity",
+      "text": "Node plan-integrity no longer declares test/engine/proof-selected-no-test.test.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-operator-resolve-1",
+      "severity": "critical",
+      "nodeId": "operator-resolve",
+      "text": "Node operator-resolve no longer declares src/plan/pipeline-shape.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-operator-resolve-2",
+      "severity": "critical",
+      "nodeId": "operator-resolve",
+      "text": "Node operator-resolve no longer declares src/campaign/journal.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-operator-resolve-3",
+      "severity": "critical",
+      "nodeId": "operator-resolve",
+      "text": "Node operator-resolve no longer declares src/campaign/record.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-operator-resolve-4",
+      "severity": "critical",
+      "nodeId": "operator-resolve",
+      "text": "Node operator-resolve no longer declares test/engine/answer.test.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-human-step-stop-1",
+      "severity": "critical",
+      "nodeId": "human-step-stop",
+      "text": "Node human-step-stop no longer declares src/plan/spec.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-human-step-stop-2",
+      "severity": "critical",
+      "nodeId": "human-step-stop",
+      "text": "Node human-step-stop no longer declares src/engine/lifecycle.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-human-step-stop-3",
+      "severity": "critical",
+      "nodeId": "human-step-stop",
+      "text": "Node human-step-stop no longer declares src/engine/state.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-human-step-stop-4",
+      "severity": "critical",
+      "nodeId": "human-step-stop",
+      "text": "Node human-step-stop no longer declares src/campaign/brief.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-human-step-stop-5",
+      "severity": "critical",
+      "nodeId": "human-step-stop",
+      "text": "Node human-step-stop no longer declares test/engine/unfreezable.test.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-human-step-stop-6",
+      "severity": "critical",
+      "nodeId": "human-step-stop",
+      "text": "Node human-step-stop no longer declares test/campaign/brief.test.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-managed-signal-launch-1",
+      "severity": "critical",
+      "nodeId": "managed-signal-launch",
+      "text": "Node managed-signal-launch no longer declares src/repo/signal.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-managed-signal-launch-2",
+      "severity": "critical",
+      "nodeId": "managed-signal-launch",
+      "text": "Node managed-signal-launch no longer declares src/repo/source-identity.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-managed-signal-launch-3",
+      "severity": "critical",
+      "nodeId": "managed-signal-launch",
+      "text": "Node managed-signal-launch no longer declares src/repo/workspace.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-managed-signal-launch-4",
+      "severity": "critical",
+      "nodeId": "managed-signal-launch",
+      "text": "Node managed-signal-launch no longer declares src/engine/supervise.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-managed-signal-launch-5",
+      "severity": "critical",
+      "nodeId": "managed-signal-launch",
+      "text": "Node managed-signal-launch no longer declares test/repo/signal-attention-attribution.test.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-command-docs-1",
+      "severity": "critical",
+      "nodeId": "command-docs",
+      "text": "Node command-docs no longer declares src/cli/manual.mjs in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-command-docs-2",
+      "severity": "critical",
+      "nodeId": "command-docs",
+      "text": "Node command-docs no longer declares docs/GETTING-STARTED.md in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    },
+    {
+      "id": "dropped-write-command-docs-3",
+      "severity": "critical",
+      "nodeId": "command-docs",
+      "text": "Node command-docs no longer declares docs/CONCEPTS.md in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not."
+    }
+  ]
+}

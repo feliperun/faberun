@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "choose-the-judges-plan-roles-c-review-6",
+  "campaignId": "choose-the-judges",
+  "goal": "Plan review for phase roles-c",
+  "cwd": "../../../../../../../../../dev/frb/faberun-leave",
+  "runtimes": {
+    "dsh-deepseek": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "danger-full-access",
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "stallTimeoutSec": 900,
+      "tier": 1,
+      "costRank": 1
+    },
+    "codex-luna": {
+      "harness": "codex",
+      "model": "gpt-5.6-luna",
+      "vendor": "openai",
+      "reasoning": "high",
+      "sandbox": "danger-full-access",
+      "fallback": "dsh-deepseek",
+      "tier": 2,
+      "costRank": 2
+    },
+    "codex-astra": {
+      "harness": "codex",
+      "model": "gpt-6-astra",
+      "vendor": "openai",
+      "reasoning": "high",
+      "sandbox": "read-only",
+      "tier": 3,
+      "costRank": 4
+    },
+    "claude-opus": {
+      "harness": "claude",
+      "model": "claude-opus-5-5",
+      "vendor": "anthropic",
+      "reasoning": "high",
+      "tier": 3,
+      "costRank": 3,
+      "pricing": {
+        "inputPerMTok": 4,
+        "cachedInputPerMTok": 0.2,
+        "outputPerMTok": 20
+      }
+    }
+  },
+  "runtimeDefaults": {
+    "worker": "claude-opus",
+    "judge": "codex-astra"
+  },
+  "nodes": [
+    {
+      "id": "review",
+      "type": "review",
+      "phase": "roles-c",
+      "dependsOn": [],
+      "runtime": "codex-astra",
+      "taskPacket": {
+        "mode": "discovery",
+        "objective": "Review this plan against the spec and the repository facts, and report only findings.",
+        "instructions": [
+          "You are given only the spec, the repository facts, and the plan under review; you have not seen how the plan was produced or any reasoning behind it. Review the artefact alone.",
+          "Return exactly one worker-result JSON object. Put your findings in output.findings as [{id, severity, nodeId, text}] and nothing else in output.",
+          "severity must be one of critical, major, minor. Every finding's nodeId must name a node id that actually appears in the plan under review."
+        ],
+        "readFiles": [
+          "evals/results/planner-roles/phase-1.SPEC.md",
+          ".faberun-plan/choose-the-judges/roles-c/repo-facts.json",
+          ".faberun-plan/choose-the-judges/roles-c/plan.working.json"
+        ],
+        "writeFiles": [],
+        "symbols": [],
+        "decisions": [],
+        "nonGoals": [
+          "Proposing a replacement plan.",
+          "Assigning a runtime, harness, or model to any node."
+        ],
+        "verification": []
+      },
+      "gate": false
+    }
+  ]
+}

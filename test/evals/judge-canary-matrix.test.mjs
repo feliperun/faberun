@@ -210,3 +210,26 @@ test("the matrix refuses a result it cannot compare", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// Measured 2026-09-24: a third of the planted defects drew only minor
+// findings, so a judge's blocking recall depends on the gate's failOn (D9).
+test("the matrix reports blocking recall and false alarms with and without minor in failOn", () => {
+  const dir = mkdtempSync(join(tmpdir(), "judge-matrix-blocking-"));
+  try {
+    const minor = (/** @type {string} */ id, /** @type {string} */ label) => ({ ...outcomeOf(id, { label, rejected: true, cited: true }), maxSeverity: "minor" });
+    const cases = [
+      ...defects("a", 2, 2, 0.01),
+      minor("a-defect-minor", "defect:test-weakened"),
+      minor("a-clean-minor", "clean"),
+      ...cleans("a", 1, 0, 0.01),
+      { ...outcomeOf("a-refused", { label: "clean" }), error: "provider refused", costUsd: 5, costProvenance: "observed-fallback" },
+    ].map((entry) => ({ costProvenance: "priced", ...entry }));
+    const matrix = buildJudgeMatrix([writeResult(dir, "a.json", resultFixture("judge-a", "openai", "h", cases))]);
+    const judge = /** @type {any} */ (matrix.judges[0]);
+    assert.deepEqual(judge.blocking["minor-and-above"], { recall: 1, falseAlarmRate: 0.5 });
+    assert.deepEqual(judge.blocking["major-and-above"], { recall: 2 / 3, falseAlarmRate: 0 }, "a minor-only rejection passes a major gate");
+    assert.equal(judge.pricedCostPerVerdictUsd, 0.01, "a refused call booked at its estimate is not a verdict's cost");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
