@@ -24,7 +24,6 @@ import { appendSeatAllowanceEvent, readJournal } from "../campaign/journal.mjs";
 import { readCampaign } from "../campaign/record.mjs";
 import { campaignCli } from "../cli/campaign.mjs";
 import { appendJsonl } from "../run/store.mjs";
-import { stableJson } from "../util.mjs";
 import { allowanceDelta, allowanceEventFields, sampleAllowance } from "../seat/allowance.mjs";
 import { askPlanningRuntimes, refusePlanningSilence, refuseUnplannableRuntimes } from "./preflight.mjs";
 import { parseSpec, validateSpec } from "./spec.mjs";
@@ -37,6 +36,12 @@ import { availabilityOf, fileLineCount, highestOf, modelOf, toContractNode, toSi
 import { campaignTree, runDirectory } from "../run/paths.mjs";
 import { contestPlan } from "./contest.mjs";
 import { runReviewRounds } from "./rounds.mjs";
+
+// `droppedWriteFindings` and `unresolvedFindings` are defined in
+// `rounds.mjs`, the only module that calls them: this is a compatibility
+// re-export, not a second home, kept because `test/plan/template.test.mjs`
+// already names this path.
+export { droppedWriteFindings, unresolvedFindings } from "./rounds.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -325,7 +330,7 @@ export async function runPlanningPipeline(options) {
     reviewRounds, plan, findings, cwd, plansDir, scratchDir, workingPlanPath, relativeWorkingPlanPath,
     relativeSpecPath, relativeRepoFactsPath, relativeCataloguePath, packageMode, repoFacts,
     runStage, assembleFrozenNodes, frozenContractRaw, contest,
-    invalidPlanFinding, droppedWriteFindings, unresolvedFindings, logStage,
+    invalidPlanFinding, logStage,
   });
   if (!roundsResult.resolved) return roundsResult.result;
   plan = roundsResult.plan;
@@ -489,94 +494,6 @@ function invalidPlanFinding(label, error) {
   const text = error instanceof Error ? error.message : String(error);
   const guided = text.startsWith(SCOPE_CLOSURE_MESSAGE_PREFIX) ? `${text} ${SCOPE_CLOSURE_RESOLUTION}` : text;
   return { id: `plan-shape-${label}`, severity: "critical", nodeId: "plan", text: guided };
-}
-
-/**
- * The findings still open against the plan a revise produced. A review round
- * is under no obligation to repeat what the last one found, so replacing the
- * finding set each round silently drops any objection the new reviewer is
- * quiet about: a spike run froze a plan carrying a defect round 1 had named
- * and round 2 did not repeat, and the worker refused the packet with
- * context_missing.
- *
- * What counts as resolved is read off the two plans, never off the reviewer's
- * silence. A finding whose node the revise removed is moot. A finding whose
- * node the revise changed at all was acted on — the next review grades the
- * changed node and can object again in its own words. A finding against a
- * node the revise left identical was not addressed, and stays open. That rule
- * is also what keeps a carried finding from making convergence impossible:
- * every one of them clears the moment the reviser touches the node it names,
- * so a plan that answers its objections still freezes inside the round
- * budget, and a plan that does not still ends contested at it. A finding
- * naming no node of the plan — the pipeline's own `nodeId: "plan"` shape and
- * freeze failures — is re-derived from scratch by the next round's pre-flight,
- * so carrying it would double it.
- *
- * @param {PlanFindingOutput[]} findings everything open at the end of the round
- * @param {PlanOutput|null} previousPlan the plan the revise revised
- * @param {PlanOutput|null} revisedPlan the plan the revise produced, null when its output was refused
- * @returns {PlanFindingOutput[]}
- */
-export function unresolvedFindings(findings, previousPlan, revisedPlan) {
-  // No revised plan to measure against: the refused-output finding drives the
-  // next round and everything raised so far is still outstanding.
-  if (!revisedPlan) return findings;
-  const before = new Map((previousPlan?.nodes ?? []).map((node) => [node.id, stableJson(node)]));
-  const after = new Map(revisedPlan.nodes.map((node) => [node.id, stableJson(node)]));
-  return findings.filter((finding) => after.has(finding.nodeId) && before.get(finding.nodeId) === after.get(finding.nodeId));
-}
-
-/**
- * The write files the plan going into a revise declared that the revised plan
- * no longer declares, one finding per (node id, path). This is the check the
- * scope-closure validator cannot make: a shrink satisfies closure without a
- * judgement about any importer, so the cheap move needs a comparator of its
- * own. Severity is critical — a drop is not automatically wrong, but it is
- * always worth a second look, and only a critical finding reaches the round
- * loop's revise-or-contest decision; major would ride along in the findings
- * file while the plan froze. Nodes are matched by id alone: a node the
- * revision renamed or removed entirely is out of scope, because tracking
- * identity across a rename is a judgement about the graph this check does
- * not make — a removed node's writes were reviewed as a removal, not as a
- * silent shrink.
- *
- * Membership is judged against the whole revised plan, not against the node
- * that used to hold the path. A revise that splits one node in two and hands
- * a file to the new sibling has not dropped that file: it is still declared,
- * still reviewable, and the graph change is visible in the plan. Measured
- * 2026-09-21 on durable-state-integrity phase 1, where a per-node test made
- * exactly that move a critical and contested a sound plan — the draft's only
- * node wrote src/repo/worktree.mjs and src/engine/cancel.mjs, and the revise
- * layered them into worktree-preserve-ref-verb and
- * cancel-preserves-integrated-heads, which is the decomposition this
- * repository's own layering asks for.
- *
- * @param {PlanOutput|null} previousPlan the plan the revise revised, null when the draft never validated
- * @param {PlanOutput|null} revisedPlan the plan the revise produced, null when its output was refused
- * @returns {PlanFindingOutput[]}
- */
-export function droppedWriteFindings(previousPlan, revisedPlan) {
-  if (!previousPlan || !revisedPlan) return [];
-  const before = new Map(previousPlan.nodes.map((node) => [node.id, new Set(node.writeFiles)]));
-  const stillDeclared = new Set(revisedPlan.nodes.flatMap((node) => node.writeFiles));
-  /** @type {PlanFindingOutput[]} */
-  const findings = [];
-  for (const node of revisedPlan.nodes) {
-    const previousWrites = before.get(node.id);
-    if (!previousWrites) continue;
-    let dropped = 0;
-    for (const path of previousWrites) {
-      if (stillDeclared.has(path)) continue;
-      dropped += 1;
-      findings.push({
-        id: `dropped-write-${node.id}-${dropped}`,
-        severity: "critical",
-        nodeId: node.id,
-        text: `Node ${node.id} no longer declares ${path} in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not.`,
-      });
-    }
-  }
-  return findings;
 }
 
 /**
