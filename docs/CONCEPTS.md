@@ -225,6 +225,25 @@ failures never trigger failover. See
 [contract.md](../skills/faberun/references/contract.md) and
 [operations.md](../skills/faberun/references/operations.md).
 
+## Judge list (R18)
+
+A contract's `judges` (or, absent that, the machine config's own `judges`
+written by `faberun setup`) is a static, ordered list of runtime ids read only
+for a node whose judge is otherwise omitted (no `gate.runtime`, no
+`runtimeDefaults.judge`); either wins over `composeAssignments`' own single
+`config.judge` preference and strongest-candidate default, and the contract's
+own list wins over the machine's. `engine/judge-list.mjs`'s `selectListJudge`
+picks the first entry whose provider (and every provider the worker's declared
+fallback chain reaches) differs from the worker's, skipping one already
+attempted this run, one with a machine-recorded refusal
+(`run/availability.mjs`), or one whose account usage window is over 90%
+(`run/usage-windows.mjs`); the pick and every skip's reason are the node's
+`routing.judgeList` evidence. The invariant: a chosen entry that is later
+refused during the run hops to the next eligible one, as many times as the
+list allows and never back to one already refused, because the assignment is
+composed (`composedJudge`) and so is exempt from the single-hop cap a declared
+`fallback` is bound by. See [contract.md](../skills/faberun/references/contract.md).
+
 ## Concurrency per runtime
 
 `maxParallel` bounds the run; a runtime's `maxConcurrent` bounds that runtime
