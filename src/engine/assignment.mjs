@@ -46,15 +46,17 @@ export async function runtimeAssignments(contract) {
   // R18: an omitted judge reads the ordered list, contract over machine
   // config, before `composeAssignments`' own single `config.judge` preference
   // and strongest-candidate default. The callback records the evidence
-  // (`judgeListStates`) as a side effect and returns `undefined` -- falling
-  // through to those candidates unchanged -- for a node the list does not
-  // govern, or whose every entry it read was skipped.
+  // (`judgeListStates`) as a side effect and returns `undefined` only for a
+  // node the list does not govern (its gate is disabled), which falls through
+  // to those candidates unchanged; once the list governs, its pick is final --
+  // a string when an entry is eligible, or `null` when every entry was
+  // skipped, which `composeAssignments` must not fall through either.
   const listJudge = list
     ? (/** @type {{id: string, gate: {enabled: boolean}}} */ node, /** @type {string} */ workerId) => {
       if (!node.gate.enabled) return undefined;
       const judgeListState = initialJudgeListState(contract, list, workerId);
       judgeListStates[node.id] = judgeListState;
-      return judgeListState.chosen ?? undefined;
+      return judgeListState.chosen;
     }
     : undefined;
   const assignments = composeAssignments(contract, availability, { config, listJudge });
@@ -74,9 +76,9 @@ export async function runtimeAssignments(contract) {
         ? "node runtime"
         : contract.runtimeDefaults?.worker !== undefined ? "runtimeDefaults.worker" : null;
       // A list state exists only when the callback actually ran for this node
-      // (composedJudge) and only counts as this assignment's strategy when it
-      // chose the runtime composeAssignments actually used -- an exhausted
-      // list (chosen null) fell through to the discovery ranking instead.
+      // (composedJudge). An exhausted list (chosen null) never reaches this
+      // point at all: composeAssignments throws before this map runs rather
+      // than falling through to the discovery ranking.
       const fromList = judgeListStates[nodeId]?.chosen === assignment.judge;
       decisions[nodeId] = {
         worker: {

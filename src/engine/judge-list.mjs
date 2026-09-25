@@ -148,9 +148,14 @@ export function initialJudgeListState(contract, list, workerId, now = Date.now()
 /**
  * The next hop out of a list-driven judge that was just refused: the current
  * choice joins the excluded set (it is the one that just failed), so the same
- * eligibility pass never returns to it -- the hop-by-hop rule -- while a
- * candidate that was skipped for cause earlier keeps that reason instead of
- * being re-derived.
+ * eligibility pass never returns to it -- the hop-by-hop rule. Only an entry
+ * that actually ran and then failed belongs in that excluded set; a candidate
+ * that was skipped for cause (same provider, a recorded refusal, an overspent
+ * window) is re-checked fresh instead, so it keeps its real reason rather than
+ * being relabelled "already attempted" on every later hop. A prior hop's own
+ * "already attempted this run" entries name exactly the ids that were chosen
+ * and failed before this one, so folding those back in carries that set
+ * forward without a dedicated field.
  *
  * @param {ValidatedContract} contract
  * @param {JudgeListState} judgeListState
@@ -159,7 +164,10 @@ export function initialJudgeListState(contract, list, workerId, now = Date.now()
  * @returns {JudgeListState}
  */
 export function nextListJudge(contract, judgeListState, workerId, now = Date.now()) {
-  const attempted = new Set([...judgeListState.skipped.map((entry) => entry.id), ...(judgeListState.chosen ? [judgeListState.chosen] : [])]);
+  const previouslyChosen = judgeListState.skipped
+    .filter((entry) => entry.reason === "already attempted this run")
+    .map((entry) => entry.id);
+  const attempted = new Set([...previouslyChosen, ...(judgeListState.chosen ? [judgeListState.chosen] : [])]);
   const pick = selectListJudge(contract, judgeListState.list, workerId, { attempted, now });
   return { list: judgeListState.list, chosen: pick.chosen, skipped: [...judgeListState.skipped, ...pick.skipped] };
 }

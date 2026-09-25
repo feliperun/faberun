@@ -155,5 +155,106 @@ test("the judge is the first eligible entry of the list and falls back hop by ho
     // place and stay excluded on every later hop -- never returning to one
     // already refused (or, here, never eligible at all).
     assert.ok(skippedIds.includes("dsh-same"));
+    // An entry skipped for cause keeps its real reason across every later
+    // hop's re-derivation, never relabelled "already attempted this run" --
+    // only an id that was itself chosen and then failed earns that label.
+    assert.ok(
+      judgeListState.skipped.filter((entry) => entry.id === "dsh-same").every((entry) => entry.reason === "same provider as the worker: deepseek"),
+    );
   });
+});
+
+test("an exhausted judge list blocks the node instead of falling through to config.judge or the strongest candidate", () => {
+  const contract = /** @type {any} */ ({
+    runtimes: RUNTIMES,
+    runtimeDefaults: { worker: "worker" },
+    nodes: [{ id: "build", gate: { enabled: true } }],
+  });
+  /** @type {Record<string, import("../../src/contract/index.mjs").JudgeListState>} */
+  const judgeListStates = {};
+  // dsh-same is the only entry on this list, and shares the worker's
+  // provider, so the list is exhausted for every candidate on the first pass.
+  const listJudge = (/** @type {{id: string}} */ node, /** @type {string} */ workerId) => {
+    const state = initialJudgeListState(contract, ["dsh-same"], workerId);
+    judgeListStates[node.id] = state;
+    return state.chosen;
+  };
+  assert.throws(
+    () => composeAssignments(contract, {}, { config: { schemaVersion: 1, harnesses: [], judge: "codex-sol", updatedAt: new Date().toISOString() }, listJudge }),
+    /runtime_assignment_judge_unavailable/u,
+    "an exhausted list must not fall through to config.judge, even though one is set",
+  );
+  // The evidence survives the throw: this is the whole reason this node's
+  // list was read in the first place.
+  assert.equal(judgeListStates.build.chosen, null);
+  assert.deepEqual(judgeListStates.build.skipped, [{ id: "dsh-same", reason: "same provider as the worker: deepseek" }]);
+});
+
+test("a list-governed hop replaces a judge's own declared runtime.fallback edge instead of following it", () => {
+  const runtimes = {
+    ...RUNTIMES,
+    // claude-opus declares its own static fallback, to a runtime the list
+    // would never pick (dsh-same shares the worker's provider) -- proof that
+    // the list, not this edge, drives the hop.
+    "claude-opus": { ...RUNTIMES["claude-opus"], fallback: "dsh-same" },
+  };
+  const contract = /** @type {any} */ ({ runtimes });
+  const judgeListState = { list: LIST, chosen: "zcode-glm", skipped: [] };
+  const nodeState = {
+    revisions: 0,
+    invocations: [],
+    routing: {
+      history: [],
+      currentOverride: null,
+      assignments: { worker: "worker", judge: "claude-opus", composedWorker: false, composedJudge: true },
+      judgeList: judgeListState,
+    },
+  };
+  const route = planRoute(
+    contract,
+    /** @type {any} */ ({}),
+    /** @type {any} */ (nodeState),
+    "judge",
+    { code: "provider_exhausted", message: "quota" },
+    "claude-opus",
+    { kind: "failover", reason: "provider" },
+    Date.now(),
+    null,
+    { judgeListState },
+  );
+  assert.equal(route.nextRuntime, "zcode-glm", "the list's own pick wins over claude-opus's declared fallback (dsh-same)");
+  assert.equal(route.blocked, null);
+});
+
+test("a judge list exhausted mid-run blocks with judge_list_exhausted, not the declared-fallback cycle check", () => {
+  const contract = /** @type {any} */ ({ runtimes: RUNTIMES });
+  const exhaustedState = {
+    list: LIST,
+    chosen: null,
+    skipped: LIST.map((id) => ({ id, reason: "same provider as the worker: deepseek" })),
+  };
+  const nodeState = {
+    revisions: 0,
+    invocations: [],
+    routing: {
+      history: [],
+      currentOverride: null,
+      assignments: { worker: "worker", judge: "zcode-glm", composedWorker: false, composedJudge: true },
+      judgeList: exhaustedState,
+    },
+  };
+  const route = planRoute(
+    contract,
+    /** @type {any} */ ({}),
+    /** @type {any} */ (nodeState),
+    "judge",
+    { code: "provider_exhausted", message: "quota" },
+    "zcode-glm",
+    { kind: "failover", reason: "provider" },
+    Date.now(),
+    null,
+    { judgeListState: exhaustedState },
+  );
+  assert.equal(route.nextRuntime, "zcode-glm", "no edge remains, so the route stays put");
+  assert.equal(route.blocked?.code, "judge_list_exhausted");
 });

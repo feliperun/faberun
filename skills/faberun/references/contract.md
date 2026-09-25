@@ -149,7 +149,9 @@ Resolve a worker as `nodes[].runtime`, then `runtimeDefaults.worker`; a judge
 as `nodes[].gate.runtime`, then `runtimeDefaults.judge`, then a contract's (or
 absent one, the machine config's) ordered `judges` list: its first entry off
 the worker's provider and its fallback chain's, unrefused and under a 90%
-usage window, hopping the same way on a later refusal without repeats (R18).
+usage window, hopping the same way on a later refusal without repeats,
+replacing any declared `fallback` edge outright, and blocking the node by name
+when every entry is skipped (R18).
 When `runtimes` and `runtimeDefaults` are both omitted, the factory composes
 them from the discovery catalogue (`DISCOVERY_RUNTIME_DEFINITIONS`:
 `dsh-deepseek`, `zcode-glm`, `agy-gemini` at tier 1, `codex-gpt` and
