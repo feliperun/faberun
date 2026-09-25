@@ -35,6 +35,7 @@ import {
 import { exhaustedUntilOf } from "./runtime-discovery.mjs";
 import { getHarness, normalizeProviderAvailability } from "../harnesses/index.mjs";
 import { availabilityKey, recordRefusal, refusalOfAvailability } from "../run/availability.mjs";
+import { judgeFallbackVendorConflict, nextListJudge } from "./judge-list.mjs";
 
 import { acquire as acquireLock } from "../run/lock.mjs";
 import { parseDiscoveryResult } from "../contract/worker-result.mjs";
@@ -641,7 +642,15 @@ export function handleProviderExhaustion(contract, runDir, node, state, role, en
   const runtime = contract.runtimes?.[current];
   const refusal = runtime ? refusalOfAvailability(normalizeProviderAvailability(runtime, envelope)) : null;
   if (runtime && refusal) recordRefusal(availabilityKey({ harness: runtime.harness, model: runtime.model, executable: getHarness(runtime.harness).executable(runtime) }), refusal);
-  const plan = planRoute(contract, node, state, role, error, current, schedule, now, exhaustedUntil);
+  // R18: a list-driven judge that is about to hop reads the durable refusal
+  // and usage-window stores here -- the impure orchestration layer, not
+  // `planRoute`'s pure decision -- so `current` joins the excluded set before
+  // the next eligible entry is chosen. A reset (wait, no hop) leaves the list
+  // untouched: it costs no runtime and must not spend a list entry either.
+  const judgeListState = role === "judge" && schedule.kind === "failover" && state.routing?.judgeList
+    ? nextListJudge(contract, state.routing.judgeList, sourceWorkerRuntime(state) ?? state.routing?.assignments?.worker ?? current, now)
+    : undefined;
+  const plan = planRoute(contract, node, state, role, error, current, schedule, now, exhaustedUntil, judgeListState ? { judgeListState } : {});
   const status = envelope.status === "failed" ? "failed" : "exhausted";
   if (plan.blocked) {
     // A caller that classified the failure itself also owns what happens when
@@ -659,7 +668,7 @@ export function handleProviderExhaustion(contract, runDir, node, state, role, en
         phase: role,
         result: state.result,
         usage: state.usage,
-        routing: { ...(state.routing ?? {}), tierExhaustion },
+        routing: { ...(state.routing ?? {}), tierExhaustion, ...(judgeListState ? { judgeList: judgeListState } : {}) },
         error: { ...plan.blocked, ...(exhaustedUntil ? { exhaustedUntil } : {}) },
       }, lock);
       void raiseNodeAttention(campaignPath, runDir, state, plan.blocked.code).catch(() => {});
@@ -681,21 +690,11 @@ export function handleProviderExhaustion(contract, runDir, node, state, role, en
   // so it is refused here, and the node is parked for a human rather than
   // quietly arbitrated by the vendor it is supposed to check.
   if (role === "judge" && plan.nextRuntime !== current) {
-    const workerRuntimeId = sourceWorkerRuntime(state);
-    const workerVendor = workerRuntimeId ? contract.runtimes[workerRuntimeId]?.vendor : undefined;
-    const judgeFallbackVendor = contract.runtimes[plan.nextRuntime]?.vendor;
-    if (workerVendor && judgeFallbackVendor && workerVendor === judgeFallbackVendor) {
+    const conflict = judgeFallbackVendorConflict(contract, sourceWorkerRuntime(state), plan.nextRuntime);
+    if (conflict) {
       if (precomputed) return false;
       clearTierExhaustion(state);
-      transition(runDir, state, "blocked", {
-        phase: role,
-        result: state.result,
-        usage: state.usage,
-        error: {
-          code: "judge_fallback_vendor_conflict",
-          message: `judge fallback runtime ${plan.nextRuntime} shares vendor ${judgeFallbackVendor} with worker runtime ${workerRuntimeId}`,
-        },
-      }, lock);
+      transition(runDir, state, "blocked", { phase: role, result: state.result, usage: state.usage, error: conflict }, lock);
       return true;
     }
   }

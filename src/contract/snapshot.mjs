@@ -461,12 +461,35 @@ function validateTierExhaustion(value, label) {
   }
 }
 /**
+ * The durable evidence of one node's ordered judge-list selection (R18): the
+ * list it read, the entry it chose (null once every entry is skipped), and
+ * why each earlier one was -- appended to, never replaced, across a run's
+ * hop-by-hop fallback, so an entry already skipped for cause stays skipped.
+ *
+ * @param {unknown} value
+ * @param {string} label
+ */
+function validateJudgeListState(value, label) {
+  assertObject(value, label);
+  rejectUnknown(value, new Set(["list", "chosen", "skipped"]), label);
+  if (!Array.isArray(value.list) || value.list.length === 0) throw new TypeError(`${label}.list must be a non-empty array`);
+  value.list.forEach((id, index) => requireId(id, `${label}.list[${index}]`));
+  if (value.chosen !== null) requireId(value.chosen, `${label}.chosen`);
+  if (!Array.isArray(value.skipped)) throw new TypeError(`${label}.skipped must be an array`);
+  for (const [index, entry] of value.skipped.entries()) {
+    assertObject(entry, `${label}.skipped[${index}]`);
+    rejectUnknown(entry, new Set(["id", "reason"]), `${label}.skipped[${index}]`);
+    requireId(entry.id, `${label}.skipped[${index}].id`);
+    boundedString(entry.reason, `${label}.skipped[${index}].reason`, 512);
+  }
+}
+/**
  * @param {unknown} value
  * @param {string} label
  */
 function validateRoutingState(value, label) {
   assertObject(value, label);
-  rejectUnknown(value, new Set(["history", "currentOverride", "assignments", "availability", "tierExhaustion", "tierExhaustionCycle"]), label);
+  rejectUnknown(value, new Set(["history", "currentOverride", "assignments", "availability", "tierExhaustion", "tierExhaustionCycle", "judgeList"]), label);
   if (!Array.isArray(value.history) || value.history.length > MAX_ROUTING_HISTORY) {
     throw new TypeError(`${label}.history must be an array with at most ${MAX_ROUTING_HISTORY} items`);
   }
@@ -476,6 +499,7 @@ function validateRoutingState(value, label) {
   if (value.currentOverride !== null) validateRoutingEntry(value.currentOverride, `${label}.currentOverride`, true);
   if (value.tierExhaustion !== undefined) validateTierExhaustion(value.tierExhaustion, `${label}.tierExhaustion`);
   if (value.tierExhaustionCycle !== undefined) nonNegativeInteger(value.tierExhaustionCycle, `${label}.tierExhaustionCycle`);
+  if (value.judgeList !== undefined) validateJudgeListState(value.judgeList, `${label}.judgeList`);
   if (value.assignments !== undefined) {
     assertObject(value.assignments, `${label}.assignments`);
     rejectUnknown(value.assignments, new Set(["worker", "judge", "composedWorker", "composedJudge"]), `${label}.assignments`);

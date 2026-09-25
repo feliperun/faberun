@@ -21,7 +21,8 @@ export { exhaustedUntilOf, normalizeProviderAvailability } from "../harnesses/in
 /** @typedef {{harness: string, model: string, vendor: string, tier: number, costRank: number, config?: Record<string, unknown>}} DiscoveryRuntime */
 /** @typedef {{id: string, runtime: RuntimeLike, order: number}} RuntimeCandidate */
 /** @typedef {import("../host/config.mjs").UserConfig} UserConfig */
-/** @typedef {{config?: UserConfig|null, onWarning?: (message: string) => void}} ComposeOptions */
+/** @typedef {{id: string, gate: {enabled: boolean, runtime?: string}}} ComposeOptionsNode */
+/** @typedef {{config?: UserConfig|null, onWarning?: (message: string) => void, listJudge?: (node: ComposeOptionsNode, workerId: string, workerProvider: string|undefined) => string|undefined}} ComposeOptions */
 
 /**
  * Candidates used when a contract omits its runtime catalogue. The catalogue
@@ -125,6 +126,14 @@ export function availableCandidates(runtimes, availability = {}) {
  * `options.onWarning`; config never overrides an explicit node, gate or
  * runtime-default declaration, and the cross-vendor judge rule still applies.
  *
+ * `options.listJudge` (R18) is asked for an omitted judge before the single
+ * `config.judge` preference and the strongest-candidate default: it is the
+ * caller's own ordered-list selection (`engine/judge-list.mjs`), kept out of
+ * this module so a list pick's refusal- and usage-window reads never import a
+ * `run/` consumer of this very function back into a cycle. Returning
+ * `undefined` -- an omitted list, or one every entry of which was skipped --
+ * falls through to the candidates below exactly as if it had not been asked.
+ *
  * @param {RuntimeContract} contract
  * @param {Record<string, RuntimeAvailability>} availability
  * @param {ComposeOptions} [options]
@@ -152,6 +161,7 @@ export function composeAssignments(contract, availability = {}, options = {}) {
     const preferredJudge = judgeOmitted ? candidateById(candidates, config?.judge) : undefined;
     const workerProvider = effectiveProvider(workerRuntime);
     const judge = node.gate.runtime ?? contract.runtimeDefaults?.judge
+      ?? (judgeOmitted ? options.listJudge?.(node, worker, workerProvider) : undefined)
       ?? (preferredJudge && effectiveProvider(preferredJudge.runtime) !== workerProvider ? preferredJudge.id : undefined)
       ?? strongest(candidates, workerProvider)?.id;
     if (node.gate.enabled && (!judge || !contract.runtimes[judge])) {

@@ -362,9 +362,10 @@ export function upsertTierExhaustionCandidate(existing, role, runtimeId, exhaust
  * @param {Transition} schedule
  * @param {number} [now] epoch ms the backoff window is measured from
  * @param {string|null} [exhaustedUntil] the reset instant the exhausted candidate announced, if any
- * @returns {{blocked: RouteError|null, nextRuntime: string, ruleIndex: number|undefined, revision: number, hop: number, backoffSec: number, backoffUntil: string, composed: boolean, tierExhaustion: TierExhaustion|null}}
+ * @param {{judgeListState?: import("../contract/index.mjs").JudgeListState}} [options] R18: a judge-list hop already resolved by the impure caller (`engine/judge-list.mjs`'s `nextListJudge` reads the durable refusal and usage-window stores, which this decision module never touches); its `chosen` -- possibly null, once the list is exhausted -- stands in for the dynamic-tier candidate a list-driven judge would otherwise get from `nextSameTierRuntime`
+ * @returns {{blocked: RouteError|null, nextRuntime: string, ruleIndex: number|undefined, revision: number, hop: number, backoffSec: number, backoffUntil: string, composed: boolean, tierExhaustion: TierExhaustion|null, judgeList?: import("../contract/index.mjs").JudgeListState}}
  */
-export function planRoute(contract, node, state, role, error, current, schedule, now = Date.now(), exhaustedUntil = null) {
+export function planRoute(contract, node, state, role, error, current, schedule, now = Date.now(), exhaustedUntil = null, options = {}) {
   const revision = state.revisions ?? 0;
   // Tier routing is scoped by generation, not revision: an invocation counts
   // as attempted here only when it ran in the current tier-exhaustion
@@ -394,8 +395,11 @@ export function planRoute(contract, node, state, role, error, current, schedule,
   // declared" — nextSynthesizedRuntime's own attempted-filter would otherwise
   // make that distinction unreachable.
   const declaredCandidate = synthesizedChain(contract, role, current)[0] ?? null;
+  // R18: a judge-list hop already resolved by the caller stands in for the
+  // dynamic-tier candidate; the list is itself the ordering, so no further
+  // ranking is applied once one is supplied.
   const fallback = nextSynthesizedRuntime(contract, role, current, attempted)
-    ?? (dynamicComposed ? nextSameTierRuntime(contract, routing, role, current, attempted) : null);
+    ?? (options.judgeListState !== undefined ? options.judgeListState.chosen : (dynamicComposed ? nextSameTierRuntime(contract, routing, role, current, attempted) : null));
   const hop = nextHop(state, role, revision, schedule);
   const nextRuntime = schedule.kind === "reset" ? current : fallback ?? current;
   const blocked = schedule.kind === "reset"
@@ -417,7 +421,7 @@ export function planRoute(contract, node, state, role, error, current, schedule,
   const tierExhaustion = dynamicComposed
     ? upsertTierExhaustionCandidate(state.routing?.tierExhaustion, role, current, exhaustedUntil)
     : null;
-  return { blocked, nextRuntime, ruleIndex: undefined, revision, hop, backoffSec, backoffUntil, composed: composedAssignment, tierExhaustion };
+  return { blocked, nextRuntime, ruleIndex: undefined, revision, hop, backoffSec, backoffUntil, composed: composedAssignment, tierExhaustion, judgeList: options.judgeListState };
 }
 
 /**
@@ -464,6 +468,10 @@ export function buildRouting(state, { role, error, current, plan, schedule, usag
       history: [...(state.routing?.history ?? []), { ...shared, runtime: current, status, errorCode }].slice(-MAX_ROUTING_HISTORY),
       currentOverride: override,
       ...(plan.tierExhaustion ? { tierExhaustion: plan.tierExhaustion } : {}),
+      // Unlike tierExhaustion, an untouched judgeList is not deleted above: a
+      // worker exhaustion round in the same call never resolved one, and the
+      // node's own list evidence must survive it unchanged.
+      ...(plan.judgeList !== undefined ? { judgeList: plan.judgeList } : {}),
     },
     override,
     errorCode,

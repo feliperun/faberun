@@ -290,6 +290,11 @@ export async function runContract(contractPath, options = {}) {
           currentOverride: null,
           assignments: runtimePlan.assignments[node.id],
           availability: runtimePlan.availability,
+          // Only a genuinely list-driven pick (R18) carries this evidence: a
+          // list read but exhausted at assignment time (`chosen` null) fell
+          // through to the discovery ranking instead, and that path already
+          // has its own evidence (`decisions`, `assignments.composedJudge`).
+          ...(runtimePlan.judgeListStates[node.id]?.chosen ? { judgeList: runtimePlan.judgeListStates[node.id] } : {}),
         },
         progress: null,
         invocations: [],
