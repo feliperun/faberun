@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { fixture, packet, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState } from "../runner-helpers.mjs";
 import { parseSpec } from "../../src/plan/spec.mjs";
@@ -89,13 +89,19 @@ test("a human step declared in the spec becomes a stop the plan carries", async 
   const plan = fixture({
     id: "human-step-plan",
     campaignId: "human-step-campaign",
-    nodes: [{ id: "n1", type: "implement", requirementIds: ["R16"], taskPacket: packet(), gate: false }],
+    nodes: [
+      { id: "n1", type: "implement", requirementIds: ["R16"], taskPacket: packet(), gate: false },
+      { id: "n2", type: "implement", dependsOn: ["n1"], taskPacket: packet({ objective: "After" }), gate: false },
+    ],
   });
 
   const frozen = freezePlan(plan, {
     outDir: dir,
     provenance: provenance(),
-    phases: [{ id: "fixture-phase-0", requirementIds: ["R16"], nodeIds: ["n1"], deliverable: "The feature ships." }],
+    phases: [
+      { id: "fixture-phase-0", requirementIds: ["R16"], nodeIds: ["n1"], deliverable: "The feature ships." },
+      { id: "fixture-phase-1", requirementIds: ["R17"], nodeIds: ["n2"], deliverable: "What follows it." },
+    ],
     spec: { path: specPath, digest: specDigest },
     humanSteps,
   });
@@ -106,6 +112,19 @@ test("a human step declared in the spec becomes a stop the plan carries", async 
   assert.deepEqual(frozen.humanSteps, humanSteps);
   const onDiskPlan = JSON.parse(readFileSync(join(dir, "plan.json"), "utf8"));
   assert.deepEqual(onDiskPlan.humanSteps, humanSteps);
+
+  // The frozen contract carries the stop as its own node: n1 keeps its
+  // provider work, the human node waits for n1, and n2 (which depended on
+  // n1) now waits for the human node too.
+  const frozenContract = JSON.parse(readFileSync(join(dir, "contract.json"), "utf8"));
+  const frozenHuman = frozenContract.nodes.find((/** @type {{humanStep?: unknown}} */ node) => node.humanStep);
+  assert.equal(frozenHuman.id, "human-step-r16");
+  assert.deepEqual(frozenHuman.dependsOn, ["n1"]);
+  assert.deepEqual(frozenHuman.humanStep, { step: humanSteps[0].step, command: humanSteps[0].command });
+  const frozenN1 = frozenContract.nodes.find((/** @type {{id: string}} */ node) => node.id === "n1");
+  assert.equal(frozenN1.humanStep, undefined);
+  assert.deepEqual(frozenN1.taskPacket, packet());
+  assert.deepEqual(frozenContract.nodes.find((/** @type {{id: string}} */ node) => node.id === "n2").dependsOn, ["n1", "human-step-r16"]);
 
   // The Campaign Brief only reads a plan.json its sidecar covers; freezePlan
   // itself leaves the "frozen"/"approved" verdict to the pipeline, so this
@@ -118,8 +137,7 @@ test("a human step declared in the spec becomes a stop the plan carries", async 
   assert.match(/** @type {string} */ (listed), /node scripts\/publish\.mjs/u);
 
   // The runtime half of R16: a fixture provider runs the frozen contract
-  // (this node's own `humanStep` field is exactly what `stampHumanSteps`
-  // above produces, tested in isolation there) and the human node never
+  // (the human node exactly as the freeze above wrote it) and the human node never
   // reaches it -- the run stops with an attention naming the step and its
   // command while the dependent waits, and `resume --answer` completes the
   // dependent without ever dispatching the human node to a provider.
@@ -130,7 +148,7 @@ test("a human step declared in the spec becomes a stop the plan carries", async 
     campaignId: "human-step-engine-campaign",
     pollIntervalMs: 10,
     nodes: [
-      { id: "human-step", type: "human", taskPacket: packet(), gate: false, humanStep: humanStepDeclaration },
+      { id: "human-step", type: "human", taskPacket: frozenHuman.taskPacket, gate: false, humanStep: frozenHuman.humanStep },
       { id: "downstream", type: "backend", taskPacket: packet({ objective: "Downstream" }), dependsOn: ["human-step"], gate: false },
     ],
   }));
@@ -140,7 +158,11 @@ test("a human step declared in the spec becomes a stop the plan carries", async 
   assert.equal(humanState.error?.code, "human_step_pending");
   assert.ok(humanState.error?.message?.includes(humanStepDeclaration.step), humanState.error?.message);
   assert.ok(humanState.error?.message?.includes(humanStepDeclaration.command), humanState.error?.message);
-  assert.notEqual(nodeState(firstRun, "downstream").status, "done");
+  const downstream = nodeState(firstRun, "downstream");
+  assert.notEqual(downstream.status, "done");
+  assert.match(downstream.error?.message ?? "", /waiting for human step human-step/u);
+  const receipts = readFileSync(join(firstRun.runDir, "notify.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.ok(receipts.some((receipt) => receipt.dedupeKey === `attention:${basename(firstRun.runDir)}:human-step:human_step_pending`), JSON.stringify(receipts));
 
   const answerPath = join(engineDirectory, "answer.txt");
   writeFileSync(answerPath, "Ran it on the real home and committed.");
