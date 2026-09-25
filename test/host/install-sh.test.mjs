@@ -70,7 +70,7 @@ function tarballOf(parent) {
 function fakeFxInstaller(mode) {
   const path = join(mkdtempSync(join(tmpdir(), "install-sh-fx-")), "install.sh");
   writeFileSync(path, mode === "pass"
-    ? 'mkdir -p "$FX_INSTALL_DIR"\nprintf \'#!/bin/sh\\necho 0.0.11-flavor.1\\n\' > "$FX_INSTALL_DIR/fx"\nchmod +x "$FX_INSTALL_DIR/fx"\necho "[ok] fx · 0.0.11-flavor.1"\n'
+    ? 'mkdir -p "$FX_INSTALL_DIR"\nprintf \'#!/bin/sh\\necho 0.0.11-faberun.1\\n\' > "$FX_INSTALL_DIR/fx"\nchmod +x "$FX_INSTALL_DIR/fx"\necho "[ok] fx · 0.0.11-faberun.1"\n'
     : 'echo "[fail] fx · no flavor build for this host" >&2\nexit 1\n');
   return path;
 }
@@ -217,9 +217,9 @@ test("install.sh installs the fx flavor beside faberun", { skip: POSIX_ONLY }, (
   const space = workspace();
   const result = runInstall(space, stageTree().dir, PACKAGE_VERSION);
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  assert.match(result.stdout, /\[ok\] fx · 0\.0\.11-flavor\.1/);
+  assert.match(result.stdout, /\[ok\] fx · 0\.0\.11-faberun\.1/);
   const fx = spawnSync(join(space.bin, "fx"), ["--version"], { encoding: "utf8" });
-  assert.equal(fx.stdout.trim(), "0.0.11-flavor.1");
+  assert.equal(fx.stdout.trim(), "0.0.11-faberun.1");
 });
 
 test("install.sh skips the fx flavor on request and survives a failed one", { skip: POSIX_ONLY }, () => {
