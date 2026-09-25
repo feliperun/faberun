@@ -23,7 +23,7 @@ machine, prepare a repository, and run one node to a verified result.
 | `codex` | `codex` | OpenAI | the CLI's own sign-in (`codex`); `OPENAI_API_KEY` when the CLI is configured with one |
 | `agy` | `agy` | Google | the CLI's own sign-in (`agy`) |
 | `dsh` | `dsh` | declared per runtime (the discovery entry uses `deepseek`) | `DEEPSEEK_API_KEY` in the environment |
-| `fx` | `fx`, the flavor `install.sh` installs | declared per runtime (the discovery entry uses `deepseek`) | `DEEPSEEK_API_KEY` in the environment |
+| `fx` | `fx`, the fx-faberun build `install.sh` installs | declared per runtime (the discovery entry uses `deepseek`) | `DEEPSEEK_API_KEY` in the environment |
 | `zcode` | `zcode` | Zhipu | `ZAI_API_KEY` in the environment |
 
 `faberun setup` prints the exact environment variable a runtime is missing

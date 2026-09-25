@@ -170,10 +170,10 @@ esac
 printf '[ok] installed · faberun %s · %s\n' "$printed" "$bin_dir/faberun"
 
 # ---------------------------------------------------------------------------
-# 6. The fx flavor
+# 6. fx-faberun
 # ---------------------------------------------------------------------------
 
-# The fx harness runs the flavor build (https://github.com/feliperun/fx/tree/flavor):
+# The fx harness runs fx-faberun (https://github.com/feliperun/fx/tree/fx-faberun):
 # the official fx plus the patches faberun's workers need, such as keeping
 # skills from directories above a worktree out of the worker's context. It
 # replaces an official fx in the same directory. A missing release, no curl or
@@ -186,12 +186,12 @@ else
     fx_installer="$home/tmp/fx-install.sh"
     mkdir -p "$home/tmp"
     if ! command -v curl >/dev/null 2>&1 || ! curl -fsSL "$FX_INSTALLER_URL" -o "$fx_installer" 2>/dev/null; then
-      printf '[warn] fx · no flavor installer reachable at %s · skipped\n' "$FX_INSTALLER_URL"
+      printf '[warn] fx · no fx-faberun installer reachable at %s · skipped\n' "$FX_INSTALLER_URL"
       fx_installer=""
     fi
   fi
   if [ -n "$fx_installer" ] && ! FX_INSTALL_DIR="$bin_dir" sh "$fx_installer"; then
-    printf '[warn] fx · the flavor did not install · the fx harness stays unavailable\n'
+    printf '[warn] fx · fx-faberun did not install · the fx harness stays unavailable\n'
   fi
 fi
 

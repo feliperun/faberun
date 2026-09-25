@@ -40,7 +40,7 @@ runs the same end-to-end cases against both. The client:
 | Cache accounting | the relay reads `prompt_cache_hit_tokens` / `prompt_tokens_details.cached_tokens` from each response | fx 0.0.11 keeps only prompt and completion totals |
 | Quota and rate-limit failover | the relay sees the HTTP status (402, 429) and `Retry-After` | fx reports provider errors as prose |
 | File-effect boundary | `workspace-write` rejects mutations whose `path` leaves the worktree; `read-only` rejects all | `fx ask` offers only full access or model review |
-| Closed packet | the throwaway HOME withholds `~/.fx`, `~/.claude`, `~/.codex`, `~/.agents` and `~/.config/opencode`, where fx looks for global skills; the fx flavor closes the rest, see [Skill leak](#skill-leak) | fx has no flag that skips skill discovery |
+| Closed packet | the throwaway HOME withholds `~/.fx`, `~/.claude`, `~/.codex`, `~/.agents` and `~/.config/opencode`, where fx looks for global skills; fx-faberun closes the rest, see [Skill leak](#skill-leak) | fx has no flag that skips skill discovery |
 
 Shell commands run in every sandbox mode, as under dsh's `workspace-write`: the
 worktree bounds them, not a shell parser. The repository's own `AGENTS.md` still
@@ -60,14 +60,14 @@ Linux, a canary skill planted above a worktree appeared in the worker's skill
 catalog. Linking the worktree into the throwaway HOME does not help: fx resolves
 the link.
 
-What closes it is the fix at the origin, in [the fx flavor](https://github.com/feliperun/fx/tree/flavor)
+What closes it is the fix at the origin, in [fx-faberun](https://github.com/feliperun/fx/tree/fx-faberun)
 (`install.sh` installs it, see below): when HOME is not above the workspace, the
 walk now ends at the repository root, which for a worker is its worktree. It is
 proposed upstream as [vercel-labs/fx#1045](https://github.com/vercel-labs/fx/pull/1045).
 Measured 2026-09-25 on one Faberun run of the parseDuration contract through a
 request-logging proxy: with the official 0.0.11, `ci-merge-loop` and
 `micromed-feedback-analyzer` from `~/.codex/skills` reached DeepSeek 10 times
-each over 6 requests; with the flavor, never over 9. On a direct `fx ask`, the
+each over 6 requests; with fx-faberun, never over 9. On a direct `fx ask`, the
 first request shrank from 40,066 to 25,014 bytes once 28 personal skills and a
 canary left it.
 
@@ -83,17 +83,17 @@ land in the worker's diff. On macOS the jail is not usable for fx: its
 shell unless `--macos-host-ipc` is passed, and fx's file mutation tools still
 failed inside it with the shell working.
 
-## The fx flavor
+## fx-faberun
 
-The flavor is the official fx plus a short patch queue on the `flavor` branch of
+fx-faberun is the official fx plus a short patch queue on the `fx-faberun` branch of
 `feliperun/fx`: the cache counters of #1043, the skill walk of #1045, and a patch
-that keeps a flavor build from auto-upgrading itself to the official channel. A
+that keeps an fx-faberun build from auto-upgrading itself to the official channel. A
 watcher rebases the queue onto upstream every six hours, builds and tests it,
 and drops a patch once its pull request merges; it runs as a workflow in that
-fork, or as `flavor/watch.sh` scheduled on the operator's machine by
-`flavor/watch-install.sh` when Actions are off. Releases
+fork, or as `fx-faberun/watch.sh` scheduled on the operator's machine by
+`fx-faberun/watch-install.sh` when Actions are off. Releases
 are versioned `X.Y.Z-faberun.N` and only ever created as drafts; publishing is
-the owner's call. `install.sh` runs the flavor installer into the same bin
+the owner's call. `install.sh` runs the fx-faberun installer into the same bin
 directory as `faberun`; `FABERUN_NO_FX=1` skips it.
 
 ## Runtime
