@@ -209,7 +209,8 @@ whatever `vendor` the contract declares, as `resolveVendor` in
 The invariant: the vendor rule compares the derived provider, not a free-text
 label, so a declared `vendor` that contradicts it is refused; validation
 rejects a gate-enabled node whose worker and judge resolve to the same
-provider, and the same for every runtime in the worker's fallback chain. See
+provider, and the same for every runtime in the worker's fallback chain,
+unless same-vendor mode (R20, below) admits the pair. See
 [contract.md](../skills/faberun/references/contract.md).
 
 ## Tier, costRank and fallback
@@ -249,6 +250,34 @@ replaces the judge's own declared `fallback` edge outright — `planRoute` never
 follows it once a list applies — and is exempt from the single-hop cap that
 edge is otherwise bound by; an exhausted list mid-run blocks with
 `judge_list_exhausted`. See [contract.md](../skills/faberun/references/contract.md).
+
+## Same-vendor review (R20)
+
+An operator with a single provider opts in, explicitly, with
+`judgeIndependence: "same-vendor"` on the contract or the machine config
+(the contract's own value wins, as with `judges`); without it, a gate-enabled
+node whose worker and judge share a vendor stays refused exactly as the
+invariant above states. In the mode, the judge may be a runtime of the
+worker's own vendor, but only a model whose declared tier
+(`src/harnesses/catalogue.mjs`'s `ANTHROPIC_MODEL_TIERS`: Sonnet 2, Opus and
+`claude-opus-5-5` 3, Fable 4) is at or above the worker's; a lower tier is
+refused naming both, and a model absent from the table cannot judge in the
+mode at all (`contract/judge-independence.mjs`'s `sameVendorTierRefusal`).
+`validateContract` decides the static admissibility fact, once, at contract
+validation: a node it admits is marked `sameProviderReview` on the
+`ValidatedNode`, and only the Campaign Brief's work graph — a plan-time
+surface with no run to read — reads that mark back. Every other surface reads
+a dynamic, per-attempt fact instead: `engine/dispatch.mjs`'s `startJudge`
+pairs the worker runtime that actually ran (fallback included) against the
+judge candidate routed for that attempt and stamps the result onto the node
+snapshot, which the run report, `status --json` and campaign metrics'
+`sameProviderReviewNodeCount` all read — never the contract's static fact,
+and never a second enforcement of the vendor-and-tier rule. The
+judge-canary matrix (`evals/judge-canary-matrix.mjs`) reads the scenario apart
+too: each judge's `sameFamily` score is its recall and false-alarm rate on the
+cases its own vendor's family authored, pooled from `byAuthorFamily` rather
+than from a second provider call. See
+[contract.md](../skills/faberun/references/contract.md).
 
 ## Concurrency per runtime
 
