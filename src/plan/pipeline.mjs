@@ -29,6 +29,7 @@ import { askPlanningRuntimes, refusePlanningSilence, refuseUnplannableRuntimes }
 import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
 import { checkPlanProofs } from "./proof-check.mjs";
+import { collectHumanSteps } from "./human-step.mjs";
 import { RISK_TIERS, TASK_KIND_CATALOGUE_FILE, buildPlanningContract, renderTaskKindCatalogue, validatePlanOutput } from "./template.mjs";
 import { MIN_WRITE_FILES, applySizingRules, provenParallelism } from "./sizing.mjs";
 import { resolveRuntimes } from "./routing.mjs";
@@ -157,6 +158,10 @@ export async function runPlanningPipeline(options) {
   // from the spec's prose.
   const parsedSpec = parseSpec(specText);
   const repoFacts = collectRepoFacts(cwd, { requirements: parsedSpec.requirements });
+  // R16: an operator step a requirement's constraints declare, detected once
+  // here so both the freeze below and a caller inspecting the pipeline agree
+  // on the same list.
+  const humanSteps = collectHumanSteps(parsedSpec.requirements);
   const repoFactsPath = join(scratchDir, "repo-facts.json");
   writeFileSync(repoFactsPath, `${JSON.stringify(repoFacts, null, 2)}\n`);
   const relativeRepoFactsPath = relative(cwd, repoFactsPath);
@@ -339,6 +344,7 @@ export async function runPlanningPipeline(options) {
       // The pipeline's own pinned spec bytes: a wrong or missing digest is the
       // first thing the Campaign Brief refuses on, never a summary.
       spec: { path: relativeSpecPath, digest: specDigest },
+      humanSteps,
       facts: repoFacts,
       provenance: {
         targetGitHead: repoFacts.gitHead,
@@ -348,7 +354,12 @@ export async function runPlanningPipeline(options) {
         findings,
       },
     });
-    logStage("freeze", { contractId: `${campaignId}-${phase}`, highestRiskTier, ...(freezeWarnings.length ? { warnings: freezeWarnings } : {}) });
+    logStage("freeze", {
+      contractId: `${campaignId}-${phase}`,
+      highestRiskTier,
+      ...(humanSteps.length ? { humanSteps: humanSteps.length } : {}),
+      ...(freezeWarnings.length ? { warnings: freezeWarnings } : {}),
+    });
   } catch (error) {
     // The stage line the pipeline would otherwise have stopped short of, the
     // failure carried as the critical finding that names it, and the

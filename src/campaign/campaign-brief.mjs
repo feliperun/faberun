@@ -154,7 +154,12 @@ export function buildBriefModel(options) {
   const coverage = buildCoverage(parsedSpec, declarations, contractNodes, specPath, planPath);
   const graph = buildGraph(contract, contractNodes);
   const journalDecisions = options.projection ? projectCampaignDecisions(options.projection) : [];
-  const decisions = buildDecisions(parsedSpec, journalDecisions);
+  // R16: an operator step the frozen plan carries as an explicit stop
+  // (`plan.humanSteps`, `src/plan/human-step.mjs`) is a human decision the
+  // spec's own "Human decisions" bullets cannot list, since it is declared on
+  // a requirement's constraints instead of that section.
+  const humanSteps = asArray(plan.humanSteps);
+  const decisions = buildDecisions(parsedSpec, journalDecisions, humanSteps);
   const estimate = buildEstimate(options.estimate, graph, options.usageSampleCutoff ?? null);
   const opening = buildOpening(parsedSpec, coverage, graph, estimate, decisions);
   const identity = buildIdentity({
@@ -399,12 +404,17 @@ function buildCoverage(parsedSpec, declarations, nodes, specPath, planPath) {
  *
  * @param {ParsedSpec} parsedSpec
  * @param {ProjectedDecision[]} journal
+ * @param {AnyRecord[]} [humanSteps] the frozen plan's `humanSteps` (R16)
  * @returns {BriefDecisions}
  */
-function buildDecisions(parsedSpec, journal) {
+function buildDecisions(parsedSpec, journal, humanSteps = []) {
   /** @param {string} name @returns {string} */
   const section = (name) => parsedSpec.sections.get(name)?.body ?? "";
-  const human = [...bulletLines(section("human decisions")), ...bulletLines(section("settled owner decisions"))];
+  const human = [
+    ...bulletLines(section("human decisions")),
+    ...bulletLines(section("settled owner decisions")),
+    ...humanSteps.map((step) => `${step.requirementId}: ${step.step}`),
+  ];
   const delegated = bulletLines(section("delegable decisions"));
   const evals = bulletLines(section("planned evals"));
   const risks = riskRows(section("risks"));

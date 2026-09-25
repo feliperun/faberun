@@ -16,6 +16,7 @@ import { validateMetadata } from "./schema-version.mjs";
 import { assertRuntimeExecutesCommands, judgeWriteWarnings, requireRuntime, validateRuntime } from "./runtime.mjs";
 import { validateJudgeList } from "./judges.mjs";
 import { markSameProviderReviewNodes, validateJudgeIndependence } from "./judge-independence.mjs";
+import { validateHumanStep } from "./human-step.mjs";
 import { validateSourceIdentity } from "../repo/source-identity.mjs";
 import { commandCoverageWarnings, ignoreSourceWriteWarnings, mirrorCoverageWarnings, unsnapshottedWriteWarnings } from "../repo/declared-paths.mjs";
 import { crossNodeScopeFindings, scopeClosureFindings } from "../repo/scope-closure.mjs";
@@ -42,7 +43,7 @@ const DEFAULTS_FIELDS = new Set(["worker", "judge"]);
 const NODE_FIELDS = new Set([
   "id", "type", "phase", "requirementIds", "runtime", "dependsOn", "taskPacket", "taskPacketFile", "prompt", "promptFile",
   "definitionOfDone", "gate", "timeoutSec", "maxTurns",
-  "requiredCapabilities", "packetHash", "sourceIdentity", "replayPolicy", "sameProviderReview",
+  "requiredCapabilities", "packetHash", "sourceIdentity", "replayPolicy", "sameProviderReview", "humanStep",
 ]);
 const REPLAY_POLICIES = new Set(["safe", "reconcile", "never"]);
 /**
@@ -71,7 +72,7 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 
 /** @typedef {{enabled: boolean, review?: ("none"|"advisory"|"blocking"), runtime?: string, failOn?: ("minor"|"major"|"critical")[], maxRevisions?: number, requiredCapabilities?: CapabilityRequirements, skipWhen?: {verificationGreen: true, maxChangedPaths: number}}} ValidatedGate */
 
-/** @typedef {{id: string, type: string, phase: string, requirementIds?: string[], runtime?: string, dependsOn: string[], taskPacket: TaskPacket, taskPacketFile?: string, prompt: string, definitionOfDone: import("./definition-of-done.mjs").DefinitionOfDoneItem[], gate: ValidatedGate, timeoutSec?: number, maxTurns?: number, requiredCapabilities: CapabilityRequirements, packetHash: string, sourceIdentity: SourceIdentity, replayPolicy: "safe"|"reconcile"|"never", sameProviderReview: boolean}} ValidatedNode */
+/** @typedef {{id: string, type: string, phase: string, requirementIds?: string[], runtime?: string, dependsOn: string[], taskPacket: TaskPacket, taskPacketFile?: string, prompt: string, definitionOfDone: import("./definition-of-done.mjs").DefinitionOfDoneItem[], gate: ValidatedGate, timeoutSec?: number, maxTurns?: number, requiredCapabilities: CapabilityRequirements, packetHash: string, sourceIdentity: SourceIdentity, replayPolicy: "safe"|"reconcile"|"never", sameProviderReview: boolean, humanStep?: {step: string, command: string}}} ValidatedNode */
 
 /** @typedef {{schemaVersion: number, contractVersion: string, id: string, campaignId: string, goal: string, cwd: string, sourceIdentity: SourceIdentity, runtimes: Record<string, ValidatedRuntime>, runtimeDefaults: {worker?: string, judge?: string}, judges?: string[], judgeIndependence?: "same-vendor", nodes: ValidatedNode[], maxParallel: number, pollIntervalMs: number, stallTimeoutSec: number, timeoutSec: number, maxTurns: number, phaseSessionReuse: boolean, finalVerification?: VerificationCommand[], sharedVerification?: VerificationCommand[], nodeAdvisory?: NodeAdvisoryPolicy, warnings: string[]}} ValidatedContract */
 /** @typedef {{costUsd?: number, durationSec?: number}} NodeAdvisoryPolicy */
@@ -251,6 +252,7 @@ export function validateContract(raw, contractPath, options = {}) {
       ? undefined
       : positiveInteger(node.maxTurns, `nodes[${index}].maxTurns`);
     const replayPolicy = validateReplayPolicy(node.replayPolicy, `nodes[${index}]`);
+    const humanStep = validateHumanStep(node.humanStep, `nodes[${index}].humanStep`);
     return /** @type {ValidatedNode} */ ({
       ...node,
       dependsOn,
@@ -268,6 +270,7 @@ export function validateContract(raw, contractPath, options = {}) {
       // every node: same-vendor mode (R20) is only known admissible after
       // that pass reads the pair's declared tiers.
       sameProviderReview: false,
+      ...(humanStep === undefined ? {} : { humanStep }),
     });
   });
 
