@@ -37,7 +37,7 @@ import { getHarness, normalizeProviderAvailability } from "../harnesses/index.mj
 import { availabilityKey, recordRefusal, refusalOfAvailability } from "../run/availability.mjs";
 
 import { acquire as acquireLock } from "../run/lock.mjs";
-import { parseDiscoveryResult } from "../contract/worker-result.mjs";
+import { parseDiscoveryResult, WorkerResultSizeError } from "../contract/worker-result.mjs";
 import { boundedUtf8, errorCode, errorMessage, excerpt } from "../util.mjs";
 import { readJson, writeJsonAtomic } from "../run/store.mjs";
 import { invocationAlive } from "./process.mjs";
@@ -443,7 +443,7 @@ export async function finalizeClosedJobs(contract, runDir, states, closed, lock,
     // path fails it today.
     if (workerResultError) {
       if (envelope.status === "done") {
-        await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, errorMessage(workerResultError), states, campaignPath);
+        await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, workerResultError, states, campaignPath);
         continue;
       }
       adoptedWorkerResult = null;
@@ -549,7 +549,7 @@ export async function finalizeClosedJobs(contract, runDir, states, closed, lock,
           }, lock);
           continue;
         }
-        await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, errorMessage(error), states, campaignPath);
+        await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, error, states, campaignPath);
         continue;
       }
       // The artifact demand follows the documented discovery contract, not the
@@ -562,7 +562,7 @@ export async function finalizeClosedJobs(contract, runDir, states, closed, lock,
         try {
           parseDiscoveryResult(workerResult, attemptWorkspace(state) ?? contract.cwd);
         } catch (error) {
-          await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, errorMessage(error), states, campaignPath);
+          await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, error, states, campaignPath);
           continue;
         }
       }
@@ -729,6 +729,19 @@ function applyRoute(contract, runDir, state, lock, { role, error, current, plan,
 }
 
 /**
+ * The repair instruction for an invalid worker result.
+ *
+ * @param {unknown} cause
+ * @returns {string}
+ */
+export function invalidResultRepair(cause) {
+  if (cause instanceof WorkerResultSizeError) {
+    return `the result breaks a size ceiling: ${cause.field} exceeds ${cause.limit} bytes. Keep every field within its ceiling; a node that delivers through \`output\` sends \`artifacts\` as [] and never copies \`output\` into \`artifacts\`.`;
+  }
+  return "the entire final message must be exactly the required JSON object: no markdown fences, no prose before or after it. Return it as the only content of the final message.";
+}
+
+/**
  * A worker result that does not match the structured protocol gets one bounded
  * repair on the same provider, then stops asking it.
  *
@@ -739,17 +752,22 @@ function applyRoute(contract, runDir, state, lock, { role, error, current, plan,
  * and when no edge remains, it blocks and raises attention rather than filing
  * a quiet exhaustion nobody reads.
  *
- * @param {ValidatedContract} contract @param {ValidatedNode} node @param {NodeSnapshot} state @param {string} runDir @param {Map<string, Job>|null} running @param {LockHandle} lock @param {string} message @param {Map<string, NodeSnapshot>} states @param {string} campaignPath
+ * The repair names what was actually wrong: a result that broke a byte
+ * ceiling is told which one, since re-emitting the same object without fences
+ * cannot fix it.
+ *
+ * @param {ValidatedContract} contract @param {ValidatedNode} node @param {NodeSnapshot} state @param {string} runDir @param {Map<string, Job>|null} running @param {LockHandle} lock @param {unknown} cause @param {Map<string, NodeSnapshot>} states @param {string} campaignPath
  */
-export async function applyInvalidWorkerResult(contract, node, state, runDir, running, lock, message, states, campaignPath) {
+export async function applyInvalidWorkerResult(contract, node, state, runDir, running, lock, cause, states, campaignPath) {
   clearTierExhaustion(state);
+  const message = errorMessage(cause);
   const verdict = /** @type {JudgeVerdict} */ ({
     verdict: "fail",
     maxSeverity: "critical",
     summary: "worker result did not match the structured result protocol",
     findings: [{
       severity: "critical",
-      description: "the entire final message must be exactly the required JSON object: no markdown fences, no prose before or after it. Return it as the only content of the final message.",
+      description: invalidResultRepair(cause),
       evidence: boundedUtf8(message, 4 * 1024),
     }],
   });

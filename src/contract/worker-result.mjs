@@ -25,6 +25,23 @@ const RESULT_LIMITS = Object.freeze({
  */
 export const DERIVED_WORKER_RESULT_FIELDS = Object.freeze(["changedFiles"]);
 
+/**
+ * A worker result that is well-formed JSON but breaks one of the byte
+ * ceilings above. Typed, not a plain TypeError, so the repair prompt can name
+ * the ceiling that was broken: observed 2026-09-25, a planning draft that
+ * copied its 38 KiB plan into `artifacts[0]` was told twice to drop markdown
+ * fences it never wrote, and repeated the copy.
+ */
+export class WorkerResultSizeError extends TypeError {
+  /** @param {string} field @param {number} limit */
+  constructor(field, limit) {
+    super(`${field} exceeds ${limit} bytes`);
+    this.name = "WorkerResultSizeError";
+    this.field = field;
+    this.limit = limit;
+  }
+}
+
 /** @typedef {"done"|"blocked_context"} WorkerResultStatus */
 
 /**
@@ -45,7 +62,7 @@ export function parseWorkerResult(value) {
   if (typeof value !== "string") throw new TypeError("worker result must be JSON text");
   const maxRawBytes = RESULT_LIMITS.bytes + RESULT_LIMITS.outputBytes;
   if (Buffer.byteLength(value, "utf8") > maxRawBytes) {
-    throw new TypeError(`worker result exceeds ${maxRawBytes} bytes`);
+    throw new WorkerResultSizeError("worker result", maxRawBytes);
   }
   let parsed;
   try {
@@ -100,7 +117,7 @@ export function validateWorkerResult(value) {
   if (Object.hasOwn(record, "output") && record.output !== undefined) {
     assertObject(record.output, "worker result.output");
     if (Buffer.byteLength(JSON.stringify(record.output), "utf8") > RESULT_LIMITS.outputBytes) {
-      throw new TypeError(`worker result.output exceeds ${RESULT_LIMITS.outputBytes} bytes`);
+      throw new WorkerResultSizeError("worker result.output", RESULT_LIMITS.outputBytes);
     }
     output = /** @type {Record<string, unknown>} */ (record.output);
   }
@@ -115,7 +132,7 @@ export function validateWorkerResult(value) {
   // it is a discovery node's deliverable, not incidental prose competing with
   // summary/verification for the same 32 KiB budget.
   if (Buffer.byteLength(JSON.stringify(envelope), "utf8") > RESULT_LIMITS.bytes) {
-    throw new TypeError(`worker result exceeds ${RESULT_LIMITS.bytes} bytes`);
+    throw new WorkerResultSizeError("worker result", RESULT_LIMITS.bytes);
   }
   return output === undefined ? envelope : { ...envelope, output };
 }
@@ -165,6 +182,6 @@ function requireList(value, label, maxItems, itemBytes) {
   if (!Array.isArray(value) || value.length > maxItems) throw new TypeError(`${label} must be an array with at most ${maxItems} items`);
   for (const [index, item] of value.entries()) {
     if (typeof item !== "string") throw new TypeError(`${label}[${index}] must be a string`);
-    if (Buffer.byteLength(item, "utf8") > itemBytes) throw new TypeError(`${label}[${index}] exceeds ${itemBytes} bytes`);
+    if (Buffer.byteLength(item, "utf8") > itemBytes) throw new WorkerResultSizeError(`${label}[${index}]`, itemBytes);
   }
 }
