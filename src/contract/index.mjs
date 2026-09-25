@@ -15,7 +15,7 @@ import { assertObject, boundedString, nonNegativeInteger, nonNegativeNumber, pos
 import { validateMetadata } from "./schema-version.mjs";
 import { assertRuntimeExecutesCommands, judgeWriteWarnings, requireRuntime, validateRuntime } from "./runtime.mjs";
 import { validateJudgeList } from "./judges.mjs";
-import { SAME_VENDOR_REVIEW_MODE, sameVendorTierRefusal, validateJudgeIndependence } from "./judge-independence.mjs";
+import { markSameProviderReviewNodes, validateJudgeIndependence } from "./judge-independence.mjs";
 import { validateSourceIdentity } from "../repo/source-identity.mjs";
 import { commandCoverageWarnings, ignoreSourceWriteWarnings, mirrorCoverageWarnings, unsnapshottedWriteWarnings } from "../repo/declared-paths.mjs";
 import { crossNodeScopeFindings, scopeClosureFindings } from "../repo/scope-closure.mjs";
@@ -301,62 +301,9 @@ export function validateContract(raw, contractPath, options = {}) {
     }
   }
 
-  // A gated node whose worker and judge share a vendor cannot produce an
-  // independent review — the same vendor grading its own output is not a
-  // gate, so this is rejected outright rather than left to reach dispatch.
-  // R20's opt-in relaxes exactly this refusal: `judgeIndependence:
-  // "same-vendor"` admits the pair when the judge's declared tier is at or
-  // above the worker's (`sameVendorTierRefusal`), and the node is marked
-  // `sameProviderReview` for every human-facing surface to read back.
-  // The worker's declared fallback chain is checked the same way, since it is
-  // statically known which runtime a worker failover lands on; the symmetric
-  // case — the judge's own fallback landing on the worker's vendor — depends
-  // on which worker runtime actually ran and is refused at execution instead
-  // (node.mjs, `judge_fallback_vendor_conflict`).
-  for (const [index, node] of nodes.entries()) {
-    if (!node.gate.enabled) continue;
-    const workerRuntimeId = node.runtime ?? defaults.worker;
-    const judgeRuntimeId = node.gate.runtime ?? defaults.judge;
-    if (!workerRuntimeId || !judgeRuntimeId) continue;
-    const workerRuntime = runtimes[/** @type {string} */ (workerRuntimeId)];
-    const judgeRuntime = runtimes[/** @type {string} */ (judgeRuntimeId)];
-    const workerVendor = workerRuntime.vendor;
-    const judgeVendor = judgeRuntime.vendor;
-    if (workerVendor === judgeVendor) {
-      if (judgeIndependence !== SAME_VENDOR_REVIEW_MODE) {
-        throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} and judge runtime ${judgeRuntimeId} share vendor ${workerVendor}`);
-      }
-      const refusal = sameVendorTierRefusal(workerRuntime, judgeRuntime);
-      if (refusal) {
-        throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} and judge runtime ${judgeRuntimeId} share vendor ${workerVendor}: ${refusal.message}`);
-      }
-      nodes[index] = { ...node, sameProviderReview: true };
-    }
-    const seenFallbacks = new Set([/** @type {string} */ (workerRuntimeId)]);
-    let fallbackId = runtimes[/** @type {string} */ (workerRuntimeId)].fallback;
-    while (fallbackId !== undefined) {
-      if (seenFallbacks.has(fallbackId)) {
-        throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} fallback chain cycles back to ${fallbackId}`);
-      }
-      seenFallbacks.add(fallbackId);
-      const fallbackVendor = runtimes[fallbackId].vendor;
-      if (fallbackVendor === judgeVendor) {
-        if (judgeIndependence !== SAME_VENDOR_REVIEW_MODE) {
-          throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} fallback runtime ${fallbackId} and judge runtime ${judgeRuntimeId} share vendor ${fallbackVendor}`);
-        }
-        const fallbackRefusal = sameVendorTierRefusal(runtimes[fallbackId], judgeRuntime);
-        if (fallbackRefusal) {
-          throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} fallback runtime ${fallbackId} and judge runtime ${judgeRuntimeId} share vendor ${fallbackVendor}: ${fallbackRefusal.message}`);
-        }
-        // The fallback is only reachable if it actually runs, but the tier
-        // rule above already admitted it -- so the node is marked here too,
-        // not only when the primary matches (the plan-time "could this land
-        // same-provider" fact every human-facing surface reads back).
-        nodes[index] = { ...nodes[index], sameProviderReview: true };
-      }
-      fallbackId = runtimes[fallbackId].fallback;
-    }
-  }
+  // See `markSameProviderReviewNodes` for the vendor-conflict refusal and
+  // R20's same-vendor opt-in that relaxes it.
+  markSameProviderReviewNodes(nodes, runtimes, defaults, judgeIndependence);
 
   // Every worker prompt tells the worker to run its packet verification.
   // Refuse a statically known permission mode that makes that instruction
