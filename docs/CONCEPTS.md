@@ -380,6 +380,24 @@ never rewritten. See
 [operations.md](../skills/faberun/references/operations.md) and
 [handoffs.md](../skills/faberun/references/handoffs.md).
 
+## Human step (R16)
+
+A requirement whose `constraints` name the operator (the `operator` keyword
+plus a backtick-quoted command) declares a step only a human can perform.
+`plan/human-step.mjs`'s `detectHumanStep` finds it in the structured spec;
+`plan/freeze.mjs` stamps it, as `humanStep: {step, command}`, onto the frozen
+contract node that carries that requirement's id. The invariant: that node
+never dispatches to a provider. Once its dependencies are done the scheduler
+stops it there instead, `blocked` with `human_step_pending`, `error.message`
+naming the step and its command; its dependants wait exactly as they would
+behind any other blocked node. `resume --answer <node-id>=<path>` is how the
+operator continues it: unlike an answer to a `context_missing` node, it
+settles the human node `done` directly — no worktree, no re-dispatch — and
+releases its dependants on the next tick. The Campaign Brief's decisions
+section lists it among the human decisions, alongside the spec's own "Human
+decisions" bullets. See
+[contract.md](../skills/faberun/references/contract.md).
+
 ## Attention and parked
 
 Attention is the state that asks a human to act: a node or campaign records an

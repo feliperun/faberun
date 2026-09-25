@@ -23,6 +23,7 @@ import { VERIFICATION_LIMITS } from "../contract/verification.mjs";
 import { validatePlanPhases } from "./template.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
+/** @typedef {import("./human-step.mjs").HumanStep} PlanHumanStep */
 
 /** @typedef {{runtimeId: string, model: string}} PlanParticipant */
 /** @typedef {{id: string, severity: "minor"|"major"|"critical", nodeId?: string, text: string}} PlanFinding */
@@ -30,7 +31,7 @@ import { validatePlanPhases } from "./template.mjs";
 /** @typedef {PlanProvenanceInput & {packageVersion: string, schemaVersion: number, contractVersion: string}} PlanProvenance */
 /** @typedef {{id: string, requirementIds: string[], nodeIds?: string[], deliverable: string}} PlanPhase */
 /** @typedef {{path: string, digest: string}} PlanSpecIdentity */
-/** @typedef {{formatVersion: number, contractDigest: string, spec?: PlanSpecIdentity, phases?: PlanPhase[], provenance: PlanProvenance}} FrozenPlan */
+/** @typedef {{formatVersion: number, contractDigest: string, spec?: PlanSpecIdentity, phases?: PlanPhase[], humanSteps?: PlanHumanStep[], provenance: PlanProvenance}} FrozenPlan */
 /** @typedef {{ok: boolean, digest: string, expectedDigest: string}} FrozenPlanVerdict */
 /** @typedef {{scripts?: Record<string, string>, verificationCandidates: {argv: string[], measuredMs: number}[]}} MeasuredFacts */
 
@@ -215,6 +216,67 @@ function specIdentityOf(spec) {
   return { path: /** @type {string} */ (record.path), digest: /** @type {string} */ (record.digest) };
 }
 
+/** The fields a human step declaration carries: requirementId|step|command. */
+const HUMAN_STEP_FIELDS = new Set(["requirementId", "step", "command"]);
+
+/**
+ * The human steps a frozen plan records, shape-checked before anything is
+ * written. Absent or empty is legal: most plans declare none.
+ *
+ * @param {unknown} humanSteps
+ * @returns {PlanHumanStep[]|undefined}
+ */
+function humanStepsOf(humanSteps) {
+  if (humanSteps === undefined) return undefined;
+  if (!Array.isArray(humanSteps) || humanSteps.length === 0) return undefined;
+  return humanSteps.map((step, index) => {
+    const label = `humanSteps[${index}]`;
+    assertObject(step, label);
+    const record = /** @type {Record<string, unknown>} */ (step);
+    rejectUnknown(record, HUMAN_STEP_FIELDS, label);
+    requireString(record.requirementId, `${label}.requirementId`);
+    requireString(record.step, `${label}.step`);
+    requireString(record.command, `${label}.command`);
+    return /** @type {PlanHumanStep} */ ({
+      requirementId: /** @type {string} */ (record.requirementId),
+      step: /** @type {string} */ (record.step),
+      command: /** @type {string} */ (record.command),
+    });
+  });
+}
+
+/**
+ * Stamp the node that carries a declared human step's requirement with that
+ * step (R16): the frozen contract node the scheduler stops on instead of
+ * dispatching (`contract/human-step.mjs` validates the shape at contract
+ * validation; the scheduler reads it at dispatch time). Matched by the node's
+ * already-inherited `requirementIds` (`stampPhaseRequirementIds` runs first),
+ * so a phase declaration that never assigns the requirement to any node
+ * leaves it unstamped -- the same graceful gap `stampPhaseRequirementIds`
+ * itself leaves, not a reason to refuse the freeze. A node whose
+ * requirementIds match more than one declared human step is refused: which of
+ * two stops it becomes is not this function's call to make.
+ *
+ * @param {unknown} nodes
+ * @param {PlanHumanStep[]} humanSteps
+ * @returns {unknown}
+ */
+function stampHumanSteps(nodes, humanSteps) {
+  if (!Array.isArray(nodes)) return nodes;
+  const byRequirementId = new Map(humanSteps.map((step) => [step.requirementId, step]));
+  return nodes.map((node) => {
+    const record = /** @type {Record<string, unknown>} */ (node && typeof node === "object" ? node : {});
+    const requirementIds = Array.isArray(record.requirementIds) ? record.requirementIds : [];
+    const matches = requirementIds.filter((id) => byRequirementId.has(id));
+    if (matches.length === 0) return node;
+    if (matches.length > 1) {
+      throw new TypeError(`node ${record.id} carries more than one declared human step (${matches.join(", ")})`);
+    }
+    const step = /** @type {PlanHumanStep} */ (byRequirementId.get(matches[0]));
+    return { ...record, humanStep: { step: step.step, command: step.command } };
+  });
+}
+
 /**
  * The SHA-256 of a file's exact bytes: the independent digest a frozen plan's
  * `plan.json.sha256` sidecar carries, recomputable by a reader without parsing
@@ -272,16 +334,18 @@ export function writeFrozenPlanRecord(outDir, record) {
  * validatePlanOutput applies, and recorded on plan.json verbatim.
  * `options.spec` carries the structured spec's path and content digest; when
  * given, both are recorded so a reader can pin the plan to the exact spec it
- * was planned from.
+ * was planned from. `options.humanSteps` carries the operator steps R16
+ * detected in the spec's requirements (`human-step.mjs`); recorded verbatim
+ * as the explicit stop the frozen plan carries for each of them.
  *
  * @param {JsonObject} plan
  * `options.facts` carries repo facts' measured durations; given, a
  * verification timeout that does not cover one is refused.
  *
- * @param {{outDir: string, provenance: PlanProvenanceInput, phases?: import("./template.mjs").PlanPhase[], spec?: PlanSpecIdentity, facts?: MeasuredFacts}} options
+ * @param {{outDir: string, provenance: PlanProvenanceInput, phases?: import("./template.mjs").PlanPhase[], spec?: PlanSpecIdentity, humanSteps?: PlanHumanStep[], facts?: MeasuredFacts}} options
  * @returns {FrozenPlan}
  */
-export function freezePlan(plan, { outDir, provenance, phases, spec, facts }) {
+export function freezePlan(plan, { outDir, provenance, phases, spec, humanSteps, facts }) {
   // Shape-checked before anything is written, so a malformed declaration
   // leaves the outDir exactly as it was — the same failure discipline as the
   // validateContract rollback below. A declaration in the nodeIds shape must
@@ -290,15 +354,18 @@ export function freezePlan(plan, { outDir, provenance, phases, spec, facts }) {
   // report rather than a reason to refuse the freeze.
   const phaseDeclarations = validatePlanPhases(phases, plannedNodeIdsOf(plan.nodes));
   const specIdentity = specIdentityOf(spec);
+  const humanStepList = humanStepsOf(humanSteps);
   mkdirSync(outDir, { recursive: true });
   const contractPath = join(outDir, "contract.json");
+  const requirementStampedNodes = phaseDeclarations ? stampPhaseRequirementIds(plan.nodes, phaseDeclarations) : plan.nodes;
+  const stampedNodes = humanStepList ? stampHumanSteps(requirementStampedNodes, humanStepList) : requirementStampedNodes;
   const raw = /** @type {JsonObject} */ ({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
     contractVersion: CONTRACT_VERSION,
     ...plan,
     // Listed again, not mutated in place, so the caller's plan object keeps
     // the shape it was reviewed with.
-    ...(phaseDeclarations ? { nodes: stampPhaseRequirementIds(plan.nodes, phaseDeclarations) } : {}),
+    ...(phaseDeclarations || humanStepList ? { nodes: stampedNodes } : {}),
   });
   writeJsonAtomic(contractPath, raw);
   try {
@@ -318,6 +385,7 @@ export function freezePlan(plan, { outDir, provenance, phases, spec, facts }) {
     // contract schema takes no extra field), so the traceability a reviewer
     // saw is readable straight off plan.json, nodeIds included.
     ...(phaseDeclarations === undefined ? {} : { phases: phaseDeclarations }),
+    ...(humanStepList === undefined ? {} : { humanSteps: humanStepList }),
     provenance: {
       packageVersion: packageVersion(),
       schemaVersion: /** @type {number} */ (raw.schemaVersion),
