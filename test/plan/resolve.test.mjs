@@ -102,7 +102,7 @@ async function writeContested(fixture, findings) {
     findings: /** @type {any} */ (findings), round: 2, plan: /** @type {any} */ (twoNodePlan()), logStage: () => {},
     resume: {
       campaignId, phase, specPath: "docs/spec.md", specDigest, reviewRounds: 2,
-      runtimeDefaults, runtimes, verification: {}, packageMode: "implementation",
+      runtimeDefaults, reviewers: [], runtimes, verification: {}, packageMode: "implementation",
       targetedFix: false, approveBelow: "standard", repoFacts,
     },
   });

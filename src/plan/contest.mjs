@@ -37,6 +37,7 @@ import { writeJsonAtomic } from "../run/store.mjs";
  *   specDigest: string,
  *   reviewRounds: number,
  *   runtimeDefaults: {worker?: string, judge?: string},
+ *   reviewers: string[],
  *   runtimes: Record<string, Record<string, unknown>>,
  *   verification: VerificationSuites,
  *   packageMode: import("./sizing.mjs").PackageMode,

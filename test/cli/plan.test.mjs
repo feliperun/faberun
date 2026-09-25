@@ -128,7 +128,7 @@ function twoNodePlan({ highRisk = false } = {}) {
  *
  * @param {string} campaignId
  * @param {{reviewMode?: "clean"|"critical", highRisk?: boolean, plans?: unknown[], reviews?: unknown[][]}} [options]
- * @returns {{cwd: string, campaignId: string, runtimes: Record<string, Record<string, unknown>>, runtimeDefaults: {worker: string, judge: string}}}
+ * @returns {{cwd: string, campaignId: string, runtimes: Record<string, Record<string, unknown>>, runtimeDefaults: {worker: string, judge: string}, reviewers: string[]}}
  */
 function setup(campaignId, { reviewMode = "clean", highRisk = false, plans, reviews } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), "plan-pipeline-"));
@@ -170,7 +170,11 @@ function setup(campaignId, { reviewMode = "clean", highRisk = false, plans, revi
     "planner-judge": { harness: "replay", model: "replay-judge-model", vendor: "vendor-judge", config: { "replay.recording": reviewRecording } },
   };
   const runtimeDefaults = { worker: "planner-worker", judge: "planner-judge" };
-  return { cwd, campaignId, runtimes, runtimeDefaults };
+  // R19: the planner's own reviewer list is separate from runtimeDefaults.judge;
+  // this fixture points it at the same replay runtime so every existing test
+  // below keeps exercising the review stage exactly as before.
+  const reviewers = ["planner-judge"];
+  return { cwd, campaignId, runtimes, runtimeDefaults, reviewers };
 }
 
 /** @param {string} contractPath @returns {Promise<void>} */
@@ -184,7 +188,7 @@ function wait(runDir) {
 }
 
 test("the pipeline runs draft and review from recordings and freezes", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("freeze-demo");
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("freeze-demo");
   const result = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
     campaignId,
@@ -192,6 +196,7 @@ test("the pipeline runs draft and review from recordings and freezes", async () 
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     launch,
     wait,
   });
@@ -221,6 +226,7 @@ test("the frozen contract declares the parallelism sizing proved, and a plan siz
     cwd: independent.cwd,
     runtimes: independent.runtimes,
     runtimeDefaults: independent.runtimeDefaults,
+    reviewers: independent.reviewers,
     launch,
     wait,
   });
@@ -242,6 +248,7 @@ test("the frozen contract declares the parallelism sizing proved, and a plan siz
     cwd: chained.cwd,
     runtimes: chained.runtimes,
     runtimeDefaults: chained.runtimeDefaults,
+    reviewers: chained.reviewers,
     launch,
     wait,
   });
@@ -252,7 +259,7 @@ test("the frozen contract declares the parallelism sizing proved, and a plan siz
 });
 
 test("operator override wins: --runtime-defaults appears in the frozen contract's runtimeDefaults over the table", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("override-demo");
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("override-demo");
   const result = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
     campaignId,
@@ -260,6 +267,7 @@ test("operator override wins: --runtime-defaults appears in the frozen contract'
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     launch,
     wait,
   });
@@ -270,7 +278,7 @@ test("operator override wins: --runtime-defaults appears in the frozen contract'
 });
 
 test("approval policy", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("approval-demo", { highRisk: true });
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("approval-demo", { highRisk: true });
 
   const underStandard = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
@@ -279,6 +287,7 @@ test("approval policy", async () => {
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     approveBelow: "standard",
     launch,
     wait,
@@ -297,6 +306,7 @@ test("approval policy", async () => {
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     approveBelow: "high",
     launch,
     wait,
@@ -308,7 +318,7 @@ test("approval policy", async () => {
 });
 
 test("--runtimes loads a catalogue file, which drives the pipeline end to end", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("catalogue-demo");
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("catalogue-demo");
   const runtimesPath = join(cwd, "runtimes.json");
   writeFileSync(runtimesPath, JSON.stringify(runtimes, null, 2));
 
@@ -322,6 +332,7 @@ test("--runtimes loads a catalogue file, which drives the pipeline end to end", 
     cwd,
     runtimes: loaded,
     runtimeDefaults,
+    reviewers,
     launch,
     wait,
   });
@@ -346,7 +357,7 @@ test("--runtimes rejects a catalogue entry that fails runtime validation", () =>
 });
 
 test("--verification loads a suites file, which the frozen contract carries end to end", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("verification-demo");
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("verification-demo");
   const verificationPath = join(cwd, "verification.json");
   writeFileSync(verificationPath, JSON.stringify({
     sharedVerification: [{ argv: ["node", "--eval", "process.exit(0)"], timeoutSec: 10 }],
@@ -369,6 +380,7 @@ test("--verification loads a suites file, which the frozen contract carries end 
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     verification: loaded,
     launch,
     wait,
@@ -381,7 +393,7 @@ test("--verification loads a suites file, which the frozen contract carries end 
 });
 
 test("freezing without either verification suite warns, and the contract carries no ratchet", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("unratcheted-demo");
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("unratcheted-demo");
   const result = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
     campaignId,
@@ -389,6 +401,7 @@ test("freezing without either verification suite warns, and the contract carries
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     launch,
     wait,
   });
@@ -423,7 +436,7 @@ test("--verification rejects a key that is not a contract suite", () => {
 });
 
 test("contested plan writes no contract", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("contested-demo", { reviewMode: "critical" });
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("contested-demo", { reviewMode: "critical" });
   const result = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
     campaignId,
@@ -431,6 +444,7 @@ test("contested plan writes no contract", async () => {
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     reviewRounds: 2,
     launch,
     wait,
@@ -444,7 +458,7 @@ test("contested plan writes no contract", async () => {
 });
 
 test("a plan that cannot freeze is caught while a revise round remains, and the revise closes the scope", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("preflight-demo", {
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("preflight-demo", {
     plans: [scopeGapPlan(), scopeGapPlan({ closed: true })],
   });
   const result = await runPlanningPipeline({
@@ -454,6 +468,7 @@ test("a plan that cannot freeze is caught while a revise round remains, and the 
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     launch,
     wait,
   });
@@ -486,7 +501,7 @@ test("a revise that clears a finding by shrinking the write set is contested, th
   // refusals from exactly this). The revision is contested, never frozen.
   const draft = /** @type {any} */ (twoNodePlan());
   draft.nodes[0].writeFiles = ["src/index.mjs", "src/other.mjs"];
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("shrink-demo", {
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("shrink-demo", {
     reviewMode: "critical",
     plans: [draft, twoNodePlan()],
   });
@@ -497,6 +512,7 @@ test("a revise that clears a finding by shrinking the write set is contested, th
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     launch,
     wait,
   });
@@ -527,7 +543,7 @@ test("a finding the next round's reviewer does not repeat is still open, and rea
   const docsGap = { id: "F2", severity: "critical", nodeId: "docs", text: "the docs page needs a versioning note" };
   const revisedDocs = /** @type {any} */ (twoNodePlan());
   revisedDocs.nodes[1].objective = "Document the feature with a versioning note";
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("carry-demo", {
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("carry-demo", {
     reviews: [[rollback, docsGap], [], []],
     plans: [twoNodePlan(), revisedDocs, revisedDocs],
   });
@@ -538,6 +554,7 @@ test("a finding the next round's reviewer does not repeat is still open, and rea
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     reviewRounds: 3,
     launch,
     wait,
@@ -564,7 +581,7 @@ test("a finding the revise answered is not carried, and a plan that answers ever
   const answered = /** @type {any} */ (twoNodePlan());
   answered.nodes[0].objective = "Implement the feature behind a rollback path";
   const rollback = [{ id: "F1", severity: "critical", nodeId: "build", text: "the plan is missing a rollback path" }];
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("answered-demo", {
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("answered-demo", {
     plans: [twoNodePlan(), answered],
     reviews: [rollback, []],
   });
@@ -575,6 +592,7 @@ test("a finding the revise answered is not carried, and a plan that answers ever
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     reviewRounds: 2,
     launch,
     wait,
@@ -605,7 +623,7 @@ test("a deterministic stage that fails after the rounds ends contested with its 
   // With no review round configured there is no in-round pre-flight to catch
   // the single-node plan sizing refuses; the wrap must still record the
   // failure and contest instead of dying between stage lines.
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("tail-wrap-demo", { plans: [soloPlan] });
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("tail-wrap-demo", { plans: [soloPlan] });
   const result = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
     campaignId,
@@ -613,6 +631,7 @@ test("a deterministic stage that fails after the rounds ends contested with its 
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     reviewRounds: 0,
     launch,
     wait,
@@ -664,7 +683,7 @@ test("a mute runtime refuses planning before the first stage launches", async ()
 });
 
 test("planning whose runtimes all answer runs its stages unchanged", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("asks-first-green");
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("asks-first-green");
   let asked = 0;
   const result = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
@@ -673,6 +692,7 @@ test("planning whose runtimes all answer runs its stages unchanged", async () =>
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     launch,
     wait,
     ask: async () => { asked += 1; return []; },
@@ -694,6 +714,7 @@ test("a single-node plan is refused by default and frozen under --targeted-fix",
     cwd: refused.cwd,
     runtimes: refused.runtimes,
     runtimeDefaults: refused.runtimeDefaults,
+    reviewers: refused.reviewers,
     launch,
     wait,
   });
@@ -711,6 +732,7 @@ test("a single-node plan is refused by default and frozen under --targeted-fix",
     cwd: allowed.cwd,
     runtimes: allowed.runtimes,
     runtimeDefaults: allowed.runtimeDefaults,
+    reviewers: allowed.reviewers,
     targetedFix: true,
     launch,
     wait,

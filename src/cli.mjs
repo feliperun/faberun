@@ -121,6 +121,7 @@ export const COMMAND_OPTIONS = {
     "review-rounds": { type: "string" },
     "approve-below": { type: "string" },
     "runtime-defaults": { type: "string" },
+    reviewers: { type: "string" },
     runtimes: { type: "string" },
     verification: { type: "string" },
     package: { type: "string" },
