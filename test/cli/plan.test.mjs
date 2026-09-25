@@ -516,12 +516,21 @@ test("a revise that clears a finding by shrinking the write set is contested, th
 });
 
 test("a finding the next round's reviewer does not repeat is still open, and reaches the reviser", async () => {
-  // Round 1 objects; rounds 2 and 3 say nothing at all. Every revise re-emits
-  // the same plan, so nothing was done about the objection — and a reviewer's
-  // silence is not an answer. Replacing the findings each round dropped it,
-  // and a plan froze that way with a defect a worker later refused.
-  const rollback = [{ id: "F1", severity: "critical", nodeId: "build", text: "the plan is missing a rollback path" }];
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("carry-demo", { reviews: [rollback, [], []] });
+  // Round 1 objects twice, on two different nodes; the round-1 revise answers
+  // the docs objection (touching that node) but not the rollback one, so
+  // round 2 measures fewer criticals than round 1 and keeps its round.
+  // Rounds 2 and 3 then say nothing at all and every later revise re-emits
+  // the same plan, so nothing further is done about the rollback objection —
+  // a reviewer's silence is not an answer, and round 3 measures the same
+  // count as round 2, which is R14's non-convergence stop.
+  const rollback = { id: "F1", severity: "critical", nodeId: "build", text: "the plan is missing a rollback path" };
+  const docsGap = { id: "F2", severity: "critical", nodeId: "docs", text: "the docs page needs a versioning note" };
+  const revisedDocs = /** @type {any} */ (twoNodePlan());
+  revisedDocs.nodes[1].objective = "Document the feature with a versioning note";
+  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("carry-demo", {
+    reviews: [[rollback, docsGap], [], []],
+    plans: [twoNodePlan(), revisedDocs, revisedDocs],
+  });
   const result = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
     campaignId,
@@ -535,10 +544,11 @@ test("a finding the next round's reviewer does not repeat is still open, and rea
   });
   assert.equal(result.status, "contested");
   assert.equal(result.round, 3);
-  assert.deepEqual(result.findings.map((finding) => finding.id), ["F1"]);
+  assert.deepEqual(result.findings.map((finding) => finding.id), ["F1", "revision-not-converging-r3"]);
 
-  // Round 2's reviser was handed the round-1 objection, not the empty file
-  // its own reviewer produced.
+  // Round 2's reviser was handed the round-1 objection still open against
+  // "build", not the empty file its own reviewer produced, and not the
+  // "docs" objection the round-1 revise already answered.
   const secondRoundFindings = JSON.parse(readFileSync(join(cwd, ".faberun-plan", campaignId, "build", "findings-round-2.json"), "utf8"));
   assert.deepEqual(secondRoundFindings.map((/** @type {any} */ finding) => finding.id), ["F1"]);
   const stages = readPipelineStages(result.plansDir);
