@@ -569,3 +569,15 @@ test("a planning contract names no path inside faberun's own source", () => {
   for (const kind of TASK_KINDS) assert.match(catalogue, new RegExp(`^- ${kind}$`, "mu"));
   for (const tier of RISK_TIERS) assert.match(catalogue, new RegExp(`^- ${tier}$`, "mu"));
 });
+
+test("every planning stage's prompt asks for output and an empty artifacts list, never an artifact", () => {
+  // Every planning stage is a discovery packet closed to its read files, so
+  // it delivers through `output`: a prompt asking for an artifact made a
+  // 38 KiB draft copy its plan into artifacts[0] and break the 16 KiB ceiling.
+  for (const kind of /** @type {const} */ (["draft", "review", "revise", "spec-author", "spec-review"])) {
+    const raw = /** @type {{nodes: {taskPacket: unknown}[]}} */ (buildPlanningContract(kind, baseInputs()));
+    const prompt = renderWorkerPrompt(/** @type {any} */ (raw.nodes[0].taskPacket), kind);
+    assert.match(prompt, /deliver your result in `output` and send `artifacts` as \[\]/, `${kind} prompt names output`);
+    assert.ok(!prompt.includes("artifacts[0]"), `${kind} prompt never asks for an artifact`);
+  }
+});

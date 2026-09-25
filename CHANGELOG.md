@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.25.1](https://github.com/feliperun/faberun/compare/v0.25.0...v0.25.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* a planning stage delivers through output and a broken size ceiling is named in the repair ([#82](https://github.com/feliperun/faberun/issues/82)) ([15484d8](https://github.com/feliperun/faberun/commit/15484d88e1b5ccf99019578fcae61cf2b8029f53))
+
 ## [0.25.0](https://github.com/feliperun/faberun/compare/v0.24.0...v0.25.0) (2026-09-24)
 
 

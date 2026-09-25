@@ -38,7 +38,7 @@ import { availabilityKey, recordRefusal, refusalOfAvailability } from "../run/av
 import { judgeFallbackVendorConflict, nextListJudge } from "./judge-list.mjs";
 
 import { acquire as acquireLock } from "../run/lock.mjs";
-import { parseDiscoveryResult } from "../contract/worker-result.mjs";
+import { invalidResultRepair, parseDiscoveryResult } from "../contract/worker-result.mjs";
 import { boundedUtf8, errorCode, errorMessage, excerpt } from "../util.mjs";
 import { readJson, writeJsonAtomic } from "../run/store.mjs";
 import { invocationAlive } from "./process.mjs";
@@ -444,7 +444,7 @@ export async function finalizeClosedJobs(contract, runDir, states, closed, lock,
     // path fails it today.
     if (workerResultError) {
       if (envelope.status === "done") {
-        await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, errorMessage(workerResultError), states, campaignPath);
+        await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, workerResultError, states, campaignPath);
         continue;
       }
       adoptedWorkerResult = null;
@@ -550,7 +550,7 @@ export async function finalizeClosedJobs(contract, runDir, states, closed, lock,
           }, lock);
           continue;
         }
-        await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, errorMessage(error), states, campaignPath);
+        await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, error, states, campaignPath);
         continue;
       }
       // The artifact demand follows the documented discovery contract, not the
@@ -563,7 +563,7 @@ export async function finalizeClosedJobs(contract, runDir, states, closed, lock,
         try {
           parseDiscoveryResult(workerResult, attemptWorkspace(state) ?? contract.cwd);
         } catch (error) {
-          await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, errorMessage(error), states, campaignPath);
+          await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, error, states, campaignPath);
           continue;
         }
       }
@@ -740,19 +740,21 @@ function applyRoute(contract, runDir, state, lock, { role, error, current, plan,
  * told to return. A second one is evidence about the provider rather than the
  * packet, so the node records a protocol_failure and takes its failover edge —
  * and when no edge remains, it blocks and raises attention rather than filing
- * a quiet exhaustion nobody reads.
+ * a quiet exhaustion nobody reads. The repair names what was wrong
+ * (invalidResultRepair), so a broken byte ceiling is not told about fences.
  *
- * @param {ValidatedContract} contract @param {ValidatedNode} node @param {NodeSnapshot} state @param {string} runDir @param {Map<string, Job>|null} running @param {LockHandle} lock @param {string} message @param {Map<string, NodeSnapshot>} states @param {string} campaignPath
+ * @param {ValidatedContract} contract @param {ValidatedNode} node @param {NodeSnapshot} state @param {string} runDir @param {Map<string, Job>|null} running @param {LockHandle} lock @param {unknown} cause @param {Map<string, NodeSnapshot>} states @param {string} campaignPath
  */
-export async function applyInvalidWorkerResult(contract, node, state, runDir, running, lock, message, states, campaignPath) {
+export async function applyInvalidWorkerResult(contract, node, state, runDir, running, lock, cause, states, campaignPath) {
   clearTierExhaustion(state);
+  const message = errorMessage(cause);
   const verdict = /** @type {JudgeVerdict} */ ({
     verdict: "fail",
     maxSeverity: "critical",
     summary: "worker result did not match the structured result protocol",
     findings: [{
       severity: "critical",
-      description: "the entire final message must be exactly the required JSON object: no markdown fences, no prose before or after it. Return it as the only content of the final message.",
+      description: invalidResultRepair(cause),
       evidence: boundedUtf8(message, 4 * 1024),
     }],
   });

@@ -1,7 +1,7 @@
 import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { discoveryOutput, parseWorkerResult, validateWorkerResult } from "../../src/contract/worker-result.mjs";
+import { discoveryOutput, parseWorkerResult, validateWorkerResult, WorkerResultSizeError } from "../../src/contract/worker-result.mjs";
 
 /** @param {Record<string, unknown>} [overrides] @returns {Record<string, unknown>} */
 function baseResult(overrides = {}) {
@@ -40,4 +40,15 @@ test("parseWorkerResult round-trips a worker result carrying output", () => {
   const text = JSON.stringify(baseResult({ output: { key: "value" } }));
   const parsed = parseWorkerResult(text);
   assert.deepEqual(discoveryOutput(parsed), { key: "value" });
+});
+
+test("a result that breaks a byte ceiling throws a typed size error naming the field and the ceiling", () => {
+  const plan = "x".repeat(16 * 1024 + 1);
+  assert.throws(
+    () => validateWorkerResult(baseResult({ artifacts: [plan], output: { plan } })),
+    (error) => error instanceof WorkerResultSizeError
+      && error.field === "worker result.artifacts[0]"
+      && error.limit === 16 * 1024
+      && error.message === "worker result.artifacts[0] exceeds 16384 bytes",
+  );
 });
