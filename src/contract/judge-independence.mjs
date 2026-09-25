@@ -6,7 +6,7 @@
  * belong with the field that turns them on, not scattered through the
  * vendor-conflict check that calls them.
  */
-import { declaredModelTier } from "../harnesses/catalogue.mjs";
+import { declaredModelTier } from "../harnesses/model-tiers.mjs";
 
 /** The only value `judgeIndependence` accepts, on the contract or the machine config. */
 export const SAME_VENDOR_REVIEW_MODE = "same-vendor";
