@@ -101,9 +101,9 @@ function tierContract(prefix) {
     // Omitted defaults are what make the worker a composed same-tier route.
     runtimeDefaults: {},
     runtimes: {
-      a: { harness: "codex", model: "a", vendor: "vendor-a", executable: "/nonexistent/codex", tier: 1, costRank: 1 },
-      b: { harness: "codex", model: "b", vendor: "vendor-b", executable: "/nonexistent/codex", tier: 1, costRank: 2 },
-      c: { harness: "codex", model: "c", vendor: "vendor-c", executable: "/nonexistent/codex", tier: 1, costRank: 3 },
+      a: { harness: "codex", model: "a", executable: "/nonexistent/codex", tier: 1, costRank: 1 },
+      b: { harness: "codex", model: "b", executable: "/nonexistent/codex", tier: 1, costRank: 2 },
+      c: { harness: "codex", model: "c", executable: "/nonexistent/codex", tier: 1, costRank: 3 },
     },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));
@@ -168,9 +168,9 @@ test("a three-candidate tier exhaustion records all three candidates in order, a
     timeoutSec: 60,
     runtimeDefaults: {},
     runtimes: {
-      a: { harness: "codex", model: "a", vendor: "vendor-a", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 1 },
-      b: { harness: "codex", model: "b", vendor: "vendor-b", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 2 },
-      c: { harness: "codex", model: "c", vendor: "vendor-c", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 3 },
+      a: { harness: "codex", model: "a", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 1 },
+      b: { harness: "codex", model: "b", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 2 },
+      c: { harness: "codex", model: "c", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 3 },
     },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));
@@ -281,7 +281,7 @@ test("a tier-exhaustion block leaves revisions untouched while a judge rejection
     timeoutSec: 60,
     runtimeDefaults: {},
     runtimes: {
-      only: { harness: "codex", model: "only", vendor: "vendor-only", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 1 },
+      only: { harness: "codex", model: "only", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 1 },
     },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));
@@ -373,8 +373,8 @@ test("an ordinary success after a tier hop removes the evidence and leaves the c
     timeoutSec: 60,
     runtimeDefaults: {},
     runtimes: {
-      a: { harness: "codex", model: "a", vendor: "vendor-a", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 1 },
-      b: { harness: "codex", model: "b", vendor: "vendor-b", executable: tierProvider(log, { fail: false }), tier: 1, costRank: 2 },
+      a: { harness: "codex", model: "a", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 1 },
+      b: { harness: "codex", model: "b", executable: tierProvider(log, { fail: false }), tier: 1, costRank: 2 },
     },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));
@@ -454,8 +454,8 @@ test("a declared fallback that has no runtime default still records tier evidenc
     timeoutSec: 60,
     runtimeDefaults: { worker: "primary", judge: "primary" },
     runtimes: {
-      primary: { harness: "codex", model: "primary", vendor: "vendor-primary", executable: fakeCodex(directory, "quota-429"), fallback: "backup" },
-      backup: { harness: "codex", model: "backup", vendor: "vendor-backup", executable: fakeCodex(directory, "pass") },
+      primary: { harness: "codex", model: "primary", executable: fakeCodex(directory, "quota-429"), fallback: "backup" },
+      backup: { harness: "codex", model: "backup", executable: fakeCodex(directory, "pass") },
     },
     nodes: [{ id: "build", type: "backend", runtime: "primary", taskPacket: packet(), gate: false }],
   }));
@@ -607,9 +607,9 @@ test("done-when 8: the cycle-restart dispatch empties the evidence before the ne
     timeoutSec: 60,
     runtimeDefaults: {},
     runtimes: {
-      a: { harness: "codex", model: "a", vendor: "vendor-a", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 1 },
-      b: { harness: "codex", model: "b", vendor: "vendor-b", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 2 },
-      c: { harness: "codex", model: "c", vendor: "vendor-c", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 3 },
+      a: { harness: "codex", model: "a", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 1 },
+      b: { harness: "codex", model: "b", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 2 },
+      c: { harness: "codex", model: "c", executable: tierProvider(log, { fail: true }), tier: 1, costRank: 3 },
     },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));

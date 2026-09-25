@@ -26,6 +26,7 @@ import {
   discoverRuntimes,
   strongest,
 } from "../engine/runtime-discovery.mjs";
+import { effectiveProvider } from "../contract/provider.mjs";
 import { boundedGitSync } from "../repo/worktree.mjs";
 import { colorLevel, renderBanner, statusToken } from "./brand.mjs";
 import { packageVersion } from "../host/package.mjs";
@@ -314,7 +315,9 @@ function keptJudgeDefault(kept, workerId, candidates) {
  * @returns {string}
  */
 function defaultJudge(workerId, candidates) {
-  const vendor = DISCOVERY_RUNTIME_DEFINITIONS[workerId]?.vendor;
+  const worker = DISCOVERY_RUNTIME_DEFINITIONS[workerId];
+  if (worker === undefined) return "";
+  const vendor = effectiveProvider(worker);
   if (vendor === undefined) return "";
   return strongest(candidates, vendor)?.id ?? "";
 }
@@ -328,8 +331,10 @@ function defaultJudge(workerId, candidates) {
  * @returns {boolean}
  */
 function crossVendor(judgeId, workerId) {
-  const judgeVendor = DISCOVERY_RUNTIME_DEFINITIONS[judgeId]?.vendor;
-  const workerVendor = DISCOVERY_RUNTIME_DEFINITIONS[workerId]?.vendor;
+  const judge = DISCOVERY_RUNTIME_DEFINITIONS[judgeId];
+  const worker = DISCOVERY_RUNTIME_DEFINITIONS[workerId];
+  const judgeVendor = judge && effectiveProvider(judge);
+  const workerVendor = worker && effectiveProvider(worker);
   return Boolean(judgeVendor && workerVendor && judgeVendor !== workerVendor);
 }
 

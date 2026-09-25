@@ -200,14 +200,16 @@ attempts kept in the record and the first flagged `signalDeath`. See
 A runtime is one way to run a turn: `harness` names the adapter (`claude`,
 `codex`, `agy`, `dsh`, `zcode`, `exec-jsonl`, `replay`), `model` names what it
 asks, and the two vary independently. A vendor is the independent review
-identity, resolved by `resolveVendor` in `src/harnesses/index.mjs` from an
-explicit `vendor`, a provider-config override, or the harness default; `dsh`,
-`replay` and `exec-jsonl` have no default and must declare one. Runtimes are
-declared in `runtimes` and `runtimeDefaults` on the contract, and a runtime id
-is named `<harness>-<model>`. The invariant: vendor is resolved, not inferred
-from the harness name; validation rejects a gate-enabled node whose worker and
-judge resolve to the same vendor, and the same for every runtime in the worker's
-fallback chain. See
+identity: `canonicalProvider` in `src/contract/provider.mjs` derives it from
+the runtime's route (a codex or dsh provider-config override), its model's
+family, or its harness default; `replay` and `exec-jsonl` derive none and keep
+whatever `vendor` the contract declares, as `resolveVendor` in
+`src/harnesses/index.mjs` always did. Runtimes are declared in `runtimes` and
+`runtimeDefaults` on the contract, and a runtime id is named `<harness>-<model>`.
+The invariant: the vendor rule compares the derived provider, not a free-text
+label, so a declared `vendor` that contradicts it is refused; validation
+rejects a gate-enabled node whose worker and judge resolve to the same
+provider, and the same for every runtime in the worker's fallback chain. See
 [contract.md](../skills/faberun/references/contract.md).
 
 ## Tier, costRank and fallback

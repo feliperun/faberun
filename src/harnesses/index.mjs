@@ -177,7 +177,7 @@ export function writesWorkspace(runtime) {
  * the exec'd binary actually is, so neither gets a default here — a contract
  * using either must declare `vendor` outright.
  */
-const DEFAULT_HARNESS_VENDORS = Object.freeze({
+export const DEFAULT_HARNESS_VENDORS = Object.freeze({
   claude: "anthropic",
   codex: "openai",
   agy: "google",

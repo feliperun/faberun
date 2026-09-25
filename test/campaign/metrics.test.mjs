@@ -351,7 +351,7 @@ function pricedRun(invocationCost) {
         reasoning: "xhigh",
         pricing: { inputPerMTok: 1, cachedInputPerMTok: 0.1, outputPerMTok: 3 },
       },
-      sol: { harness: "codex", model: "gpt-5.6-sol", reasoning: "xhigh", vendor: "openai-sol" },
+      sol: { harness: "codex", model: "gpt-5.6-sol", reasoning: "xhigh", config: { model_provider: "deepseek" } },
     },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
   }));

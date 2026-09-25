@@ -22,9 +22,9 @@ typecheck`). Schema version is `3`.
       "vendor": "deepseek", "sandbox": "danger-full-access",
       "config": { "provider": "deepseek-official", "api_key.env_key": "DEEPSEEK_API_KEY" } },
     "luna": { "harness": "codex", "model": "gpt-5.6-luna", "reasoning": "xhigh" },
-    "sol": { "harness": "codex", "model": "gpt-5.6-sol", "reasoning": "xhigh", "vendor": "openai-sol" },
+    "sol": { "harness": "codex", "model": "gpt-5.6-sol", "reasoning": "xhigh" },
     "opus": { "harness": "claude", "model": "opus", "permissionMode": "acceptEdits" },
-    "zcode-flash": { "harness": "zcode", "model": "glm-5.3-flash", "vendor": "zhipu-flash", "permissionMode": "edit" },
+    "zcode-flash": { "harness": "zcode", "model": "glm-5.3-flash", "permissionMode": "edit" },
     "agy-flash": { "harness": "agy", "model": "gemini-3.8-flash-low" }
   },
   "nodes": [
@@ -164,14 +164,15 @@ harness name: an explicit `vendor`, else a provider-config override (a codex
 runtime with `config.model_provider: "deepseek"` is vendor `deepseek`), else
 the harness default (`claude`→anthropic, `codex`→openai, `agy`→google,
 `zcode`→zhipu); `dsh`/`replay`/`exec-jsonl` have no default and must declare
-`vendor`. Validation rejects a gate-enabled node whose worker and judge
-resolve to the same vendor, and does the same for every runtime in the
-worker's declared fallback chain (rejecting a cycle in that chain outright)
-— all statically knowable from the contract alone. The symmetric case, a
-judge fallback landing on the vendor of the worker runtime that actually ran,
-cannot be checked statically (it depends on which worker runtime ran this
-attempt) and is instead refused at execution; see Failover below. Two models of one family (a GLM 5.3-flash worker judged by GLM 5.3) pair only by
-declaring distinct `vendor` strings — a claim about review independence.
+`vendor`. The rule compares the provider derived from harness, model and
+route, not the label, so a `vendor` that contradicts it is refused.
+Validation rejects a gate-enabled node whose worker and judge resolve to the
+same vendor, and does the same for every runtime in the worker's declared
+fallback chain (rejecting a cycle in that chain outright) — all statically
+knowable from the contract alone. The symmetric case, a judge fallback
+landing on the vendor of the worker runtime that actually ran, cannot be
+checked statically (it depends on which worker runtime ran this attempt) and
+is instead refused at execution; see Failover below.
 
 An optional `runtimes[<id>].pricing` object declares `inputPerMTok`,
 `cachedInputPerMTok`, and `outputPerMTok` (each finite and >= 0, at
