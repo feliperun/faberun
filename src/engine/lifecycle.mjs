@@ -37,7 +37,7 @@ import { getHarness, normalizeProviderAvailability } from "../harnesses/index.mj
 import { availabilityKey, recordRefusal, refusalOfAvailability } from "../run/availability.mjs";
 
 import { acquire as acquireLock } from "../run/lock.mjs";
-import { parseDiscoveryResult, WorkerResultSizeError } from "../contract/worker-result.mjs";
+import { invalidResultRepair, parseDiscoveryResult } from "../contract/worker-result.mjs";
 import { boundedUtf8, errorCode, errorMessage, excerpt } from "../util.mjs";
 import { readJson, writeJsonAtomic } from "../run/store.mjs";
 import { invocationAlive } from "./process.mjs";
@@ -729,19 +729,6 @@ function applyRoute(contract, runDir, state, lock, { role, error, current, plan,
 }
 
 /**
- * The repair instruction for an invalid worker result.
- *
- * @param {unknown} cause
- * @returns {string}
- */
-export function invalidResultRepair(cause) {
-  if (cause instanceof WorkerResultSizeError) {
-    return `the result breaks a size ceiling: ${cause.field} exceeds ${cause.limit} bytes. Keep every field within its ceiling; a node that delivers through \`output\` sends \`artifacts\` as [] and never copies \`output\` into \`artifacts\`.`;
-  }
-  return "the entire final message must be exactly the required JSON object: no markdown fences, no prose before or after it. Return it as the only content of the final message.";
-}
-
-/**
  * A worker result that does not match the structured protocol gets one bounded
  * repair on the same provider, then stops asking it.
  *
@@ -750,11 +737,8 @@ export function invalidResultRepair(cause) {
  * told to return. A second one is evidence about the provider rather than the
  * packet, so the node records a protocol_failure and takes its failover edge —
  * and when no edge remains, it blocks and raises attention rather than filing
- * a quiet exhaustion nobody reads.
- *
- * The repair names what was actually wrong: a result that broke a byte
- * ceiling is told which one, since re-emitting the same object without fences
- * cannot fix it.
+ * a quiet exhaustion nobody reads. The repair names what was wrong
+ * (invalidResultRepair), so a broken byte ceiling is not told about fences.
  *
  * @param {ValidatedContract} contract @param {ValidatedNode} node @param {NodeSnapshot} state @param {string} runDir @param {Map<string, Job>|null} running @param {LockHandle} lock @param {unknown} cause @param {Map<string, NodeSnapshot>} states @param {string} campaignPath
  */

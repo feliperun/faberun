@@ -55,6 +55,20 @@ export class WorkerResultSizeError extends TypeError {
  */
 
 /**
+ * The repair instruction for an invalid worker result: a broken byte ceiling
+ * is named, since re-emitting the same object without fences cannot fix it.
+ *
+ * @param {unknown} cause
+ * @returns {string}
+ */
+export function invalidResultRepair(cause) {
+  if (cause instanceof WorkerResultSizeError) {
+    return `the result breaks a size ceiling: ${cause.field} exceeds ${cause.limit} bytes. Keep every field within its ceiling; a node that delivers through \`output\` sends \`artifacts\` as [] and never copies \`output\` into \`artifacts\`.`;
+  }
+  return "the entire final message must be exactly the required JSON object: no markdown fences, no prose before or after it. Return it as the only content of the final message.";
+}
+
+/**
  * @param {string} value
  * @returns {WorkerResult}
  */
