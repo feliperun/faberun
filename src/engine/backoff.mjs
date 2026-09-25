@@ -362,7 +362,7 @@ export function upsertTierExhaustionCandidate(existing, role, runtimeId, exhaust
  * @param {Transition} schedule
  * @param {number} [now] epoch ms the backoff window is measured from
  * @param {string|null} [exhaustedUntil] the reset instant the exhausted candidate announced, if any
- * @param {{judgeListState?: import("../contract/index.mjs").JudgeListState}} [options] R18: a judge-list hop already resolved by the impure caller (`engine/judge-list.mjs`'s `nextListJudge` reads the durable refusal and usage-window stores, which this decision module never touches); its `chosen` -- possibly null, once the list is exhausted -- stands in for the dynamic-tier candidate a list-driven judge would otherwise get from `nextSameTierRuntime`
+ * @param {{judgeListState?: import("../contract/index.mjs").JudgeListState}} [options] R18: a judge-list hop already resolved by the impure caller (`engine/judge-list.mjs`'s `nextListJudge` reads the durable refusal and usage-window stores, which this decision module never touches); its `chosen` -- possibly null, once the list is exhausted -- replaces both the declared `runtime.fallback` edge and the dynamic-tier candidate a list-driven judge would otherwise get from `nextSynthesizedRuntime`/`nextSameTierRuntime`
  * @returns {{blocked: RouteError|null, nextRuntime: string, ruleIndex: number|undefined, revision: number, hop: number, backoffSec: number, backoffUntil: string, composed: boolean, tierExhaustion: TierExhaustion|null, judgeList?: import("../contract/index.mjs").JudgeListState}}
  */
 export function planRoute(contract, node, state, role, error, current, schedule, now = Date.now(), exhaustedUntil = null, options = {}) {
@@ -395,20 +395,33 @@ export function planRoute(contract, node, state, role, error, current, schedule,
   // declared" — nextSynthesizedRuntime's own attempted-filter would otherwise
   // make that distinction unreachable.
   const declaredCandidate = synthesizedChain(contract, role, current)[0] ?? null;
-  // R18: a judge-list hop already resolved by the caller stands in for the
-  // dynamic-tier candidate; the list is itself the ordering, so no further
-  // ranking is applied once one is supplied.
-  const fallback = nextSynthesizedRuntime(contract, role, current, attempted)
-    ?? (options.judgeListState !== undefined ? options.judgeListState.chosen : (dynamicComposed ? nextSameTierRuntime(contract, routing, role, current, attempted) : null));
+  // R18: once a list governs this hop (`options.judgeListState` is supplied),
+  // its precomputed pick *replaces* the declared `runtime.fallback` edge
+  // rather than following it -- the list is itself the ordering, and a list
+  // entry that happens to declare its own `fallback` must not hop there
+  // instead of the list's next eligible entry. Only when no list governs does
+  // the declared edge, then the dynamic-tier candidate, apply.
+  const judgeListState = options.judgeListState;
+  const listGoverned = judgeListState !== undefined;
+  const fallback = judgeListState !== undefined
+    ? judgeListState.chosen
+    : nextSynthesizedRuntime(contract, role, current, attempted) ?? (dynamicComposed ? nextSameTierRuntime(contract, routing, role, current, attempted) : null);
   const hop = nextHop(state, role, revision, schedule);
   const nextRuntime = schedule.kind === "reset" ? current : fallback ?? current;
+  // A list-governed hop is bounded by the list's own length (instructions
+  // R18 §4), never the one-hop cap that applies to a declared or dynamic-tier
+  // fallback, so it is exempted from the hop-cap check below exactly as a
+  // dynamic-tier fallback already is.
+  const noHopCap = dynamicComposed || listGoverned;
   const blocked = schedule.kind === "reset"
     ? null
     : fallback === null
-      ? declaredCandidate !== null && attempted.has(declaredCandidate)
-        ? { code: "provider_failover_cycle", message: `runtime ${declaredCandidate} was already attempted in ${role} revision ${revision}` }
-        : { code: dynamicComposed ? "runtime_tier_exhausted" : error.code, message: dynamicComposed ? `no available runtime remains in tier ${String(contract.runtimes[current]?.tier ?? "unknown")} for ${role}` : error.message }
-      : hop > 1 && !dynamicComposed
+      ? listGoverned
+        ? { code: "judge_list_exhausted", message: `no eligible entry remains in the judge list for ${role}` }
+        : declaredCandidate !== null && attempted.has(declaredCandidate)
+          ? { code: "provider_failover_cycle", message: `runtime ${declaredCandidate} was already attempted in ${role} revision ${revision}` }
+          : { code: dynamicComposed ? "runtime_tier_exhausted" : error.code, message: dynamicComposed ? `no available runtime remains in tier ${String(contract.runtimes[current]?.tier ?? "unknown")} for ${role}` : error.message }
+      : hop > 1 && !noHopCap
         ? { code: "provider_failover_hop_cap", message: "provider failover exceeded the one-hop cap" }
         : null;
   const backoffSec = schedule.kind === "reset"
