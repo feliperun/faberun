@@ -44,6 +44,7 @@ import { validateRunMetadata, OPERATOR_ANSWER_MAX_BYTES } from "../contract/snap
 import { verificationFailureVerdict } from "./judge-gate.mjs";
 import { verificationFailureWithScope } from "../contract/scope-findings.mjs";
 import { applyRejection, applyVerificationFailure, raiseNodeAttention, settleDone } from "./settle.mjs";
+import { isHumanStepPending } from "../contract/human-step.mjs";
 
 /** @typedef {import("../repo/integrate.mjs").IntegrationResult} IntegrationResult */
 /** @typedef {import("./lifecycle.mjs").Invocation} Invocation */
@@ -139,16 +140,37 @@ export async function resumeRun(runDirPath, options = {}) {
       const answerNode = contract.nodes.find((node) => node.id === options.answer?.node);
       if (!answerNode) throw new Error(`unknown node id: ${options.answer.node}`);
       const answerState = states.get(options.answer.node);
-      if (!answerState || !isBlockedContextTerminal(answerState)) {
-        throw new Error(`node ${options.answer.node} is not blocked on missing context`);
-      }
       const answerText = readOperatorAnswer(options.answer.path);
-      const answerOverride = /** @type {import("../contract/index.mjs").ExecutionOverride} */ (/** @type {unknown} */ ({
-        kind: "operator-answer",
-        reason: `operator answered missing context for node ${options.answer.node}`,
-        text: answerText,
-      }));
-      recordExecutionOverride(runDir, answerState, answerOverride, lock);
+      if (answerNode.humanStep) {
+        if (!answerState || !isHumanStepPending(answerState)) {
+          throw new Error(`node ${options.answer.node} is not a pending human step`);
+        }
+        recordExecutionOverride(runDir, answerState, /** @type {import("../contract/index.mjs").ExecutionOverride} */ (/** @type {unknown} */ ({
+          kind: "operator-answer",
+          reason: `operator confirmed the human step for node ${options.answer.node}`,
+          text: answerText,
+        })), lock);
+        // A human step never dispatches to a provider and leaves no attempt
+        // worktree for `settleDone` to seal and integrate -- the operator's
+        // confirmation is the whole of its work, so it settles done directly,
+        // here, before `planResumeRetry` (which knows nothing of `humanStep`)
+        // ever classifies it.
+        transition(runDir, answerState, "done", {
+          phase: "complete",
+          error: null,
+          result: { status: "done", summary: boundedSummary(answerText.trim() || answerNode.humanStep.step), verification: [], artifacts: [], missingContext: [] },
+        }, lock);
+      } else {
+        if (!answerState || !isBlockedContextTerminal(answerState)) {
+          throw new Error(`node ${options.answer.node} is not blocked on missing context`);
+        }
+        const answerOverride = /** @type {import("../contract/index.mjs").ExecutionOverride} */ (/** @type {unknown} */ ({
+          kind: "operator-answer",
+          reason: `operator answered missing context for node ${options.answer.node}`,
+          text: answerText,
+        }));
+        recordExecutionOverride(runDir, answerState, answerOverride, lock);
+      }
     }
     const plan = planResumeRetry(contract, states, { node: options.node, reconcile: options.reconcile, answer: options.answer?.node });
     for (const item of plan.attention) {
@@ -164,6 +186,7 @@ export async function resumeRun(runDirPath, options = {}) {
       if (!state) continue;
       if (state.status === "done") continue;
       if (isBlockedContextTerminal(state) && node.id !== options.answer?.node) continue;
+      if (isHumanStepPending(state) && node.id !== options.answer?.node) continue;
       const action = plan.actions.get(node.id) ?? "recover";
       // Adoption before retry: an unresolved blocking review is re-judged from
       // the preserved worker result, never reset to a fresh worker attempt.
@@ -522,6 +545,20 @@ export async function resumeRun(runDirPath, options = {}) {
  */
 export function isBlockedContextTerminal(state) {
   return state.status === "blocked" && state.error?.code === "context_missing";
+}
+/**
+ * The operator-answer result summary for a human-step node's `done`
+ * transition, bounded to the worker-result protocol's own summary ceiling
+ * (`contract/worker-result.mjs`'s `RESULT_LIMITS.summaryBytes`) since this
+ * writes the same `result.summary` field a provider's own answer would.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function boundedSummary(text) {
+  const maxBytes = 4 * 1024;
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
+  return `${Buffer.from(text, "utf8").subarray(0, maxBytes - 1).toString("utf8")}…`;
 }
 /**
  * The routing write that opens the next tier-exhaustion generation, or null

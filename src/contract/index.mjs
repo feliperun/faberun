@@ -15,6 +15,8 @@ import { assertObject, boundedString, nonNegativeInteger, nonNegativeNumber, pos
 import { validateMetadata } from "./schema-version.mjs";
 import { assertRuntimeExecutesCommands, judgeWriteWarnings, requireRuntime, validateRuntime } from "./runtime.mjs";
 import { validateJudgeList } from "./judges.mjs";
+import { markSameProviderReviewNodes, validateJudgeIndependence } from "./judge-independence.mjs";
+import { validateHumanStep } from "./human-step.mjs";
 import { validateSourceIdentity } from "../repo/source-identity.mjs";
 import { commandCoverageWarnings, ignoreSourceWriteWarnings, mirrorCoverageWarnings, unsnapshottedWriteWarnings } from "../repo/declared-paths.mjs";
 import { crossNodeScopeFindings, scopeClosureFindings } from "../repo/scope-closure.mjs";
@@ -35,12 +37,13 @@ const CONTRACT_FIELDS = new Set([
   "schemaVersion", "contractVersion", "id", "campaignId", "goal", "cwd", "sourceIdentity",
   "maxParallel", "pollIntervalMs", "stallTimeoutSec", "timeoutSec", "maxTurns", "phaseSessionReuse",
   "runtimeDefaults", "runtimes", "nodes", "warnings", "finalVerification", "sharedVerification", "nodeAdvisory", "judges",
+  "judgeIndependence",
 ]);
 const DEFAULTS_FIELDS = new Set(["worker", "judge"]);
 const NODE_FIELDS = new Set([
   "id", "type", "phase", "requirementIds", "runtime", "dependsOn", "taskPacket", "taskPacketFile", "prompt", "promptFile",
   "definitionOfDone", "gate", "timeoutSec", "maxTurns",
-  "requiredCapabilities", "packetHash", "sourceIdentity", "replayPolicy",
+  "requiredCapabilities", "packetHash", "sourceIdentity", "replayPolicy", "sameProviderReview", "humanStep",
 ]);
 const REPLAY_POLICIES = new Set(["safe", "reconcile", "never"]);
 /**
@@ -69,9 +72,9 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 
 /** @typedef {{enabled: boolean, review?: ("none"|"advisory"|"blocking"), runtime?: string, failOn?: ("minor"|"major"|"critical")[], maxRevisions?: number, requiredCapabilities?: CapabilityRequirements, skipWhen?: {verificationGreen: true, maxChangedPaths: number}}} ValidatedGate */
 
-/** @typedef {{id: string, type: string, phase: string, requirementIds?: string[], runtime?: string, dependsOn: string[], taskPacket: TaskPacket, taskPacketFile?: string, prompt: string, definitionOfDone: import("./definition-of-done.mjs").DefinitionOfDoneItem[], gate: ValidatedGate, timeoutSec?: number, maxTurns?: number, requiredCapabilities: CapabilityRequirements, packetHash: string, sourceIdentity: SourceIdentity, replayPolicy: "safe"|"reconcile"|"never"}} ValidatedNode */
+/** @typedef {{id: string, type: string, phase: string, requirementIds?: string[], runtime?: string, dependsOn: string[], taskPacket: TaskPacket, taskPacketFile?: string, prompt: string, definitionOfDone: import("./definition-of-done.mjs").DefinitionOfDoneItem[], gate: ValidatedGate, timeoutSec?: number, maxTurns?: number, requiredCapabilities: CapabilityRequirements, packetHash: string, sourceIdentity: SourceIdentity, replayPolicy: "safe"|"reconcile"|"never", sameProviderReview: boolean, humanStep?: {step: string, command: string}}} ValidatedNode */
 
-/** @typedef {{schemaVersion: number, contractVersion: string, id: string, campaignId: string, goal: string, cwd: string, sourceIdentity: SourceIdentity, runtimes: Record<string, ValidatedRuntime>, runtimeDefaults: {worker?: string, judge?: string}, judges?: string[], nodes: ValidatedNode[], maxParallel: number, pollIntervalMs: number, stallTimeoutSec: number, timeoutSec: number, maxTurns: number, phaseSessionReuse: boolean, finalVerification?: VerificationCommand[], sharedVerification?: VerificationCommand[], nodeAdvisory?: NodeAdvisoryPolicy, warnings: string[]}} ValidatedContract */
+/** @typedef {{schemaVersion: number, contractVersion: string, id: string, campaignId: string, goal: string, cwd: string, sourceIdentity: SourceIdentity, runtimes: Record<string, ValidatedRuntime>, runtimeDefaults: {worker?: string, judge?: string}, judges?: string[], judgeIndependence?: "same-vendor", nodes: ValidatedNode[], maxParallel: number, pollIntervalMs: number, stallTimeoutSec: number, timeoutSec: number, maxTurns: number, phaseSessionReuse: boolean, finalVerification?: VerificationCommand[], sharedVerification?: VerificationCommand[], nodeAdvisory?: NodeAdvisoryPolicy, warnings: string[]}} ValidatedContract */
 /** @typedef {{costUsd?: number, durationSec?: number}} NodeAdvisoryPolicy */
 
 /** @typedef {"pending"|"running"|"done"|"no-op"|"blocked"|"failed"|"exhausted"|"stalled"|"canceled"} NodeStatus */
@@ -101,7 +104,7 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 /** @typedef {{history: RoutingHistoryEntry[], currentOverride: RoutingOverride|null, assignments?: RuntimeAssignments, availability?: Record<string, RuntimeAvailability>, tierExhaustion?: TierExhaustion, tierExhaustionCycle?: number, judgeList?: JudgeListState}} RoutingState */
 /** @typedef {{revision?: number, heartbeatCount: number, dryHeartbeatCount: number, progressSignature?: string|null, lastHeartbeatAt: string|null, lastProgressAt: string|null, nextCheckAt?: string|null}} ProgressState */
 /** @typedef {{status: "unassigned"|"provisioning"|"ready"|"failed"|"removed", path: string|null, branch: string|null, commit: string|null, baseSha?: string|null, sealedSha?: string|null, sealError?: string|null, previousAttempt?: number|null}} WorktreeState */
-/** @typedef {{schemaVersion: number, contractVersion: string, id: string, type: string, sourceIdentity: SourceIdentity, packetHash: string, requirementIds?: string[], status: NodeStatus, phase: NodePhase, attempt: number, revisions: number, judgeFailures?: number, review?: ("none"|"advisory"|"blocking"), runtime: RuntimeSnapshot|null, blockedBy: string[], startedAt: string|null, updatedAt: string, result: unknown, gate: GateResult|null, error: SnapshotError|null, usage?: Usage, costUsd?: number, routing?: RoutingState|null, progress?: ProgressState|null, worktree?: WorktreeState|null, integratedHead?: string|null, invocations?: Invocation[], executionOverrides?: ExecutionOverride[], verification?: VerificationState|null, scope?: BoundedScope|null, scopeFindings?: ScopeFindings|null, verificationArtifacts?: string[], previousAttempt?: string, sessionPolicy?: {forceFresh?: boolean}|null, declaredReadBytes?: number|null}} NodeSnapshot */
+/** @typedef {{schemaVersion: number, contractVersion: string, id: string, type: string, sourceIdentity: SourceIdentity, packetHash: string, requirementIds?: string[], status: NodeStatus, phase: NodePhase, attempt: number, revisions: number, judgeFailures?: number, review?: ("none"|"advisory"|"blocking"), runtime: RuntimeSnapshot|null, blockedBy: string[], startedAt: string|null, updatedAt: string, result: unknown, gate: GateResult|null, error: SnapshotError|null, usage?: Usage, costUsd?: number, routing?: RoutingState|null, progress?: ProgressState|null, worktree?: WorktreeState|null, integratedHead?: string|null, invocations?: Invocation[], executionOverrides?: ExecutionOverride[], verification?: VerificationState|null, scope?: BoundedScope|null, scopeFindings?: ScopeFindings|null, verificationArtifacts?: string[], previousAttempt?: string, sessionPolicy?: {forceFresh?: boolean}|null, declaredReadBytes?: number|null, sameProviderReview?: boolean}} NodeSnapshot */
 /** @typedef {{path: string, sha: string}} ControllerIdentity */
 /** @typedef {{schemaVersion: number, contractVersion: string, pid: number, processStartToken: string|null, startedAt: string, sourceIdentity: SourceIdentity, controllerIdentity?: ControllerIdentity, integrationRef?: string, identityWarnings?: string[], relaunchCount?: number, lastRelaunchProgressAt?: string|null, attention?: {code: string, message: string, at: string}|null, contractDigest?: string, scopeDecision?: ScopeDecision, autoRetries?: Record<string, {code: string, at: string}>}} RunMetadata */
 /** @typedef {{at: string, base: string|null, dirtyTreeFingerprint: string|null}} ScopeDecision */
@@ -164,6 +167,7 @@ export function validateContract(raw, contractPath, options = {}) {
   if (defaults.worker !== undefined) requireRuntime(runtimes, defaults.worker, "runtimeDefaults.worker");
   if (defaults.judge !== undefined) requireRuntime(runtimes, defaults.judge, "runtimeDefaults.judge");
   const judges = validateJudgeList(raw.judges, runtimes, "contract.judges");
+  const judgeIndependence = validateJudgeIndependence(raw.judgeIndependence, "contract.judgeIndependence");
 
   if (!Array.isArray(raw.nodes) || raw.nodes.length === 0) {
     throw new TypeError("contract.nodes must be a non-empty array");
@@ -248,6 +252,7 @@ export function validateContract(raw, contractPath, options = {}) {
       ? undefined
       : positiveInteger(node.maxTurns, `nodes[${index}].maxTurns`);
     const replayPolicy = validateReplayPolicy(node.replayPolicy, `nodes[${index}]`);
+    const humanStep = validateHumanStep(node.humanStep, `nodes[${index}].humanStep`);
     return /** @type {ValidatedNode} */ ({
       ...node,
       dependsOn,
@@ -261,6 +266,11 @@ export function validateContract(raw, contractPath, options = {}) {
       timeoutSec,
       maxTurns,
       replayPolicy,
+      // Flipped true below, once the worker/judge vendor check has run for
+      // every node: same-vendor mode (R20) is only known admissible after
+      // that pass reads the pair's declared tiers.
+      sameProviderReview: false,
+      ...(humanStep === undefined ? {} : { humanStep }),
     });
   });
 
@@ -294,38 +304,9 @@ export function validateContract(raw, contractPath, options = {}) {
     }
   }
 
-  // A gated node whose worker and judge share a vendor cannot produce an
-  // independent review — the same vendor grading its own output is not a
-  // gate, so this is rejected outright rather than left to reach dispatch.
-  // The worker's declared fallback chain is checked the same way, since it is
-  // statically known which runtime a worker failover lands on; the symmetric
-  // case — the judge's own fallback landing on the worker's vendor — depends
-  // on which worker runtime actually ran and is refused at execution instead
-  // (node.mjs, `judge_fallback_vendor_conflict`).
-  for (const [index, node] of nodes.entries()) {
-    if (!node.gate.enabled) continue;
-    const workerRuntimeId = node.runtime ?? defaults.worker;
-    const judgeRuntimeId = node.gate.runtime ?? defaults.judge;
-    if (!workerRuntimeId || !judgeRuntimeId) continue;
-    const workerVendor = runtimes[/** @type {string} */ (workerRuntimeId)].vendor;
-    const judgeVendor = runtimes[/** @type {string} */ (judgeRuntimeId)].vendor;
-    if (workerVendor === judgeVendor) {
-      throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} and judge runtime ${judgeRuntimeId} share vendor ${workerVendor}`);
-    }
-    const seenFallbacks = new Set([/** @type {string} */ (workerRuntimeId)]);
-    let fallbackId = runtimes[/** @type {string} */ (workerRuntimeId)].fallback;
-    while (fallbackId !== undefined) {
-      if (seenFallbacks.has(fallbackId)) {
-        throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} fallback chain cycles back to ${fallbackId}`);
-      }
-      seenFallbacks.add(fallbackId);
-      const fallbackVendor = runtimes[fallbackId].vendor;
-      if (fallbackVendor === judgeVendor) {
-        throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} fallback runtime ${fallbackId} and judge runtime ${judgeRuntimeId} share vendor ${fallbackVendor}`);
-      }
-      fallbackId = runtimes[fallbackId].fallback;
-    }
-  }
+  // See `markSameProviderReviewNodes` for the vendor-conflict refusal and
+  // R20's same-vendor opt-in that relaxes it.
+  markSameProviderReviewNodes(nodes, runtimes, defaults, judgeIndependence);
 
   // Every worker prompt tells the worker to run its packet verification.
   // Refuse a statically known permission mode that makes that instruction
@@ -408,6 +389,7 @@ export function validateContract(raw, contractPath, options = {}) {
     runtimes,
     runtimeDefaults: /** @type {{worker?: string, judge?: string}} */ (defaults),
     judges,
+    judgeIndependence,
     nodes,
     maxParallel: validateMaxParallel(raw.maxParallel ?? 1),
     pollIntervalMs: positiveInteger(raw.pollIntervalMs ?? 1_000, "contract.pollIntervalMs"),

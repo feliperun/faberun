@@ -44,6 +44,7 @@ import { captureNodeScopeBoundaries, checkWorkerScope, emptyScope } from "./scop
 import { validateContractForLaunch } from "../campaign/chain.mjs";
 import { finalVerificationCommands, gateProofTimeoutMs, sharedVerificationCommands } from "../contract/final-verification.mjs";
 import { startJudge, startWorker } from "./dispatch.mjs";
+import { HUMAN_STEP_ERROR_CODE, humanStepAttentionMessage } from "../contract/human-step.mjs";
 import { assertEnvironmentReady, captureRunIdentity, createRunMetadata, serializableContract, statesFingerprint } from "./run-identity.mjs";
 import { blockDependents, runtimeAssignments } from "./assignment.mjs";
 import { createHeartbeat, HEARTBEAT_INTERVAL_MS } from "./supervise.mjs";
@@ -622,20 +623,33 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
       autoRetryParkedNodes(contract, runDir, states, lock, parkedBefore);
       blockDependents(contract, runDir, states, lock);
 
+      const ready = contract.nodes.filter((node) => {
+        const state = states.get(node.id);
+        return state?.status === "pending" && !pendingSettlements.has(node.id)
+          && node.dependsOn.every((id) => states.get(id)?.status === "done");
+      });
+      // A human-step node (R16) never reaches a provider: once its
+      // dependencies are done it stops right here, `state.error.message`
+      // naming the step and its command, instead of entering the slot-gated
+      // dispatch below. It costs no slot and is not bounded by `maxParallel`,
+      // so this runs whether or not one is free.
+      for (const node of ready) {
+        if (!node.humanStep) continue;
+        transition(runDir, /** @type {NodeSnapshot} */ (states.get(node.id)), "blocked", {
+          phase: "complete",
+          error: { code: HUMAN_STEP_ERROR_CODE, message: humanStepAttentionMessage(node.humanStep) },
+        }, lock);
+      }
       const slots = contract.maxParallel - running.size;
       if (slots > 0) {
-        const ready = contract.nodes.filter((node) => {
-          const state = states.get(node.id);
-          return state?.status === "pending" && !pendingSettlements.has(node.id)
-            && node.dependsOn.every((id) => states.get(id)?.status === "done");
-        });
+        const dispatchable = ready.filter((node) => !node.humanStep);
         // Per-runtime capacity is judged per dispatch, not per tick: the
         // counts include what this tick has already started, and a runtime a
         // sibling is waiting out a quota reset on accepts nothing new.
         const counts = runningPerRuntime(running.values());
         const held = quotaHeldRuntimes(states.values(), Date.now());
         let dispatched = 0;
-        for (const node of ready) {
+        for (const node of dispatchable) {
           if (dispatched >= slots) break;
           const state = states.get(node.id);
           if (!state || routingBackoffActive(state, state.phase)) continue;

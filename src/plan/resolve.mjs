@@ -16,16 +16,18 @@
  * empty scratch directory, and needs none of that module's draft or provider
  * seams.
  */
-import { rmSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { readCampaign } from "../campaign/record.mjs";
 import { campaignCli } from "../cli/campaign.mjs";
 import { campaignTree } from "../run/paths.mjs";
 import { appendJsonl, readJson } from "../run/store.mjs";
 import { freezePlan } from "./freeze.mjs";
+import { collectHumanSteps } from "./human-step.mjs";
 import { highestOf, modelOf } from "./pipeline-shape.mjs";
 import { PLANNER_SESSION_ID, assembleFrozenPlan, frozenContractRawOf, invalidPlanFinding, writeFrozenPlan } from "./pipeline.mjs";
 import { contestPlan } from "./contest.mjs";
+import { parseSpec } from "./spec.mjs";
 import { RISK_TIERS } from "./template.mjs";
 
 /** @typedef {import("./template.mjs").PlanOutput} PlanOutput */
@@ -96,6 +98,10 @@ export async function resolvePlanningPipeline({ plansDir, cwd, answers }) {
   if (!record.plan) throw new Error(`plan at ${planPath} has no plan to resume: the draft or revise that produced it never validated; run faberun plan again instead of --resolve`);
   if (!record.resume) throw new Error(`plan at ${planPath} predates faberun plan --resolve and carries no resume context; run faberun plan again`);
   const { campaignId, phase, specPath, specDigest, runtimeDefaults, runtimes, verification, packageMode, targetedFix, approveBelow, repoFacts } = record.resume;
+  // R16: recomputed from the same spec bytes the contest recorded, so a plan
+  // resumed through --resolve carries the same declared operator steps a
+  // fresh freeze would.
+  const humanSteps = collectHumanSteps(parseSpec(readFileSync(resolve(cwd, specPath), "utf8")).requirements);
   const plan = /** @type {PlanOutput} */ (record.plan);
   const findings = /** @type {PlanFindingOutput[]} */ (record.findings ?? []);
   const round = record.rounds ?? 0;
@@ -139,6 +145,7 @@ export async function resolvePlanningPipeline({ plansDir, cwd, answers }) {
       outDir: plansDir,
       phases: assembled.phases,
       spec: { path: specPath, digest: specDigest },
+      humanSteps,
       facts: repoFacts,
       provenance: {
         targetGitHead: repoFacts.gitHead,
