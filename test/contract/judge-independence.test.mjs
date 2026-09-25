@@ -11,6 +11,7 @@ import { renderReport, renderReportJson, renderStatus, renderStatusJson } from "
 import { renderMetricsJson, renderMetricsReport } from "../../src/report/metrics-report.mjs";
 import { packet, writeFixture } from "./helpers.mjs";
 import { doneResult, makeRun } from "../report/run-fixture.mjs";
+import { startJudge } from "../../src/engine/dispatch.mjs";
 
 // R20: an operator with a single provider opts in to same-vendor judge
 // review with `judgeIndependence: "same-vendor"`; without it, a gate-enabled
@@ -153,6 +154,73 @@ test("same-vendor review is opt-in, needs a judge of equal or higher tier and is
   const metricsJson = JSON.parse(renderMetricsJson(metricsSources, emptyMetrics));
   assert.equal(metricsJson.sameProviderReviewNodeCount, 1);
   assert.deepEqual(metricsJson.sameProviderReviewNodeIds, ["run-a/build"]);
+});
+
+// `startJudge` (src/engine/dispatch.mjs) computes the dynamic mark itself,
+// separately from the static admission `markSameProviderReviewNodes` stamps
+// at contract validation: the dynamic mark has to read the runtime that
+// actually ran, fallback included, and a re-ask or a judge-failure retry
+// calls `startJudge` again after it has already overwritten `state.runtime`
+// with the judge's own runtime -- so this drives `startJudge` directly
+// instead of writing `sameProviderReview` into a fixture snapshot by hand.
+test("startJudge marks a genuine same-vendor pairing on first dispatch, and never mismarks a cross-vendor one on a judge re-ask or retry", async () => {
+  /** @type {any} */
+  const sameVendorContract = {
+    judgeIndependence: "same-vendor",
+    cwd: process.cwd(),
+    runtimeDefaults: { worker: "worker", judge: "judge" },
+    runtimes: {
+      worker: { harness: "claude", model: "claude-sonnet-5", vendor: "anthropic" },
+      judge: { harness: "claude", model: "claude-opus-5-5", vendor: "anthropic" },
+    },
+  };
+  /** @type {any} */
+  const node = { id: "build", gate: { enabled: true, review: "blocking" }, definitionOfDone: [] };
+  /** @type {any} */
+  const lock = {};
+
+  // First dispatch of the attempt: `state.runtime` still holds the worker
+  // that just ran, exactly as `startJudge`'s caller leaves it.
+  /** @type {any} */
+  const firstDispatchState = {
+    attempt: 1,
+    invocations: [{ id: "inv-worker", phase: "worker", runtimeId: "worker" }],
+    runtime: { id: "worker", harness: "claude", model: "claude-sonnet-5", vendor: "anthropic" },
+  };
+  const firstRound = await startJudge(sameVendorContract, node, firstDispatchState, "", new Map(), {}, lock, new Map(), "");
+  assert.equal(firstRound.kind, "settle", "no judgment item: the judge is never actually dispatched");
+  assert.equal(firstDispatchState.sameProviderReview, true, "worker and judge share a vendor: marked on first dispatch");
+
+  // A judge re-ask (review.mjs) or a judge-failure retry (settle-judge.mjs)
+  // calls `startJudge` again with `state.runtime` already overwritten to the
+  // judge's own runtime by the first call. A worker/judge pair of different
+  // vendors must stay unmarked even then.
+  /** @type {any} */
+  const crossVendorContract = {
+    judgeIndependence: "same-vendor",
+    cwd: process.cwd(),
+    runtimeDefaults: { worker: "worker", judge: "judge" },
+    runtimes: {
+      worker: { harness: "codex", model: "gpt-6-codex", vendor: "openai" },
+      judge: { harness: "claude", model: "claude-opus-5-5", vendor: "anthropic" },
+    },
+  };
+  /** @type {any} */
+  const reaskState = {
+    attempt: 1,
+    invocations: [
+      { id: "inv-worker", phase: "worker", runtimeId: "worker" },
+      { id: "inv-judge-1", phase: "judge", runtimeId: "judge" },
+    ],
+    runtime: { id: "judge", harness: "claude", model: "claude-opus-5-5", vendor: "anthropic" },
+  };
+  const reaskRound = await startJudge(crossVendorContract, node, reaskState, "", new Map(), {}, lock, new Map(), "");
+  assert.equal(reaskRound.kind, "settle");
+  assert.equal(
+    reaskState.sameProviderReview,
+    false,
+    "the worker (openai) and the judge (anthropic) never shared a vendor -- comparing state.runtime to itself on the re-ask would wrongly mark this node",
+  );
 });
 
 /**
