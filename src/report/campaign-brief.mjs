@@ -231,6 +231,7 @@ function renderWorkGraph(model) {
   const concurrent = Object.entries(graph.maxConcurrent)
     .map(([runtimeId, limit]) => `\`${runtimeId}\` ${limit}`)
     .join(", ");
+  const sameProviderReview = graph.nodes.filter((node) => node.sameProviderReview).map((node) => `\`${node.id}\``);
   return [
     "## Work graph",
     ...edgeLines,
@@ -240,6 +241,9 @@ function renderWorkGraph(model) {
     `- maxConcurrent: ${concurrent || "none"}`,
     `- Effective concurrency: ${graph.effectiveConcurrency}`,
     `- ${renderDispatchable(graph)}`,
+    // R20: same-vendor mode admits a worker/judge pair sharing a vendor, and
+    // every human-facing surface names which nodes that applies to.
+    `- Same-provider review: ${sameProviderReview.length > 0 ? sameProviderReview.join(", ") : "none"}`,
   ].join("\n");
 }
 

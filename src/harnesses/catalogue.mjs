@@ -52,7 +52,24 @@ const GLM_CONTEXT_WINDOW_TOKENS = 200_000;
 const GLM_ONE_MILLION_CONTEXT_WINDOW_TOKENS = 1_048_576;
 
 /**
- * @typedef {{id: string, contextWindowTokens: number|null, efforts: readonly string[], defaultEffort: string|null, effortInModelId: string|null}} DeclaredModel
+ * Every Anthropic model's tier, in the order of the owner's price list (R20):
+ * Sonnet 2 (US$ 2 / 10 per MTok), Opus 3 (5 / 25 and 4 / 20), Fable 4 (10 /
+ * 50). Sonnet is cheap enough to work; Opus or Fable is what judges it. A
+ * model absent from this table declares no tier and cannot judge in
+ * same-vendor mode (`contract/judge-independence.mjs`).
+ *
+ * @type {Readonly<Record<string, number>>}
+ */
+const ANTHROPIC_MODEL_TIERS = Object.freeze({
+  "claude-sonnet-5": 2,
+  "claude-opus-5": 3,
+  "claude-opus-5-5": 3,
+  "claude-fable-5": 4,
+  "claude-fable-5-1": 4,
+});
+
+/**
+ * @typedef {{id: string, contextWindowTokens: number|null, efforts: readonly string[], defaultEffort: string|null, effortInModelId: string|null, tier: number|null}} DeclaredModel
  * @typedef {{harness: string, vendor: string|null}} ModelPath
  * @typedef {{id: string, contextWindowTokens: number|null, efforts: string[], defaultEffort: string|null, effortInModelId: string|null, declaredBy: ModelPath[]}} ModelView
  * @typedef {{ok: boolean, available: boolean, reason: string, version: string|null}} ProbeView
@@ -73,6 +90,9 @@ export const DECLARED_MODEL_CATALOGUES = Object.freeze({
   claude: Object.freeze([
     declaredModel("claude-sonnet-5", { efforts: CLAUDE_EFFORTS }),
     declaredModel("claude-opus-5", { efforts: CLAUDE_EFFORTS }),
+    declaredModel("claude-opus-5-5", { efforts: CLAUDE_EFFORTS }),
+    declaredModel("claude-fable-5", { efforts: CLAUDE_EFFORTS }),
+    declaredModel("claude-fable-5-1", { efforts: CLAUDE_EFFORTS }),
     declaredModel("claude-sonnet-4-6", { efforts: CLAUDE_EFFORTS }),
   ]),
   codex: Object.freeze([
@@ -163,6 +183,7 @@ function declaredModel(id, options) {
     efforts: options.efforts,
     defaultEffort: options.defaultEffort ?? null,
     effortInModelId: options.effortInModelId ?? null,
+    tier: ANTHROPIC_MODEL_TIERS[id] ?? null,
   });
 }
 
@@ -183,7 +204,24 @@ function agyModel(id, contextWindowTokens = null) {
     efforts: AGY_EFFORTS,
     defaultEffort: encoded,
     effortInModelId: encoded,
+    tier: ANTHROPIC_MODEL_TIERS[id] ?? null,
   });
+}
+
+/**
+ * The declared tier of a model reached through a given harness (R20): only an
+ * Anthropic model run through the `claude` harness carries one today. `null`
+ * covers every other harness and every model this table does not list, which
+ * is exactly what `sameVendorTierRefusal` reads as "cannot judge in
+ * same-vendor mode".
+ *
+ * @param {string} harness
+ * @param {string} model
+ * @returns {number|null}
+ */
+export function declaredModelTier(harness, model) {
+  const entry = (DECLARED_MODEL_CATALOGUES[harness] ?? []).find((candidate) => candidate.id === model);
+  return entry?.tier ?? null;
 }
 
 /**

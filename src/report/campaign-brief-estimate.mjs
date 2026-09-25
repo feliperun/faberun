@@ -20,7 +20,7 @@
  */
 import { collectCompletedExecutionNodes } from "../run/usage.mjs";
 import { asArray, unique } from "../campaign/brief-text.mjs";
-import { scheduleUnderCapacity } from "../campaign/campaign-brief.mjs";
+import { scheduleUnderCapacity } from "../campaign/campaign-brief-graph.mjs";
 
 /** @typedef {import("../run/usage.mjs").CompletedExecutionNode} CompletedExecutionNode */
 /** @typedef {import("../run/usage.mjs").CompletedExecutionPool} CompletedExecutionPool */

@@ -37,7 +37,8 @@ import { mkdirSync, statSync } from "node:fs";
 import { READ_BYTE_LIMIT, READ_LINE_LIMIT, harnessCapabilities, normalizeProviderResult, writesWorkspace } from "../harnesses/index.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
 import { judgeReaskInstruction, reviewMode } from "../contract/review-modes.mjs";
-import { routeRuntimeForState, runtimeSnapshot } from "./failover.mjs";
+import { isSameProviderReviewPair } from "../contract/judge-independence.mjs";
+import { previousAttemptRuntimeId, routeRuntimeForState, runtimeSnapshot } from "./failover.mjs";
 import { fingerprintRuntime, forceFreshSession, phaseInvocationPlan } from "./phase-session.mjs";
 
 /** @typedef {import("./phase-session.mjs").SessionPolicy} SessionPolicy */
@@ -495,6 +496,22 @@ export async function startJudge(contract, node, state, runDir, running, workerR
     /** @type {import("../contract/index.mjs").VerificationState|null} */ (state.verification),
   );
   state.review = reviewMode(node.gate);
+  // The judge candidate this attempt would actually use, and the worker
+  // runtime read off the durable invocation record rather than
+  // `state.runtime`: on the first judge dispatch of an attempt `state.runtime`
+  // still holds the worker, but `startJudge` overwrites it with the judge's
+  // own runtime below, and a bounded re-ask (review.mjs) or a judge-failure
+  // retry (settle-judge.mjs) then calls `startJudge` again with the judge
+  // already in `state.runtime` -- comparing against that would compare the
+  // judge to itself and always mark the node. The invocation record survives
+  // every such re-dispatch, so the mark reflects the pairing that ran,
+  // fallback included -- not `node.sameProviderReview`, which only says the
+  // pairing was admitted under same-vendor mode at contract validation,
+  // primary or fallback alike.
+  const judgeCandidate = routeRuntimeForState(contract, node, state, "judge");
+  const workerRuntimeId = previousAttemptRuntimeId(state, "worker");
+  const workerRuntime = workerRuntimeId ? contract.runtimes[workerRuntimeId] : state.runtime;
+  state.sameProviderReview = isSameProviderReviewPair(contract, workerRuntime, judgeCandidate);
   if (verdict.verdict === "fail") return { kind: "rejected", verdict };
   // `skipWhen` is checked before the ordinary judgment rule so a green-and-small
   // change settles mechanically even when a Definition of Done item carries
@@ -502,7 +519,7 @@ export async function startJudge(contract, node, state, runDir, running, workerR
   // and a gate whose review mode is `none` is skipped there exactly as before.
   if (judgeSkippedByScope(node, state)) return { kind: "settle", gate: verdict };
   if (!judgeRequired(node)) return { kind: "settle", gate: verdict };
-  const runtime = routeRuntimeForState(contract, node, state, "judge");
+  const runtime = judgeCandidate;
   const paths = logPaths(runDir, node.id, "judge", state.attempt);
   state.phase = "judge";
   state.runtime = runtime;

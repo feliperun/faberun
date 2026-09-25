@@ -76,6 +76,7 @@ const BLOCKING_SETS = { "minor-and-above": ["minor", "major", "critical"], "majo
  *   resultFiles: string[],
  *   repetitions: number,
  *   byAuthorFamily: Record<string, FamilyScore>,
+ *   sameFamily: FamilyScore|null,
  * }} JudgeRow
  * @typedef {object} AllowedJudge
  * @property {string} id
@@ -307,14 +308,23 @@ function poolJudges(files) {
   }
   return [...byJudge.values()]
     .sort((left, right) => left.id.localeCompare(right.id))
-    .map((entry) => ({
-      id: entry.id,
-      vendor: entry.vendor,
-      resultFiles: entry.resultFiles,
-      repetitions: entry.repetitions,
-      ...poolOutcomes(entry.outcomes),
-      byAuthorFamily: poolByAuthorFamily(entry.outcomes),
-    }));
+    .map((entry) => {
+      const byAuthorFamily = poolByAuthorFamily(entry.outcomes);
+      return {
+        id: entry.id,
+        vendor: entry.vendor,
+        resultFiles: entry.resultFiles,
+        repetitions: entry.repetitions,
+        ...poolOutcomes(entry.outcomes),
+        byAuthorFamily,
+        // R20: same-vendor review's own canary reading. `byAuthorFamily`
+        // already pools every author family's cases against this judge; a
+        // same-family judge (the mode's whole scenario) is this one lookup by
+        // the judge's own vendor, read apart from the cross-vendor family
+        // rows below rather than folded into them. No provider is called.
+        sameFamily: byAuthorFamily[entry.vendor] ?? null,
+      };
+    });
 }
 
 /** @param {number|null} value @returns {number} */
@@ -434,6 +444,14 @@ export function renderJudgeMatrix(matrix) {
     });
     const label = row.note === null ? row.family : `${row.family} (${row.note})`;
     lines.push(`| ${label} | ${cells.join(" | ")} |`);
+  }
+  lines.push("", "same-family review (R20): recall / false-alarm rate / cost per case, cases authored by the judge's own vendor");
+  for (const judge of matrix.judges) {
+    const same = judge.sameFamily;
+    const reading = same === null || same.cases === 0
+      ? "no same-family cases"
+      : `${formatRate(same.recall)} / ${formatRate(same.falseAlarmRate)} / ${formatCost(same.costPerCaseUsd)} (${same.cases} cases)`;
+    lines.push(`- ${judge.id} (${judge.vendor}): ${reading}`);
   }
   return lines.join("\n");
 }

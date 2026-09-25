@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { collectCompletedExecutionNodes } from "../../src/run/usage.mjs";
-import { scheduleUnderCapacity } from "../../src/campaign/campaign-brief.mjs";
+import { scheduleUnderCapacity } from "../../src/campaign/campaign-brief-graph.mjs";
 import { estimateBriefExpense } from "../../src/report/campaign-brief-estimate.mjs";
 
 // R5: the expense range is derived only from this target project's durable

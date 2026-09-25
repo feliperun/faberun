@@ -41,7 +41,7 @@ const HOURS_PRECISION = 10_000;
 export function renderMetricsReport(sources, metrics) {
   const missingSources = sources.missingSources ?? [];
   const lines = [
-    `[metrics] ${sources.campaignId} · ${sources.runIds.length} runs · ${sources.events.length} events · ${Object.keys(metrics).length} indicators`,
+    `[metrics] ${sources.campaignId} · ${sources.runIds.length} runs · ${sources.events.length} events · ${Object.keys(metrics).length} indicators · ${sameProviderReviewSummary(sources)}`,
   ];
   if (missingSources.length > 0) lines.push(`missing sources: ${missingSources.join(", ")}`);
   for (const [name, indicator] of Object.entries(metrics)) {
@@ -78,8 +78,41 @@ export function renderMetricsJson(sources, metrics) {
     runs: sources.runIds.length,
     events: sources.events.length,
     missingSources,
+    sameProviderReviewNodeCount: sameProviderReviewNodeIds(sources).length,
+    sameProviderReviewNodeIds: sameProviderReviewNodeIds(sources),
     indicators: metrics,
   })}\n`;
+}
+
+/**
+ * Which recorded nodes had their judge review the same vendor's own output
+ * under same-vendor mode (R20), `runId/id` so a node id repeated across runs
+ * still names a specific one — metadata about the sources, like `runs` and
+ * `events`, not a TECH-SPEC section 6 indicator, so it sits beside the
+ * indicator set rather than inside it.
+ *
+ * @param {MetricsSources} sources
+ * @returns {string[]}
+ */
+function sameProviderReviewNodeIds(sources) {
+  return (sources.nodes ?? [])
+    .filter((node) => node.sameProviderReview === true)
+    .map((node) => `${node.runId}/${node.id}`);
+}
+
+/**
+ * The bounded human summary of `sameProviderReviewNodeIds`, eliding past
+ * `MAX_GROUPS` like every other grouped indicator this report prints.
+ *
+ * @param {MetricsSources} sources
+ * @returns {string}
+ */
+function sameProviderReviewSummary(sources) {
+  const ids = sameProviderReviewNodeIds(sources);
+  if (ids.length === 0) return "0 same-provider review nodes";
+  const shown = ids.slice(0, MAX_GROUPS);
+  const elided = ids.length > shown.length ? `, +${ids.length - shown.length} more` : "";
+  return `${ids.length} same-provider review nodes (${shown.join(", ")}${elided})`;
 }
 
 /**

@@ -169,7 +169,11 @@ gate whose `failOn` includes `minor` and for one that stops at `major`, and its
 estimate.
 The vendor rule (`src/contract/index.mjs`) forbids a judge of the worker's own
 vendor, so a family's cells are blank where the rule blocks it and a family
-with no allowed judge says so. The best allowed judge is the highest recall;
+with no allowed judge says so — same-vendor mode's own scenario (R20), read
+apart below the table rather than folded into a blank cell: each judge's
+`sameFamily` reading is its `byAuthorFamily` entry for its own vendor, recall
+and false-alarm rate on the cases that vendor's family authored, and never a
+second provider call. The best allowed judge is the highest recall;
 inside 0.05 of it the lowest cost per case wins, then the lower false-alarm
 rate, then the id. It refuses (exit 2, naming the file) a result that is not
 class `judge-canary`, has no `provenance.corpusHash`, or was scored on a
