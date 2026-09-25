@@ -779,6 +779,20 @@ test("the Claude subscription's session limit is exhaustion, and its wall-clock 
   assert.equal(exhaustedUntilOf({ error: { code: "quota_exhausted", message: "usage limit reached, resets 6:40pm (Mars/Olympus_Mons)" } }, Date.parse("2026-09-20T20:00:00Z")), null, "an unknown zone names no instant, and the failover edge is taken instead");
 });
 
+// Measured 2026-09-25 on the 3a gate plan: claude-fable-5-1 answered "You've
+// hit your monthly spend limit", the stream settled as provider_error, and the
+// planner's reviewer list never moved to its next entry.
+test("the account's monthly spend limit is exhaustion with no reset, like an insufficient balance", () => {
+  const text = "You've hit your monthly spend limit. Switch to another model, or manage usage credits at claude.ai/settings/usage?from=cc_cli_limit_message, to continue.";
+  const stream = JSON.stringify({ type: "result", subtype: "success", is_error: true, result: text, session_id: "s", usage: { input_tokens: 1, output_tokens: 1 } });
+  const envelope = normalizeProviderResult("claude", stream, 1, null);
+  assert.equal(envelope.status, "exhausted");
+  const availability = normalizeProviderAvailability("claude", envelope);
+  assert.equal(availability.available, false);
+  assert.equal(availability.reason, "insufficient_balance");
+  assert.equal(availability.exhaustedUntil, null);
+});
+
 // Measured 2026-09-24 on darwin arm64, node 26.8.1: under the app's Electron
 // every zcode process showed an icon in the macOS Dock, and the bundled CLI
 // answered a 3.2 KB response intact under the system node.
