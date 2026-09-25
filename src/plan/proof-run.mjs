@@ -106,8 +106,12 @@ function runShellFull(cwd, command, probes = {}, timeoutMs = MEASURE_TIMEOUT_MS)
   return { output: combined, exitCode: result.status, truncated: Buffer.byteLength(combined, "utf8") > MEASURE_OUTPUT_CAP_BYTES, timedOut };
 }
 
-/** `--test-name-pattern` in a shell command, quoted or bare, `=` or space. */
-const NAME_PATTERN_FLAG = /--test-name-pattern(?:=|\s+)(?:"([^"]*)"|'([^']*)'|(\S+))/u;
+/**
+ * `--test-name-pattern` in a shell command, quoted or bare, `=` or space.
+ * Exported for `proof-check.mjs`, whose pre-review stage extracts the same
+ * flag from a DoD proof's own command text to judge it before any node runs.
+ */
+export const NAME_PATTERN_FLAG = /--test-name-pattern(?:=|\s+)(?:"([^"]*)"|'([^']*)'|(\S+))/u;
 /** A passing test as the spec reporter (`✔ name (1ms)`) or TAP (`ok 1 - name`) prints it. */
 const PASSING_TEST_LINE = /^\s*(?:\u2714\s+|ok \d+ - )(.+?)(?:\s+\(\d[\d.]*m?s\))?\s*$/gmu;
 
