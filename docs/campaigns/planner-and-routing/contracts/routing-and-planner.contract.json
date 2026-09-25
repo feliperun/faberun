@@ -1,0 +1,827 @@
+{
+ "schemaVersion": 3,
+ "contractVersion": "0.3.0",
+ "id": "planner-and-routing-routing-and-planner",
+ "campaignId": "planner-and-routing",
+ "goal": "The judge comes from an ordered list with multi-hop fallback, same-provider review is opt-in by tier, and the planner converges, resolves, checks proofs, carries human steps and has its own reviewers.",
+ "cwd": "../../../..",
+ "maxParallel": 2,
+ "stallTimeoutSec": 900,
+ "timeoutSec": 5400,
+ "maxTurns": 400,
+ "runtimeDefaults": {
+  "worker": "claude-sonnet",
+  "judge": "claude-opus"
+ },
+ "runtimes": {
+  "claude-sonnet": {
+   "harness": "claude",
+   "model": "claude-sonnet-5",
+   "vendor": "anthropic-sonnet",
+   "reasoning": "high",
+   "permissionMode": "bypassPermissions",
+   "tier": 2,
+   "costRank": 3
+  },
+  "claude-opus": {
+   "harness": "claude",
+   "model": "claude-opus-5-5",
+   "vendor": "anthropic-opus",
+   "reasoning": "high",
+   "tier": 3,
+   "costRank": 4,
+   "pricing": {
+    "inputPerMTok": 4,
+    "cachedInputPerMTok": 0.2,
+    "outputPerMTok": 20
+   }
+  }
+ },
+ "sharedVerification": [
+  {
+   "argv": [
+    "npm",
+    "run",
+    "typecheck"
+   ],
+   "timeoutSec": 180
+  }
+ ],
+ "finalVerification": [
+  {
+   "argv": [
+    "npm",
+    "run",
+    "check"
+   ],
+   "timeoutSec": 180
+  },
+  {
+   "argv": [
+    "npm",
+    "run",
+    "docs:check"
+   ],
+   "timeoutSec": 180
+  }
+ ],
+ "nodes": [
+  {
+   "id": "judge-list",
+   "type": "implementation",
+   "phase": "routing-and-planner",
+   "requirementIds": [
+    "R18"
+   ],
+   "dependsOn": [],
+   "timeoutSec": 5400,
+   "gate": {
+    "runtime": "claude-opus",
+    "review": "blocking",
+    "failOn": [
+     "major",
+     "critical"
+    ],
+    "maxRevisions": 2
+   },
+   "definitionOfDone": [
+    {
+     "id": "r18-named",
+     "text": "The test 'the judge is the first eligible entry of the list and falls back hop by hop' exists in test/engine/judge-list.test.mjs",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"process.exit(require('fs').readFileSync('test/engine/judge-list.test.mjs','utf8').includes('the judge is the first eligible entry of the list and falls back hop by hop')?0:1)\""
+     }
+    },
+    {
+     "id": "r18-passes",
+     "text": "The test 'the judge is the first eligible entry of the list and falls back hop by hop' passes",
+     "proof": {
+      "kind": "command",
+      "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"the judge is the first eligible entry of the list and falls back hop by hop\" test/engine/judge-list.test.mjs"
+     }
+    },
+    {
+     "id": "evidence",
+     "text": "Every skipped list entry is recorded with its reason, and no dispatch path chooses a judge outside the list when a list is declared.",
+     "judgment": true,
+     "reason": "The test drives the paths it builds; whether dispatch, resume and recovery all go through the list is read."
+    },
+    {
+     "id": "suite",
+     "text": "The node's suites pass",
+     "proof": {
+      "kind": "verification",
+      "ref": 0
+     }
+    }
+   ],
+   "taskPacket": {
+    "mode": "autonomous",
+    "objective": "The judge of each node is the first eligible entry of an ordered judge list declared in the contract or the machine default, with a fallback of several hops and the choice recorded (second half of R18).",
+    "instructions": [
+     "Read R18 in the spec. The canonical provider already exists: src/contract/provider.mjs canonicalProvider, and validateRuntime stamps it as the validated vendor (landed by canonical-provider).",
+     "The list: a contract field `judges` (ordered runtime ids, each declared in `runtimes`) and a machine default `judges` in the config `faberun setup` writes (src/host/config.mjs readUserConfig/writeUserConfig/isUserConfig; src/cli/setup.mjs). The contract list wins over the machine default, exactly as runtimeDefaults already wins over config (src/engine/runtime-discovery.mjs composeAssignments near :145-154). A node's explicit gate.runtime still wins over both. Validate the field in validateContract (src/contract/index.mjs, 763 lines: add it through a small helper module rather than grow the file past 800) and add it to the ValidatedContract typedef.",
+     "Choice per node: the first list entry whose canonical provider differs from the worker's (and from every provider the worker's fallback chain reaches), skipping an entry with a machine-recorded refusal (src/run/availability.mjs readRefusal, keyed by availabilityKey) or whose account usage window is above 90% (src/run/usage-windows.mjs readUsageWindows/usageAccountOf). Record the chosen judge and, for each skipped entry, why, in the node's routing evidence (state.routing; src/contract/snapshot.mjs validateRoutingState must accept the new field).",
+     "Multi-hop fallback: when the chosen judge is refused during the run, the next eligible entry takes over, as many times as the list allows, never returning to one already refused. Today failover is one hop by design (src/engine/backoff.mjs planRoute provider_failover_hop_cap, src/engine/failover.mjs nextSynthesizedRuntime); for the judge role with a list, the hop budget is the list length. src/engine/lifecycle.mjs is at 793 of 800 lines: move handleProviderExhaustion's judge branch into a new module before changing it.",
+     "Pin the test 'the judge is the first eligible entry of the list and falls back hop by hop' in the new file test/engine/judge-list.test.mjs: contract list over config list; skip by same provider, by recorded refusal and by a usage window above 90%; two refusals in a row move two hops; the evidence names every skip."
+    ],
+    "readFiles": [
+     "docs/campaigns/planner-and-routing/spec/SPEC.md",
+     "AGENTS.md",
+     "src/contract/provider.mjs",
+     "src/engine/runtime-discovery.mjs",
+     "src/engine/failover.mjs",
+     "src/engine/backoff.mjs",
+     "src/engine/lifecycle.mjs",
+     "src/engine/assignment.mjs",
+     "src/host/config.mjs",
+     "src/run/availability.mjs",
+     "src/run/usage-windows.mjs"
+    ],
+    "writeRoots": [
+     "src/contract/",
+     "src/engine/",
+     "src/host/config.mjs",
+     "src/cli/setup.mjs",
+     "src/run/",
+     "test/",
+     "docs/FIELD-OWNERSHIP.md",
+     "docs/CONCEPTS.md",
+     "skills/faberun/references/contract.md"
+    ],
+    "symbols": [
+     "judges"
+    ],
+    "decisions": [
+     "This is campaign planner-and-routing (3a) of the leaving-home program; docs/campaigns/planner-and-routing/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+     "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (count before you add; extract a module rather than grow one past it), no runtime import cycle in src/, no name exported from two src/ modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new src/ module saying what it owns and why it is separate, comments record measurement not intent.",
+     "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"). No test calls a provider (fakes, replay and fixtures only); no test writes to the operator's real home. No new runtime dependency.",
+     "The skill documents share one byte budget: an edit to skills/faberun/SKILL.md or skills/faberun/references/*.md must not grow them in total (test/repo checks it).",
+     "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work. Historical records under docs/campaigns/*/contracts and docs/campaigns/*/ledger are not edited.",
+     "A proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names.",
+     "Code, comments and documents are in English.",
+     "The spec's requirement text wins over this packet where they differ; say so in your result if you find a conflict."
+    ],
+    "nonGoals": [
+     "The single-provider mode (R20)",
+     "The planner's reviewer list (R19)"
+    ],
+    "verification": [
+     {
+      "argv": [
+       "npm",
+       "test"
+      ],
+      "timeoutSec": 1800
+     }
+    ]
+   }
+  },
+  {
+   "id": "single-provider",
+   "type": "implementation",
+   "phase": "routing-and-planner",
+   "requirementIds": [
+    "R20"
+   ],
+   "dependsOn": [
+    "judge-list"
+   ],
+   "timeoutSec": 5400,
+   "gate": {
+    "runtime": "claude-opus",
+    "review": "blocking",
+    "failOn": [
+     "major",
+     "critical"
+    ],
+    "maxRevisions": 2
+   },
+   "definitionOfDone": [
+    {
+     "id": "r20-named",
+     "text": "The test 'same-vendor review is opt-in, needs a judge of equal or higher tier and is marked everywhere' exists in test/contract/judge-independence.test.mjs",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"process.exit(require('fs').readFileSync('test/contract/judge-independence.test.mjs','utf8').includes('same-vendor review is opt-in, needs a judge of equal or higher tier and is marked everywhere')?0:1)\""
+     }
+    },
+    {
+     "id": "r20-passes",
+     "text": "The test 'same-vendor review is opt-in, needs a judge of equal or higher tier and is marked everywhere' passes",
+     "proof": {
+      "kind": "command",
+      "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"same-vendor review is opt-in, needs a judge of equal or higher tier and is marked everywhere\" test/contract/judge-independence.test.mjs"
+     }
+    },
+    {
+     "id": "marks",
+     "text": "The mark appears in the brief, the report and the metrics for every same-provider node, and nowhere for a cross-provider one.",
+     "judgment": true,
+     "reason": "Rendering is read, not only asserted."
+    },
+    {
+     "id": "suite",
+     "text": "The node's suites pass",
+     "proof": {
+      "kind": "verification",
+      "ref": 0
+     }
+    }
+   ],
+   "taskPacket": {
+    "mode": "autonomous",
+    "objective": "An operator with one provider can opt in to same-provider review with a judge of equal or higher tier, marked in everything a human reads (R20).",
+    "instructions": [
+     "Read R20 in the spec. Opt-in field `judgeIndependence: \"same-vendor\"` in the contract and in the machine config; without it, a node with no judge of another provider stays refused, as today.",
+     "Per-model tier in the harness catalogue (src/harnesses/catalogue.mjs DECLARED_MODEL_CATALOGUES/declaredModel): claude-sonnet-5 2, claude-opus-5 and claude-opus-5-5 3, claude-fable-5 and claude-fable-5-1 4 (declare the models the catalogue lacks). In the mode, the judge is another model whose tier is equal to or above the worker's; a lower tier is refused naming both tiers; a model with no declared tier cannot judge in the mode.",
+     "Mark every such node 'same-provider review': the Campaign Brief (src/campaign/campaign-brief.mjs is 772 lines: extract before adding; src/report/campaign-brief.mjs renders), the run report and status (src/report/render.mjs is 759 lines: extract before adding), and campaign metrics (src/campaign/metrics.mjs, src/report/metrics-report.mjs).",
+     "The canary reading of the scenario: node evals/judge-canary-matrix.mjs reports, per judge, its recall and false alarms on the cases written by its own family (byAuthorFamily already holds the counts), so a same-family judge is read apart. No provider is called.",
+     "Pin the test 'same-vendor review is opt-in, needs a judge of equal or higher tier and is marked everywhere' in the new file test/contract/judge-independence.test.mjs."
+    ],
+    "readFiles": [
+     "docs/campaigns/planner-and-routing/spec/SPEC.md",
+     "AGENTS.md",
+     "src/harnesses/catalogue.mjs",
+     "src/contract/index.mjs",
+     "src/contract/provider.mjs",
+     "src/campaign/campaign-brief.mjs",
+     "src/report/render.mjs",
+     "src/campaign/metrics.mjs",
+     "evals/judge-canary-matrix.mjs"
+    ],
+    "writeRoots": [
+     "src/",
+     "evals/judge-canary-matrix.mjs",
+     "test/",
+     "docs/FIELD-OWNERSHIP.md",
+     "docs/CONCEPTS.md",
+     "evals/README.md",
+     "skills/faberun/references/contract.md"
+    ],
+    "symbols": [
+     "judgeIndependence"
+    ],
+    "decisions": [
+     "This is campaign planner-and-routing (3a) of the leaving-home program; docs/campaigns/planner-and-routing/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+     "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (count before you add; extract a module rather than grow one past it), no runtime import cycle in src/, no name exported from two src/ modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new src/ module saying what it owns and why it is separate, comments record measurement not intent.",
+     "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"). No test calls a provider (fakes, replay and fixtures only); no test writes to the operator's real home. No new runtime dependency.",
+     "The skill documents share one byte budget: an edit to skills/faberun/SKILL.md or skills/faberun/references/*.md must not grow them in total (test/repo checks it).",
+     "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work. Historical records under docs/campaigns/*/contracts and docs/campaigns/*/ledger are not edited.",
+     "A proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names.",
+     "Code, comments and documents are in English.",
+     "The spec's requirement text wins over this packet where they differ; say so in your result if you find a conflict."
+    ],
+    "nonGoals": [
+     "The reviewer list (R19)",
+     "Changing the D9 list"
+    ],
+    "verification": [
+     {
+      "argv": [
+       "npm",
+       "test"
+      ],
+      "timeoutSec": 1800
+     }
+    ]
+   }
+  },
+  {
+   "id": "revise-converges",
+   "type": "implementation",
+   "phase": "routing-and-planner",
+   "requirementIds": [
+    "R14"
+   ],
+   "dependsOn": [],
+   "timeoutSec": 5400,
+   "gate": {
+    "runtime": "claude-opus",
+    "review": "blocking",
+    "failOn": [
+     "major",
+     "critical"
+    ],
+    "maxRevisions": 2
+   },
+   "definitionOfDone": [
+    {
+     "id": "r14-named",
+     "text": "The test 'a revise that does not reduce critical findings stops the pipeline' exists in test/plan/rounds.test.mjs",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"process.exit(require('fs').readFileSync('test/plan/rounds.test.mjs','utf8').includes('a revise that does not reduce critical findings stops the pipeline')?0:1)\""
+     }
+    },
+    {
+     "id": "r14-passes",
+     "text": "The test 'a revise that does not reduce critical findings stops the pipeline' passes",
+     "proof": {
+      "kind": "command",
+      "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"a revise that does not reduce critical findings stops the pipeline\" test/plan/rounds.test.mjs"
+     }
+    },
+    {
+     "id": "suite",
+     "text": "The node's suites pass",
+     "proof": {
+      "kind": "verification",
+      "ref": 0
+     }
+    }
+   ],
+   "taskPacket": {
+    "mode": "autonomous",
+    "objective": "Every revise output passes the plan's deterministic validation before it counts as a round, and the pipeline stops when a round does not reduce critical findings (R14).",
+    "instructions": [
+     "Read R14 in the spec. The round loop lives in src/plan/rounds.mjs (moved by pipeline-split); the contested writer in src/plan/contest.mjs. A proof.ref written as text is valid now (R21 landed), so it is no longer a defect to repair.",
+     "Validate every revise output with validatePlanOutput before the round counts. A defect with one mechanical repair is repaired and the repair recorded in pipeline.jsonl; a defect without one goes back to the same revise once, with the validator's messages, without spending a review round; a second invalid output contests.",
+     "Stop and contest with a finding `revision_not_converging` that shows the critical count per round when a round ends with as many or more criticals than the previous one, instead of spending the remaining rounds. Record the per-round critical history in pipeline.jsonl.",
+     "Pin the test 'a revise that does not reduce critical findings stops the pipeline' in the new file test/plan/rounds.test.mjs (test/cli/plan.test.mjs is 734 lines; reuse its in-process recording approach, never a provider)."
+    ],
+    "readFiles": [
+     "docs/campaigns/planner-and-routing/spec/SPEC.md",
+     "AGENTS.md",
+     "src/plan/rounds.mjs",
+     "src/plan/contest.mjs",
+     "src/plan/pipeline.mjs",
+     "src/plan/template.mjs",
+     "test/cli/plan.test.mjs"
+    ],
+    "writeRoots": [
+     "src/plan/",
+     "test/plan/",
+     "test/cli/plan.test.mjs"
+    ],
+    "symbols": [],
+    "decisions": [
+     "This is campaign planner-and-routing (3a) of the leaving-home program; docs/campaigns/planner-and-routing/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+     "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (count before you add; extract a module rather than grow one past it), no runtime import cycle in src/, no name exported from two src/ modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new src/ module saying what it owns and why it is separate, comments record measurement not intent.",
+     "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"). No test calls a provider (fakes, replay and fixtures only); no test writes to the operator's real home. No new runtime dependency.",
+     "The skill documents share one byte budget: an edit to skills/faberun/SKILL.md or skills/faberun/references/*.md must not grow them in total (test/repo checks it).",
+     "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work. Historical records under docs/campaigns/*/contracts and docs/campaigns/*/ledger are not edited.",
+     "A proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names.",
+     "Code, comments and documents are in English.",
+     "The spec's requirement text wins over this packet where they differ; say so in your result if you find a conflict."
+    ],
+    "nonGoals": [
+     "R9, R15, R16"
+    ],
+    "verification": [
+     {
+      "argv": [
+       "node",
+       "--test",
+       "--test-concurrency=4",
+       "--import",
+       "./test/scoped-home.mjs",
+       "--import",
+       "./test/git-env.mjs",
+       "--import",
+       "./test/setup.mjs",
+       "test/cli/plan.test.mjs",
+       "test/plan/",
+       "test/repo/"
+      ],
+      "timeoutSec": 1500
+     }
+    ]
+   }
+  },
+  {
+   "id": "plan-resolve",
+   "type": "implementation",
+   "phase": "routing-and-planner",
+   "requirementIds": [
+    "R9"
+   ],
+   "dependsOn": [
+    "revise-converges"
+   ],
+   "timeoutSec": 5400,
+   "gate": {
+    "runtime": "claude-opus",
+    "review": "blocking",
+    "failOn": [
+     "major",
+     "critical"
+    ],
+    "maxRevisions": 2
+   },
+   "definitionOfDone": [
+    {
+     "id": "r9-named",
+     "text": "The test 'a contested plan resumes from the operator's answers' exists in test/plan/resolve.test.mjs",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"process.exit(require('fs').readFileSync('test/plan/resolve.test.mjs','utf8').includes('a contested plan resumes from the operator's answers')?0:1)\""
+     }
+    },
+    {
+     "id": "r9-passes",
+     "text": "The test 'a contested plan resumes from the operator's answers' passes",
+     "proof": {
+      "kind": "command",
+      "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"a contested plan resumes from the operator's answers\" test/plan/resolve.test.mjs"
+     }
+    },
+    {
+     "id": "fits",
+     "text": "A contested plan's open-question fits the journal cap whatever the findings, and nothing in it was lost that plan.json does not keep.",
+     "judgment": true,
+     "reason": "The cap is tested at one size; completeness is read."
+    },
+    {
+     "id": "suite",
+     "text": "The node's suites pass",
+     "proof": {
+      "kind": "verification",
+      "ref": 0
+     }
+    }
+   ],
+   "taskPacket": {
+    "mode": "autonomous",
+    "objective": "A contested plan hands the operator a decision per critical finding and resumes from the answers with faberun plan --resolve (R9), and its open-question always reaches the campaign (RM-105).",
+    "instructions": [
+     "Read R9 in the spec. Measured 2026-09-24: roles-a and roles-b of choose-the-judges contested and the open-question write failed (`entry.text is 4706 bytes, over the 2048-byte cap`, src/campaign/layout.mjs JOURNAL_TEXT_BYTES, src/campaign/journal.mjs normalizeText); the note text is every critical finding joined. Make the open-question fit: a count, the finding ids and a pointer to plan.json, never the joined texts; plan.json keeps every finding with its id, the node or requirement it concerns and what would resolve it.",
+     "`faberun plan --resolve <plan-dir> --answer <finding-id>=accept` or `--answer <finding-id>=reject:<reason>` (src/cli/plan.mjs, the flags in src/cli.mjs, docs/COMMANDS.md is generated) resumes from the review stage without redrafting, records each answer in the campaign journal as a decision, and a plan whose critical findings are all answered can freeze.",
+     "Pin the test 'a contested plan resumes from the operator's answers' in the new file test/plan/resolve.test.mjs, in-process, no provider."
+    ],
+    "readFiles": [
+     "docs/campaigns/planner-and-routing/spec/SPEC.md",
+     "AGENTS.md",
+     "src/plan/contest.mjs",
+     "src/plan/rounds.mjs",
+     "src/plan/pipeline.mjs",
+     "src/cli/plan.mjs",
+     "src/campaign/journal.mjs",
+     "src/campaign/layout.mjs"
+    ],
+    "writeRoots": [
+     "src/plan/",
+     "src/cli/plan.mjs",
+     "src/cli.mjs",
+     "src/campaign/journal.mjs",
+     "test/plan/",
+     "test/cli/plan.test.mjs",
+     "test/campaign/",
+     "docs/COMMANDS.md"
+    ],
+    "symbols": [],
+    "decisions": [
+     "This is campaign planner-and-routing (3a) of the leaving-home program; docs/campaigns/planner-and-routing/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+     "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (count before you add; extract a module rather than grow one past it), no runtime import cycle in src/, no name exported from two src/ modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new src/ module saying what it owns and why it is separate, comments record measurement not intent.",
+     "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"). No test calls a provider (fakes, replay and fixtures only); no test writes to the operator's real home. No new runtime dependency.",
+     "The skill documents share one byte budget: an edit to skills/faberun/SKILL.md or skills/faberun/references/*.md must not grow them in total (test/repo checks it).",
+     "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work. Historical records under docs/campaigns/*/contracts and docs/campaigns/*/ledger are not edited.",
+     "A proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names.",
+     "Code, comments and documents are in English.",
+     "The spec's requirement text wins over this packet where they differ; say so in your result if you find a conflict."
+    ],
+    "nonGoals": [
+     "R15, R16, R19"
+    ],
+    "verification": [
+     {
+      "argv": [
+       "node",
+       "--test",
+       "--test-concurrency=4",
+       "--import",
+       "./test/scoped-home.mjs",
+       "--import",
+       "./test/git-env.mjs",
+       "--import",
+       "./test/setup.mjs",
+       "test/cli/plan.test.mjs",
+       "test/plan/",
+       "test/campaign/",
+       "test/repo/"
+      ],
+      "timeoutSec": 1500
+     }
+    ]
+   }
+  },
+  {
+   "id": "proof-check",
+   "type": "implementation",
+   "phase": "routing-and-planner",
+   "requirementIds": [
+    "R15"
+   ],
+   "dependsOn": [
+    "plan-resolve"
+   ],
+   "timeoutSec": 5400,
+   "gate": {
+    "runtime": "claude-opus",
+    "review": "blocking",
+    "failOn": [
+     "major",
+     "critical"
+    ],
+    "maxRevisions": 2
+   },
+   "definitionOfDone": [
+    {
+     "id": "r15-named",
+     "text": "The test 'a proof no node can write is found before review' exists in test/plan/proof-check.test.mjs",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"process.exit(require('fs').readFileSync('test/plan/proof-check.test.mjs','utf8').includes('a proof no node can write is found before review')?0:1)\""
+     }
+    },
+    {
+     "id": "r15-passes",
+     "text": "The test 'a proof no node can write is found before review' passes",
+     "proof": {
+      "kind": "command",
+      "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"a proof no node can write is found before review\" test/plan/proof-check.test.mjs"
+     }
+    },
+    {
+     "id": "suite",
+     "text": "The node's suites pass",
+     "proof": {
+      "kind": "verification",
+      "ref": 0
+     }
+    }
+   ],
+   "taskPacket": {
+    "mode": "autonomous",
+    "objective": "A deterministic stage after the draft and before the first review finds a DoD proof no node can satisfy, without a model (R15).",
+    "instructions": [
+     "Read R15 in the spec. Reuse NAME_PATTERN_FLAG (src/plan/proof-run.mjs), shellWords (src/util.mjs) and the test file list from collectRepoFacts (src/plan/repo-facts.mjs); put the stage in a new module src/plan/proof-check.mjs and call it from the pipeline between the draft and the first review round.",
+     "A --test-name-pattern proof must match a test that exists in the tree, or live in a test file some node declares in writeFiles; a verification command must be able to exit 0 in the state the node promises (a bare `grep -c` or `grep` checking absence is flagged). Each finding names the node and the proof and counts as a plan finding the review sees.",
+     "Pin the test 'a proof no node can write is found before review' in the new file test/plan/proof-check.test.mjs."
+    ],
+    "readFiles": [
+     "docs/campaigns/planner-and-routing/spec/SPEC.md",
+     "AGENTS.md",
+     "src/plan/proof-run.mjs",
+     "src/plan/repo-facts.mjs",
+     "src/plan/pipeline.mjs",
+     "src/plan/rounds.mjs",
+     "src/util.mjs"
+    ],
+    "writeRoots": [
+     "src/plan/",
+     "test/plan/"
+    ],
+    "symbols": [],
+    "decisions": [
+     "This is campaign planner-and-routing (3a) of the leaving-home program; docs/campaigns/planner-and-routing/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+     "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (count before you add; extract a module rather than grow one past it), no runtime import cycle in src/, no name exported from two src/ modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new src/ module saying what it owns and why it is separate, comments record measurement not intent.",
+     "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"). No test calls a provider (fakes, replay and fixtures only); no test writes to the operator's real home. No new runtime dependency.",
+     "The skill documents share one byte budget: an edit to skills/faberun/SKILL.md or skills/faberun/references/*.md must not grow them in total (test/repo checks it).",
+     "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work. Historical records under docs/campaigns/*/contracts and docs/campaigns/*/ledger are not edited.",
+     "A proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names.",
+     "Code, comments and documents are in English.",
+     "The spec's requirement text wins over this packet where they differ; say so in your result if you find a conflict."
+    ],
+    "nonGoals": [
+     "R16"
+    ],
+    "verification": [
+     {
+      "argv": [
+       "node",
+       "--test",
+       "--test-concurrency=4",
+       "--import",
+       "./test/scoped-home.mjs",
+       "--import",
+       "./test/git-env.mjs",
+       "--import",
+       "./test/setup.mjs",
+       "test/cli/plan.test.mjs",
+       "test/plan/",
+       "test/repo/"
+      ],
+      "timeoutSec": 1500
+     }
+    ]
+   }
+  },
+  {
+   "id": "human-step",
+   "type": "implementation",
+   "phase": "routing-and-planner",
+   "requirementIds": [
+    "R16"
+   ],
+   "dependsOn": [
+    "proof-check"
+   ],
+   "timeoutSec": 5400,
+   "gate": {
+    "runtime": "claude-opus",
+    "review": "blocking",
+    "failOn": [
+     "major",
+     "critical"
+    ],
+    "maxRevisions": 2
+   },
+   "definitionOfDone": [
+    {
+     "id": "r16-named",
+     "text": "The test 'a human step declared in the spec becomes a stop the plan carries' exists in test/plan/human-step.test.mjs",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"process.exit(require('fs').readFileSync('test/plan/human-step.test.mjs','utf8').includes('a human step declared in the spec becomes a stop the plan carries')?0:1)\""
+     }
+    },
+    {
+     "id": "r16-passes",
+     "text": "The test 'a human step declared in the spec becomes a stop the plan carries' passes",
+     "proof": {
+      "kind": "command",
+      "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"a human step declared in the spec becomes a stop the plan carries\" test/plan/human-step.test.mjs"
+     }
+    },
+    {
+     "id": "scope",
+     "text": "The mechanism only stops, names the step and continues: no scheduling, no condition language.",
+     "judgment": true,
+     "reason": "The spec's risk row forbids a workflow engine; that boundary is read."
+    },
+    {
+     "id": "suite",
+     "text": "The node's suites pass",
+     "proof": {
+      "kind": "verification",
+      "ref": 0
+     }
+    }
+   ],
+   "taskPacket": {
+    "mode": "autonomous",
+    "objective": "A human step a requirement's constraints declare becomes an explicit stop the frozen plan carries, and the Campaign Brief lists it among the human decisions (R16).",
+    "instructions": [
+     "Read R16 in the spec. Measured 2026-09-24: src/plan/spec.mjs parses a requirement's `constraints` and nothing reads them. Detect a declared operator step there, make the frozen plan carry it as an explicit stop (a human node, a phase split or another mechanism, your choice, stated in the result) so dependent nodes wait and the run stops with an attention that names the step and its command, and let `faberun campaign resolve` or `resume --answer` continue once the operator records it done.",
+     "The Campaign Brief (src/campaign/campaign-brief.mjs buildDecisions; 772 lines, extract before adding) lists the step among the human decisions.",
+     "Pin the test 'a human step declared in the spec becomes a stop the plan carries' in the new file test/plan/human-step.test.mjs."
+    ],
+    "readFiles": [
+     "docs/campaigns/planner-and-routing/spec/SPEC.md",
+     "AGENTS.md",
+     "src/plan/spec.mjs",
+     "src/plan/template.mjs",
+     "src/plan/freeze.mjs",
+     "src/campaign/campaign-brief.mjs",
+     "src/engine/resume.mjs"
+    ],
+    "writeRoots": [
+     "src/plan/",
+     "src/campaign/",
+     "src/report/campaign-brief.mjs",
+     "src/engine/",
+     "test/plan/",
+     "test/campaign/",
+     "test/report/"
+    ],
+    "symbols": [],
+    "decisions": [
+     "This is campaign planner-and-routing (3a) of the leaving-home program; docs/campaigns/planner-and-routing/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+     "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (count before you add; extract a module rather than grow one past it), no runtime import cycle in src/, no name exported from two src/ modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new src/ module saying what it owns and why it is separate, comments record measurement not intent.",
+     "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"). No test calls a provider (fakes, replay and fixtures only); no test writes to the operator's real home. No new runtime dependency.",
+     "The skill documents share one byte budget: an edit to skills/faberun/SKILL.md or skills/faberun/references/*.md must not grow them in total (test/repo checks it).",
+     "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work. Historical records under docs/campaigns/*/contracts and docs/campaigns/*/ledger are not edited.",
+     "A proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names.",
+     "Code, comments and documents are in English.",
+     "The spec's requirement text wins over this packet where they differ; say so in your result if you find a conflict."
+    ],
+    "nonGoals": [
+     "Scheduling or conditions on human steps"
+    ],
+    "verification": [
+     {
+      "argv": [
+       "npm",
+       "test"
+      ],
+      "timeoutSec": 1800
+     }
+    ]
+   }
+  },
+  {
+   "id": "reviewer-list",
+   "type": "implementation",
+   "phase": "routing-and-planner",
+   "requirementIds": [
+    "R19"
+   ],
+   "dependsOn": [
+    "single-provider",
+    "human-step"
+   ],
+   "timeoutSec": 5400,
+   "gate": {
+    "runtime": "claude-opus",
+    "review": "blocking",
+    "failOn": [
+     "major",
+     "critical"
+    ],
+    "maxRevisions": 2
+   },
+   "definitionOfDone": [
+    {
+     "id": "r19-named",
+     "text": "The test 'the plan reviewer comes from its own list and never judges a node' exists in test/plan/reviewer-list.test.mjs",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"process.exit(require('fs').readFileSync('test/plan/reviewer-list.test.mjs','utf8').includes('the plan reviewer comes from its own list and never judges a node')?0:1)\""
+     }
+    },
+    {
+     "id": "r19-passes",
+     "text": "The test 'the plan reviewer comes from its own list and never judges a node' passes",
+     "proof": {
+      "kind": "command",
+      "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"the plan reviewer comes from its own list and never judges a node\" test/plan/reviewer-list.test.mjs"
+     }
+    },
+    {
+     "id": "suite",
+     "text": "The node's suites pass",
+     "proof": {
+      "kind": "verification",
+      "ref": 0
+     }
+    }
+   ],
+   "taskPacket": {
+    "mode": "autonomous",
+    "objective": "faberun plan takes its own ordered reviewer list, separate from the frozen contract's judge, and a plan reviewer never judges a worker's node (R19).",
+    "instructions": [
+     "Read R19 in the spec. Today the review stage uses runtimeDefaults.judge (src/plan/template.mjs buildPlanningContract, KIND_ROLE maps review to judge) and the frozen contract's judge comes from the same default (src/plan/pipeline.mjs resolveRuntimes, src/plan/pipeline-shape.mjs toContractNode).",
+     "Add a reviewer list: `faberun plan --reviewers <a,b>` and a machine default `reviewers` in the config (src/host/config.mjs). The review stage uses the first eligible reviewer (available, not refused); the frozen contract's judges come from the judge list of R18 (the contract or machine `judges`), never from the reviewer list. A reviewer of the planner's own provider no longer makes the frozen contract unroutable.",
+     "Pin the test 'the plan reviewer comes from its own list and never judges a node' in the new file test/plan/reviewer-list.test.mjs."
+    ],
+    "readFiles": [
+     "docs/campaigns/planner-and-routing/spec/SPEC.md",
+     "AGENTS.md",
+     "src/plan/template.mjs",
+     "src/plan/pipeline.mjs",
+     "src/plan/pipeline-shape.mjs",
+     "src/plan/routing.mjs",
+     "src/cli/plan.mjs",
+     "src/host/config.mjs"
+    ],
+    "writeRoots": [
+     "src/plan/",
+     "src/cli/plan.mjs",
+     "src/cli.mjs",
+     "src/host/config.mjs",
+     "src/cli/setup.mjs",
+     "test/plan/",
+     "test/cli/",
+     "docs/COMMANDS.md"
+    ],
+    "symbols": [
+     "reviewers"
+    ],
+    "decisions": [
+     "This is campaign planner-and-routing (3a) of the leaving-home program; docs/campaigns/planner-and-routing/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+     "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (count before you add; extract a module rather than grow one past it), no runtime import cycle in src/, no name exported from two src/ modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new src/ module saying what it owns and why it is separate, comments record measurement not intent.",
+     "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"). No test calls a provider (fakes, replay and fixtures only); no test writes to the operator's real home. No new runtime dependency.",
+     "The skill documents share one byte budget: an edit to skills/faberun/SKILL.md or skills/faberun/references/*.md must not grow them in total (test/repo checks it).",
+     "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work. Historical records under docs/campaigns/*/contracts and docs/campaigns/*/ledger are not edited.",
+     "A proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names.",
+     "Code, comments and documents are in English.",
+     "The spec's requirement text wins over this packet where they differ; say so in your result if you find a conflict."
+    ],
+    "nonGoals": [
+     "Choosing the reviewers (D11)"
+    ],
+    "verification": [
+     {
+      "argv": [
+       "node",
+       "--test",
+       "--test-concurrency=4",
+       "--import",
+       "./test/scoped-home.mjs",
+       "--import",
+       "./test/git-env.mjs",
+       "--import",
+       "./test/setup.mjs",
+       "test/cli/",
+       "test/plan/",
+       "test/repo/"
+      ],
+      "timeoutSec": 1500
+     }
+    ]
+   }
+  }
+ ]
+}
