@@ -553,7 +553,7 @@ Related: `faberun spec validate`.
 
 ## faberun plan
 ```text
-faberun plan <spec.md> [--campaign <value>] [--phase <value>] [--review-rounds <value>] [--approve-below <value>] [--runtime-defaults <value>] [--runtimes <value>] [--verification <value>] [--package <value>] [--targeted-fix] [--detach] [--resolve <value>] [--answer <a>...] [--json]
+faberun plan <spec.md> [--campaign <value>] [--phase <value>] [--review-rounds <value>] [--approve-below <value>] [--runtime-defaults <value>] [--reviewers <value>] [--runtimes <value>] [--verification <value>] [--package <value>] [--targeted-fix] [--detach] [--resolve <value>] [--answer <a>...] [--json]
 ```
 Run the planning pipeline outside the control session: draft, then review, then
 revise up to `--review-rounds` (default 2) whenever the reviewer's findings
@@ -580,6 +580,7 @@ no provider call.
 | `--review-rounds` | positive integer | The review/revise round budget before an unconverged plan is contested. | `2` |
 | `--approve-below` | `standard`, `high`, or `none` | The `riskTier` threshold below which a frozen plan is auto-approved. | `standard` |
 | `--runtime-defaults` | `worker=<id>,judge=<id>` | The operator's runtime instruction; wins over the routing table. | discovery |
+| `--reviewers` | `<id>,<id>,...` | The planner's own ordered reviewer list (R19): the `review`/`spec-review` stage runs under the first entry declared in `--runtimes` with no recorded refusal. Separate from `--runtime-defaults judge=` and from the frozen contract's own judge list; a reviewer of the worker's own vendor never blocks it. Wins over the machine's `config.reviewers` default. | machine `config.reviewers`, else none |
 | `--runtimes` | path to a JSON file | A runtime catalogue in the contract's `runtimes` shape, validated the same way; replaces built-in discovery for every stage and the frozen contract. `--runtime-defaults` ids then resolve against it. | built-in discovery |
 | `--verification` | path to a JSON file | Verification suites in the contract's own shape — `sharedVerification`, `finalVerification`, either or both keys — validated the same way and carried verbatim into the frozen contract. A key that is not a contract suite is refused. | none — freezing with neither suite warns |
 | `--package` | `implementation` or `exploratory` | What kind of work this package is, which decides how nodes are sized. `implementation` sizes by the write set (4 to 6 files, merging what falls under it). `exploratory` — an audit, a review, a survey — sizes by what each node reads and by risk: a one-file write set is the normal shape of a finding, no node is merged for being underfilled, and a node whose read surface dwarfs its siblings' is reported. | `implementation` |

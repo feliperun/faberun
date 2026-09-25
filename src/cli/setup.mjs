@@ -48,6 +48,7 @@ import { discoverSkillTargets, registerSkills } from "./skills.mjs";
  * @property {string} [worker]
  * @property {string} [judge]
  * @property {string} [judges] comma-separated ordered runtime ids for the machine's R18 judge-list default; unset keeps whatever the existing config already declared
+ * @property {string} [reviewers] comma-separated ordered runtime ids for the machine's R19 reviewer-list default (`faberun plan --reviewers`); unset keeps whatever the existing config already declared
  * @property {boolean} [skill] whether to register the faberun skill (default true)
  * @property {boolean} [json]
  * @property {NodeJS.ProcessEnv} [env]
@@ -169,12 +170,14 @@ export async function setupCommand(options = {}) {
     }
 
     const selectedJudges = splitHarnesses(options.judges ?? "").length ? splitHarnesses(options.judges ?? "") : kept.judges;
+    const selectedReviewers = splitHarnesses(options.reviewers ?? "").length ? splitHarnesses(options.reviewers ?? "") : kept.reviewers;
     const config = {
       schemaVersion: /** @type {1} */ (1),
       harnesses: selectedHarnesses,
       worker: selectedWorker,
       judge: selectedJudge,
       ...(selectedJudges.length ? { judges: selectedJudges } : {}),
+      ...(selectedReviewers.length ? { reviewers: selectedReviewers } : {}),
       updatedAt: new Date().toISOString(),
     };
     writeUserConfig(env, config);
@@ -274,10 +277,10 @@ function missingEnvKeys(runtime, env) {
  *
  * @param {UserConfig|null} existing
  * @param {Record<string, RuntimeAvailability>} availability
- * @returns {{harnesses: string[], worker: string, judge: string, judges: string[]}}
+ * @returns {{harnesses: string[], worker: string, judge: string, judges: string[], reviewers: string[]}}
  */
 export function mergeExistingConfig(existing, availability) {
-  if (!existing) return { harnesses: [], worker: "", judge: "", judges: [] };
+  if (!existing) return { harnesses: [], worker: "", judge: "", judges: [], reviewers: [] };
   const availableHarnesses = new Set(
     Object.entries(DISCOVERY_RUNTIME_DEFINITIONS)
       .filter(([id]) => availability[id]?.available === true)
@@ -290,11 +293,12 @@ export function mergeExistingConfig(existing, availability) {
     harnesses: existing.harnesses.filter((harness) => availableHarnesses.has(harness)),
     worker: existing.worker && candidateIds.has(existing.worker) ? existing.worker : "",
     judge: existing.judge && candidateIds.has(existing.judge) ? existing.judge : "",
-    // The judge list is a static, operator-declared ordering (D9): unlike the
-    // single worker/judge default, an entry discovery cannot currently reach
-    // is not dropped, since R18's own selection already skips a refused or
-    // usage-heavy entry at every read.
+    // The judge and reviewer lists are static, operator-declared orderings
+    // (D9, D11): unlike the single worker/judge default, an entry discovery
+    // cannot currently reach is not dropped, since each list's own selection
+    // already skips a refused entry at every read.
     judges: Array.isArray(existing.judges) ? existing.judges : [],
+    reviewers: Array.isArray(existing.reviewers) ? existing.reviewers : [],
   };
 }
 
