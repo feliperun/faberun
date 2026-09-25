@@ -100,3 +100,71 @@ export function sharesVendorThroughFallback(runtimes, workerRuntimeId, judgeVend
   }
   return false;
 }
+
+/**
+ * A gated node whose worker and judge share a vendor cannot produce an
+ * independent review -- the same vendor grading its own output is not a
+ * gate, so this is rejected outright unless `judgeIndependence` opts the
+ * contract into same-vendor mode, in which case a judge tier at or above the
+ * worker's admits the pair and marks the node `sameProviderReview` for every
+ * human-facing surface to read back. The worker's declared fallback chain is
+ * checked the same way, since it is statically known which runtime a worker
+ * failover lands on; the symmetric case -- the judge's own fallback landing
+ * on the worker's vendor -- depends on which worker runtime actually ran and
+ * is refused at execution instead (node.mjs, `judge_fallback_vendor_conflict`).
+ *
+ * Mutates and returns `nodes` in place; called once per `validateContract`.
+ *
+ * @param {{gate: {enabled: boolean, runtime?: string}, runtime?: string, sameProviderReview: boolean}[]} nodes
+ * @param {Record<string, {vendor?: string, fallback?: string, harness: string, model: string}>} runtimes
+ * @param {{worker?: string, judge?: string}} defaults
+ * @param {"same-vendor"|undefined} judgeIndependence
+ * @returns {{gate: {enabled: boolean, runtime?: string}, runtime?: string, sameProviderReview: boolean}[]}
+ */
+export function markSameProviderReviewNodes(nodes, runtimes, defaults, judgeIndependence) {
+  for (const [index, node] of nodes.entries()) {
+    if (!node.gate.enabled) continue;
+    const workerRuntimeId = node.runtime ?? defaults.worker;
+    const judgeRuntimeId = node.gate.runtime ?? defaults.judge;
+    if (!workerRuntimeId || !judgeRuntimeId) continue;
+    const workerRuntime = runtimes[workerRuntimeId];
+    const judgeRuntime = runtimes[judgeRuntimeId];
+    const workerVendor = workerRuntime.vendor;
+    const judgeVendor = judgeRuntime.vendor;
+    if (workerVendor === judgeVendor) {
+      if (judgeIndependence !== SAME_VENDOR_REVIEW_MODE) {
+        throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} and judge runtime ${judgeRuntimeId} share vendor ${workerVendor}`);
+      }
+      const refusal = sameVendorTierRefusal(workerRuntime, judgeRuntime);
+      if (refusal) {
+        throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} and judge runtime ${judgeRuntimeId} share vendor ${workerVendor}: ${refusal.message}`);
+      }
+      nodes[index] = { ...node, sameProviderReview: true };
+    }
+    const seenFallbacks = new Set([workerRuntimeId]);
+    let fallbackId = runtimes[workerRuntimeId].fallback;
+    while (fallbackId !== undefined) {
+      if (seenFallbacks.has(fallbackId)) {
+        throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} fallback chain cycles back to ${fallbackId}`);
+      }
+      seenFallbacks.add(fallbackId);
+      const fallbackVendor = runtimes[fallbackId].vendor;
+      if (fallbackVendor === judgeVendor) {
+        if (judgeIndependence !== SAME_VENDOR_REVIEW_MODE) {
+          throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} fallback runtime ${fallbackId} and judge runtime ${judgeRuntimeId} share vendor ${fallbackVendor}`);
+        }
+        const fallbackRefusal = sameVendorTierRefusal(runtimes[fallbackId], judgeRuntime);
+        if (fallbackRefusal) {
+          throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} fallback runtime ${fallbackId} and judge runtime ${judgeRuntimeId} share vendor ${fallbackVendor}: ${fallbackRefusal.message}`);
+        }
+        // The fallback is only reachable if it actually runs, but the tier
+        // rule above already admitted it -- so the node is marked here too,
+        // not only when the primary matches (the plan-time "could this land
+        // same-provider" fact every human-facing surface reads back).
+        nodes[index] = { ...nodes[index], sameProviderReview: true };
+      }
+      fallbackId = runtimes[fallbackId].fallback;
+    }
+  }
+  return nodes;
+}
