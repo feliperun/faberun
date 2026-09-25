@@ -1,5 +1,6 @@
 import { normalizeProviderAvailability, probeRuntime } from "../harnesses/index.mjs";
 import { effectiveProvider } from "../contract/provider.mjs";
+import { SAME_VENDOR_REVIEW_MODE, sameVendorTierRefusal } from "../contract/judge-independence.mjs";
 
 // Availability normalization belongs to the adapter registry, which is where
 // each provider's own exhaustion, balance, and authentication wording is
@@ -9,7 +10,7 @@ export { exhaustedUntilOf, normalizeProviderAvailability } from "../harnesses/in
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {{harness?: string, model?: string, vendor: string, tier?: number|string, costRank?: number, [key: string]: unknown}} RuntimeLike */
-/** @typedef {{runtimes: Record<string, RuntimeLike>, runtimeDefaults?: {worker?: string, judge?: string}, nodes?: {id: string, runtime?: string, gate: {enabled: boolean, runtime?: string}}[]}} RuntimeContract */
+/** @typedef {{runtimes: Record<string, RuntimeLike>, runtimeDefaults?: {worker?: string, judge?: string}, judgeIndependence?: string, nodes?: {id: string, runtime?: string, gate: {enabled: boolean, runtime?: string}}[]}} RuntimeContract */
 /**
  * One runtime's catalogue record: what the harness de facto reported, and
  * when. An unobservable datum is null -- never zero and never full allowance,
@@ -189,20 +190,39 @@ export function composeAssignments(contract, availability = {}, options = {}) {
       const reasons = judgeListPick.skipped.map((entry) => `${entry.id}: ${entry.reason}`).join("; ");
       throw new Error(`runtime_assignment_judge_unavailable: every entry of the judge list is unavailable for node ${node.id} and worker ${worker} (${reasons})`);
     }
+    // R20: in same-vendor mode a judge of the worker's own provider is
+    // admissible when it is another model at an equal or higher declared tier;
+    // the strongest such candidate is the default only when no other vendor has one.
+    const sameVendorMode = contract.judgeIndependence === SAME_VENDOR_REVIEW_MODE;
     const judge = declaredJudge
       ?? judgeListPick?.chosen
       ?? (preferredJudge && effectiveProvider(preferredJudge.runtime) !== workerProvider ? preferredJudge.id : undefined)
-      ?? strongest(candidates, workerProvider)?.id;
+      ?? strongest(candidates, workerProvider)?.id
+      ?? (sameVendorMode ? strongest(candidates.filter(({ id, runtime }) => id !== worker && isTierAdmissible(workerRuntime, runtime)), undefined)?.id : undefined);
     if (node.gate.enabled && (!judge || !contract.runtimes[judge])) {
       throw new Error(`runtime_assignment_judge_unavailable: no available cross-vendor judge for node ${node.id} and worker ${worker}`);
     }
     const judgeRuntime = judge ? contract.runtimes[judge] : undefined;
     if (node.gate.enabled && workerRuntime && judgeRuntime && effectiveProvider(judgeRuntime) === workerProvider) {
-      throw new Error(`runtime_assignment_judge_unavailable: no available cross-vendor judge for node ${node.id} and worker ${worker}`);
+      if (!sameVendorMode) throw new Error(`runtime_assignment_judge_unavailable: no available cross-vendor judge for node ${node.id} and worker ${worker}`);
+      if (judge === worker) throw new Error(`runtime_assignment_judge_unavailable: same-vendor mode needs a judge other than worker ${worker} for node ${node.id}`);
+      const refusal = sameVendorTierRefusal(/** @type {{harness: string, model: string}} */ (workerRuntime), /** @type {{harness: string, model: string}} */ (judgeRuntime));
+      if (refusal) throw new Error(`runtime_assignment_judge_unavailable: ${refusal.message} for node ${node.id}`);
     }
     assignments[node.id] = { worker, judge: judge ?? worker };
   }
   return assignments;
+}
+
+/**
+ * @param {RuntimeLike} workerRuntime
+ * @param {RuntimeLike} judgeRuntime
+ * @returns {boolean}
+ */
+function isTierAdmissible(workerRuntime, judgeRuntime) {
+  if (typeof workerRuntime.harness !== "string" || typeof workerRuntime.model !== "string") return false;
+  if (typeof judgeRuntime.harness !== "string" || typeof judgeRuntime.model !== "string") return false;
+  return sameVendorTierRefusal({ harness: workerRuntime.harness, model: workerRuntime.model }, { harness: judgeRuntime.harness, model: judgeRuntime.model }) === null;
 }
 
 /**

@@ -183,3 +183,19 @@ test("an explicit runtime default is never overridden by the config", () => {
   });
   assert.deepEqual(assignments.composed, { worker: "dshA", judge: "claudeA" });
 });
+
+test("same-vendor mode assigns a same-provider judge of equal or higher tier and refuses a lower one", () => {
+  const runtimes = {
+    sonnet: { harness: "claude", model: "claude-sonnet-5", vendor: "anthropic", tier: 2, costRank: 3 },
+    opus: { harness: "claude", model: "claude-opus-5-5", vendor: "anthropic", tier: 3, costRank: 4 },
+  };
+  const node = { id: "build", gate: { enabled: true } };
+  const pair = (/** @type {string} */ worker, /** @type {string|undefined} */ judge, /** @type {string|undefined} */ mode) => composeAssignments(/** @type {any} */ ({
+    runtimes, runtimeDefaults: { worker, ...(judge ? { judge } : {}) }, ...(mode ? { judgeIndependence: mode } : {}), nodes: [node],
+  }), { sonnet: { available: true, exhaustedUntil: null, reason: "" }, opus: { available: true, exhaustedUntil: null, reason: "" } });
+  assert.throws(() => pair("sonnet", "opus", undefined), /no available cross-vendor judge/u, "without the opt-in a same-provider pair stays refused");
+  assert.deepEqual(pair("sonnet", "opus", "same-vendor").build, { worker: "sonnet", judge: "opus" });
+  assert.deepEqual(pair("sonnet", undefined, "same-vendor").build, { worker: "sonnet", judge: "opus" }, "the default judge is the strongest same-provider model when no other vendor exists");
+  assert.throws(() => pair("opus", "sonnet", "same-vendor"), /judge tier 2 \(claude-sonnet-5\) is below worker tier 3/u);
+  assert.throws(() => pair("sonnet", "sonnet", "same-vendor"), /needs a judge other than worker sonnet/u);
+});

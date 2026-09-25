@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { validateContract } from "../../src/contract/index.mjs";
-import { declaredModelTier } from "../../src/harnesses/catalogue.mjs";
+import { declaredModelTier } from "../../src/harnesses/model-tiers.mjs";
 import { SAME_PROVIDER_REVIEW_LABEL } from "../../src/contract/judge-independence.mjs";
 import { buildGraph } from "../../src/campaign/campaign-brief-graph.mjs";
 import { renderCampaignBriefMarkdown } from "../../src/report/campaign-brief.mjs";
