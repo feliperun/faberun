@@ -459,7 +459,7 @@ test("attempt affinity holds the failover runtime across the review path's next 
     runtimes: {
       primary: { harness: "codex", model: "primary", executable: fakeCodex(directory, "quota-429"), fallback: "backup" },
       backup: { harness: "codex", model: "backup", executable: fakeCodex(directory, "pass") },
-      arbiter: { harness: "codex", model: "arbiter", vendor: "arbiter-vendor", executable: judge },
+      arbiter: { harness: "codex", model: "arbiter", config: { model_provider: "deepseek" }, executable: judge },
     },
     nodes: [RE_REVIEW_NODE],
   }));
@@ -491,8 +491,8 @@ test("attempt affinity holds the judge's failover runtime across the revision it
     runtimeDefaults: { worker: "primary", judge: "first" },
     runtimes: {
       primary: { harness: "codex", model: "primary", executable: fakeCodex(directory, "pass") },
-      first: { harness: "codex", model: "first", vendor: "first-judge-vendor", executable: fakeCodex(directory, "quota-429"), fallback: "second" },
-      second: { harness: "codex", model: "second", vendor: "second-judge-vendor", executable: reserve },
+      first: { harness: "codex", model: "first", config: { model_provider: "deepseek" }, executable: fakeCodex(directory, "quota-429"), fallback: "second" },
+      second: { harness: "codex", model: "second", config: { model_provider: "deepseek" }, executable: reserve },
     },
     nodes: [RE_REVIEW_NODE],
   }));

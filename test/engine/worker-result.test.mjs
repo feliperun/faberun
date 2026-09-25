@@ -400,7 +400,7 @@ test("a second unparseable worker result takes the failover edge before it block
     runtimes: {
       first: { harness: "codex", model: "first", executable: first, fallback: "second" },
       second: { harness: "codex", model: "second", executable: second },
-      judge: { harness: "codex", model: "judge", executable: judge, vendor: "openai-judge" },
+      judge: { harness: "codex", model: "judge", executable: judge, config: { model_provider: "deepseek" } },
     },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: { maxRevisions: 0 } }],
   }));

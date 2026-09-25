@@ -62,7 +62,7 @@ test("a read-only judge's verdict reaches the gate", async () => {
   const directory = mkdtempSync(join(tmpdir(), "read-only-judge-"));
   const runtimes = {
     luna: { harness: "codex", model: "gpt-5.6-luna" },
-    sol: { harness: "codex", model: "gpt-5.6-sol", vendor: "openai-sol", sandbox: "read-only" },
+    sol: { harness: "codex", model: "gpt-5.6-sol", config: { model_provider: "deepseek" }, sandbox: "read-only" },
   };
   const path = writeContract(directory, fixture({
     id: "read-only-judge-run",

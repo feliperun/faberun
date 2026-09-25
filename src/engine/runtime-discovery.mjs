@@ -1,4 +1,5 @@
 import { normalizeProviderAvailability, probeRuntime } from "../harnesses/index.mjs";
+import { effectiveProvider } from "../contract/provider.mjs";
 
 // Availability normalization belongs to the adapter registry, which is where
 // each provider's own exhaustion, balance, and authentication wording is
@@ -149,14 +150,15 @@ export function composeAssignments(contract, availability = {}, options = {}) {
     const workerRuntime = contract.runtimes[worker];
     const judgeOmitted = node.gate.runtime === undefined && contract.runtimeDefaults?.judge === undefined;
     const preferredJudge = judgeOmitted ? candidateById(candidates, config?.judge) : undefined;
+    const workerProvider = effectiveProvider(workerRuntime);
     const judge = node.gate.runtime ?? contract.runtimeDefaults?.judge
-      ?? (preferredJudge && preferredJudge.runtime.vendor !== workerRuntime.vendor ? preferredJudge.id : undefined)
-      ?? strongest(candidates, workerRuntime.vendor)?.id;
+      ?? (preferredJudge && effectiveProvider(preferredJudge.runtime) !== workerProvider ? preferredJudge.id : undefined)
+      ?? strongest(candidates, workerProvider)?.id;
     if (node.gate.enabled && (!judge || !contract.runtimes[judge])) {
       throw new Error(`runtime_assignment_judge_unavailable: no available cross-vendor judge for node ${node.id} and worker ${worker}`);
     }
     const judgeRuntime = judge ? contract.runtimes[judge] : undefined;
-    if (node.gate.enabled && workerRuntime && judgeRuntime && judgeRuntime.vendor === workerRuntime.vendor) {
+    if (node.gate.enabled && workerRuntime && judgeRuntime && effectiveProvider(judgeRuntime) === workerProvider) {
       throw new Error(`runtime_assignment_judge_unavailable: no available cross-vendor judge for node ${node.id} and worker ${worker}`);
     }
     assignments[node.id] = { worker, judge: judge ?? worker };
@@ -189,12 +191,12 @@ export function nextSameTierRuntime(contract, stateRouting, role, current, attem
   const currentRuntime = contract.runtimes[current];
   if (!currentRuntime) return null;
   const workerId = stateRouting.assignments?.worker;
-  const workerVendor = workerId ? contract.runtimes[workerId]?.vendor : null;
+  const workerProvider = workerId && contract.runtimes[workerId] ? effectiveProvider(contract.runtimes[workerId]) : null;
   const used = new Set(attempted);
   return Object.entries(contract.runtimes)
     .filter(([id, runtime]) => id !== current && !used.has(id) && sameTier(runtime, currentRuntime))
     .filter(([id]) => isRuntimeAvailable(stateRouting.availability?.[id]))
-    .filter(([, runtime]) => role !== "judge" || runtime.vendor !== workerVendor)
+    .filter(([, runtime]) => role !== "judge" || effectiveProvider(runtime) !== workerProvider)
     .sort((left, right) => runtimeOrder(left[1]) - runtimeOrder(right[1]))
     .map(([id]) => id)
     .at(0) ?? null;
@@ -232,11 +234,11 @@ export function cheapest(candidates) {
  * `cheapest` for `setup`'s cross-vendor judge default.
  *
  * @param {RuntimeCandidate[]} candidates
- * @param {string} vendor
+ * @param {string|undefined} vendor
  * @returns {RuntimeCandidate|null}
  */
 export function strongest(candidates, vendor) {
-  return [...candidates].filter(({ runtime }) => runtime.vendor !== vendor)
+  return [...candidates].filter(({ runtime }) => effectiveProvider(runtime) !== vendor)
     .sort((left, right) => tierOrder(right.runtime) - tierOrder(left.runtime)
       || runtimeOrder(right.runtime) - runtimeOrder(left.runtime)
       || left.order - right.order).at(0) ?? null;
