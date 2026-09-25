@@ -376,6 +376,7 @@ dirties the ignore snapshot the controller compares against.
   append-only event records.
 - [history/README.md](history/README.md) — dated records and the path mapping
   from before the move.
+- [harnesses/claude-endpoints.md](harnesses/claude-endpoints.md) — GLM through Claude Code on the Z.ai Coding Plan.
 - [harnesses/zcode-cli.md](harnesses/zcode-cli.md) — the Z.ai Code harness.
 - [harnesses/fx.md](harnesses/fx.md) — the ACP-driven DeepSeek harness.
 - [AGENTS.md](../AGENTS.md) — the canonical contributor and agent playbook.

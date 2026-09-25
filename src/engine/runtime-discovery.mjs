@@ -61,6 +61,18 @@ export const DISCOVERY_RUNTIME_DEFINITIONS = Object.freeze({
     tier: 1,
     costRank: 1,
   },
+  // GLM through Claude Code, which the Z.ai Coding Plan lists as a supported
+  // tool. Declared before zcode-glm so it wins the tie-break: measured
+  // 2026-09-25 on one review prompt, 384-392 MB per turn against 0.9-1.0 GB
+  // for zcode, and the tiny-text campaign peaked at 865 MB against 1,575 MB.
+  "claude-glm": {
+    harness: "claude",
+    model: "glm-5.3",
+    vendor: "zhipu",
+    config: { base_url: "https://api.z.ai/api/anthropic", "auth_token.env_key": "ZAI_API_KEY" },
+    tier: 1,
+    costRank: 1,
+  },
   "zcode-glm": {
     harness: "zcode",
     model: "glm-5.3",

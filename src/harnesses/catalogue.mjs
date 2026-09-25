@@ -74,6 +74,11 @@ export const DECLARED_MODEL_CATALOGUES = Object.freeze({
     declaredModel("claude-sonnet-5", { efforts: CLAUDE_EFFORTS }),
     declaredModel("claude-opus-5", { efforts: CLAUDE_EFFORTS }),
     declaredModel("claude-sonnet-4-6", { efforts: CLAUDE_EFFORTS }),
+    // GLM through a runtime whose `config.base_url` names Z.ai's
+    // Anthropic-compatible endpoint. The CLI sized its own window at 200,000
+    // tokens for this model (2026-09-25 result event), and `--effort` is a
+    // Claude-model flag, so no effort is declared.
+    declaredModel("glm-5.3", { contextWindowTokens: 200_000, efforts: NO_EFFORTS }),
   ]),
   codex: Object.freeze([
     declaredModel("gpt-5.6", { efforts: CODEX_EFFORTS }),

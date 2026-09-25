@@ -273,7 +273,7 @@ routing policy.
 
 | Harness | Default vendor | Example model |
 | --- | --- | --- |
-| `claude` | Anthropic | `claude-sonnet` |
+| `claude` | Anthropic; another Anthropic-compatible endpoint declared per runtime | `claude-sonnet`, `claude-glm` |
 | `codex` | OpenAI | `codex-gpt` |
 | `agy` | Google | `agy-gemini` |
 | `dsh` | declared per runtime; DeepSeek in the discovery entry | `dsh-deepseek` |

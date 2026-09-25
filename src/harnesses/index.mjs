@@ -108,7 +108,7 @@ export const READ_BYTE_LIMIT = 32 * 1024;
  * One provider adapter: capabilities plus executable, version, command, and
  * result-normalization behavior.
  *
- * @typedef {{capabilities: HarnessCapabilities, permissionExecution: PermissionExecutionPolicy, executable: (runtime: HarnessRuntime) => string, versionArgs: (runtime: HarnessRuntime) => string[], parseVersion: (stdout: string, stderr?: string) => string|null, command: (runtime: HarnessRuntime, prompt: string, options: CommandOptions) => HarnessCommand, normalize: (stdout: string, exitCode: number|null, signal: string|null, options?: NormalizeOptions) => ProviderEnvelope}} HarnessAdapter
+ * @typedef {{capabilities: HarnessCapabilities, permissionExecution: PermissionExecutionPolicy, executable: (runtime: HarnessRuntime) => string, versionArgs: (runtime: HarnessRuntime) => string[], parseVersion: (stdout: string, stderr?: string) => string|null, command: (runtime: HarnessRuntime, prompt: string, options: CommandOptions) => HarnessCommand, normalize: (stdout: string, exitCode: number|null, signal: string|null, options?: NormalizeOptions) => ProviderEnvelope, reportsCost?: (runtime: {harness: string, config?: Record<string, unknown>}) => boolean}} HarnessAdapter
  */
 
 /**
@@ -236,7 +236,7 @@ export function providerCommand(runtime, prompt, options = {}) {
 }
 
 /**
- * @param {string|{harness: string}} runtimeOrHarness
+ * @param {string|{harness: string, model?: string, config?: Record<string, unknown>}} runtimeOrHarness
  * @param {string} stdout
  * @param {number|null} exitCode
  * @param {string|null} signal
@@ -246,7 +246,9 @@ export function providerCommand(runtime, prompt, options = {}) {
 export function normalizeProviderResult(runtimeOrHarness, stdout, exitCode, signal, options = {}) {
   const runtime = typeof runtimeOrHarness === "string" ? { harness: runtimeOrHarness } : runtimeOrHarness;
   const harness = getHarness(runtime.harness);
-  return harness.normalize(stdout, exitCode, signal, options);
+  const envelope = harness.normalize(stdout, exitCode, signal, options);
+  // A cost the harness reports in another vendor's rates is not a bill.
+  return harness.reportsCost?.(runtime) === false ? { ...envelope, costUsd: null } : envelope;
 }
 
 /**
