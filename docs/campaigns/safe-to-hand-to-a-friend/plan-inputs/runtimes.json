@@ -1,0 +1,40 @@
+{
+  "claude-sonnet": {
+    "harness": "claude",
+    "model": "claude-sonnet-5",
+    "vendor": "anthropic",
+    "reasoning": "high",
+    "permissionMode": "bypassPermissions",
+    "tier": 2,
+    "costRank": 3
+  },
+  "claude-opus": {
+    "harness": "claude",
+    "model": "claude-opus-5-5",
+    "vendor": "anthropic",
+    "reasoning": "high",
+    "tier": 3,
+    "costRank": 4,
+    "pricing": {
+      "inputPerMTok": 4,
+      "cachedInputPerMTok": 0.2,
+      "outputPerMTok": 20
+    }
+  },
+  "claude-fable": {
+    "harness": "claude",
+    "model": "claude-fable-5-1",
+    "vendor": "anthropic",
+    "reasoning": "high",
+    "tier": 4,
+    "costRank": 5
+  },
+  "codex-sol": {
+    "harness": "codex",
+    "model": "gpt-6-sol",
+    "vendor": "openai",
+    "reasoning": "high",
+    "tier": 3,
+    "costRank": 4
+  }
+}
