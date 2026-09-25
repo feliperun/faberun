@@ -14,6 +14,7 @@ set -eu
 REPO="feliperun/faberun"
 RELEASES_URL="https://api.github.com/repos/$REPO/releases/latest"
 ARCHIVE_BASE="https://github.com/$REPO/archive/refs"
+FX_INSTALLER_URL="https://github.com/feliperun/fx/releases/latest/download/install.sh"
 
 home="${FABERUN_HOME:-$HOME/.faberun}"
 bin_dir="${FABERUN_BIN_DIR:-$HOME/.local/bin}"
@@ -169,7 +170,33 @@ esac
 printf '[ok] installed · faberun %s · %s\n' "$printed" "$bin_dir/faberun"
 
 # ---------------------------------------------------------------------------
-# 6. PATH advice
+# 6. The fx flavor
+# ---------------------------------------------------------------------------
+
+# The fx harness runs the flavor build (https://github.com/feliperun/fx/tree/flavor):
+# the official fx plus the patches faberun's workers need, such as keeping
+# skills from directories above a worktree out of the worker's context. It
+# replaces an official fx in the same directory. A missing release, no curl or
+# an unsupported host only warns: every other harness works without it.
+if [ -n "${FABERUN_NO_FX:-}" ]; then
+  printf '[skip] fx · FABERUN_NO_FX is set\n'
+else
+  fx_installer="${FABERUN_FX_INSTALLER:-}"
+  if [ -z "$fx_installer" ]; then
+    fx_installer="$home/tmp/fx-install.sh"
+    mkdir -p "$home/tmp"
+    if ! command -v curl >/dev/null 2>&1 || ! curl -fsSL "$FX_INSTALLER_URL" -o "$fx_installer" 2>/dev/null; then
+      printf '[warn] fx · no flavor installer reachable at %s · skipped\n' "$FX_INSTALLER_URL"
+      fx_installer=""
+    fi
+  fi
+  if [ -n "$fx_installer" ] && ! FX_INSTALL_DIR="$bin_dir" sh "$fx_installer"; then
+    printf '[warn] fx · the flavor did not install · the fx harness stays unavailable\n'
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 7. PATH advice
 # ---------------------------------------------------------------------------
 
 case ":$PATH:" in
@@ -181,7 +208,7 @@ case ":$PATH:" in
 esac
 
 # ---------------------------------------------------------------------------
-# 7. Hand off to setup
+# 8. Hand off to setup
 # ---------------------------------------------------------------------------
 
 if [ -z "$no_setup" ]; then

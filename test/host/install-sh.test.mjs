@@ -59,6 +59,22 @@ function tarballOf(parent) {
   return target;
 }
 
+/**
+ * A stand-in for the fx flavor installer: it honours FX_INSTALL_DIR the way
+ * the real one does and writes an `fx` that reports a flavor version, or
+ * fails outright. No test downloads the real installer.
+ *
+ * @param {"pass"|"fail"} mode
+ * @returns {string}
+ */
+function fakeFxInstaller(mode) {
+  const path = join(mkdtempSync(join(tmpdir(), "install-sh-fx-")), "install.sh");
+  writeFileSync(path, mode === "pass"
+    ? 'mkdir -p "$FX_INSTALL_DIR"\nprintf \'#!/bin/sh\\necho 0.0.11-flavor.1\\n\' > "$FX_INSTALL_DIR/fx"\nchmod +x "$FX_INSTALL_DIR/fx"\necho "[ok] fx · 0.0.11-flavor.1"\n'
+    : 'echo "[fail] fx · no flavor build for this host" >&2\nexit 1\n');
+  return path;
+}
+
 /** @returns {{root: string, home: string, bin: string}} */
 function workspace() {
   const root = mkdtempSync(join(tmpdir(), "install-sh-"));
@@ -86,6 +102,7 @@ function runInstall(space, source, version, extraEnv = {}) {
       FABERUN_INSTALL_SOURCE: source,
       FABERUN_VERSION: version,
       FABERUN_NO_SETUP: "1",
+      FABERUN_FX_INSTALLER: fakeFxInstaller("pass"),
       ...extraEnv,
     },
   });
@@ -194,4 +211,27 @@ test("withEmptyPath exposes only the binaries it is asked for", { skip: process.
     const present = spawnSync("sh", ["-c", "command -v sh"], { encoding: "utf8" });
     assert.equal(present.status, 0, present.stderr);
   }, { binaries: ["sh"] });
+});
+
+test("install.sh installs the fx flavor beside faberun", { skip: POSIX_ONLY }, () => {
+  const space = workspace();
+  const result = runInstall(space, stageTree().dir, PACKAGE_VERSION);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stdout, /\[ok\] fx · 0\.0\.11-flavor\.1/);
+  const fx = spawnSync(join(space.bin, "fx"), ["--version"], { encoding: "utf8" });
+  assert.equal(fx.stdout.trim(), "0.0.11-flavor.1");
+});
+
+test("install.sh skips the fx flavor on request and survives a failed one", { skip: POSIX_ONLY }, () => {
+  const skipped = workspace();
+  const off = runInstall(skipped, stageTree().dir, PACKAGE_VERSION, { FABERUN_NO_FX: "1" });
+  assert.equal(off.status, 0, `${off.stdout}\n${off.stderr}`);
+  assert.match(off.stdout, /\[skip\] fx · FABERUN_NO_FX is set/);
+  assert.equal(existsSync(join(skipped.bin, "fx")), false);
+
+  const failing = workspace();
+  const failed = runInstall(failing, stageTree().dir, PACKAGE_VERSION, { FABERUN_FX_INSTALLER: fakeFxInstaller("fail") });
+  assert.equal(failed.status, 0, `${failed.stdout}\n${failed.stderr}`);
+  assert.match(failed.stdout, /\[warn\] fx · the flavor did not install/);
+  assertInstall(failing, PACKAGE_VERSION);
 });
