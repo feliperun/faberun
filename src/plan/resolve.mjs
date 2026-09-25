@@ -25,6 +25,7 @@ import { appendJsonl, readJson } from "../run/store.mjs";
 import { freezePlan } from "./freeze.mjs";
 import { collectHumanSteps } from "./human-step.mjs";
 import { highestOf, modelOf } from "./pipeline-shape.mjs";
+import { reviewerProvenanceOf } from "./reviewer.mjs";
 import { PLANNER_SESSION_ID, assembleFrozenPlan, frozenContractRawOf, invalidPlanFinding, writeFrozenPlan } from "./pipeline.mjs";
 import { contestPlan } from "./contest.mjs";
 import { parseSpec } from "./spec.mjs";
@@ -97,7 +98,7 @@ export async function resolvePlanningPipeline({ plansDir, cwd, answers }) {
   if (record.status !== "contested") throw new Error(`plan at ${planPath} is not contested (status: ${record.status})`);
   if (!record.plan) throw new Error(`plan at ${planPath} has no plan to resume: the draft or revise that produced it never validated; run faberun plan again instead of --resolve`);
   if (!record.resume) throw new Error(`plan at ${planPath} predates faberun plan --resolve and carries no resume context; run faberun plan again`);
-  const { campaignId, phase, specPath, specDigest, runtimeDefaults, runtimes, verification, packageMode, targetedFix, approveBelow, repoFacts } = record.resume;
+  const { campaignId, phase, specPath, specDigest, runtimeDefaults, reviewers, runtimes, verification, packageMode, targetedFix, approveBelow, repoFacts } = record.resume;
   // R16: recomputed from the same spec bytes the contest recorded, so a plan
   // resumed through --resolve carries the same declared operator steps a
   // fresh freeze would.
@@ -150,7 +151,7 @@ export async function resolvePlanningPipeline({ plansDir, cwd, answers }) {
       provenance: {
         targetGitHead: repoFacts.gitHead,
         planner: { runtimeId: runtimeDefaults.worker ?? "", model: modelOf(runtimes, runtimeDefaults.worker) },
-        reviewer: { runtimeId: runtimeDefaults.judge ?? "", model: modelOf(runtimes, runtimeDefaults.judge) },
+        reviewer: reviewerProvenanceOf(reviewers, runtimes),
         sizing: assembled.sizing.transformations,
         findings,
       },

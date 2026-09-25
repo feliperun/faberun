@@ -26,6 +26,7 @@ import { campaignCli } from "../cli/campaign.mjs";
 import { appendJsonl } from "../run/store.mjs";
 import { allowanceDelta, allowanceEventFields, sampleAllowance } from "../seat/allowance.mjs";
 import { askPlanningRuntimes, refusePlanningSilence, refuseUnplannableRuntimes } from "./preflight.mjs";
+import { firstEligibleReviewer, reviewerProvenanceOf } from "./reviewer.mjs";
 import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
 import { checkPlanProofs } from "./proof-check.mjs";
@@ -95,7 +96,7 @@ export const DEFAULT_NODE_BUDGET_MS = 600_000;
 const APPROVE_BELOW_VALUES = new Set(["standard", "high", "none"]);
 
 /**
- * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, runtimes: Record<string, JsonObject>, verification?: VerificationSuites, packageMode?: import("./sizing.mjs").PackageMode, targetedFix?: boolean, launch: LaunchFn, wait: WaitFn, ask?: AskFn}} options
+ * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, reviewers?: string[], runtimes: Record<string, JsonObject>, verification?: VerificationSuites, packageMode?: import("./sizing.mjs").PackageMode, targetedFix?: boolean, launch: LaunchFn, wait: WaitFn, ask?: AskFn}} options
  *   `targetedFix` allows a plan with a single node. Sizing refuses one by
  *   default because a phase that decomposes into one node is usually a plan
  *   that was never decomposed; a targeted fix is the case where one node is
@@ -105,7 +106,7 @@ const APPROVE_BELOW_VALUES = new Set(["standard", "high", "none"]);
 export async function runPlanningPipeline(options) {
   const {
     specPath, campaignId, phase, runtimes, launch, wait,
-    reviewRounds = 2, runtimeDefaults = {}, verification = {}, targetedFix = false,
+    reviewRounds = 2, runtimeDefaults = {}, reviewers = [], verification = {}, targetedFix = false,
   } = options;
   const ask = options.ask ?? askPlanningRuntimes;
   // Implementation work is sized by what it writes; exploratory work -- an
@@ -191,8 +192,12 @@ export async function runPlanningPipeline(options) {
     const contractPath = join(plansDir, "nodes", `${kind}-${stageN}.contract.json`);
     mkdirSync(dirname(contractPath), { recursive: true });
     const relativeCwd = relative(dirname(contractPath), cwd) || ".";
+    // R19: a review or spec-review stage's runtime comes from the planner's
+    // own reviewer list, resolved fresh at every stage so a refusal recorded
+    // between rounds is not repeated.
+    const reviewerId = kind === "review" || kind === "spec-review" ? firstEligibleReviewer(reviewers, runtimes) ?? undefined : undefined;
     const raw = buildPlanningContract(kind, {
-      campaignId, phase, n: stageN, runtimes, runtimeDefaults, cwd: relativeCwd, ...inputs,
+      campaignId, phase, n: stageN, runtimes, runtimeDefaults, ...(reviewerId === undefined ? {} : { reviewerId }), cwd: relativeCwd, ...inputs,
     });
     const validated = validateContract(raw, contractPath);
     writeFileSync(contractPath, `${JSON.stringify(raw, null, 2)}\n`);
@@ -263,7 +268,7 @@ export async function runPlanningPipeline(options) {
     plan: currentPlan ?? null,
     resume: {
       campaignId, phase, specPath: relativeSpecPath, specDigest, reviewRounds,
-      runtimeDefaults, runtimes, verification, packageMode, targetedFix, approveBelow, repoFacts,
+      runtimeDefaults, reviewers, runtimes, verification, packageMode, targetedFix, approveBelow, repoFacts,
     },
   });
 
@@ -349,7 +354,7 @@ export async function runPlanningPipeline(options) {
       provenance: {
         targetGitHead: repoFacts.gitHead,
         planner: { runtimeId: runtimeDefaults.worker ?? "", model: modelOf(runtimes, runtimeDefaults.worker) },
-        reviewer: { runtimeId: runtimeDefaults.judge ?? "", model: modelOf(runtimes, runtimeDefaults.judge) },
+        reviewer: reviewerProvenanceOf(reviewers, runtimes),
         sizing: assembled.sizing.transformations,
         findings,
       },

@@ -25,7 +25,7 @@ import { validateVerificationCommands } from "../contract/verification.mjs";
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
 /** @typedef {"draft"|"review"|"revise"|"spec-author"|"spec-review"} PlanningKind */
 /** @typedef {"low"|"standard"|"high"} RiskTier */
-/** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, specPath?: string, repoFactsPath?: string, cataloguePath?: string, packageMode?: import("./sizing.mjs").PackageMode, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
+/** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, reviewerId?: string, specPath?: string, repoFactsPath?: string, cataloguePath?: string, packageMode?: import("./sizing.mjs").PackageMode, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
 /** @typedef {{id: string, objective: string, taskKind: string, riskTier: RiskTier, dependsOn: string[], readFiles: string[], writeFiles: string[], scopeAcknowledged: string[], definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], verification: import("../contract/verification.mjs").VerificationCommand[], expectedTurns?: number}} PlanOutputNode */
 /** @typedef {{nodes: PlanOutputNode[], phases?: PlanPhase[], findings?: PlanFindingOutput[], justification?: string}} PlanOutput */
 /** @typedef {{id: string, requirementIds: string[], nodeIds?: string[], deliverable: string}} PlanPhase */
@@ -78,20 +78,24 @@ export function renderTaskKindCatalogue() {
 }
 
 /**
- * Which of the caller's `runtimeDefaults` roles resolves this contract's
- * single node. A draft or revise is authored by the worker role; a review or
- * spec-review is graded by the judge role — there is no gate on this
- * single-node contract, so the role only decides which runtime id the node
- * itself carries.
+ * Which of the caller's runtime inputs resolves this contract's single node.
+ * A draft or revise is authored by the worker role, read off
+ * `runtimeDefaults.worker`; a review or spec-review is graded by the
+ * reviewer role, read off `inputs.reviewerId` instead (R19) -- the planner's
+ * own ordered reviewer list (`reviewer.mjs`), never `runtimeDefaults.judge`,
+ * which is R18's judge-list default for the frozen contract's nodes and
+ * shares nothing with this one. There is no gate on this single-node
+ * contract, so the role only decides which runtime id the node itself
+ * carries.
  *
- * @type {Record<PlanningKind, "worker"|"judge">}
+ * @type {Record<PlanningKind, "worker"|"reviewer">}
  */
 const KIND_ROLE = Object.freeze({
   draft: "worker",
   revise: "worker",
   "spec-author": "worker",
-  review: "judge",
-  "spec-review": "judge",
+  review: "reviewer",
+  "spec-review": "reviewer",
 });
 
 /** @type {Record<PlanningKind, string[]>} */
@@ -243,7 +247,7 @@ export function buildPlanningContract(kind, inputs) {
 
   const readFiles = readFilesForKind(kind, inputs);
   const role = KIND_ROLE[kind];
-  const runtimeId = (inputs.runtimeDefaults ?? {})[role];
+  const runtimeId = role === "reviewer" ? inputs.reviewerId : (inputs.runtimeDefaults ?? {})[role];
 
   /** @type {JsonObject} */
   const taskPacket = {
