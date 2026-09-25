@@ -262,6 +262,12 @@ export async function runReviewRounds(options) {
 
   for (let round = 1; round <= reviewRounds; round += 1) {
     roundsRun = round;
+    // Only a round whose plan a review actually graded has a critical count
+    // R14 can compare: an invalid plan skips review, and its one critical says
+    // the plan did not validate. Measured 2026-09-25 on the 3a gate: an invalid
+    // draft counted 1, the first real review counted 2 (one of them the
+    // scope-closure pre-flight), and R14 stopped the plan after 2 of 4 rounds.
+    const reviewed = plan !== null;
     if (plan) {
       // The reviewer grades a structurally valid plan; an invalid one skips
       // review and reaches revise through the validator's finding instead.
@@ -322,8 +328,8 @@ export async function runReviewRounds(options) {
     // not change that. Checked before the round-budget exit below, so the
     // more informative finding wins when a round is both the last one and a
     // non-improvement over the one before it.
-    const previousCritical = criticalHistory[criticalHistory.length - 1];
-    criticalHistory.push(criticalFindings.length);
+    const previousCritical = reviewed ? criticalHistory[criticalHistory.length - 1] : undefined;
+    if (reviewed) criticalHistory.push(criticalFindings.length);
     if (previousCritical !== undefined && criticalFindings.length >= previousCritical) {
       const notConverging = revisionNotConvergingFinding(round, criticalHistory);
       findings = [...findings, notConverging];

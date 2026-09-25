@@ -181,3 +181,37 @@ test("an invalid revise output is retried once without spending a round, and a s
   assert.ok(ids.includes("F1"), "the round's own finding still drives the contested record");
   assert.ok(ids.includes("plan-shape-revise-r1-attempt2"), "the second attempt's rejection is what actually contests");
 });
+
+test("a round whose draft never validated sets no baseline for R14", async () => {
+  // The 3a gate's shape: the draft is invalid, so round 1 has no review and
+  // its one critical only says the plan did not validate. Round 2's review is
+  // the first to grade a plan and finds two; that is a baseline, not a
+  // regression, and round 3's revise resolves them.
+  const draftInvalid = { id: "plan-shape-draft", severity: "critical", nodeId: "plan", text: "plan.nodes[0].definitionOfDone[0] must declare proof or judgment: true" };
+  const reviewFindings = [
+    [{ id: "F1", severity: "critical", nodeId: "build", text: "ordered before what it reads" }, { id: "F2", severity: "critical", nodeId: "build", text: "scope does not close" }],
+    [],
+  ];
+  let reviewCalls = 0;
+  let reviseCalls = 0;
+  const runStage = async (/** @type {string} */ kind) => {
+    if (kind === "review") {
+      const findings = reviewFindings[reviewCalls];
+      reviewCalls += 1;
+      return { contract: { id: `review-${reviewCalls}` }, output: { findings } };
+    }
+    if (kind === "revise") {
+      reviseCalls += 1;
+      return { contract: { id: `revise-${reviseCalls}` }, output: { plan: planOutput({ objective: `Implement the feature, revision ${reviseCalls}` }) } };
+    }
+    throw new Error(`unexpected stage ${kind}`);
+  };
+  const { options, logs } = harness({ reviewRounds: 4, plan: /** @type {any} */ (null), runStage });
+  options.findings = [draftInvalid];
+
+  const result = await runReviewRounds(/** @type {any} */ (options));
+
+  assert.equal(logs.some((entry) => entry.stage === "revision-not-converging"), false, JSON.stringify(logs));
+  assert.equal(result.resolved, true);
+  assert.equal(reviewCalls, 2);
+});
