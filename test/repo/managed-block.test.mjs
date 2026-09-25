@@ -55,3 +55,15 @@ test("the managed signal block alone does not block a launch", () => {
   writeFileSync(join(directory, "a.txt"), "dirty\n");
   assert.throws(() => assertLaunchBaseClean(directory, undefined), /uncommitted path/u);
 });
+
+test("a managed block appended to an AGENTS.md that committed none does not block a launch", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-managed-block-new-"));
+  execFileSync("git", ["-C", directory, "init", "-q"], { stdio: "ignore" });
+  const committed = "# AGENTS.md\n\nHuman guidance.\n";
+  writeFileSync(join(directory, "AGENTS.md"), committed);
+  commitAll(directory, "base");
+  writeFileSync(join(directory, "AGENTS.md"), `${committed}\n${SIGNAL_START}\nrun state\n${SIGNAL_END}\n`);
+  assert.doesNotThrow(() => assertLaunchBaseClean(directory, undefined));
+  writeFileSync(join(directory, "AGENTS.md"), `# AGENTS.md\n\nChanged guidance.\n\n${SIGNAL_START}\nrun state\n${SIGNAL_END}\n`);
+  assert.throws(() => assertLaunchBaseClean(directory, undefined), /uncommitted path/u);
+});
