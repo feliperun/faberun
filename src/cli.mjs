@@ -126,6 +126,8 @@ export const COMMAND_OPTIONS = {
     package: { type: "string" },
     "targeted-fix": { type: "boolean" },
     detach: { type: "boolean" },
+    resolve: { type: "string" },
+    answer: { type: "string", multiple: true },
     json: { type: "boolean" },
   },
 };
@@ -156,7 +158,12 @@ function parseCli(argv, quiet = false) {
   if (command === "setup" && parsed.positionals.length !== 0) return null;
   if (command === "init" && parsed.positionals.length !== 0) return null;
   if (command === "migrate" && parsed.positionals.length !== 0) return null;
-  if (command !== "doctor" && command !== "models" && command !== "bulk-read" && command !== "next" && command !== "update" && command !== "setup" && command !== "init" && command !== "migrate" && parsed.positionals.length !== 1) return null;
+  // `plan --resolve <plan-dir>` (R9) takes no spec positional: everything a
+  // fresh `plan` reads from it and its flags is already on the contested
+  // plan.json the run it resumes wrote.
+  if (command === "plan" && typeof parsed.values.resolve === "string" && parsed.values.resolve !== "") {
+    if (parsed.positionals.length !== 0) return null;
+  } else if (command !== "doctor" && command !== "models" && command !== "bulk-read" && command !== "next" && command !== "update" && command !== "setup" && command !== "init" && command !== "migrate" && parsed.positionals.length !== 1) return null;
   return {
     command,
     target: parsed.positionals[0],

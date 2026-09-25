@@ -553,18 +553,25 @@ Related: `faberun spec validate`.
 
 ## faberun plan
 ```text
-faberun plan <spec.md> [--campaign <value>] [--phase <value>] [--review-rounds <value>] [--approve-below <value>] [--runtime-defaults <value>] [--runtimes <value>] [--verification <value>] [--package <value>] [--targeted-fix] [--detach] [--json]
+faberun plan <spec.md> [--campaign <value>] [--phase <value>] [--review-rounds <value>] [--approve-below <value>] [--runtime-defaults <value>] [--runtimes <value>] [--verification <value>] [--package <value>] [--targeted-fix] [--detach] [--resolve <value>] [--answer <a>...] [--json]
 ```
 Run the planning pipeline outside the control session: draft, then review, then
 revise up to `--review-rounds` (default 2) whenever the reviewer's findings
 carry a `critical`, each stage an ordinary run whose invocations land in
 `usage.jsonl`. A round budget exhausted with a `critical` still open ends the
 plan `contested`; no contract is written and the campaign gets an
-`open-question`. Otherwise the plan is sized, routed and frozen; freezing never
-launches. The frozen plan's highest `riskTier` is compared against
-`--approve-below` (`standard` approves everything but a `high` node, `high`
-approves everything, `none` approves nothing); an unapproved plan gets its own
-`open-question`, resolved with `faberun campaign resolve`.
+`open-question` naming every critical finding's id. Otherwise the plan is
+sized, routed and frozen; freezing never launches. The frozen plan's highest
+`riskTier` is compared against `--approve-below` (`standard` approves
+everything but a `high` node, `high` approves everything, `none` approves
+nothing); an unapproved plan gets its own `open-question`, resolved with
+`faberun campaign resolve`. A contested plan is resolved with
+`faberun plan --resolve <plan-dir> --answer <finding-id>=accept` or
+`--answer <finding-id>=reject:<reason>` instead of the spec positional and
+`--campaign`/`--phase`: every critical finding needs one answer, each is
+recorded on the campaign journal as a `decision`, and the plan then resumes
+straight to sizing/routing/freeze from the plan it already has — no redraft,
+no provider call.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
@@ -578,14 +585,19 @@ approves everything, `none` approves nothing); an unapproved plan gets its own
 | `--package` | `implementation` or `exploratory` | What kind of work this package is, which decides how nodes are sized. `implementation` sizes by the write set (4 to 6 files, merging what falls under it). `exploratory` — an audit, a review, a survey — sizes by what each node reads and by risk: a one-file write set is the normal shape of a finding, no node is merged for being underfilled, and a node whose read surface dwarfs its siblings' is reported. | `implementation` |
 | `--targeted-fix` | none | Accept a plan with a single node. Sizing refuses one by default, because a phase that decomposes into one node is usually a plan that was never decomposed; a targeted fix is the case where one node is the honest answer. | off |
 | `--detach` | none | Spawn the whole pipeline detached and return once it starts. | off |
+| `--resolve` | path to a plan's directory | Resume the contested plan at this path from `--answer` instead of running draft/review/revise; replaces the spec positional and `--campaign`/`--phase`. | — |
+| `--answer` | `<finding-id>=accept` or `<finding-id>=reject:<reason>` | One decision per open critical finding; repeatable. Every critical finding on the contested plan needs one before it can resolve. | — |
 | `--json` | none | Emit the pipeline's result object as one JSON line. | off |
-Reads `<spec.md>` and the target campaign's record; writes
+Reads `<spec.md>` and the target campaign's record (or, with `--resolve`, the
+contested `plan.json` at that path and nothing else); writes
 `.runs/campaigns/<campaign-id>/plans/<phase>/` (`repo-facts.json`,
 `pipeline.jsonl`, the working plan and findings, and `plan.json` with either
 `contract.json` alongside it or `status: "contested"`), plus the campaign's
-`open-question` journal entries when a plan is contested or awaits approval.
+`open-question` journal entries when a plan is contested or awaits approval,
+and, on `--resolve`, one `decision` entry per answered finding.
 ```bash
 node src/cli.mjs plan docs/campaigns/feature-42/spec/SPEC.md --campaign feature-42 --phase build
+node src/cli.mjs plan --resolve .runs/campaigns/feature-42/plans/build --answer F1=accept --answer "F2=reject:already fixed upstream"
 ```
 Related: `faberun spec validate`, `faberun campaign resolve`, `faberun run`.
 

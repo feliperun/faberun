@@ -15,6 +15,7 @@ import { validateFinalVerification, validateSharedVerification } from "../contra
 import { colorLevel, statusToken } from "./brand.mjs";
 import { delay } from "../util.mjs";
 import { runPlanningPipeline } from "../plan/pipeline.mjs";
+import { parseAnswerFlags, resolvePlanningPipeline } from "../plan/resolve.mjs";
 import { campaignTree, runDirectory } from "../run/paths.mjs";
 import { readCampaign } from "../campaign/record.mjs";
 
@@ -126,10 +127,11 @@ export function loadVerificationSuites(path) {
 
 /**
  * @param {string} target
- * @param {{campaign?: string, phase?: string, "review-rounds"?: string, "approve-below"?: string, "runtime-defaults"?: string, runtimes?: string, verification?: string, package?: string, "targeted-fix"?: boolean, detach?: boolean, json?: boolean}} values
+ * @param {{campaign?: string, phase?: string, "review-rounds"?: string, "approve-below"?: string, "runtime-defaults"?: string, runtimes?: string, verification?: string, package?: string, "targeted-fix"?: boolean, detach?: boolean, resolve?: string, answer?: string[], json?: boolean}} values
  * @returns {Promise<void>}
  */
 export async function planCli(target, values) {
+  if (typeof values.resolve === "string" && values.resolve) return await resolvePlanCli(values);
   const specPath = resolve(target);
   if (typeof values.campaign !== "string" || !values.campaign) throw new Error("plan requires --campaign <id>");
   const campaignId = values.campaign;
@@ -222,12 +224,60 @@ export async function planCli(target, values) {
     return;
   }
   if (result.status === "contested") {
-    process.stdout.write(`[plan] ${campaignId} phase ${phase} contested after ${result.round} round(s) · ${result.findings.length} finding(s) · ${result.planPath}\n`);
-    process.exitCode = 1;
+    renderContested(campaignId, phase, result);
     return;
   }
   for (const warning of result.warnings) process.stdout.write(`${statusToken("warn", colorLevel(process.env, process.stdout.isTTY))} ${warning}\n`);
   process.stdout.write(`[plan] ${campaignId} phase ${phase} frozen · approved ${result.approved} · ${result.contractPath}\n`);
+}
+
+/**
+ * `faberun plan --resolve <plan-dir> --answer <finding-id>=accept|reject:<reason>`
+ * (R9): apply the operator's decisions to a contested plan's open critical
+ * findings and resume straight to sizing/routing/freeze, without redrafting
+ * or asking a provider anything. `--campaign`/`--phase`/the spec positional
+ * are not needed here — everything this needs is the resume context the
+ * contest already wrote to `plan.json` (`src/plan/contest.mjs`).
+ *
+ * @param {{resolve?: string, answer?: string[], json?: boolean}} values
+ * @returns {Promise<void>}
+ */
+async function resolvePlanCli(values) {
+  const plansDir = resolve(/** @type {string} */ (values.resolve));
+  const rawAnswers = values.answer ?? [];
+  if (rawAnswers.length === 0) throw new Error("--resolve requires at least one --answer <finding-id>=accept or --answer <finding-id>=reject:<reason>");
+  const answers = parseAnswerFlags(rawAnswers);
+  const result = await resolvePlanningPipeline({ plansDir, cwd: process.cwd(), answers });
+  if (values.json === true) {
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
+  if (result.status === "contested") {
+    renderContested(undefined, undefined, result);
+    return;
+  }
+  for (const warning of result.warnings) process.stdout.write(`${statusToken("warn", colorLevel(process.env, process.stdout.isTTY))} ${warning}\n`);
+  process.stdout.write(`[plan] resolved · frozen · approved ${result.approved} · ${result.contractPath}\n`);
+}
+
+/**
+ * A contested result's console rendering: the summary line, then every
+ * critical finding with its id, the node or requirement it concerns, and
+ * what would resolve it (R9's own words for what the output must list), and
+ * the exact command to answer it.
+ *
+ * @param {string|undefined} campaignId
+ * @param {string|undefined} phase
+ * @param {import("../plan/contest.mjs").ContestedPipelineResult} result
+ * @returns {void}
+ */
+function renderContested(campaignId, phase, result) {
+  const criticalFindings = result.findings.filter((finding) => finding.severity === "critical");
+  const label = campaignId ? `${campaignId} phase ${phase} ` : "";
+  process.stdout.write(`[plan] ${label}contested after ${result.round} round(s) · ${criticalFindings.length} critical finding(s) · ${result.planPath}\n`);
+  for (const finding of criticalFindings) process.stdout.write(`  - ${finding.id} (${finding.nodeId}): ${finding.text}\n`);
+  process.stdout.write(`[plan] resolve with: faberun plan --resolve ${result.plansDir} --answer <finding-id>=accept or --answer <finding-id>=reject:<reason>\n`);
+  process.exitCode = 1;
 }
 
 /**
