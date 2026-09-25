@@ -40,11 +40,40 @@ runs the same end-to-end cases against both. The client:
 | Cache accounting | the relay reads `prompt_cache_hit_tokens` / `prompt_tokens_details.cached_tokens` from each response | fx 0.0.11 keeps only prompt and completion totals |
 | Quota and rate-limit failover | the relay sees the HTTP status (402, 429) and `Retry-After` | fx reports provider errors as prose |
 | File-effect boundary | `workspace-write` rejects mutations whose `path` leaves the worktree; `read-only` rejects all | `fx ask` offers only full access or model review |
-| Closed packet | the throwaway HOME withholds `~/.fx`, `~/.claude`, `~/.codex`, `~/.agents` and `~/.config/opencode`, where fx looks for skills | fx has no flag that skips skill discovery |
+| Closed packet | only partly: the throwaway HOME withholds `~/.fx`, `~/.claude`, `~/.codex`, `~/.agents` and `~/.config/opencode`, where fx looks for global skills, but see [Skill leak](#skill-leak) | fx has no flag that skips skill discovery |
 
 Shell commands run in every sandbox mode, as under dsh's `workspace-write`: the
 worktree bounds them, not a shell parser. The repository's own `AGENTS.md` still
 reaches the worker; fx has no switch for it.
+
+## Skill leak
+
+The throwaway HOME does not close the packet on its own. fx also walks up from
+the workspace looking for `skills/`, `.agents/skills`, `.claude/skills` and
+`.codex/skills`, and stops only when it reaches HOME (fx 0.0.11
+`appendWorkspaceRoots`). A worktree under the operator's HOME never meets the
+throwaway HOME on that walk, so fx climbs to `/` and loads whatever skill
+directories sit above the worktree. Measured 2026-09-24: on the operator's Mac,
+36 entries under `~/skills` and `~/.codex/skills` reached every worker, and fx
+wrote its warnings about the invalid ones into the agent's message text; on
+Linux, a canary skill planted above a worktree appeared in the worker's skill
+catalog. Linking the worktree into the throwaway HOME does not help: fx resolves
+the link.
+
+What closes it is a filesystem sandbox. Under `ai-jail` 2.2.0 on Linux
+(bubblewrap and Landlock), the same canary was absent from both fx's skill
+discovery and a filesystem scan made from inside the jail, and the
+parseDuration turn passed in a real git worktree (`--worktree`). The jail costs
+about 3.7 MB resident. Two constraints: fx reads no proxy variable, so it needs
+`--network` and gets no egress fence from `--allow-host`; and `ai-jail` saves a
+project `.ai-jail` on every run unless given `--no-save-config`, which would
+land in the worker's diff. On macOS the jail is not usable for fx: its
+`sandbox-exec` backend blocks the `getpwuid` lookup fx uses to find the login
+shell unless `--macos-host-ipc` is passed, and fx's file mutation tools still
+failed inside it with the shell working.
+
+Until fx stops the walk at the repository root, run fx workers either jailed on
+Linux or with nothing sensitive in the directories above the worktree.
 
 ## Runtime
 
