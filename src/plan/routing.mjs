@@ -13,6 +13,7 @@
 
 import { ROUTING_STRATEGIES } from "../contract/runtime.mjs";
 import { cheapest, isRuntimeAvailable, strongest } from "../engine/runtime-discovery.mjs";
+import { effectiveProvider } from "../contract/provider.mjs";
 
 /** @typedef {import("../contract/runtime.mjs").RoutingStrategy} RoutingStrategy */
 /** @typedef {RoutingStrategy|"declared"} AppliedStrategy */
@@ -227,7 +228,8 @@ function chooseByStrategy(strategy, prefer, context) {
 function blockedWhy(id, runtimes, availability, forbiddenVendors) {
   const runtime = runtimes[id];
   if (!runtime) return "is not declared in runtimes";
-  if (forbiddenVendors.has(runtime.vendor)) return `carries forbidden vendor ${runtime.vendor}`;
+  const provider = effectiveProvider(runtime);
+  if (provider !== undefined && forbiddenVendors.has(provider)) return `carries forbidden vendor ${provider}`;
   return "is unavailable";
 }
 
@@ -241,7 +243,8 @@ function blockedWhy(id, runtimes, availability, forbiddenVendors) {
 function admits(id, runtimes, availability, forbiddenVendors) {
   const runtime = runtimes[id];
   if (!runtime) return false;
-  if (forbiddenVendors.has(runtime.vendor)) return false;
+  const provider = effectiveProvider(runtime);
+  if (provider !== undefined && forbiddenVendors.has(provider)) return false;
   return isRuntimeAvailable(availability[id]);
 }
 
@@ -262,7 +265,8 @@ function forbiddenJudgeVendors(workerId, runtimes) {
   let id = workerId;
   while (id !== undefined && runtimes[id] && !seen.has(id)) {
     seen.add(id);
-    vendors.add(runtimes[id].vendor);
+    const provider = effectiveProvider(runtimes[id]);
+    if (provider !== undefined) vendors.add(provider);
     id = runtimes[id].fallback;
   }
   return vendors;
@@ -283,7 +287,10 @@ function ruleLabel(row) {
 function candidateEntries(runtimes, availability, forbiddenVendors) {
   return Object.entries(runtimes)
     .map(([id, runtime], order) => ({ id, runtime, order }))
-    .filter(({ id, runtime }) => !forbiddenVendors.has(runtime.vendor) && isRuntimeAvailable(availability[id]));
+    .filter(({ id, runtime }) => {
+      const provider = effectiveProvider(runtime);
+      return (provider === undefined || !forbiddenVendors.has(provider)) && isRuntimeAvailable(availability[id]);
+    });
 }
 
 /**

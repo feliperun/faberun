@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { getHarness, probeRuntime, registeredHarnesses, resolveVendor } from "./index.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS, composeAssignments } from "../engine/runtime-discovery.mjs";
+import { canonicalProvider } from "../contract/provider.mjs";
 import { errorMessage } from "../util.mjs";
 import { spawnInvocation } from "../host/platform.mjs";
 
@@ -358,7 +359,7 @@ function suggestedAllocation() {
   /** @type {Record<string, {available: boolean, exhaustedUntil: string|null, reason: string}>} */
   const availability = {};
   for (const [id, definition] of Object.entries(DISCOVERY_RUNTIME_DEFINITIONS)) {
-    const vendor = resolveVendor(definition);
+    const vendor = canonicalProvider(definition) ?? resolveVendor(definition);
     if (!vendor) throw new Error(`discovery runtime ${id} resolves no vendor`);
     runtimes[id] = { ...definition, vendor };
     availability[id] = { available: true, exhaustedUntil: null, reason: "declared" };

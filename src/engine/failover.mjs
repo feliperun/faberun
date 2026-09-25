@@ -17,6 +17,7 @@
 import { harnessCapabilities } from "../harnesses/index.mjs";
 import { isRuntimeAvailable, nextSameTierRuntime } from "./runtime-discovery.mjs";
 import { routeRuntime } from "../contract/runtime.mjs";
+import { effectiveProvider } from "../contract/provider.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedNode} ValidatedNode */
 /** @typedef {import("../contract/index.mjs").NodeSnapshot} NodeSnapshot */
@@ -223,7 +224,8 @@ function admitsAffinity(contract, state, role, candidate) {
   if (availability && !isRuntimeAvailable(availability)) return false;
   if (role !== "judge") return true;
   const workerId = previousAttemptRuntimeId(state, "worker") ?? state.routing?.assignments?.worker;
-  return runtime.vendor !== (workerId ? contract.runtimes[workerId]?.vendor : null);
+  const workerRuntime = workerId ? contract.runtimes[workerId] : undefined;
+  return effectiveProvider(runtime) !== (workerRuntime ? effectiveProvider(workerRuntime) : null);
 }
 
 /**

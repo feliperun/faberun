@@ -10,6 +10,7 @@ import { preflightRuntimes } from "../engine/live-preflight.mjs";
 import { liveSilenceCause } from "../engine/live-silence.mjs";
 import { harnessCapabilities } from "../harnesses/index.mjs";
 import { assertRuntimeExecutesCommands, validateRuntime } from "../contract/runtime.mjs";
+import { effectiveProvider } from "../contract/provider.mjs";
 
 /**
  * The runtimes a planning run will spend, asked once before its first stage.
@@ -109,10 +110,11 @@ export function refuseUnplannableRuntimes(runtimes, runtimeDefaults, packageMode
   const seen = new Set();
   for (let id = /** @type {string|undefined} */ (worker); id && runtimes[id] && !seen.has(id); id = /** @type {string|undefined} */ (runtimes[id].fallback)) {
     seen.add(id);
-    if (typeof runtimes[id].vendor === "string") vendors.add(/** @type {string} */ (runtimes[id].vendor));
+    const provider = effectiveProvider(/** @type {import("../contract/provider.mjs").ProviderInput & {vendor?: string}} */ (runtimes[id]));
+    if (provider !== undefined) vendors.add(provider);
   }
-  const judgeVendor = runtimes[judge].vendor;
-  if (typeof judgeVendor === "string" && vendors.has(judgeVendor)) {
+  const judgeVendor = effectiveProvider(/** @type {import("../contract/provider.mjs").ProviderInput & {vendor?: string}} */ (runtimes[judge]));
+  if (judgeVendor !== undefined && vendors.has(judgeVendor)) {
     throw new Error(`--runtime-defaults judge=${judge} shares vendor ${judgeVendor} with worker ${worker} or its fallback, so no frozen node could route its judge; name a judge of another vendor`);
   }
 }

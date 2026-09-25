@@ -471,8 +471,8 @@ process.stdin.on("end", () => {
     timeoutSec: 60,
     runtimeDefaults: { worker: "primary-worker", judge: "primary" },
     runtimes: {
-      "primary-worker": { harness: "codex", model: "primary", vendor: "primary-worker-vendor", executable: flaky },
-      primary: { harness: "codex", model: "primary", vendor: "primary-judge-vendor", executable: flaky },
+      "primary-worker": { harness: "codex", model: "primary", executable: flaky },
+      primary: { harness: "codex", model: "primary", config: { model_provider: "deepseek" }, executable: flaky },
     },
     nodes: [{
       id: "build",
@@ -561,7 +561,7 @@ test("runtimeAssignments records the applied strategy and reason on every assign
     runtimeDefaults: { worker: "luna", judge: "sol" },
     runtimes: {
       luna: { harness: "codex", model: "gpt-5.6-luna" },
-      sol: { harness: "codex", model: "gpt-5.6-sol", vendor: "openai-sol" },
+      sol: { harness: "codex", model: "gpt-5.6-sol", config: { model_provider: "deepseek" } },
     },
     nodes: [
       { id: "plain", type: "backend", taskPacket: packet(), runtime: "luna", gate: false },
@@ -731,7 +731,7 @@ test("done-when 6: resume's worker-recovery site feeds the recovered deadline in
     runtimeDefaults: { worker: "luna", judge: "sol" },
     runtimes: {
       luna: { harness: "codex", model: "gpt-5.6-luna" },
-      sol: { harness: "codex", model: "gpt-5.6-sol", vendor: "openai-sol" },
+      sol: { harness: "codex", model: "gpt-5.6-sol", config: { model_provider: "deepseek" } },
       recovered: {
         harness: "replay",
         model: "recovered",

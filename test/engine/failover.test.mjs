@@ -528,10 +528,14 @@ function affinityContract(prefix) {
     timeoutSec: 60,
     runtimeDefaults: { worker: "alpha", judge: "gamma" },
     runtimes: {
-      alpha: { harness: "codex", model: "alpha", vendor: "alpha-vendor", fallback: "beta" },
-      beta: { harness: "codex", model: "beta", vendor: "beta-vendor" },
-      gamma: { harness: "codex", model: "gamma", vendor: "gamma-vendor" },
-      delta: { harness: "codex", model: "delta", vendor: "beta-vendor" },
+      // alpha keeps the codex harness default (openai); beta and delta route
+      // to deepseek and gamma to google, so the pairwise (in)equality the
+      // tests below assert (beta and delta share a provider, both differ from
+      // alpha and from gamma) is the derived canonical provider, not a label.
+      alpha: { harness: "codex", model: "alpha", fallback: "beta" },
+      beta: { harness: "codex", model: "beta", config: { model_provider: "deepseek" } },
+      gamma: { harness: "codex", model: "gamma", config: { model_provider: "google" } },
+      delta: { harness: "codex", model: "delta", config: { model_provider: "deepseek" } },
     },
     nodes: [{ id: "build", type: "backend", taskPacket: packet({ readFiles: ["README.md"] }), gate: false }],
   }), join(directory, "contract.json"));

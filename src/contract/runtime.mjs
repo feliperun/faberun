@@ -12,6 +12,7 @@
 import { assertObject, nonNegativeNumber, positiveInteger, positiveNumber, rejectUnknown, requireId, requireString, requireStringArray, requireTimestamp } from "./assert.mjs";
 import { composeAssignments } from "../engine/runtime-discovery.mjs";
 import { harnessCapabilities, resolvePermissionExecution, resolveVendor, validateCapabilityRequirements, writesWorkspace } from "../harnesses/index.mjs";
+import { canonicalProvider } from "./provider.mjs";
 import { stableJson } from "../util.mjs";
 /** @typedef {import("./index.mjs").NodeStatus} NodeStatus */
 /** @typedef {import("../engine/runtime-discovery.mjs").RuntimeAvailability} RuntimeAvailability */
@@ -98,8 +99,24 @@ export function validateRuntime(id, runtime) {
   assertObject(runtime, `runtime ${id}`);
   rejectUnknown(runtime, RUNTIME_FIELDS, `runtime ${id}`);
   validateRuntimeValues(runtime, `runtime ${id}`, runtime.harness === "exec-jsonl");
-  const vendor = resolveVendor(/** @type {{harness: string, vendor?: string, config?: Record<string, unknown>}} */ (runtime));
-  if (!vendor) throw new TypeError(`runtime ${id} has no resolvable vendor`);
+  const typedRuntime = /** @type {{harness: string, model: string, vendor?: string, config?: Record<string, unknown>}} */ (runtime);
+  // The canonical provider derived from the route, the model's family, or the
+  // harness default outranks a declared `vendor`: a label that contradicts it
+  // is refused (R18), and the runtime's vendor becomes the derived provider
+  // rather than whatever text the contract declared. `replay` and `exec-jsonl`
+  // derive none — for those the declared vendor stands, as it always has.
+  const derived = canonicalProvider(typedRuntime);
+  const declared = typeof typedRuntime.vendor === "string" && typedRuntime.vendor.length ? typedRuntime.vendor : undefined;
+  let vendor;
+  if (derived) {
+    if (declared !== undefined && declared !== derived) {
+      throw new TypeError(`runtime ${id} declares vendor ${declared} but ${typedRuntime.harness} ${typedRuntime.model} is provider ${derived}`);
+    }
+    vendor = derived;
+  } else {
+    vendor = resolveVendor(typedRuntime);
+    if (!vendor) throw new TypeError(`runtime ${id} has no resolvable vendor`);
+  }
   const stallTimeoutSec = runtime.stallTimeoutSec ?? HARNESS_STALL_TIMEOUT_SEC[/** @type {string} */ (runtime.harness)];
   return /** @type {ValidatedRuntime} */ ({
     ...runtime,
