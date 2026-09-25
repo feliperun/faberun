@@ -28,6 +28,7 @@ import { allowanceDelta, allowanceEventFields, sampleAllowance } from "../seat/a
 import { askPlanningRuntimes, refusePlanningSilence, refuseUnplannableRuntimes } from "./preflight.mjs";
 import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
+import { checkPlanProofs } from "./proof-check.mjs";
 import { RISK_TIERS, TASK_KIND_CATALOGUE_FILE, buildPlanningContract, renderTaskKindCatalogue, validatePlanOutput } from "./template.mjs";
 import { MIN_WRITE_FILES, applySizingRules, provenParallelism } from "./sizing.mjs";
 import { resolveRuntimes } from "./routing.mjs";
@@ -224,6 +225,17 @@ export async function runPlanningPipeline(options) {
   logStage("draft", plan === null
     ? { runId: draft.contract.id, invalid: findings[0].text }
     : { runId: draft.contract.id, nodeCount: plan.nodes.length });
+
+  // R15: a deterministic check for a DoD proof no node can satisfy, run once
+  // against the drafted plan before the first review round grades it — a
+  // finding this raises is exactly as actionable to a revise as a reviewer's
+  // own, and raising it before review means review never spends a round
+  // re-discovering what a mechanical check already knows for certain.
+  if (plan !== null) {
+    const proofFindings = checkPlanProofs(plan, repoFacts, cwd);
+    if (proofFindings.length > 0) findings = [...findings, ...proofFindings];
+    logStage("proof-check", { findingsCount: proofFindings.length });
+  }
 
   const workingPlanPath = join(scratchDir, "plan.working.json");
   const relativeWorkingPlanPath = relative(cwd, workingPlanPath);
