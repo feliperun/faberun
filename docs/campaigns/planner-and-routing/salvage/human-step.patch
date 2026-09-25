@@ -1,0 +1,400 @@
+diff --git a/src/campaign/campaign-brief.mjs b/src/campaign/campaign-brief.mjs
+index d1ab233..7d1b893 100644
+--- a/src/campaign/campaign-brief.mjs
++++ b/src/campaign/campaign-brief.mjs
+@@ -156,7 +156,12 @@ export function buildBriefModel(options) {
+   const coverage = buildCoverage(parsedSpec, declarations, contractNodes, specPath, planPath);
+   const graph = buildGraph(contract, contractNodes);
+   const journalDecisions = options.projection ? projectCampaignDecisions(options.projection) : [];
+-  const decisions = buildDecisions(parsedSpec, journalDecisions);
++  // R16: an operator step the frozen plan carries as an explicit stop
++  // (`plan.humanSteps`, `src/plan/human-step.mjs`) is a human decision the
++  // spec's own "Human decisions" bullets cannot list, since it is declared on
++  // a requirement's constraints instead of that section.
++  const humanSteps = asArray(plan.humanSteps);
++  const decisions = buildDecisions(parsedSpec, journalDecisions, humanSteps);
+   const estimate = buildEstimate(options.estimate, graph, options.usageSampleCutoff ?? null);
+   const opening = buildOpening(parsedSpec, coverage, graph, estimate, decisions);
+   const identity = buildIdentity({
+@@ -561,12 +566,17 @@ export function scheduleUnderCapacity(nodes, durationOf, maxParallel, maxConcurr
+  *
+  * @param {ParsedSpec} parsedSpec
+  * @param {ProjectedDecision[]} journal
++ * @param {AnyRecord[]} [humanSteps] the frozen plan's `humanSteps` (R16)
+  * @returns {BriefDecisions}
+  */
+-function buildDecisions(parsedSpec, journal) {
++function buildDecisions(parsedSpec, journal, humanSteps = []) {
+   /** @param {string} name @returns {string} */
+   const section = (name) => parsedSpec.sections.get(name)?.body ?? "";
+-  const human = [...bulletLines(section("human decisions")), ...bulletLines(section("settled owner decisions"))];
++  const human = [
++    ...bulletLines(section("human decisions")),
++    ...bulletLines(section("settled owner decisions")),
++    ...humanSteps.map((step) => `${step.requirementId}: ${step.step}`),
++  ];
+   const delegated = bulletLines(section("delegable decisions"));
+   const evals = bulletLines(section("planned evals"));
+   const risks = riskRows(section("risks"));
+diff --git a/src/plan/freeze.mjs b/src/plan/freeze.mjs
+index 5744842..f6c0345 100644
+--- a/src/plan/freeze.mjs
++++ b/src/plan/freeze.mjs
+@@ -23,6 +23,7 @@ import { VERIFICATION_LIMITS } from "../contract/verification.mjs";
+ import { validatePlanPhases } from "./template.mjs";
+ 
+ /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
++/** @typedef {import("./human-step.mjs").HumanStep} PlanHumanStep */
+ 
+ /** @typedef {{runtimeId: string, model: string}} PlanParticipant */
+ /** @typedef {{id: string, severity: "minor"|"major"|"critical", nodeId?: string, text: string}} PlanFinding */
+@@ -30,7 +31,7 @@ import { validatePlanPhases } from "./template.mjs";
+ /** @typedef {PlanProvenanceInput & {packageVersion: string, schemaVersion: number, contractVersion: string}} PlanProvenance */
+ /** @typedef {{id: string, requirementIds: string[], nodeIds?: string[], deliverable: string}} PlanPhase */
+ /** @typedef {{path: string, digest: string}} PlanSpecIdentity */
+-/** @typedef {{formatVersion: number, contractDigest: string, spec?: PlanSpecIdentity, phases?: PlanPhase[], provenance: PlanProvenance}} FrozenPlan */
++/** @typedef {{formatVersion: number, contractDigest: string, spec?: PlanSpecIdentity, phases?: PlanPhase[], humanSteps?: PlanHumanStep[], provenance: PlanProvenance}} FrozenPlan */
+ /** @typedef {{ok: boolean, digest: string, expectedDigest: string}} FrozenPlanVerdict */
+ /** @typedef {{scripts?: Record<string, string>, verificationCandidates: {argv: string[], measuredMs: number}[]}} MeasuredFacts */
+ 
+@@ -215,6 +216,35 @@ function specIdentityOf(spec) {
+   return { path: /** @type {string} */ (record.path), digest: /** @type {string} */ (record.digest) };
+ }
+ 
++/** The fields a human step declaration carries: requirementId|step|command. */
++const HUMAN_STEP_FIELDS = new Set(["requirementId", "step", "command"]);
++
++/**
++ * The human steps a frozen plan records, shape-checked before anything is
++ * written. Absent or empty is legal: most plans declare none.
++ *
++ * @param {unknown} humanSteps
++ * @returns {PlanHumanStep[]|undefined}
++ */
++function humanStepsOf(humanSteps) {
++  if (humanSteps === undefined) return undefined;
++  if (!Array.isArray(humanSteps) || humanSteps.length === 0) return undefined;
++  return humanSteps.map((step, index) => {
++    const label = `humanSteps[${index}]`;
++    assertObject(step, label);
++    const record = /** @type {Record<string, unknown>} */ (step);
++    rejectUnknown(record, HUMAN_STEP_FIELDS, label);
++    requireString(record.requirementId, `${label}.requirementId`);
++    requireString(record.step, `${label}.step`);
++    requireString(record.command, `${label}.command`);
++    return /** @type {PlanHumanStep} */ ({
++      requirementId: /** @type {string} */ (record.requirementId),
++      step: /** @type {string} */ (record.step),
++      command: /** @type {string} */ (record.command),
++    });
++  });
++}
++
+ /**
+  * The SHA-256 of a file's exact bytes: the independent digest a frozen plan's
+  * `plan.json.sha256` sidecar carries, recomputable by a reader without parsing
+@@ -272,16 +302,18 @@ export function writeFrozenPlanRecord(outDir, record) {
+  * validatePlanOutput applies, and recorded on plan.json verbatim.
+  * `options.spec` carries the structured spec's path and content digest; when
+  * given, both are recorded so a reader can pin the plan to the exact spec it
+- * was planned from.
++ * was planned from. `options.humanSteps` carries the operator steps R16
++ * detected in the spec's requirements (`human-step.mjs`); recorded verbatim
++ * as the explicit stop the frozen plan carries for each of them.
+  *
+  * @param {JsonObject} plan
+  * `options.facts` carries repo facts' measured durations; given, a
+  * verification timeout that does not cover one is refused.
+  *
+- * @param {{outDir: string, provenance: PlanProvenanceInput, phases?: import("./template.mjs").PlanPhase[], spec?: PlanSpecIdentity, facts?: MeasuredFacts}} options
++ * @param {{outDir: string, provenance: PlanProvenanceInput, phases?: import("./template.mjs").PlanPhase[], spec?: PlanSpecIdentity, humanSteps?: PlanHumanStep[], facts?: MeasuredFacts}} options
+  * @returns {FrozenPlan}
+  */
+-export function freezePlan(plan, { outDir, provenance, phases, spec, facts }) {
++export function freezePlan(plan, { outDir, provenance, phases, spec, humanSteps, facts }) {
+   // Shape-checked before anything is written, so a malformed declaration
+   // leaves the outDir exactly as it was — the same failure discipline as the
+   // validateContract rollback below. A declaration in the nodeIds shape must
+@@ -290,6 +322,7 @@ export function freezePlan(plan, { outDir, provenance, phases, spec, facts }) {
+   // report rather than a reason to refuse the freeze.
+   const phaseDeclarations = validatePlanPhases(phases, plannedNodeIdsOf(plan.nodes));
+   const specIdentity = specIdentityOf(spec);
++  const humanStepList = humanStepsOf(humanSteps);
+   mkdirSync(outDir, { recursive: true });
+   const contractPath = join(outDir, "contract.json");
+   const raw = /** @type {JsonObject} */ ({
+@@ -318,6 +351,7 @@ export function freezePlan(plan, { outDir, provenance, phases, spec, facts }) {
+     // contract schema takes no extra field), so the traceability a reviewer
+     // saw is readable straight off plan.json, nodeIds included.
+     ...(phaseDeclarations === undefined ? {} : { phases: phaseDeclarations }),
++    ...(humanStepList === undefined ? {} : { humanSteps: humanStepList }),
+     provenance: {
+       packageVersion: packageVersion(),
+       schemaVersion: /** @type {number} */ (raw.schemaVersion),
+diff --git a/src/plan/human-step.mjs b/src/plan/human-step.mjs
+new file mode 100644
+index 0000000..3177549
+--- /dev/null
++++ b/src/plan/human-step.mjs
+@@ -0,0 +1,38 @@
++/**
++ * R16: a requirement's `constraints` bullet can declare a step only the
++ * operator can perform (the planner and every worker run inside a sandbox
++ * that is never the operator's real environment). Detected here so
++ * freeze.mjs can carry it on the frozen plan as an explicit stop, and the
++ * Campaign Brief can list it among the human decisions. Pure text matching:
++ * no file I/O, no git, no model.
++ */
++
++/** @typedef {{requirementId: string, step: string, command: string}} HumanStep */
++
++/** The word a requirement's constraints must use to name the actor a worker cannot be. */
++const OPERATOR_KEYWORD = /\boperator\b/iu;
++
++/** The one command the declared step names, quoted the way the spec format already writes one (spec-format.md). */
++const COMMAND_FENCE = /`([^`]+)`/u;
++
++/**
++ * @param {import("./spec.mjs").SpecRequirement} requirement
++ * @returns {HumanStep|null}
++ */
++export function detectHumanStep(requirement) {
++  const text = requirement.constraints;
++  if (!text || !OPERATOR_KEYWORD.test(text)) return null;
++  const command = COMMAND_FENCE.exec(text);
++  if (!command) return null;
++  return { requirementId: requirement.id ?? requirement.title, step: text, command: command[1] };
++}
++
++/**
++ * @param {import("./spec.mjs").SpecRequirement[]} requirements
++ * @returns {HumanStep[]}
++ */
++export function collectHumanSteps(requirements) {
++  return requirements
++    .map((requirement) => detectHumanStep(requirement))
++    .filter((step) => step !== null);
++}
+diff --git a/src/plan/pipeline.mjs b/src/plan/pipeline.mjs
+index 7b6ff79..fb79513 100644
+--- a/src/plan/pipeline.mjs
++++ b/src/plan/pipeline.mjs
+@@ -29,6 +29,7 @@ import { askPlanningRuntimes, refusePlanningSilence, refuseUnplannableRuntimes }
+ import { parseSpec, validateSpec } from "./spec.mjs";
+ import { collectRepoFacts } from "./repo-facts.mjs";
+ import { checkPlanProofs } from "./proof-check.mjs";
++import { collectHumanSteps } from "./human-step.mjs";
+ import { RISK_TIERS, TASK_KIND_CATALOGUE_FILE, buildPlanningContract, renderTaskKindCatalogue, validatePlanOutput } from "./template.mjs";
+ import { MIN_WRITE_FILES, applySizingRules, provenParallelism } from "./sizing.mjs";
+ import { resolveRuntimes } from "./routing.mjs";
+@@ -157,6 +158,10 @@ export async function runPlanningPipeline(options) {
+   // from the spec's prose.
+   const parsedSpec = parseSpec(specText);
+   const repoFacts = collectRepoFacts(cwd, { requirements: parsedSpec.requirements });
++  // R16: an operator step a requirement's constraints declare, detected once
++  // here so both the freeze below and a caller inspecting the pipeline agree
++  // on the same list.
++  const humanSteps = collectHumanSteps(parsedSpec.requirements);
+   const repoFactsPath = join(scratchDir, "repo-facts.json");
+   writeFileSync(repoFactsPath, `${JSON.stringify(repoFacts, null, 2)}\n`);
+   const relativeRepoFactsPath = relative(cwd, repoFactsPath);
+@@ -339,6 +344,7 @@ export async function runPlanningPipeline(options) {
+       // The pipeline's own pinned spec bytes: a wrong or missing digest is the
+       // first thing the Campaign Brief refuses on, never a summary.
+       spec: { path: relativeSpecPath, digest: specDigest },
++      humanSteps,
+       facts: repoFacts,
+       provenance: {
+         targetGitHead: repoFacts.gitHead,
+@@ -348,7 +354,12 @@ export async function runPlanningPipeline(options) {
+         findings,
+       },
+     });
+-    logStage("freeze", { contractId: `${campaignId}-${phase}`, highestRiskTier, ...(freezeWarnings.length ? { warnings: freezeWarnings } : {}) });
++    logStage("freeze", {
++      contractId: `${campaignId}-${phase}`,
++      highestRiskTier,
++      ...(humanSteps.length ? { humanSteps: humanSteps.length } : {}),
++      ...(freezeWarnings.length ? { warnings: freezeWarnings } : {}),
++    });
+   } catch (error) {
+     // The stage line the pipeline would otherwise have stopped short of, the
+     // failure carried as the critical finding that names it, and the
+diff --git a/src/plan/resolve.mjs b/src/plan/resolve.mjs
+index 8720508..18dcee3 100644
+--- a/src/plan/resolve.mjs
++++ b/src/plan/resolve.mjs
+@@ -16,16 +16,18 @@
+  * empty scratch directory, and needs none of that module's draft or provider
+  * seams.
+  */
+-import { rmSync } from "node:fs";
+-import { join } from "node:path";
++import { readFileSync, rmSync } from "node:fs";
++import { join, resolve } from "node:path";
+ import { readCampaign } from "../campaign/record.mjs";
+ import { campaignCli } from "../cli/campaign.mjs";
+ import { campaignTree } from "../run/paths.mjs";
+ import { appendJsonl, readJson } from "../run/store.mjs";
+ import { freezePlan } from "./freeze.mjs";
++import { collectHumanSteps } from "./human-step.mjs";
+ import { highestOf, modelOf } from "./pipeline-shape.mjs";
+ import { PLANNER_SESSION_ID, assembleFrozenPlan, frozenContractRawOf, invalidPlanFinding, writeFrozenPlan } from "./pipeline.mjs";
+ import { contestPlan } from "./contest.mjs";
++import { parseSpec } from "./spec.mjs";
+ import { RISK_TIERS } from "./template.mjs";
+ 
+ /** @typedef {import("./template.mjs").PlanOutput} PlanOutput */
+@@ -96,6 +98,10 @@ export async function resolvePlanningPipeline({ plansDir, cwd, answers }) {
+   if (!record.plan) throw new Error(`plan at ${planPath} has no plan to resume: the draft or revise that produced it never validated; run faberun plan again instead of --resolve`);
+   if (!record.resume) throw new Error(`plan at ${planPath} predates faberun plan --resolve and carries no resume context; run faberun plan again`);
+   const { campaignId, phase, specPath, specDigest, runtimeDefaults, runtimes, verification, packageMode, targetedFix, approveBelow, repoFacts } = record.resume;
++  // R16: recomputed from the same spec bytes the contest recorded, so a plan
++  // resumed through --resolve carries the same declared operator steps a
++  // fresh freeze would.
++  const humanSteps = collectHumanSteps(parseSpec(readFileSync(resolve(cwd, specPath), "utf8")).requirements);
+   const plan = /** @type {PlanOutput} */ (record.plan);
+   const findings = /** @type {PlanFindingOutput[]} */ (record.findings ?? []);
+   const round = record.rounds ?? 0;
+@@ -139,6 +145,7 @@ export async function resolvePlanningPipeline({ plansDir, cwd, answers }) {
+       outDir: plansDir,
+       phases: assembled.phases,
+       spec: { path: specPath, digest: specDigest },
++      humanSteps,
+       facts: repoFacts,
+       provenance: {
+         targetGitHead: repoFacts.gitHead,
+diff --git a/test/plan/human-step.test.mjs b/test/plan/human-step.test.mjs
+new file mode 100644
+index 0000000..fd8ef48
+--- /dev/null
++++ b/test/plan/human-step.test.mjs
+@@ -0,0 +1,128 @@
++import "../scoped-home.mjs";
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { fixture, packet } from "../helpers.mjs";
++import { parseSpec } from "../../src/plan/spec.mjs";
++import { collectHumanSteps, detectHumanStep } from "../../src/plan/human-step.mjs";
++import { contentDigest, freezePlan, writeFrozenPlanRecord } from "../../src/plan/freeze.mjs";
++import { buildBriefModel } from "../../src/campaign/campaign-brief.mjs";
++
++const SPEC_TEXT = `# Human step campaign
++
++## Intent
++
++Ship a feature whose last mile only the operator can complete.
++
++## Requirements
++
++### R16. A plan represents a human step the spec declares
++
++- **statement:** the frozen plan carries the operator's step as an explicit stop.
++- **proof:** command: node --test --test-name-pattern="a human step declared in the spec becomes a stop the plan carries"
++- **constraints:** the operator runs \`node scripts/publish.mjs\` on the real home and commits the result.
++
++## Non-goals
++
++- Scheduling or conditions on the declared step.
++`;
++
++/** @returns {string} */
++function outDir() {
++  return mkdtempSync(join(tmpdir(), "human-step-"));
++}
++
++/** @returns {import("../../src/plan/freeze.mjs").PlanProvenanceInput} */
++function provenance() {
++  return {
++    targetGitHead: null,
++    planner: { runtimeId: "luna", model: "gpt-5.6-luna" },
++    reviewer: { runtimeId: "sol", model: "gpt-5.6-sol" },
++    sizing: [],
++    findings: [],
++  };
++}
++
++/**
++ * @param {import("../../src/plan/spec.mjs").SpecRequirement["constraints"]} constraints
++ * @returns {import("../../src/plan/spec.mjs").SpecRequirement}
++ */
++function requirement(constraints) {
++  return { id: "R99", title: "unrelated", statement: null, proof: null, measure: null, constraints, line: 1 };
++}
++
++test("a requirement's constraints declaring an operator step is detected with its command", () => {
++  const parsed = parseSpec(SPEC_TEXT);
++  const r16 = parsed.requirements.find((item) => item.id === "R16");
++  assert.ok(r16);
++  assert.deepEqual(detectHumanStep(/** @type {import("../../src/plan/spec.mjs").SpecRequirement} */ (r16)), {
++    requirementId: "R16",
++    step: r16?.constraints,
++    command: "node scripts/publish.mjs",
++  });
++});
++
++test("a requirement is not a human step without both the operator keyword and a quoted command", () => {
++  assert.equal(detectHumanStep(requirement(null)), null);
++  assert.equal(detectHumanStep(requirement("no special actor is named here.")), null);
++  assert.equal(detectHumanStep(requirement("the operator must stay alert, but no command is named.")), null);
++  assert.equal(detectHumanStep(requirement("run `node scripts/publish.mjs` — no actor named, so a worker could do it.")), null);
++});
++
++test("a human step declared in the spec becomes a stop the plan carries", () => {
++  const dir = outDir();
++  const parsed = parseSpec(SPEC_TEXT);
++  const humanSteps = collectHumanSteps(parsed.requirements);
++  assert.equal(humanSteps.length, 1);
++  assert.equal(humanSteps[0].requirementId, "R16");
++  assert.equal(humanSteps[0].command, "node scripts/publish.mjs");
++
++  const specPath = join(dir, "SPEC.md");
++  writeFileSync(specPath, SPEC_TEXT, "utf8");
++  const specDigest = contentDigest(SPEC_TEXT);
++
++  const plan = fixture({
++    id: "human-step-plan",
++    campaignId: "human-step-campaign",
++    nodes: [{ id: "n1", type: "implement", requirementIds: ["R16"], taskPacket: packet(), gate: false }],
++  });
++
++  const frozen = freezePlan(plan, {
++    outDir: dir,
++    provenance: provenance(),
++    phases: [{ id: "fixture-phase-0", requirementIds: ["R16"], nodeIds: ["n1"], deliverable: "The feature ships." }],
++    spec: { path: specPath, digest: specDigest },
++    humanSteps,
++  });
++
++  // The frozen plan record itself is the stop: it is on disk, not only held by
++  // the caller, so a later reader (a resumed run, the Campaign Brief) sees it
++  // without recomputing it from the spec.
++  assert.deepEqual(frozen.humanSteps, humanSteps);
++  const onDiskPlan = JSON.parse(readFileSync(join(dir, "plan.json"), "utf8"));
++  assert.deepEqual(onDiskPlan.humanSteps, humanSteps);
++
++  // The Campaign Brief only reads a plan.json its sidecar covers; freezePlan
++  // itself leaves the "frozen"/"approved" verdict to the pipeline, so this
++  // test writes it the same way runPipeline does before reading it back.
++  writeFrozenPlanRecord(dir, /** @type {any} */ ({ ...frozen, status: "frozen", approved: true }));
++
++  const model = buildBriefModel({ campaignId: "human-step-campaign", planPath: join(dir, "plan.json") });
++  const listed = model.decisions.human.find((line) => line.includes("R16"));
++  assert.ok(listed, `expected a human decision naming R16, got ${JSON.stringify(model.decisions.human)}`);
++  assert.match(/** @type {string} */ (listed), /node scripts\/publish\.mjs/u);
++});
++
++test("a plan with no declared human step carries no humanSteps field", () => {
++  const dir = outDir();
++  const frozen = freezePlan(fixture({ id: "no-human-step-plan", campaignId: "no-human-step-campaign" }), {
++    outDir: dir,
++    provenance: provenance(),
++    humanSteps: [],
++  });
++  assert.equal(frozen.humanSteps, undefined);
++  const onDiskPlan = JSON.parse(readFileSync(join(dir, "plan.json"), "utf8"));
++  assert.equal("humanSteps" in onDiskPlan, false);
++});
