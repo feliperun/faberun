@@ -192,6 +192,7 @@ export function renderUsage() {
     "update [--check] [--json]",
     "project <new-path> [--from <old-path>]",
     "migrate [--cwd <dir>]",
+    "prune [--cwd <dir>] [--parked] [--json]",
     "models [--probe] [--json]",
     "next [--cwd <dir>] [--json]",
     "bulk-read --question <text> --paths <a,b,c> [--json]",
