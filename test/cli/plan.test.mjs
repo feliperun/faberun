@@ -213,6 +213,18 @@ test("the pipeline runs draft and review from recordings and freezes", async () 
   assert.equal(existsSync(runDirectory(cwd, contract.id)), false);
 });
 
+test("re-planning a phase skips the stage run ids an earlier plan left", async () => {
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("replan-demo");
+  // What an earlier `faberun plan` of this phase leaves behind: its draft run.
+  mkdirSync(runDirectory(cwd, `${campaignId}-plan-build-draft-1`), { recursive: true });
+  const result = await runPlanningPipeline({
+    specPath: join(cwd, "docs/spec.md"), campaignId, phase: "build", cwd, runtimes, runtimeDefaults, reviewers, launch, wait,
+  });
+  assert.equal(result.status, "frozen");
+  const stages = readFileSync(join(result.plansDir, "pipeline.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(stages.find((entry) => entry.stage === "draft")?.runId, `${campaignId}-plan-build-draft-2`);
+});
+
 test("the frozen contract declares the parallelism sizing proved, and a plan sizing proved nothing about stays serial", async () => {
   // Both nodes of the default plan are dependency-free with disjoint write
   // sets, so sizing marks both parallelisable — a conclusion the contract had

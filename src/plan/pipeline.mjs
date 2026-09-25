@@ -14,7 +14,7 @@
  * that touch a process or the wall clock, so a test drives the whole pipeline
  * through `runContract` in-process, deterministically.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { CONTRACT_VERSION, DEFAULT_MAX_TURNS, PROTOCOL_SCHEMA_VERSION, validateContract } from "../contract/index.mjs";
 import { discoveryOutput } from "../contract/worker-result.mjs";
@@ -188,18 +188,24 @@ export async function runPlanningPipeline(options) {
    * @returns {Promise<{contract: ValidatedContract, output: Record<string, unknown>}>}
    */
   const runStage = async (kind, inputs) => {
-    const stageN = nextN();
-    const contractPath = join(plansDir, "nodes", `${kind}-${stageN}.contract.json`);
-    mkdirSync(dirname(contractPath), { recursive: true });
-    const relativeCwd = relative(dirname(contractPath), cwd) || ".";
     // R19: a review or spec-review stage's runtime comes from the planner's
     // own reviewer list, resolved fresh at every stage so a refusal recorded
     // between rounds is not repeated.
     const reviewerId = kind === "review" || kind === "spec-review" ? firstEligibleReviewer(reviewers, runtimes) ?? undefined : undefined;
-    const raw = buildPlanningContract(kind, {
-      campaignId, phase, n: stageN, runtimes, runtimeDefaults, ...(reviewerId === undefined ? {} : { reviewerId }), cwd: relativeCwd, ...inputs,
-    });
-    const validated = validateContract(raw, contractPath);
+    // A stage number whose run already exists belongs to an earlier `plan` of
+    // this phase and is skipped: measured 2026-09-25, re-planning a phase
+    // reused `draft-1`, whose run the first attempt had left, and the launch
+    // died at bootstrap on "run already exists".
+    let contractPath, raw, validated;
+    do {
+      const stageN = nextN();
+      contractPath = join(plansDir, "nodes", `${kind}-${stageN}.contract.json`);
+      raw = buildPlanningContract(kind, {
+        campaignId, phase, n: stageN, runtimes, runtimeDefaults, ...(reviewerId === undefined ? {} : { reviewerId }), cwd: relative(join(plansDir, "nodes"), cwd) || ".", ...inputs,
+      });
+      validated = validateContract(raw, contractPath);
+    } while (existsSync(runDirectory(validated.cwd, validated.id)));
+    mkdirSync(dirname(contractPath), { recursive: true });
     writeFileSync(contractPath, `${JSON.stringify(raw, null, 2)}\n`);
     await launch(contractPath, validated);
     const runDir = runDirectory(validated.cwd, validated.id);
