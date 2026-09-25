@@ -398,6 +398,36 @@ node src/cli.mjs migrate
 ```
 Related: `faberun project`, `faberun next`.
 
+## faberun prune
+```text
+faberun prune [--cwd <value>] [--parked] [--json]
+```
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--cwd` | directory | Repository whose runs are pruned. | current directory |
+| `--parked` | boolean | Also release a landed run whose nodes are blocked or exhausted. | off |
+| `--json` | boolean | Print the released runs as JSON. | off |
+Release the attempt worktrees of every run that has already landed: no
+controller holds it, every node is terminal, and a local branch that is not a
+faberun attempt branch contains its run ref. Each attempt's HEAD, and its
+uncommitted delta when it has one, is kept under
+`refs/faberun-archive/<run>/<attempt>` before the worktree and its branch go,
+exactly as `campaign close` does, so a released attempt can still be
+recovered with `git checkout` or `git stash apply`. A run still running, a run
+with a node that can move, and a run whose work no branch holds yet are left
+alone. `--parked` also releases a landed run parked on a blocked or exhausted
+node, for a run a continuation contract superseded: a resume that re-judges
+an attempt reads its worktree, so only the operator can say it will not come.
+Every `faberun run` does the same as a plain prune before it launches, so a long
+campaign does not carry the worktrees of runs it already integrated.
+Reads the project's runs directory and the repository's branches; writes
+`refs/faberun-archive/` and removes the released worktrees and their branches.
+```bash
+node src/cli.mjs prune
+[prune] released 19 worktrees of 5 integrated runs · each kept under refs/faberun-archive/
+```
+Related: `faberun campaign close`, `faberun run`.
+
 ## faberun models
 ```text
 faberun models [--probe] [--json]

@@ -23,6 +23,7 @@ import {
   writeTextAtomic,
 } from "./run/store.mjs";
 import { runDirectory, runsRoot } from "./run/paths.mjs";
+import { pruneIntegratedRunWorktrees } from "./repo/worktree-prune.mjs";
 import { migrateRunState } from "./run/migrate.mjs";
 import {
   acquire as acquireLock,
@@ -112,6 +113,7 @@ export const COMMAND_OPTIONS = {
   update: { check: { type: "boolean" }, json: { type: "boolean" } },
   project: { from: { type: "string" } },
   migrate: { cwd: { type: "string" } },
+  prune: { cwd: { type: "string" }, parked: { type: "boolean" }, json: { type: "boolean" } },
   setup: { yes: { type: "boolean" }, harnesses: { type: "string" }, worker: { type: "string" }, judge: { type: "string" }, "no-skill": { type: "boolean" }, json: { type: "boolean" } },
   init: { cwd: { type: "string" }, yes: { type: "boolean" }, "no-skill": { type: "boolean" }, agentkit: { type: "boolean" }, greenfield: { type: "boolean" }, stable: { type: "boolean" }, json: { type: "boolean" } },
   metrics: METRICS_OPTIONS,
@@ -159,12 +161,13 @@ function parseCli(argv, quiet = false) {
   if (command === "setup" && parsed.positionals.length !== 0) return null;
   if (command === "init" && parsed.positionals.length !== 0) return null;
   if (command === "migrate" && parsed.positionals.length !== 0) return null;
+  if (command === "prune" && parsed.positionals.length !== 0) return null;
   // `plan --resolve <plan-dir>` (R9) takes no spec positional: everything a
   // fresh `plan` reads from it and its flags is already on the contested
   // plan.json the run it resumes wrote.
   if (command === "plan" && typeof parsed.values.resolve === "string" && parsed.values.resolve !== "") {
     if (parsed.positionals.length !== 0) return null;
-  } else if (command !== "doctor" && command !== "models" && command !== "bulk-read" && command !== "next" && command !== "update" && command !== "setup" && command !== "init" && command !== "migrate" && parsed.positionals.length !== 1) return null;
+  } else if (command !== "doctor" && command !== "models" && command !== "bulk-read" && command !== "next" && command !== "update" && command !== "setup" && command !== "init" && command !== "migrate" && command !== "prune" && parsed.positionals.length !== 1) return null;
   return {
     command,
     target: parsed.positionals[0],
@@ -318,6 +321,13 @@ async function main(argv) {
     process.stdout.write(`[migrate] ${result.legacy} -> ${result.target} · ${runs}, ${campaigns}\n`);
     return;
   }
+  if (command === "prune") {
+    const cwd = resolve(typeof values.cwd === "string" ? values.cwd : ".");
+    const pruned = pruneIntegratedRunWorktrees(cwd, runsRoot(cwd), { parked: values.parked === true });
+    if (values.json === true) process.stdout.write(`${JSON.stringify({ pruned }, null, 2)}\n`);
+    else process.stdout.write(`${prunedLine(pruned)}\n`);
+    return;
+  }
   if (!target) { usage(); return; }
   if (command === "project") {
     const record = reassociateProject(faberunHome(process.env), target, {
@@ -342,6 +352,12 @@ async function main(argv) {
     const contractFromCwd = relative(contract.cwd, absolute);
     const contractIgnore = contractFromCwd && !contractFromCwd.startsWith("..") && !isAbsolute(contractFromCwd) ? [contractFromCwd] : [];
     assertLaunchBaseClean(contract.cwd, baseRef, { ignorePaths: contractIgnore });
+    // Every launch releases the worktrees of runs that have already landed,
+    // so a long campaign does not carry them until `campaign close`.
+    if (!hasDetachedBootstrapNonce()) {
+      const pruned = pruneIntegratedRunWorktrees(contract.cwd, runsRoot(contract.cwd));
+      if (pruned.length) process.stdout.write(`${prunedLine(pruned)}\n`);
+    }
     if (values.detach === true) {
       if (existsSync(runDir)) throw new Error(`run already exists: ${runDir}`);
       for (const warning of [...contract.warnings, ...reusedDoneWarnings(contract)]) process.stdout.write(`${advisoryToken()} ${warning}\n`);
@@ -493,6 +509,16 @@ async function main(argv) {
  */
 function advisoryToken() {
   return statusToken("warn", colorLevel(process.env, process.stdout.isTTY));
+}
+
+/**
+ * @param {import("./repo/worktree-prune.mjs").PrunedRun[]} pruned
+ * @returns {string}
+ */
+function prunedLine(pruned) {
+  if (!pruned.length) return "[prune] no finished, integrated run holds a worktree";
+  const removed = pruned.reduce((sum, run) => sum + run.removed, 0);
+  return `[prune] released ${removed} worktree${removed === 1 ? "" : "s"} of ${pruned.length} integrated run${pruned.length === 1 ? "" : "s"} · each kept under refs/faberun-archive/`;
 }
 
 /**
