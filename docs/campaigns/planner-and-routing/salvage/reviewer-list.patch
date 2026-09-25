@@ -1,0 +1,648 @@
+diff --git a/docs/COMMANDS.md b/docs/COMMANDS.md
+index 120be57..c848165 100644
+--- a/docs/COMMANDS.md
++++ b/docs/COMMANDS.md
+@@ -553,7 +553,7 @@ Related: `faberun spec validate`.
+ 
+ ## faberun plan
+ ```text
+-faberun plan <spec.md> [--campaign <value>] [--phase <value>] [--review-rounds <value>] [--approve-below <value>] [--runtime-defaults <value>] [--runtimes <value>] [--verification <value>] [--package <value>] [--targeted-fix] [--detach] [--resolve <value>] [--answer <a>...] [--json]
++faberun plan <spec.md> [--campaign <value>] [--phase <value>] [--review-rounds <value>] [--approve-below <value>] [--runtime-defaults <value>] [--reviewers <value>] [--runtimes <value>] [--verification <value>] [--package <value>] [--targeted-fix] [--detach] [--resolve <value>] [--answer <a>...] [--json]
+ ```
+ Run the planning pipeline outside the control session: draft, then review, then
+ revise up to `--review-rounds` (default 2) whenever the reviewer's findings
+@@ -580,6 +580,7 @@ no provider call.
+ | `--review-rounds` | positive integer | The review/revise round budget before an unconverged plan is contested. | `2` |
+ | `--approve-below` | `standard`, `high`, or `none` | The `riskTier` threshold below which a frozen plan is auto-approved. | `standard` |
+ | `--runtime-defaults` | `worker=<id>,judge=<id>` | The operator's runtime instruction; wins over the routing table. | discovery |
++| `--reviewers` | `<id>,<id>,...` | The planner's own ordered reviewer list (R19): the `review`/`spec-review` stage runs under the first entry declared in `--runtimes` with no recorded refusal. Separate from `--runtime-defaults judge=` and from the frozen contract's own judge list; a reviewer of the worker's own vendor never blocks it. Wins over the machine's `config.reviewers` default. | machine `config.reviewers`, else none |
+ | `--runtimes` | path to a JSON file | A runtime catalogue in the contract's `runtimes` shape, validated the same way; replaces built-in discovery for every stage and the frozen contract. `--runtime-defaults` ids then resolve against it. | built-in discovery |
+ | `--verification` | path to a JSON file | Verification suites in the contract's own shape — `sharedVerification`, `finalVerification`, either or both keys — validated the same way and carried verbatim into the frozen contract. A key that is not a contract suite is refused. | none — freezing with neither suite warns |
+ | `--package` | `implementation` or `exploratory` | What kind of work this package is, which decides how nodes are sized. `implementation` sizes by the write set (4 to 6 files, merging what falls under it). `exploratory` — an audit, a review, a survey — sizes by what each node reads and by risk: a one-file write set is the normal shape of a finding, no node is merged for being underfilled, and a node whose read surface dwarfs its siblings' is reported. | `implementation` |
+diff --git a/src/cli.mjs b/src/cli.mjs
+index 5369aa7..10ca034 100755
+--- a/src/cli.mjs
++++ b/src/cli.mjs
+@@ -121,6 +121,7 @@ export const COMMAND_OPTIONS = {
+     "review-rounds": { type: "string" },
+     "approve-below": { type: "string" },
+     "runtime-defaults": { type: "string" },
++    reviewers: { type: "string" },
+     runtimes: { type: "string" },
+     verification: { type: "string" },
+     package: { type: "string" },
+diff --git a/src/cli/plan.mjs b/src/cli/plan.mjs
+index 5ec76d5..cc4b7fa 100644
+--- a/src/cli/plan.mjs
++++ b/src/cli/plan.mjs
+@@ -16,8 +16,10 @@ import { colorLevel, statusToken } from "./brand.mjs";
+ import { delay } from "../util.mjs";
+ import { runPlanningPipeline } from "../plan/pipeline.mjs";
+ import { parseAnswerFlags, resolvePlanningPipeline } from "../plan/resolve.mjs";
++import { resolveReviewerList } from "../plan/reviewer.mjs";
+ import { campaignTree, runDirectory } from "../run/paths.mjs";
+ import { readCampaign } from "../campaign/record.mjs";
++import { readUserConfig } from "../host/config.mjs";
+ 
+ /** How often a foreground `plan` polls a launched stage's run directory. */
+ const DEFAULT_POLL_MS = 1_000;
+@@ -57,6 +59,21 @@ export function parseRuntimeDefaults(value) {
+   return result;
+ }
+ 
++/**
++ * `--reviewers <a,b>`: the planner's own ordered reviewer list (R19),
++ * separate from `--runtime-defaults judge=` and from the frozen contract's
++ * R18 judge list even when an operator names the same runtime id in both.
++ *
++ * @param {string|undefined} value
++ * @returns {string[]|undefined}
++ */
++export function parseReviewerList(value) {
++  if (value === undefined) return undefined;
++  const ids = value.split(",").map((id) => id.trim()).filter(Boolean);
++  if (ids.length === 0) throw new Error("--reviewers needs at least one runtime id");
++  return ids;
++}
++
+ /**
+  * @param {unknown} value
+  * @returns {number}
+@@ -127,7 +144,7 @@ export function loadVerificationSuites(path) {
+ 
+ /**
+  * @param {string} target
+- * @param {{campaign?: string, phase?: string, "review-rounds"?: string, "approve-below"?: string, "runtime-defaults"?: string, runtimes?: string, verification?: string, package?: string, "targeted-fix"?: boolean, detach?: boolean, resolve?: string, answer?: string[], json?: boolean}} values
++ * @param {{campaign?: string, phase?: string, "review-rounds"?: string, "approve-below"?: string, "runtime-defaults"?: string, reviewers?: string, runtimes?: string, verification?: string, package?: string, "targeted-fix"?: boolean, detach?: boolean, resolve?: string, answer?: string[], json?: boolean}} values
+  * @returns {Promise<void>}
+  */
+ export async function planCli(target, values) {
+@@ -139,6 +156,9 @@ export async function planCli(target, values) {
+   const reviewRounds = reviewRoundsOf(values["review-rounds"]);
+   const approveBelow = /** @type {"standard"|"high"|"none"|undefined} */ (values["approve-below"]);
+   const runtimeDefaults = parseRuntimeDefaults(values["runtime-defaults"]);
++  // R19: the planner's own reviewer list, never `runtimeDefaults.judge` --
++  // `--reviewers` wins over the machine's own `config.reviewers` default.
++  const reviewers = resolveReviewerList({ reviewers: parseReviewerList(values.reviewers) }, readUserConfig(process.env));
+   const runtimes = typeof values.runtimes === "string" && values.runtimes
+     ? loadRuntimesCatalogue(values.runtimes)
+     : DISCOVERY_RUNTIME_DEFINITIONS;
+@@ -151,6 +171,7 @@ export async function planCli(target, values) {
+     const argv = ["plan", specPath, "--campaign", campaignId, "--phase", phase, "--review-rounds", String(reviewRounds)];
+     if (approveBelow !== undefined) argv.push("--approve-below", approveBelow);
+     if (values["runtime-defaults"] !== undefined) argv.push("--runtime-defaults", values["runtime-defaults"]);
++    if (values.reviewers !== undefined) argv.push("--reviewers", values.reviewers);
+     if (typeof values.runtimes === "string" && values.runtimes) argv.push("--runtimes", resolve(values.runtimes));
+     if (typeof values.verification === "string" && values.verification) argv.push("--verification", resolve(values.verification));
+     if (packageMode !== "implementation") argv.push("--package", packageMode);
+@@ -196,6 +217,7 @@ export async function planCli(target, values) {
+       reviewRounds,
+       approveBelow,
+       runtimeDefaults,
++      reviewers,
+       runtimes,
+       verification,
+       targetedFix: values["targeted-fix"] === true,
+diff --git a/src/cli/setup.mjs b/src/cli/setup.mjs
+index 18f255c..93f82ab 100644
+--- a/src/cli/setup.mjs
++++ b/src/cli/setup.mjs
+@@ -48,6 +48,7 @@ import { discoverSkillTargets, registerSkills } from "./skills.mjs";
+  * @property {string} [worker]
+  * @property {string} [judge]
+  * @property {string} [judges] comma-separated ordered runtime ids for the machine's R18 judge-list default; unset keeps whatever the existing config already declared
++ * @property {string} [reviewers] comma-separated ordered runtime ids for the machine's R19 reviewer-list default (`faberun plan --reviewers`); unset keeps whatever the existing config already declared
+  * @property {boolean} [skill] whether to register the faberun skill (default true)
+  * @property {boolean} [json]
+  * @property {NodeJS.ProcessEnv} [env]
+@@ -169,12 +170,14 @@ export async function setupCommand(options = {}) {
+     }
+ 
+     const selectedJudges = splitHarnesses(options.judges ?? "").length ? splitHarnesses(options.judges ?? "") : kept.judges;
++    const selectedReviewers = splitHarnesses(options.reviewers ?? "").length ? splitHarnesses(options.reviewers ?? "") : kept.reviewers;
+     const config = {
+       schemaVersion: /** @type {1} */ (1),
+       harnesses: selectedHarnesses,
+       worker: selectedWorker,
+       judge: selectedJudge,
+       ...(selectedJudges.length ? { judges: selectedJudges } : {}),
++      ...(selectedReviewers.length ? { reviewers: selectedReviewers } : {}),
+       updatedAt: new Date().toISOString(),
+     };
+     writeUserConfig(env, config);
+@@ -274,10 +277,10 @@ function missingEnvKeys(runtime, env) {
+  *
+  * @param {UserConfig|null} existing
+  * @param {Record<string, RuntimeAvailability>} availability
+- * @returns {{harnesses: string[], worker: string, judge: string, judges: string[]}}
++ * @returns {{harnesses: string[], worker: string, judge: string, judges: string[], reviewers: string[]}}
+  */
+ export function mergeExistingConfig(existing, availability) {
+-  if (!existing) return { harnesses: [], worker: "", judge: "", judges: [] };
++  if (!existing) return { harnesses: [], worker: "", judge: "", judges: [], reviewers: [] };
+   const availableHarnesses = new Set(
+     Object.entries(DISCOVERY_RUNTIME_DEFINITIONS)
+       .filter(([id]) => availability[id]?.available === true)
+@@ -290,11 +293,12 @@ export function mergeExistingConfig(existing, availability) {
+     harnesses: existing.harnesses.filter((harness) => availableHarnesses.has(harness)),
+     worker: existing.worker && candidateIds.has(existing.worker) ? existing.worker : "",
+     judge: existing.judge && candidateIds.has(existing.judge) ? existing.judge : "",
+-    // The judge list is a static, operator-declared ordering (D9): unlike the
+-    // single worker/judge default, an entry discovery cannot currently reach
+-    // is not dropped, since R18's own selection already skips a refused or
+-    // usage-heavy entry at every read.
++    // The judge and reviewer lists are static, operator-declared orderings
++    // (D9, D11): unlike the single worker/judge default, an entry discovery
++    // cannot currently reach is not dropped, since each list's own selection
++    // already skips a refused entry at every read.
+     judges: Array.isArray(existing.judges) ? existing.judges : [],
++    reviewers: Array.isArray(existing.reviewers) ? existing.reviewers : [],
+   };
+ }
+ 
+diff --git a/src/host/config.mjs b/src/host/config.mjs
+index db4f1ca..adf938f 100644
+--- a/src/host/config.mjs
++++ b/src/host/config.mjs
+@@ -1,7 +1,9 @@
+ /**
+  * The user config at `$FABERUN_HOME/config.json`: which harnesses `setup`
+- * enabled, which runtime is the default worker and judge, and the machine's
+- * own ordered `judges` list (R18) -- read only when a contract declares none.
++ * enabled, which runtime is the default worker and judge, the machine's own
++ * ordered `judges` list (R18) -- read only when a contract declares none --
++ * and its ordered `reviewers` list (R19), `faberun plan`'s own machine
++ * default, read only when `--reviewers` names none.
+  *
+  * It is separate from `host/home.mjs`, which owns the path, because reading a
+  * config is a validation problem and writing it is an atomic-write problem;
+@@ -12,7 +14,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+ import { dirname } from "node:path";
+ import { configPath, faberunHome } from "./home.mjs";
+ 
+-/** @typedef {{schemaVersion: 1, harnesses: string[], worker?: string, judge?: string, judges?: string[], updatedAt: string}} UserConfig */
++/** @typedef {{schemaVersion: 1, harnesses: string[], worker?: string, judge?: string, judges?: string[], reviewers?: string[], updatedAt: string}} UserConfig */
+ 
+ /** Paths already reported malformed, so a process that reads twice warns once. */
+ const warned = new Set();
+@@ -85,5 +87,6 @@ function isUserConfig(value) {
+   if (record.worker !== undefined && typeof record.worker !== "string") return false;
+   if (record.judge !== undefined && typeof record.judge !== "string") return false;
+   if (record.judges !== undefined && (!Array.isArray(record.judges) || !record.judges.every((id) => typeof id === "string"))) return false;
++  if (record.reviewers !== undefined && (!Array.isArray(record.reviewers) || !record.reviewers.every((id) => typeof id === "string"))) return false;
+   return typeof record.updatedAt === "string";
+ }
+diff --git a/src/plan/contest.mjs b/src/plan/contest.mjs
+index acca672..0e2f356 100644
+--- a/src/plan/contest.mjs
++++ b/src/plan/contest.mjs
+@@ -37,6 +37,7 @@ import { writeJsonAtomic } from "../run/store.mjs";
+  *   specDigest: string,
+  *   reviewRounds: number,
+  *   runtimeDefaults: {worker?: string, judge?: string},
++ *   reviewers: string[],
+  *   runtimes: Record<string, Record<string, unknown>>,
+  *   verification: VerificationSuites,
+  *   packageMode: import("./sizing.mjs").PackageMode,
+diff --git a/src/plan/pipeline.mjs b/src/plan/pipeline.mjs
+index fb79513..8b518aa 100644
+--- a/src/plan/pipeline.mjs
++++ b/src/plan/pipeline.mjs
+@@ -26,6 +26,7 @@ import { campaignCli } from "../cli/campaign.mjs";
+ import { appendJsonl } from "../run/store.mjs";
+ import { allowanceDelta, allowanceEventFields, sampleAllowance } from "../seat/allowance.mjs";
+ import { askPlanningRuntimes, refusePlanningSilence, refuseUnplannableRuntimes } from "./preflight.mjs";
++import { firstEligibleReviewer, reviewerProvenanceOf } from "./reviewer.mjs";
+ import { parseSpec, validateSpec } from "./spec.mjs";
+ import { collectRepoFacts } from "./repo-facts.mjs";
+ import { checkPlanProofs } from "./proof-check.mjs";
+@@ -95,7 +96,7 @@ export const DEFAULT_NODE_BUDGET_MS = 600_000;
+ const APPROVE_BELOW_VALUES = new Set(["standard", "high", "none"]);
+ 
+ /**
+- * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, runtimes: Record<string, JsonObject>, verification?: VerificationSuites, packageMode?: import("./sizing.mjs").PackageMode, targetedFix?: boolean, launch: LaunchFn, wait: WaitFn, ask?: AskFn}} options
++ * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, reviewers?: string[], runtimes: Record<string, JsonObject>, verification?: VerificationSuites, packageMode?: import("./sizing.mjs").PackageMode, targetedFix?: boolean, launch: LaunchFn, wait: WaitFn, ask?: AskFn}} options
+  *   `targetedFix` allows a plan with a single node. Sizing refuses one by
+  *   default because a phase that decomposes into one node is usually a plan
+  *   that was never decomposed; a targeted fix is the case where one node is
+@@ -105,7 +106,7 @@ const APPROVE_BELOW_VALUES = new Set(["standard", "high", "none"]);
+ export async function runPlanningPipeline(options) {
+   const {
+     specPath, campaignId, phase, runtimes, launch, wait,
+-    reviewRounds = 2, runtimeDefaults = {}, verification = {}, targetedFix = false,
++    reviewRounds = 2, runtimeDefaults = {}, reviewers = [], verification = {}, targetedFix = false,
+   } = options;
+   const ask = options.ask ?? askPlanningRuntimes;
+   // Implementation work is sized by what it writes; exploratory work -- an
+@@ -191,8 +192,12 @@ export async function runPlanningPipeline(options) {
+     const contractPath = join(plansDir, "nodes", `${kind}-${stageN}.contract.json`);
+     mkdirSync(dirname(contractPath), { recursive: true });
+     const relativeCwd = relative(dirname(contractPath), cwd) || ".";
++    // R19: a review or spec-review stage's runtime comes from the planner's
++    // own reviewer list, resolved fresh at every stage so a refusal recorded
++    // between rounds is not repeated.
++    const reviewerId = kind === "review" || kind === "spec-review" ? firstEligibleReviewer(reviewers, runtimes) ?? undefined : undefined;
+     const raw = buildPlanningContract(kind, {
+-      campaignId, phase, n: stageN, runtimes, runtimeDefaults, cwd: relativeCwd, ...inputs,
++      campaignId, phase, n: stageN, runtimes, runtimeDefaults, ...(reviewerId === undefined ? {} : { reviewerId }), cwd: relativeCwd, ...inputs,
+     });
+     const validated = validateContract(raw, contractPath);
+     writeFileSync(contractPath, `${JSON.stringify(raw, null, 2)}\n`);
+@@ -263,7 +268,7 @@ export async function runPlanningPipeline(options) {
+     plan: currentPlan ?? null,
+     resume: {
+       campaignId, phase, specPath: relativeSpecPath, specDigest, reviewRounds,
+-      runtimeDefaults, runtimes, verification, packageMode, targetedFix, approveBelow, repoFacts,
++      runtimeDefaults, reviewers, runtimes, verification, packageMode, targetedFix, approveBelow, repoFacts,
+     },
+   });
+ 
+@@ -349,7 +354,7 @@ export async function runPlanningPipeline(options) {
+       provenance: {
+         targetGitHead: repoFacts.gitHead,
+         planner: { runtimeId: runtimeDefaults.worker ?? "", model: modelOf(runtimes, runtimeDefaults.worker) },
+-        reviewer: { runtimeId: runtimeDefaults.judge ?? "", model: modelOf(runtimes, runtimeDefaults.judge) },
++        reviewer: reviewerProvenanceOf(reviewers, runtimes),
+         sizing: assembled.sizing.transformations,
+         findings,
+       },
+diff --git a/src/plan/resolve.mjs b/src/plan/resolve.mjs
+index 18dcee3..4783389 100644
+--- a/src/plan/resolve.mjs
++++ b/src/plan/resolve.mjs
+@@ -25,6 +25,7 @@ import { appendJsonl, readJson } from "../run/store.mjs";
+ import { freezePlan } from "./freeze.mjs";
+ import { collectHumanSteps } from "./human-step.mjs";
+ import { highestOf, modelOf } from "./pipeline-shape.mjs";
++import { reviewerProvenanceOf } from "./reviewer.mjs";
+ import { PLANNER_SESSION_ID, assembleFrozenPlan, frozenContractRawOf, invalidPlanFinding, writeFrozenPlan } from "./pipeline.mjs";
+ import { contestPlan } from "./contest.mjs";
+ import { parseSpec } from "./spec.mjs";
+@@ -97,7 +98,7 @@ export async function resolvePlanningPipeline({ plansDir, cwd, answers }) {
+   if (record.status !== "contested") throw new Error(`plan at ${planPath} is not contested (status: ${record.status})`);
+   if (!record.plan) throw new Error(`plan at ${planPath} has no plan to resume: the draft or revise that produced it never validated; run faberun plan again instead of --resolve`);
+   if (!record.resume) throw new Error(`plan at ${planPath} predates faberun plan --resolve and carries no resume context; run faberun plan again`);
+-  const { campaignId, phase, specPath, specDigest, runtimeDefaults, runtimes, verification, packageMode, targetedFix, approveBelow, repoFacts } = record.resume;
++  const { campaignId, phase, specPath, specDigest, runtimeDefaults, reviewers, runtimes, verification, packageMode, targetedFix, approveBelow, repoFacts } = record.resume;
+   // R16: recomputed from the same spec bytes the contest recorded, so a plan
+   // resumed through --resolve carries the same declared operator steps a
+   // fresh freeze would.
+@@ -150,7 +151,7 @@ export async function resolvePlanningPipeline({ plansDir, cwd, answers }) {
+       provenance: {
+         targetGitHead: repoFacts.gitHead,
+         planner: { runtimeId: runtimeDefaults.worker ?? "", model: modelOf(runtimes, runtimeDefaults.worker) },
+-        reviewer: { runtimeId: runtimeDefaults.judge ?? "", model: modelOf(runtimes, runtimeDefaults.judge) },
++        reviewer: reviewerProvenanceOf(reviewers, runtimes),
+         sizing: assembled.sizing.transformations,
+         findings,
+       },
+diff --git a/src/plan/reviewer.mjs b/src/plan/reviewer.mjs
+new file mode 100644
+index 0000000..aad30ff
+--- /dev/null
++++ b/src/plan/reviewer.mjs
+@@ -0,0 +1,82 @@
++/**
++ * R19: the planner's own ordered reviewer list, kept separate from R18's
++ * judge list (`src/engine/judge-list.mjs`) even when an operator names the
++ * same runtime in both. The frozen contract's judge is chosen at run time,
++ * per node, from the judge list; the plan's own `review`/`spec-review` stage
++ * is chosen once per stage, from this list, by `firstEligibleReviewer` alone
++ * -- no cross-vendor rule runs here, because a plan reviewer grades a
++ * planning artefact rather than a worker's node (D11), so vendor
++ * independence from a worker is not the property this list protects.
++ *
++ * Lives beside the pipeline rather than inside `judge-list.mjs` so the two
++ * lists cannot accidentally converge on one resolver: `judge-list.mjs` reads
++ * `contract.judges`/`config.judges`, this module reads `reviewers` from the
++ * CLI and `config.reviewers`, and neither import the other.
++ */
++import { validateRuntime } from "../contract/runtime.mjs";
++import { getHarness } from "../harnesses/index.mjs";
++import { availabilityKey, readRefusal } from "../run/availability.mjs";
++import { modelOf } from "./pipeline-shape.mjs";
++
++/** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
++/** @typedef {{runtimeId: string, model: string}} ReviewerProvenance */
++
++/**
++ * The reviewer list a plan pipeline reads: `--reviewers` wins over the
++ * machine default, exactly as `resolveJudgeList` (R18) prefers a contract's
++ * own list over the machine's.
++ *
++ * @param {{reviewers?: string[]}} options
++ * @param {{reviewers?: string[]}|null|undefined} config
++ * @returns {string[]|undefined}
++ */
++export function resolveReviewerList(options, config) {
++  return options.reviewers ?? config?.reviewers ?? undefined;
++}
++
++/**
++ * The first eligible entry of an ordered reviewer list: declared in the
++ * runtimes catalogue and carrying no recorded refusal. Unlike `selectListJudge`
++ * (R18), this never excludes a candidate for sharing the worker's provider --
++ * a plan reviewer is not judging the worker that authored the plan, so that
++ * independence rule does not apply here (D11).
++ *
++ * @param {string[]} list
++ * @param {Record<string, JsonObject>} runtimes
++ * @param {number} [now]
++ * @returns {string|null}
++ */
++export function firstEligibleReviewer(list, runtimes, now = Date.now()) {
++  for (const id of list) {
++    const raw = runtimes[id];
++    if (raw === undefined) continue;
++    /** @type {import("../contract/index.mjs").ValidatedRuntime} */
++    let runtime;
++    try {
++      runtime = validateRuntime(id, raw);
++    } catch {
++      continue;
++    }
++    const key = availabilityKey({ harness: runtime.harness, model: runtime.model, executable: getHarness(runtime.harness).executable(runtime) });
++    if (readRefusal(key, now)) continue;
++    return id;
++  }
++  return null;
++}
++
++/**
++ * The reviewer fact a frozen plan's provenance records: the first eligible
++ * entry of the list at the moment of freezing, and its model. An empty or
++ * exhausted list records an empty runtime id, exactly as an unset
++ * `runtimeDefaults.judge` did before R19 -- freezing never refuses on this
++ * alone, since a plan with no reviewer configured is legitimate.
++ *
++ * @param {string[]|undefined} reviewers
++ * @param {Record<string, JsonObject>} runtimes
++ * @param {number} [now]
++ * @returns {ReviewerProvenance}
++ */
++export function reviewerProvenanceOf(reviewers, runtimes, now = Date.now()) {
++  const id = firstEligibleReviewer(reviewers ?? [], runtimes, now);
++  return { runtimeId: id ?? "", model: modelOf(runtimes, id ?? undefined) };
++}
+diff --git a/src/plan/template.mjs b/src/plan/template.mjs
+index 62a622d..7adf597 100644
+--- a/src/plan/template.mjs
++++ b/src/plan/template.mjs
+@@ -25,7 +25,7 @@ import { validateVerificationCommands } from "../contract/verification.mjs";
+ /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
+ /** @typedef {"draft"|"review"|"revise"|"spec-author"|"spec-review"} PlanningKind */
+ /** @typedef {"low"|"standard"|"high"} RiskTier */
+-/** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, specPath?: string, repoFactsPath?: string, cataloguePath?: string, packageMode?: import("./sizing.mjs").PackageMode, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
++/** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, reviewerId?: string, specPath?: string, repoFactsPath?: string, cataloguePath?: string, packageMode?: import("./sizing.mjs").PackageMode, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
+ /** @typedef {{id: string, objective: string, taskKind: string, riskTier: RiskTier, dependsOn: string[], readFiles: string[], writeFiles: string[], scopeAcknowledged: string[], definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], verification: import("../contract/verification.mjs").VerificationCommand[], expectedTurns?: number}} PlanOutputNode */
+ /** @typedef {{nodes: PlanOutputNode[], phases?: PlanPhase[], findings?: PlanFindingOutput[], justification?: string}} PlanOutput */
+ /** @typedef {{id: string, requirementIds: string[], nodeIds?: string[], deliverable: string}} PlanPhase */
+@@ -78,20 +78,24 @@ export function renderTaskKindCatalogue() {
+ }
+ 
+ /**
+- * Which of the caller's `runtimeDefaults` roles resolves this contract's
+- * single node. A draft or revise is authored by the worker role; a review or
+- * spec-review is graded by the judge role — there is no gate on this
+- * single-node contract, so the role only decides which runtime id the node
+- * itself carries.
++ * Which of the caller's runtime inputs resolves this contract's single node.
++ * A draft or revise is authored by the worker role, read off
++ * `runtimeDefaults.worker`; a review or spec-review is graded by the
++ * reviewer role, read off `inputs.reviewerId` instead (R19) -- the planner's
++ * own ordered reviewer list (`reviewer.mjs`), never `runtimeDefaults.judge`,
++ * which is R18's judge-list default for the frozen contract's nodes and
++ * shares nothing with this one. There is no gate on this single-node
++ * contract, so the role only decides which runtime id the node itself
++ * carries.
+  *
+- * @type {Record<PlanningKind, "worker"|"judge">}
++ * @type {Record<PlanningKind, "worker"|"reviewer">}
+  */
+ const KIND_ROLE = Object.freeze({
+   draft: "worker",
+   revise: "worker",
+   "spec-author": "worker",
+-  review: "judge",
+-  "spec-review": "judge",
++  review: "reviewer",
++  "spec-review": "reviewer",
+ });
+ 
+ /** @type {Record<PlanningKind, string[]>} */
+@@ -243,7 +247,7 @@ export function buildPlanningContract(kind, inputs) {
+ 
+   const readFiles = readFilesForKind(kind, inputs);
+   const role = KIND_ROLE[kind];
+-  const runtimeId = (inputs.runtimeDefaults ?? {})[role];
++  const runtimeId = role === "reviewer" ? inputs.reviewerId : (inputs.runtimeDefaults ?? {})[role];
+ 
+   /** @type {JsonObject} */
+   const taskPacket = {
+diff --git a/test/cli/setup.test.mjs b/test/cli/setup.test.mjs
+index f88154d..164d063 100644
+--- a/test/cli/setup.test.mjs
++++ b/test/cli/setup.test.mjs
+@@ -233,15 +233,15 @@ function registerableHome() {
+ test("mergeExistingConfig keeps only what discovery still reports available", () => {
+   const availability = allAvailable();
+   availability["zcode-glm"] = { available: false, exhaustedUntil: null, reason: "not_found" };
+-  assert.deepEqual(mergeExistingConfig(null, availability), { harnesses: [], worker: "", judge: "", judges: [] });
++  assert.deepEqual(mergeExistingConfig(null, availability), { harnesses: [], worker: "", judge: "", judges: [], reviewers: [] });
+   assert.deepEqual(
+-    mergeExistingConfig({ schemaVersion: 1, harnesses: ["dsh", "claude"], worker: "dsh-deepseek", judge: "claude-sonnet", judges: ["claude-sonnet"], updatedAt: "2026-09-15T00:00:00.000Z" }, availability),
+-    { harnesses: ["dsh", "claude"], worker: "dsh-deepseek", judge: "claude-sonnet", judges: ["claude-sonnet"] },
+-    "a still-available choice is kept as-is, the R18 judges list included",
++    mergeExistingConfig({ schemaVersion: 1, harnesses: ["dsh", "claude"], worker: "dsh-deepseek", judge: "claude-sonnet", judges: ["claude-sonnet"], reviewers: ["claude-sonnet"], updatedAt: "2026-09-15T00:00:00.000Z" }, availability),
++    { harnesses: ["dsh", "claude"], worker: "dsh-deepseek", judge: "claude-sonnet", judges: ["claude-sonnet"], reviewers: ["claude-sonnet"] },
++    "a still-available choice is kept as-is, the R18 judges list and R19 reviewers list included",
+   );
+   assert.deepEqual(
+     mergeExistingConfig({ schemaVersion: 1, harnesses: ["dsh", "zcode"], worker: "zcode-glm", judge: "claude-sonnet", updatedAt: "2026-09-15T00:00:00.000Z" }, availability),
+-    { harnesses: ["dsh"], worker: "", judge: "claude-sonnet", judges: [] },
++    { harnesses: ["dsh"], worker: "", judge: "claude-sonnet", judges: [], reviewers: [] },
+     "a harness or worker discovery cannot find is dropped, not kept blindly",
+   );
+ });
+diff --git a/test/plan/resolve.test.mjs b/test/plan/resolve.test.mjs
+index 475e4ad..1910e41 100644
+--- a/test/plan/resolve.test.mjs
++++ b/test/plan/resolve.test.mjs
+@@ -102,7 +102,7 @@ async function writeContested(fixture, findings) {
+     findings: /** @type {any} */ (findings), round: 2, plan: /** @type {any} */ (twoNodePlan()), logStage: () => {},
+     resume: {
+       campaignId, phase, specPath: "docs/spec.md", specDigest, reviewRounds: 2,
+-      runtimeDefaults, runtimes, verification: {}, packageMode: "implementation",
++      runtimeDefaults, reviewers: [], runtimes, verification: {}, packageMode: "implementation",
+       targetedFix: false, approveBelow: "standard", repoFacts,
+     },
+   });
+diff --git a/test/plan/reviewer-list.test.mjs b/test/plan/reviewer-list.test.mjs
+new file mode 100644
+index 0000000..3d0f894
+--- /dev/null
++++ b/test/plan/reviewer-list.test.mjs
+@@ -0,0 +1,130 @@
++import "../scoped-home.mjs";
++import test from "node:test";
++import assert from "node:assert/strict";
++import { mkdtempSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { validateContract } from "../../src/contract/index.mjs";
++import { availabilityKey, recordRefusal } from "../../src/run/availability.mjs";
++import { getHarness } from "../../src/harnesses/index.mjs";
++import { buildPlanningContract } from "../../src/plan/template.mjs";
++import { firstEligibleReviewer, resolveReviewerList, reviewerProvenanceOf } from "../../src/plan/reviewer.mjs";
++import { resolveRuntimes } from "../../src/plan/routing.mjs";
++
++/** @type {Record<string, {harness: string, model: string, vendor: string}>} */
++const RUNTIMES = {
++  "anthropic-worker": { harness: "claude", model: "claude-sonnet-5", vendor: "anthropic" },
++  "openai-judge": { harness: "codex", model: "gpt-6-sol", vendor: "openai" },
++  "zhipu-reviewer": { harness: "zcode", model: "glm-5.3-flash", vendor: "zhipu" },
++  "anthropic-reviewer": { harness: "claude", model: "claude-opus-5-5", vendor: "anthropic" },
++  "reviewer-a": { harness: "zcode", model: "glm-5.3", vendor: "zhipu" },
++  "reviewer-b": { harness: "agy", model: "gemini-3.8-flash-low", vendor: "google" },
++};
++
++const RUNTIME_DEFAULTS = { worker: "anthropic-worker", judge: "openai-judge" };
++
++/** @param {string} id */
++function keyOf(id) {
++  const runtime = RUNTIMES[id];
++  return availabilityKey({ harness: runtime.harness, model: runtime.model, executable: getHarness(runtime.harness).executable(runtime) });
++}
++
++/** @returns {string} a temp checkout holding the read files a review-stage contract names */
++function checkout() {
++  const cwd = mkdtempSync(join(tmpdir(), "reviewer-list-"));
++  writeFileSync(join(cwd, "spec.md"), "spec\n");
++  writeFileSync(join(cwd, "repo-facts.json"), "{}\n");
++  writeFileSync(join(cwd, "plan.json"), "{}\n");
++  return cwd;
++}
++
++test("resolveReviewerList: an explicit list wins over the machine default, which is read only absent one", () => {
++  assert.deepEqual(resolveReviewerList({ reviewers: ["a", "b"] }, { reviewers: ["c"] }), ["a", "b"]);
++  assert.deepEqual(resolveReviewerList({}, { reviewers: ["c"] }), ["c"]);
++  assert.equal(resolveReviewerList({}, null), undefined);
++  assert.equal(resolveReviewerList({}, undefined), undefined);
++});
++
++test("firstEligibleReviewer skips an undeclared or refused entry and never excludes a shared vendor", () => {
++  const list = ["missing-runtime", "reviewer-a", "reviewer-b"];
++  assert.equal(firstEligibleReviewer(list, RUNTIMES), "reviewer-a", "the first declared, unrefused entry wins");
++
++  recordRefusal(keyOf("reviewer-a"), { reason: "quota_exhausted", exhaustedUntil: null }, Date.now());
++  assert.equal(
++    firstEligibleReviewer(list, RUNTIMES),
++    "reviewer-b",
++    "a refused entry is skipped in favor of the next one",
++  );
++
++  assert.equal(firstEligibleReviewer([], RUNTIMES), null);
++  assert.equal(firstEligibleReviewer(["missing-runtime"], RUNTIMES), null, "a list exhausted by absence is null, not a refusal to build");
++});
++
++test("the plan reviewer comes from its own list and never judges a node", () => {
++  const cwd = checkout();
++  const contractPath = join(cwd, "contract.json");
++
++  // The reviewer list names a runtime the frozen contract's judge default
++  // does not: `zhipu-reviewer` never appears in `runtimeDefaults` at all.
++  const reviewers = ["zhipu-reviewer", "openai-judge"];
++  const reviewerId = firstEligibleReviewer(reviewers, RUNTIMES);
++  assert.equal(reviewerId, "zhipu-reviewer");
++
++  const reviewContract = validateContract(
++    buildPlanningContract("review", {
++      campaignId: "demo-campaign",
++      phase: "demo-phase",
++      n: 1,
++      runtimes: RUNTIMES,
++      runtimeDefaults: RUNTIME_DEFAULTS,
++      reviewerId: /** @type {string} */ (reviewerId),
++      specPath: "spec.md",
++      repoFactsPath: "repo-facts.json",
++      planPath: "plan.json",
++    }),
++    contractPath,
++  );
++  // The review stage runs under the reviewer list's pick, not the frozen
++  // contract's judge default -- the two roles no longer share
++  // `runtimeDefaults.judge` (R19).
++  assert.equal(reviewContract.nodes[0].runtime, "zhipu-reviewer");
++  assert.notEqual(reviewContract.nodes[0].runtime, RUNTIME_DEFAULTS.judge);
++
++  // The frozen contract's own judge assignment (R18's routing, unrelated to
++  // this list) is computed independently and never resolves to the reviewer:
++  // a plan reviewer never judges a worker's node.
++  const availability = Object.fromEntries(Object.keys(RUNTIMES).map((id) => [id, { available: true, exhaustedUntil: null }]));
++  const { assignments } = resolveRuntimes(
++    [{ id: "build", taskKind: "implement", riskTier: "standard" }],
++    { runtimes: /** @type {any} */ (RUNTIMES), availability, runtimeDefaults: RUNTIME_DEFAULTS },
++  );
++  assert.equal(assignments.build.worker, "anthropic-worker");
++  assert.equal(assignments.build.judge, "openai-judge");
++  assert.notEqual(assignments.build.judge, reviewerId, "the reviewer picked for the plan's own review stage never judges an implementation node");
++});
++
++test("a reviewer of the planner's own vendor no longer makes the frozen contract unroutable", () => {
++  // Before R19 the review stage's runtime and the frozen contract's judge
++  // default were the same field (`runtimeDefaults.judge`); an operator naming
++  // a same-vendor reviewer there would have made every frozen node's judge
++  // share the worker's vendor and refuse to route. The two are independent
++  // fields now: a reviewer list entry of the worker's own vendor never
++  // reaches routing.mjs at all.
++  const reviewers = ["anthropic-reviewer"];
++  const reviewerId = firstEligibleReviewer(reviewers, RUNTIMES);
++  assert.equal(reviewerId, "anthropic-reviewer", "same vendor as the worker, still eligible as a reviewer");
++
++  const availability = Object.fromEntries(Object.keys(RUNTIMES).map((id) => [id, { available: true, exhaustedUntil: null }]));
++  const { assignments, unmet } = resolveRuntimes(
++    [{ id: "build", taskKind: "implement", riskTier: "standard" }],
++    { runtimes: /** @type {any} */ (RUNTIMES), availability, runtimeDefaults: RUNTIME_DEFAULTS },
++  );
++  assert.deepEqual(unmet, []);
++  assert.equal(assignments.build.judge, "openai-judge", "the frozen contract's judge still comes from runtimeDefaults/R18, untouched by the reviewer list");
++});
++
++test("reviewerProvenanceOf records the first eligible entry and its model, or an empty fact for no list", () => {
++  assert.deepEqual(reviewerProvenanceOf(["zhipu-reviewer"], RUNTIMES), { runtimeId: "zhipu-reviewer", model: "glm-5.3-flash" });
++  assert.deepEqual(reviewerProvenanceOf(undefined, RUNTIMES), { runtimeId: "", model: "" });
++  assert.deepEqual(reviewerProvenanceOf([], RUNTIMES), { runtimeId: "", model: "" });
++});
+diff --git a/test/plan/template.test.mjs b/test/plan/template.test.mjs
+index 7384d3e..7909f4b 100644
+--- a/test/plan/template.test.mjs
++++ b/test/plan/template.test.mjs
+@@ -112,10 +112,12 @@ test("planner vendors distinct", () => {
+   const cwd = checkout();
+   const contractPath = join(cwd, "contract.json");
+   const draftContract = validateContract(buildPlanningContract("draft", baseInputs()), contractPath);
+-  const reviewContract = validateContract(buildPlanningContract("review", baseInputs()), contractPath);
++  // R19: a review node's runtime comes from `inputs.reviewerId` -- the
++  // planner's own reviewer list -- never from `runtimeDefaults.judge`.
++  const reviewContract = validateContract(buildPlanningContract("review", baseInputs({ reviewerId: "openai-reviewer" })), contractPath);
+ 
+   const draftRuntimeId = draftContract.nodes[0].runtime ?? draftContract.runtimeDefaults.worker;
+-  const reviewRuntimeId = reviewContract.nodes[0].runtime ?? reviewContract.runtimeDefaults.worker;
++  const reviewRuntimeId = reviewContract.nodes[0].runtime;
+   const draftVendor = draftContract.runtimes[/** @type {string} */ (draftRuntimeId)].vendor;
+   const reviewVendor = reviewContract.runtimes[/** @type {string} */ (reviewRuntimeId)].vendor;
+ 
+@@ -124,6 +126,13 @@ test("planner vendors distinct", () => {
+   assert.equal(reviewVendor, "openai");
+ });
+ 
++test("a review node with no reviewerId carries no explicit runtime, unlike runtimeDefaults.judge before R19", () => {
++  const cwd = checkout();
++  const contractPath = join(cwd, "contract.json");
++  const reviewContract = validateContract(buildPlanningContract("review", baseInputs()), contractPath);
++  assert.equal(reviewContract.nodes[0].runtime, undefined, "no reviewerId means no per-node runtime override, same as an unconfigured worker default");
++});
++
+ test("review finding shape", () => {
+   assert.throws(() => validateFindings([{ id: "F1", nodeId: "build", text: "missing proof" }]), /severity/);
+   assert.throws(() => validateFindings([{ id: "F1", severity: "major", text: "missing proof" }]), /nodeId/);

@@ -1,0 +1,184 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "planner-and-routing-reviewer-list",
+  "campaignId": "planner-and-routing",
+  "goal": "The planner has its own reviewer list (R19), the last node of routing-and-planner, resumed from its salvaged attempt; run on this branch engine in same-vendor mode (R20).",
+  "cwd": "../../../..",
+  "maxParallel": 2,
+  "stallTimeoutSec": 900,
+  "timeoutSec": 5400,
+  "maxTurns": 400,
+  "runtimeDefaults": {
+    "worker": "claude-sonnet",
+    "judge": "claude-opus"
+  },
+  "runtimes": {
+    "claude-sonnet": {
+      "harness": "claude",
+      "model": "claude-sonnet-5",
+      "vendor": "anthropic",
+      "reasoning": "high",
+      "permissionMode": "bypassPermissions",
+      "tier": 2,
+      "costRank": 3
+    },
+    "claude-opus": {
+      "harness": "claude",
+      "model": "claude-opus-5-5",
+      "vendor": "anthropic",
+      "reasoning": "high",
+      "tier": 3,
+      "costRank": 4,
+      "pricing": {
+        "inputPerMTok": 4,
+        "cachedInputPerMTok": 0.2,
+        "outputPerMTok": 20
+      }
+    }
+  },
+  "sharedVerification": [
+    {
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "timeoutSec": 180
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": [
+        "npm",
+        "run",
+        "check"
+      ],
+      "timeoutSec": 180
+    },
+    {
+      "argv": [
+        "npm",
+        "run",
+        "docs:check"
+      ],
+      "timeoutSec": 180
+    }
+  ],
+  "nodes": [
+    {
+      "id": "reviewer-list",
+      "type": "implementation",
+      "phase": "routing-and-planner",
+      "requirementIds": [
+        "R19"
+      ],
+      "dependsOn": [],
+      "timeoutSec": 5400,
+      "gate": {
+        "runtime": "claude-opus",
+        "review": "blocking",
+        "failOn": [
+          "major",
+          "critical"
+        ],
+        "maxRevisions": 2
+      },
+      "definitionOfDone": [
+        {
+          "id": "r19-named",
+          "text": "The test 'the plan reviewer comes from its own list and never judges a node' exists in test/plan/reviewer-list.test.mjs",
+          "proof": {
+            "kind": "command",
+            "ref": "node -e \"process.exit(require('fs').readFileSync('test/plan/reviewer-list.test.mjs','utf8').includes('the plan reviewer comes from its own list and never judges a node')?0:1)\""
+          }
+        },
+        {
+          "id": "r19-passes",
+          "text": "The test 'the plan reviewer comes from its own list and never judges a node' passes",
+          "proof": {
+            "kind": "command",
+            "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"the plan reviewer comes from its own list and never judges a node\" test/plan/reviewer-list.test.mjs"
+          }
+        },
+        {
+          "id": "suite",
+          "text": "The node's suites pass",
+          "proof": {
+            "kind": "verification",
+            "ref": 0
+          }
+        }
+      ],
+      "taskPacket": {
+        "mode": "autonomous",
+        "objective": "faberun plan takes its own ordered reviewer list, separate from the frozen contract's judge, and a plan reviewer never judges a worker's node (R19).",
+        "instructions": [
+          "Start by applying the previous run's work: `git apply docs/campaigns/planner-and-routing/salvage/reviewer-list.patch` from the repository root. That attempt was cut short by a provider session limit before it verified anything, so treat it as a base to finish and check, not a finished result.",
+          "Read R19 in the spec. Today the review stage uses runtimeDefaults.judge (src/plan/template.mjs buildPlanningContract, KIND_ROLE maps review to judge) and the frozen contract's judge comes from the same default (src/plan/pipeline.mjs resolveRuntimes, src/plan/pipeline-shape.mjs toContractNode).",
+          "Add a reviewer list: `faberun plan --reviewers <a,b>` and a machine default `reviewers` in the config (src/host/config.mjs). The review stage uses the first eligible reviewer (available, not refused); the frozen contract's judges come from the judge list of R18 (the contract or machine `judges`), never from the reviewer list. A reviewer of the planner's own provider no longer makes the frozen contract unroutable.",
+          "Pin the test 'the plan reviewer comes from its own list and never judges a node' in the new file test/plan/reviewer-list.test.mjs."
+        ],
+        "readFiles": [
+          "docs/campaigns/planner-and-routing/spec/SPEC.md",
+          "AGENTS.md",
+          "src/plan/template.mjs",
+          "src/plan/pipeline.mjs",
+          "src/plan/pipeline-shape.mjs",
+          "src/plan/routing.mjs",
+          "src/cli/plan.mjs",
+          "src/host/config.mjs",
+          "docs/campaigns/planner-and-routing/salvage/reviewer-list.patch"
+        ],
+        "writeRoots": [
+          "src/plan/",
+          "src/cli/plan.mjs",
+          "src/cli.mjs",
+          "src/host/config.mjs",
+          "src/cli/setup.mjs",
+          "test/plan/",
+          "test/cli/",
+          "docs/COMMANDS.md"
+        ],
+        "symbols": [
+          "reviewers"
+        ],
+        "decisions": [
+          "This is campaign planner-and-routing (3a) of the leaving-home program; docs/campaigns/planner-and-routing/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+          "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (count before you add; extract a module rather than grow one past it), no runtime import cycle in src/, no name exported from two src/ modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new src/ module saying what it owns and why it is separate, comments record measurement not intent.",
+          "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"). No test calls a provider (fakes, replay and fixtures only); no test writes to the operator's real home. No new runtime dependency.",
+          "The skill documents share one byte budget: an edit to skills/faberun/SKILL.md or skills/faberun/references/*.md must not grow them in total (test/repo checks it).",
+          "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work. Historical records under docs/campaigns/*/contracts and docs/campaigns/*/ledger are not edited.",
+          "A proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names.",
+          "Code, comments and documents are in English.",
+          "The spec's requirement text wins over this packet where they differ; say so in your result if you find a conflict.",
+          "Already landed on this branch and yours to build on: the ordered judge list (src/engine/judge-list.mjs, R18), revise convergence (src/plan/rounds.mjs, R14) and faberun plan --resolve (src/plan/resolve.mjs, R9). src/engine/lifecycle.mjs is 798 lines, two under the ceiling: do not add net lines to it; put new logic in its own module and call it from there.",
+          "single-provider (R20) and human-step (R16) have landed on this branch too. This run is controlled by this branch's own engine in same-vendor mode."
+        ],
+        "nonGoals": [
+          "Choosing the reviewers (D11)"
+        ],
+        "verification": [
+          {
+            "argv": [
+              "node",
+              "--test",
+              "--test-concurrency=4",
+              "--import",
+              "./test/scoped-home.mjs",
+              "--import",
+              "./test/git-env.mjs",
+              "--import",
+              "./test/setup.mjs",
+              "test/cli/",
+              "test/plan/",
+              "test/repo/"
+            ],
+            "timeoutSec": 1500
+          }
+        ]
+      }
+    }
+  ],
+  "judgeIndependence": "same-vendor"
+}
