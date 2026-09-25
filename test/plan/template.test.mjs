@@ -112,16 +112,25 @@ test("planner vendors distinct", () => {
   const cwd = checkout();
   const contractPath = join(cwd, "contract.json");
   const draftContract = validateContract(buildPlanningContract("draft", baseInputs()), contractPath);
-  const reviewContract = validateContract(buildPlanningContract("review", baseInputs()), contractPath);
+  // R19: a review node's runtime comes from `inputs.reviewerId` -- the
+  // planner's own reviewer list -- never from `runtimeDefaults.judge`.
+  const reviewContract = validateContract(buildPlanningContract("review", baseInputs({ reviewerId: "openai-reviewer" })), contractPath);
 
   const draftRuntimeId = draftContract.nodes[0].runtime ?? draftContract.runtimeDefaults.worker;
-  const reviewRuntimeId = reviewContract.nodes[0].runtime ?? reviewContract.runtimeDefaults.worker;
+  const reviewRuntimeId = reviewContract.nodes[0].runtime;
   const draftVendor = draftContract.runtimes[/** @type {string} */ (draftRuntimeId)].vendor;
   const reviewVendor = reviewContract.runtimes[/** @type {string} */ (reviewRuntimeId)].vendor;
 
   assert.notEqual(draftVendor, reviewVendor);
   assert.equal(draftVendor, "anthropic");
   assert.equal(reviewVendor, "openai");
+});
+
+test("a review node with no reviewerId carries no explicit runtime, unlike runtimeDefaults.judge before R19", () => {
+  const cwd = checkout();
+  const contractPath = join(cwd, "contract.json");
+  const reviewContract = validateContract(buildPlanningContract("review", baseInputs()), contractPath);
+  assert.equal(reviewContract.nodes[0].runtime, undefined, "no reviewerId means no per-node runtime override, same as an unconfigured worker default");
 });
 
 test("review finding shape", () => {
