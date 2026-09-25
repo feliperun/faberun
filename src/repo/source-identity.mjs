@@ -112,7 +112,9 @@ function validateHashMap(value, label) {
 }
 /**
  * The pathspec that scopes a source-identity read: everything, minus the
- * factory's own run tree, minus the machine-managed AGENTS.md signal, minus
+ * factory's own run tree, minus `AGENTS.md` (whose managed signal block git
+ * cannot tell apart from a human edit; `agentGuidanceDirty` and
+ * `agentGuidanceIdentity` check its content directly instead), minus
  * whatever the caller declared out of scope.
  *
  * @param {{ignorePaths?: string[], ignoreRoots?: string[]}} options
@@ -180,9 +182,14 @@ function resolveGitHead(cwd, baseRef) {
 
 /**
  * The paths the working tree has modified, added or left untracked, ignoring
- * the factory's own `.runs` tree and the machine-managed AGENTS.md signal. A
- * clean tree is `[]`; an unreadable tree is treated as clean because the
- * caller has no dirt to name.
+ * the factory's own `.runs` tree. `AGENTS.md` is git-excluded from that scan
+ * (its managed block would otherwise flag every launch) and checked on its
+ * own instead: it counts as dirty exactly when its content differs from
+ * `gitHead`'s once both are normalized with `normalizeManagedSignalBlock`, so
+ * a human edit outside the block is refused — including one that sits
+ * alongside a block change in the same file (R17) — while a block-only
+ * change is not. A clean tree is `[]`; an unreadable tree is treated as clean
+ * because the caller has no dirt to name.
  *
  * @param {string} cwd
  * @param {{ignorePaths?: string[], ignoreRoots?: string[]}} [options]
@@ -194,11 +201,44 @@ export function dirtyTreePaths(cwd, options = {}) {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     }));
-    return status.split("\0").filter(Boolean);
+    const paths = status.split("\0").filter(Boolean);
+    if (agentGuidanceDirty(cwd, resolveGitHead(cwd, undefined))) paths.push("AGENTS.md");
+    return paths;
   } catch {
     // Not a repository, or git absent: there is no dirt the launch can name.
     return [];
   }
+}
+
+/**
+ * Whether `AGENTS.md` itself counts as a dirty path: its working-tree content
+ * differs from `gitHead`'s once both are normalized with
+ * `normalizeManagedSignalBlock`. A change confined to the managed block does
+ * not count, so the block the runner itself rewrites never blocks a launch;
+ * any other edit does. `gitHead` null (no commit to compare against) is never
+ * dirty.
+ *
+ * @param {string} cwd
+ * @param {string|null} gitHead
+ * @returns {boolean}
+ */
+function agentGuidanceDirty(cwd, gitHead) {
+  if (!gitHead) return false;
+  let working = null;
+  try { working = readFileSync(resolve(cwd, "AGENTS.md"), "utf8"); }
+  catch (error) { if (errorCode(error) !== "ENOENT") throw error; }
+  let committed = null;
+  try {
+    committed = String(gitSyncOrThrow(["-C", cwd, "show", `${gitHead}:AGENTS.md`], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }));
+  } catch {
+    // AGENTS.md does not exist at gitHead: committed stays null.
+  }
+  if (working === null && committed === null) return false;
+  const normalize = (/** @type {string|null} */ text) => (text === null ? null : normalizeManagedSignalBlock(text));
+  return normalize(working) !== normalize(committed);
 }
 
 /**
