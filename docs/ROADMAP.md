@@ -69,7 +69,7 @@ was created. `RM-030` fixes the leak at its cause.
 
 ## Now: the `leaving-home` program
 
-Every priority below competes for the same attention, so the next five
+Every priority below competes for the same attention, so the next
 campaigns are fixed in order by [the program](campaigns/leaving-home/PROGRAM.md).
 Its goal is the P0 sentence extended by one step: *I trust faberun enough to
 leave a campaign running without watching it, and to put it in a friend's
@@ -81,11 +81,12 @@ hands.* Only after that does anything get announced.
 | 1 | [`evidence-you-can-recompute`](campaigns/evidence-you-can-recompute/spec/SPEC.md) | every number faberun states about itself recomputes from `main`; recovery stops counting as failure | the baseline recomputes from versioned ledgers; the `orchestration-arms` record is on `main`; the skill docs have one byte budget |
 | 2 | [`evals-with-a-budget`](campaigns/evals-with-a-budget/spec/SPEC.md) | the paired benchmark and the judge canary, with a hard budget and a band | three repetitions of the complex round; the canary measured on two judge runtimes; D9 recorded |
 | 2b | [`choose-the-judges`](campaigns/choose-the-judges/spec/SPEC.md) | judges and planner roles chosen by measurement: a canary corpus not written only by the family it tests, two repetitions, the owner's candidate judges and three planner role configurations | D9 revised into a judge matrix by worker vendor; D11 on planner roles |
-| 3 | [`safe-to-hand-to-a-friend`](campaigns/safe-to-hand-to-a-friend/spec/SPEC.md) | a planner that stops when revision does not converge, finds unwritable proofs and carries human steps (it went 0 for 10 contracts in the last three campaigns); environment allowlist, sandbox cost stated, executed getting-started, repo facts beyond Node, ways back from a contested plan, a refused packet and a defective packet, uninstall | a planted secret never reaches a worker; the owner's next campaign closes with no hand-written contract |
+| 3a | [`planner-and-routing`](campaigns/planner-and-routing/spec/SPEC.md) | the planner freezes and each node gets the right judge: the vendor rule compares the canonical provider, not a free label; the judge comes from D9's ordered list; planning has its own reviewers (D11); a revise that does not converge stops; an unwritable proof is found before review; a human step is carried; `proof.ref` by text or index (the planner is 0 for 13) | the phase-one plan of 3b freezes with no hand edit; the vendor rule compares the canonical provider |
+| 3b | [`safe-to-hand-to-a-friend`](campaigns/safe-to-hand-to-a-friend/spec/SPEC.md) | environment allowlist, sandbox cost stated, executed getting-started, repo facts beyond Node, ways back from a refused and a defective packet, uninstall; every contract comes from `faberun plan` | a planted secret never reaches a worker; the getting-started guide is checked in CI; a stranger's first offline campaign is green; 3b closed with 0 hand-written contracts |
 | 4 | [`friends-pilot`](campaigns/friends-pilot/spec/SPEC.md) | three to five people run a real campaign in their own repositories; what they live returns as redacted data and friction with an id here | D10 recorded |
 
 Rules that hold for the whole program: no new harness, no UI, no rewrite in
-another language, no new verb outside those five specs; no ceiling in
+another language, no new verb outside those specs; no ceiling in
 `test/docs/docs-diet.test.mjs` rises; no test calls a provider; cheap writers
 by default; every campaign closes with `faberun spec validate --strict-traceability
 --run-proofs` green.
@@ -292,11 +293,11 @@ escalate to a human.
 | RM-054 | A packet defect has no operator override, so the only exit discards the attempt's good work | the failed `test-hygiene` attempt had already deleted the 14 artifacts and fixed `testDir()`; re-issuing the contract re-ran from zero because a failed attempt's seal is not on the new run's ancestry. `resume --answer` is the right mechanism and covers only `context_missing` | specified: `safe-to-hand-to-a-friend` R13 |
 | RM-072 | Repo facts find verification commands outside Node | `readScripts` reads only `package.json`; `rec` (Zig) was planned by hand | specified: `safe-to-hand-to-a-friend` R7 |
 | RM-073 | A stranger's first campaign completes offline, end to end | no test covers `init`, `plan`, `run` and `close` on an unfamiliar repository | specified: `safe-to-hand-to-a-friend` R8 |
-| RM-074 | A contested plan hands the operator a decision, and resumes from the answers | the planner contested both plans of `durable-state-integrity` and the implementation plan of the Campaign Brief; in each case a human wrote or fixed the contract | specified: `safe-to-hand-to-a-friend` R9 |
-| RM-087 | A revise that does not reduce critical findings stops the pipeline | `evidence-you-can-recompute`: the revise reached 28 criticals in round 4 with mechanically invalid output (`proof.ref` as text), and US$ 3.79 of planning never froze | specified: `safe-to-hand-to-a-friend` R14 |
-| RM-088 | A proof no node can write is found before review, without a model | the reviewer of `evidence-you-can-recompute` found a proof whose test file was in no node's `writeFiles` and a `grep -c` measure that exits 1 at zero; both were spec defects a deterministic check would have caught | specified: `safe-to-hand-to-a-friend` R15 |
-| RM-089 | The plan carries a human step the spec declares | the `reledger` step of `evidence-you-can-recompute` R3 was declared a human boundary and the plan had no way to represent it, so the node that needed its output could never run | specified: `safe-to-hand-to-a-friend` R16 |
-| RM-090 | The managed signal block of `AGENTS.md` alone does not block a launch | during `first-target-frictions` every launch was refused as uncommitted until the operator restored `AGENTS.md`; source identity already excludes the block | specified: `safe-to-hand-to-a-friend` R17 |
+| RM-074 | A contested plan hands the operator a decision, and resumes from the answers | the planner contested both plans of `durable-state-integrity` and the implementation plan of the Campaign Brief; in each case a human wrote or fixed the contract | specified: `planner-and-routing` R9 |
+| RM-087 | A revise that does not reduce critical findings stops the pipeline | `evidence-you-can-recompute`: the revise reached 28 criticals in round 4 with mechanically invalid output (`proof.ref` as text), and US$ 3.79 of planning never froze | specified: `planner-and-routing` R14 |
+| RM-088 | A proof no node can write is found before review, without a model | the reviewer of `evidence-you-can-recompute` found a proof whose test file was in no node's `writeFiles` and a `grep -c` measure that exits 1 at zero; both were spec defects a deterministic check would have caught | specified: `planner-and-routing` R15 |
+| RM-089 | The plan carries a human step the spec declares | the `reledger` step of `evidence-you-can-recompute` R3 was declared a human boundary and the plan had no way to represent it, so the node that needed its output could never run | specified: `planner-and-routing` R16 |
+| RM-090 | The managed signal block of `AGENTS.md` alone does not block a launch | during `first-target-frictions` every launch was refused as uncommitted until the operator restored `AGENTS.md`; source identity already excludes the block | specified: `planner-and-routing` R17 |
 
 `RM-025` is the bottleneck in practice: the information needed to fix the packet
 usually arrives *inside* the refusal. `RM-026` lowers how often `RM-025` is
@@ -392,13 +393,14 @@ judgment; they do not transport information.
 | RM-096 | Read the provider's own usage window before spending | every codex call records `rate_limits` (5-hour and weekly `used_percent`, `resets_at`); on 2026-09-24 the weekly window went from 86% to about 93% in one canary reading, and nothing read it | measured |
 | RM-097 | A planning stage whose detached launch fails is retried and named | `choose-the-judges` R5: `plan --detach` died twice with no plan written ("detached bootstrap failed before readiness"), about 40 minutes lost | measured |
 | RM-098 | Repository facts are measured once per commit and reused | each of the four R5 plans measured the same suites again, about 15 minutes each | measured |
-| RM-099 | The planner's reviewer and the frozen contract's judge are configured apart, with a reviewer list of its own (D11) | R5 (b): `--runtime-defaults judge=` set both, so a same-vendor reviewer made every frozen node's judge unroutable (`runtime_routing_unmet`) in all four rounds | specified: `safe-to-hand-to-a-friend` R19 |
+| RM-099 | The planner's reviewer and the frozen contract's judge are configured apart, with a reviewer list of its own (D11) | R5 (b): `--runtime-defaults judge=` set both, so a same-vendor reviewer made every frozen node's judge unroutable (`runtime_routing_unmet`) in all four rounds | specified: `planner-and-routing` R19 |
 | RM-100 | One command waits for a run or a plan to need attention or finish | the operator's own polling broke three times in `choose-the-judges` (text parsing, a sandbox that cannot see the controller), delaying the detection of a parked node | measured |
-| RM-101 | The judge is chosen from an ordered list per node, with a fallback of several hops | D9 (2026-09-24): first entry of another canonical provider, skipping one out of quota or above 90% of its Codex window; a contract names one judge and one fallback today | specified: `safe-to-hand-to-a-friend` R18 |
-| RM-102 | A single-provider mode, opt-in | an operator with one provider has no cross-vendor judge. Explicit opt-in (for example `judgeIndependence: same-vendor`); the judge is another model of the same or a higher class than the worker (Sonnet works, Opus or Fable judges); the Campaign Brief, the report and the metrics mark "same-provider review"; the judge canary gains a reading of that case | specified: `safe-to-hand-to-a-friend` R20 |
+| RM-101 | The judge is chosen from an ordered list per node, with a fallback of several hops | D9 (2026-09-24): first entry of another canonical provider, skipping one out of quota or above 90% of its Codex window; a contract names one judge and one fallback today | specified: `planner-and-routing` R18 |
+| RM-102 | A single-provider mode, opt-in | an operator with one provider has no cross-vendor judge. Explicit opt-in (for example `judgeIndependence: same-vendor`); the judge is another model of the same or a higher class than the worker (Sonnet works, Opus or Fable judges); the Campaign Brief, the report and the metrics mark "same-provider review"; the judge canary gains a reading of that case | specified: `planner-and-routing` R20 |
 | RM-103 | Finding severity is calibrated | in the `choose-the-judges` canary a third of the planted defects drew only `minor` findings, so a `[major, critical]` gate passes them: gpt-6-sol recalls 0.98 counting any cited rejection and 0.70 blocking | measured |
-| RM-104 | A plan's `proof.ref` is accepted as the verification command's text or its index | the invalid `proof.ref` that contested plans came from gpt-5.6-luna's revise and from claude-opus-5-5's draft alike (`choose-the-judges` R5), so it is the format, not a model | specified: `safe-to-hand-to-a-friend` R21 |
+| RM-104 | A plan's `proof.ref` is accepted as the verification command's text or its index | the invalid `proof.ref` that contested plans came from gpt-5.6-luna's revise and from claude-opus-5-5's draft alike (`choose-the-judges` R5), so it is the format, not a model | specified: `planner-and-routing` R21 |
 | RM-105 | A contested plan's open-question always reaches the campaign | `choose-the-judges` R5: roles-a and roles-b contested, and the pipeline failed to record the open-question (`entry.text is 4706 bytes` and `11342 bytes, over the 2048-byte cap`, `bootstrap-failure.json`), so two contested plans told the campaign nothing | measured |
+| RM-106 | The operator's session is a cost of the campaign | the session that conducts a campaign and writes its contracts (an Opus session in every `leaving-home` campaign) is measured nowhere: `usage.jsonl` holds only what faberun launches, so every campaign's stated cost leaves out the model that did the orchestration and the hand-authoring | measured |
 | RM-033 | Ask the owner asynchronously (WhatsApp, then `campaign resolve`) instead of keeping a session alive to be present when a question appears | none yet | idea |
 | RM-070 | The getting-started walkthrough is executed, not only read | its first output shows `.runs/campaigns/hello`; the CLI prints a path under the home layout | specified: `safe-to-hand-to-a-friend` R5 |
 | RM-071 | No current document describes the legacy run layout as current | 31 lines cite `.runs` across `GETTING-STARTED.md`, `CONCEPTS.md`, `ARCHITECTURE.md` and `README.md` | specified: `safe-to-hand-to-a-friend` R6 |
@@ -642,12 +644,7 @@ deliberately conservative (at least 60 nodes, 5 campaigns, 60 days, pass@1 of
 95%). A lower floor starts saving sooner and risks learning from noise. Where is
 the line?
 
-**Q7: The stochastic budget.** `evals-with-a-budget` declares US$ 100 for its
-first real readings: about US$ 60 for three repetitions of six arms of the
-complex round and about US$ 20 for the canary on two judge runtimes. Confirm or
-change before that campaign's last phase.
-
 **Q8: Who is in the pilot.** Three to five people who already use coding agents,
 each with a repository of their own that has a remote and no automatic deploy.
 The names are the owner's to choose, and the invitations go out only after the
-program's third campaign closes.
+`safe-to-hand-to-a-friend` (3b) closes.

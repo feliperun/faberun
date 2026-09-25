@@ -11,6 +11,8 @@ campaigns:
   - first-target-frictions
   - evidence-you-can-recompute
   - evals-with-a-budget
+  - choose-the-judges
+  - planner-and-routing
   - safe-to-hand-to-a-friend
   - friends-pilot
 ---
@@ -63,13 +65,18 @@ depende do anterior:
    candidatos (DeepSeek v4 Pro, GLM 5.3 Pro, GPT Sol 6, Opus 5.5) e três
    configurações de papel do planner, e troca o juiz único da D9 por uma matriz
    de juiz permitido por vendor de worker.
-3. **`safe-to-hand-to-a-friend`.** O planner para de divergir, acha prova
-   impossível antes da revisão e representa passo humano (ficou em 0 de 10
-   contratos nas campanhas 1 e 2 e na anterior); o worker deixa de herdar o ambiente inteiro,
-   o modo de sandbox diz o que custa, o guia de primeiros passos passa a ser
-   executado, o planner enxerga repositório que não é Node, plano contestado,
-   pacote recusado e pacote com defeito têm caminho de volta, e sair é um
-   comando.
+3a. **`planner-and-routing`.** O planner congela, e cada nó tem o juiz certo. A
+   regra de vendor passa a comparar o provedor canônico, e não o rótulo livre;
+   o juiz de cada nó sai da lista ordenada da D9; o planner ganha revisores
+   próprios (D11), para de divergir, acha prova impossível antes da revisão,
+   representa passo humano e aceita `proof.ref` por texto ou índice. O planner
+   está em 0 de 13: os 10 contratos das campanhas anteriores foram escritos à
+   mão, e os 3 planos do R5 da `choose-the-judges` não congelaram.
+3b. **`safe-to-hand-to-a-friend`.** O worker deixa de herdar o ambiente
+   inteiro, o modo de sandbox diz o que custa, o guia de primeiros passos passa
+   a ser executado, o planner enxerga repositório que não é Node, pacote recusado
+   e pacote com defeito têm caminho de volta, e sair é um comando. Todo contrato
+   dela sai do `faberun plan`: ela é o teste do portão 3 para 4.
 4. **`friends-pilot`.** Três a cinco pessoas próximas rodam uma campanha real
    nos próprios repositórios, começando pelo Campaign Brief. O que elas vivem
    volta como pacote redigido e como atrito com id no roadmap. O programa
@@ -87,8 +94,9 @@ Toda campanha fecha com `faberun spec validate <spec> --strict-traceability
 | 0 para 1 | a suíte passa sob carga no macOS do operador; nó que escreve fonte de ignore é avisado; nenhum juiz precisa de `workspace-write` |
 | 1 para 2 | `evals/baseline.json` recomputa a partir de ledgers versionados; o registro do `orchestration-arms` está em main; o orçamento de bytes da skill está em vigor |
 | 2 para 3 | três repetições do round complexo com banda; canário medido em pelo menos dois runtimes de juiz; D9 registrada |
-| 2b para 3 | D9 revisada com a matriz de juízes; D11 sobre os papéis do planner registrada |
-| 3 para 4 | segredo plantado não chega ao worker; `GETTING-STARTED.md` conferido no CI; primeira campanha offline de um estranho verde; a próxima campanha do próprio operador fecha sem contrato escrito à mão |
+| 2b para 3a | D9 revisada com a matriz de juízes; D11 sobre os papéis do planner registrada |
+| 3a para 3b | o plano da fase 1 da 3b congela sem edição à mão; a regra de vendor compara o provedor canônico |
+| 3b para 4 | segredo plantado não chega ao worker; `GETTING-STARTED.md` conferido no CI; primeira campanha offline de um estranho verde; a 3b fechou com 0 contratos escritos à mão |
 | 4 para divulgação | D10 registrada |
 
 ## Regras que valem para o programa inteiro
@@ -129,7 +137,8 @@ Toda campanha fecha com `faberun spec validate <spec> --strict-traceability
 | `evidence-you-can-recompute` | até US$ 15 com writers baratos | 0 |
 | `evals-with-a-budget` | até US$ 20 | até US$ 100 (R11) |
 | `choose-the-judges` | até US$ 5 | até US$ 100 (R4 e R5; elevado de 70 pelo dono em 24/09) |
-| `safe-to-hand-to-a-friend` | até US$ 25 | 0 |
+| `planner-and-routing` | até US$ 15 | 0 |
+| `safe-to-hand-to-a-friend` | até US$ 20 | 0 |
 | `friends-pilot` | até US$ 10 | 0 (o custo do participante é dele, com teto sugerido) |
 
 As estimativas de execução vêm de três ledgers: `durable-state-integrity` (10
@@ -152,7 +161,8 @@ seguem a D8 da PR #63: D9 (juiz) e D10 (divulgação).
 | `first-target-frictions` | RM-051, RM-052, RM-053 | RM-056 (orçamento de teste abaixo de 1 s), RM-057 (timeout congelado abaixo do medido), RM-058 (juiz somente-leitura); RM-059 (dependência inventada) fica registrado, sem requisito |
 | `evidence-you-can-recompute` | RM-030, RM-016 (parcial), RM-055 | RM-060 (ledger completo), RM-061 (`reledger`), RM-062 (motivo de custo desconhecido), RM-063 (North Star), RM-064 (orçamento de bytes), RM-065 (`orchestration-arms` em main), RM-066 (baseline recomputável) |
 | `evals-with-a-budget` | RM-013, RM-035, RM-031 (parcial) | RM-067 (orçamento estocástico), RM-068 (`reason` em item de julgamento) |
-| `safe-to-hand-to-a-friend` | RM-025, RM-050, RM-054, D2 (parcial) | RM-069 (ambiente permitido), RM-070 (guia executado), RM-071 (layout legado nas docs), RM-072 (fatos fora do Node), RM-073 (primeira campanha offline), RM-074 (`plan --resolve`), RM-075 (`uninstall`), RM-087 (revise que não converge para), RM-088 (prova impossível achada antes da revisão), RM-089 (passo humano no plano), RM-090 (`AGENTS.md` não bloqueia o lançamento), RM-101 (juiz por lista, D9), RM-099 (revisores do planner, D11), RM-102 (modo de um provedor só), RM-104 (`proof.ref` por texto ou índice) |
+| `planner-and-routing` | — | RM-074 (`plan --resolve`), RM-087 (revise que não converge para), RM-088 (prova impossível achada antes da revisão), RM-089 (passo humano no plano), RM-090 (`AGENTS.md` não bloqueia o lançamento), RM-101 (juiz por lista, D9), RM-099 (revisores do planner, D11), RM-102 (modo de um provedor só), RM-104 (`proof.ref` por texto ou índice) |
+| `safe-to-hand-to-a-friend` | RM-025, RM-050, RM-054, D2 (parcial) | RM-069 (ambiente permitido), RM-070 (guia executado), RM-071 (layout legado nas docs), RM-072 (fatos fora do Node), RM-073 (primeira campanha offline), RM-075 (`uninstall`) |
 | `friends-pilot` | RM-036, RM-015 (parcial) | RM-076 (exportação redigida), RM-077 (atrito no journal), RM-078 (classe `pilot`), RM-079 (protocolo do piloto) |
 
 O lugar de cada item que ficou fora do programa, e o que o traria para dentro,
