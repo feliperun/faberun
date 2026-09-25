@@ -233,15 +233,15 @@ function registerableHome() {
 test("mergeExistingConfig keeps only what discovery still reports available", () => {
   const availability = allAvailable();
   availability["zcode-glm"] = { available: false, exhaustedUntil: null, reason: "not_found" };
-  assert.deepEqual(mergeExistingConfig(null, availability), { harnesses: [], worker: "", judge: "" });
+  assert.deepEqual(mergeExistingConfig(null, availability), { harnesses: [], worker: "", judge: "", judges: [] });
   assert.deepEqual(
-    mergeExistingConfig({ schemaVersion: 1, harnesses: ["dsh", "claude"], worker: "dsh-deepseek", judge: "claude-sonnet", updatedAt: "2026-09-15T00:00:00.000Z" }, availability),
-    { harnesses: ["dsh", "claude"], worker: "dsh-deepseek", judge: "claude-sonnet" },
-    "a still-available choice is kept as-is",
+    mergeExistingConfig({ schemaVersion: 1, harnesses: ["dsh", "claude"], worker: "dsh-deepseek", judge: "claude-sonnet", judges: ["claude-sonnet"], updatedAt: "2026-09-15T00:00:00.000Z" }, availability),
+    { harnesses: ["dsh", "claude"], worker: "dsh-deepseek", judge: "claude-sonnet", judges: ["claude-sonnet"] },
+    "a still-available choice is kept as-is, the R18 judges list included",
   );
   assert.deepEqual(
     mergeExistingConfig({ schemaVersion: 1, harnesses: ["dsh", "zcode"], worker: "zcode-glm", judge: "claude-sonnet", updatedAt: "2026-09-15T00:00:00.000Z" }, availability),
-    { harnesses: ["dsh"], worker: "", judge: "claude-sonnet" },
+    { harnesses: ["dsh"], worker: "", judge: "claude-sonnet", judges: [] },
     "a harness or worker discovery cannot find is dropped, not kept blindly",
   );
 });

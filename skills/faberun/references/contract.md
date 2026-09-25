@@ -146,33 +146,36 @@ one `artifacts` entry: the execution packet for the next node.
 ## Runtimes and routing
 
 Resolve a worker as `nodes[].runtime`, then `runtimeDefaults.worker`; a judge
-as `nodes[].gate.runtime`, then `runtimeDefaults.judge`. When `runtimes` and
-`runtimeDefaults` are both omitted, the factory composes them from the
-discovery catalogue (`DISCOVERY_RUNTIME_DEFINITIONS`: `dsh-deepseek`,
-`zcode-glm`, `agy-gemini` at tier 1, `codex-gpt` and `claude-sonnet` at tier 2;
-available when the binary answers and every `config["*.env_key"]` it names is
-set): the cheapest available runtime executes, the strongest runtime of a
-*different vendor* judges, persisted in `routing.assignments`; no admissible
-cross-vendor judge fails by name (`runtime_assignment_judge_unavailable`).
+as `nodes[].gate.runtime`, then `runtimeDefaults.judge`, then a contract's (or
+absent one, the machine config's) ordered `judges` list: its first entry off
+the worker's provider and its fallback chain's, unrefused and under a 90%
+usage window, hopping the same way on a later refusal without repeats,
+replacing any declared `fallback` edge outright, and blocking the node by name
+when every entry is skipped (R18).
+When `runtimes` and `runtimeDefaults` are both omitted, the factory composes
+them from the discovery catalogue (`DISCOVERY_RUNTIME_DEFINITIONS`:
+`dsh-deepseek`, `zcode-glm`, `agy-gemini` at tier 1, `codex-gpt` and
+`claude-sonnet` at tier 2; available when the binary answers and every
+`config["*.env_key"]` it names is set): the cheapest available runtime
+executes, the strongest runtime of a *different vendor* judges, persisted in
+`routing.assignments`; no admissible cross-vendor judge fails by name
+(`runtime_assignment_judge_unavailable`).
 
 `harness` names the adapter that runs the turn (`claude`, `codex`, `agy`,
-`dsh`, `zcode`, `exec-jsonl`, `replay`) and `model` what it asks; the two
-vary independently — DeepSeek answers through `dsh`, GLM through `zcode`. Name
-a runtime id `<harness>-<model>` so a recorded run says which harness produced
-it; ids take letters, numbers, dot, underscore, dash only. Vendor is resolved (`resolveVendor` in `harnesses/index.mjs`), not the
-harness name: an explicit `vendor`, else a provider-config override (a codex
-runtime with `config.model_provider: "deepseek"` is vendor `deepseek`), else
-the harness default (`claude`→anthropic, `codex`→openai, `agy`→google,
-`zcode`→zhipu); `dsh`/`replay`/`exec-jsonl` have no default and must declare
-`vendor`. The rule compares the provider derived from harness, model and
-route, not the label, so a `vendor` that contradicts it is refused.
-Validation rejects a gate-enabled node whose worker and judge resolve to the
-same vendor, and does the same for every runtime in the worker's declared
-fallback chain (rejecting a cycle in that chain outright) — all statically
-knowable from the contract alone. The symmetric case, a judge fallback
-landing on the vendor of the worker runtime that actually ran, cannot be
-checked statically (it depends on which worker runtime ran this attempt) and
-is instead refused at execution; see Failover below.
+`dsh`, `zcode`, `exec-jsonl`, `replay`) and `model` what it asks; the two vary
+independently — DeepSeek answers through `dsh`, GLM through `zcode`. Name a
+runtime id `<harness>-<model>` so a recorded run says which harness produced
+it; ids take letters, numbers, dot, underscore, dash only. Vendor is the
+canonical provider (`canonicalProvider` in `src/contract/provider.mjs`)
+derived from route, model family, or harness default (`claude`→anthropic,
+`codex`→openai, `agy`→google, `zcode`→zhipu; `dsh`/`replay`/`exec-jsonl` have
+none and must declare `vendor`), falling back to `resolveVendor` only when it
+derives none; a declared `vendor` that contradicts it is refused. Validation
+rejects a gate-enabled node whose worker and judge resolve to the same
+vendor, and does the same for every runtime in the worker's declared fallback
+chain (rejecting a cycle outright). The symmetric case for a judge fallback
+depends on which worker runtime ran and is refused at execution instead; see
+Failover below.
 
 An optional `runtimes[<id>].pricing` object declares `inputPerMTok`,
 `cachedInputPerMTok`, and `outputPerMTok` (each finite and >= 0, at

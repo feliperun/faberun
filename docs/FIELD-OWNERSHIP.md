@@ -183,6 +183,16 @@ the assignment entries the scheduler persists: the snapshot's
 observables below, and it widens the same way, when a reader needs the record
 durably.
 
+A list-driven judge (R18, `contract.judges` or the machine config's own) is
+the one case that already widened: its pick and every entry it skipped, and
+why, are `routing.judgeList` (`list`, `chosen`, `skipped`), written once at
+assignment by `runtimeAssignments` and again at each in-run hop by
+`engine/lifecycle.mjs`'s `handleProviderExhaustion` (through
+`engine/judge-list.mjs`'s `nextListJudge`), appended to rather than replaced
+so a hop never loses an earlier skip's reason. The `decisions` strategy for
+that pick is `judge-list`, alongside the table's existing `declared`, `cost`
+and `priority`.
+
 ## The verification mutation tier
 
 The `mutation` field on a task-packet verification command (`VerificationCommand`,

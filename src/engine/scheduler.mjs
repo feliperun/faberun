@@ -290,6 +290,11 @@ export async function runContract(contractPath, options = {}) {
           currentOverride: null,
           assignments: runtimePlan.assignments[node.id],
           availability: runtimePlan.availability,
+          // Only a genuinely list-driven pick (R18) carries this evidence. An
+          // exhausted list (`chosen` null) never reaches here: composeAssignments
+          // throws before a run is created rather than falling through to the
+          // discovery ranking (see `runtime-discovery.mjs`'s `listPick`).
+          ...(runtimePlan.judgeListStates[node.id] ? { judgeList: runtimePlan.judgeListStates[node.id] } : {}),
         },
         progress: null,
         invocations: [],
