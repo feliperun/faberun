@@ -1,0 +1,469 @@
+{
+ "schemaVersion": 3,
+ "contractVersion": "0.3.0",
+ "id": "planner-and-routing-foundations-2",
+ "campaignId": "planner-and-routing",
+ "goal": "The vendor rule compares the canonical provider, the planner pipeline has room, proof.ref takes text or index, and only the managed AGENTS.md block is exempt from the launch check.",
+ "cwd": "../../../..",
+ "maxParallel": 3,
+ "stallTimeoutSec": 900,
+ "timeoutSec": 5400,
+ "maxTurns": 400,
+ "runtimeDefaults": {
+  "worker": "claude-sonnet",
+  "judge": "zcode-glm-flash"
+ },
+ "runtimes": {
+  "claude-sonnet": {
+   "harness": "claude",
+   "model": "claude-sonnet-5",
+   "vendor": "anthropic",
+   "reasoning": "high",
+   "permissionMode": "bypassPermissions",
+   "tier": 2,
+   "costRank": 3,
+   "fallback": "dsh-deepseek"
+  },
+  "dsh-deepseek": {
+   "harness": "dsh",
+   "model": "deepseek-flash",
+   "reasoning": "high",
+   "vendor": "deepseek",
+   "sandbox": "danger-full-access",
+   "config": {
+    "provider": "deepseek-official",
+    "api_key.env_key": "DEEPSEEK_API_KEY"
+   },
+   "stallTimeoutSec": 900,
+   "tier": 1,
+   "costRank": 1
+  },
+  "zcode-glm-flash": {
+   "harness": "zcode",
+   "model": "glm-5.3-flash",
+   "vendor": "zhipu",
+   "permissionMode": "plan",
+   "config": {
+    "auth_token.env_key": "ZAI_API_KEY"
+   },
+   "stallTimeoutSec": 1800,
+   "tier": 1,
+   "costRank": 1
+  }
+ },
+ "sharedVerification": [
+  {
+   "argv": [
+    "npm",
+    "run",
+    "typecheck"
+   ],
+   "timeoutSec": 180
+  }
+ ],
+ "finalVerification": [
+  {
+   "argv": [
+    "npm",
+    "run",
+    "check"
+   ],
+   "timeoutSec": 180
+  },
+  {
+   "argv": [
+    "npm",
+    "run",
+    "docs:check"
+   ],
+   "timeoutSec": 180
+  }
+ ],
+ "nodes": [
+  {
+   "id": "canonical-provider",
+   "type": "implementation",
+   "phase": "foundations",
+   "requirementIds": [
+    "R18"
+   ],
+   "timeoutSec": 5400,
+   "gate": {
+    "runtime": "zcode-glm-flash",
+    "review": "blocking",
+    "failOn": [
+     "major",
+     "critical"
+    ],
+    "maxRevisions": 2
+   },
+   "definitionOfDone": [
+    {
+     "id": "canon-named",
+     "text": "The test 'the vendor rule compares the provider derived from harness and model' exists in test/contract/provider.test.mjs",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"process.exit(require('fs').readFileSync('test/contract/provider.test.mjs','utf8').includes('the vendor rule compares the provider derived from harness and model')?0:1)\""
+     }
+    },
+    {
+     "id": "canon-passes",
+     "text": "The test 'the vendor rule compares the provider derived from harness and model' passes",
+     "proof": {
+      "kind": "command",
+      "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"the vendor rule compares the provider derived from harness and model\" test/contract/provider.test.mjs"
+     }
+    },
+    {
+     "id": "suite",
+     "text": "The whole suite passes",
+     "proof": {
+      "kind": "verification",
+      "ref": 0
+     }
+    },
+    {
+     "id": "every-site",
+     "text": "Every worker-against-judge independence check compares the derived provider, none the free-text vendor label.",
+     "judgment": true,
+     "reason": "A test covers the sites it drives; whether no comparison site was left on the label is read across the tree."
+    }
+   ],
+   "taskPacket": {
+    "mode": "autonomous",
+    "objective": "The worker/judge independence rule compares the canonical provider (openai, anthropic, zhipu, deepseek, google) derived from a runtime's harness, model and route, never the free-text vendor label, and a declared vendor that contradicts the derived provider is refused (first half of R18).",
+    "instructions": [
+     "New module src/contract/provider.mjs exporting canonicalProvider(runtime) and nothing that duplicates an existing export. Derivation, in order: (1) the route a runtime declares to another provider: codex config.model_provider (for example deepseek) and dsh config.provider (deepseek-official is deepseek); (2) the model id's family: claude-*, opus, sonnet, fable, haiku are anthropic; gpt-* and o<digit>* are openai; gemini-* is google; glm-* is zhipu; deepseek-* is deepseek (agy resells claude and gpt-oss models, so an agy runtime serving claude-sonnet-4-6 is anthropic); (3) the harness default already in src/harnesses/index.mjs DEFAULT_HARNESS_VENDORS (claude anthropic, codex openai, agy google, zcode zhipu). The test harnesses replay and exec-jsonl have no canonical provider: for them the declared vendor stands, as today.",
+     "validateRuntime (src/contract/runtime.mjs) refuses a runtime whose declared vendor contradicts its derived provider, naming both (for example `runtime sol declares vendor openai-sol but codex gpt-5.6-sol is provider openai`); a declared vendor equal to the derived provider is accepted, and the validated runtime's vendor becomes the derived provider.",
+     "Switch every worker-against-judge comparison to the canonical provider. The sites, measured 2026-09-24: src/contract/index.mjs validateContract near :293-324 (worker, judge, worker fallback chain); src/engine/lifecycle.mjs handleProviderExhaustion near :677-701 (judge_fallback_vendor_conflict; lifecycle.mjs has 7 lines left, so read the provider through a helper it already imports or move code out, never past 800); src/engine/failover.mjs admitsAffinity near :219-227; src/engine/runtime-discovery.mjs composeAssignments, nextSameTierRuntime, strongest; src/plan/routing.mjs forbiddenJudgeVendors; src/plan/preflight.mjs refuseUnplannableRuntimes; src/harnesses/catalogue.mjs suggestedAllocation; src/cli/setup.mjs keptJudgeDefault, defaultJudge, crossVendor; src/host/preflight.mjs reachableRuntimes stand-in judge. If validateRuntime already stamps the derived provider on vendor, a site that reads the validated vendor is already right: say which sites needed no change.",
+     "Tests that paired two runtimes of one provider with distinct labels now fail by design. Fix them without weakening what they assert: in test/helpers.mjs keep the fixture judge id `sol` but make it a runtime of another provider that the fake codex binary still serves, for example `sol: { harness: \"codex\", model: \"deepseek-v4-flash\", config: { model_provider: \"deepseek\", \"model_providers.deepseek.env_key\": \"DEEPSEEK_API_KEY\" } }`, and update the comment. Then fix every other test the suite shows failing on the label (measured sites: test/campaign/launch-failed, unpark, metrics, chain, chain-refresh; test/engine/routing, read-only-judge, failover, review, tier-exhaustion, scope-usage, worker-result, runtime-discovery; test/plan/template, the planner vendors distinct test), each to a pair of distinct derived providers, keeping each test's intent.",
+     "skills/faberun/references/contract.md shows free-text vendors (openai-sol, zhipu-flash): make its examples declare no vendor or the derived one and say in one sentence that the rule compares the provider derived from harness, model and route. The skill byte budget must not grow; test/contract/runtime.test.mjs guards that file.",
+     "Pin the test 'the vendor rule compares the provider derived from harness and model' in the new file test/contract/provider.test.mjs: the derivation table (route, model family, harness default, replay keeps its label), the refusal of a contradicting label, and validateContract refusing a codex gpt worker judged by a codex gpt runtime labelled differently."
+    ],
+    "readFiles": [
+     "docs/campaigns/planner-and-routing/spec/SPEC.md",
+     "AGENTS.md",
+     "src/contract/runtime.mjs",
+     "src/contract/index.mjs",
+     "src/harnesses/index.mjs",
+     "src/engine/failover.mjs",
+     "src/engine/runtime-discovery.mjs",
+     "src/plan/routing.mjs",
+     "src/plan/preflight.mjs",
+     "src/harnesses/catalogue.mjs",
+     "src/cli/setup.mjs",
+     "test/helpers.mjs"
+    ],
+    "writeRoots": [
+     "src/contract/",
+     "src/engine/",
+     "src/plan/",
+     "src/harnesses/",
+     "src/cli/",
+     "src/host/",
+     "test/",
+     "skills/faberun/references/contract.md",
+     "docs/CONCEPTS.md"
+    ],
+    "symbols": [
+     "canonicalProvider"
+    ],
+    "decisions": [
+     "This is campaign planner-and-routing (3a) of the leaving-home program; docs/campaigns/planner-and-routing/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+     "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (count before you add; extract a module rather than grow one past it), no runtime import cycle in src/, no name exported from two src/ modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new src/ module saying what it owns and why it is separate, comments record measurement not intent.",
+     "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"). No test calls a provider (fakes, replay and fixtures only); no test writes to the operator's real home. No new runtime dependency.",
+     "The skill documents share one byte budget: an edit to skills/faberun/SKILL.md or skills/faberun/references/*.md must not grow them in total (test/repo checks it).",
+     "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work. Historical records under docs/campaigns/*/contracts and docs/campaigns/*/ledger are not edited.",
+     "A proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names.",
+     "Code, comments and documents are in English."
+    ],
+    "nonGoals": [
+     "The judge list and multi-hop fallback (the judge-list node)",
+     "Changing which runtimes discovery or setup prefers"
+    ],
+    "verification": [
+     {
+      "argv": [
+       "npm",
+       "test"
+      ],
+      "timeoutSec": 1800
+     }
+    ]
+   }
+  },
+  {
+   "id": "pipeline-split",
+   "type": "refactor",
+   "phase": "foundations",
+   "requirementIds": [
+    "R14"
+   ],
+   "timeoutSec": 3600,
+   "gate": false,
+   "definitionOfDone": [
+    {
+     "id": "room",
+     "text": "src/plan/pipeline.mjs is under 600 lines",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"process.exit(require('fs').readFileSync('src/plan/pipeline.mjs','utf8').split('\\n').length<600?0:1)\""
+     }
+    },
+    {
+     "id": "suite",
+     "text": "The planner suites pass unchanged",
+     "proof": {
+      "kind": "verification",
+      "ref": 0
+     }
+    }
+   ],
+   "taskPacket": {
+    "mode": "autonomous",
+    "objective": "src/plan/pipeline.mjs (742 of 800 lines) gets room for R9, R14 and R15: the review/revise round loop moves to its own module, behaviour unchanged.",
+    "instructions": [
+     "Move the round loop of runPlanningPipeline (the `for (round = 1..reviewRounds)` block with its review stage, in-round freeze check, revise stage and their logStage lines, measured near pipeline.mjs:334-425) into a new module src/plan/rounds.mjs with a header saying it owns the review/revise rounds and why it is separate. Move the contested-plan writer (the contest closure near :236-247, which writes plan.json with status contested and the campaign open-question) into src/plan/contest.mjs the same way. Move with them the private helpers only they use; keep shared ones where they are and import them.",
+     "Behaviour is unchanged: the same pipeline.jsonl lines in the same order, the same plan.json, the same open-question. No test changes except imports. Script the move and run node --check after each step (AGENTS.md: brace-tracking extractors cut code in half)."
+    ],
+    "readFiles": [
+     "AGENTS.md",
+     "src/plan/pipeline.mjs",
+     "src/plan/pipeline-shape.mjs",
+     "src/plan/template.mjs"
+    ],
+    "writeRoots": [
+     "src/plan/pipeline.mjs",
+     "src/plan/rounds.mjs",
+     "src/plan/contest.mjs"
+    ],
+    "symbols": [],
+    "decisions": [
+     "This is campaign planner-and-routing (3a) of the leaving-home program; docs/campaigns/planner-and-routing/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+     "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (count before you add; extract a module rather than grow one past it), no runtime import cycle in src/, no name exported from two src/ modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new src/ module saying what it owns and why it is separate, comments record measurement not intent.",
+     "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"). No test calls a provider (fakes, replay and fixtures only); no test writes to the operator's real home. No new runtime dependency.",
+     "The skill documents share one byte budget: an edit to skills/faberun/SKILL.md or skills/faberun/references/*.md must not grow them in total (test/repo checks it).",
+     "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work. Historical records under docs/campaigns/*/contracts and docs/campaigns/*/ledger are not edited.",
+     "A proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names.",
+     "Code, comments and documents are in English."
+    ],
+    "nonGoals": [
+     "Any behaviour change (R9, R14, R15 come later)"
+    ],
+    "verification": [
+     {
+      "argv": [
+       "node",
+       "--test",
+       "--test-concurrency=4",
+       "--import",
+       "./test/scoped-home.mjs",
+       "--import",
+       "./test/git-env.mjs",
+       "--import",
+       "./test/setup.mjs",
+       "test/cli/plan.test.mjs",
+       "test/plan/",
+       "test/repo/"
+      ],
+      "timeoutSec": 1200
+     }
+    ]
+   }
+  },
+  {
+   "id": "proof-ref",
+   "type": "implementation",
+   "phase": "foundations",
+   "requirementIds": [
+    "R21"
+   ],
+   "timeoutSec": 3600,
+   "gate": false,
+   "definitionOfDone": [
+    {
+     "id": "r21-named",
+     "text": "The test 'a plan proof names its verification by text or by index' exists in test/plan/proof-ref.test.mjs",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"process.exit(require('fs').readFileSync('test/plan/proof-ref.test.mjs','utf8').includes('a plan proof names its verification by text or by index')?0:1)\""
+     }
+    },
+    {
+     "id": "r21-passes",
+     "text": "The test 'a plan proof names its verification by text or by index' passes",
+     "proof": {
+      "kind": "command",
+      "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"a plan proof names its verification by text or by index\" test/plan/proof-ref.test.mjs"
+     }
+    },
+    {
+     "id": "suite",
+     "text": "The planner and contract suites pass",
+     "proof": {
+      "kind": "verification",
+      "ref": 0
+     }
+    }
+   ],
+   "taskPacket": {
+    "mode": "autonomous",
+    "objective": "A plan's verification proof.ref may be the command's index or the exact text of one of the node's verification commands; freezing normalizes text to the index (R21).",
+    "instructions": [
+     "src/contract/definition-of-done.mjs validateVerificationRef (near :111) accepts only an index today and throws `.ref must be the zero-based index of a verification command`. Accept, when the node's verification commands are known, a string equal to one command's argv joined by single spaces (the form the planner's models wrote, measured in choose-the-judges R5), and resolve it to that command's index. A text that matches no command is refused with the node id and the commands that exist, one per line.",
+     "src/plan/template.mjs validatePlanOutput (near :331) validates definitionOfDone before verification: validate with the node's verification in hand so a text ref is checked against it. The frozen contract carries only indexes: normalize in toContractNode (src/plan/pipeline-shape.mjs near :86) or at the earliest point every frozen node passes, so validateContract never sees text.",
+     "Pin the test 'a plan proof names its verification by text or by index' in the new file test/plan/proof-ref.test.mjs: an index and an exact text both validate and freeze to the same index; a near miss is refused naming the node and its commands."
+    ],
+    "readFiles": [
+     "docs/campaigns/planner-and-routing/spec/SPEC.md",
+     "AGENTS.md",
+     "src/contract/definition-of-done.mjs",
+     "src/plan/template.mjs",
+     "src/plan/pipeline-shape.mjs"
+    ],
+    "writeRoots": [
+     "src/contract/definition-of-done.mjs",
+     "src/plan/template.mjs",
+     "src/plan/pipeline-shape.mjs",
+     "test/plan/proof-ref.test.mjs"
+    ],
+    "symbols": [],
+    "decisions": [
+     "This is campaign planner-and-routing (3a) of the leaving-home program; docs/campaigns/planner-and-routing/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+     "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (count before you add; extract a module rather than grow one past it), no runtime import cycle in src/, no name exported from two src/ modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new src/ module saying what it owns and why it is separate, comments record measurement not intent.",
+     "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"). No test calls a provider (fakes, replay and fixtures only); no test writes to the operator's real home. No new runtime dependency.",
+     "The skill documents share one byte budget: an edit to skills/faberun/SKILL.md or skills/faberun/references/*.md must not grow them in total (test/repo checks it).",
+     "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work. Historical records under docs/campaigns/*/contracts and docs/campaigns/*/ledger are not edited.",
+     "A proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names.",
+     "Code, comments and documents are in English."
+    ],
+    "nonGoals": [
+     "The revise repair loop (R14)"
+    ],
+    "verification": [
+     {
+      "argv": [
+       "node",
+       "--test",
+       "--test-concurrency=4",
+       "--import",
+       "./test/scoped-home.mjs",
+       "--import",
+       "./test/git-env.mjs",
+       "--import",
+       "./test/setup.mjs",
+       "test/plan/",
+       "test/contract/",
+       "test/repo/"
+      ],
+      "timeoutSec": 1200
+     }
+    ]
+   }
+  },
+  {
+   "id": "managed-block",
+   "type": "implementation",
+   "phase": "foundations",
+   "requirementIds": [
+    "R17"
+   ],
+   "timeoutSec": 3600,
+   "gate": {
+    "runtime": "zcode-glm-flash",
+    "review": "blocking",
+    "failOn": [
+     "major",
+     "critical"
+    ],
+    "maxRevisions": 2
+   },
+   "definitionOfDone": [
+    {
+     "id": "r17-named",
+     "text": "The test 'the managed signal block alone does not block a launch' exists in test/repo/managed-block.test.mjs",
+     "proof": {
+      "kind": "command",
+      "ref": "node -e \"process.exit(require('fs').readFileSync('test/repo/managed-block.test.mjs','utf8').includes('the managed signal block alone does not block a launch')?0:1)\""
+     }
+    },
+    {
+     "id": "r17-passes",
+     "text": "The test 'the managed signal block alone does not block a launch' passes",
+     "proof": {
+      "kind": "command",
+      "ref": "node --test --test-concurrency=1 --import ./test/scoped-home.mjs --import ./test/git-env.mjs --import ./test/setup.mjs --test-name-pattern=\"the managed signal block alone does not block a launch\" test/repo/managed-block.test.mjs"
+     }
+    },
+    {
+     "id": "suite",
+     "text": "The repository and contract suites pass",
+     "proof": {
+      "kind": "verification",
+      "ref": 0
+     }
+    },
+    {
+     "id": "only-the-block",
+     "text": "Only the managed block is exempt: a change outside it in AGENTS.md is an uncommitted path like any other.",
+     "judgment": true,
+     "reason": "The test covers the cases it builds; whether every identity and launch check applies the same exemption is read."
+    }
+   ],
+   "taskPacket": {
+    "mode": "autonomous",
+    "objective": "faberun run and campaign supervise launch when the only uncommitted change is the managed signal block of AGENTS.md, and refuse any other uncommitted change, including one outside the block in the same file (R17).",
+    "instructions": [
+     "Measured 2026-09-24: src/repo/source-identity.mjs sourcePathspec (near :121) excludes the whole AGENTS.md (`:(exclude)AGENTS.md`, near :132), so dirtyTreePaths (near :191) and assertLaunchBaseClean (near :220) ignore any edit to it, including a human one outside the managed block; agentGuidanceIdentity (near :288) already normalizes only the block with normalizeManagedSignalBlock (src/repo/signal-block.mjs). Make the launch check treat AGENTS.md as dirty exactly when its content differs from HEAD's after both are normalized with normalizeManagedSignalBlock, and keep every other identity consistent with that rule.",
+     "Pin the test 'the managed signal block alone does not block a launch' in the new file test/repo/managed-block.test.mjs, over a temp git repository: a block-only change launches (assertLaunchBaseClean does not throw); a line edited outside the block in AGENTS.md is refused as an uncommitted path; a change to another file is refused as before."
+    ],
+    "readFiles": [
+     "docs/campaigns/planner-and-routing/spec/SPEC.md",
+     "AGENTS.md",
+     "src/repo/source-identity.mjs",
+     "src/repo/signal-block.mjs",
+     "src/repo/signal.mjs",
+     "test/repo/base-ref.test.mjs"
+    ],
+    "writeRoots": [
+     "src/repo/source-identity.mjs",
+     "src/repo/signal-block.mjs",
+     "test/repo/managed-block.test.mjs",
+     "test/repo/base-ref.test.mjs",
+     "test/contract/contract.test.mjs"
+    ],
+    "symbols": [],
+    "decisions": [
+     "This is campaign planner-and-routing (3a) of the leaving-home program; docs/campaigns/planner-and-routing/spec/SPEC.md is the source of truth for every requirement this node carries. Read the requirement text before writing code.",
+     "Follow AGENTS.md: plain ESM .mjs typed with JSDoc (npm run typecheck clean), no file over 800 lines (count before you add; extract a module rather than grow one past it), no runtime import cycle in src/, no name exported from two src/ modules, no duplicated top-level body, no barrel modules, no empty catch, a header comment on every new src/ module saying what it owns and why it is separate, comments record measurement not intent.",
+     "Every new test file's first import is its scoped-home module (import \"../scoped-home.mjs\"). No test calls a provider (fakes, replay and fixtures only); no test writes to the operator's real home. No new runtime dependency.",
+     "The skill documents share one byte budget: an edit to skills/faberun/SKILL.md or skills/faberun/references/*.md must not grow them in total (test/repo checks it).",
+     "Do NOT edit .gitignore or any other ignore source. Never run git commit or git push: the controller seals and integrates your work. Historical records under docs/campaigns/*/contracts and docs/campaigns/*/ledger are not edited.",
+     "A proof test is pinned: create it with exactly the name the Definition of Done quotes, in exactly the file it names.",
+     "Code, comments and documents are in English."
+    ],
+    "nonGoals": [
+     "Changing what the managed block contains or when it is written"
+    ],
+    "verification": [
+     {
+      "argv": [
+       "node",
+       "--test",
+       "--test-concurrency=4",
+       "--import",
+       "./test/scoped-home.mjs",
+       "--import",
+       "./test/git-env.mjs",
+       "--import",
+       "./test/setup.mjs",
+       "test/repo/",
+       "test/contract/"
+      ],
+      "timeoutSec": 1200
+     }
+    ]
+   }
+  }
+ ]
+}
