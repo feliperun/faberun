@@ -504,3 +504,11 @@ test("requirementId is rejected when it is not a bounded id", () => {
     /requirementId must be a requirement id/u,
   );
 });
+
+test("a closed discovery prompt asks for output and an empty artifacts list; an open one still asks for the packet", () => {
+  const closed = renderWorkerPrompt(/** @type {import("../../src/contract/index.mjs").TaskPacket} */ (packet({ mode: "discovery", readFiles: ["contract.json"], writeFiles: [], verification: [] })), "plan");
+  assert.match(closed, /deliver your result in `output` and send `artifacts` as \[\]/);
+  assert.ok(!closed.includes("artifacts[0]"), "a closed discovery prompt never asks for an artifact");
+  const open = renderWorkerPrompt(/** @type {import("../../src/contract/index.mjs").TaskPacket} */ (packet({ mode: "discovery", readFiles: [], writeFiles: [], verification: [] })), "discover");
+  assert.match(open, /put exactly one execution task packet JSON string in artifacts\[0\]/);
+});
