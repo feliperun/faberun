@@ -1,6 +1,21 @@
 import { normalizeCodexResult, parseVersion, toml } from "../protocol.mjs";
 
 /**
+ * The environment names the Codex adapter reads to authenticate and configure
+ * the CLI: the provider credential for API-key sign-in, the config home
+ * `codexHome()` reads when it locates the session file its usage windows come
+ * from, and the binary override `executable()` honours. Values never travel
+ * here.
+ *
+ * @type {readonly string[]}
+ */
+export const declaredEnvironment = Object.freeze([
+  "CODEX_HOME",
+  "FABERUN_CODEX_BIN",
+  "OPENAI_API_KEY",
+]);
+
+/**
  * Bound the Codex harness preamble: a closed-packet worker or a read-only judge
  * needs the shell and patch tools, not browser, computer-use, app or sub-agent
  * tooling, MCP servers, or plugins. `features.code_mode_host` stays enabled:

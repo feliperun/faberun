@@ -2,6 +2,20 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { canonicalUsage, extractJson, failed, isQuotaText, isVerdictCandidate, parseJsonLines, parseVersion } from "../protocol.mjs";
 
+/**
+ * The environment names the dsh adapter reads to authenticate and configure the
+ * harness: the provider credential the dsh CLI resolves for the declared
+ * provider and the binary override `executable()` honours. The environment
+ * overlay's `GIT_CONFIG_*` scrub is a generic pass over ambient keys, not a
+ * declared dependency. Values never travel here.
+ *
+ * @type {readonly string[]}
+ */
+export const declaredEnvironment = Object.freeze([
+  "DEEPSEEK_API_KEY",
+  "FABERUN_DSH_BIN",
+]);
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 /**

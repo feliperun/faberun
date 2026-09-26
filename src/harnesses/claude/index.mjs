@@ -1,6 +1,18 @@
 import { normalizeClaudeResult, parseVersion } from "../protocol.mjs";
 import { hookSettings } from "../../host/tool-policy-hook.mjs";
 
+/**
+ * The environment names the Claude adapter reads to authenticate and configure
+ * the CLI: the provider credential the CLI resolves for API-key sign-in and the
+ * binary override `executable()` honours. Values never travel here.
+ *
+ * @type {readonly string[]}
+ */
+export const declaredEnvironment = Object.freeze([
+  "ANTHROPIC_API_KEY",
+  "FABERUN_CLAUDE_BIN",
+]);
+
 /** Built-in tools a closed-packet worker needs; every other tool is preamble. */
 export const DEFAULT_CLAUDE_TOOLS = ["Read", "Edit", "Write", "Bash", "Glob", "Grep"];
 
