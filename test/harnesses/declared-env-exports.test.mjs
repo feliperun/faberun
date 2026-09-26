@@ -47,7 +47,12 @@ const ADAPTERS = [
   },
 ];
 
-/** Every `process.env.<NAME>`, `process.env["<NAME>"]` and `env.<NAME>` literal in a source file. */
+/**
+ * Every `process.env.<NAME>`, `process.env["<NAME>"]` and `env.<NAME>` literal in a source file.
+ *
+ * @param {string} text
+ * @returns {Set<string>}
+ */
 function environmentReads(text) {
   const names = new Set();
   for (const match of text.matchAll(/process\.env\.([A-Za-z_][A-Za-z0-9_]*)/gu)) names.add(match[1]);
