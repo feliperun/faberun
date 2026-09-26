@@ -84,5 +84,23 @@ rates, where the CLI had reported $0.16 at Anthropic's.
 
 Z.ai limits the Coding Plan to the tools on its supported list
 (<https://docs.z.ai/devpack/tool/others>). ZCode and Claude Code are on it;
-`fx` is not. A GLM runtime on `fx` therefore uses the pay-as-you-go endpoint
-(`https://api.z.ai/api/paas/v4`, billed per token), not the plan.
+`fx` is not. The same key reaches both billing paths, and the endpoint decides
+which one pays: `https://api.z.ai/api/paas/v4` bills the pay-as-you-go
+balance, while `https://api.z.ai/api/coding/paas/v4` and
+`https://api.z.ai/api/anthropic` draw on the plan.
+
+An `fx` runtime pointed at the plan's OpenAI-compatible endpoint works with no
+code change (`config.base_url`, as for DeepSeek). The operator ran this knowing
+it is outside the plan's usage policy, which restricts the plan on detected
+third-party use and bans an account on the third violation. On 2026-09-26 the
+tiny-text campaign ran with a GLM 5.3 worker on `fx` over the plan and a
+DeepSeek judge on `fx`: 2 nodes done at the first try with no revisions, 51.9 s,
+283 MB total peak. The pay-as-you-go balance was empty throughout, so the plan
+answered every request. The supported configuration remains GLM on the plan
+through `claude-glm`, and GLM on `fx` through the pay-as-you-go endpoint.
+
+`glm-4.7-flash`, the one GLM model the pay-as-you-go endpoint serves without a
+balance, cannot work as an `fx` worker: it sends the `shell` tool's nested
+`request` object as a JSON string, `fx` answers with a correction instead of
+running it, and after two refusals it ends the turn without a result. GLM 5.3
+sends the object correctly.
