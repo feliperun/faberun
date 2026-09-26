@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { loadTaskPacket, renderWorkerPrompt } from "./task-packet.mjs";
+import { loadTaskPacket, renderWorkerPrompt, validateEnvPassthrough } from "./task-packet.mjs";
 import { RESERVED_ARTICLES } from "./articles.mjs";
 import { judgmentReasonWarnings, unquotedFilterValueWarnings, validateDefinitionOfDone } from "./definition-of-done.mjs";
 import { validateFinalVerification, validateSharedVerification } from "./final-verification.mjs";
@@ -37,7 +37,7 @@ const CONTRACT_FIELDS = new Set([
   "schemaVersion", "contractVersion", "id", "campaignId", "goal", "cwd", "sourceIdentity",
   "maxParallel", "pollIntervalMs", "stallTimeoutSec", "timeoutSec", "maxTurns", "phaseSessionReuse",
   "runtimeDefaults", "runtimes", "nodes", "warnings", "finalVerification", "sharedVerification", "nodeAdvisory", "judges",
-  "judgeIndependence",
+  "judgeIndependence", "envPassthrough",
 ]);
 const DEFAULTS_FIELDS = new Set(["worker", "judge"]);
 const NODE_FIELDS = new Set([
@@ -68,13 +68,13 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
 
 /** @typedef {{mode: "execution"|"discovery"|"autonomous", objective: string, instructions: string[], readFiles: string[], writeFiles?: string[], writeRoots?: string[], symbols: string[], scopeAcknowledged?: string[], decisions: string[], nonGoals: string[], verification: VerificationCommand[]}} TaskPacket */
 
-/** @typedef {{harness: "claude"|"codex"|"agy"|"dsh"|"zcode"|"exec-jsonl"|"replay", model: string, reasoning?: string, sandbox?: "read-only"|"workspace-write"|"danger-full-access", permissionMode?: string, config?: Record<string, unknown>, printTimeout?: string, tools?: string[], executable?: string, args?: string[], versionArgs?: string[], maxArgvPromptBytes?: number, requiredCapabilities?: CapabilityRequirements, costRank?: number, fallback?: string, vendor: string, tier?: number|string, stallTimeoutSec?: number, maxConcurrent?: number}} ValidatedRuntime */
+/** @typedef {{harness: "claude"|"codex"|"agy"|"dsh"|"zcode"|"exec-jsonl"|"replay", model: string, reasoning?: string, sandbox?: "read-only"|"workspace-write"|"danger-full-access", permissionMode?: string, config?: Record<string, unknown>, printTimeout?: string, tools?: string[], executable?: string, args?: string[], versionArgs?: string[], maxArgvPromptBytes?: number, requiredCapabilities?: CapabilityRequirements, costRank?: number, fallback?: string, vendor: string, tier?: number|string, stallTimeoutSec?: number, maxConcurrent?: number, envPassthrough?: string[]}} ValidatedRuntime */
 
 /** @typedef {{enabled: boolean, review?: ("none"|"advisory"|"blocking"), runtime?: string, failOn?: ("minor"|"major"|"critical")[], maxRevisions?: number, requiredCapabilities?: CapabilityRequirements, skipWhen?: {verificationGreen: true, maxChangedPaths: number}}} ValidatedGate */
 
 /** @typedef {{id: string, type: string, phase: string, requirementIds?: string[], runtime?: string, dependsOn: string[], taskPacket: TaskPacket, taskPacketFile?: string, prompt: string, definitionOfDone: import("./definition-of-done.mjs").DefinitionOfDoneItem[], gate: ValidatedGate, timeoutSec?: number, maxTurns?: number, requiredCapabilities: CapabilityRequirements, packetHash: string, sourceIdentity: SourceIdentity, replayPolicy: "safe"|"reconcile"|"never", sameProviderReview: boolean, humanStep?: {step: string, command: string}}} ValidatedNode */
 
-/** @typedef {{schemaVersion: number, contractVersion: string, id: string, campaignId: string, goal: string, cwd: string, sourceIdentity: SourceIdentity, runtimes: Record<string, ValidatedRuntime>, runtimeDefaults: {worker?: string, judge?: string}, judges?: string[], judgeIndependence?: "same-vendor", nodes: ValidatedNode[], maxParallel: number, pollIntervalMs: number, stallTimeoutSec: number, timeoutSec: number, maxTurns: number, phaseSessionReuse: boolean, finalVerification?: VerificationCommand[], sharedVerification?: VerificationCommand[], nodeAdvisory?: NodeAdvisoryPolicy, warnings: string[]}} ValidatedContract */
+/** @typedef {{schemaVersion: number, contractVersion: string, id: string, campaignId: string, goal: string, cwd: string, sourceIdentity: SourceIdentity, runtimes: Record<string, ValidatedRuntime>, runtimeDefaults: {worker?: string, judge?: string}, judges?: string[], judgeIndependence?: "same-vendor", nodes: ValidatedNode[], maxParallel: number, pollIntervalMs: number, stallTimeoutSec: number, timeoutSec: number, maxTurns: number, phaseSessionReuse: boolean, finalVerification?: VerificationCommand[], sharedVerification?: VerificationCommand[], nodeAdvisory?: NodeAdvisoryPolicy, envPassthrough?: string[], warnings: string[]}} ValidatedContract */
 /** @typedef {{costUsd?: number, durationSec?: number}} NodeAdvisoryPolicy */
 
 /** @typedef {"pending"|"running"|"done"|"no-op"|"blocked"|"failed"|"exhausted"|"stalled"|"canceled"} NodeStatus */
@@ -134,6 +134,9 @@ export function validateContract(raw, contractPath, options = {}) {
   requireId(raw.id, "contract.id");
   requireId(raw.campaignId, "contract.campaignId");
   requireString(raw.goal, "contract.goal");
+  // The contract-wide passthrough, unioned with each runtime's own at spawn
+  // time. Absent keeps every contract authored before the field valid.
+  if (raw.envPassthrough !== undefined) validateEnvPassthrough(raw.envPassthrough, "contract.envPassthrough");
 
   const contractDir = dirname(resolve(contractPath));
   const cwd = resolve(contractDir, typeof raw.cwd === "string" ? raw.cwd : ".");

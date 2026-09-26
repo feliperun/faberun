@@ -10,6 +10,7 @@
  * validator to reach it.
  */
 import { assertObject, nonNegativeNumber, positiveInteger, positiveNumber, rejectUnknown, requireId, requireString, requireStringArray, requireTimestamp } from "./assert.mjs";
+import { validateEnvPassthrough } from "./task-packet.mjs";
 import { composeAssignments } from "../engine/runtime-discovery.mjs";
 import { harnessCapabilities, resolvePermissionExecution, resolveVendor, validateCapabilityRequirements, writesWorkspace } from "../harnesses/index.mjs";
 import { canonicalProvider } from "./provider.mjs";
@@ -25,7 +26,7 @@ import { stableJson } from "../util.mjs";
 const RUNTIME_FIELDS = new Set([
   "harness", "model", "reasoning", "sandbox", "permissionMode", "config", "printTimeout", "tools",
   "executable", "args", "versionArgs", "maxArgvPromptBytes", "requiredCapabilities", "costRank",
-  "fallback", "vendor", "tier", "pricing", "stallTimeoutSec", "maxConcurrent",
+  "fallback", "vendor", "tier", "pricing", "stallTimeoutSec", "maxConcurrent", "envPassthrough",
 ]);
 const RUNTIME_HARNESSES = new Set(["claude", "codex", "agy", "dsh", "zcode", "exec-jsonl", "replay"]);
 
@@ -150,6 +151,9 @@ function validateRuntimeValues(runtime, label, executableRequired) {
   if (runtime.args !== undefined) requireStringArray(runtime.args, `${label}.args`);
   if (runtime.versionArgs !== undefined) requireStringArray(runtime.versionArgs, `${label}.versionArgs`);
   if (runtime.maxArgvPromptBytes !== undefined) positiveInteger(runtime.maxArgvPromptBytes, `${label}.maxArgvPromptBytes`);
+  // Names only, on the runtime descriptor directly or on the contract: either
+  // one asks the worker allowlist to carry the variable through by name.
+  if (runtime.envPassthrough !== undefined) validateEnvPassthrough(runtime.envPassthrough, `${label}.envPassthrough`);
   if (runtime.costRank !== undefined) nonNegativeNumber(runtime.costRank, `${label}.costRank`);
   if (runtime.stallTimeoutSec !== undefined) positiveNumber(runtime.stallTimeoutSec, `${label}.stallTimeoutSec`);
   if (runtime.pricing !== undefined) validatePricing(runtime.pricing, `${label}.pricing`);

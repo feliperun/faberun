@@ -267,6 +267,28 @@ export function validateTaskPacket(packet, index, cwd, options = {}) {
 }
 
 /**
+ * The environment-variable names an operator allows through to a worker, the
+ * one validator both the runtime descriptor and the contract share. The list
+ * is names only -- never values -- so it selects from the controller's own
+ * environment without carrying a secret of its own. A name is the portable
+ * shell shape: a letter or underscore, then letters, digits, or underscores.
+ *
+ * @param {unknown} value
+ * @param {string} label
+ * @returns {string[]}
+ */
+export function validateEnvPassthrough(value, label) {
+  if (!Array.isArray(value)) throw new TypeError(`${label} must be an array of environment-variable names`);
+  const names = /** @type {unknown[]} */ (value);
+  names.forEach((name, index) => {
+    if (typeof name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(name)) {
+      throw new TypeError(`${label}[${index}] must be an environment-variable name`);
+    }
+  });
+  return /** @type {string[]} */ (names);
+}
+
+/**
  * @param {string} path
  * @param {string} label
  * @param {string} cwd
