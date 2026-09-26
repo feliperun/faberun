@@ -106,7 +106,7 @@ export const COMMAND_OPTIONS = {
   status: { json: { type: "boolean" } },
   report: { json: { type: "boolean" } },
   findings: {},
-  doctor: { cwd: { type: "string" }, json: { type: "boolean" }, discover: { type: "boolean" } },
+  doctor: { cwd: { type: "string" }, json: { type: "boolean" }, discover: { type: "boolean" }, env: { type: "boolean" } },
   models: { probe: { type: "boolean" }, json: { type: "boolean" } },
   "bulk-read": { question: { type: "string" }, paths: { type: "string", multiple: true }, json: { type: "boolean" } },
   next: { cwd: { type: "string" }, json: { type: "boolean" } },
@@ -254,6 +254,7 @@ async function main(argv) {
       cwd: typeof values.cwd === "string" ? values.cwd : undefined,
       json: values.json === true,
       discover: values.discover === true,
+      env: values.env === true,
     });
     if (!ok) process.exitCode = 1;
     return;

@@ -253,17 +253,21 @@ Related: `faberun status`, `faberun resume`, `faberun next`.
 
 ## faberun doctor
 ```text
-faberun doctor [<contract.json>] [--cwd <value>] [--json] [--discover]
+faberun doctor [<contract.json>] [--cwd <value>] [--json] [--discover] [--env]
 ```
 Check the machine for running a contract: git work tree, `.runs/` ignored,
 `node`/`npm` on `PATH`, the runner schema, and — with a contract — every routed
 harness and the host checks. `--discover` adds mutation-free runtime discovery.
+`--env` lists, per runtime, the controller environment variable names that
+would pass and the names that would be excluded, never the values; every
+excluded name shaped like a credential is marked retained.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
 | `--cwd` | directory | Repository to check. | current directory |
 | `--json` | none | Emit one machine-readable report. | off |
 | `--discover` | none | Probe each runtime and report availability and exhaustion. | off |
+| `--env` | none | List each runtime's allowed and excluded environment names, never values. | off |
 Reads the repository and, with a contract, `<contract.json>` and the routed
 runtimes; writes nothing. Exits `1` when a check fails.
 ```bash
