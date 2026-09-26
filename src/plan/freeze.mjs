@@ -135,6 +135,38 @@ export function assertTimeoutsCoverMeasured(contract, facts) {
   if (problems.size) throw new TypeError(`verification timeouts do not cover their measured durations: ${[...problems].join("; ")}`);
 }
 
+/**
+ * Raise every plan node's verification timeout that sits under
+ * `MEASURED_TIMEOUT_MARGIN` times its measured duration to exactly that
+ * bound — the one repair `assertTimeoutsCoverMeasured` names, so it has a
+ * single answer and needs no worker. A command whose bound passes
+ * `maxTimeoutSec` is left alone: splitting it is a judgement, and the check
+ * still contests it. Measured 2026-09-26 on the 3a gate: four rounds left a
+ * plan with no critical from review, contested only because three nodes gave
+ * `node --test test/harnesses` 120s against a measured 84.4s (bound 127s).
+ *
+ * @param {import("./template.mjs").PlanOutput} plan
+ * @param {MeasuredFacts} facts
+ * @returns {{plan: import("./template.mjs").PlanOutput, raised: string[]}}
+ */
+export function raiseTimeoutsToMeasured(plan, facts) {
+  /** @type {string[]} */
+  const raised = [];
+  const nodes = plan.nodes.map((node) => ({
+    ...node,
+    verification: (node.verification ?? []).map((command) => {
+      const measuredMs = measuredMsFor(command.argv, facts);
+      if (measuredMs === null) return command;
+      const requiredSec = Math.ceil((measuredMs * MEASURED_TIMEOUT_MARGIN) / 1_000);
+      const timeoutSec = command.timeoutSec ?? 120;
+      if (timeoutSec >= requiredSec || requiredSec > VERIFICATION_LIMITS.maxTimeoutSec) return command;
+      raised.push(`${node.id}: ${command.argv.join(" ")} ${timeoutSec}s -> ${requiredSec}s`);
+      return { ...command, timeoutSec: requiredSec };
+    }),
+  }));
+  return { plan: raised.length ? { ...plan, nodes } : plan, raised };
+}
+
 /** @returns {string} the installed package's own version, read once per call so a freeze always names the toolchain that produced it */
 function packageVersion() {
   const packageJsonPath = fileURLToPath(new URL("../../package.json", import.meta.url));

@@ -25,7 +25,7 @@ import { join, relative } from "node:path";
 import { validateContract } from "../contract/index.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
 import { stableJson } from "../util.mjs";
-import { assertTimeoutsCoverMeasured } from "./freeze.mjs";
+import { assertTimeoutsCoverMeasured, raiseTimeoutsToMeasured } from "./freeze.mjs";
 import { validateFindings, validatePlanOutput } from "./template.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
@@ -303,6 +303,11 @@ export async function runReviewRounds(options) {
     // scope-closure pre-flight), and R14 stopped the plan after 2 of 4 rounds.
     const reviewed = plan !== null;
     if (plan) {
+      // R14's mechanical repair with a single answer, applied before review so
+      // the reviewer grades, and freeze checks, the plan that would ship.
+      const timeouts = raiseTimeoutsToMeasured(plan, repoFacts);
+      plan = timeouts.plan;
+      if (timeouts.raised.length) logStage("timeouts-raised", { round, raised: timeouts.raised });
       // The reviewer grades a structurally valid plan; an invalid one skips
       // review and reaches revise through the validator's finding instead.
       writeJsonAtomic(workingPlanPath, plan);

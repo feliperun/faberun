@@ -283,3 +283,33 @@ test("the revise is handed the plan it revises, and its retry the output the val
   assert.equal(/** @type {any} */ (handed[0]).nodes[0].objective, "The drafted plan", "the first revise starts from the plan review graded");
   assert.deepEqual(handed[1], rejected, "the retry starts from the output the validator refused");
 });
+
+test("a verification timeout under its measured bound is raised before review, not contested", async () => {
+  // Measured 2026-09-26 on the 3a gate: four rounds left a plan with no
+  // critical from review, contested only because `node --test test/harnesses`
+  // had 120s against a measured 84.4s. The bound (127s) is the one repair.
+  const base = planOutput();
+  const plan = /** @type {any} */ ({ ...base, nodes: [{ ...base.nodes[0], verification: [{ argv: ["node", "--test", "test/harnesses"], timeoutSec: 120 }, { argv: ["node", "--test", "test/huge"], timeoutSec: 120 }] }] });
+  /** @type {any[]} */
+  const reviewed = [];
+  const { options, logs } = harness({
+    reviewRounds: 1,
+    plan,
+    runStage: async (/** @type {string} */ kind) => {
+      reviewed.push(JSON.parse(readFileSync(/** @type {string} */ (options.workingPlanPath), "utf8")));
+      return { contract: { id: `${kind}-1` }, output: { findings: [] } };
+    },
+  });
+  options.repoFacts = { verificationCandidates: [
+    { argv: ["node", "--test", "test/harnesses"], measuredMs: 84_400 },
+    { argv: ["node", "--test", "test/huge"], measuredMs: 3_000_000 },
+  ] };
+
+  const result = await runReviewRounds(/** @type {any} */ (options));
+
+  assert.equal(result.resolved, true);
+  const [harnesses, huge] = reviewed[0].nodes[0].verification;
+  assert.equal(harnesses.timeoutSec, 127, "the reviewer grades the repaired plan");
+  assert.equal(huge.timeoutSec, 120, "a command no legal timeout covers is left for the check to contest");
+  assert.deepEqual(logs.find((entry) => entry.stage === "timeouts-raised")?.raised, ["build: node --test test/harnesses 120s -> 127s"]);
+});
