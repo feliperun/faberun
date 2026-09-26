@@ -310,7 +310,7 @@ export async function runPlanningPipeline(options) {
   const frozenContractRaw = (assembly) => frozenContractRawOf(assembly, { campaignId, phase, campaignGoal: campaign.goal, cwd, plansDir, runtimes, runtimeDefaults, verification });
 
   const roundsResult = await runReviewRounds({
-    reviewRounds, plan, findings, cwd, plansDir, scratchDir, workingPlanPath, relativeWorkingPlanPath,
+    reviewRounds, plan, rejectedDraft: plan === null ? draft.output.plan : undefined, findings, cwd, plansDir, scratchDir, workingPlanPath, relativeWorkingPlanPath,
     relativeSpecPath, relativeRepoFactsPath, relativeCataloguePath, packageMode, repoFacts,
     runStage, assembleFrozenNodes, frozenContractRaw, contest,
     invalidPlanFinding, logStage,

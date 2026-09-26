@@ -191,6 +191,7 @@ function revisionNotConvergingFinding(round, history) {
  * @param {{
  *   reviewRounds: number,
  *   plan: PlanOutput|null,
+ *   rejectedDraft?: unknown,
  *   findings: PlanFindingOutput[],
  *   cwd: string,
  *   plansDir: string,
@@ -220,6 +221,8 @@ export async function runReviewRounds(options) {
   } = options;
   let plan = options.plan;
   let findings = options.findings;
+  // A draft that never validated is still the plan its first revise repairs.
+  if (plan === null) writeJsonAtomic(workingPlanPath, options.rejectedDraft ?? null);
   // The revise's write-drops, merged into `findings` below each round; see
   // that merge for why.
   /** @type {PlanFindingOutput[]} */
@@ -260,8 +263,14 @@ export async function runReviewRounds(options) {
   const reviseOnce = async (round, findingsForRevise) => {
     const path = join(scratchDir, `findings-round-${round}.json`);
     writeJsonAtomic(path, findingsForRevise);
+    // The revise edits the plan the findings were raised against, which the
+    // round wrote to the working plan before review (or the draft's rejected
+    // output, below). Measured 2026-09-25 on the 3a gate: a revise handed only
+    // the findings redrafted the plan from scratch, renamed files and dropped
+    // six writes, and its retry fixed one validator error while introducing
+    // another.
     const revise = await runStage("revise", {
-      specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, path), packageMode,
+      specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, path), planPath: relativeWorkingPlanPath, packageMode,
     });
     try {
       return { plan: validatePlanOutput(revise.output.plan), runId: revise.contract.id, firstInvalid: null };
@@ -269,8 +278,13 @@ export async function runReviewRounds(options) {
       const firstInvalid = invalidPlanFinding(`revise-r${round}-attempt1`, error);
       const retryPath = join(scratchDir, `findings-round-${round}-retry.json`);
       writeJsonAtomic(retryPath, [...findingsForRevise, firstInvalid]);
+      // The retry repairs the output the validator refused, not the plan
+      // before it: that output already carries this round's resolutions, and
+      // only the validator's message is left to answer.
+      const retryPlanPath = join(scratchDir, `plan-round-${round}-rejected.json`);
+      writeJsonAtomic(retryPlanPath, revise.output.plan ?? null);
       const retry = await runStage("revise", {
-        specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, retryPath), packageMode,
+        specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, retryPath), planPath: relative(cwd, retryPlanPath), packageMode,
       });
       try {
         return { plan: validatePlanOutput(retry.output.plan), runId: retry.contract.id, firstInvalid };

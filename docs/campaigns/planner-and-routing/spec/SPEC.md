@@ -1,7 +1,7 @@
 ---
 id: planner-and-routing
 title: "O planner congela, e cada nó tem o juiz certo"
-version: 1.1.0
+version: 1.2.0
 status: draft
 date: 2026-09-24
 owner: Felipe Broering
@@ -142,7 +142,8 @@ e o canário do juiz (`evals/judge-canary/`).
 
 ### R14. O revise não piora o plano
 
-- **statement:** toda saída do revise passa pela validação determinística do
+- **statement:** o revise recebe o plano que revisa (e a nova tentativa recebe a
+  saída que o validador recusou), nunca só os findings. Toda saída do revise passa pela validação determinística do
   plano antes de contar como rodada. Um defeito mecânico com reparo único é
   reparado e registrado (o `proof.ref` escrito como texto deixa de ser defeito:
   R21 o aceita); um defeito sem reparo único volta ao mesmo revise uma vez, com as mensagens do validador, sem

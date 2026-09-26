@@ -101,7 +101,7 @@ const KIND_ROLE = Object.freeze({
 /** @type {Record<PlanningKind, string[]>} */
 const REQUIRED_INPUTS = Object.freeze({
   draft: ["specPath", "repoFactsPath", "cataloguePath"],
-  revise: ["specPath", "repoFactsPath", "cataloguePath", "findingsPath"],
+  revise: ["specPath", "repoFactsPath", "cataloguePath", "findingsPath", "planPath"],
   review: ["specPath", "repoFactsPath", "planPath"],
   "spec-author": ["notesPath"],
   "spec-review": ["specPath"],
@@ -161,7 +161,7 @@ const SCOPE_CLOSURE_RULE = Object.freeze([
 /** @type {Record<PlanningKind, string>} */
 const OBJECTIVES = Object.freeze({
   draft: "Draft an execution plan for this phase: classify every node's taskKind and riskTier from the spec and the repository facts, and propose the dependency graph.",
-  revise: "Revise the plan to resolve every one of the reviewer's findings, keeping the same classification and graph shape as a fresh draft.",
+  revise: "Revise the plan in readFiles to resolve every one of the reviewer's findings, changing only what a finding requires.",
   review: "Review this plan against the spec and the repository facts, and report only findings.",
   "spec-author": "Turn free notes into a structured spec document following the spec format.",
   "spec-review": "Review this spec for traceability and completeness, and report only findings.",
@@ -178,6 +178,7 @@ const INSTRUCTIONS = Object.freeze({
     SIZING_INSTRUCTION,
   ],
   revise: [
+    "Start from the plan JSON in readFiles, the plan the findings were raised against, and return it with only the changes the findings require. Keep every node id, write file and definitionOfDone item that no finding asks you to change: a revise that redrafts from the findings alone loses what the plan already got right.",
     "Read the findings and resolve every one; do not leave a critical or major finding unaddressed.",
     "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies, the planned node ids it assigns, and the deliverable it produces in one sentence. Every planned node must appear in exactly one phase's nodeIds; a missing, duplicate, or unknown node assignment is refused.",
     ...SCOPE_CLOSURE_RULE,
@@ -218,7 +219,7 @@ const NON_GOALS = Object.freeze({
 function readFilesForKind(kind, inputs) {
   if (kind === "draft") return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.cataloguePath)];
   if (kind === "revise") {
-    return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.cataloguePath), /** @type {string} */ (inputs.findingsPath)];
+    return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.cataloguePath), /** @type {string} */ (inputs.findingsPath), /** @type {string} */ (inputs.planPath)];
   }
   if (kind === "review") return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.planPath)];
   if (kind === "spec-author") return [/** @type {string} */ (inputs.notesPath)];
