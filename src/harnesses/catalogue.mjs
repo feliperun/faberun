@@ -105,6 +105,13 @@ export const DECLARED_MODEL_CATALOGUES = Object.freeze({
   fx: Object.freeze([
     declaredModel("deepseek-flash", { contextWindowTokens: DSH_CONTEXT_WINDOW_TOKENS, efforts: NO_EFFORTS }),
     declaredModel("deepseek-v4-pro", { contextWindowTokens: DSH_CONTEXT_WINDOW_TOKENS, efforts: NO_EFFORTS }),
+    // GLM through a Z.ai Chat Completions endpoint named by `config.base_url`.
+    declaredModel("glm-5.3", { contextWindowTokens: GLM_CONTEXT_WINDOW_TOKENS, efforts: NO_EFFORTS }),
+    // GPT through fx's ChatGPT login (`config.provider: "codex"`). Measured
+    // 2026-09-26: fx listed these among the account's seven models, and both
+    // answered a review turn through the runner.
+    declaredModel("gpt-5.6-sol", { efforts: NO_EFFORTS }),
+    declaredModel("gpt-6-sol", { efforts: NO_EFFORTS }),
   ]),
   zcode: Object.freeze([
     declaredModel("glm-5.3-flash", { contextWindowTokens: GLM_CONTEXT_WINDOW_TOKENS, efforts: NO_EFFORTS }),

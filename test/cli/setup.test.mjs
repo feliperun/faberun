@@ -99,8 +99,8 @@ test("setup --yes writes the cheapest worker and a cross-vendor judge", async ()
   const config = readUserConfig(env);
   assert.ok(config, "setup wrote a config");
   assert.equal(config.schemaVersion, 1);
-  assert.deepEqual(config.harnesses, ["dsh", "fx", "claude", "zcode", "agy", "codex"]);
-  assert.equal(config.worker, "dsh-deepseek", "the cheapest tier-1 runtime is the worker");
+  assert.deepEqual(config.harnesses, ["fx", "dsh", "claude", "zcode", "agy", "codex"]);
+  assert.equal(config.worker, "fx-deepseek", "the cheapest tier-1 runtime is the worker");
   assert.ok(config.worker && config.judge);
   assert.notEqual(
     DISCOVERY_RUNTIME_DEFINITIONS[config.judge].vendor,
@@ -320,8 +320,8 @@ test("setup --yes writes today's defaults on a fresh home with no existing confi
   assert.equal(code, 0);
   const config = readUserConfig(env);
   assert.ok(config);
-  assert.deepEqual(config.harnesses, ["dsh", "fx", "claude", "zcode", "agy", "codex"]);
-  assert.equal(config.worker, "dsh-deepseek");
+  assert.deepEqual(config.harnesses, ["fx", "dsh", "claude", "zcode", "agy", "codex"]);
+  assert.equal(config.worker, "fx-deepseek");
 });
 
 test("setup --yes registers the skill and --no-skill skips it", () => {

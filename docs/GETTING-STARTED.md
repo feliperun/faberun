@@ -378,7 +378,7 @@ dirties the ignore snapshot the controller compares against.
   from before the move.
 - [harnesses/claude-endpoints.md](harnesses/claude-endpoints.md) — GLM through Claude Code on the Z.ai Coding Plan.
 - [harnesses/zcode-cli.md](harnesses/zcode-cli.md) — the Z.ai Code harness.
-- [harnesses/fx.md](harnesses/fx.md) — the ACP-driven DeepSeek harness.
+- [harnesses/fx.md](harnesses/fx.md) — the ACP-driven harness for DeepSeek, GLM and GPT.
 - [AGENTS.md](../AGENTS.md) — the canonical contributor and agent playbook.
 
 ## First contribution checklist

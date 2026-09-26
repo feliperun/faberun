@@ -1,5 +1,5 @@
 ---
-title: "fx: the ACP-driven DeepSeek harness"
+title: "fx: the ACP-driven harness for DeepSeek, GLM and GPT"
 version: 1.0.0
 status: reference
 date: 2026-09-24
@@ -7,10 +7,10 @@ owner: Felipe Broering
 source: "fx 0.0.11 (vercel-labs/fx, macOS arm64) against api.deepseek.com, measured 2026-09-24."
 ---
 
-# fx: the ACP-driven DeepSeek harness
+# fx: the ACP-driven harness for DeepSeek, GLM and GPT
 
 [fx](https://github.com/vercel-labs/fx) is a native coding agent written in
-Zig. Faberun drives it for DeepSeek workers because it is small: on the
+Zig. Faberun drives it for DeepSeek, GLM and GPT because it is small: on the
 parseDuration fixture, `fx ask` peaked at 18-20 MB resident over three runs
 against 310-370 MB for `dsh --profile headless`, with the same model and a
 passing suite. In a parallel campaign that difference is the worker count one
@@ -87,7 +87,9 @@ failed inside it with the shell working.
 
 fx-faberun is the official fx plus a short patch queue on the `fx-faberun` branch of
 `feliperun/fx`: the cache counters of #1043, the skill walk of #1045, and a patch
-that keeps an fx-faberun build from auto-upgrading itself to the official channel. A
+that keeps an fx-faberun build from auto-upgrading itself to the official channel,
+and `FX_AUTH_HOME`, which lets a worker under a throwaway HOME read and refresh
+the ChatGPT login in the operator's real profile. A
 watcher rebases the queue onto upstream every six hours, builds and tests it,
 and drops a patch once its pull request merges; it runs as a workflow in that
 fork, or as `fx-faberun/watch.sh` scheduled on the operator's machine by
@@ -110,8 +112,33 @@ directory as `faberun`; `FABERUN_NO_FX=1` skips it.
 
 Optional `config` keys: `base_url` (default `https://api.deepseek.com`) and
 `context_window` (default 1,000,000). `FABERUN_FX_BIN` overrides the binary.
-The discovery entry is `fx-deepseek`, declared after `dsh-deepseek` so dsh keeps
-the tier-1 tie-break until a parallel campaign measures the two.
+
+One runner, three providers, each a discovery entry declared ahead of the
+older harness for the same models, so fx wins every tie-break:
+
+| Entry | Model | How it authenticates |
+| --- | --- | --- |
+| `fx-deepseek` | `deepseek-flash` | `DEEPSEEK_API_KEY`, Chat Completions through the relay |
+| `fx-glm` | `glm-5.3` | `ZAI_API_KEY` on `https://api.z.ai/api/coding/paas/v4`, `context_window` 200,000 |
+| `fx-gpt` | `gpt-5.6-sol` | fx's own ChatGPT login, `config: {"provider": "codex"}` |
+
+`fx-glm` uses the Z.ai Coding Plan endpoint by the operator's choice. The
+plan's usage policy lists Claude Code and ZCode, not fx, and restricts or bans
+an account for detected third-party use; `claude-glm`
+([claude-endpoints.md](claude-endpoints.md)) is the supported route, and
+`https://api.z.ai/api/paas/v4` is the pay-as-you-go one.
+
+`fx-gpt` runs fx's built-in Codex provider. The runner writes `provider:
+"codex"` into the throwaway settings, points `FX_AUTH_HOME` at the real HOME,
+and sets `FX_E2E_OPENAI_CODEX_RESPONSES_URL` (fx accepts a loopback override of
+that endpoint) to the relay, which meters it like the others. Two facts measured
+2026-09-26 shaped this. fx refuses a symlinked or hard-linked credential file,
+and a copy would diverge on the first token refresh, so the login cannot move
+into the throwaway HOME; only fx-faberun has `FX_AUTH_HOME`, and official fx
+answers "fx needs a Codex subscription login". And the Codex endpoint streams
+SSE with no `content-type`, so the relay decides a headerless body by its first
+bytes. `fx login codex` signs in once; `fx models` lists what the account can
+use (seven models on the owner's account, `gpt-6-sol` among them).
 
 ## Measured
 

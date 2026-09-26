@@ -19,7 +19,7 @@ the Z.ai Coding Plan, where Claude Code is one of the supported tools:
 ```
 
 The same entry ships in the discovery catalogue as `claude-glm`, declared
-before `zcode-glm` so it wins the tie-break between the two.
+after `fx-glm` and before `zcode-glm`.
 
 ## What the runtime sets
 
@@ -97,7 +97,9 @@ tiny-text campaign ran with a GLM 5.3 worker on `fx` over the plan and a
 DeepSeek judge on `fx`: 2 nodes done at the first try with no revisions, 51.9 s,
 283 MB total peak. The pay-as-you-go balance was empty throughout, so the plan
 answered every request. The supported configuration remains GLM on the plan
-through `claude-glm`, and GLM on `fx` through the pay-as-you-go endpoint.
+through `claude-glm`, and GLM on `fx` through the pay-as-you-go endpoint. The
+operator then made the plan endpoint the `fx-glm` discovery default anyway, so
+`fx-glm` is declared ahead of `claude-glm`; see [fx.md](fx.md#runtime).
 
 `glm-4.7-flash`, the one GLM model the pay-as-you-go endpoint serves without a
 balance, cannot work as an `fx` worker: it sends the `shell` tool's nested

@@ -27,6 +27,16 @@ const Usage = @import("usage.zig").Usage;
 
 /// The provider name the generated settings give the relay connection.
 const provider = "faberun";
+/// fx's built-in ChatGPT-subscription provider, and the Responses endpoint it
+/// posts to; the runner's relay stands in for the host.
+const codex_provider = "codex";
+const codex_upstream = "https://chatgpt.com/backend-api/codex";
+
+/// Which of fx's provider paths the worker takes. `openai_compatible` is a
+/// custom Chat Completions connection (DeepSeek, Z.ai) authenticated by a key
+/// in the environment; `codex` is fx's ChatGPT login, which fx-faberun reads
+/// from the operator's real profile through `FX_AUTH_HOME`.
+const ProviderKind = enum { openai_compatible, codex };
 /// Measured: DeepSeek's `max_tokens` ceiling on deepseek-flash; fx needs a declared value.
 const max_output_tokens = 8192;
 
@@ -34,7 +44,8 @@ const Options = struct {
     fx: []const u8 = "fx",
     model: []const u8 = "",
     sandbox: []const u8 = "workspace-write",
-    base_url: []const u8 = "https://api.deepseek.com",
+    provider_kind: ProviderKind = .openai_compatible,
+    base_url: ?[]const u8 = null,
     key_env: []const u8 = "DEEPSEEK_API_KEY",
     context_window: u64 = 1_000_000,
 };
@@ -93,10 +104,16 @@ fn parseArgs(args: []const [:0]const u8) !Options {
         const flag = args[index];
         if (index + 1 >= args.len) return fatal("{s} needs a value", .{flag});
         const value: []const u8 = args[index + 1];
-        if (std.mem.eql(u8, flag, "--fx")) options.fx = value else if (std.mem.eql(u8, flag, "--model")) options.model = value else if (std.mem.eql(u8, flag, "--sandbox")) options.sandbox = value else if (std.mem.eql(u8, flag, "--base-url")) options.base_url = value else if (std.mem.eql(u8, flag, "--key-env")) options.key_env = value else if (std.mem.eql(u8, flag, "--context-window")) options.context_window = try std.fmt.parseInt(u64, value, 10) else return fatal("unknown argument: {s}", .{flag});
+        if (std.mem.eql(u8, flag, "--fx")) options.fx = value else if (std.mem.eql(u8, flag, "--model")) options.model = value else if (std.mem.eql(u8, flag, "--sandbox")) options.sandbox = value else if (std.mem.eql(u8, flag, "--provider")) options.provider_kind = parseProviderKind(value) orelse return fatal("unknown provider: {s}", .{value}) else if (std.mem.eql(u8, flag, "--base-url")) options.base_url = value else if (std.mem.eql(u8, flag, "--key-env")) options.key_env = value else if (std.mem.eql(u8, flag, "--context-window")) options.context_window = try std.fmt.parseInt(u64, value, 10) else return fatal("unknown argument: {s}", .{flag});
     }
     if (options.model.len == 0) return fatal("--model is required", .{});
     return options;
+}
+
+fn parseProviderKind(value: []const u8) ?ProviderKind {
+    if (std.mem.eql(u8, value, "openai-compatible")) return .openai_compatible;
+    if (std.mem.eql(u8, value, "codex")) return .codex;
+    return null;
 }
 
 fn fatal(comptime format: []const u8, args: anytype) error{Usage} {
@@ -267,7 +284,11 @@ pub fn main(init: std.process.Init) !void {
     const workspace = try Io.Dir.realPathFileAbsoluteAlloc(io, cwd, arena);
 
     var shared: Shared = .{ .io = io, .gpa = gpa };
-    const relay = try relay_mod.start(gpa, io, options.base_url, .{ .context = &shared, .function = Shared.onRequest });
+    const upstream = options.base_url orelse switch (options.provider_kind) {
+        .openai_compatible => "https://api.deepseek.com",
+        .codex => codex_upstream,
+    };
+    const relay = try relay_mod.start(gpa, io, upstream, .{ .context = &shared, .function = Shared.onRequest });
 
     const real_home = init.environ_map.get("HOME") orelse return error.HomeNotSet;
     const tmp_root = init.environ_map.get("TMPDIR") orelse "/tmp";
@@ -278,44 +299,72 @@ pub fn main(init: std.process.Init) !void {
 
     const base_url = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}", .{relay.port()});
     var settings: std.Io.Writer.Allocating = .init(arena);
-    {
-        var json: std.json.Stringify = .{ .writer = &settings.writer, .options = .{ .whitespace = .indent_2 } };
-        try json.beginObject();
-        try json.objectField("provider");
-        try json.write(provider);
-        try json.objectField("models");
-        try json.beginObject();
-        try json.objectField(provider);
-        try json.write(options.model);
-        try json.endObject();
-        try json.objectField("permission_mode");
-        try json.write("ask");
-        try json.objectField("providers");
-        try json.beginObject();
-        try json.objectField(provider);
-        try json.beginObject();
-        try json.objectField("protocol");
-        try json.write("openai-chat-completions");
-        try json.objectField("base_url");
-        try json.write(base_url);
-        try json.objectField("auth");
-        try json.write(.{ .type = "bearer", .env = options.key_env });
-        try json.objectField("model_metadata");
-        try json.beginObject();
-        try json.objectField(options.model);
-        try json.write(.{ .context_window = options.context_window, .max_output_tokens = max_output_tokens, .supports_tool_use = true });
-        try json.endObject();
-        try json.endObject();
-        try json.endObject();
-        try json.endObject();
-        try settings.writer.writeByte('\n');
+    switch (options.provider_kind) {
+        .openai_compatible => {
+            var json: std.json.Stringify = .{ .writer = &settings.writer, .options = .{ .whitespace = .indent_2 } };
+            try json.beginObject();
+            try json.objectField("provider");
+            try json.write(provider);
+            try json.objectField("models");
+            try json.beginObject();
+            try json.objectField(provider);
+            try json.write(options.model);
+            try json.endObject();
+            try json.objectField("permission_mode");
+            try json.write("ask");
+            try json.objectField("providers");
+            try json.beginObject();
+            try json.objectField(provider);
+            try json.beginObject();
+            try json.objectField("protocol");
+            try json.write("openai-chat-completions");
+            try json.objectField("base_url");
+            try json.write(base_url);
+            try json.objectField("auth");
+            try json.write(.{ .type = "bearer", .env = options.key_env });
+            try json.objectField("model_metadata");
+            try json.beginObject();
+            try json.objectField(options.model);
+            try json.write(.{ .context_window = options.context_window, .max_output_tokens = max_output_tokens, .supports_tool_use = true });
+            try json.endObject();
+            try json.endObject();
+            try json.endObject();
+            try json.endObject();
+            try settings.writer.writeByte('\n');
+        },
+        .codex => {
+            var json: std.json.Stringify = .{ .writer = &settings.writer, .options = .{ .whitespace = .indent_2 } };
+            try json.beginObject();
+            try json.objectField("provider");
+            try json.write(codex_provider);
+            try json.objectField("models");
+            try json.beginObject();
+            try json.objectField(codex_provider);
+            try json.write(options.model);
+            try json.endObject();
+            try json.objectField("permission_mode");
+            try json.write("ask");
+            try json.endObject();
+            try settings.writer.writeByte('\n');
+        },
     }
     const settings_text = settings.written();
     try home.prepare(arena, io, real_home, home_dir, settings_text);
 
     var environ = try init.environ_map.clone(arena);
     try environ.put("HOME", home_dir);
-    try environ.put("FX_PROVIDER", provider);
+    switch (options.provider_kind) {
+        .openai_compatible => try environ.put("FX_PROVIDER", provider),
+        .codex => {
+            try environ.put("FX_PROVIDER", codex_provider);
+            // The ChatGPT session stays in the operator's profile: a copy
+            // would diverge on the first token refresh (fx-faberun only).
+            try environ.put("FX_AUTH_HOME", real_home);
+            // fx accepts a loopback override of the Responses endpoint, which
+            // is how the relay meters this provider as it does the others.
+            try environ.put("FX_E2E_OPENAI_CODEX_RESPONSES_URL", try std.fmt.allocPrint(arena, "{s}/responses", .{base_url}));
+        },
+    }
     try environ.put("FX_PERMISSION_MODE", "ask");
     try environ.put("FX_AUTO_UPGRADE", "0");
     // fx plays a sound on every send and response, which a detached campaign

@@ -277,7 +277,7 @@ routing policy.
 | `codex` | OpenAI | `codex-gpt` |
 | `agy` | Google | `agy-gemini` |
 | `dsh` | declared per runtime; DeepSeek in the discovery entry | `dsh-deepseek` |
-| `fx` | declared per runtime; DeepSeek in the discovery entry | `fx-deepseek` |
+| `fx` | declared per runtime; DeepSeek, Zhipu and OpenAI in the discovery entries | `fx-deepseek`, `fx-glm`, `fx-gpt` |
 | `zcode` | Zhipu | `zcode-glm` |
 | `exec-jsonl` | declared per runtime | the model its command names |
 | `replay` | declared per runtime | the recorded model |

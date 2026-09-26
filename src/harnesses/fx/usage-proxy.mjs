@@ -81,11 +81,19 @@ async function relay(base, req, res) {
   let pending = "";
   /** @type {unknown} */
   let usage = null;
-  const streaming = (response.headers.get("content-type") ?? "").includes("text/event-stream");
+  const contentType = response.headers.get("content-type");
+  // Measured 2026-09-26: the Codex endpoint streams SSE with no content-type
+  // at all, so a missing header is decided by the first bytes.
+  let streaming = (contentType ?? "").includes("text/event-stream");
+  let sniffed = contentType !== null;
   if (response.body) {
     for await (const chunk of response.body) {
       res.write(chunk);
       const decoded = decoder.decode(chunk, { stream: true });
+      if (!sniffed) {
+        sniffed = true;
+        streaming = /^\s*(data:|event:|:)/u.test(decoded);
+      }
       if (!streaming) {
         text += decoded;
         continue;
@@ -120,7 +128,10 @@ function streamedUsage(line) {
 function parsedUsage(text) {
   try {
     const value = JSON.parse(text);
-    return value && typeof value === "object" && value.usage ? value.usage : null;
+    if (!value || typeof value !== "object") return null;
+    // A Responses stream reports usage once, on `response.completed`, inside
+    // the response object.
+    return value.usage ?? value.response?.usage ?? null;
   } catch {
     // A partial or non-JSON frame carries no usage; the next frame might.
     return null;
@@ -132,7 +143,8 @@ function parsedUsage(text) {
  * `inputTokens` excludes the cached prefix. DeepSeek reports the split
  * directly (`prompt_cache_hit_tokens`, `prompt_cache_miss_tokens`); OpenAI,
  * vLLM and Z.ai report `prompt_tokens_details.cached_tokens` inside
- * `prompt_tokens`.
+ * `prompt_tokens`; the Responses API (fx's Codex provider) reports
+ * `input_tokens_details.cached_tokens` inside `input_tokens`.
  *
  * @param {unknown} usage
  * @returns {RequestUsage|null}
@@ -141,6 +153,11 @@ export function canonicalRequestUsage(usage) {
   if (!usage || typeof usage !== "object") return null;
   const record = /** @type {Record<string, any>} */ (usage);
   const number = (/** @type {unknown} */ value) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+  const input = number(record.input_tokens);
+  if (input !== null) {
+    const cached = number(record.input_tokens_details?.cached_tokens) ?? 0;
+    return { inputTokens: Math.max(0, input - cached), outputTokens: number(record.output_tokens) ?? 0, cacheReadInputTokens: cached };
+  }
   const prompt = number(record.prompt_tokens);
   const output = number(record.completion_tokens) ?? 0;
   const hit = number(record.prompt_cache_hit_tokens) ?? number(record.prompt_tokens_details?.cached_tokens) ?? 0;

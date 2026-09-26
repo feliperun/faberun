@@ -1,7 +1,9 @@
 //! Provider usage in the ledger's shape, where `inputTokens` excludes the
 //! cached prefix. DeepSeek reports the split directly
 //! (`prompt_cache_hit_tokens`, `prompt_cache_miss_tokens`); OpenAI, vLLM and
-//! Z.ai report `prompt_tokens_details.cached_tokens` inside `prompt_tokens`.
+//! Z.ai report `prompt_tokens_details.cached_tokens` inside `prompt_tokens`;
+//! the Responses API reports `input_tokens_details.cached_tokens` inside
+//! `input_tokens`.
 //! fx 0.0.11 keeps neither, which is why the relay reads them itself.
 
 const std = @import("std");
@@ -32,6 +34,16 @@ pub fn fromUsageObject(value: std.json.Value) ?Usage {
         .object => |o| o,
         else => return null,
     };
+    // The Responses API (fx's Codex provider) names the same counters
+    // `input_tokens`, `output_tokens` and `input_tokens_details.cached_tokens`.
+    if (count(object, "input_tokens")) |input| {
+        var cached: u64 = 0;
+        if (object.get("input_tokens_details")) |details| switch (details) {
+            .object => |d| cached = count(d, "cached_tokens") orelse 0,
+            else => {},
+        };
+        return .{ .inputTokens = input -| cached, .outputTokens = count(object, "output_tokens") orelse 0, .cacheReadInputTokens = cached };
+    }
     const prompt = count(object, "prompt_tokens");
     const miss = count(object, "prompt_cache_miss_tokens");
     if (prompt == null and miss == null) return null;
@@ -57,7 +69,14 @@ pub fn fromDocument(arena: std.mem.Allocator, text: []const u8) ?Usage {
         .object => |o| o,
         else => return null,
     };
-    return fromUsageObject(object.get("usage") orelse return null);
+    if (object.get("usage")) |found| return fromUsageObject(found);
+    // A Responses stream reports usage once, on `response.completed`, inside
+    // the response object.
+    const response = switch (object.get("response") orelse return null) {
+        .object => |o| o,
+        else => return null,
+    };
+    return fromUsageObject(response.get("usage") orelse return null);
 }
 
 /// The usage in one SSE line, or null for any other line.
@@ -82,6 +101,10 @@ test "both provider shapes become the ledger's shape" {
     try std.testing.expectEqual(Usage{ .inputTokens = 10, .outputTokens = 2 }, fromDocument(arena,
         \\{"usage":{"prompt_tokens":10,"completion_tokens":2}}
     ).?);
+    try std.testing.expectEqual(Usage{ .inputTokens = 300, .outputTokens = 40, .cacheReadInputTokens = 700 }, fromStreamLine(arena,
+        \\data: {"type":"response.completed","response":{"usage":{"input_tokens":1000,"input_tokens_details":{"cached_tokens":700},"output_tokens":40}}}
+    ).?);
+    try std.testing.expectEqual(@as(?Usage, null), fromStreamLine(arena, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}"));
     try std.testing.expectEqual(@as(?Usage, null), fromStreamLine(arena, "data: [DONE]"));
     try std.testing.expectEqual(@as(?Usage, null), fromStreamLine(arena, "data: {\"choices\":[{\"delta\":{}}]}"));
     try std.testing.expectEqual(@as(?Usage, null), fromStreamLine(arena, ": keep-alive"));

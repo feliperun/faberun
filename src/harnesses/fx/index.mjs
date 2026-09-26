@@ -93,6 +93,7 @@ export const fxHarness = {
     const args = ["--fx", this.executable(runtime), "--model", runtime.model];
     if (runtime.sandbox) args.push("--sandbox", runtime.sandbox);
     const config = runtime.config ?? {};
+    if (config.provider === "codex") args.push("--provider", "codex");
     if (typeof config.base_url === "string" && config.base_url) args.push("--base-url", config.base_url);
     if (typeof config["api_key.env_key"] === "string" && config["api_key.env_key"]) args.push("--key-env", config["api_key.env_key"]);
     if (typeof config.context_window === "number") args.push("--context-window", String(config.context_window));

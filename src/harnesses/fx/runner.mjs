@@ -41,10 +41,23 @@ import { startUsageProxy } from "./usage-proxy.mjs";
 
 /** The provider name the generated settings give the relay connection. */
 const PROVIDER = "faberun";
+/**
+ * fx's built-in ChatGPT-subscription provider, and the Responses endpoint it
+ * posts to; the relay stands in for the host.
+ */
+const CODEX_PROVIDER = "codex";
+const CODEX_UPSTREAM = "https://chatgpt.com/backend-api/codex";
+/**
+ * Which of fx's provider paths the worker takes: `openai-compatible` is a
+ * custom Chat Completions connection (DeepSeek, Z.ai) authenticated by a key
+ * in the environment; `codex` is fx's ChatGPT login, which fx-faberun reads
+ * from the operator's real profile through `FX_AUTH_HOME`.
+ */
+const PROVIDER_KINDS = new Set(["openai-compatible", "codex"]);
 /** Measured: DeepSeek's `max_tokens` ceiling on deepseek-flash; fx needs a declared value. */
 const MAX_OUTPUT_TOKENS = 8192;
 
-/** @typedef {{fx: string, model: string, sandbox: string, baseUrl: string, keyEnv: string, contextWindow: number}} RunnerOptions */
+/** @typedef {{fx: string, model: string, sandbox: string, provider: string, baseUrl: string|null, keyEnv: string, contextWindow: number}} RunnerOptions */
 
 /**
  * @param {string[]} argv
@@ -56,7 +69,8 @@ function parseArgs(argv) {
     fx: "fx",
     model: "",
     sandbox: "workspace-write",
-    baseUrl: "https://api.deepseek.com",
+    provider: "openai-compatible",
+    baseUrl: null,
     keyEnv: "DEEPSEEK_API_KEY",
     contextWindow: 1_000_000,
   };
@@ -67,7 +81,10 @@ function parseArgs(argv) {
     if (flag === "--fx") options.fx = value;
     else if (flag === "--model") options.model = value;
     else if (flag === "--sandbox") options.sandbox = value;
-    else if (flag === "--base-url") options.baseUrl = value;
+    else if (flag === "--provider") {
+      if (!PROVIDER_KINDS.has(value)) throw new Error(`unknown provider: ${value}`);
+      options.provider = value;
+    } else if (flag === "--base-url") options.baseUrl = value;
     else if (flag === "--key-env") options.keyEnv = value;
     else if (flag === "--context-window") options.contextWindow = Number(value);
     else throw new Error(`unknown argument: ${flag}`);
@@ -121,8 +138,9 @@ let segment = "";
 let sessionId = /** @type {string|null} */ (null);
 let settled = false;
 
+const codex = options.provider === "codex";
 const proxy = await startUsageProxy({
-  upstream: options.baseUrl,
+  upstream: options.baseUrl ?? (codex ? CODEX_UPSTREAM : "https://api.deepseek.com"),
   onRequest(request) {
     if (request.usage) {
       addUsage(usage, request.usage);
@@ -133,7 +151,11 @@ const proxy = await startUsageProxy({
   },
 });
 
-prepareFxHome(homedir(), home, {
+prepareFxHome(homedir(), home, codex ? {
+  provider: CODEX_PROVIDER,
+  models: { [CODEX_PROVIDER]: options.model },
+  permission_mode: "ask",
+} : {
   provider: PROVIDER,
   models: { [PROVIDER]: options.model },
   permission_mode: "ask",
@@ -151,7 +173,18 @@ prepareFxHome(homedir(), home, {
 
 // FX_SOUND: fx plays a sound on every send and response, which a detached
 // campaign of parallel workers turns into noise on the operator's machine.
-const env = { ...process.env, HOME: home, FX_PROVIDER: PROVIDER, FX_PERMISSION_MODE: "ask", FX_AUTO_UPGRADE: "0", FX_SOUND: "0" };
+const env = {
+  ...process.env,
+  HOME: home,
+  FX_PROVIDER: codex ? CODEX_PROVIDER : PROVIDER,
+  FX_PERMISSION_MODE: "ask",
+  FX_AUTO_UPGRADE: "0",
+  FX_SOUND: "0",
+  // The ChatGPT session stays in the operator's profile: a copy would diverge
+  // on the first token refresh (fx-faberun only). fx accepts a loopback
+  // override of the Responses endpoint, which is how the relay meters it.
+  ...(codex ? { FX_AUTH_HOME: homedir(), FX_E2E_OPENAI_CODEX_RESPONSES_URL: `${proxy.url}/responses` } : {}),
+};
 const invocation = spawnInvocation(options.fx, ["acp"]);
 const child = spawn(invocation.command, invocation.args, { cwd: workspace, env, stdio: ["pipe", "pipe", "pipe"], ...invocation.options });
 

@@ -105,18 +105,23 @@ fn relayOne(relay: *Relay, arena: std.mem.Allocator, request: *std.http.Server.R
     const method = request.head.method;
     const url = try std.mem.concat(arena, u8, &.{ relay.upstream, request.head.target });
     var authorization: ?[]const u8 = null;
-    var accept: ?[]const u8 = null;
     const content_type: ?[]const u8 = if (request.head.content_type) |value| try arena.dupe(u8, value) else null;
+    // Every other header goes through as sent: the Codex endpoint needs
+    // `chatgpt-account-id`, `originator` and its session ids, and a relay that
+    // picks headers by name breaks the first provider it did not know.
+    var extra: std.ArrayList(std.http.Header) = .empty;
     var headers = request.iterateHeaders();
     while (headers.next()) |header| {
-        if (std.ascii.eqlIgnoreCase(header.name, "authorization")) authorization = try arena.dupe(u8, header.value);
-        if (std.ascii.eqlIgnoreCase(header.name, "accept")) accept = try arena.dupe(u8, header.value);
+        if (std.ascii.eqlIgnoreCase(header.name, "authorization")) {
+            authorization = try arena.dupe(u8, header.value);
+        } else if (!isTransportHeader(header.name)) {
+            try extra.append(arena, .{ .name = try arena.dupe(u8, header.name), .value = try arena.dupe(u8, header.value) });
+        }
     }
     var body_buffer: [8 * 1024]u8 = undefined;
     const body_reader = try request.readerExpectContinue(&body_buffer);
     const body = try body_reader.allocRemaining(arena, .unlimited);
 
-    const extra: []const std.http.Header = if (accept) |value| &.{.{ .name = "accept", .value = value }} else &.{};
     var upstream = try relay.client.request(method, try std.Uri.parse(url), .{
         .redirect_behavior = .unhandled,
         .headers = .{
@@ -125,7 +130,7 @@ fn relayOne(relay: *Relay, arena: std.mem.Allocator, request: *std.http.Server.R
             // Identity, so the relay can read the usage frame it forwards.
             .accept_encoding = .{ .override = "identity" },
         },
-        .extra_headers = extra,
+        .extra_headers = extra.items,
     });
     defer upstream.deinit();
     if (method.requestHasBody()) {
@@ -161,7 +166,10 @@ fn relayOne(relay: *Relay, arena: std.mem.Allocator, request: *std.http.Server.R
     } });
     var transfer_buffer: [64 * 1024]u8 = undefined;
     const source = response.reader(&transfer_buffer);
-    const streaming = if (response_type) |value| std.mem.indexOf(u8, value, "text/event-stream") != null else false;
+    // Measured 2026-09-26: the Codex endpoint streams SSE with no
+    // content-type at all, so a missing header is decided by the first bytes.
+    var streaming = if (response_type) |value| std.mem.indexOf(u8, value, "text/event-stream") != null else false;
+    var sniffed = response_type != null;
     const ok = status < 400;
     var pending: std.ArrayList(u8) = .empty;
     var whole: std.ArrayList(u8) = .empty;
@@ -174,6 +182,10 @@ fn relayOne(relay: *Relay, arena: std.mem.Allocator, request: *std.http.Server.R
         try reply.writer.writeAll(data);
         try reply.writer.flush();
         try reply.flush();
+        if (!sniffed) {
+            sniffed = true;
+            streaming = looksLikeEventStream(data);
+        }
         if (streaming) {
             try pending.appendSlice(arena, data);
             while (std.mem.indexOfScalar(u8, pending.items, '\n')) |newline| {
@@ -199,11 +211,39 @@ fn relayOne(relay: *Relay, arena: std.mem.Allocator, request: *std.http.Server.R
     };
 }
 
+/// Whether a body with no content-type starts as a server-sent event stream.
+fn looksLikeEventStream(bytes: []const u8) bool {
+    const head = std.mem.trimStart(u8, bytes, " \t\r\n");
+    return std.mem.startsWith(u8, head, "data:") or std.mem.startsWith(u8, head, "event:") or std.mem.startsWith(u8, head, ":");
+}
+
+/// Headers the relay's own connections own, plus the two it sets itself.
+fn isTransportHeader(name: []const u8) bool {
+    const owned = [_][]const u8{ "host", "connection", "keep-alive", "content-length", "transfer-encoding", "accept-encoding", "expect", "te", "upgrade", "content-type" };
+    for (owned) |candidate| {
+        if (std.ascii.eqlIgnoreCase(name, candidate)) return true;
+    }
+    return false;
+}
+
 /// Seconds form only; the HTTP-date form carries no reset the controller
 /// could not also get from waiting out its failover edge.
 fn retryAfterMs(value: []const u8) ?u64 {
     const seconds = std.fmt.parseInt(u64, std.mem.trim(u8, value, " "), 10) catch return null;
     return if (seconds > 0) seconds * 1000 else null;
+}
+
+test "transport headers stay with the relay and provider headers pass through" {
+    try std.testing.expect(isTransportHeader("Content-Length"));
+    try std.testing.expect(isTransportHeader("accept-encoding"));
+    try std.testing.expect(!isTransportHeader("chatgpt-account-id"));
+    try std.testing.expect(!isTransportHeader("accept"));
+}
+
+test "a body without content-type is sniffed as SSE or JSON" {
+    try std.testing.expect(looksLikeEventStream("event: response.created\ndata: {}"));
+    try std.testing.expect(looksLikeEventStream("\ndata: {}"));
+    try std.testing.expect(!looksLikeEventStream("{\"usage\":{}}"));
 }
 
 test "retry-after in seconds becomes milliseconds" {

@@ -20,7 +20,7 @@ with `docs/campaigns/` preserve dated records that are never rewritten.
 | [adr/README.md](adr/README.md) | How are decisions recorded, which ADRs are active, and what is the format? | contributor |
 | [harnesses/zcode-cli.md](harnesses/zcode-cli.md) | How does the ZCode CLI work headless, and how does `faberun` drive it? | operator, contributor |
 | [harnesses/claude-endpoints.md](harnesses/claude-endpoints.md) | How does a `claude` runtime run GLM on the Z.ai Coding Plan, and why is it the GLM judge? | operator, contributor |
-| [harnesses/fx.md](harnesses/fx.md) | How does `faberun` drive fx over ACP, and what does its relay meter? | operator, contributor |
+| [harnesses/fx.md](harnesses/fx.md) | How does `faberun` drive fx over ACP for DeepSeek, GLM and GPT, and what does its relay meter? | operator, contributor |
 | [history/README.md](history/README.md) | What dated records exist, and where did the pre-2026-09-15 paths move? | orchestrating agent |
 | `docs/campaigns/` | Where do campaign manifests, journals and specs live? | orchestrating agent |
 | [campaigns/become-faberun/spec/SPEC.md](campaigns/become-faberun/spec/SPEC.md) | What did the `become-faberun` campaign set out to do, phase by phase? | orchestrating agent |
