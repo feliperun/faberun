@@ -313,3 +313,38 @@ test("a verification timeout under its measured bound is raised before review, n
   assert.equal(huge.timeoutSec, 120, "a command no legal timeout covers is left for the check to contest");
   assert.deepEqual(logs.find((entry) => entry.stage === "timeouts-raised")?.raised, ["build: node --test test/harnesses 120s -> 127s"]);
 });
+
+test("a revise whose output would not freeze is sent back once before review spends a round on it", async () => {
+  // Measured 2026-09-26 on the 3a gate: four rounds with no critical from
+  // review each contested on a scope-closure gap the revise had just opened,
+  // and learned of it only a whole review round later.
+  const rollback = { id: "F1", severity: "critical", nodeId: "build", text: "the plan is missing a rollback path" };
+  /** @type {any[]} */
+  const reviseFindings = [];
+  let reviewCalls = 0;
+  let reviseCalls = 0;
+  const { options, logs } = harness({
+    reviewRounds: 2,
+    plan: planOutput(),
+    runStage: async (/** @type {string} */ kind, /** @type {any} */ inputs) => {
+      if (kind === "review") {
+        reviewCalls += 1;
+        return { contract: { id: `review-${reviewCalls}` }, output: { findings: reviewCalls === 1 ? [rollback] : [] } };
+      }
+      reviseCalls += 1;
+      reviseFindings.push(JSON.parse(readFileSync(join(/** @type {string} */ (options.cwd), inputs.findingsPath), "utf8")));
+      return { contract: { id: `revise-${reviseCalls}` }, output: { plan: planOutput({ objective: reviseCalls === 1 ? "opens a scope gap" : "closes it" }) } };
+    },
+  });
+  const frozen = /** @type {() => unknown} */ (options.frozenContractRaw)();
+  options.assembleFrozenNodes = (/** @type {any} */ plan) => plan;
+  options.frozenContractRaw = (/** @type {any} */ plan) => (plan.nodes[0].objective === "opens a scope gap" ? {} : frozen);
+
+  const result = await runReviewRounds(/** @type {any} */ (options));
+
+  assert.equal(result.resolved, true);
+  assert.equal(reviseCalls, 2, "the output that would not freeze went back to the revise");
+  assert.equal(reviewCalls, 2, "and the retry did not spend a review round");
+  assert.ok(reviseFindings[1].some((/** @type {any} */ finding) => finding.id === "plan-shape-revise-r1-attempt1"), "the retry is handed the pre-flight's message");
+  assert.equal(logs.some((entry) => entry.stage === "contested"), false);
+});

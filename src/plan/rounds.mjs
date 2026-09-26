@@ -246,11 +246,27 @@ export async function runReviewRounds(options) {
   let carriedCritical = 0;
 
   /**
-   * Run the revise stage once, validate its output, and on a rejection run it
-   * a second time with the validator's message appended to the same round's
-   * findings — the one retry R14 grants before a round contests. Every
-   * rejection this reaches is one `validatePlanOutput` has no deterministic
-   * fix for: R21 already normalizes the one shape variant that used to need
+   * The freeze pre-flight: the contract this plan would freeze into, checked
+   * the way `freeze.mjs` checks it. Null when it would freeze.
+   *
+   * @param {PlanOutput} candidate
+   * @returns {unknown}
+   */
+  const freezePreflightError = (candidate) => {
+    try {
+      assertTimeoutsCoverMeasured(validateContract(frozenContractRaw(assembleFrozenNodes(raiseTimeoutsToMeasured(candidate, repoFacts).plan)), join(plansDir, "contract.json")), repoFacts);
+      return null;
+    } catch (error) {
+      return error;
+    }
+  };
+
+  /**
+   * Run the revise stage once, validate its output and run the freeze
+   * pre-flight on it, and on a rejection run it a second time with the
+   * check's message appended to the same round's findings — the one retry
+   * R14 grants before a round contests. Every shape rejection this reaches is
+   * one `validatePlanOutput` has no deterministic fix for: R21 already normalizes the one shape variant that used to need
    * one (a text `proof.ref`) inside the validator itself, so nothing here has
    * a mechanical repair to apply instead of asking the worker again. Neither
    * attempt is charged against `reviewRounds`; the caller's own round counter
@@ -272,25 +288,43 @@ export async function runReviewRounds(options) {
     const revise = await runStage("revise", {
       specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, path), planPath: relativeWorkingPlanPath, packageMode,
     });
+    // The whole deterministic check R14 names runs on the revise's output:
+    // the shape validator, and the freeze pre-flight a review round would
+    // otherwise only reach a round later. Measured 2026-09-26 on the 3a gate:
+    // four rounds with no critical from review each contested on a
+    // scope-closure gap the same revise had just opened, because the revise
+    // learned of it only after the next review had spent its round.
+    /** @type {PlanOutput|null} */
+    let structurallyValid = null;
+    /** @type {PlanFindingOutput} */
+    let firstInvalid;
     try {
-      return { plan: validatePlanOutput(revise.output.plan), runId: revise.contract.id, firstInvalid: null };
+      structurallyValid = validatePlanOutput(revise.output.plan);
+      const preflightError = freezePreflightError(structurallyValid);
+      if (preflightError === null) return { plan: structurallyValid, runId: revise.contract.id, firstInvalid: null };
+      firstInvalid = invalidPlanFinding(`revise-r${round}-attempt1`, preflightError);
     } catch (error) {
-      const firstInvalid = invalidPlanFinding(`revise-r${round}-attempt1`, error);
-      const retryPath = join(scratchDir, `findings-round-${round}-retry.json`);
-      writeJsonAtomic(retryPath, [...findingsForRevise, firstInvalid]);
-      // The retry repairs the output the validator refused, not the plan
-      // before it: that output already carries this round's resolutions, and
-      // only the validator's message is left to answer.
-      const retryPlanPath = join(scratchDir, `plan-round-${round}-rejected.json`);
-      writeJsonAtomic(retryPlanPath, revise.output.plan ?? null);
-      const retry = await runStage("revise", {
-        specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, retryPath), planPath: relative(cwd, retryPlanPath), packageMode,
-      });
-      try {
-        return { plan: validatePlanOutput(retry.output.plan), runId: retry.contract.id, firstInvalid };
-      } catch (secondError) {
-        return { plan: null, finding: invalidPlanFinding(`revise-r${round}-attempt2`, secondError), firstInvalid };
-      }
+      firstInvalid = invalidPlanFinding(`revise-r${round}-attempt1`, error);
+    }
+    const retryPath = join(scratchDir, `findings-round-${round}-retry.json`);
+    writeJsonAtomic(retryPath, [...findingsForRevise, firstInvalid]);
+    // The retry repairs the output the check refused, not the plan before
+    // it: that output already carries this round's resolutions, and only the
+    // check's message is left to answer.
+    const retryPlanPath = join(scratchDir, `plan-round-${round}-rejected.json`);
+    writeJsonAtomic(retryPlanPath, revise.output.plan ?? null);
+    const retry = await runStage("revise", {
+      specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, retryPath), planPath: relative(cwd, retryPlanPath), packageMode,
+    });
+    try {
+      // A retry that validates goes to review even if the freeze pre-flight
+      // still refuses it: that round's own pre-flight raises it again.
+      return { plan: validatePlanOutput(retry.output.plan), runId: retry.contract.id, firstInvalid };
+    } catch (secondError) {
+      // The first attempt still validated: it goes to review rather than
+      // contesting a round over a retry that made things worse.
+      if (structurallyValid !== null) return { plan: structurallyValid, runId: revise.contract.id, firstInvalid };
+      return { plan: null, finding: invalidPlanFinding(`revise-r${round}-attempt2`, secondError), firstInvalid };
     }
   };
 
@@ -338,10 +372,9 @@ export async function runReviewRounds(options) {
       // read the repository, makes it from the validator's own message.
       /** @type {PlanFindingOutput|null} */
       let freezeFailure = null;
-      try {
-        assertTimeoutsCoverMeasured(validateContract(frozenContractRaw(assembleFrozenNodes(plan)), join(plansDir, "contract.json")), repoFacts);
-      } catch (error) {
-        freezeFailure = invalidPlanFinding(`freeze-r${round}`, error);
+      const preflightError = freezePreflightError(plan);
+      if (preflightError !== null) {
+        freezeFailure = invalidPlanFinding(`freeze-r${round}`, preflightError);
         findings = [...findings, freezeFailure];
       }
       logStage("review", {
