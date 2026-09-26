@@ -468,6 +468,16 @@ test("a plan node may declare expectedTurns, a positive integer, and the drafter
   assert.throws(() => validatePlanOutput({ nodes: [{ ...node, expectedTurns: "many" }] }), /expectedTurns/u);
 });
 
+/** @param {string[]} paths @returns {string} a repository holding exactly these files */
+function repoWith(...paths) {
+  const cwd = mkdtempSync(join(tmpdir(), "dropped-write-"));
+  for (const path of paths) {
+    mkdirSync(dirname(join(cwd, path)), { recursive: true });
+    writeFileSync(join(cwd, path), "");
+  }
+  return cwd;
+}
+
 /** @param {string} id @param {string[]} writeFiles @returns {any} a plan node differing only where a test says so */
 function nodeWriting(id, writeFiles) {
   return { ...planNode(), id, objective: `Do ${id}`, writeFiles };
@@ -477,7 +487,8 @@ test("a revision that drops a write the previous plan declared is a critical fin
   const previous = { nodes: [nodeWriting("build", ["README.md", "src/extra.mjs", "src/gone.mjs"]), nodeWriting("docs", ["docs/spec.md"])] };
   const revised = { nodes: [nodeWriting("build", ["README.md"]), nodeWriting("docs", ["docs/spec.md"])] };
 
-  const findings = droppedWriteFindings(previous, revised);
+  const cwd = repoWith("README.md", "src/extra.mjs", "src/gone.mjs", "docs/spec.md");
+  const findings = droppedWriteFindings(previous, revised, cwd);
   assert.deepEqual(findings.map((finding) => finding.id), ["dropped-write-build-1", "dropped-write-build-2"]);
   assert.ok(findings.every((finding) => finding.severity === "critical" && finding.nodeId === "build"));
   assert.ok(findings.some((finding) => finding.text.includes("src/extra.mjs")));
@@ -485,8 +496,20 @@ test("a revision that drops a write the previous plan declared is a critical fin
   assert.ok(findings.every((finding) => finding.text.includes("never to drop a write the node needs")));
 
   // A node that keeps its write set, or only gains writes, is never flagged.
-  assert.deepEqual(droppedWriteFindings(previous, previous), []);
-  assert.deepEqual(droppedWriteFindings({ nodes: [nodeWriting("build", ["README.md"])] }, { nodes: [nodeWriting("build", ["README.md", "src/new.mjs"])] }), []);
+  assert.deepEqual(droppedWriteFindings(previous, previous, cwd), []);
+  assert.deepEqual(droppedWriteFindings({ nodes: [nodeWriting("build", ["README.md"])] }, { nodes: [nodeWriting("build", ["README.md", "src/new.mjs"])] }, cwd), []);
+});
+
+test("a revise that renames a file the plan itself invented has not dropped a write", () => {
+  // Measured 2026-09-25 on the 3a gate rerun: the revise renamed a planned
+  // src/harnesses/env-guard.mjs to env-declaration.mjs, and the check counted
+  // a file nothing had created yet as a lost write, critical.
+  const cwd = repoWith("src/harnesses/catalogue.mjs");
+  const previous = { nodes: [nodeWriting("build", ["src/harnesses/catalogue.mjs", "src/harnesses/env-guard.mjs"])] };
+  const renamed = { nodes: [nodeWriting("build", ["src/harnesses/catalogue.mjs", "src/harnesses/env-declaration.mjs"])] };
+  assert.deepEqual(droppedWriteFindings(previous, renamed, cwd), []);
+  const shrunk = { nodes: [nodeWriting("build", ["src/harnesses/env-declaration.mjs"])] };
+  assert.deepEqual(droppedWriteFindings(previous, shrunk, cwd).map((finding) => finding.id), ["dropped-write-build-1"], "an existing file dropped is still a drop");
 });
 
 test("a revise that hands a write to a new sibling node has moved it, not dropped it", () => {
@@ -501,13 +524,14 @@ test("a revise that hands a write to a new sibling node has moved it, not droppe
   const split = {
     nodes: [nodeWriting("worktree-verb", ["src/repo/worktree.mjs"]), nodeWriting("build", ["src/engine/cancel.mjs"])],
   };
-  assert.deepEqual(droppedWriteFindings(previous, split), []);
+  const cwd = repoWith("src/repo/worktree.mjs", "src/engine/cancel.mjs");
+  assert.deepEqual(droppedWriteFindings(previous, split, cwd), []);
 
   // A path that leaves the plan entirely is still critical, sibling or not.
   const shrunk = {
     nodes: [nodeWriting("worktree-verb", ["src/repo/worktree.mjs"]), nodeWriting("build", [])],
   };
-  const findings = droppedWriteFindings(previous, shrunk);
+  const findings = droppedWriteFindings(previous, shrunk, cwd);
   assert.deepEqual(findings.map((finding) => finding.id), ["dropped-write-build-1"]);
   assert.ok(findings[0].text.includes("src/engine/cancel.mjs"));
   assert.ok(findings[0].text.includes("no other node in the revised plan declares it"));
@@ -518,12 +542,13 @@ test("a node the revision renamed or removed is out of scope for the write-drop 
   // about the graph this check does not make, and a removed node's writes
   // were reviewed as a removal, not as a silent shrink.
   const previous = { nodes: [nodeWriting("build", ["README.md"])] };
-  assert.deepEqual(droppedWriteFindings(previous, { nodes: [nodeWriting("build-2", ["README.md"])] }), []);
+  assert.deepEqual(droppedWriteFindings(previous, { nodes: [nodeWriting("build-2", ["README.md"])] }, repoWith("README.md")), []);
 });
 
 test("the write-drop check needs both plans: a draft that never validated or a revise refused leaves nothing to compare", () => {
-  assert.deepEqual(droppedWriteFindings(null, { nodes: [nodeWriting("build", ["README.md"])] }), []);
-  assert.deepEqual(droppedWriteFindings({ nodes: [nodeWriting("build", ["README.md"])] }, null), []);
+  const cwd = repoWith("README.md");
+  assert.deepEqual(droppedWriteFindings(null, { nodes: [nodeWriting("build", ["README.md"])] }, cwd), []);
+  assert.deepEqual(droppedWriteFindings({ nodes: [nodeWriting("build", ["README.md"])] }, null, cwd), []);
 });
 
 /** @param {string} id @param {string} nodeId @returns {import("../../src/plan/template.mjs").PlanFindingOutput} */

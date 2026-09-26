@@ -1,7 +1,7 @@
 ---
 id: planner-and-routing
 title: "O planner congela, e cada nó tem o juiz certo"
-version: 1.0.0
+version: 1.1.0
 status: draft
 date: 2026-09-24
 owner: Felipe Broering
@@ -148,8 +148,14 @@ e o canário do juiz (`evals/judge-canary/`).
   R21 o aceita); um defeito sem reparo único volta ao mesmo revise uma vez, com as mensagens do validador, sem
   consumir rodada de revisão. O pipeline para e contesta, com um finding
   `revision_not_converging` que mostra a contagem de críticos por rodada, quando
-  uma rodada termina com tantos ou mais críticos que a anterior, em vez de gastar
-  as rodadas que sobram.
+  uma rodada termina com tantos ou mais críticos que a anterior e o revise deixou
+  de pé um crítico da rodada anterior (o nó que ele nomeia saiu do revise sem
+  mudança), em vez de gastar as rodadas que sobram. Um revise que respondeu a
+  todos os críticos segue para a próxima rodada mesmo que a revisão nova ache
+  outros tantos: medido em 2026-09-25 no portão da 3a, a contagem sozinha parou
+  um plano cujo revise tinha resolvido os dois críticos da rodada 1. Um write
+  removido só conta quando o arquivo existe no repositório; renomear um arquivo
+  que o próprio plano inventou não é perda.
 - **proof:** `command: node --test --test-name-pattern="a revise that does not reduce critical findings stops the pipeline"`
 
 ### R15. Uma prova que nenhum nó pode escrever é achada antes da revisão
