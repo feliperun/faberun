@@ -6,7 +6,7 @@ import { dshHarness } from "./dsh/index.mjs";
 import { zcodeHarness } from "./zcode/index.mjs";
 import { execJsonlHarness } from "./exec-jsonl/index.mjs";
 import { replayHarness } from "./replay/index.mjs";
-import { withoutNotifyEnv } from "../notify/index.mjs";
+import { passthroughEnvironment, workerEnvironment } from "../engine/worker-env.mjs";
 import { spawnInvocation } from "../host/platform.mjs";
 
 /** Current wire-contract version for runner protocol artifacts. */
@@ -70,7 +70,7 @@ const CAPABILITY_NAMES = new Set([
  * `config["replay.recording"]` for commands, and dsh requires
  * `config.provider` for the provider route every attempt runs on.
  *
- * @typedef {{id?: string, harness: string, model: string, reasoning?: string, sandbox?: string, permissionMode?: string, config?: Record<string, unknown>, printTimeout?: string, tools?: string[], executable?: string, args?: string[], versionArgs?: string[], maxArgvPromptBytes?: number, requiredCapabilities?: CapabilityRequirements, tier?: number|string, vendor?: string}} HarnessRuntime
+ * @typedef {{id?: string, harness: string, model: string, reasoning?: string, sandbox?: string, permissionMode?: string, config?: Record<string, unknown>, printTimeout?: string, tools?: string[], executable?: string, args?: string[], versionArgs?: string[], maxArgvPromptBytes?: number, requiredCapabilities?: CapabilityRequirements, envPassthrough?: string[], tier?: number|string, vendor?: string}} HarnessRuntime
  */
 
 /**
@@ -203,10 +203,14 @@ export function resolveVendor(runtime) {
 
 /**
  * Build one provider invocation. Prompt transport is explicit in the result:
- * stdin adapters return `input`, while argv adapters append the prompt. An
- * optional `env` overlay is merged over the runner environment at spawn time;
- * a null value removes the ambient variable. A caller-supplied `options.env`
- * merges over the adapter's own overlay here, once, for every harness.
+ * stdin adapters return `input`, while argv adapters append the prompt.
+ *
+ * The returned `env` is the runtime-specific allowlist overlay (adapter
+ * declarations, `*.env_key` names, and the runtime's `envPassthrough`) merged
+ * over the adapter's own overlay; a null value removes the ambient variable.
+ * The spawn gate unions it with the base operating-system names, so no other
+ * controller variable reaches the child. A caller-supplied `options.env`
+ * merges over everything here, once, for every harness.
  *
  * @param {HarnessRuntime} runtime
  * @param {string} prompt
@@ -216,6 +220,12 @@ export function resolveVendor(runtime) {
 export function providerCommand(runtime, prompt, options = {}) {
   const harness = getHarness(runtime.harness);
   const command = harness.command(runtime, prompt, options);
+  // The runtime-specific allowlist travels to the gate as an overlay. The gate
+  // unions it with the base operating-system names and nothing else, so a
+  // controller variable no adapter, `*.env_key`, or envPassthrough named never
+  // reaches the child. It is deliberately not the whole environment: the
+  // caller's overlay stays an overlay, and the base set stays the gate's job.
+  command.env = { ...passthroughEnvironment(runtime, undefined, process.env), ...command.env };
   if (options.env) command.env = { ...command.env, ...options.env };
   if (command.promptTransport === "argv") {
     const limit = runtime.maxArgvPromptBytes ?? harness.capabilities.maxArgvPromptBytes;
@@ -492,10 +502,11 @@ export function probeRuntime(runtime, options = {}) {
       const invocation = spawnInvocation(executable, args, { cwd: options.cwd });
       child = spawn(invocation.command, invocation.args, {
         cwd: options.cwd,
-        // A worker or judge never delivers a notification; the controller does.
-        // In this repository a worker runs the test suite, whose fixture
-        // controllers would otherwise inherit a live transport and deliver.
-        env: withoutNotifyEnv(process.env),
+        // A probe is a worker-class spawn: it receives only the base names,
+        // the adapter's declared names, the runtime's `*.env_key` names, and
+        // any envPassthrough the runtime carries. It never delivers a
+        // notification; the controller does.
+        env: workerEnvironment(runtime),
         stdio: ["ignore", "pipe", "pipe"],
         ...invocation.options,
       });
