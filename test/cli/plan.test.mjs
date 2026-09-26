@@ -124,15 +124,17 @@ function twoNodePlan({ highRisk = false } = {}) {
  * invocation emits, in order (the draft, then one revise output per later
  * invocation); the default repeats the same valid two-node plan. `reviews`
  * does the same for the reviewer, one findings array per round, for a test
- * about what one round remembers of another.
+ * about what one round remembers of another. `files` adds repository files
+ * beyond the fixed set, path to text.
  *
  * @param {string} campaignId
- * @param {{reviewMode?: "clean"|"critical", highRisk?: boolean, plans?: unknown[], reviews?: unknown[][]}} [options]
+ * @param {{reviewMode?: "clean"|"critical", highRisk?: boolean, plans?: unknown[], reviews?: unknown[][], files?: Record<string, string>}} [options]
  * @returns {{cwd: string, campaignId: string, runtimes: Record<string, Record<string, unknown>>, runtimeDefaults: {worker: string, judge: string}, reviewers: string[]}}
  */
-function setup(campaignId, { reviewMode = "clean", highRisk = false, plans, reviews } = {}) {
+function setup(campaignId, { reviewMode = "clean", highRisk = false, plans, reviews, files = {} } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), "plan-pipeline-"));
   writeFixtureFile(cwd, "src/index.mjs", "export default 1;\n");
+  for (const [path, text] of Object.entries(files)) writeFixtureFile(cwd, path, text);
   writeFixtureFile(cwd, "docs/spec.md", "# Feature 42\n\nA legacy spec with no front matter, accepted outright.\n");
   // The scope-closure pair a planned write set is checked against: the entry
   // point imports the module a scope-gap plan writes, and the test named
@@ -510,12 +512,16 @@ test("a revise that clears a finding by shrinking the write set is contested, th
   // the reviewer's critical finding by declaring one — a smaller write set
   // clears scope closure without judging any importer, but it leaves the node
   // without a file the work needs (measured 2026-09-20: two context_missing
-  // refusals from exactly this). The revision is contested, never frozen.
+  // refusals from exactly this). The drop goes to the next revise, which
+  // re-emits the same shrunk plan: the drop and the review's objection both
+  // stand on a node it left unchanged, so round 3 is R14's stop. The
+  // revision is contested, never frozen.
   const draft = /** @type {any} */ (twoNodePlan());
   draft.nodes[0].writeFiles = ["src/index.mjs", "src/other.mjs"];
   const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("shrink-demo", {
     reviewMode: "critical",
-    plans: [draft, twoNodePlan()],
+    plans: [draft, twoNodePlan(), twoNodePlan()],
+    files: { "src/other.mjs": "export const other = 1;\n" },
   });
   const result = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
@@ -525,11 +531,13 @@ test("a revise that clears a finding by shrinking the write set is contested, th
     runtimes,
     runtimeDefaults,
     reviewers,
+    reviewRounds: 3,
     launch,
     wait,
   });
   assert.equal(result.status, "contested");
-  assert.equal(result.round, 2);
+  assert.equal(result.round, 3);
+  assert.ok(result.findings.some((finding) => finding.id === "revision-not-converging-r3"));
   const dropped = result.findings.find((finding) => finding.id === "dropped-write-build-1");
   assert.ok(dropped, "the dropped write is recorded as a critical finding");
   assert.equal(dropped.severity, "critical");

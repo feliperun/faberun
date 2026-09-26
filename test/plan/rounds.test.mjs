@@ -215,3 +215,38 @@ test("a round whose draft never validated sets no baseline for R14", async () =>
   assert.equal(result.resolved, true);
   assert.equal(reviewCalls, 2);
 });
+
+test("a revise that answers every critical is not stopped by a fresh review that finds as many new ones", async () => {
+  // The 3a gate rerun's shape, measured 2026-09-25: round 1 raised two
+  // criticals, the revise changed the node both named, and round 2's review
+  // raised two different ones. The count did not fall, but nothing the revise
+  // was handed stood unanswered, so R14 does not stop the plan; round 3's
+  // revise answers those and the plan freezes inside the budget.
+  const reviewFindings = [
+    [{ id: "F1", severity: "critical", nodeId: "build", text: "ordered before what it reads" }, { id: "F2", severity: "critical", nodeId: "build", text: "probe not rewired" }],
+    [{ id: "F3", severity: "critical", nodeId: "build", text: "scan precedes the rewire" }, { id: "F4", severity: "critical", nodeId: "build", text: "usage window unowned" }],
+    [],
+  ];
+  let reviewCalls = 0;
+  let reviseCalls = 0;
+  const runStage = async (/** @type {string} */ kind) => {
+    if (kind === "review") {
+      const findings = reviewFindings[reviewCalls];
+      reviewCalls += 1;
+      return { contract: { id: `review-${reviewCalls}` }, output: { findings } };
+    }
+    if (kind === "revise") {
+      reviseCalls += 1;
+      return { contract: { id: `revise-${reviseCalls}` }, output: { plan: planOutput({ objective: `Implement the feature, revision ${reviseCalls}` }) } };
+    }
+    throw new Error(`unexpected stage ${kind}`);
+  };
+  const { options, logs } = harness({ reviewRounds: 4, plan: planOutput(), runStage });
+
+  const result = await runReviewRounds(/** @type {any} */ (options));
+
+  assert.equal(logs.some((entry) => entry.stage === "revision-not-converging"), false, JSON.stringify(logs));
+  assert.equal(result.resolved, true);
+  assert.equal(reviewCalls, 3);
+  assert.equal(reviseCalls, 2);
+});

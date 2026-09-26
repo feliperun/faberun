@@ -2,7 +2,8 @@
  * The planning pipeline's review/revise rounds: draft a plan once, then
  * alternate review and revise up to `reviewRounds` times until no critical
  * finding remains, the round budget runs out, or a round's own revise did not
- * lower the critical count review found the round before it (R14) — every one
+ * lower the critical count review found the round before it while leaving one
+ * of that round's criticals standing (R14) — every one
  * of those ends contested, through the round that reached it. Separate from
  * `pipeline.mjs` (measured 2026-09-24:
  * pipeline.mjs was 742 of 800 lines) because this is the one place a round's
@@ -19,6 +20,7 @@
  * module free of a runtime dependency on `pipeline.mjs`, so a test can drive
  * it with fakes.
  */
+import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import { validateContract } from "../contract/index.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
@@ -116,11 +118,20 @@ export function unresolvedFindings(findings, previousPlan, revisedPlan) {
  * cancel-preserves-integrated-heads, which is the decomposition this
  * repository's own layering asks for.
  *
+ * Only a path that exists in the repository can be dropped. A file the plan
+ * itself invented and the revise then renamed is a rename, not a lost write:
+ * no importer, test or reader depends on a name nothing has created yet.
+ * Measured 2026-09-25 on the 3a gate rerun: two of six drops were exactly
+ * that (env-guard.mjs renamed env-declaration.mjs, a probe-results note moved
+ * to the ledger), and each counted as a critical against a revise that had
+ * resolved every critical its review raised.
+ *
  * @param {PlanOutput|null} previousPlan the plan the revise revised, null when the draft never validated
  * @param {PlanOutput|null} revisedPlan the plan the revise produced, null when its output was refused
+ * @param {string} cwd the repository the plan writes into
  * @returns {PlanFindingOutput[]}
  */
-export function droppedWriteFindings(previousPlan, revisedPlan) {
+export function droppedWriteFindings(previousPlan, revisedPlan, cwd) {
   if (!previousPlan || !revisedPlan) return [];
   const before = new Map(previousPlan.nodes.map((node) => [node.id, new Set(node.writeFiles)]));
   const stillDeclared = new Set(revisedPlan.nodes.flatMap((node) => node.writeFiles));
@@ -131,7 +142,7 @@ export function droppedWriteFindings(previousPlan, revisedPlan) {
     if (!previousWrites) continue;
     let dropped = 0;
     for (const path of previousWrites) {
-      if (stillDeclared.has(path)) continue;
+      if (stillDeclared.has(path) || !existsSync(join(cwd, path))) continue;
       dropped += 1;
       findings.push({
         id: `dropped-write-${node.id}-${dropped}`,
@@ -221,6 +232,15 @@ export async function runReviewRounds(options) {
   // spends no round.
   /** @type {number[]} */
   const criticalHistory = [];
+  // How many of the last round's criticals the revise left standing: each
+  // one names a node the revise did not change (`unresolvedFindings`). R14
+  // stops only when this is non-zero, because a count alone cannot tell a
+  // revise that ignored an objection from one that answered every objection
+  // and a fresh review found new ones. Measured 2026-09-25 on the 3a gate
+  // rerun: round 1 raised 2 criticals, the revise answered both (0 carried),
+  // round 2's review raised 2 different ones, and a count-only R14 stopped a
+  // plan with two rounds still in budget.
+  let carriedCritical = 0;
 
   /**
    * Run the revise stage once, validate its output, and on a rejection run it
@@ -323,14 +343,15 @@ export async function runReviewRounds(options) {
     const criticalFindings = findings.filter((finding) => finding.severity === "critical");
     if (criticalFindings.length === 0) break;
     // R14: a round that ends with as many or more criticals than the round
-    // before it is not converging, and the revise already had this round's
-    // own findings in front of it — spending the rounds still in budget would
-    // not change that. Checked before the round-budget exit below, so the
-    // more informative finding wins when a round is both the last one and a
-    // non-improvement over the one before it.
+    // before it, while the revise left one of that round's criticals
+    // standing, is not converging — the revise already had it in front of
+    // it, and spending the rounds still in budget would not change that.
+    // Checked before the round-budget exit below, so the more informative
+    // finding wins when a round is both the last one and a non-improvement
+    // over the one before it.
     const previousCritical = reviewed ? criticalHistory[criticalHistory.length - 1] : undefined;
     if (reviewed) criticalHistory.push(criticalFindings.length);
-    if (previousCritical !== undefined && criticalFindings.length >= previousCritical) {
+    if (previousCritical !== undefined && criticalFindings.length >= previousCritical && carriedCritical > 0) {
       const notConverging = revisionNotConvergingFinding(round, criticalHistory);
       findings = [...findings, notConverging];
       logStage("revision-not-converging", { round, criticalHistory });
@@ -349,12 +370,13 @@ export async function runReviewRounds(options) {
       return { resolved: false, result: await contest(round, findings, plan) };
     }
     plan = revised.plan;
-    droppedWrites = droppedWriteFindings(planBeforeRevise, plan);
+    droppedWrites = droppedWriteFindings(planBeforeRevise, plan, cwd);
     // What the next round starts from: the findings this revise did not move
     // the plan under. Everything else — a node it changed, a node it removed,
     // and the pipeline's own shape findings, which the next round re-derives
     // — is dropped here rather than carried forever.
     findings = unresolvedFindings(findings, planBeforeRevise, plan);
+    carriedCritical = findings.filter((finding) => finding.severity === "critical").length;
     logStage("revise", {
       round,
       runId: revised.runId,
