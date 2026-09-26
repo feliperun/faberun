@@ -31,6 +31,18 @@ import { finite } from "../../util.mjs";
 
 export { HARNESS_OUTPUT_LIMIT_BYTES } from "../protocol.mjs";
 
+/**
+ * The environment names the exec-jsonl adapter reads to authenticate and
+ * configure the wrapper: only the binary override `executable()` honours.
+ * Credentials belong to the wrapper the contract names, so the adapter reads
+ * none of them. Values never travel here.
+ *
+ * @type {readonly string[]}
+ */
+export const declaredEnvironment = Object.freeze([
+  "FABERUN_EXEC_JSONL_BIN",
+]);
+
 export const EXEC_JSONL_PROTOCOL = Object.freeze({
   schemaVersion: 1,
   requestType: "run.request",

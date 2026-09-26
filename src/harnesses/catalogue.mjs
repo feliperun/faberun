@@ -5,6 +5,13 @@ import { canonicalProvider } from "../contract/provider.mjs";
 import { errorMessage } from "../util.mjs";
 import { ANTHROPIC_MODEL_TIERS } from "./model-tiers.mjs";
 import { spawnInvocation } from "../host/platform.mjs";
+import { declaredEnvironment as claudeEnvironment } from "./claude/index.mjs";
+import { declaredEnvironment as codexEnvironment } from "./codex/index.mjs";
+import { declaredEnvironment as agyEnvironment } from "./agy/index.mjs";
+import { declaredEnvironment as dshEnvironment } from "./dsh/index.mjs";
+import { declaredEnvironment as zcodeEnvironment } from "./zcode/index.mjs";
+import { declaredEnvironment as execJsonlEnvironment } from "./exec-jsonl/index.mjs";
+import { declaredEnvironment as replayEnvironment } from "./replay/index.mjs";
 
 /**
  * Model catalogue report: which models each registered harness can run, the
@@ -36,6 +43,26 @@ export const MODEL_HARNESS_ORDER = Object.freeze([
   "exec-jsonl",
   "replay",
 ]);
+
+/**
+ * The environment names each registered adapter reads to authenticate and
+ * configure itself, keyed by harness in `MODEL_HARNESS_ORDER`. Each list is the
+ * adapter's own frozen `declaredEnvironment` export, and only bare names ever
+ * travel here, never values. The worker/judge environment builder unions these
+ * names with the base operating-system set and the runtime's env keys, so a
+ * name missing from this catalogue is a name the child process never receives.
+ *
+ * @type {Readonly<Record<string, readonly string[]>>}
+ */
+export const DECLARED_HARNESS_ENVIRONMENTS = Object.freeze({
+  claude: claudeEnvironment,
+  codex: codexEnvironment,
+  agy: agyEnvironment,
+  dsh: dshEnvironment,
+  zcode: zcodeEnvironment,
+  "exec-jsonl": execJsonlEnvironment,
+  replay: replayEnvironment,
+});
 
 const CLAUDE_EFFORTS = Object.freeze(["low", "medium", "high", "max"]);
 const CODEX_EFFORTS = Object.freeze(["low", "medium", "high", "xhigh"]);
