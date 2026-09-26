@@ -456,6 +456,7 @@ test("buildPlanningContract requires every input a kind names", () => {
   assert.throws(() => buildPlanningContract("draft", baseInputs({ repoFactsPath: undefined })), /repoFactsPath/);
   assert.throws(() => buildPlanningContract("review", baseInputs({ planPath: undefined })), /planPath/);
   assert.throws(() => buildPlanningContract("revise", baseInputs({ findingsPath: undefined })), /findingsPath/);
+  assert.throws(() => buildPlanningContract("revise", baseInputs({ planPath: undefined })), /planPath/, "a revise with no plan to revise would redraft from the findings alone");
   assert.throws(() => buildPlanningContract("spec-author", baseInputs({ notesPath: undefined })), /notesPath/);
   assert.throws(() => buildPlanningContract("spec-review", baseInputs({ specPath: undefined })), /specPath/);
 });

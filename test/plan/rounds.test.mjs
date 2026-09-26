@@ -1,7 +1,7 @@
 import "../scoped-home.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { runReviewRounds } from "../../src/plan/rounds.mjs";
@@ -249,4 +249,37 @@ test("a revise that answers every critical is not stopped by a fresh review that
   assert.equal(result.resolved, true);
   assert.equal(reviewCalls, 3);
   assert.equal(reviseCalls, 2);
+});
+
+test("the revise is handed the plan it revises, and its retry the output the validator refused", async () => {
+  // Measured 2026-09-25 on the 3a gate: the revise read only the spec, repo
+  // facts, catalogue and findings, so every revise redrafted the plan from
+  // the findings alone, and its retry fixed one validator error while
+  // introducing another.
+  const rollback = { id: "F1", severity: "critical", nodeId: "build", text: "the plan is missing a rollback path" };
+  const rejected = { nodes: [{ ...planOutput().nodes[0], riskTier: "extreme" }] };
+  /** @type {unknown[]} */
+  const handed = [];
+  let reviewCalls = 0;
+  let reviseCalls = 0;
+  const { options } = harness({
+    reviewRounds: 2,
+    plan: planOutput({ objective: "The drafted plan" }),
+    runStage: async (/** @type {string} */ kind, /** @type {any} */ inputs) => {
+      if (kind === "review") {
+        reviewCalls += 1;
+        return { contract: { id: `review-${reviewCalls}` }, output: { findings: reviewCalls === 1 ? [rollback] : [] } };
+      }
+      reviseCalls += 1;
+      handed.push(JSON.parse(readFileSync(join(/** @type {string} */ (options.cwd), inputs.planPath), "utf8")));
+      const plan = reviseCalls === 1 ? rejected : planOutput({ objective: "The drafted plan, with a rollback path" });
+      return { contract: { id: `revise-${reviseCalls}` }, output: { plan } };
+    },
+  });
+
+  const result = await runReviewRounds(/** @type {any} */ (options));
+
+  assert.equal(result.resolved, true);
+  assert.equal(/** @type {any} */ (handed[0]).nodes[0].objective, "The drafted plan", "the first revise starts from the plan review graded");
+  assert.deepEqual(handed[1], rejected, "the retry starts from the output the validator refused");
 });
