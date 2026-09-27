@@ -67,9 +67,12 @@ test("a read-only refusal outside the worktree is classified as a sandbox-blocke
   );
   const result = await runVerification([{ argv: [process.execPath, script] }], cwd, { sandboxMode: "workspace-write" });
   assert.equal(result.passed, false);
-  assert.deepEqual(result.commands[0].attempts[0].sandboxBlockedWrite, {
-    classification: "sandbox_blocked_write",
-    mode: "workspace-write",
-    path: denied,
-  });
+  assert.deepEqual(
+    /** @type {{sandboxBlockedWrite?: unknown}} */ (result.commands[0].attempts[0]).sandboxBlockedWrite,
+    {
+      classification: "sandbox_blocked_write",
+      mode: "workspace-write",
+      path: denied,
+    },
+  );
 });

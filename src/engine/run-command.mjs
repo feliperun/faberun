@@ -23,6 +23,28 @@ import { spawn } from "node:child_process";
 import { killTarget, spawnInvocation } from "../host/platform.mjs";
 /** @typedef {import("../contract/verification.mjs").VerificationOptions} VerificationOptions */
 
+/**
+ * The run-level options plus the sandbox mode the caller knows. The mode is not
+ * part of the shared verification contract: it is controller environment, read
+ * here only to name a refusal the command itself cannot.
+ *
+ * @typedef {VerificationOptions & {sandboxMode?: string|null}} RunVerificationOptions
+ */
+
+/**
+ * The named classification of a `workspace-write` refusal outside the worktree,
+ * carrying the mode that caused it and the path that was denied.
+ *
+ * @typedef {{classification: "sandbox_blocked_write", mode: string, path: string}} SandboxBlockedWrite
+ */
+
+/**
+ * A bounded attempt result plus the controller's sandbox classification, which
+ * rides beside the captured output only when a refusal was recognized.
+ *
+ * @typedef {VerificationAttemptResult & {attempt: number, sandboxBlockedWrite?: SandboxBlockedWrite}} SandboxAwareAttemptResult
+ */
+
 /** @typedef {import("node:child_process").ChildProcess} ChildProcess */
 /** @typedef {import("../contract/verification.mjs").VerificationAttempt} VerificationAttempt */
 /** @typedef {import("../contract/verification.mjs").VerificationAttemptResult} VerificationAttemptResult */
@@ -83,7 +105,7 @@ const ABSOLUTE_PATH_PATTERNS = Object.freeze([/['"]((?:[A-Za-z]:[\\/]|\/)[^'"]+)
  * mode, a refusal inside the worktree, or output with no path to name.
  *
  * @param {{text?: string, workspace: string, mode?: string|null}} args
- * @returns {{classification: string, mode: string, path: string}|null}
+ * @returns {SandboxBlockedWrite|null}
  */
 export function classifySandboxBlockedWrite({ text, workspace, mode }) {
   if (mode !== "workspace-write" || typeof text !== "string") return null;
@@ -109,7 +131,7 @@ export function classifySandboxBlockedWrite({ text, workspace, mode }) {
  *
  * @param {unknown} commands
  * @param {string} baseCwd
- * @param {VerificationOptions} options
+ * @param {RunVerificationOptions} options
  * @returns {Promise<VerificationResult>}
  */
 export async function runVerification(commands, baseCwd, options = {}) {
@@ -134,7 +156,7 @@ export async function runVerification(commands, baseCwd, options = {}) {
  * @param {VerificationCommand} command
  * @param {string} baseCwd
  * @param {number} commandIndex
- * @param {VerificationOptions} options
+ * @param {RunVerificationOptions} options
  * @returns {Promise<VerificationCommandResult>}
  */
 async function runRepeatedCommand(command, baseCwd, commandIndex, options) {
@@ -174,7 +196,7 @@ function signalDeathRetry(result, signal) {
  * @param {VerificationCommand} command
  * @param {string} baseCwd
  * @param {number} commandIndex
- * @param {VerificationOptions} options
+ * @param {RunVerificationOptions} options
  * @returns {Promise<VerificationCommandResult>}
  */
 async function runMutationCommand(command, baseCwd, commandIndex, options) {
@@ -191,7 +213,7 @@ async function runMutationCommand(command, baseCwd, commandIndex, options) {
  * @param {string} commandCwd
  * @param {number} attempt
  * @param {AbortSignal|undefined} signal
- * @param {VerificationOptions} options
+ * @param {RunVerificationOptions} options
  * @param {number} commandIndex
  * @returns {Promise<VerificationAttemptResult>}
  */
@@ -223,6 +245,7 @@ function runCommand(command, baseCwd, commandCwd, attempt, signal, options, comm
       if (abortHandler) signal?.removeEventListener("abort", abortHandler);
       if (child?.pid && !error && !signalName && !timedOut) terminateGroup(child);
       const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
+      /** @type {SandboxAwareAttemptResult} */
       const result = {
         attempt,
         stdout: stdout.value(),

@@ -42,6 +42,7 @@ test("a write blocked by the sandbox names the mode and the path", () => {
     workspace: WORKSPACE,
     mode: "workspace-write",
   });
+  assert.ok(classification, "a read-only refusal outside the worktree is classified");
   assert.equal(classification.classification, "sandbox_blocked_write");
   assert.equal(classification.mode, "workspace-write");
   assert.equal(classification.path, DENIED);
