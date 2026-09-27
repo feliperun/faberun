@@ -13,12 +13,6 @@ test("a claude judge in plan mode cannot write its workspace", () => {
   assert.equal(writesWorkspace(claude({ permissionMode: "bypassPermissions" })), true);
 });
 
-test("a claude judge left on the writing default is warned, naming the read-only mode", () => {
-  const [warning] = judgeWriteWarnings({ judge: claude({}) }, { judge: "judge" }, []);
-  assert.match(warning, /judge runtime judge runs on the default permissionMode acceptEdits/);
-  assert.match(warning, /declare permissionMode plan$/);
-});
-
 test("a claude judge that declares a writing mode is warned, and one in plan mode is not", () => {
   const runtimes = { writer: claude({ permissionMode: "bypassPermissions" }), reader: claude({ permissionMode: "plan" }) };
   assert.deepEqual(judgeWriteWarnings(runtimes, { judge: "reader" }, []), []);

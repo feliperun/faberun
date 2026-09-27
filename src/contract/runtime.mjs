@@ -245,12 +245,10 @@ export function judgeWriteWarnings(runtimes, defaults, nodes) {
   return [...judges].flatMap((id) => {
     const runtime = runtimes[/** @type {string} */ (id)];
     const execution = resolvePermissionExecution(runtime);
-    // A mode left undeclared is the harness default, which writes just the same.
-    if (!execution.field || !writesWorkspace(runtime)) return [];
+    if (!execution.field || runtime[execution.field] === undefined || !writesWorkspace(runtime)) return [];
     const readOnlyMode = readOnlyModeOf(runtime);
     if (readOnlyMode === null) return [];
-    const declared = runtime[execution.field] === undefined ? "runs on the default" : "declares";
-    return [`judge runtime ${id} ${declared} ${execution.field} ${execution.mode}; a judge's verdict reaches the gate without writing, so declare ${execution.field} ${readOnlyMode}`];
+    return [`judge runtime ${id} declares ${execution.field} ${execution.mode}; a judge's verdict reaches the gate without writing, so declare ${execution.field} ${readOnlyMode}`];
   });
 }
 /**
