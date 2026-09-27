@@ -180,3 +180,31 @@ com a campanha de melhoria do faberun: cada item aqui vira requisito lá.
 - **Correção sugerida no produto:** o revisor do plano compara cada prova de comando com a
   frase da spec que ela prova e acusa a prova mais estrita que o requisito.
 
+## AP12. O `status.json` diz "controller active" com o pid já morto
+
+- **Sintoma:** depois que a run `safe-to-hand-to-a-friend-phase-2` terminou (27/09), o
+  `status.json` seguiu com `controller.state: "active"` e o pid 43002, que já não existia; um
+  watcher que esperava o controlador sair ficou em loop por duas horas.
+- **Correção sugerida:** o controlador grava o estado final ao sair, e o `status` confere a
+  vida do pid antes de dizer `active`.
+
+## AP13. Uma prova de comando que o shell nem lê passa pelo congelamento
+
+- **Sintoma:** na fase 3, o nó `r8-offline-first-campaign` passou no trabalho (teste de ponta
+  a ponta verde em 15 s) e esgotou as duas tentativas porque a prova congelada era
+  `… --test-name-pattern=a stranger's first campaign completes offline …`, sem aspas: o
+  `/bin/sh -c` falhou com *"unexpected EOF while looking for matching `'`"*.
+- **Decisão (27/09):** R8 replanejado como fase `phase-3r8` com o teste renomeado para um
+  título sem apóstrofo e o trabalho salvo em `salvage/r8-offline-first-campaign.patch`.
+- **Correção sugerida no produto:** o congelamento roda `sh -n -c` (ou o equivalente) em cada
+  prova de comando e recusa a que não parseia. É o terreno do R34, da fase 5.
+
+## AP14. Uma chave de bullet com espaço gruda em silêncio no bullet anterior da spec
+
+- **Sintoma:** em `phase-3r8.SPEC.md`, um `- **esclarecimento (27/09):**` logo depois do
+  `- **proof:**` fez o `spec validate` dizer que R8 não tinha prova: o parser só aceita chave
+  `[a-zA-Z-]+`, ignora a linha de bullet que não casa e cola as linhas seguintes na chave
+  anterior. Em `phase-2b.SPEC.md` o mesmo formato passou calado.
+- **Correção sugerida:** `spec validate` avisa de uma linha `- **…:**` cuja chave não casa, em
+  vez de tratá-la como nada.
+
