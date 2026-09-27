@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
@@ -19,6 +19,7 @@ import { SPAWN_WAIT_FACTOR, delay, fakeCodex, fixture, orphan, packet, readStatu
 import { nodeState, notifications, withAdvisoryGateCodex, withBrokenGateCodex, RUNNER_CLI } from "../runner-helpers.mjs";
 import { invocationAlive } from "../../src/engine/process.mjs";
 import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
+import { writeExecutable } from "../write-executable.mjs";
 
 test("runs the CLI through an installed symlink", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-symlink-"));
@@ -651,4 +652,26 @@ test("campaign brief serve refuses a changed spec before binding and never print
     if (previousHome === undefined) delete process.env.FABERUN_HOME;
     else process.env.FABERUN_HOME = previousHome;
   }
+});
+
+test("skills register records what it wrote in the install registry under the home", () => {
+  const home = mkdtempSync(join(tmpdir(), "runner-skills-registry-"));
+  const binDir = mkdtempSync(join(tmpdir(), "runner-skills-registry-bin-"));
+  mkdirSync(join(home, ".claude", "skills"), { recursive: true });
+  writeExecutable(join(binDir, "claude"), `console.log("fake claude 1.0.0");\n`);
+  const env = {
+    ...process.env,
+    HOME: home,
+    FABERUN_HOME: home,
+    PATH: [binDir, ...(process.env.PATH ?? "").split(delimiter)].join(delimiter),
+    FORCE_COLOR: "0",
+  };
+  const cli = fileURLToPath(new URL("../../bin/faberun.mjs", import.meta.url));
+  const result = spawnSync(process.execPath, [cli, "skills", "register", "--harness", "claude", "--json"], { env, encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const registry = /** @type {{entries: {kind: string, path: string, root: string}[]}} */ (JSON.parse(readFileSync(join(home, "install-registry.json"), "utf8")));
+  const entry = registry.entries.find((candidate) => candidate.kind === "skill");
+  assert.ok(entry, "the registered skill is recorded");
+  assert.equal(entry.path, join(home, ".claude", "skills", "faberun"));
+  assert.equal(entry.root, join(home, ".claude", "skills"));
 });
