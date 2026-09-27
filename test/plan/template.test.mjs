@@ -616,3 +616,12 @@ test("every planning stage's prompt asks for output and an empty artifacts list,
     assert.ok(!prompt.includes("artifacts[0]"), `${kind} prompt never asks for an artifact`);
   }
 });
+
+test("the draft and the revise are told to name the test file a name-filtered proof selects from", () => {
+  // AP1 of safe-to-hand-to-a-friend: a draft copied a spec proof with a name
+  // filter and no file into a Definition of Done item.
+  for (const kind of /** @type {const} */ (["draft", "revise"])) {
+    const instructions = /** @type {any} */ (buildPlanningContract(kind, baseInputs())).nodes[0].taskPacket.instructions.join("\n");
+    assert.match(instructions, /--test-name-pattern\) names the test file it selects from/u, kind);
+  }
+});

@@ -1,7 +1,7 @@
 import "../scoped-home.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { runReviewRounds } from "../../src/plan/rounds.mjs";
@@ -347,4 +347,40 @@ test("a revise whose output would not freeze is sent back once before review spe
   assert.equal(reviewCalls, 2, "and the retry did not spend a review round");
   assert.ok(reviseFindings[1].some((/** @type {any} */ finding) => finding.id === "plan-shape-revise-r1-attempt1"), "the retry is handed the pre-flight's message");
   assert.equal(logs.some((entry) => entry.stage === "contested"), false);
+});
+
+test("a node creating a file in a directory a test lists by name is given that test to edit, with the reason logged", async () => {
+  // AP2 of safe-to-hand-to-a-friend, measured 2026-09-26: the node adding
+  // skills/faberun/references/local-env.md failed on
+  // test/docs/docs-diet.test.mjs, which lists references/ exactly, because the
+  // plan never declared that test and the gate refuses an undeclared edit to
+  // a file a proof cites.
+  const base = planOutput();
+  const plan = /** @type {any} */ ({ ...base, nodes: [{ ...base.nodes[0], writeFiles: ["skills/faberun/references/local-env.md"] }] });
+  /** @type {any[]} */
+  const reviewed = [];
+  const { options, logs } = harness({
+    reviewRounds: 1,
+    plan,
+    runStage: async (/** @type {string} */ kind) => {
+      reviewed.push(JSON.parse(readFileSync(/** @type {string} */ (options.workingPlanPath), "utf8")));
+      return { contract: { id: `${kind}-1` }, output: { findings: [] } };
+    },
+  });
+  const cwd = /** @type {string} */ (options.cwd);
+  mkdirSync(join(cwd, "skills/faberun/references"), { recursive: true });
+  mkdirSync(join(cwd, "test/docs"), { recursive: true });
+  writeFileSync(join(cwd, "skills/faberun/references/contract.md"), "c\n");
+  writeFileSync(join(cwd, "skills/faberun/references/operations.md"), "o\n");
+  writeFileSync(join(cwd, "test/docs/docs-diet.test.mjs"), "const dir = '../../skills/faberun/references';\nassert.deepEqual(entries, ['contract.md', 'operations.md']);\n");
+  writeFileSync(join(cwd, "test/docs/mentions-one.test.mjs"), "const dir = '../../skills/faberun/references';\nread('contract.md');\n");
+  options.repoFacts = { verificationCandidates: [], testFiles: [{ path: "test/docs/docs-diet.test.mjs" }, { path: "test/docs/mentions-one.test.mjs" }] };
+
+  const result = await runReviewRounds(/** @type {any} */ (options));
+
+  assert.equal(result.resolved, true);
+  assert.deepEqual(reviewed[0].nodes[0].writeFiles, ["skills/faberun/references/local-env.md", "test/docs/docs-diet.test.mjs"], "only the test that lists every entry is declared");
+  const logged = /** @type {string[]} */ (logs.find((entry) => entry.stage === "guards-declared")?.declared);
+  assert.equal(logged.length, 1);
+  assert.match(logged[0], /lists every entry of skills\/faberun\/references\/ by name, and this node creates skills\/faberun\/references\/local-env\.md there/u);
 });
