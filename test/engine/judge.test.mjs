@@ -344,7 +344,9 @@ function judgeWorkspaceWriteContract(directory, id, fake) {
     id, pollIntervalMs: 10, runtimeDefaults: { worker: "jsonl", judge: "jsonl-judge" },
     runtimes: {
       jsonl: { harness: "exec-jsonl", model: "fake", vendor: "exec-jsonl-worker", executable: fake },
-      "jsonl-judge": { harness: "exec-jsonl", model: "fake", vendor: "exec-jsonl-judge", executable: fake },
+      // The provider env is the allowlist `worker-env.mjs` builds, so the
+      // poison switch only reaches the judge when the judge runtime names it.
+      "jsonl-judge": { harness: "exec-jsonl", model: "fake", vendor: "exec-jsonl-judge", executable: fake, envPassthrough: ["FABERUN_JUDGE_POISON"] },
     },
     nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: { review: "blocking", failOn: ["major", "critical"] }, definitionOfDone: [{ id: "quality", text: "the result is high quality", judgment: true }] }],
   }));
