@@ -7,6 +7,7 @@ import { join } from "node:path";
 
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { resumeRun } from "../../src/engine/resume.mjs";
+import { preflightRuntimes } from "../../src/engine/live-preflight.mjs";
 import { fakeCodex, fixture, packet, writeContract } from "../helpers.mjs";
 import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
@@ -135,6 +136,70 @@ if (process.argv.includes("--version")) {
   return path;
 }
 
+/**
+ * A codex stand-in that prints a 401 and then hangs: the shape of a provider
+ * re-trying a dead credential until the preflight wall clock fires.
+ * `FABERUN_TEST_LIVE_SECRET`, when set, travels in the message so a test can
+ * prove the attached excerpt is redacted.
+ *
+ * @returns {string}
+ */
+function timedOutAuthProvider() {
+  const path = join(mkdtempSync(join(tmpdir(), "runner-gate-auth-")), "auth-timeout.mjs");
+  writeFileSync(path, `#!${process.execPath}
+if (process.argv.includes("--version")) {
+  console.log("auth-timeout 1.0.0");
+} else {
+  let input = "";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk) => { input += chunk; });
+  process.stdin.on("end", () => {
+    if (input.includes("FABERUN_PREFLIGHT_OK")) {
+      console.log(JSON.stringify({ type: "turn.failed", error: { message: "401 Unauthorized: invalid API key " + (process.env.FABERUN_TEST_LIVE_SECRET ?? "") } }));
+      setInterval(() => {}, 60_000);
+      return;
+    }
+    const hello = JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
+    console.log(JSON.stringify({ type: "thread.started", thread_id: "auth-timeout" }));
+    console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: hello } }));
+    console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));
+  });
+}
+`);
+  chmodSync(path, 0o755);
+  return path;
+}
+
+/**
+ * A codex stand-in that records the argv of every non-version invocation and
+ * answers the liveness hello, so a test can read the effort the hello ran at.
+ *
+ * @param {string} recordPath
+ * @returns {string}
+ */
+function argvRecordingProvider(recordPath) {
+  const path = join(mkdtempSync(join(tmpdir(), "runner-gate-argv-")), "argv-provider.mjs");
+  writeFileSync(path, `#!${process.execPath}
+import { appendFileSync } from "node:fs";
+if (process.argv.includes("--version")) {
+  console.log("argv-provider 1.0.0");
+} else {
+  appendFileSync(${JSON.stringify(recordPath)}, process.argv.join(" ") + "\\n");
+  let input = "";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk) => { input += chunk; });
+  process.stdin.on("end", () => {
+    console.log(JSON.stringify({ type: "thread.started", thread_id: "preflight-hello" }));
+    const hello = JSON.stringify({ status: "done", summary: "preflight hello answered", verification: [], artifacts: [], missingContext: [] });
+    console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: hello } }));
+    console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));
+  });
+}
+`);
+  chmodSync(path, 0o755);
+  return path;
+}
+
 /** @param {string} id @returns {Record<string, unknown>} a one-runtime, one-node contract */
 function singleRuntimeFixture(id) {
   return {
@@ -234,4 +299,43 @@ test("a run the gate blocked stays materialized and resumable once the runtime a
   const state = nodeState(runDir);
   assert.equal(state.status, "done", state.error?.message);
   assert.equal(envEvidence(runDir).ok, true, "the resume re-asked, and this time the runtime answered");
+});
+
+test("a preflight that times out after a 401 reports authentication_failed", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-live-gate-auth-"));
+  const secret = "faberun-live-secret-9f3a";
+  process.env.FABERUN_TEST_LIVE_SECRET = secret;
+  try {
+    const path = writeContract(directory, fixture({
+      ...singleRuntimeFixture("live-gate-auth-run"),
+      timeoutSec: 5,
+      runtimes: { only: { harness: "codex", model: "only", executable: timedOutAuthProvider() } },
+    }));
+    const runDir = runDirectory(directory, "live-gate-auth-run");
+    await withPreflightBudget("2", async () => { await runContract(path); });
+    const evidence = envEvidence(runDir);
+    const live = evidence.runtimes?.[0];
+    assert.equal(evidence.ok, true, "an auth failure answered the hello, so the gate passed it");
+    assert.equal(live?.liveStatus, "failed", "the provider never completed the hello");
+    assert.match(live?.detail ?? "", /authentication_failed/u, "a re-tried 401 is a provider answer, not silence");
+    assert.match(live?.detail ?? "", /401 Unauthorized/u, "the redacted excerpt is attached to the detail");
+    assert.doesNotMatch(live?.detail ?? "", new RegExp(secret, "u"), "the attached excerpt is redacted");
+    assert.equal(nodeState(runDir).status, "done", "the run dispatched onto the runtime's answer");
+  } finally {
+    delete process.env.FABERUN_TEST_LIVE_SECRET;
+  }
+});
+
+test("the liveness hello drops the declared reasoning effort", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-live-gate-reasoning-"));
+  const recordPath = join(directory, "hello-argv.txt");
+  const executable = argvRecordingProvider(recordPath);
+  const [probe] = await preflightRuntimes(
+    [{ runtime: /** @type {any} */ ({ id: "only", harness: "codex", model: "gpt-5.6-luna", reasoning: "xhigh", executable }) }],
+    { liveTimeoutSec: 5, cwd: directory },
+  );
+  assert.equal(probe.liveStatus, "done", probe.detail ?? undefined);
+  const argv = readFileSync(recordPath, "utf8");
+  assert.match(argv, /model_reasoning_effort="low"/u, "the hello runs at the lowest effort the harness accepts");
+  assert.doesNotMatch(argv, /model_reasoning_effort="xhigh"/u, "the contract's declared effort never reaches the liveness hello");
 });

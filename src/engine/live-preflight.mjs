@@ -34,6 +34,46 @@ import { runsRoot } from "../run/paths.mjs";
 
 const LIVE_PREFLIGHT_PROMPT = "Respond with exactly FABERUN_PREFLIGHT_OK and do not use tools.";
 const LIVE_PREFLIGHT_OUTPUT_LIMIT_BYTES = 512 * 1024;
+/** How much of a timed-out provider's tail reaches the detail. */
+const LIVE_PREFLIGHT_EXCERPT_BYTES = 512;
+/**
+ * The one measured live-preflight budget, in seconds. Measured 2026-09-22: four
+ * routed runtimes asked in parallel took about 18s, so 60s is the default for
+ * every caller -- the dispatch gate, `doctor`, `faberun plan` and `faberun
+ * preflight`. It lives here and only here; `run-identity.mjs` and
+ * `host/preflight.mjs` used to carry their own copies, and the CLI's preflight
+ * used to default to 15s. `FABERUN_PREFLIGHT_TIMEOUT_SEC` stays the operator
+ * override.
+ */
+export const LIVE_PREFLIGHT_TIMEOUT_SEC = 60;
+/**
+ * The lowest reasoning effort each harness accepts, applied to the liveness
+ * hello. The hello is one token: paying the effort a contract declares for the
+ * node's work -- a judge at `xhigh`, F10 -- to prove a credential works is what
+ * turned a deadline into a false failure. `zcode`, `exec-jsonl` and `replay`
+ * expose no effort transport, so there is nothing to lower for them.
+ *
+ * @type {Readonly<Record<string, string>>}
+ */
+const LIVE_PREFLIGHT_REASONING = Object.freeze({
+  claude: "low",
+  codex: "low",
+  agy: "low",
+  dsh: "off",
+});
+/**
+ * The causes `normalizeProviderAvailability` classifies out of provider text.
+ * A timeout whose tail names one of these is a provider that answered and then
+ * stopped talking, not silence, and the code the gate reads has to say so: a
+ * 401 the provider re-tried used to surface as `preflight_timeout` (F9).
+ */
+const PROVIDER_NAMED_CAUSES = new Set([
+  "authentication_failed",
+  "quota_exhausted",
+  "insufficient_balance",
+  "model_not_supported",
+  "credentials_missing",
+]);
 /**
  * `persisted` is for the dispatch gate, which hands over the run's own
  * serialized contract: that one was validated when it was authored, and
@@ -119,7 +159,7 @@ export async function preflightRuntimes(entries, options = {}) {
 /** @param {number|undefined} configured */
 function livePreflightTimeout(configured) {
   const raw = configured ?? (process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC === undefined
-    ? 15
+    ? LIVE_PREFLIGHT_TIMEOUT_SEC
     : Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC));
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
     throw new TypeError("preflight live timeout must be a positive number of seconds");
@@ -142,13 +182,15 @@ function createLivePreflightRepo() {
  * @returns {RuntimeSnapshot}
  */
 function safeLiveRuntime(runtime) {
-  if (runtime.harness === "codex") return { ...runtime, sandbox: "read-only" };
-  if (runtime.harness === "dsh") return { ...runtime, sandbox: "read-only" };
-  if (runtime.harness === "claude") return { ...runtime, permissionMode: "plan" };
+  const effort = LIVE_PREFLIGHT_REASONING[runtime.harness];
+  const safe = effort ? { ...runtime, reasoning: effort } : { ...runtime };
+  if (safe.harness === "codex") return { ...safe, sandbox: "read-only" };
+  if (safe.harness === "dsh") return { ...safe, sandbox: "read-only" };
+  if (safe.harness === "claude") return { ...safe, permissionMode: "plan" };
   // `plan` is the ZCode mode that reads without writing; the adapter's own
   // default is `yolo`, which a preflight prompt must never reach.
-  if (runtime.harness === "zcode") return { ...runtime, permissionMode: "plan" };
-  return { ...runtime };
+  if (safe.harness === "zcode") return { ...safe, permissionMode: "plan" };
+  return safe;
 }
 /**
  * @param {RuntimeSnapshot} runtime
@@ -236,14 +278,7 @@ function livePreflight(runtime, cwd, timeoutSec) {
     }));
     child.once("close", (exitCode, signalName) => {
       if (timedOut) {
-        finish({
-          status: "failed",
-          result: null,
-          continuationId: null,
-          usage: emptyUsage(),
-          costUsd: null,
-          error: { code: "preflight_timeout", message: `live generation timed out after ${timeoutSec}s` },
-        });
+        finish(timedOutEnvelope(safeRuntime, stdout, stderr, timeoutSec));
         return;
       }
       /** @type {ProviderEnvelope} */
@@ -275,6 +310,63 @@ function livePreflight(runtime, cwd, timeoutSec) {
 function appendBounded(current, chunk, limit) {
   const combined = Buffer.concat([Buffer.from(current), Buffer.from(chunk)]);
   return (combined.length > limit ? combined.subarray(combined.length - limit) : combined).toString("utf8");
+}
+/**
+ * A timed-out process is not automatically a silent one. A provider that
+ * re-tries a 401, or prints a quota refusal and then hangs, said plenty before
+ * the wall-clock kill; the kill signal is ours, not the provider's, so the tail
+ * is classified the way a closed process is classified and the redacted excerpt
+ * is attached. Only a tail that names no provider cause stays
+ * `preflight_timeout`.
+ *
+ * @param {RuntimeSnapshot} runtime
+ * @param {string} stdout
+ * @param {string} stderr
+ * @param {number} timeoutSec
+ * @returns {ProviderEnvelope}
+ */
+function timedOutEnvelope(runtime, stdout, stderr, timeoutSec) {
+  const tail = appendBounded(stdout, `\n${stderr}`, LIVE_PREFLIGHT_EXCERPT_BYTES).trim();
+  const cause = classifiedTimeoutCause(runtime, stdout, stderr, tail);
+  const excerpt = redactProviderText(tail);
+  return {
+    status: "failed",
+    result: null,
+    continuationId: null,
+    usage: emptyUsage(),
+    costUsd: null,
+    error: {
+      code: cause ?? "preflight_timeout",
+      message: `live generation timed out after ${timeoutSec}s${excerpt ? ` · ${excerpt}` : ""}`,
+    },
+  };
+}
+/**
+ * The provider cause a timed-out tail names, or null when it names none. The
+ * harness adapter knows which event or line carries it, so the output is first
+ * normalized as if it had exited -- with the signal suppressed, because the
+ * signal at this point is ours -- and then classified through the same
+ * availability vocabulary an exited process uses. A harness that wrote the
+ * cause only to stderr still named it: the bounded raw tail is classified
+ * directly as the fallback.
+ *
+ * @param {RuntimeSnapshot} runtime
+ * @param {string} stdout
+ * @param {string} stderr
+ * @param {string} tail
+ * @returns {string|null}
+ */
+function classifiedTimeoutCause(runtime, stdout, stderr, tail) {
+  try {
+    const envelope = normalizeProviderResult(runtime, stdout, null, null, { stderr });
+    const availability = normalizeProviderAvailability(runtime, envelope);
+    if (PROVIDER_NAMED_CAUSES.has(availability.reason)) return availability.reason;
+  } catch {
+    // An unparsable tail still gets the raw-text classification below.
+  }
+  if (!tail) return null;
+  const availability = normalizeProviderAvailability(runtime, { status: "failed", error: { code: "provider_error", message: tail } });
+  return PROVIDER_NAMED_CAUSES.has(availability.reason) ? availability.reason : null;
 }
 /** @param {{inputTokens: number|null, outputTokens: number|null, cacheReadInputTokens: number|null}|undefined} usage */
 function formatUsage(usage) {
