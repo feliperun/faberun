@@ -23,7 +23,7 @@ import SKILLS_OPERATIONS from "./skills.mjs";
 import SPEC_OPERATIONS from "./spec.mjs";
 
 /** @typedef {{value: string, effect: string, default: string}} ManualFlag */
-/** @typedef {{type: "string"|"boolean", multiple?: boolean, manual?: ManualFlag}} FlagSpec */
+/** @typedef {{type: "string"|"boolean", multiple?: boolean, required?: boolean, manual?: ManualFlag}} FlagSpec */
 /** @typedef {{flags?: Record<string, FlagSpec>, operations?: Record<string, Record<string, FlagSpec>>}} VerbSurface */
 /** @typedef {{verbs: Record<string, VerbSurface>}} Surface */
 
@@ -228,9 +228,12 @@ function renderSynopsis(prefix, positional, flags) {
   const parts = [prefix];
   if (positional) parts.push(positional);
   for (const [name, spec] of Object.entries(flags)) {
-    if (spec.type === "boolean") parts.push(`[--${name}]`);
-    else if (spec.multiple) parts.push(`[--${name} <a>...]`);
-    else parts.push(`[--${name} <value>]`);
+    const token = spec.type === "boolean"
+      ? `--${name}`
+      : spec.multiple
+        ? `--${name} <a>...`
+        : `--${name} <value>`;
+    parts.push(spec.required ? token : `[${token}]`);
   }
   return parts.join(" ");
 }

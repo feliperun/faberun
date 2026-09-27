@@ -21,6 +21,7 @@ import {
   resolveCampaign,
 } from "../../src/campaign/index.mjs";
 import { readCampaign } from "../../src/campaign/record.mjs";
+import { campaignCli } from "../../src/cli/campaign.mjs";
 import { appendJournal, appendSeatAllowanceEvent, readJournal, validateJournalEntry } from "../../src/campaign/journal.mjs";
 import { CAMPAIGN_FILE, HANDOFF_BYTES, HANDOFF_FILE, JOURNAL_FILE, JOURNAL_TEXT_BYTES, PROJECTION_FILE } from "../../src/campaign/layout.mjs";
 import { allowanceEventFields } from "../../src/seat/allowance.mjs";
@@ -789,3 +790,73 @@ test("replacing a contract path that does not exist fails with a message naming 
     (/** @type {Error} */ error) => !(error instanceof TypeError) && error.message === `contract not found: ${missing}`,
   );
 });
+
+// ---------------------------------------------------------------------------
+// R30: `campaign note` generates the ids it can generate, falls back to the
+// last attached session, and prints the id it generated.
+// ---------------------------------------------------------------------------
+
+test("a decision note without ids gets a generated id and the attached session", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-campaign-note-ids-"));
+  const runsDir = runsRoot(directory);
+  const created = initializeCampaign(runsDir, { campaignId: "note-ids", goal: "Generate the ids a note can generate" });
+  const at = new Date().toISOString();
+  appendJournal(created.path, {
+    type: "session.attached",
+    eventId: "s1",
+    at,
+    sessionId: "session-one",
+    tool: "codex",
+    transcript: null,
+    transcriptUnavailable: true,
+    format: null,
+    cursor: null,
+  });
+
+  const output = await runCampaignCli(["note", "note-ids", "--cwd", directory, "--kind", "decision", "--text", "Use semantic budgeting!"]);
+  const decision = readJournal(created.path).find((entry) => entry.type === "decision");
+  assert.ok(decision, "the decision note reached the journal");
+  assert.equal(decision.sessionId, "session-one", "the note falls back to the attached session");
+  assert.match(String(decision.decisionId), /^use-semantic-budgeting-[0-9a-f]{6}$/u);
+  assert.ok(output.includes(`decision noted · ${decision.decisionId}`), "the generated id is printed");
+
+  await runCampaignCli(["note", "note-ids", "--cwd", directory, "--kind", "open-question", "--text", "Is the handoff bounded?"]);
+  const question = readJournal(created.path).find((entry) => entry.type === "open-question");
+  assert.ok(question, "the open-question note reached the journal");
+  assert.equal(question.sessionId, "session-one");
+  assert.match(String(question.questionId), /^is-the-handoff-bounded-[0-9a-f]{6}$/u);
+});
+
+test("a note without --session-id is refused when no session is attached", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-campaign-note-no-session-"));
+  const runsDir = runsRoot(directory);
+  initializeCampaign(runsDir, { campaignId: "note-no-session", goal: "Refuse a sessionless note" });
+  await assert.rejects(
+    runCampaignCli(["note", "note-no-session", "--cwd", directory, "--kind", "intent", "--text", "No session here"]),
+    /no session is attached/u,
+  );
+});
+
+/**
+ * Run the campaign CLI in process while capturing the lines it writes to
+ * stdout, so a test can assert on what a verb reported without spawning a
+ * child process.
+ *
+ * @param {string[]} argv
+ * @returns {Promise<string>}
+ */
+async function runCampaignCli(argv) {
+  /** @type {string[]} */
+  const chunks = [];
+  const write = process.stdout.write;
+  process.stdout.write = /** @type {any} */ ((chunk) => {
+    chunks.push(String(chunk));
+    return true;
+  });
+  try {
+    await campaignCli(argv);
+  } finally {
+    process.stdout.write = write;
+  }
+  return chunks.join("");
+}
