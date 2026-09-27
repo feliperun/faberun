@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { closeCampaign, initializeCampaign, preserveCampaignLedger, registerRun, reledgerCampaign } from "../../src/campaign/index.mjs";
+import { closeCampaign, initializeCampaign, markCampaignLedgerPreserved, preserveCampaignLedger, registerRun, reledgerCampaign, unpreservedLedgerCampaigns } from "../../src/campaign/index.mjs";
+import { readCampaign, validateCampaign } from "../../src/campaign/record.mjs";
 import { campaignCli } from "../../src/cli/campaign.mjs";
 import { readMetricNodeSnapshots } from "../../src/campaign/metrics-command.mjs";
 import { appendJournal } from "../../src/campaign/journal.mjs";
@@ -215,6 +216,7 @@ test("close writes the ledger to the home unless --ledger-in-repo", async () => 
   await campaignCli(["close", "homed-ledger", "--cwd", repo]);
   assert.ok(existsSync(join(homed.path, "ledger", "journal.jsonl")), "the ledger lands in the campaign directory in the home");
   assert.ok(existsSync(join(homed.path, "ledger", "campaign.json")));
+  assert.equal(readCampaign(homed.path).ledgerPreserved, false, "a home-only ledger is not preserved");
   assert.equal(existsSync(join(repo, "docs", "campaigns", "homed-ledger", "ledger")), false, "the target repository is untouched");
 
   const versioned = initializeCampaign(runsDir, { campaignId: "versioned-ledger", goal: "Version the evidence" });
@@ -222,6 +224,7 @@ test("close writes the ledger to the home unless --ledger-in-repo", async () => 
   await campaignCli(["close", "versioned-ledger", "--cwd", repo, "--ledger-in-repo"]);
   const ledgerDir = join(repo, "docs", "campaigns", "versioned-ledger", "ledger");
   assert.ok(existsSync(join(ledgerDir, "journal.jsonl")), "the flag writes the versioned ledger");
+  assert.equal(readCampaign(versioned.path).ledgerPreserved, true, "the versioned ledger marks the record preserved");
   assert.equal(existsSync(join(versioned.path, "ledger")), false, "the home copy is not written with the flag");
 });
 
@@ -267,4 +270,63 @@ test("ledger event and notify projections exclude free text and machine paths", 
     status: "delivered",
     at: "2026-09-23T10:00:01.000Z",
   });
+});
+
+// The preservation marker is the state removal reads: a record that never
+// carried it reads as not preserved, so uninstall refuses on the default.
+test("a versioned close marks the ledger preserved", () => {
+  const repo = mkdtempSync(join(tmpdir(), "runner-campaign-ledger-marker-"));
+  const runsDir = runsRoot(repo);
+  const created = initializeCampaign(runsDir, { campaignId: "marked", goal: "Mark the ledger preserved" });
+  recordRetrospective(created.path, "retro-marked");
+  assert.equal(readCampaign(created.path).ledgerPreserved, false, "a fresh record reads as not preserved");
+
+  const closed = closeCampaign(created.path);
+  assert.equal(closed.campaign.ledgerPreserved, true, "a versioned close returns the preserved state");
+  assert.equal(readCampaign(created.path).ledgerPreserved, true);
+  const ledgerDir = join(repo, "docs", "campaigns", "marked", "ledger");
+  assert.equal(JSON.parse(readFileSync(join(ledgerDir, "campaign.json"), "utf8")).ledgerPreserved, true, "the durable record copy carries the marker");
+  assert.deepEqual(unpreservedLedgerCampaigns(runsDir), []);
+});
+
+test("a home-only ledger is not preserved until it is reledgered", () => {
+  const home = mkdtempSync(join(tmpdir(), "faberun-ledger-marker-home-"));
+  process.env.FABERUN_HOME = home;
+  const repo = realpathSync(mkdtempSync(join(tmpdir(), "runner-campaign-ledger-marker-home-")));
+  const runsDir = runsRoot(repo);
+  const created = initializeCampaign(runsDir, { campaignId: "home-only", goal: "Keep the ledger in the home" });
+  recordRetrospective(created.path, "retro-home-only");
+
+  closeCampaign(created.path, { ledgerInRepo: false });
+  assert.equal(readCampaign(created.path).ledgerPreserved, false, "a home-only ledger is not durable");
+  assert.deepEqual(unpreservedLedgerCampaigns(runsDir), ["home-only"]);
+
+  reledgerCampaign(created.path);
+  assert.equal(readCampaign(created.path).ledgerPreserved, true, "the versioned reledger marks the record");
+  assert.deepEqual(unpreservedLedgerCampaigns(runsDir), []);
+});
+
+test("the preservation marker is a boolean the record validator accepts", () => {
+  const repo = mkdtempSync(join(tmpdir(), "runner-campaign-ledger-validator-"));
+  const runsDir = runsRoot(repo);
+  const created = initializeCampaign(runsDir, { campaignId: "validated", goal: "Validate the marker" });
+  const marked = markCampaignLedgerPreserved(created.path);
+  assert.equal(marked.ledgerPreserved, true);
+  const bytes = readFileSync(join(created.path, "campaign.json"), "utf8");
+
+  assert.equal(markCampaignLedgerPreserved(created.path).ledgerPreserved, true);
+  assert.equal(readFileSync(join(created.path, "campaign.json"), "utf8"), bytes, "marking an already marked record is byte-stable");
+  assert.doesNotThrow(() => validateCampaign({ ...marked, ledgerPreserved: false }));
+  assert.throws(
+    () => validateCampaign({ ...marked, ledgerPreserved: "yes" }),
+    /campaign\.ledgerPreserved must be a boolean/u,
+  );
+});
+
+test("an unreadable campaign record reports as unpreserved", () => {
+  const repo = mkdtempSync(join(tmpdir(), "runner-campaign-ledger-unreadable-"));
+  const runsDir = runsRoot(repo);
+  const created = initializeCampaign(runsDir, { campaignId: "unreadable", goal: "Refuse on the default" });
+  writeFileSync(join(created.path, "campaign.json"), "{ not json\n");
+  assert.deepEqual(unpreservedLedgerCampaigns(runsDir), ["unreadable"], "an unreadable record cannot prove its evidence safe");
 });
