@@ -314,7 +314,7 @@ for (const runner of RUNNERS) {
     const child = spawn(runner.argv[0], [
       ...runner.argv.slice(1), "--fx", fakeCodexFx(), "--provider", "codex", "--model", "gpt-5.6-sol",
       "--base-url", `http://127.0.0.1:${address.port}/backend-api/codex`,
-    ], { cwd: scratch("runner-fx-workspace-"), env: { ...process.env, HOME: home, FABERUN_TEST_REAL_HOME: home }, stdio: ["pipe", "pipe", "pipe"] });
+    ], { cwd: scratch("runner-fx-workspace-"), env: { ...process.env, HOME: home, USERPROFILE: home, FABERUN_TEST_REAL_HOME: home }, stdio: ["pipe", "pipe", "pipe"] });
     child.stdin.end("review");
     let stdout = "";
     child.stdout.on("data", (chunk) => { stdout += chunk; });
