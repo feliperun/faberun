@@ -237,6 +237,25 @@ function readFilesForKind(kind, inputs) {
 }
 
 /**
+ * The wall clock one planning stage gets, from the reasoning effort of the
+ * runtime that runs it. A stage is a single long turn over the whole plan, so
+ * the contract default (2400 s) fits a draft at ordinary effort but not a
+ * revise at high effort. Measured 2026-09-27: Opus 5.5 at `xhigh` revising
+ * a 20-node plan against 13 findings was still reasoning when the 2400 s wall
+ * clock ended the stage, and the pipeline, which cannot resume a stage, lost
+ * the draft and review it had already paid for.
+ *
+ * @param {Record<string, unknown>|undefined} runtime
+ * @returns {number}
+ */
+export function planningStageTimeoutSec(runtime) {
+  const reasoning = runtime?.reasoning;
+  if (reasoning === "xhigh" || reasoning === "max") return 7200;
+  if (reasoning === "high") return 3600;
+  return 2400;
+}
+
+/**
  * Build one of the planning pipeline's one-node discovery contracts. Pure:
  * no file is read or written, and no model is invoked. The returned object is
  * the raw, not-yet-validated contract JSON `validateContract` accepts.
@@ -273,10 +292,13 @@ export function buildPlanningContract(kind, inputs) {
     verification: [],
   };
 
+  const stageRuntime = runtimeId === undefined ? undefined : /** @type {Record<string, unknown>|undefined} */ (inputs.runtimes[runtimeId]);
+
   return {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
     contractVersion: CONTRACT_VERSION,
     id: `${inputs.campaignId}-plan-${inputs.phase}-${kind}-${inputs.n}`,
+    timeoutSec: planningStageTimeoutSec(stageRuntime),
     campaignId: inputs.campaignId,
     goal: inputs.goal ?? `Plan ${kind} for phase ${inputs.phase}`,
     cwd: inputs.cwd ?? ".",
