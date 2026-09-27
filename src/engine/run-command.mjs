@@ -16,6 +16,9 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { processStartToken } from "../run/lock.mjs";
 import { randomUUID } from "node:crypto";
 import { runMutation } from "./mutation.mjs";
+import { SANDBOX_BLOCKED_WRITE } from "../contract/worker-result.mjs";
+import { isAbsolute, resolve } from "node:path";
+import { isContained } from "../util.mjs";
 import { spawn } from "node:child_process";
 import { killTarget, spawnInvocation } from "../host/platform.mjs";
 /** @typedef {import("../contract/verification.mjs").VerificationOptions} VerificationOptions */
@@ -61,6 +64,45 @@ function verificationEnv(command) {
     if (process.env[name] !== undefined) env[name] = process.env[name];
   }
   return env;
+}
+
+// `workspace-write` denies a toolchain's cache in `$HOME` and the tool reports
+// a read-only filesystem: observed 2026-09-22 with Zig under `dsh`,
+// `manifest_create ReadOnlyFileSystem` before its first source file. The
+// sandbox, not the command, is the cause, so the controller names it. `EROFS`
+// and the POSIX message cover the same refusal from other runners.
+const SANDBOX_READ_ONLY_PATTERN = /ReadOnlyFileSystem|EROFS|read-only file system/iu;
+// A denied path is usually quoted (`unable to load '/path': ReadOnlyFileSystem`)
+// or bare after the operation name; either way it is absolute, since only an
+// effect outside the worktree gets refused.
+const ABSOLUTE_PATH_PATTERNS = Object.freeze([/['"]((?:[A-Za-z]:[\\/]|\/)[^'"]+)['"]/gu, /((?:[A-Za-z]:[\\/]|\/)[^\s'",;:)\]]+)/gu]);
+
+/**
+ * Classify a failed command whose output names a read-only-filesystem refusal
+ * outside the worktree, under `workspace-write`. Returns null for any other
+ * mode, a refusal inside the worktree, or output with no path to name.
+ *
+ * @param {{text?: string, workspace: string, mode?: string|null}} args
+ * @returns {{classification: string, mode: string, path: string}|null}
+ */
+export function classifySandboxBlockedWrite({ text, workspace, mode }) {
+  if (mode !== "workspace-write" || typeof text !== "string") return null;
+  const lines = text.split(/\r?\n/u);
+  const markerLines = lines.filter((line) => SANDBOX_READ_ONLY_PATTERN.test(line));
+  if (markerLines.length === 0) return null;
+  // Prefer a path the refusal line itself names; fall back to any path in the
+  // output, since `manifest_create ReadOnlyFileSystem` can put the path on a
+  // neighbouring line.
+  for (const line of [...markerLines, ...lines]) {
+    for (const pattern of ABSOLUTE_PATH_PATTERNS) {
+      for (const match of line.matchAll(pattern)) {
+        const candidate = match[1];
+        const path = isAbsolute(candidate) ? candidate : resolve(workspace, candidate);
+        if (!isContained(workspace, path)) return { classification: SANDBOX_BLOCKED_WRITE, mode, path };
+      }
+    }
+  }
+  return null;
 }
 /**
  * Run every declared command `repeat` times inside the workspace.
@@ -192,6 +234,17 @@ function runCommand(command, baseCwd, commandCwd, attempt, signal, options, comm
         error: error ? String(error.message ?? error) : null,
         passed: !error && !timedOut && exitCode === 0 && !signalName,
       };
+      // The controller's own sandbox mode bounds where a toolchain may write;
+      // a caller may name it, and a controller launched under `dsh` inherits it
+      // in `DSH_PERMISSION_MODE`. Only `workspace-write` classifies.
+      if (!result.passed) {
+        const sandboxBlockedWrite = classifySandboxBlockedWrite({
+          text: `${result.stdout}\n${result.stderr}`,
+          workspace: resolve(baseCwd, commandCwd),
+          mode: options?.sandboxMode ?? process.env.DSH_PERMISSION_MODE ?? null,
+        });
+        if (sandboxBlockedWrite) result.sandboxBlockedWrite = sandboxBlockedWrite;
+      }
       if (!completionReported && identity) {
         completionReported = true;
         try { options?.onAttemptComplete?.({ ...identity, status: result.passed ? "closed" : "failed", completedAt: new Date().toISOString(), result }); } catch {

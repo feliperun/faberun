@@ -56,3 +56,20 @@ test("a second signal death fails the command", { skip: process.platform === "wi
   assert.equal(attempts[1].passed, false);
   assert.equal(attempts[1].signalDeath, undefined);
 });
+
+test("a read-only refusal outside the worktree is classified as a sandbox-blocked write", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "runner-sandbox-blocked-"));
+  const denied = join(tmpdir(), "runner-sandbox-cache", "o", "abc");
+  const script = join(cwd, "blocked.mjs");
+  writeFileSync(
+    script,
+    `import { writeSync } from "node:fs";\nwriteSync(2, ${JSON.stringify(`error: unable to create '${denied}': ReadOnlyFileSystem\n`)});\nprocess.exit(1);\n`,
+  );
+  const result = await runVerification([{ argv: [process.execPath, script] }], cwd, { sandboxMode: "workspace-write" });
+  assert.equal(result.passed, false);
+  assert.deepEqual(result.commands[0].attempts[0].sandboxBlockedWrite, {
+    classification: "sandbox_blocked_write",
+    mode: "workspace-write",
+    path: denied,
+  });
+});
