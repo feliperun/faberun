@@ -11,6 +11,7 @@
 import { Buffer } from "node:buffer";
 import { MAX_SCOPE_FINDING_PATHS } from "./scope-findings.mjs";
 import { REVIEW_MODES } from "./review-modes.mjs";
+import { SAME_VENDOR_REVIEW_MODE } from "./judge-independence.mjs";
 import { assertObject, boundedString, nonNegativeInteger, nonNegativeNumber, positiveInteger, positiveNumber, rejectUnknown, requireId, requireInteger, requirePacketHash, requireString, requireTimestamp } from "./assert.mjs";
 import { stableJson } from "../util.mjs";
 import { isAbsolute } from "node:path";
@@ -508,11 +509,18 @@ function validateRoutingState(value, label) {
   if (value.judgeList !== undefined) validateJudgeListState(value.judgeList, `${label}.judgeList`);
   if (value.assignments !== undefined) {
     assertObject(value.assignments, `${label}.assignments`);
-    rejectUnknown(value.assignments, new Set(["worker", "judge", "composedWorker", "composedJudge"]), `${label}.assignments`);
+    rejectUnknown(value.assignments, new Set(["worker", "judge", "composedWorker", "composedJudge", "judgeIndependence"]), `${label}.assignments`);
     requireId(value.assignments.worker, `${label}.assignments.worker`);
     requireId(value.assignments.judge, `${label}.assignments.judge`);
     for (const key of ["composedWorker", "composedJudge"]) {
       if (value.assignments[key] !== undefined && typeof value.assignments[key] !== "boolean") throw new TypeError(`${label}.assignments.${key} must be boolean`);
+    }
+    // R36: the effective judge-independence mode the launch composed under,
+    // recorded so a resume, brief or report reads the decision back. Only the
+    // one accepted mode may be persisted; its absence is the cross-vendor
+    // default.
+    if (value.assignments.judgeIndependence !== undefined && value.assignments.judgeIndependence !== SAME_VENDOR_REVIEW_MODE) {
+      throw new TypeError(`${label}.assignments.judgeIndependence must be "${SAME_VENDOR_REVIEW_MODE}"`);
     }
   }
   if (value.availability !== undefined) {

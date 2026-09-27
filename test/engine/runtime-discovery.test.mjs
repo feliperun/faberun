@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { composeAssignments, isRuntimeAvailable, nextSameTierRuntime, normalizeProviderAvailability } from "../../src/engine/runtime-discovery.mjs";
 import { normalizeProviderResult, probeRuntime } from "../../src/harnesses/index.mjs";
+import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
+import { snapshot } from "../contract/helpers.mjs";
 
 const ready = { available: true, exhaustedUntil: null, reason: "ready" };
 
@@ -114,13 +116,14 @@ test("same-tier re-tiering excludes exhausted and same-vendor judges", () => {
   assert.equal(nextSameTierRuntime(contract, routing, "judge", "otherTier", new Set(["otherTier"])), null);
 });
 
-/** @param {string[]} harnesses @param {string} [worker] @param {string} [judge] @returns {import("../../src/host/config.mjs").UserConfig} */
-function userConfig(harnesses, worker, judge) {
+/** @param {string[]} harnesses @param {string} [worker] @param {string} [judge] @param {"same-vendor"} [judgeIndependence] @returns {import("../../src/host/config.mjs").UserConfig} */
+function userConfig(harnesses, worker, judge, judgeIndependence) {
   return {
     schemaVersion: 1,
     harnesses,
     ...(worker ? { worker } : {}),
     ...(judge ? { judge } : {}),
+    ...(judgeIndependence ? { judgeIndependence } : {}),
     updatedAt: "2026-09-15T00:00:00.000Z",
   };
 }
@@ -194,8 +197,62 @@ test("same-vendor mode assigns a same-provider judge of equal or higher tier and
     runtimes, runtimeDefaults: { worker, ...(judge ? { judge } : {}) }, ...(mode ? { judgeIndependence: mode } : {}), nodes: [node],
   }), { sonnet: { available: true, exhaustedUntil: null, reason: "" }, opus: { available: true, exhaustedUntil: null, reason: "" } });
   assert.throws(() => pair("sonnet", "opus", undefined), /no available cross-vendor judge/u, "without the opt-in a same-provider pair stays refused");
-  assert.deepEqual(pair("sonnet", "opus", "same-vendor").build, { worker: "sonnet", judge: "opus" });
-  assert.deepEqual(pair("sonnet", undefined, "same-vendor").build, { worker: "sonnet", judge: "opus" }, "the default judge is the strongest same-provider model when no other vendor exists");
+  assert.deepEqual(pair("sonnet", "opus", "same-vendor").build, { worker: "sonnet", judge: "opus", judgeIndependence: "same-vendor" });
+  assert.deepEqual(pair("sonnet", undefined, "same-vendor").build, { worker: "sonnet", judge: "opus", judgeIndependence: "same-vendor" }, "the default judge is the strongest same-provider model when no other vendor exists");
   assert.throws(() => pair("opus", "sonnet", "same-vendor"), /judge tier 2 \(claude-sonnet-5\) is below worker tier 3/u);
   assert.throws(() => pair("sonnet", "sonnet", "same-vendor"), /needs a judge other than worker sonnet/u);
+});
+
+// R36: the machine config's own `judgeIndependence` opt-in reaches a contract
+// that declares none, so a single-provider host can compose a same-vendor pair
+// at launch without editing every contract. The composed assignment carries
+// the effective mode, and the node snapshot the scheduler persists admits it.
+const MACHINE_JUDGE_RUNTIMES = {
+  sonnet: { harness: "claude", model: "claude-sonnet-5", vendor: "anthropic", tier: 2, costRank: 3 },
+  opus: { harness: "claude", model: "claude-opus-5-5", vendor: "anthropic", tier: 3, costRank: 4 },
+};
+const MACHINE_JUDGE_AVAILABLE = { sonnet: ready, opus: ready };
+
+test("the machine config opts a contract into same-vendor review", () => {
+  const contract = {
+    runtimes: MACHINE_JUDGE_RUNTIMES,
+    runtimeDefaults: {},
+    nodes: [{ id: "build", gate: { enabled: true } }],
+  };
+  // The contract declares no judgeIndependence and no roles, so the launch
+  // composes both from the only vendor present -- and refuses without the
+  // config's opt-in.
+  assert.throws(
+    () => composeAssignments(contract, MACHINE_JUDGE_AVAILABLE),
+    /runtime_assignment_judge_unavailable: no available cross-vendor judge/u,
+  );
+  const assignments = composeAssignments(contract, MACHINE_JUDGE_AVAILABLE, {
+    config: userConfig(["claude"], undefined, undefined, "same-vendor"),
+  });
+  assert.deepEqual(assignments.build, { worker: "sonnet", judge: "opus", judgeIndependence: "same-vendor" });
+});
+
+test("the launch records the effective judge independence mode on the run snapshot", () => {
+  const contract = {
+    runtimes: MACHINE_JUDGE_RUNTIMES,
+    runtimeDefaults: {},
+    nodes: [{ id: "build", gate: { enabled: true } }],
+  };
+  const assignments = composeAssignments(contract, MACHINE_JUDGE_AVAILABLE, {
+    config: userConfig(["claude"], undefined, undefined, "same-vendor"),
+  });
+  // The assignment the scheduler persists carries the effective mode, and the
+  // node snapshot admits and returns it rather than rejecting the field.
+  const recorded = validateNodeSnapshot(snapshot({
+    routing: { history: [], currentOverride: null, assignments: assignments.build },
+  }));
+  assert.deepEqual(recorded.routing?.assignments, { worker: "sonnet", judge: "opus", judgeIndependence: "same-vendor" });
+
+  // A mode the launch never composed under cannot be smuggled onto a snapshot.
+  assert.throws(
+    () => validateNodeSnapshot(snapshot({
+      routing: { history: [], currentOverride: null, assignments: { worker: "sonnet", judge: "opus", judgeIndependence: "cross-vendor" } },
+    })),
+    /routing\.assignments\.judgeIndependence must be "same-vendor"/u,
+  );
 });
