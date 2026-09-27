@@ -47,10 +47,11 @@ test("a refused detached launch prints the controller error and leaves no run di
     once() {},
   };
   await assert.rejects(
-    waitForBootstrap(runDir, process.pid, child, 1_000),
+    waitForBootstrap(runDir, process.pid, /** @type {any} */ (child), 1_000),
     (error) => {
-      assert.match(error.message, /detached bootstrap failed/u);
-      assert.match(error.message, /runtime assignment refused/u, "the launcher prints the controller's own error");
+      const message = /** @type {Error} */ (error).message;
+      assert.match(message, /detached bootstrap failed/u);
+      assert.match(message, /runtime assignment refused/u, "the launcher prints the controller's own error");
       return true;
     },
   );
