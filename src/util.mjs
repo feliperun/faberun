@@ -239,8 +239,13 @@ export function finite(value) {
  * outside them separates.
  *
  * Deliberately not a shell: no expansion, no substitution, no operators, and
- * no backslash escape -- on Windows a backslash is a path separator and
- * `C:\Users\x` must survive this intact. The question both callers ask is
+ * no backslash escape outside double quotes -- on Windows a backslash is a
+ * path separator and `C:\Users\x` must survive this intact. Inside double
+ * quotes a backslash before `"` or `\` is the escape POSIX gives it, and any
+ * other backslash stays literal, so a quoted Windows path is still intact.
+ * Measured 2026-09-27: a `node -e "<script with \"fs\">"` proof, the shape
+ * `JSON.stringify` writes, split at the escaped quote and read as a script
+ * that did not parse. The question both callers ask is
  * "which words does this command name", and a quoted path holding a space is
  * one word: splitting it on whitespace produced two fragments that matched no
  * file, so a proof naming a real path read as naming none.
@@ -255,6 +260,7 @@ export function shellWords(text) {
   let current = null;
   /** @type {string|null} */
   let quote = null;
+  let escaped = false;
   for (const character of text) {
     if (quote === null && /\s/u.test(character)) {
       if (current !== null) words.push(current);
@@ -266,12 +272,22 @@ export function shellWords(text) {
       current ??= "";
       continue;
     }
+    if (escaped) {
+      current = (current ?? "") + (character === '"' || character === "\\" ? character : `\\${character}`);
+      escaped = false;
+      continue;
+    }
+    if (quote === '"' && character === "\\") {
+      escaped = true;
+      continue;
+    }
     if (quote === character) {
       quote = null;
       continue;
     }
     current = (current ?? "") + character;
   }
+  if (escaped) current = `${current ?? ""}\\`;
   if (current !== null) words.push(current);
   return words;
 }
