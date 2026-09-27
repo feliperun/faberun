@@ -46,7 +46,7 @@ const LIVE_PREFLIGHT_OUTPUT_LIMIT_BYTES = 512 * 1024;
  * whole is part of the answer.
  *
  * @param {string} contractPath
- * @param {{static?: boolean, liveTimeoutSec?: number, persisted?: boolean}} [options]
+ * @param {{static?: boolean, liveTimeoutSec?: number, minimumTimeoutSec?: number, persisted?: boolean}} [options]
  * @returns {Promise<ProbeResult[]>}
  */
 export async function preflightContract(contractPath, options = {}) {
@@ -70,7 +70,7 @@ export async function preflightContract(contractPath, options = {}) {
  * once, so a caller cannot accidentally ask a different question.
  *
  * @param {{runtime: RuntimeSnapshot, requiredCapabilitySets?: import("../harnesses/index.mjs").CapabilityRequirements[]}[]} entries
- * @param {{static?: boolean, liveTimeoutSec?: number, cwd?: string}} [options]
+ * @param {{static?: boolean, liveTimeoutSec?: number, minimumTimeoutSec?: number, cwd?: string}} [options]
  * @returns {Promise<ProbeResult[]>}
  */
 export async function preflightRuntimes(entries, options = {}) {
@@ -95,7 +95,7 @@ export async function preflightRuntimes(entries, options = {}) {
   }
   try {
     return await Promise.all(staticChecks.map(async (check, index) => {
-      const live = await livePreflight(runtimes[index], liveRepo, configuredTimeoutSec ?? defaultLivePreflightTimeout(runtimes[index]));
+      const live = await livePreflight(runtimes[index], liveRepo, configuredTimeoutSec ?? Math.max(options.minimumTimeoutSec ?? 0, defaultLivePreflightTimeout(runtimes[index])));
       const liveDetail = live.status === "done"
         ? `live done · usage ${formatUsage(live.usage)} · cost ${formatCost(live.costUsd)}`
         : `live ${live.status} · ${live.error?.code ?? "provider_error"}: ${redactProviderText(live.error?.message ?? "generation failed")} · usage ${formatUsage(live.usage)} · cost ${formatCost(live.costUsd)}`;
@@ -143,10 +143,26 @@ function configuredLivePreflightTimeout(configured) {
  * @returns {number}
  */
 export function defaultLivePreflightTimeout(runtime) {
+  // Keep LIVE_PREFLIGHT_CEILING_SEC equal to the largest value returned here.
   const reasoning = /** @type {{reasoning?: unknown}} */ (runtime).reasoning;
   if (reasoning === "xhigh" || reasoning === "max") return 180;
   if (reasoning === "high") return 60;
   return 15;
+}
+/**
+ * The longest a live preflight can take without an explicit budget: what a
+ * detached launcher must be willing to wait before the controller it spawned
+ * can report ready, because the dispatch gate asks before it does.
+ */
+export const LIVE_PREFLIGHT_CEILING_SEC = 180;
+/**
+ * The longest one live preflight ask may take under the current environment.
+ *
+ * @returns {number}
+ */
+export function livePreflightCeilingSec() {
+  const override = Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC);
+  return process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC !== undefined && Number.isFinite(override) && override > 0 ? override : LIVE_PREFLIGHT_CEILING_SEC;
 }
 /** @returns {string} */
 function createLivePreflightRepo() {

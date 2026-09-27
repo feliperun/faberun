@@ -24,6 +24,7 @@ import { readRunNodes } from "../run/node-store.mjs";
 import { spawn } from "node:child_process";
 import { validateContract } from "../contract/index.mjs";
 import { runDirectory } from "../run/paths.mjs";
+import { livePreflightCeilingSec } from "../engine/live-preflight.mjs";
 
 /**
  * The file a detached child is spawned as. It must be the CLI and not this
@@ -94,7 +95,7 @@ export function detachArgv(argv, options = {}) {
  * @param {number} [timeoutMs]
  * @returns {Promise<BootstrapRecord>}
  */
-export async function waitForBootstrap(runDir, pid, child = null, timeoutMs = 30_000) {
+export async function waitForBootstrap(runDir, pid, child = null, timeoutMs = bootstrapReadyTimeoutMs()) {
   const deadline = Date.now() + timeoutMs;
   const nonce = child?.bootstrapNonce;
   if (!nonce) throw new Error(`detached bootstrap has no start nonce for pid ${pid}`);
@@ -156,6 +157,18 @@ export async function waitForBootstrap(runDir, pid, child = null, timeoutMs = 30
   cleanupBootstrapNonce(runDir, nonce);
   cleanupBootstrapAttempts(runDir);
   throw new Error(`detached bootstrap did not become ready for pid ${pid}`);
+}
+/**
+ * The controller answers ready only after the dispatch gate's live preflight,
+ * so the launcher waits for that ask on top of its own 30s start-up margin.
+ * Measured 2026-09-27: with a fixed 30s wait, a gate asking Opus at `xhigh`
+ * made `run --detach` and `plan --detach` report "did not become ready" for
+ * controllers that then came up and ran.
+ *
+ * @returns {number}
+ */
+export function bootstrapReadyTimeoutMs() {
+  return 30_000 + livePreflightCeilingSec() * 1000;
 }
 /**
  * @param {string} runDir
