@@ -155,6 +155,20 @@ export function normalizeWalkthroughOutput(text, context) {
 }
 
 /**
+ * Remove ANSI SGR escape sequences from captured output. The check reads a
+ * pipe, not a terminal, but a CLI that always colorizes its status markers
+ * still emits the escapes here; the guide deliberately carries the plain
+ * rendering a terminal strips the colors down to, so the comparison must see
+ * the same text a person would read.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function stripAnsi(text) {
+  return text.replace(/\u001B\[[0-9;]*m/gu, "");
+}
+
+/**
  * Whether `expected` appears in `actual` as a consecutive block of whole
  * lines. Whole lines, not a substring: a guide that promises `valid` must not
  * pass against `valid (2 warnings)`.
@@ -407,12 +421,12 @@ export function checkGettingStarted(options = {}) {
           message: `walkthrough command exited ${result.status}`,
           command: result.command,
           expected: step.output,
-          actual: `${result.stdout}${result.stderr}`.trim(),
+          actual: stripAnsi(`${result.stdout}${result.stderr}`).trim(),
         });
         break;
       }
       if (step.output !== null) {
-        const normalized = normalizeWalkthroughOutput(result.stdout, context);
+        const normalized = normalizeWalkthroughOutput(stripAnsi(result.stdout), context);
         if (!containsExpectedBlock(normalized, step.output)) {
           mismatches.push({
             message: "walkthrough output diverged",
