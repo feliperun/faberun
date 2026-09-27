@@ -147,6 +147,11 @@ export function availabilityPath() {
   return join(faberunHome(), "availability.json");
 }
 
+/** @returns {string} the machine-wide record of each account's provider-reported usage windows */
+export function usageWindowsPath() {
+  return join(faberunHome(), "usage-windows.json");
+}
+
 /**
  * The campaigns directory beneath a runs root: `<runs>/campaigns`.
  * Composes `campaign/layout.mjs`'s `campaignsDir`, which owns the shape given
@@ -173,7 +178,7 @@ export function campaignTree(cwd, campaignId) {
 }
 
 /** @param {string} runDir @param {string} runId @returns {string} */
-function worktreeRoot(runDir, runId) {
+export function worktreeRoot(runDir, runId) {
   return join(dirname(runDir), "worktrees", runId);
 }
 

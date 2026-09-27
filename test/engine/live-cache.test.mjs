@@ -205,7 +205,9 @@ test("a launch reuses stored verdicts instead of asking, whatever each contract 
   assert.equal(evidence.runtimes?.[0]?.detail, reuseDetail(observedAt), "the reuse names the instant the verdict was observed");
 });
 
-test("a cached refusal is still an answer: the next launch spends no hello and the refusal means what it meant", async () => {
+// Measured 2026-09-24: a refusal was stored as an answer, the next launches
+// reused it without asking, and six processes spent into two exhausted accounts.
+test("a refusal the work met is recorded, and the next launch is refused on it without asking", async () => {
   const executable = quotaAfterHelloProvider();
   const provider = { harness: "codex", model: "refusal-model", executable };
   const firstDirectory = mkdtempSync(join(tmpdir(), "runner-cache-refusal-1-"));
@@ -213,16 +215,20 @@ test("a cached refusal is still an answer: the next launch spends no hello and t
     only: { harness: provider.harness, model: provider.model, executable },
   }, { timeoutSec: 5 }))));
   assert.equal(nodeState(runDirectory(firstDirectory, "cache-refusal-first")).status, "exhausted");
-  assert.ok(storedKeys().includes(keyOf(provider)), "a refusal answered the hello, so it is recorded");
+  const stored = JSON.parse(readFileSync(availabilityPath(), "utf8")).verdicts[keyOf(provider)];
+  assert.equal(stored?.available, false, "the refusal the work met is stored as a refusal, not as an answer");
+  assert.equal(stored?.reason, "quota_exhausted");
 
   const secondDirectory = mkdtempSync(join(tmpdir(), "runner-cache-refusal-2-"));
   const secondPath = writeContract(secondDirectory, fixture(singleRuntimeFixture("cache-refusal-second", {
     only: { harness: provider.harness, model: provider.model, executable },
   }, { timeoutSec: 5 })));
-  await runContract(secondPath);
+  await runContract(secondPath).catch(() => null);
   const secondRun = runDirectory(secondDirectory, "cache-refusal-second");
-  assert.equal(envEvidence(secondRun).runtimes?.[0]?.liveStatus, "reused", "the cached answer reused instead of asking");
-  assert.equal(nodeState(secondRun).status, "exhausted", "and the work meets the same refusal on the contract");
+  const probe = envEvidence(secondRun).runtimes?.[0];
+  assert.equal(probe?.liveStatus, "exhausted", "the launch is refused on the recorded refusal");
+  assert.match(String(probe?.detail), /refusal recorded on this machine/u, "and it says the refusal was recorded, not asked");
+  assert.notEqual(nodeState(secondRun).status, "done", "no work was dispatched into the exhausted account");
 });
 
 test("--fresh-preflight asks again even when a fresh verdict is stored", async () => {

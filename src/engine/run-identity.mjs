@@ -13,7 +13,7 @@
  */
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, getHarness, harnessCapabilities, probeRuntime } from "../harnesses/index.mjs";
 import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
-import { availabilityKey, readAvailability, recordAvailability } from "../run/availability.mjs";
+import { availabilityKey, readAvailability, readRefusal, recordProbeVerdicts } from "../run/availability.mjs";
 import { blockingChecks, environmentPreflight, reachableRuntimes } from "../host/preflight.mjs";
 import { captureSourceIdentity } from "../repo/source-identity.mjs";
 import { boundedGitSync } from "../repo/worktree.mjs";
@@ -507,11 +507,12 @@ export async function assertEnvironmentReady(contract, runDir, sourceIdentity) {
   // worker and no judge, and can spend no availability.
   if (blocking === null && launchMayDispatch(runDir)) {
     // measured 2026-09-22: asking four routed runtimes in parallel took about
-    // 18s, so the default budget is 60s. FABERUN_PREFLIGHT_TIMEOUT_SEC stays
-    // the operator override; preflightContract validates it, so only a valid
-    // number is lifted here.
+    // 18s, so no runtime is given less than 60s here; a runtime at high
+    // reasoning effort gets its longer default (defaultLivePreflightTimeout).
+    // FABERUN_PREFLIGHT_TIMEOUT_SEC stays the operator override for every
+    // runtime; preflightContract validates it, so only a valid number is lifted.
     const override = Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC);
-    const timeoutSec = process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC !== undefined && Number.isFinite(override) && override > 0 ? override : 60;
+    const timeoutSec = process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC !== undefined && Number.isFinite(override) && override > 0 ? override : undefined;
     const probes = await livePreflightProbes(contract, runDir, sourceIdentity, timeoutSec);
     const silent = probes.filter((probe) => liveSilenceCause(probe) !== null);
     writeJsonAtomic(join(runDir, "env-preflight.json"), evidence(silent.length === 0, probes));
@@ -536,6 +537,8 @@ export async function assertEnvironmentReady(contract, runDir, sourceIdentity) {
   throw Object.assign(new Error(`env_preflight_failed: ${blocking} · the run stays resumable: fix the environment and resume ${runDir}`), { code: "env_preflight_failed" });
 }
 
+/** No routed runtime is given less than this by the dispatch gate. */
+const GATE_MINIMUM_PREFLIGHT_SEC = 60;
 /**
  * The live half of the gate for one launch. Every routed runtime either holds
  * a verdict this machine recorded inside its freshness window -- reused, the
@@ -552,7 +555,7 @@ export async function assertEnvironmentReady(contract, runDir, sourceIdentity) {
  * @param {ValidatedContract} contract
  * @param {string} runDir
  * @param {SourceIdentity|undefined} sourceIdentity
- * @param {number} timeoutSec
+ * @param {number|undefined} timeoutSec
  * @returns {Promise<ProbeResult[]>}
  */
 async function livePreflightProbes(contract, runDir, sourceIdentity, timeoutSec) {
@@ -567,6 +570,46 @@ async function livePreflightProbes(contract, runDir, sourceIdentity, timeoutSec)
         executable: getHarness(runtime.harness).executable(runtime),
       }));
       if (verdict) fresh.set(id, verdict);
+    }
+  }
+  // A refusal another process met on this machine (quota, balance, model) is
+  // not asked again before its reset: the launch is refused on it, spending
+  // nothing, and the operator is told when the provider is back.
+  if (!pendingFreshPreflight) {
+    const refused = [...routed.entries()].map(([id, { runtime }]) => {
+      const executable = getHarness(runtime.harness).executable(runtime);
+      const held = readRefusal(availabilityKey({ harness: runtime.harness, model: runtime.model, executable }));
+      return held ? {
+        id,
+        harness: runtime.harness,
+        executable,
+        model: runtime.model,
+        version: sourceIdentity?.harnessVersions?.[id] ?? null,
+        capabilities: harnessCapabilities(runtime),
+        requiredCapabilities: {},
+        requiredCapabilitySets: [],
+        ok: false,
+        live: true,
+        liveStatus: "exhausted",
+        availability: { available: false, exhaustedUntil: held.exhaustedUntil, reason: held.reason },
+        detail: `live exhausted · ${held.reason}: refusal recorded on this machine at ${held.observedAt}, back at ${held.exhaustedUntil}`,
+      } : null;
+    });
+    if (refused.some(Boolean)) {
+      return [...routed.entries()].map(([id, { runtime }], index) => refused[index] ?? {
+        id,
+        harness: runtime.harness,
+        executable: getHarness(runtime.harness).executable(runtime),
+        model: runtime.model,
+        version: sourceIdentity?.harnessVersions?.[id] ?? null,
+        capabilities: harnessCapabilities(runtime),
+        requiredCapabilities: {},
+        requiredCapabilitySets: [],
+        ok: true,
+        live: false,
+        liveStatus: "not-asked",
+        detail: "not asked: another routed runtime is refused on this machine",
+      });
     }
   }
   if (routed.size > 0 && fresh.size === routed.size) {
@@ -588,16 +631,14 @@ async function livePreflightProbes(contract, runDir, sourceIdentity, timeoutSec)
       };
     });
   }
-  const probes = await preflightContract(join(runDir, "contract.json"), { liveTimeoutSec: timeoutSec, persisted: true });
+  const probes = await preflightContract(join(runDir, "contract.json"), { ...(timeoutSec === undefined ? {} : { liveTimeoutSec: timeoutSec }), minimumTimeoutSec: GATE_MINIMUM_PREFLIGHT_SEC, persisted: true });
   // What this launch bought is durable from here on: every ask that reached a
   // provider -- a refusal included, an answer being an answer -- is recorded
   // under the provider's own identity. Silence and a command that never
   // reached a provider are verdicts of nothing and are never recorded, so the
   // operator who fixes the host is never told the fix "already answered".
-  recordAvailability(
-    probes
-      .filter((probe) => probe.live === true && probe.liveStatus !== "reused" && liveVerdictRecorded(probe))
-      .map((probe) => availabilityKey(probe)),
+  recordProbeVerdicts(
+    probes.filter((probe) => probe.live === true && probe.liveStatus !== "reused" && liveVerdictRecorded(probe)),
     Date.now(),
   );
   return probes;

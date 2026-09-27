@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "clean-strip-the-notification-transport-from-worker-provider-enviro",
   "label": "clean",
   "sourceTask": "strip-the-notification-transport-from-worker-provider-enviro",
@@ -124,6 +124,10 @@
       "skills/mine/intent-factory/test/supervisor.test.mjs"
     ],
     "missingContext": []
+  },
+  "authoredBy": {
+    "runtime": "claude-opus-5-5",
+    "family": "anthropic"
   },
   "diff": "diff.patch",
   "diffSha256": "ae277b4ff7684bbc780f21e257b5940dcc9f44805c24df438d35144da7f3c5c8"

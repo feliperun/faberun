@@ -31,6 +31,7 @@ export class StochasticBudget {
     this.unknownSpendUsd = 0;
     this.voidedSpendUsd = 0;
     this.voidedInvocations = 0;
+    this.refusedInvocations = 0;
     /** @type {Map<string, number>} */
     this.highestObservedUsd = new Map(
       settings.highestObservedUsd instanceof Map
@@ -121,7 +122,20 @@ export class StochasticBudget {
     return voidedUsd;
   }
 
-  /** @returns {{budgetUsd: number, spendUsd: number, pricedSpendUsd: number, unknownSpendUsd: number, reservedUsd: number, voidedSpendUsd: number, voidedInvocations: number, overrunUsd: number, highestObservedUsd: Record<string, number>}} */
+  /**
+   * Release an invocation the provider refused before doing any work (quota,
+   * balance, an unsupported model): nothing was consumed, so nothing is spent
+   * or voided, and the refusal is counted apart.
+   *
+   * @param {Reservation} reservation
+   * @returns {void}
+   */
+  releaseRefused(reservation) {
+    this.removeReservation(reservation);
+    this.refusedInvocations += 1;
+  }
+
+  /** @returns {{budgetUsd: number, spendUsd: number, pricedSpendUsd: number, unknownSpendUsd: number, reservedUsd: number, voidedSpendUsd: number, voidedInvocations: number, refusedInvocations: number, overrunUsd: number, highestObservedUsd: Record<string, number>}} */
   result() {
     return {
       budgetUsd: this.budgetUsd,
@@ -131,6 +145,7 @@ export class StochasticBudget {
       reservedUsd: this.reservedUsd,
       voidedSpendUsd: this.voidedSpendUsd,
       voidedInvocations: this.voidedInvocations,
+      refusedInvocations: this.refusedInvocations,
       overrunUsd: Math.max(0, this.spendUsd + this.voidedSpendUsd - this.budgetUsd),
       highestObservedUsd: Object.fromEntries(this.highestObservedUsd),
     };

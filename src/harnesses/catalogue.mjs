@@ -1,7 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { getHarness, probeRuntime, registeredHarnesses, resolveVendor } from "./index.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS, composeAssignments } from "../engine/runtime-discovery.mjs";
+import { canonicalProvider } from "../contract/provider.mjs";
 import { errorMessage } from "../util.mjs";
+import { ANTHROPIC_MODEL_TIERS } from "./model-tiers.mjs";
 import { spawnInvocation } from "../host/platform.mjs";
 
 /**
@@ -52,7 +54,7 @@ const GLM_CONTEXT_WINDOW_TOKENS = 200_000;
 const GLM_ONE_MILLION_CONTEXT_WINDOW_TOKENS = 1_048_576;
 
 /**
- * @typedef {{id: string, contextWindowTokens: number|null, efforts: readonly string[], defaultEffort: string|null, effortInModelId: string|null}} DeclaredModel
+ * @typedef {{id: string, contextWindowTokens: number|null, efforts: readonly string[], defaultEffort: string|null, effortInModelId: string|null, tier: number|null}} DeclaredModel
  * @typedef {{harness: string, vendor: string|null}} ModelPath
  * @typedef {{id: string, contextWindowTokens: number|null, efforts: string[], defaultEffort: string|null, effortInModelId: string|null, declaredBy: ModelPath[]}} ModelView
  * @typedef {{ok: boolean, available: boolean, reason: string, version: string|null}} ProbeView
@@ -73,6 +75,9 @@ export const DECLARED_MODEL_CATALOGUES = Object.freeze({
   claude: Object.freeze([
     declaredModel("claude-sonnet-5", { efforts: CLAUDE_EFFORTS }),
     declaredModel("claude-opus-5", { efforts: CLAUDE_EFFORTS }),
+    declaredModel("claude-opus-5-5", { efforts: CLAUDE_EFFORTS }),
+    declaredModel("claude-fable-5", { efforts: CLAUDE_EFFORTS }),
+    declaredModel("claude-fable-5-1", { efforts: CLAUDE_EFFORTS }),
     declaredModel("claude-sonnet-4-6", { efforts: CLAUDE_EFFORTS }),
     // GLM through a runtime whose `config.base_url` names Z.ai's
     // Anthropic-compatible endpoint. The CLI sized its own window at 200,000
@@ -185,6 +190,7 @@ function declaredModel(id, options) {
     efforts: options.efforts,
     defaultEffort: options.defaultEffort ?? null,
     effortInModelId: options.effortInModelId ?? null,
+    tier: ANTHROPIC_MODEL_TIERS[id] ?? null,
   });
 }
 
@@ -205,6 +211,7 @@ function agyModel(id, contextWindowTokens = null) {
     efforts: AGY_EFFORTS,
     defaultEffort: encoded,
     effortInModelId: encoded,
+    tier: ANTHROPIC_MODEL_TIERS[id] ?? null,
   });
 }
 
@@ -381,7 +388,7 @@ function suggestedAllocation() {
   /** @type {Record<string, {available: boolean, exhaustedUntil: string|null, reason: string}>} */
   const availability = {};
   for (const [id, definition] of Object.entries(DISCOVERY_RUNTIME_DEFINITIONS)) {
-    const vendor = resolveVendor(definition);
+    const vendor = canonicalProvider(definition) ?? resolveVendor(definition);
     if (!vendor) throw new Error(`discovery runtime ${id} resolves no vendor`);
     runtimes[id] = { ...definition, vendor };
     availability[id] = { available: true, exhaustedUntil: null, reason: "declared" };

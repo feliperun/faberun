@@ -307,8 +307,11 @@ export function eventItem(event) {
  * window: measured 2026-09-20, "You've hit your session limit · resets 6:40pm
  * (America/Sao_Paulo)" settled as provider_error and two faberun nodes burnt
  * both attempts inside a minute instead of holding until the reset.
+ * "spend limit" is the account's monthly credit ceiling: measured 2026-09-25,
+ * "You've hit your monthly spend limit" on claude-fable-5-1 settled as
+ * provider_error, so the planner's reviewer list never moved to its next entry.
  */
-const QUOTA_TEXT_PATTERN = /429|1310|rate.?limit|usage limit|session limit|limit exhausted|quota|too many requests/iu;
+const QUOTA_TEXT_PATTERN = /429|1310|rate.?limit|usage limit|session limit|spend limit|limit exhausted|quota|too many requests/iu;
 
 /**
  * @param {string|null|undefined} text

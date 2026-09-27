@@ -69,7 +69,7 @@ was created. `RM-030` fixes the leak at its cause.
 
 ## Now: the `leaving-home` program
 
-Every priority below competes for the same attention, so the next five
+Every priority below competes for the same attention, so the next
 campaigns are fixed in order by [the program](campaigns/leaving-home/PROGRAM.md).
 Its goal is the P0 sentence extended by one step: *I trust faberun enough to
 leave a campaign running without watching it, and to put it in a friend's
@@ -81,11 +81,12 @@ hands.* Only after that does anything get announced.
 | 1 | [`evidence-you-can-recompute`](campaigns/evidence-you-can-recompute/spec/SPEC.md) | every number faberun states about itself recomputes from `main`; recovery stops counting as failure | the baseline recomputes from versioned ledgers; the `orchestration-arms` record is on `main`; the skill docs have one byte budget |
 | 2 | [`evals-with-a-budget`](campaigns/evals-with-a-budget/spec/SPEC.md) | the paired benchmark and the judge canary, with a hard budget and a band | three repetitions of the complex round; the canary measured on two judge runtimes; D9 recorded |
 | 2b | [`choose-the-judges`](campaigns/choose-the-judges/spec/SPEC.md) | judges and planner roles chosen by measurement: a canary corpus not written only by the family it tests, two repetitions, the owner's candidate judges and three planner role configurations | D9 revised into a judge matrix by worker vendor; D11 on planner roles |
-| 3 | [`safe-to-hand-to-a-friend`](campaigns/safe-to-hand-to-a-friend/spec/SPEC.md) | a planner that stops when revision does not converge, finds unwritable proofs and carries human steps (it went 0 for 10 contracts in the last three campaigns); environment allowlist, sandbox cost stated, executed getting-started, repo facts beyond Node, ways back from a contested plan, a refused packet and a defective packet, uninstall | a planted secret never reaches a worker; the owner's next campaign closes with no hand-written contract |
+| 3a | [`planner-and-routing`](campaigns/planner-and-routing/spec/SPEC.md) | the planner freezes and each node gets the right judge: the vendor rule compares the canonical provider, not a free label; the judge comes from D9's ordered list; planning has its own reviewers (D11); a revise that does not converge stops; an unwritable proof is found before review; a human step is carried; `proof.ref` by text or index (the planner is 0 for 13) | the phase-one plan of 3b freezes with no hand edit; the vendor rule compares the canonical provider |
+| 3b | [`safe-to-hand-to-a-friend`](campaigns/safe-to-hand-to-a-friend/spec/SPEC.md) | environment allowlist, sandbox cost stated, executed getting-started, repo facts beyond Node, ways back from a refused and a defective packet, uninstall; every contract comes from `faberun plan` | a planted secret never reaches a worker; the getting-started guide is checked in CI; a stranger's first offline campaign is green; 3b closed with 0 hand-written contracts |
 | 4 | [`friends-pilot`](campaigns/friends-pilot/spec/SPEC.md) | three to five people run a real campaign in their own repositories; what they live returns as redacted data and friction with an id here | D10 recorded |
 
 Rules that hold for the whole program: no new harness, no UI, no rewrite in
-another language, no new verb outside those five specs; no ceiling in
+another language, no new verb outside those specs; no ceiling in
 `test/docs/docs-diet.test.mjs` rises; no test calls a provider; cheap writers
 by default; every campaign closes with `faberun spec validate --strict-traceability
 --run-proofs` green.
@@ -221,9 +222,9 @@ satisfied*. Three levels:
 | RM-011 | Intent evaluation report per campaign | none yet | idea |
 | RM-012 | Proof `kind: behavior \| preservation` on a `command` proof, checked at dispatch against the post-integration base | proposed by the Astra review; distinguishes `vacuous_proof`, `behavior_already_green`, `broken_baseline`, `baseline_inconclusive`. `spec validate --run-proofs` (#56) runs a proof but does not classify it | idea |
 | RM-013 | Judge calibration canary | 0 findings on 34 judged nodes in `orchestration-arms` while costing 24 to 45% of the bill; 1 real finding in 9 verdicts of the `glm-5.3-flash` judge in `rec-audit-remediation`, for 2.8% of its bill. The canary (35 cases, 2026-09-24) gives gpt-5.6-sol recall 1.00 and false alarms 0.20, glm-5.3-flash 0.83 and 0, claude-sonnet-5 0.30 and 0; D9 reads it | landed: `evals-with-a-budget` R5 to R7, R11, 2026-09-24 |
-| RM-091 | A canary corpus that does not favour the family that wrote it | all 25 defect cases were rebuilt by `claude-opus-5-5`; a judge of the same family would be read inflated | specified: `choose-the-judges` R1 to R2 |
-| RM-092 | A judge matrix by worker vendor instead of one judge | the vendor rule refuses a same-vendor judge, so the best judge depends on the worker; the owner's candidates include two that cannot judge the default workers | specified: `choose-the-judges` R3 to R4 |
-| RM-093 | Planner roles chosen by measurement | the reviewer was right and the reviser diverged in `evidence-you-can-recompute`; `draft` and `revise` share the worker role, `review` uses the judge role | specified: `choose-the-judges` R5 |
+| RM-091 | A canary corpus that does not favour the family that wrote it | all 25 defect cases were rebuilt by `claude-opus-5-5`; a judge of the same family would be read inflated; 10 of 25 defects now come from gpt-6-sol and deepseek-v4-pro, and every case records its author | landed: `choose-the-judges` R1 to R2, 2026-09-24 |
+| RM-092 | A judge matrix by worker vendor instead of one judge | the vendor rule refuses a same-vendor judge, so the best judge depends on the worker; the owner's candidates include two that cannot judge the default workers; `node evals/judge-canary-matrix.mjs` builds the matrix from the result files, and D9 reads it | landed: `choose-the-judges` R3 to R4, 2026-09-24 |
+| RM-093 | Planner roles chosen by measurement | the reviewer was right and the reviser diverged in `evidence-you-can-recompute`; `draft` and `revise` share the worker role, `review` uses the judge role; three configurations planned the same phase and none froze, D11 reads why | landed: `choose-the-judges` R5, 2026-09-24 |
 | RM-014 | Acceptance suite external to the writer, run against the sealed artefact | the paired benchmark already hides its acceptance from the arms; nothing does it for an ordinary campaign | idea |
 | RM-068 | A `judgment` item says what no command can check | every judged node in `orchestration-arms` carried a judgment item next to a mechanical proof, which is why arm A paid a judge | landed: `evals-with-a-budget` R10, 2026-09-24 |
 
@@ -292,11 +293,11 @@ escalate to a human.
 | RM-054 | A packet defect has no operator override, so the only exit discards the attempt's good work | the failed `test-hygiene` attempt had already deleted the 14 artifacts and fixed `testDir()`; re-issuing the contract re-ran from zero because a failed attempt's seal is not on the new run's ancestry. `resume --answer` is the right mechanism and covers only `context_missing` | specified: `safe-to-hand-to-a-friend` R13 |
 | RM-072 | Repo facts find verification commands outside Node | `readScripts` reads only `package.json`; `rec` (Zig) was planned by hand | specified: `safe-to-hand-to-a-friend` R7 |
 | RM-073 | A stranger's first campaign completes offline, end to end | no test covers `init`, `plan`, `run` and `close` on an unfamiliar repository | specified: `safe-to-hand-to-a-friend` R8 |
-| RM-074 | A contested plan hands the operator a decision, and resumes from the answers | the planner contested both plans of `durable-state-integrity` and the implementation plan of the Campaign Brief; in each case a human wrote or fixed the contract | specified: `safe-to-hand-to-a-friend` R9 |
-| RM-087 | A revise that does not reduce critical findings stops the pipeline | `evidence-you-can-recompute`: the revise reached 28 criticals in round 4 with mechanically invalid output (`proof.ref` as text), and US$ 3.79 of planning never froze | specified: `safe-to-hand-to-a-friend` R14 |
-| RM-088 | A proof no node can write is found before review, without a model | the reviewer of `evidence-you-can-recompute` found a proof whose test file was in no node's `writeFiles` and a `grep -c` measure that exits 1 at zero; both were spec defects a deterministic check would have caught | specified: `safe-to-hand-to-a-friend` R15 |
-| RM-089 | The plan carries a human step the spec declares | the `reledger` step of `evidence-you-can-recompute` R3 was declared a human boundary and the plan had no way to represent it, so the node that needed its output could never run | specified: `safe-to-hand-to-a-friend` R16 |
-| RM-090 | The managed signal block of `AGENTS.md` alone does not block a launch | during `first-target-frictions` every launch was refused as uncommitted until the operator restored `AGENTS.md`; source identity already excludes the block | specified: `safe-to-hand-to-a-friend` R17 |
+| RM-074 | A contested plan hands the operator a decision, and resumes from the answers | the planner contested both plans of `durable-state-integrity` and the implementation plan of the Campaign Brief; in each case a human wrote or fixed the contract | landed: `25ebe75`, `planner-and-routing` R9, 2026-09-27 |
+| RM-087 | A revise that does not reduce critical findings stops the pipeline | `evidence-you-can-recompute`: the revise reached 28 criticals in round 4 with mechanically invalid output (`proof.ref` as text), and US$ 3.79 of planning never froze | landed: `270dd76`, `4db5281`, `7ae2c50`, `bfb1e54` and `f67f330`, `planner-and-routing` R14, 2026-09-27 |
+| RM-088 | A proof no node can write is found before review, without a model | the reviewer of `evidence-you-can-recompute` found a proof whose test file was in no node's `writeFiles` and a `grep -c` measure that exits 1 at zero; both were spec defects a deterministic check would have caught | landed: `8712efd`, `planner-and-routing` R15, 2026-09-27 |
+| RM-089 | The plan carries a human step the spec declares | the `reledger` step of `evidence-you-can-recompute` R3 was declared a human boundary and the plan had no way to represent it, so the node that needed its output could never run | landed: `14ebfe1` and `194cd89`, `planner-and-routing` R16, 2026-09-27 |
+| RM-090 | The managed signal block of `AGENTS.md` alone does not block a launch | during `first-target-frictions` every launch was refused as uncommitted until the operator restored `AGENTS.md`; source identity already excludes the block | landed: `5ddb588` and `af890c2`, `planner-and-routing` R17, 2026-09-27 |
 
 `RM-025` is the bottleneck in practice: the information needed to fix the packet
 usually arrives *inside* the refusal. `RM-026` lowers how often `RM-025` is
@@ -387,6 +388,19 @@ judgment; they do not transport information.
 | RM-030 | `campaign close` preserves `proposals/` in the ledger | 16 proposals lived only in gitignored `.runs/`; the close copies journal, record and usage, not these | landed: `evidence-you-can-recompute` R1, 2026-09-23 |
 | RM-031 | Emit `judgment` proofs only where no `command`/`path` proof covers the item, and support `gate.skipWhen` | `judgeRequired` already skips the judge when no `judgment` item exists, and `gate.skipWhen` exists; R10 makes a `judgment` item name what no command checks, the emission half is still open | landed in part: `evals-with-a-budget` R10, 2026-09-24 |
 | RM-032 | Detect unproductive loops and stop them | 23 turns with no result accounted for 25% of one campaign's spend; `process.mjs` restarts the stall clock on any event | measured |
+| RM-094 | A provider refusal is shared across processes and stops the next launch | `choose-the-judges`, 2026-09-24: a probe answered `quota_exhausted` was cached as an answer; six canaries on two accounts each found the exhausted quota by failing on their own, and zcode's `[1308]` reached stderr only | landed: `bce1e01`, `76387b9`, 2026-09-24 |
+| RM-095 | A stochastic class asks cases in parallel | the judge canary asked one case at a time: `deepseek-v4-pro` took 2 h 55 min for 70 cases, median 135 s each | landed in the canary: `0632839`, 2026-09-24; the paired class still runs arms one at a time |
+| RM-096 | Read the provider's own usage window before spending | every codex call records `rate_limits` (5-hour and weekly `used_percent`, `resets_at`); on 2026-09-24 the weekly window went from 86% to about 93% in one canary reading, and nothing read it | measured |
+| RM-097 | A planning stage whose detached launch fails is retried and named | `choose-the-judges` R5: `plan --detach` died twice with no plan written ("detached bootstrap failed before readiness"), about 40 minutes lost | measured |
+| RM-098 | Repository facts are measured once per commit and reused | each of the four R5 plans measured the same suites again, about 15 minutes each | measured |
+| RM-099 | The planner's reviewer and the frozen contract's judge are configured apart, with a reviewer list of its own (D11) | R5 (b): `--runtime-defaults judge=` set both, so a same-vendor reviewer made every frozen node's judge unroutable (`runtime_routing_unmet`) in all four rounds | landed: `61fa73b`, `planner-and-routing` R19, 2026-09-27 |
+| RM-100 | One command waits for a run or a plan to need attention or finish | the operator's own polling broke three times in `choose-the-judges` (text parsing, a sandbox that cannot see the controller), delaying the detection of a parked node | measured |
+| RM-101 | The judge is chosen from an ordered list per node, with a fallback of several hops | D9 (2026-09-24): first entry of another canonical provider, skipping one out of quota or above 90% of its Codex window; a contract names one judge and one fallback today | landed: `2420b78` and `fcad975`, `planner-and-routing` R18, 2026-09-27 |
+| RM-102 | A single-provider mode, opt-in | an operator with one provider has no cross-vendor judge. Explicit opt-in (for example `judgeIndependence: same-vendor`); the judge is another model of the same or a higher class than the worker (Sonnet works, Opus or Fable judges); the Campaign Brief, the report and the metrics mark "same-provider review"; the judge canary gains a reading of that case | landed (the contract opt-in): `61889fb` and `31a5737`, `planner-and-routing` R20, 2026-09-27; the machine-config opt-in is `safe-to-hand-to-a-friend` R36 |
+| RM-103 | Finding severity is calibrated | in the `choose-the-judges` canary a third of the planted defects drew only `minor` findings, so a `[major, critical]` gate passes them: gpt-6-sol recalls 0.98 counting any cited rejection and 0.70 blocking | measured |
+| RM-104 | A plan's `proof.ref` is accepted as the verification command's text or its index | the invalid `proof.ref` that contested plans came from gpt-5.6-luna's revise and from claude-opus-5-5's draft alike (`choose-the-judges` R5), so it is the format, not a model | landed: `39c577f`, `planner-and-routing` R21, 2026-09-27 |
+| RM-105 | A contested plan's open-question always reaches the campaign | `choose-the-judges` R5: roles-a and roles-b contested, and the pipeline failed to record the open-question (`entry.text is 4706 bytes` and `11342 bytes, over the 2048-byte cap`, `bootstrap-failure.json`), so two contested plans told the campaign nothing | measured |
+| RM-106 | The operator's session is a cost of the campaign | the session that conducts a campaign and writes its contracts (an Opus session in every `leaving-home` campaign) is measured nowhere: `usage.jsonl` holds only what faberun launches, so every campaign's stated cost leaves out the model that did the orchestration and the hand-authoring | measured |
 | RM-033 | Ask the owner asynchronously (WhatsApp, then `campaign resolve`) instead of keeping a session alive to be present when a question appears | none yet | idea |
 | RM-070 | The getting-started walkthrough is executed, not only read | its first output shows `.runs/campaigns/hello`; the CLI prints a path under the home layout | specified: `safe-to-hand-to-a-friend` R5 |
 | RM-071 | No current document describes the legacy run layout as current | 31 lines cite `.runs` across `GETTING-STARTED.md`, `CONCEPTS.md`, `ARCHITECTURE.md` and `README.md` | specified: `safe-to-hand-to-a-friend` R6 |
@@ -564,26 +578,57 @@ that opens offline; Faberun also offers a minimal server bound to loopback so
 the operator can open that document through a local browser URL. External
 publication and automatic PR comments are not part of the first release.
 
-**D9: Keep the judge blocking, on every kind of node; gpt-5.6-sol judges and
-glm-5.3-flash is the fallback.** Owner delegated 2026-09-23 ("depends on the
-judge's vendor and on the product; run data"). Measured 2026-09-24 by
-`evals --class judge-canary`, 35 cases (5 per defect kind, 10 clean), one
-repetition, `evals/results/judge-canary/`:
+**D9: The judge comes from an ordered list, chosen per node.** Owner decision
+2026-09-24, revising the D9 of 2026-09-24 (one judge, gpt-5.6-sol) after the
+`choose-the-judges` canary: 35 cases, 25 defects of which 10 were written
+outside the Anthropic family by faberun nodes (5 by gpt-6-sol, 5 by
+deepseek-v4-pro), two repetitions, `evals/results/judge-canary/` at `3fcd6b0`.
 
-| runtime | recall | false alarms | errors | USD/case |
-| --- | --- | --- | --- | --- |
-| gpt-5.6-sol | 1.00 (25/25) | 0.20 (2/10) | 0 | 0.139 |
-| glm-5.3-flash | 0.83 | 0 | 2 | 0.012 |
-| claude-sonnet-5 | 0.30 | 0 | 3 | 0.263 |
+- The list, in order: `gpt-6-sol`, `claude-opus-5-5`, `glm-5.3-flash`.
+- For each node the judge is the first entry whose canonical provider (openai,
+  anthropic, zhipu, deepseek, google) is not the worker's, skipping an entry
+  that is out of quota or whose Codex usage window is above 90%. The fallback
+  is the next eligible entry.
+- Out of the list: `deepseek-v4-pro` (0.28 blocking recall), `glm-5.3`, the GLM
+  5.3 Pro, which recalls less than flash at nine times the price,
+  `gpt-5.6-sol` (superseded by gpt-6-sol at half the cost per verdict) and
+  `claude-sonnet-5` (0.30 in the first canary).
+- The judge stays blocking.
 
-A judge that catches every planted defect at 14 cents a case is worth blocking
-on, so it stays blocking. Nothing here separates kinds of node, so no kind is
-exempted: restricting it would be a guess. Sonnet passes what it should reject,
-which also explains its first-pass rate of 1 in `rec-audit-remediation`
-(`blockingJudgeFirstPassRate`), and is not a judge. The fallback is the cheap
-cross-vendor reader that still catches most defects. Five cases per kind and
-one repetition is a small sample: Sol's two false alarms and GLM's per-kind
-misses are signal, not a rate. Revisit when a repeated canary disagrees.
+Blocking recall and false alarms, recomputed from the result files without a
+model by `node evals/judge-canary-matrix.mjs` (its `blocking` field; the R5
+record is `evals/results/planner-roles/results.json`). A case blocks when the verdict is `fail`, a finding cites an item, and
+its highest severity is in `failOn` (`src/engine/review.mjs`). Verdicts are
+pooled over every reading of the corpus; refused calls are outside both rates.
+
+| judge | verdicts | recall, `failOn: [minor, major, critical]` | false alarms | recall, `failOn: [major, critical]` | false alarms |
+| --- | --- | --- | --- | --- | --- |
+| gpt-6-sol | 88 | 0.98 | 0.26 (7/27) | 0.70 | 0.11 (3/27) |
+| claude-opus-5-5 | 70 | 0.76 | 0.10 (2/20) | 0.62 | 0.10 (2/20) |
+| glm-5.3-flash | 68 | 0.85 | 0 (0/22) | 0.52 | 0 (0/22) |
+| glm-5.3 | 99 | 0.79 | 0 (0/32) | 0.52 | 0 (0/32) |
+| gpt-5.6-sol | 19 | 1.00 | 0 (0/7) | 0.58 | 0 (0/7) |
+| deepseek-v4-pro | 70 | 0.48 | 0 (0/20) | 0.28 | 0 (0/20) |
+
+Cost per verdict, priced: gpt-6-sol 0.070, claude-opus-5-5 0.132,
+glm-5.3-flash 0.011 USD. No judge favoured its own family: claude-opus-5-5
+recalled 0.70 on the 20 defect verdicts written outside the Anthropic family
+and 0.80 inside it; deepseek-v4-pro judged its own family's defects worst
+(0.30). With `minor` in `failOn`, glm-5.3-flash recalls more than
+claude-opus-5-5 (0.85 against 0.76); the list keeps the owner's order. A third
+of the planted defects draw only `minor` findings and pass a `[major,
+critical]` gate (`RM-103`). The list and its multi-hop fallback are `RM-101`;
+today a contract still names one judge and one fallback.
+
+**D11: Planning has its own reviewer list; Fable and Astra review plans and
+never judge a worker's node.** Owner decision 2026-09-24, from R5 of
+`choose-the-judges` (`evals/results/planner-roles/`): none of three role
+configurations froze. The reviewers (claude-opus-5-5, gpt-6-astra) found real
+defects in all three. What diverged was the reviser, and not by model: an
+invalid `proof.ref` came from gpt-5.6-luna's revise and from claude-opus-5-5's
+draft alike (`RM-087`, `RM-104`). A same-vendor reviewer made every frozen node's
+judge unroutable, because one `--runtime-defaults judge=` names both roles.
+Depends on `RM-099`.
 
 ### Reserved, not yet taken
 
@@ -599,12 +644,7 @@ deliberately conservative (at least 60 nodes, 5 campaigns, 60 days, pass@1 of
 95%). A lower floor starts saving sooner and risks learning from noise. Where is
 the line?
 
-**Q7: The stochastic budget.** `evals-with-a-budget` declares US$ 100 for its
-first real readings: about US$ 60 for three repetitions of six arms of the
-complex round and about US$ 20 for the canary on two judge runtimes. Confirm or
-change before that campaign's last phase.
-
 **Q8: Who is in the pilot.** Three to five people who already use coding agents,
 each with a repository of their own that has a remote and no automatic deploy.
 The names are the owner's to choose, and the invitations go out only after the
-program's third campaign closes.
+`safe-to-hand-to-a-friend` (3b) closes.

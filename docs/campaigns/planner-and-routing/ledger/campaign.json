@@ -1,0 +1,130 @@
+{
+  "id": "planner-and-routing",
+  "goal": "O planner congela, e cada nó tem o juiz certo",
+  "status": "closed",
+  "linkedRunIds": [
+    "planner-and-routing-foundations",
+    "planner-and-routing-foundations-2",
+    "planner-and-routing-foundations-3",
+    "planner-and-routing-routing-and-planner",
+    "planner-and-routing-routing-and-planner-2",
+    "planner-and-routing-routing-and-planner-3",
+    "planner-and-routing-reviewer-list"
+  ],
+  "contracts": [],
+  "replacements": [],
+  "landBranch": "campaign/planner-and-routing",
+  "promotions": [],
+  "createdAt": "2026-09-25T01:02:53.052Z",
+  "updatedAt": "2026-09-27T10:19:47.201Z",
+  "closedAt": "2026-09-27T10:19:47.201Z",
+  "requirements": [
+    {
+      "requirementId": "R14",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "planner-and-routing-foundations-3",
+          "node": "pipeline-split",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "planner-and-routing-routing-and-planner",
+          "node": "revise-converges",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R15",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "planner-and-routing-routing-and-planner-2",
+          "node": "proof-check",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R16",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "planner-and-routing-routing-and-planner-3",
+          "node": "human-step",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R17",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "planner-and-routing-foundations-3",
+          "node": "managed-block",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R18",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "planner-and-routing-foundations-3",
+          "node": "canonical-provider",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R19",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "planner-and-routing-reviewer-list",
+          "node": "reviewer-list",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R20",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "planner-and-routing-routing-and-planner-3",
+          "node": "single-provider",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R21",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "planner-and-routing-foundations-3",
+          "node": "proof-ref",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R9",
+      "status": "open",
+      "nodes": []
+    }
+  ]
+}

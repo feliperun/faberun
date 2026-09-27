@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "clean-deny-the-out-of-scope-write-before-the-file-exists",
   "label": "clean",
   "sourceTask": "deny-the-out-of-scope-write-before-the-file-exists",
@@ -126,6 +126,10 @@
       "skills/mine/intent-factory/test/host/tool-policy.test.mjs"
     ],
     "missingContext": []
+  },
+  "authoredBy": {
+    "runtime": "claude-opus-5-5",
+    "family": "anthropic"
   },
   "diff": "diff.patch",
   "diffSha256": "9dc0af6361fdb1d26f41726d3d9e6e139303eb2e3ac5d8f5273bd91813ad2927"

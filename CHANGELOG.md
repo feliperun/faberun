@@ -2,6 +2,49 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.26.3](https://github.com/feliperun/faberun/compare/v0.26.2...v0.26.3) (2026-09-27)
+
+
+### Bug Fixes
+
+* **harness:** a Claude judge has a read-only mode, and a declared writing mode is warned ([#90](https://github.com/feliperun/faberun/issues/90)) ([08814dc](https://github.com/feliperun/faberun/commit/08814dcde3248b7f78e8de340d510eea9adcfcc3))
+* **plan:** size each planning stage's wall clock by its runtime's reasoning effort ([#91](https://github.com/feliperun/faberun/issues/91)) ([9abfc70](https://github.com/feliperun/faberun/commit/9abfc70e3d9f0245ffb830381c29773ad6419c86))
+
+## [0.26.2](https://github.com/feliperun/faberun/compare/v0.26.1...v0.26.2) (2026-09-27)
+
+
+### Bug Fixes
+
+* **plan:** let a single-provider catalogue plan under same-vendor review ([#88](https://github.com/feliperun/faberun/issues/88)) ([a885292](https://github.com/feliperun/faberun/commit/a885292319f04a1280fb2dd525176fa91a952b58))
+
+## [0.26.1](https://github.com/feliperun/faberun/compare/v0.26.0...v0.26.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* **preflight:** size live preflight budgets by reasoning effort and wait for them when detached ([#85](https://github.com/feliperun/faberun/issues/85)) ([787512b](https://github.com/feliperun/faberun/commit/787512b352e0c980c4fc308bdb00872bdd2516e4))
+
+## [0.26.0](https://github.com/feliperun/faberun/compare/v0.25.1...v0.26.0) (2026-09-27)
+
+
+### Features
+
+* campaign 3a planner-and-routing lands, and the freeze checks proof and scope ([#84](https://github.com/feliperun/faberun/issues/84)) ([2729d12](https://github.com/feliperun/faberun/commit/2729d12654394f9fad445d7553e2e5b859ce1262))
+
+## [0.25.1](https://github.com/feliperun/faberun/compare/v0.25.0...v0.25.1) (2026-09-25)
+
+
+### Bug Fixes
+
+* a planning stage delivers through output and a broken size ceiling is named in the repair ([#82](https://github.com/feliperun/faberun/issues/82)) ([15484d8](https://github.com/feliperun/faberun/commit/15484d88e1b5ccf99019578fcae61cf2b8029f53))
+
+## [0.25.0](https://github.com/feliperun/faberun/compare/v0.24.0...v0.25.0) (2026-09-24)
+
+
+### Features
+
+* judges and planner roles are chosen by measurement, over a canary not written by one family ([5facc9e](https://github.com/feliperun/faberun/commit/5facc9e9124650cb72fe14da6967ade101ef05fc))
+
 ## [0.24.0](https://github.com/feliperun/faberun/compare/v0.23.1...v0.24.0) (2026-09-24)
 
 

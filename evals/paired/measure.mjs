@@ -53,23 +53,37 @@ async function runArm(arm, context) {
  * recorded as an error and its reservation is voided; the arm that cannot fit
  * the remaining allowance stops the loop rather than starting for free.
  *
- * @param {{arms: PairedArm[], corpus: CorpusSet, budget: StochasticBudget, seed: number, repeat: number, label: string, replayRoot?: string}} input
+ * @param {{arms: PairedArm[], corpus: CorpusSet, budget: StochasticBudget, seed: number, repeat: number, label: string, replayRoot?: string, concurrency?: number}} input
  * @returns {Promise<{runs: JsonObject[], skipped: JsonObject[]}>}
  */
-export async function measureArms({ arms, corpus, budget, seed, repeat, label, replayRoot }) {
-  /** @type {JsonObject[]} */
-  const runs = [];
+export async function measureArms({ arms, corpus, budget, seed, repeat, label, replayRoot, concurrency = 1 }) {
+  if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("--concurrency needs a positive integer");
+  /** @type {{order: number, run: JsonObject}[]} */
+  const ordered = [];
   /** @type {JsonObject[]} */
   const skipped = [];
   let exhausted = false;
-  for (let repetition = 1; repetition <= repeat && !exhausted; repetition += 1) {
-    const order = seededShuffle(arms, seed + repetition);
-    for (const arm of order) {
+  // Arms are independent runs in their own checkouts, so up to `concurrency`
+  // run at once; each is reserved against the budget before it starts. The
+  // cost is named, not hidden: parallel arms share the machine and the
+  // providers, so a wall-clock band measured this way is not comparable to a
+  // serial one, and the provenance says which it was.
+  /** @type {{arm: PairedArm, repetition: number}[]} */
+  const queue = [];
+  for (let repetition = 1; repetition <= repeat; repetition += 1) {
+    for (const arm of seededShuffle(arms, seed + repetition)) queue.push({ arm, repetition });
+  }
+  let next = 0;
+  const lane = async () => {
+    while (!exhausted && next < queue.length) {
+      const order = next;
+      next += 1;
+      const { arm, repetition } = queue[order];
       const reservation = budget.startInvocation(/** @type {any} */ (arm.runtime) ?? arm.name, estimateOf(arm));
       if (reservation === null) {
         skipped.push({ arm: arm.name, repetition, reason: "budget" });
         exhausted = true;
-        break;
+        return;
       }
       try {
         const record = await runArm(arm, { label, repetition, corpus, replayRoot });
@@ -81,13 +95,15 @@ export async function measureArms({ arms, corpus, budget, seed, repeat, label, r
           }
           : (typeof record.costUsd === "number" ? { costUsd: record.costUsd } : {}));
         budget.completeInvocation(reservation, settlement);
-        runs.push({ ...record, runner: arm.runner, model: arm.model });
+        ordered.push({ order, run: { ...record, runner: arm.runner, model: arm.model } });
         if (budget.result().overrunUsd > 0) exhausted = true;
       } catch (error) {
         budget.voidInvocation(reservation);
-        runs.push({ arm: arm.name, label, runner: arm.runner, model: arm.model, repetition, error: error instanceof Error ? error.message : String(error), scope: { outOfScope: [] } });
+        ordered.push({ order, run: { arm: arm.name, label, runner: arm.runner, model: arm.model, repetition, error: error instanceof Error ? error.message : String(error), scope: { outOfScope: [] } } });
       }
     }
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, lane));
+  const runs = ordered.sort((a, b) => a.order - b.order).map((entry) => entry.run);
   return { runs, skipped };
 }

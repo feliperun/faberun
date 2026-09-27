@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "clean-macos-process-start-token",
   "label": "clean",
   "sourceTask": "macos-process-start-token",
@@ -125,6 +125,10 @@
       "skills/mine/intent-factory/test/lock.test.mjs"
     ],
     "missingContext": []
+  },
+  "authoredBy": {
+    "runtime": "claude-opus-5-5",
+    "family": "anthropic"
   },
   "diff": "diff.patch",
   "diffSha256": "1bc0be2b92f324e094074d381b5642263207853232d66b10966e185e49b5db00"

@@ -1,0 +1,7 @@
+{
+  "at": "2026-09-24T13:36:51.350Z",
+  "pid": 11482,
+  "campaignId": "choose-the-judges",
+  "phase": "roles-b",
+  "error": "entry.text is 11342 bytes, over the 2048-byte cap; cut 9294 bytes and retry"
+}

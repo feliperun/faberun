@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "clean-stop-re-sealing-a-clean-attempt-from-failing-the-retry",
   "label": "clean",
   "sourceTask": "stop-re-sealing-a-clean-attempt-from-failing-the-retry",
@@ -118,6 +118,10 @@
       "skills/mine/intent-factory/test/integration.test.mjs"
     ],
     "missingContext": []
+  },
+  "authoredBy": {
+    "runtime": "claude-opus-5-5",
+    "family": "anthropic"
   },
   "diff": "diff.patch",
   "diffSha256": "d941ff5317c11441c9ef080327b560680c9f598f960696c98a16e9e7a216c759"

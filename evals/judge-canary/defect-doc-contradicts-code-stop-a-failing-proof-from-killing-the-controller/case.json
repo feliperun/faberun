@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "defect-doc-contradicts-code-stop-a-failing-proof-from-killing-the-controller",
   "label": "defect:doc-contradicts-code",
   "sourceTask": "stop-a-failing-proof-from-killing-the-controller",
@@ -154,6 +154,10 @@
       "skills/mine/intent-factory/test/verification.test.mjs"
     ],
     "missingContext": []
+  },
+  "authoredBy": {
+    "runtime": "claude-opus-5-5",
+    "family": "anthropic"
   },
   "mutation": {
     "kind": "doc-contradicts-code",

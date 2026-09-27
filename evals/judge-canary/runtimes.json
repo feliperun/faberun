@@ -9,7 +9,9 @@
       "vendor": "zhipu",
       "permissionMode": "plan",
       "estimateUsd": 0.5,
-      "config": { "auth_token.env_key": "ZAI_API_KEY" }
+      "config": {
+        "auth_token.env_key": "ZAI_API_KEY"
+      }
     },
     {
       "id": "claude-sonnet-5",
@@ -17,7 +19,11 @@
       "model": "claude-sonnet-5",
       "vendor": "anthropic",
       "permissionMode": "acceptEdits",
-      "tools": ["Read", "Glob", "Grep"],
+      "tools": [
+        "Read",
+        "Glob",
+        "Grep"
+      ],
       "estimateUsd": 3,
       "sandbox": "read-only"
     },
@@ -28,6 +34,62 @@
       "vendor": "openai",
       "sandbox": "read-only",
       "estimateUsd": 4
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "harness": "dsh",
+      "model": "deepseek-v4-pro",
+      "vendor": "deepseek",
+      "reasoning": "high",
+      "sandbox": "read-only",
+      "estimateUsd": 0.5,
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      }
+    },
+    {
+      "id": "glm-5.3",
+      "harness": "zcode",
+      "model": "glm-5.3",
+      "vendor": "zhipu",
+      "permissionMode": "plan",
+      "estimateUsd": 1,
+      "config": {
+        "auth_token.env_key": "ZAI_API_KEY"
+      }
+    },
+    {
+      "id": "gpt-6-sol",
+      "harness": "codex",
+      "model": "gpt-6-sol",
+      "vendor": "openai",
+      "sandbox": "read-only",
+      "estimateUsd": 2,
+      "pricing": {
+        "inputPerMTok": 2,
+        "cachedInputPerMTok": 0.2,
+        "outputPerMTok": 10
+      }
+    },
+    {
+      "id": "claude-opus-5-5",
+      "harness": "claude",
+      "model": "claude-opus-5-5",
+      "vendor": "anthropic",
+      "permissionMode": "acceptEdits",
+      "tools": [
+        "Read",
+        "Glob",
+        "Grep"
+      ],
+      "sandbox": "read-only",
+      "estimateUsd": 3,
+      "pricing": {
+        "inputPerMTok": 4,
+        "cachedInputPerMTok": 0.2,
+        "outputPerMTok": 20
+      }
     }
   ]
 }

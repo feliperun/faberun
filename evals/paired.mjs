@@ -35,6 +35,7 @@ import { dirtyTree, probeHarnessVersion, resultCommit, runtimeIdentities } from 
  *   resultDir?: string|null,
  *   assertNoModel?: boolean,
  *   label?: string,
+ *   concurrency?: number,
  *   armNames?: string[],
  *   commit?: string|null,
  *   probeVersion?: (runtime: Record<string, unknown>) => Promise<string|null>|string|null,
@@ -67,7 +68,7 @@ export async function runPairedClass(options = {}) {
   const corpus = loadCorpusSet(corpusRoot, options.corpus ?? "simple");
   const label = options.label ?? "paired";
 
-  const { runs, skipped } = await measureArms({ arms, corpus, budget, seed, repeat, label, replayRoot: options.replayRoot });
+  const { runs, skipped } = await measureArms({ arms, corpus, budget, seed, repeat, label, replayRoot: options.replayRoot, concurrency: options.concurrency ?? 1 });
 
   const generatedAt = new Date(now()).toISOString();
   const snapshot = budget.result();
@@ -93,6 +94,7 @@ export async function runPairedClass(options = {}) {
       dirtyTree: dirtyTree(PAIRED_REPO_ROOT),
       seed,
       repeat,
+      concurrency: options.concurrency ?? 1,
       corpus: corpus.id,
       corpusHash: corpus.hash,
       armsFileHash: hashArmsFile(options.armsFile ?? PAIRED_ARMS_FILE, options.arms === undefined ? null : arms),

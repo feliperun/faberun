@@ -1,13 +1,13 @@
 ---
 id: safe-to-hand-to-a-friend
 title: "Um estranho instala, roda e desinstala sem ajuda e sem expor as credenciais dele"
-version: 1.2.0
+version: 2.1.0
 status: draft
-date: 2026-09-24
+date: 2026-09-25
 owner: Felipe Broering
 target: feliperun/faberun
-baseline: 1357ea6
-derived_from: evals-with-a-budget
+baseline: 6ecb804
+derived_from: planner-and-routing
 followed_by: friends-pilot
 ---
 
@@ -15,11 +15,15 @@ followed_by: friends-pilot
 
 ## Intenção
 
-Terceira campanha do programa `leaving-home`. Até aqui o faberun rodou num
+Campanha 3b do programa `leaving-home`. Até aqui o faberun rodou num
 único repositório (ele mesmo), numa única máquina, com um único operador que
 conhece cada convenção porque escreveu todas. Um amigo não conhece nenhuma
 delas. Esta campanha remove, com medição, cada coisa que hoje só funciona
 porque o operador é o autor.
+
+R9 e R14 a R21 foram para `planner-and-routing` (campanha 3a), que conserta o
+planner e o roteamento de juízes antes desta. Esta campanha é o teste do portão 3
+para 4: todo contrato dela sai do `faberun plan`.
 
 **O worker vê o ambiente inteiro de quem o lançou.** O processo de gate que
 lança worker e juiz monta o ambiente do filho a partir de `{ ...process.env }`
@@ -67,49 +71,6 @@ certa. A única saída foi cancelar e reemitir o contrato, que recomeça do zero
 `resume --answer` é o mecanismo certo e só cobre `context_missing`
 (`RM-054`).
 
-**Quando o planner contesta, só o autor sabe continuar.** A retrospectiva de
-`durable-state-integrity` registra: "the planner contested both plans it was
-given and I authored both contracts by hand", e acrescenta que as objeções eram
-reais. Um plano contestado grava `status: "contested"` com os findings
-(`src/plan/pipeline.mjs:238`) e para ali. Não existe verbo para responder a um
-finding e continuar do estágio de revisão. Um amigo não vai escrever contrato à
-mão.
-
-**O planner ficou em 0 de 3, e o motivo não é só a contestação.** Nas três
-campanhas mais recentes que usaram o planner, nenhum contrato de implementação
-saiu dele: os dois da `durable-state-integrity` (segundo a retrospectiva dela),
-os cinco da `evidence-you-can-recompute` (A, A2, A3, A4 e B) e os três da
-`evals-with-a-budget` (`instruments`, `instruments-2` e `review-fixes`) foram
-escritos à mão, e as duas últimas registram isso no journal como `decision` com
-a palavra `hand-authored`. Só a `evidence-you-can-recompute`
-gastou US$ 3,79 em planejamento que não congelou. Os journals mostram três
-falhas diferentes, e só a primeira é a que o R9 já trata:
-
-- **O revisor tinha razão.** As objeções da `evidence-you-can-recompute` eram
-  defeitos reais da spec: um `measure` com `grep -c` que sai com código 1
-  quando a contagem é zero, uma prova cujo arquivo de teste não estava no
-  `writeFiles` de nenhum nó, e um passo declarado como fronteira humana
-  (`reledger` na home do operador) que o plano não tinha como representar, então
-  o nó que dependia dele nunca teria o que ler.
-- **O revise piora o plano.** Na rodada 4, o revise do `gpt-5.6-luna` chegou a
-  28 findings críticos e devolveu saída mecanicamente inválida (`proof.ref`
-  como texto e não como índice, caminho de `scopeAcknowledged` que não
-  existe). Cada rodada assim consome orçamento de revisão e deixa o plano mais
-  longe de congelar.
-- **O operador desiste do planner antes de tentar.** Na `evals-with-a-budget`,
-  o contrato foi escrito à mão sem passar pelo planner, "porque o revise
-  divergiu nos dois planos da campanha anterior".
-
-O portão 3 para 4 do programa pede que a próxima campanha do operador feche
-sem contrato escrito à mão. Com o planner assim, esse portão não se atinge.
-
-**O bloco gerenciado do `AGENTS.md` bloqueia o lançamento.** Na campanha zero,
-o faberun reescreveu o bloco de sinal do `AGENTS.md` a cada comando de campanha,
-e o `faberun run` recusou lançar contra o HEAD por caminho não commitado. O
-operador teve que dar `git checkout AGENTS.md` antes de cada lançamento. A
-identidade de fonte já exclui esse bloco (`src/repo/source-identity.mjs:132`),
-mas a checagem que recusou o lançamento não.
-
 **Quando um worker recusa o pacote, o nó morre.** O RM-005 mediu seis pacotes
 que passaram em `validate` e foram recusados depois com `context_missing`. O
 arm I do round complexo recusou o pacote com `blocked_context` depois de 4
@@ -122,9 +83,19 @@ dentro da recusa.
 `skills register` escreveram fora do repositório alvo (`grep -rn
 "uninstall|unregister" src` volta vazio).
 
+**A primeira campanha fora deste repositório achou doze atritos.** A campanha
+`agent-belt-security-quality-review` (faberun 0.10.0, repositório
+`feliperun/agent-belt`, 2026-09-25: 64 achados, 60 corrigidos, cerca de US$ 207
+de worker, 3 intervenções do operador) deixou os achados F1 a F12 na sua
+retrospectiva. Conferidos contra a árvore da 0.25.1: F1 (veredito do dsh
+ilegível) e F2 (retomada de `judge_unavailable`) já estão corrigidos, e os
+outros dez viram R22 a R31. Cada um cita o achado de origem. R32 a R36 vêm da
+própria campanha `planner-and-routing`, que achou esses defeitos enquanto rodava. Os dez são o que
+um estranho encontra na primeira campanha, fora do repositório do autor.
+
 ## Estado medido
 
-`1357ea6` (0.24.0), com a evidência dos journals das campanhas 0, 1 e 2.
+`3847121` (0.25.0), com a evidência dos journals das campanhas 0, 1, 2 e 2b.
 
 | Indicador | Hoje | Alvo |
 | --- | --- | --- |
@@ -135,12 +106,6 @@ dentro da recusa.
 | Ecossistemas com comando de verificação detectado pelo planner | 1 (Node) | 6 (Node, Python, Go, Rust, Zig, Makefile) |
 | Consequência do modo de sandbox dita na doc e na mensagem de erro | não | sim |
 | Nós não terminais que aceitam override do operador | só os com `context_missing` | todos |
-| Plano contestado que continua sem contrato escrito à mão | não | sim |
-| Contratos saídos do planner nas três últimas campanhas que o usaram | 0 de 10 (todos escritos à mão) | a campanha fecha com os contratos das fases 2 em diante saídos do planner |
-| Gasto de planejamento que não congelou, `evidence-you-can-recompute` | US$ 3,79 | o pipeline para quando a revisão não melhora |
-| Findings críticos na última rodada do revise, `evidence-you-can-recompute` | 28 na rodada 4 | nunca mais que na rodada anterior sem parar |
-| Passo humano declarado numa spec que o plano consegue representar | não | sim |
-| Lançamentos recusados só pelo bloco gerenciado do `AGENTS.md` | todos, na campanha zero | 0 |
 | Nó recusado por contexto que continua sem intervenção manual no pacote | não | sim, com aprovação do operador |
 | Verbo que remove o que o faberun escreveu fora do repositório | não | `faberun uninstall` |
 
@@ -233,17 +198,6 @@ scaffold`, o pipeline de plano com seus estágios, `validateContract` com
   runner do CI (`git diff --check`), para não depender de Python instalado.
 - **proof:** `command: node --test --test-name-pattern="a stranger's first campaign completes offline"`
 
-### R9. Um plano contestado entrega uma decisão ao operador
-
-- **statement:** quando o pipeline termina contestado, a saída lista cada
-  finding crítico com id, o nó ou requisito a que se refere e o que o resolveria.
-  `faberun plan --resolve <plan-dir> --answer <finding-id>=accept` ou
-  `--answer <finding-id>=reject:<motivo>` retoma a partir do estágio de revisão,
-  sem redesenhar do zero, grava as respostas no journal da campanha como
-  `decision`, e um plano com todos os findings críticos respondidos pode
-  congelar.
-- **proof:** `command: node --test --test-name-pattern="a contested plan resumes from the operator's answers"`
-
 ### R10. Um pacote recusado é reautorado, não abandonado
 
 - **statement:** quando um nó termina com `blocked_context` ou
@@ -289,50 +243,156 @@ scaffold`, o pipeline de plano com seus estágios, `validateContract` com
   anterior quando ele existe.
 - **proof:** `command: node --test --test-name-pattern="an operator override reaches any non-terminal node"`
 
-### R14. O revise não piora o plano
+### R22. Uma fonte de ignore dentro do escopo declarado não derruba o nó
 
-- **statement:** toda saída do revise passa pela validação determinística do
-  plano antes de contar como rodada. Um defeito mecânico com reparo único (um
-  `proof.ref` escrito como o texto de um comando de verificação que existe no
-  nó vira o índice desse comando) é reparado e registrado; um defeito sem
-  reparo único volta ao mesmo revise uma vez, com as mensagens do validador, sem
-  consumir rodada de revisão. O pipeline para e contesta, com um finding
-  `revision_not_converging` que mostra a contagem de críticos por rodada, quando
-  uma rodada termina com tantos ou mais críticos que a anterior, em vez de gastar
-  as rodadas que sobram.
-- **proof:** `command: node --test --test-name-pattern="a revise that does not reduce critical findings stops the pipeline"`
+- **origin:** agent-belt F3 (e a metade restante do F2).
+- **statement:** quando a única fonte de ignore que mudou está nos `writeFiles`
+  do nó ou sob um dos seus `writeRoots`, o snapshot de depois é tirado com as
+  regras de ignore de antes da tentativa, e a edição conta como escrita
+  declarada. Uma mudança de ignore fora do escopo declarado continua falhando
+  com `snapshot_ignore_changed`. O aviso de autoria (`src/repo/declared-paths.mjs`)
+  passa a cobrir um `writeRoots` que contém uma fonte de ignore.
+- **proof:** `command: node --test --test-name-pattern="a declared ignore-source edit is judged under the base rules, not failed" test/repo/workspace.test.mjs`
 
-### R15. Uma prova que nenhum nó pode escrever é achada antes da revisão
+### R23. O worker autônomo sabe que o escopo é consultivo
 
-- **statement:** um estágio determinístico, depois do rascunho e antes da
-  primeira revisão, confere cada prova do DoD: um `--test-name-pattern` precisa
-  casar com um teste que já existe na árvore ou estar num arquivo de teste que
-  algum nó declara em `writeFiles`, e um comando de verificação precisa poder
-  sair com 0 no estado que o nó promete (um `grep -c` ou `grep` sozinho que
-  verifica ausência é marcado). Cada achado vira finding do plano, com o nó e a
-  prova, sem invocar modelo.
-- **proof:** `command: node --test --test-name-pattern="a proof no node can write is found before review"`
+- **origin:** agent-belt F4.
+- **statement:** o prompt autônomo (`src/contract/task-packet.mjs`) diz o que o
+  engine já faz (`src/engine/scope.mjs`, `docs/CONCEPTS.md`): as raízes de
+  escrita são a fronteira esperada, não uma parede. Uma escrita fora delas é
+  permitida quando a tarefa a exige, e o resultado nomeia o caminho e o
+  motivo. `blocked_context` fica para contexto que falta de verdade. O
+  controlador continua registrando `scopeFindings` e mostrando-os ao juiz.
+- **proof:** `command: node --test --test-name-pattern="an autonomous prompt states that scope is advisory" test/contract/packet.test.mjs`
 
-### R16. O plano representa um passo humano declarado na spec
+### R24. A resposta do operador é critério do juiz, não só contexto
 
-- **statement:** um requisito cujas `constraints` declaram um passo do operador
-  (por exemplo, rodar um comando na home real e commitar o resultado) vira, no
-  plano congelado, um ponto de parada explícito: os nós que dependem desse passo
-  esperam, a run para ali com uma atenção que nomeia o passo e o comando, e
-  `faberun campaign resolve` (ou `resume --answer`) continua depois que o
-  operador registra que fez. O mecanismo (nó humano, divisão de fase ou outro)
-  fica a critério da implementação, desde que o Campaign Brief mostre o passo na
-  lista de decisões humanas.
-- **proof:** `command: node --test --test-name-pattern="a human step declared in the spec becomes a stop the plan carries"`
+- **origin:** agent-belt F5. Depende do R13.
+- **statement:** o prompt do juiz leva a resposta mais recente do operador
+  (`operator-answer`) como item de julgamento que ele arbitra e cita. Uma
+  resposta não cumprida é finding bloqueante.
+- **proof:** `command: node --test --test-name-pattern="an unmet operator answer fails the review" test/engine/judge.test.mjs`
 
-### R17. O bloco gerenciado do `AGENTS.md` não bloqueia o lançamento
+### R25. Uma decisão reservada ao dono vira pergunta, não escolha do worker
 
-- **statement:** `faberun run` e `faberun campaign supervise` lançam quando a
-  única mudança não commitada é o bloco de sinal que o próprio faberun gerencia
-  no `AGENTS.md`, e continuam recusando qualquer outra mudança não commitada,
-  inclusive fora do bloco no mesmo arquivo. Se a falha já não se reproduzir em
-  `1357ea6`, o requisito fecha com o teste de regressão.
-- **proof:** `command: node --test --test-name-pattern="the managed signal block alone does not block a launch"`
+- **origin:** agent-belt F6 (o worker escolheu uma licença e fechou o achado).
+- **statement:** uma constante única lista as decisões reservadas: licença,
+  preço, marca, publicação e dados de terceiros. Para qualquer uma que o
+  pacote não traga em `decisions`, o worker devolve `blocked_context` nomeando
+  a decisão. O juiz recebe a mesma lista e reprova um diff que toma uma delas
+  sem cobertura em `decisions`.
+- **proof:** `command: node --test --test-name-pattern="a reserved owner decision taken by the worker fails the review" test/engine/judge.test.mjs`
+
+### R26. Todo commit que o faberun escreve segue Conventional Commits
+
+- **origin:** agent-belt F7.
+- **statement:** o commit de candidato (`src/repo/integrate.mjs`, hoje
+  `faberun candidate <run> <node> attempt N`) passa a ter o formato do selo,
+  `chore(faberun): integrate <node> attempt <n>`, com o run id no corpo.
+  Nenhum commit que o faberun escreve no ref da run falha no
+  `@commitlint/config-conventional`. Um template de mensagem por contrato fica
+  fora, porque o PR é squash.
+- **proof:** `command: node --test --test-name-pattern="a candidate commit message follows the conventional commit shape" test/repo/integration.test.mjs`
+
+### R27. Estado efêmero não suja o repositório alvo por padrão
+
+- **origin:** agent-belt F8, medido aqui também: toda operação de campanha
+  deste repositório reescreve o bloco do `AGENTS.md`.
+- **statement:** o bloco gerenciado só é reescrito num `AGENTS.md` que já tem o
+  marcador de início. O operador opta colando o marcador uma vez, e este
+  repositório já o tem. `campaign close` grava o ledger no diretório da
+  campanha na home, e em `docs/campaigns/<id>/ledger` só com
+  `--ledger-in-repo`, que este repositório passa a usar (RM-060).
+- **proof:** `command: node --test --test-name-pattern="an AGENTS.md without the marker is never written|close writes the ledger to the home unless --ledger-in-repo" test/repo/signal.test.mjs test/campaign/ledger.test.mjs`
+
+### R28. Um preflight que expira mostra o que o provedor disse
+
+- **origin:** agent-belt F9 (um 401 do Codex apareceu como `preflight_timeout`).
+- **statement:** num timeout, a sonda viva (`src/engine/live-preflight.mjs`)
+  classifica o fim da saída do provedor como já faz quando ele sai, e anexa o
+  trecho redigido ao detalhe. Um 401 que o provedor re-tenta aparece como
+  `authentication_failed`. `doctor --discover` chama a sonda estática de
+  `binary present`, não de `available`.
+- **proof:** `command: node --test --test-name-pattern="a preflight that times out after a 401 reports authentication_failed" test/engine/live-gate.test.mjs`
+
+### R29. Um prazo de preflight, e o hello sem raciocínio
+
+- **origin:** agent-belt F10 (juízes `xhigh` e `-high` reprovados só por prazo).
+- **statement:** o hello roda com o menor esforço de raciocínio que o harness
+  aceita. Um único default medido (60 s) mora em `live-preflight.mjs` e vale
+  para o gate de despacho, o `doctor` e o `faberun preflight`, que hoje usa 15 s.
+  Os dois defaults duplicados em `run-identity.mjs` e `host/preflight.mjs` saem.
+- **proof:** `command: node --test --test-name-pattern="the liveness hello drops the declared reasoning effort" test/engine/live-gate.test.mjs`
+
+### R30. `campaign note` gera os ids que pode gerar
+
+- **origin:** agent-belt F11, medido aqui também em 2026-09-25.
+- **statement:** sem `--decision-id` ou `--question-id`, o comando gera um id a
+  partir do texto, com sufixo curto, e o imprime. Sem `--session-id`, usa a
+  última sessão anexada à campanha e só recusa quando não há nenhuma. O uso
+  gerado deixa de mostrar entre colchetes um flag exigido.
+- **proof:** `command: node --test --test-name-pattern="a decision note without ids gets a generated id and the attached session" test/campaign/campaign.test.mjs`
+
+### R31. O `status` mostra o custo por tentativa e avisa quando re-tentar custa mais
+
+- **origin:** agent-belt F12 (um nó custou cerca de US$ 112 em 4 tentativas).
+- **statement:** o payload de cada nó ganha o custo de cada tentativa, derivado
+  das `invocations` que o snapshot já guarda. A linha de texto marca quando a
+  soma das tentativas depois da primeira passa o custo da primeira.
+- **proof:** `command: node --test --test-name-pattern="status flags retries that out-spend the first attempt" test/report/cost.test.mjs`
+
+### R32. Um lançamento destacado recusado diz por quê e não deixa resto
+
+- **origin:** `planner-and-routing`, 2026-09-25: um `run --detach` que a
+  atribuição de runtimes recusou imprimiu só `detached bootstrap failed before
+  readiness`, e o diretório da run que ficou para trás (só o `contract.json`)
+  recusou a nova tentativa com `run already exists`.
+- **statement:** o bootstrap destacado repassa ao terminal a mensagem de erro
+  do controlador que morreu antes da prontidão. Um diretório de run que nunca
+  chegou a ter um nó é removido pelo próprio lançamento que falhou.
+- **proof:** `command: node --test --test-name-pattern="a refused detached launch prints the controller error and leaves no run directory" test/engine/detach.test.mjs`
+
+### R33. Um limite de sessão com hora de reset espera o reset
+
+- **origin:** `planner-and-routing`, 2026-09-25: três nós esgotaram com
+  `quota_exhausted` num 429 do Claude cujo texto dizia `You've hit your session
+  limit · resets 2:40pm (America/Sao_Paulo)`.
+- **statement:** a classificação de disponibilidade lê a hora de reset desse
+  texto, com o fuso que ele nomeia, e o nó espera o reset como já espera um
+  `exhaustedUntil` de outro provedor, em vez de esgotar.
+- **proof:** `command: node --test --test-name-pattern="a session limit that names its reset time waits for it" test/harnesses/claude.test.mjs`
+
+### R34. Uma prova que não roda nem na base é recusada no lançamento
+
+- **origin:** `planner-and-routing`, 2026-09-25: a prova `r9-named` de um
+  contrato escrito à mão tinha um apóstrofo dentro de uma string entre aspas
+  simples de `node -e`, e o nó pagou três tentativas antes de alguém ver que
+  nenhuma entrega passaria.
+- **statement:** antes do primeiro despacho, cada prova `command` que é um
+  `node -e` tem o corpo checado pelo parser. Um erro de sintaxe recusa o
+  lançamento, nomeando o nó e o item.
+- **proof:** `command: node --test --test-name-pattern="a proof command that cannot parse refuses the launch" test/contract/definition-of-done.test.mjs`
+
+### R35. A regra do juiz e a atribuição de runtimes dizem a mesma coisa
+
+- **origin:** `planner-and-routing`, 2026-09-25: o `validate` aceitou um
+  contrato em `judgeIndependence: "same-vendor"` que a atribuição de runtimes
+  recusou no lançamento (corrigido em `fix(engine): same-vendor mode admits a
+  same-provider judge at runtime assignment`).
+- **statement:** `faberun validate` roda a atribuição de runtimes do lançamento
+  sobre o contrato, com a disponibilidade dada como tudo disponível, e recusa o
+  que o lançamento recusaria.
+- **proof:** `command: node --test --test-name-pattern="validate refuses what runtime assignment would refuse" test/cli/validate.test.mjs`
+
+### R36. O modo de um provedor só também vale pelo config da máquina
+
+- **origin:** R20 da `planner-and-routing` pede o opt-in "no contrato ou no
+  config da máquina". Só a metade do contrato pousou, porque a validação do
+  contrato não lê o config da máquina.
+- **statement:** `judgeIndependence` no config da máquina vale para um contrato
+  que não o declara. O lançamento grava no snapshot da run o modo efetivo, e o
+  Brief, o relatório e as métricas leem esse modo.
+- **proof:** `command: node --test --test-name-pattern="the machine config opts a contract into same-vendor review" test/engine/runtime-discovery.test.mjs`
 
 ## Não-objetivos
 
@@ -344,19 +404,14 @@ scaffold`, o pipeline de plano com seus estágios, `validateContract` com
 - Instalador gráfico, app ou página web.
 - Reautoria automática sem aprovação para risco `high`.
 - Suporte a Windows além do que o CI já cobre hoje.
-- Reescrever o revise com outro modelo ou mudar o modelo padrão do planner. R14
-  mede e para; escolher o revisor é roteamento.
-- `RM-086` (o `faberun plan` que morreu dentro de um painel tmux sem reproduzir
-  fora dele). Fica medido e não reproduzido; o programa usa `plan --detach`.
-- Revisar a D9. É decisão do dono, fora desta spec.
+- Consertar o planner ou o roteamento de juízes: é a `planner-and-routing`.
 
 ## Restrições
 
-- **Ordem das fases.** A fase 1 é o planner e o lançamento (R14, R15, R16, R17 e
-  R9). Só ela pode ter contrato escrito à mão, registrado como `hand-authored`.
-  Da fase 2 em diante, todo contrato desta campanha sai do `faberun plan`; um
-  contrato escrito à mão depois da fase 1 é registrado e conta contra o critério
-  de sucesso, não é proibido.
+- **Todo contrato desta campanha sai do `faberun plan`.** Um contrato escrito à
+  mão é registrado como decision `hand-authored` e reprova o critério de sucesso.
+  Esta campanha é o teste do portão 3 para 4.
+- **Orçamento de execução:** até US$ 20.
 - Todo `measure` e toda prova por comando desta spec saem com 0 no estado
   esperado; um `grep` que verifica ausência usa `! grep -q` ou termina com
   `|| true` quando é só medida.
@@ -381,8 +436,7 @@ scaffold`, o pipeline de plano com seus estágios, `validateContract` com
 | Ecossistemas detectados | 1 | 6 |
 | Tentativas boas descartadas por defeito de pacote | 1 na `rec-audit-remediation` | 0 |
 | Tempo da primeira campanha offline de ponta a ponta | não existe | menos de 60 s |
-| Contratos escritos à mão nas fases 2 em diante desta campanha | 10 de 10 nas três campanhas anteriores | 0 |
-| Rodadas de revisão gastas depois que os críticos pararam de cair | até 2 por plano | 0 |
+| Contratos escritos à mão nesta campanha | 13 de 13 (os 10 das três campanhas anteriores e os 3 planos do R5 da `choose-the-judges` que não congelaram) | 0 |
 
 ## Riscos
 
@@ -391,6 +445,4 @@ scaffold`, o pipeline de plano com seus estágios, `validateContract` com
 | Um harness lê uma variável não declarada e para de autenticar | o operador perde um runtime | R2 falha o teste antes, e R4 confere na máquina real antes de fechar |
 | O teste do guia fica frágil com a formatação | falso vermelho no CI | a normalização é explícita e testada; o guia marca os blocos conferidos, e texto em prosa fica fora |
 | A reautoria vira um laço caro | custo sem entrega | orçamento de rodadas duro, aprovação humana acima do nível declarado, e a métrica de laço improdutivo do RM-032 fica como follow-up nomeado |
-| R14 para cedo demais um plano que convergiria na rodada seguinte | um plano bom vira contestado | o finding mostra a contagem por rodada, e `plan --resolve` (R9) continua de onde parou |
-| R16 cresce até virar um motor de workflow | escopo estoura | o requisito pede só parar, nomear o passo e continuar; nada de agendamento ou condição |
 | `uninstall` apaga evidência que o operador queria | perda de ledger | recusa enquanto houver ledger não preservado, `--dry-run` por padrão na doc |

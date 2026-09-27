@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "why": "Hand-authored sources of the judge canary: one packet per golden task, stated as a real contract would state it, and one in-file edit set per defect case. `node evals/judge-canary.mjs` builds the sealed cases from this file; the label and the description never reach the judge.",
+  "why": "Hand-authored sources of the judge canary: one packet per golden task, stated as a real contract would state it, and one in-file edit set per defect case. `node evals/judge-canary.mjs` builds the sealed cases from this file; the label, the author and the description never reach the judge.",
   "tasks": [
     {
       "task": "deny-the-out-of-scope-write-before-the-file-exists",
@@ -26,7 +26,11 @@
           "text": "readThresholdDecision and bashReadDecision still pass a missing or unmeasurable target through."
         }
       ],
-      "summary": "writeScopeDecision no longer consults the disk: an out-of-scope target is denied whether or not it exists. The comments state the rule and the missing-path test asserts the denial."
+      "summary": "writeScopeDecision no longer consults the disk: an out-of-scope target is denied whether or not it exists. The comments state the rule and the missing-path test asserts the denial.",
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "anthropic-soft-limit-fixture",
@@ -50,7 +54,11 @@
           "text": "The test pins the hard balance stop as insufficient_balance with no reset instant, and shows the two stops differ."
         }
       ],
-      "summary": "Added a drivers test pinning Anthropic's soft session limit as exhausted with its reset instant and contrasting it with the resetless 402 balance stop."
+      "summary": "Added a drivers test pinning Anthropic's soft session limit as exhausted with its reset instant and contrasting it with the resetless 402 balance stop.",
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "classify-codex-tool-host-failure-before-cancellation",
@@ -80,7 +88,11 @@
           "text": "The preamble comment records the four measured host outcomes."
         }
       ],
-      "summary": "normalizeCodexResult now classifies the tool-host error ahead of the signal, boundedMessage cuts on a character boundary, and the preamble comment records the four measurements; tests pin all three."
+      "summary": "normalizeCodexResult now classifies the tool-host error ahead of the signal, boundedMessage cuts on a character boundary, and the preamble comment records the four measurements; tests pin all three.",
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "deepseek-balance-classification",
@@ -100,7 +112,11 @@
           "text": "A 402 or 'Insufficient Balance' stop, with or without the numeric code, is insufficient_balance with exhaustedUntil null."
         }
       ],
-      "summary": "normalizeProviderAvailability classifies the 402 balance stop as insufficient_balance ahead of the quota branch; a drivers test pins the stream and wording-only shapes."
+      "summary": "normalizeProviderAvailability classifies the 402 balance stop as insufficient_balance ahead of the quota branch; a drivers test pins the stream and wording-only shapes.",
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "macos-process-start-token",
@@ -125,7 +141,11 @@
           "text": "Linux keeps its /proc token and every other platform returns null."
         }
       ],
-      "summary": "processStartToken reads ps lstart on darwin, keeps /proc on Linux and returns null elsewhere; lock tests pin darwin stability, a recycled pid, synthetic mismatches and the other-platform null."
+      "summary": "processStartToken reads ps lstart on darwin, keeps /proc on Linux and returns null elsewhere; lock tests pin darwin stability, a recycled pid, synthetic mismatches and the other-platform null.",
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "stop-a-failing-proof-from-killing-the-controller",
@@ -154,7 +174,11 @@
           "text": "The contract reference states all three gate properties."
         }
       ],
-      "summary": "boundedText now reserves the marker and shrinks to fit, the ignore-source walk skips virtual environments, and contract.md documents three gate properties; verification tests pin the first two."
+      "summary": "boundedText now reserves the marker and shrinks to fit, the ignore-source walk skips virtual environments, and contract.md documents three gate properties; verification tests pin the first two.",
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "report-the-provider-s-startup-error-not-just-an-empty-stream",
@@ -179,7 +203,11 @@
           "text": "The invocation path hands its stderr tail to the normalizer."
         }
       ],
-      "summary": "The claude, codex and agy normalizers append the process's stderr to an incomplete_stream message, and recordInvocationUsage passes the stderr tail it reads; a drivers test pins the codex config-load case."
+      "summary": "The claude, codex and agy normalizers append the process's stderr to an incomplete_stream message, and recordInvocationUsage passes the stderr tail it reads; a drivers test pins the codex config-load case.",
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "strip-the-notification-transport-from-worker-provider-enviro",
@@ -203,7 +231,11 @@
           "text": "Job.budgetStop's type includes \"wallclock\"."
         }
       ],
-      "summary": "childEnv strips PLAN_RUNNER_NOTIFY_BIN after the driver overlay and Job.budgetStop admits wallclock; a supervisor test pins the stripped environment."
+      "summary": "childEnv strips PLAN_RUNNER_NOTIFY_BIN after the driver overlay and Job.budgetStop admits wallclock; a supervisor test pins the stripped environment.",
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "carry-git-s-own-reason-into-a-failed-git-command",
@@ -227,7 +259,11 @@
           "text": "A failing git call's error keeps its first line and appends git's stderr, or its stdout when stderr is empty."
         }
       ],
-      "summary": "Added runGit, which appends git's own reason to a failed command, and routed every git call in worktree.mjs through it; an integration test pins the reason."
+      "summary": "Added runGit, which appends git's own reason to a failed command, and routed every git call in worktree.mjs through it; an integration test pins the reason.",
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "stop-re-sealing-a-clean-attempt-from-failing-the-retry",
@@ -247,31 +283,14 @@
           "text": "The probe excludes the result sidecar and node_modules, so an attempt with only those entries is not committed again."
         }
       ],
-      "summary": "sealAttempt's probe now excludes node_modules as the staging step does; an integration test pins that re-sealing keeps the existing seal."
+      "summary": "sealAttempt's probe now excludes node_modules as the staging step does; an integration test pins that re-sealing keeps the existing seal.",
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     }
   ],
   "defects": [
-    {
-      "task": "deny-the-out-of-scope-write-before-the-file-exists",
-      "kind": "test-weakened",
-      "description": "The missing-path assertion is loosened from 'the decision is deny' to 'the decision is not undefined', which a null pass-through also satisfies.",
-      "edits": [
-        {
-          "path": "skills/mine/intent-factory/test/host/tool-policy.test.mjs",
-          "find": [
-            "  assert.equal(",
-            "    writeScopeDecision({ workspace, writeFiles: [\"ghost.mjs\"], writeRoots: [] }, { tool_name: \"Write\", tool_input: { file_path: outOfScope } })",
-            "      ?.hookSpecificOutput.permissionDecision,",
-            "    \"deny\","
-          ],
-          "replace": [
-            "  assert.notEqual(",
-            "    writeScopeDecision({ workspace, writeFiles: [\"ghost.mjs\"], writeRoots: [] }, { tool_name: \"Write\", tool_input: { file_path: outOfScope } }),",
-            "    undefined,"
-          ]
-        }
-      ]
-    },
     {
       "task": "anthropic-soft-limit-fixture",
       "kind": "test-weakened",
@@ -286,7 +305,11 @@
             "  assert.match(String(softLimit.exhaustedUntil), /^2026-09-08/u, \"the reset instant is parsed from the error text, proving this is retryable-after-reset\");"
           ]
         }
-      ]
+      ],
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "classify-codex-tool-host-failure-before-cancellation",
@@ -305,23 +328,11 @@
             "  assert.equal(envelope.result, null);"
           ]
         }
-      ]
-    },
-    {
-      "task": "deepseek-balance-classification",
-      "kind": "test-weakened",
-      "description": "The wording-only assertion is loosened from the full availability record to available === false, so a wording-only stop classified under any reason passes.",
-      "edits": [
-        {
-          "path": "skills/mine/intent-factory/test/drivers.test.mjs",
-          "find": [
-            "  assert.deepEqual(wordingOnly, { available: false, exhaustedUntil: null, reason: \"insufficient_balance\" });"
-          ],
-          "replace": [
-            "  assert.equal(wordingOnly.available, false);"
-          ]
-        }
-      ]
+      ],
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "stop-re-sealing-a-clean-attempt-from-failing-the-retry",
@@ -337,50 +348,11 @@
             "  assert.ok(result.sha, \"a clean attempt keeps its existing seal instead of failing to commit nothing\");"
           ]
         }
-      ]
-    },
-    {
-      "task": "deny-the-out-of-scope-write-before-the-file-exists",
-      "kind": "doc-contradicts-code",
-      "description": "The DECISION 1 comment keeps the old rule (a target that does not exist passes through) while the code denies it.",
-      "edits": [
-        {
-          "path": "skills/mine/intent-factory/src/host/tool-policy-decisions.mjs",
-          "find": [
-            " * not a closed one, and denies nothing. Existence is not consulted: a path is",
-            " * in the declared scope or it is not, and a file the attempt is about to",
-            " * create is exactly the case worth catching before it exists."
-          ],
-          "replace": [
-            " * not a closed one, and denies nothing. A target that does not exist cannot be",
-            " * shown to violate the scope, so it passes through same as an unmeasurable",
-            " * read target -- the post-hoc scope gate in `engine/scope.mjs` is what catches",
-            " * a genuinely out-of-scope file the attempt actually created."
-          ]
-        }
-      ]
-    },
-    {
-      "task": "classify-codex-tool-host-failure-before-cancellation",
-      "kind": "doc-contradicts-code",
-      "description": "The comment above the tool-host check says the termination signal is read first and wins, while the code classifies the tool-host error first.",
-      "edits": [
-        {
-          "path": "skills/mine/intent-factory/scripts/drivers/exec-jsonl.mjs",
-          "find": [
-            "  // fabricated result, never evidence. The tool-host failure is classified",
-            "  // first so it wins over a later termination signal, a completed turn, or an",
-            "  // agent_message verdict: a judge grounded in no inspection is rejected, and",
-            "  // a harness that dies after the host error is not a plain cancellation."
-          ],
-          "replace": [
-            "  // fabricated result, never evidence. A termination signal is still read",
-            "  // first: a harness killed after the host error is a plain cancellation, and",
-            "  // only a turn that ran to completion is reclassified as a tool-host failure",
-            "  // so a judge grounded in no inspection is rejected."
-          ]
-        }
-      ]
+      ],
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "stop-a-failing-proof-from-killing-the-controller",
@@ -402,7 +374,11 @@
             "  // of a few bytes is harmless and the cut needs no retry."
           ]
         }
-      ]
+      ],
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "carry-git-s-own-reason-into-a-failed-git-command",
@@ -421,7 +397,11 @@
             " * stdout is never part of the reason."
           ]
         }
-      ]
+      ],
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "macos-process-start-token",
@@ -447,7 +427,11 @@
             " * probe alone decides there."
           ]
         }
-      ]
+      ],
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "anthropic-soft-limit-fixture",
@@ -475,32 +459,11 @@
             "});"
           ]
         }
-      ]
-    },
-    {
-      "task": "report-the-provider-s-startup-error-not-just-an-empty-stream",
-      "kind": "requirement-half-done",
-      "description": "Only the codex normalizer appends stderr; the claude and agy normalizers still report the bare empty-stream message.",
-      "edits": [
-        {
-          "path": "skills/mine/intent-factory/scripts/drivers/protocol.mjs",
-          "find": [
-            "  if (!resultEvent) return failed(\"incomplete_stream\", withStartupReason(\"Claude emitted no result event\", options));"
-          ],
-          "replace": [
-            "  if (!resultEvent) return failed(\"incomplete_stream\", \"Claude emitted no result event\");"
-          ]
-        },
-        {
-          "path": "skills/mine/intent-factory/scripts/drivers/protocol.mjs",
-          "find": [
-            "    return failed(\"incomplete_stream\", withStartupReason(\"agy emitted no result event\", options));"
-          ],
-          "replace": [
-            "    return failed(\"incomplete_stream\", \"agy emitted no result event\");"
-          ]
-        }
-      ]
+      ],
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "stop-a-failing-proof-from-killing-the-controller",
@@ -532,35 +495,11 @@
             "`failOn: [\"major\"]` unless there is a stated reason not to."
           ]
         }
-      ]
-    },
-    {
-      "task": "carry-git-s-own-reason-into-a-failed-git-command",
-      "kind": "requirement-half-done",
-      "description": "The sealing commit, the call the reason was missing from, still runs through a bare execFileSync with stdio ignored.",
-      "edits": [
-        {
-          "path": "skills/mine/intent-factory/scripts/worktree.mjs",
-          "find": [
-            "    runGit([",
-            "      \"-C\", path,",
-            "      \"-c\", \"user.email=runner@example.test\",",
-            "      \"-c\", \"user.name=intent-factory\",",
-            "      \"-c\", \"commit.gpgSign=false\",",
-            "      \"commit\", \"-qm\", `intent-factory ${runId} ${nodeId} attempt ${attempt}`,",
-            "    ]);"
-          ],
-          "replace": [
-            "    execFileSync(\"git\", [",
-            "      \"-C\", path,",
-            "      \"-c\", \"user.email=runner@example.test\",",
-            "      \"-c\", \"user.name=intent-factory\",",
-            "      \"-c\", \"commit.gpgSign=false\",",
-            "      \"commit\", \"-qm\", `intent-factory ${runId} ${nodeId} attempt ${attempt}`,",
-            "    ], { stdio: \"ignore\" });"
-          ]
-        }
-      ]
+      ],
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "strip-the-notification-transport-from-worker-provider-enviro",
@@ -576,45 +515,11 @@
             "budgetStop?: \"node\"|\"campaign\""
           ]
         }
-      ]
-    },
-    {
-      "task": "deny-the-out-of-scope-write-before-the-file-exists",
-      "kind": "nongoal-violated",
-      "description": "The denial reason changes: it shows up to 32 declared paths instead of 12 and adds a hint to ask for a wider scope, which a non-goal excludes.",
-      "edits": [
-        {
-          "path": "skills/mine/intent-factory/src/host/tool-policy-decisions.mjs",
-          "find": [
-            "  const shown = declared.slice(0, 12);",
-            "  const omitted = declared.length - shown.length;",
-            "  const remainder = omitted > 0 ? ` (and ${omitted} more not shown)` : \"\";",
-            "  return `write denied: this path is outside the declared write scope. Declared write paths: ${shown.join(\", \")}${remainder}. Write only to one of those.`;"
-          ],
-          "replace": [
-            "  const shown = declared.slice(0, 32);",
-            "  const omitted = declared.length - shown.length;",
-            "  const remainder = omitted > 0 ? ` (and ${omitted} more not shown)` : \"\";",
-            "  return `write denied: this path is outside the declared write scope. Declared write paths: ${shown.join(\", \")}${remainder}. Write only to one of those, or ask the controller to widen the scope.`;"
-          ]
-        }
-      ]
-    },
-    {
-      "task": "deepseek-balance-classification",
-      "kind": "nongoal-violated",
-      "description": "The quota pattern gains billing and credit, changing quota classification, which a non-goal excludes.",
-      "edits": [
-        {
-          "path": "skills/mine/intent-factory/scripts/drivers/index.mjs",
-          "find": [
-            "  if (envelope.status === \"exhausted\" || /quota|rate.?limit|usage limit|limit exhausted|1310/iu.test(text)) {"
-          ],
-          "replace": [
-            "  if (envelope.status === \"exhausted\" || /quota|rate.?limit|usage limit|limit exhausted|billing|credit|1310/iu.test(text)) {"
-          ]
-        }
-      ]
+      ],
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "report-the-provider-s-startup-error-not-just-an-empty-stream",
@@ -630,7 +535,11 @@
             "    const boundedStderr = readBoundedTail(job.paths.stderr, 8 * 1024 * 1024);"
           ]
         }
-      ]
+      ],
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "strip-the-notification-transport-from-worker-provider-enviro",
@@ -649,7 +558,11 @@
             "  return merged;"
           ]
         }
-      ]
+      ],
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "stop-re-sealing-a-clean-attempt-from-failing-the-retry",
@@ -665,24 +578,11 @@
             "    execFileSync(\"git\", [\"-C\", path, \"rm\", \"-r\", \"-q\", \"--cached\", \"--ignore-unmatch\", \"--\", \".runs\", \"node_modules\", \".claude\"], { stdio: \"ignore\" });"
           ]
         }
-      ]
-    },
-    {
-      "task": "classify-codex-tool-host-failure-before-cancellation",
-      "kind": "scope-drift-inside-writefiles",
-      "description": "features.computer_use=false is dropped from the preamble overrides, an unrequested behaviour change inside codex.mjs.",
-      "edits": [
-        {
-          "path": "skills/mine/intent-factory/scripts/drivers/codex.mjs",
-          "find": [
-            "  \"features.browser_use_external=false\",",
-            "  \"features.computer_use=false\","
-          ],
-          "replace": [
-            "  \"features.browser_use_external=false\","
-          ]
-        }
-      ]
+      ],
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "macos-process-start-token",
@@ -698,7 +598,11 @@
             "    return false;"
           ]
         }
-      ]
+      ],
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "report-the-provider-s-startup-error-not-just-an-empty-stream",
@@ -714,24 +618,11 @@
             "  return /(?:^|[\\s/])v?\\d+\\.\\d+(?:\\.\\d+)?(?:[-+][0-9A-Za-z.-]+)?(?:$|\\s)/u.test(line)"
           ]
         }
-      ]
-    },
-    {
-      "task": "carry-git-s-own-reason-into-a-failed-git-command",
-      "kind": "scope-drift-inside-writefiles",
-      "description": "removeWorktree now swallows every failure when the path is gone, not only git's exit 128, an unrequested behaviour change inside worktree.mjs.",
-      "edits": [
-        {
-          "path": "skills/mine/intent-factory/scripts/worktree.mjs",
-          "find": [
-            "    if (existsSync(path)) rmSync(path, { recursive: true, force: true });",
-            "    else if (/** @type {{status?: number}} */ (error)?.status !== 128) throw error;"
-          ],
-          "replace": [
-            "    if (existsSync(path)) rmSync(path, { recursive: true, force: true });"
-          ]
-        }
-      ]
+      ],
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
     },
     {
       "task": "deepseek-balance-classification",
@@ -747,7 +638,229 @@
             "    return { available: false, exhaustedUntil: null, reason: \"provider_unavailable\" };"
           ]
         }
-      ]
+      ],
+      "authoredBy": {
+        "runtime": "claude-opus-5-5",
+        "family": "anthropic"
+      }
+    },
+    {
+      "kind": "nongoal-violated",
+      "task": "anthropic-soft-limit-fixture",
+      "description": "The diff skips the pre-existing quota and failover regression while adding the soft-limit fixture, although this task was to add one test only.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/test/drivers.test.mjs",
+          "find": [
+            "test(\"quota exhaustion routes through the declared failover edge (normalizer)\", () => {"
+          ],
+          "replace": [
+            "test.skip(\"quota exhaustion routes through the declared failover edge (normalizer)\", () => {"
+          ]
+        }
+      ],
+      "authoredBy": {
+        "runtime": "gpt-6-sol",
+        "family": "openai"
+      }
+    },
+    {
+      "kind": "requirement-half-done",
+      "task": "stop-re-sealing-a-clean-attempt-from-failing-the-retry",
+      "description": "The dirtiness probe excludes node_modules but still includes an unignored .runs result sidecar, so re-sealing a sidecar-only attempt still tries an empty commit.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/worktree.mjs",
+          "find": [
+            "  const dirty = git(path, [\"status\", \"--porcelain=v1\", \"--\", \".\", \":(exclude).runs\", \":(exclude)node_modules\"]);"
+          ],
+          "replace": [
+            "  const dirty = git(path, [\"status\", \"--porcelain=v1\", \"--\", \".\", \":(exclude)node_modules\"]);"
+          ]
+        }
+      ],
+      "authoredBy": {
+        "runtime": "gpt-6-sol",
+        "family": "openai"
+      }
+    },
+    {
+      "kind": "scope-drift-inside-writefiles",
+      "task": "strip-the-notification-transport-from-worker-provider-enviro",
+      "description": "The provider log evidence cap is silently reduced from 512 KiB to 64 KiB in supervisor.mjs, an unrelated change inside a permitted file.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/supervisor.mjs",
+          "find": [
+            "const MAX_PROVIDER_LOG_BYTES = 512 * 1024;"
+          ],
+          "replace": [
+            "const MAX_PROVIDER_LOG_BYTES = 64 * 1024;"
+          ]
+        }
+      ],
+      "authoredBy": {
+        "runtime": "gpt-6-sol",
+        "family": "openai"
+      }
+    },
+    {
+      "kind": "doc-contradicts-code",
+      "task": "deepseek-balance-classification",
+      "description": "The new comment claims balance wording without a 402 remains a generic failure, but the branch classifies that wording as insufficient_balance.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/drivers/index.mjs",
+          "find": [
+            "  // instant to report, unlike quota_exhausted, so it must be classified before",
+            "  // that branch even though its text never matches the quota pattern."
+          ],
+          "replace": [
+            "  // instant to report, unlike quota_exhausted, so it must be classified before",
+            "  // that branch. Wording without a numeric 402 remains a generic provider failure."
+          ]
+        }
+      ],
+      "authoredBy": {
+        "runtime": "gpt-6-sol",
+        "family": "openai"
+      }
+    },
+    {
+      "kind": "test-weakened",
+      "task": "carry-git-s-own-reason-into-a-failed-git-command",
+      "description": "The failing-git test keeps only the Command failed assertion and stops checking that git’s own reason appears, despite its name and packet.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/test/integration.test.mjs",
+          "find": [
+            "      assert.match(",
+            "        error.message,",
+            "        /fatal|unknown revision|Needed a single revision/iu,",
+            "        \"and says why, instead of dropping git's stderr\",",
+            "      );"
+          ],
+          "replace": []
+        }
+      ],
+      "authoredBy": {
+        "runtime": "gpt-6-sol",
+        "family": "openai"
+      }
+    },
+    {
+      "task": "macos-process-start-token",
+      "kind": "nongoal-violated",
+      "description": "processStartToken shells out through sudo on darwin, requiring elevated privileges to fingerprint a process, which the non-goal excludes.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/lock.mjs",
+          "find": [
+            "      const started = execFileSync(\"ps\", [\"-o\", \"lstart=\", \"-p\", String(pid)], { encoding: \"utf8\" }).trim();"
+          ],
+          "replace": [
+            "      const started = execFileSync(\"sudo\", [\"-n\", \"ps\", \"-o\", \"lstart=\", \"-p\", String(pid)], { encoding: \"utf8\" }).trim();"
+          ]
+        }
+      ],
+      "authoredBy": {
+        "runtime": "deepseek-v4-pro",
+        "family": "deepseek"
+      }
+    },
+    {
+      "task": "classify-codex-tool-host-failure-before-cancellation",
+      "kind": "requirement-half-done",
+      "description": "The tool-host failure wins over the signal only when a turn.completed event also exists, so a harness that dies after the host error but before completing a turn is still reported as canceled.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/drivers/exec-jsonl.mjs",
+          "find": [
+            "  if (toolHostError) {"
+          ],
+          "replace": [
+            "  if (toolHostError && events.some((event) => event.type === \"turn.completed\")) {"
+          ]
+        }
+      ],
+      "authoredBy": {
+        "runtime": "deepseek-v4-pro",
+        "family": "deepseek"
+      }
+    },
+    {
+      "task": "stop-a-failing-proof-from-killing-the-controller",
+      "kind": "scope-drift-inside-writefiles",
+      "description": "mechanicalVerdict now reports a deterministic proof failure as a major finding instead of critical, an unrequested change to the gate's severity inside judge-gate.mjs.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/judge-gate.mjs",
+          "find": [
+            "  return {",
+            "    verdict: \"fail\",",
+            "    maxSeverity: \"critical\",",
+            "    summary: \"deterministic Definition of Done item failed\",",
+            "    findings: failed.map((result) => ({",
+            "      severity: \"critical\","
+          ],
+          "replace": [
+            "  return {",
+            "    verdict: \"fail\",",
+            "    maxSeverity: \"major\",",
+            "    summary: \"deterministic Definition of Done item failed\",",
+            "    findings: failed.map((result) => ({",
+            "      severity: \"major\","
+          ]
+        }
+      ],
+      "authoredBy": {
+        "runtime": "deepseek-v4-pro",
+        "family": "deepseek"
+      }
+    },
+    {
+      "task": "report-the-provider-s-startup-error-not-just-an-empty-stream",
+      "kind": "doc-contradicts-code",
+      "description": "The withStartupReason comment says the stderr is bounded to 512 KiB, while the code truncates it to 512 bytes.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/scripts/drivers/protocol.mjs",
+          "find": [
+            " * binary, an auth refusal — that text is the whole diagnosis, and dropping it"
+          ],
+          "replace": [
+            " * binary, an auth refusal — that text, bounded to 512 KiB, is the whole diagnosis, and dropping it"
+          ]
+        }
+      ],
+      "authoredBy": {
+        "runtime": "deepseek-v4-pro",
+        "family": "deepseek"
+      }
+    },
+    {
+      "task": "macos-process-start-token",
+      "kind": "test-weakened",
+      "description": "The darwin stability test re-asserts only that a second call is non-null, dropping the check that it equals the first call, so a changing token still passes.",
+      "edits": [
+        {
+          "path": "skills/mine/intent-factory/test/lock.test.mjs",
+          "find": [
+            "  const first = processStartToken(process.pid);",
+            "  assert.notEqual(first, null);",
+            "  assert.equal(processStartToken(process.pid), first);"
+          ],
+          "replace": [
+            "  const first = processStartToken(process.pid);",
+            "  assert.notEqual(first, null);",
+            "  assert.notEqual(processStartToken(process.pid), null);"
+          ]
+        }
+      ],
+      "authoredBy": {
+        "runtime": "deepseek-v4-pro",
+        "family": "deepseek"
+      }
     }
   ]
 }

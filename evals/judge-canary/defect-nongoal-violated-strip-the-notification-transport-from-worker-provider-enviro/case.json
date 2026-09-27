@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "defect-nongoal-violated-strip-the-notification-transport-from-worker-provider-enviro",
   "label": "defect:nongoal-violated",
   "sourceTask": "strip-the-notification-transport-from-worker-provider-enviro",
@@ -124,6 +124,10 @@
       "skills/mine/intent-factory/test/supervisor.test.mjs"
     ],
     "missingContext": []
+  },
+  "authoredBy": {
+    "runtime": "claude-opus-5-5",
+    "family": "anthropic"
   },
   "mutation": {
     "kind": "nongoal-violated",

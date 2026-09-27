@@ -22,10 +22,9 @@ typecheck`). Schema version is `3`.
       "vendor": "deepseek", "sandbox": "danger-full-access",
       "config": { "provider": "deepseek-official", "api_key.env_key": "DEEPSEEK_API_KEY" } },
     "luna": { "harness": "codex", "model": "gpt-5.6-luna", "reasoning": "xhigh" },
-    "sol": { "harness": "codex", "model": "gpt-5.6-sol", "reasoning": "xhigh", "vendor": "openai-sol" },
+    "sol": { "harness": "codex", "model": "gpt-5.6-sol", "reasoning": "xhigh" },
     "opus": { "harness": "claude", "model": "opus", "permissionMode": "acceptEdits" },
-    "zcode-flash": { "harness": "zcode", "model": "glm-5.3-flash", "vendor": "zhipu-flash", "permissionMode": "edit" },
-    "zcode-pro": { "harness": "zcode", "model": "glm-5.3", "vendor": "zhipu-pro", "permissionMode": "plan" },
+    "zcode-flash": { "harness": "zcode", "model": "glm-5.3-flash", "permissionMode": "edit" },
     "agy-flash": { "harness": "agy", "model": "gemini-3.8-flash-low" }
   },
   "nodes": [
@@ -141,38 +140,44 @@ missing something, never repository-wide exploration. Bounded: 32 KiB total,
 4 KiB summary, 32 entries each in `changedFiles`/`verification`/`artifacts`
 (16 in `missingContext`), 2 KiB per entry (16 KiB per artifact). Unknown
 provider-added fields are dropped; missing/malformed canonical fields are
-rejected (`worker-result.mjs`). A discovery node returns `done` with exactly
-one `artifacts` entry: the execution packet for the next node.
+rejected (`worker-result.mjs`). A discovery node without `readFiles` returns
+`done` with one `artifacts` entry, the next node's execution packet; one closed
+to its `readFiles` (every planning stage) delivers through `output`, `artifacts`
+`[]`.
 
 ## Runtimes and routing
 
 Resolve a worker as `nodes[].runtime`, then `runtimeDefaults.worker`; a judge
-as `nodes[].gate.runtime`, then `runtimeDefaults.judge`. When `runtimes` and
-`runtimeDefaults` are both omitted, the factory composes them from the
-discovery catalogue (`DISCOVERY_RUNTIME_DEFINITIONS`: `dsh-deepseek`,
-`zcode-glm`, `agy-gemini` at tier 1, `codex-gpt` and `claude-sonnet` at tier 2;
-available when the binary answers and every `config["*.env_key"]` it names is
-set): the cheapest available runtime executes, the strongest runtime of a
-*different vendor* judges, persisted in `routing.assignments`; no admissible
-cross-vendor judge fails by name (`runtime_assignment_judge_unavailable`).
+as `nodes[].gate.runtime`, then `runtimeDefaults.judge`, then a contract's (or
+absent one, the machine config's) ordered `judges` list: its first entry off
+the worker's provider and its fallback chain's, unrefused and under a 90%
+usage window, hopping the same way on a later refusal without repeats,
+replacing any declared `fallback` edge outright, and blocking the node by name
+when every entry is skipped (R18).
+When `runtimes` and `runtimeDefaults` are both omitted, the factory composes
+them from the discovery catalogue (`DISCOVERY_RUNTIME_DEFINITIONS`:
+`dsh-deepseek`, `zcode-glm`, `agy-gemini` at tier 1, `codex-gpt` and
+`claude-sonnet` at tier 2; available when the binary answers and every
+`config["*.env_key"]` it names is set): the cheapest available runtime
+executes, the strongest runtime of a *different vendor* judges, persisted in
+`routing.assignments`; no admissible cross-vendor judge fails by name
+(`runtime_assignment_judge_unavailable`).
 
 `harness` names the adapter that runs the turn (`claude`, `codex`, `agy`,
-`dsh`, `zcode`, `exec-jsonl`, `replay`) and `model` what it asks; the two
-vary independently — DeepSeek answers through `dsh`, GLM through `zcode`. Name
-a runtime id `<harness>-<model>` so a recorded run says which harness produced
-it; ids take letters, numbers, dot, underscore, dash only. Vendor is resolved (`resolveVendor` in `harnesses/index.mjs`), not the
-harness name: an explicit `vendor`, else a provider-config override (a codex
-runtime with `config.model_provider: "deepseek"` is vendor `deepseek`), else
-the harness default (`claude`→anthropic, `codex`→openai, `agy`→google,
-`zcode`→zhipu); `dsh`/`replay`/`exec-jsonl` have no default and must declare
-`vendor`. Validation rejects a gate-enabled node whose worker and judge
-resolve to the same vendor, and does the same for every runtime in the
-worker's declared fallback chain (rejecting a cycle in that chain outright)
-— all statically knowable from the contract alone. The symmetric case, a
-judge fallback landing on the vendor of the worker runtime that actually ran,
-cannot be checked statically (it depends on which worker runtime ran this
-attempt) and is instead refused at execution; see Failover below. Two models of one family (a GLM 5.3-flash worker judged by GLM 5.3) pair only by
-declaring distinct `vendor` strings — a claim about review independence.
+`dsh`, `zcode`, `exec-jsonl`, `replay`) and `model` what it asks; the two vary
+independently — DeepSeek answers through `dsh`, GLM through `zcode`. Name a
+runtime id `<harness>-<model>` so a recorded run says which harness produced
+it; ids take letters, numbers, dot, underscore, dash only. Vendor is the
+canonical provider (`canonicalProvider` in `src/contract/provider.mjs`)
+derived from route, model family, or harness default (`claude`→anthropic,
+`codex`→openai, `agy`→google, `zcode`→zhipu; `dsh`/`replay`/`exec-jsonl` have
+none and must declare `vendor`), falling back to `resolveVendor` only when it
+derives none; a declared `vendor` that contradicts it is refused. Validation
+rejects a gate-enabled node whose worker and judge resolve to the same
+vendor, and does the same for every runtime in the worker's declared fallback
+chain (rejecting a cycle outright). The symmetric case for a judge fallback
+depends on which worker runtime ran and is refused at execution instead; see
+Failover below.
 
 An optional `runtimes[<id>].pricing` object declares `inputPerMTok`,
 `cachedInputPerMTok`, and `outputPerMTok` (each finite and >= 0, at

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "clean-carry-git-s-own-reason-into-a-failed-git-command",
   "label": "clean",
   "sourceTask": "carry-git-s-own-reason-into-a-failed-git-command",
@@ -124,6 +124,10 @@
       "skills/mine/intent-factory/test/integration.test.mjs"
     ],
     "missingContext": []
+  },
+  "authoredBy": {
+    "runtime": "claude-opus-5-5",
+    "family": "anthropic"
   },
   "diff": "diff.patch",
   "diffSha256": "470ca4059fd6c41cfd41178dbe9d097a643742fcfdb740bd59279fc041062182"

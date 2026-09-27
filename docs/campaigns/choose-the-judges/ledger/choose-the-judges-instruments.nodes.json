@@ -1,0 +1,1 @@
+[{"id":"canary-authorship","status":"done","attempt":1,"revisions":0,"review":"blocking"},{"id":"defects-deepseek","status":"blocked","attempt":0,"revisions":0,"review":null},{"id":"defects-openai","status":"blocked","attempt":2,"revisions":1,"review":null},{"id":"judge-matrix","status":"done","attempt":1,"revisions":0,"review":"blocking"}]

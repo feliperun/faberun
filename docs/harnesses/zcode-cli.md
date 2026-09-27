@@ -359,13 +359,14 @@ schema. ✅
 
 ```json
 {
-  "zcode-flash": { "driver": "zcode", "model": "glm-5.3-flash", "vendor": "zhipu-flash", "permissionMode": "edit" },
-  "zcode-pro":   { "driver": "zcode", "model": "glm-5.3", "vendor": "zhipu-pro", "permissionMode": "plan" }
+  "zcode-flash": { "driver": "zcode", "model": "glm-5.3-flash", "vendor": "zhipu", "permissionMode": "edit" }
 }
 ```
 
-Distinct vendors are mandatory when the gate crosses worker × judge of the same
-family (see [contract.md](../../skills/faberun/references/contract.md)).
+Use the flash tier. The unsuffixed `glm-5.3` is the pro tier, and it measured
+below flash as a judge on 2026-09-24 (recall 0.79 against 0.85, at about nine
+times the price; `evals/results/judge-canary/`). A GLM worker is judged by
+another vendor (see [contract.md](../../skills/faberun/references/contract.md)).
 
 ---
 

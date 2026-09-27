@@ -1,0 +1,7 @@
+{
+  "at": "2026-09-24T14:29:33.866Z",
+  "pid": 66624,
+  "campaignId": "choose-the-judges",
+  "phase": "roles-c2",
+  "error": "detached bootstrap failed before readiness for pid 49554"
+}

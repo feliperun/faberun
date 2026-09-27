@@ -426,8 +426,11 @@ function pathInside(path, root) {
  * @returns {string}
  */
 function renderDiscoveryPrompt(packet, nodeId) {
+  // The closed variant says what settlement accepts (engine/lifecycle.mjs):
+  // only a discovery packet with no read files owes an execution packet in
+  // artifacts[0]; one closed to its read files delivers through `output`.
   const closedContext = packet.readFiles.length
-    ? "This discovery context is read-only and closed to the listed read files. Inspect only those files and do not perform repository-wide exploration. Return the worker-result JSON object below; put exactly one execution task packet JSON string in artifacts[0]."
+    ? "This discovery context is read-only and closed to the listed read files. Inspect only those files and do not perform repository-wide exploration. Return the worker-result JSON object below; deliver your result in `output` and send `artifacts` as []."
     : "This discovery context is read-only and is the one exception to closed inspection: no read files were pre-supplied, so you may inspect the repository read-only only as needed to produce the packet. Do not edit the repository. Return the worker-result JSON object below; put exactly one execution task packet JSON string in artifacts[0].";
   const lines = [
     `# Node ${nodeId} (discovery)`,

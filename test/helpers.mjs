@@ -178,11 +178,13 @@ export function fixture(overrides = {}) {
     cwd: ".",
     runtimeDefaults: { worker: "luna", judge: "sol" },
     runtimes: {
-      // sol declares its vendor outright, distinct from luna's harness-default
-      // "openai": every fixture node's default worker (luna) and judge (sol)
-      // pairing must clear the worker/judge cross-vendor gate untouched.
+      // sol routes to deepseek through config.model_provider, whose canonical
+      // provider (derived from the route, not a free-text label) is genuinely
+      // distinct from luna's harness-default "openai": every fixture node's
+      // default worker (luna) and judge (sol) pairing must clear the
+      // worker/judge cross-vendor gate untouched.
       luna: { harness: "codex", model: "gpt-5.6-luna", reasoning: "xhigh" },
-      sol: { harness: "codex", model: "gpt-5.6-sol", reasoning: "xhigh", vendor: "openai-sol" },
+      sol: { harness: "codex", model: "gpt-5.6-sol", reasoning: "xhigh", config: { model_provider: "deepseek" } },
       opus: { harness: "claude", model: "opus", reasoning: "high" },
       agy: { harness: "agy", model: "gemini-3.7-flash-low" },
       flash: {

@@ -9,7 +9,9 @@
 import { preflightRuntimes } from "../engine/live-preflight.mjs";
 import { liveSilenceCause } from "../engine/live-silence.mjs";
 import { harnessCapabilities } from "../harnesses/index.mjs";
-import { validateRuntime } from "../contract/runtime.mjs";
+import { assertRuntimeExecutesCommands, validateRuntime } from "../contract/runtime.mjs";
+import { effectiveProvider } from "../contract/provider.mjs";
+import { SAME_VENDOR_REVIEW_MODE, sameVendorTierRefusal } from "../contract/judge-independence.mjs";
 
 /**
  * The runtimes a planning run will spend, asked once before its first stage.
@@ -74,4 +76,57 @@ export function refusePlanningSilence(checks, cwd) {
     new Error(`env_preflight_failed: ${silent.join(" · ")} · planning stays resumable: fix the environment and plan again in ${cwd}`),
     { code: "env_preflight_failed" },
   );
+}
+
+/**
+ * Refuse, before anything is spent, a runtime choice no frozen contract could
+ * carry. Both halves were measured on 2026-09-24 in `choose-the-judges` R5,
+ * where each surfaced only at freeze, after four rounds: a worker whose
+ * permission mode cannot run commands cannot carry an implementation node's
+ * verification (US$ 7.64 and an hour, contested), and a judge that shares the
+ * worker's vendor, or the vendor of any runtime its fallback reaches, is
+ * refused by the vendor rule on every frozen node (`runtime_routing_unmet` in
+ * all four rounds). The pipeline's defaults name both roles, so both are
+ * decidable here.
+ *
+ * @param {Record<string, Record<string, unknown>>} runtimes
+ * @param {{worker?: string, judge?: string}} runtimeDefaults
+ * In same-vendor mode (`--judge-independence same-vendor`) a shared vendor is
+ * admitted exactly as the contract validator admits it: the judge's tier is
+ * declared and at or above that of the worker and of every fallback runtime of
+ * the same vendor. Measured 2026-09-27: without the mode on `plan`, a
+ * single-provider catalogue (Sonnet worker, Opus planner and judge) could not
+ * plan at all, though its frozen contract would have validated in the mode.
+ *
+ * @param {"implementation"|"exploratory"} packageMode
+ * @param {"same-vendor"} [judgeIndependence]
+ * @returns {void}
+ */
+export function refuseUnplannableRuntimes(runtimes, runtimeDefaults, packageMode, judgeIndependence) {
+  const worker = runtimeDefaults.worker;
+  if (!worker || !runtimes[worker]) return;
+  if (packageMode === "implementation") {
+    try {
+      assertRuntimeExecutesCommands(/** @type {any} */ (runtimes), worker, 0, "every implementation node", "worker runtime");
+    } catch (error) {
+      throw new Error(`--runtime-defaults worker=${worker} cannot run the verification an implementation plan carries: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  const judge = runtimeDefaults.judge;
+  if (!judge || !runtimes[judge]) return;
+  const judgeVendor = effectiveProvider(/** @type {import("../contract/provider.mjs").ProviderInput & {vendor?: string}} */ (runtimes[judge]));
+  if (judgeVendor === undefined) return;
+  const seen = new Set();
+  for (let id = /** @type {string|undefined} */ (worker); id && runtimes[id] && !seen.has(id); id = /** @type {string|undefined} */ (runtimes[id].fallback)) {
+    seen.add(id);
+    const provider = effectiveProvider(/** @type {import("../contract/provider.mjs").ProviderInput & {vendor?: string}} */ (runtimes[id]));
+    if (provider !== judgeVendor) continue;
+    if (judgeIndependence !== SAME_VENDOR_REVIEW_MODE) {
+      throw new Error(`--runtime-defaults judge=${judge} shares vendor ${judgeVendor} with worker ${worker} or its fallback, so no frozen node could route its judge; name a judge of another vendor, or pass --judge-independence same-vendor`);
+    }
+    const refusal = sameVendorTierRefusal(/** @type {{harness: string, model: string}} */ (runtimes[id]), /** @type {{harness: string, model: string}} */ (runtimes[judge]));
+    if (refusal) {
+      throw new Error(`--runtime-defaults judge=${judge} shares vendor ${judgeVendor} with ${id === worker ? "worker" : "worker fallback"} ${id} under --judge-independence same-vendor, but ${refusal.message}`);
+    }
+  }
 }

@@ -2,12 +2,13 @@ import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { candidateRefName, createPreservedRef, preservedRefName, runRefName, sealAttempt } from "../../src/repo/worktree.mjs";
+import { candidateRefName, createPreservedRef, preservedRefName, releaseRunWorktrees, runRefName, sealAttempt } from "../../src/repo/worktree.mjs";
 import { initializeGit } from "../helpers.mjs";
+import { RUNS_DIR_NAME } from "../../src/run/paths.mjs";
 
 /**
  * The ref verb `cancel` needs: one integrated commit per node, preserved under
@@ -91,4 +92,32 @@ test("a seal commit message follows the conventional commit shape", () => {
   assert.match(header, /^chore\(faberun\): seal build attempt 2$/u);
   assert.ok(header.length <= 100, "commitlint's header-max-length");
   assert.match(rest.join("\n"), new RegExp(`run ${runId}`, "u"), "the run id stays in the body");
+});
+
+// Measured 2026-09-24: attempts that were never accepted kept their worktree
+// and branch forever; one machine held 41 registered and 42 orphaned ones.
+test("a finished run's worktrees are released, and each one's HEAD and delta are kept under an archive ref", () => {
+  const repo = mkdtempSync(join(tmpdir(), "release-run-worktrees-"));
+  writeFileSync(join(repo, "README.md"), "base\n");
+  initializeGit(repo);
+  const runId = "released-run";
+  const runDir = join(repo, RUNS_DIR_NAME, runId);
+  const dirty = join(repo, RUNS_DIR_NAME, "worktrees", runId, "build.1");
+  const clean = join(repo, RUNS_DIR_NAME, "worktrees", runId, "build.2");
+  execFileSync("git", ["-C", repo, "worktree", "add", "-q", "-b", `faberun/${runId}/build/1`, dirty]);
+  execFileSync("git", ["-C", repo, "worktree", "add", "-q", "-b", `faberun/${runId}/build/2`, clean]);
+  writeFileSync(join(dirty, "README.md"), "work nobody sealed\n");
+
+  const released = releaseRunWorktrees(repo, runDir, runId);
+
+  assert.equal(released.removed, 2);
+  assert.deepEqual(released.archived.sort(), [`refs/faberun-archive/${runId}/build.1`, `refs/faberun-archive/${runId}/build.2`]);
+  assert.equal(existsSync(join(repo, RUNS_DIR_NAME, "worktrees", runId)), false, "the run's worktree directory is gone");
+  const list = execFileSync("git", ["-C", repo, "worktree", "list"], { encoding: "utf8" });
+  assert.equal(list.includes(runId), false, "git no longer lists them");
+  const branches = execFileSync("git", ["-C", repo, "branch", "--list", `faberun/${runId}/*`], { encoding: "utf8" }).trim();
+  assert.equal(branches, "", "their branches are deleted");
+  const kept = execFileSync("git", ["-C", repo, "show", `refs/faberun-archive/${runId}/build.1:README.md`], { encoding: "utf8" });
+  assert.equal(kept, "work nobody sealed\n", "the uncommitted delta survives in the archive ref");
+  assert.deepEqual(releaseRunWorktrees(repo, runDir, runId), { removed: 0, archived: [] }, "a second release is a no-op");
 });

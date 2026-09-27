@@ -1,0 +1,17 @@
+{"at":"2026-09-25T02:45:42.910Z","node":"judge-list","to":"running","phase":"worker","runtime":"claude-sonnet"}
+{"at":"2026-09-25T02:45:44.347Z","node":"revise-converges","to":"running","phase":"worker","runtime":"claude-sonnet"}
+{"at":"2026-09-25T03:15:45.036Z","node":"revise-converges","to":"done","phase":"complete","runtime":"claude-sonnet","verdict":"pass"}
+{"at":"2026-09-25T03:15:47.398Z","node":"plan-resolve","to":"running","phase":"worker","runtime":"claude-sonnet"}
+{"at":"2026-09-25T03:39:34.091Z","node":"judge-list","to":"running","phase":"judge","runtime":"claude-opus"}
+{"at":"2026-09-25T03:44:08.595Z","node":"plan-resolve","to":"running","phase":"worker","runtime":"claude-sonnet","verdict":"fail","revisions":1}
+{"at":"2026-09-25T03:44:11.435Z","node":"judge-list","to":"running","phase":"worker","runtime":"claude-sonnet","verdict":"fail","revisions":1}
+{"at":"2026-09-25T03:56:40.966Z","node":"plan-resolve","to":"running","phase":"worker","runtime":"claude-sonnet","verdict":"fail","revisions":2}
+{"at":"2026-09-25T04:14:32.927Z","node":"judge-list","to":"running","phase":"judge","runtime":"claude-opus","verdict":"fail","revisions":1}
+{"at":"2026-09-25T04:15:37.852Z","node":"judge-list","to":"running","phase":"worker","runtime":"claude-sonnet","verdict":"fail","revisions":2}
+{"at":"2026-09-25T04:24:23.028Z","node":"plan-resolve","to":"exhausted","phase":"worker","runtime":"claude-sonnet","verdict":"fail","error":"mechanical_gate_failed","revisions":2}
+{"at":"2026-09-25T04:24:23.551Z","node":"proof-check","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-25T04:24:23.563Z","node":"human-step","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-25T04:24:23.575Z","node":"reviewer-list","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-25T04:33:10.292Z","node":"judge-list","to":"running","phase":"judge","runtime":"claude-opus","verdict":"fail","revisions":2}
+{"at":"2026-09-25T04:34:36.464Z","node":"judge-list","to":"exhausted","phase":"judge","runtime":"claude-opus","verdict":"fail","error":"revision_cap","revisions":2}
+{"at":"2026-09-25T04:34:37.512Z","node":"single-provider","to":"blocked","phase":"dependency","error":"dependency_failed"}

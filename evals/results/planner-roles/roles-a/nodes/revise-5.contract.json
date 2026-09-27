@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 3,
+  "contractVersion": "0.3.0",
+  "id": "choose-the-judges-plan-roles-a-revise-5",
+  "campaignId": "choose-the-judges",
+  "goal": "Plan revise for phase roles-a",
+  "cwd": "../../../../../../../../../dev/frb/faberun-leave",
+  "runtimes": {
+    "dsh-deepseek": {
+      "harness": "dsh",
+      "model": "deepseek-flash",
+      "reasoning": "high",
+      "vendor": "deepseek",
+      "sandbox": "danger-full-access",
+      "config": {
+        "provider": "deepseek-official",
+        "api_key.env_key": "DEEPSEEK_API_KEY"
+      },
+      "stallTimeoutSec": 900,
+      "tier": 1,
+      "costRank": 1
+    },
+    "codex-luna": {
+      "harness": "codex",
+      "model": "gpt-5.6-luna",
+      "vendor": "openai",
+      "reasoning": "high",
+      "sandbox": "danger-full-access",
+      "fallback": "dsh-deepseek",
+      "tier": 2,
+      "costRank": 2
+    },
+    "codex-astra": {
+      "harness": "codex",
+      "model": "gpt-6-astra",
+      "vendor": "openai",
+      "reasoning": "high",
+      "sandbox": "read-only",
+      "tier": 3,
+      "costRank": 4
+    },
+    "claude-opus": {
+      "harness": "claude",
+      "model": "claude-opus-5-5",
+      "vendor": "anthropic",
+      "reasoning": "high",
+      "tier": 3,
+      "costRank": 3,
+      "pricing": {
+        "inputPerMTok": 4,
+        "cachedInputPerMTok": 0.2,
+        "outputPerMTok": 20
+      }
+    }
+  },
+  "runtimeDefaults": {
+    "worker": "codex-luna",
+    "judge": "claude-opus"
+  },
+  "nodes": [
+    {
+      "id": "revise",
+      "type": "revise",
+      "phase": "roles-a",
+      "dependsOn": [],
+      "runtime": "codex-luna",
+      "taskPacket": {
+        "mode": "discovery",
+        "objective": "Revise the plan to resolve every one of the reviewer's findings, keeping the same classification and graph shape as a fresh draft.",
+        "instructions": [
+          "Read the findings and resolve every one; do not leave a critical or major finding unaddressed.",
+          "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies, the planned node ids it assigns, and the deliverable it produces in one sentence. Every planned node must appear in exactly one phase's nodeIds; a missing, duplicate, or unknown node assignment is refused.",
+          "Each node's writeFiles lists what the change forces to change, not only what it intends to: the importers a written module drags along, the schema validator for a field the node adds, the registry that field is recorded in, and any reader the node's own instructions tell the worker to touch.",
+          "Scope closure refuses a task packet whose transitive imports reach an undeclared file, so an importer the change breaks belongs in writeFiles or scopeAcknowledged — readFiles only permits reading, and a broken importer can only be repaired by a write.",
+          "Return exactly one worker-result JSON object. Put the revised plan in output.plan as {nodes: [{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: [{id, text, proof?: {kind: \"command\"|\"path\"|\"verification\", ref}, judgment?: true, reason?: string}], verification: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}], expectedTurns?}], phases?: [{id, requirementIds: [string], nodeIds: [string], deliverable}], justification?}; every id in it (node, phase, node assignment, and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly \".\" or \"..\" and nothing else in output.",
+          "Never name a runtime, harness, model, or vendor anywhere in output.plan.",
+          "Size nodes to 4 to 6 write files where the work allows, and give every node an expectedTurns: the provider requests one worker needs to finish it end to end (measured median 49 for 4 to 6 files). A smaller node pays the same orientation and about 15 minutes of verification, judge and integration for less delivered work; a node you expect past 150 requests must be split, because a run cuts an attempt there."
+        ],
+        "readFiles": [
+          "evals/results/planner-roles/phase-1.SPEC.md",
+          ".faberun-plan/choose-the-judges/roles-a/repo-facts.json",
+          ".faberun-plan/choose-the-judges/roles-a/task-kinds.md",
+          ".faberun-plan/choose-the-judges/roles-a/findings-round-2.json"
+        ],
+        "writeFiles": [],
+        "symbols": [],
+        "decisions": [],
+        "nonGoals": [
+          "Assigning a runtime, harness, or model to any node.",
+          "Reopening a finding the reviewer did not raise."
+        ],
+        "verification": []
+      },
+      "gate": false
+    }
+  ]
+}

@@ -1,0 +1,55 @@
+diff --git a/skills/mine/intent-factory/scripts/drivers/index.mjs b/skills/mine/intent-factory/scripts/drivers/index.mjs
+index 56d68fa..ba06d0f 100644
+--- a/skills/mine/intent-factory/scripts/drivers/index.mjs
++++ b/skills/mine/intent-factory/scripts/drivers/index.mjs
+@@ -199,6 +199,12 @@ export function normalizeProviderAvailability(runtimeOrDriver, response, exitCod
+   const message = typeof error?.message === "string" ? error.message : "";
+   const text = `${code} ${message}`;
+   if (envelope.status === "done" || envelope.status === "no-op") return { available: true, exhaustedUntil: null, reason: "ready" };
++  // A hard balance stop (DeepSeek's 402 "Insufficient Balance") has no reset
++  // instant to report, unlike quota_exhausted, so it must be classified before
++  // that branch. Wording without a numeric 402 remains a generic provider failure.
++  if (/insufficient balance/iu.test(text) || /\b402\b/u.test(text)) {
++    return { available: false, exhaustedUntil: null, reason: "insufficient_balance" };
++  }
+   if (envelope.status === "exhausted" || /quota|rate.?limit|usage limit|limit exhausted|1310/iu.test(text)) {
+     return { available: false, exhaustedUntil: resetTimestamp(envelope.exhaustedUntil ?? error?.resetAt ?? message), reason: code || "quota_exhausted" };
+   }
+diff --git a/skills/mine/intent-factory/test/drivers.test.mjs b/skills/mine/intent-factory/test/drivers.test.mjs
+index 30758f9..3ce633c 100644
+--- a/skills/mine/intent-factory/test/drivers.test.mjs
++++ b/skills/mine/intent-factory/test/drivers.test.mjs
+@@ -7,6 +7,7 @@ import { join } from "node:path";
+ import {
+   driverCapabilities,
+   missingCapabilities,
++  normalizeProviderAvailability,
+   normalizeProviderResult,
+   probeRuntime,
+   providerCommand,
+@@ -228,6 +229,25 @@ test("quota exhaustion routes through the declared failover edge (normalizer)",
+   assert.equal(unrelated.continuationId, "unrelated-thread");
+ });
+ 
++test("DeepSeek's 402 insufficient-balance stop is its own availability reason, distinct from quota and auth", () => {
++  const codexBalance = normalizeProviderResult("codex", [
++    { type: "thread.started", thread_id: "balance-thread" },
++    { type: "turn.failed", error: { message: "402 Insufficient Balance" } },
++  ].map((event) => JSON.stringify(event)).join("\n"), 1, null);
++  assert.equal(codexBalance.status, "failed", "no reset instant makes this an ordinary failure, not exhaustion");
++  const availability = normalizeProviderAvailability("codex", codexBalance);
++  assert.deepEqual(availability, { available: false, exhaustedUntil: null, reason: "insufficient_balance" });
++  assert.notEqual(availability.reason, "quota_exhausted");
++  assert.notEqual(availability.reason, "authentication_failed");
++
++  // Wording alone, without the numeric code, still classifies correctly.
++  const wordingOnly = normalizeProviderAvailability("codex", {
++    status: "failed",
++    error: { code: "provider_error", message: "Insufficient Balance" },
++  });
++  assert.deepEqual(wordingOnly, { available: false, exhaustedUntil: null, reason: "insufficient_balance" });
++});
++
+ test("codex normalizer tolerates a bounded tail starting inside an event line", () => {
+   const partial = `rted","command":"/bin/zsh -lc 'cat file'"}`;
+   const events = [

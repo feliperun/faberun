@@ -11,6 +11,8 @@ campaigns:
   - first-target-frictions
   - evidence-you-can-recompute
   - evals-with-a-budget
+  - choose-the-judges
+  - planner-and-routing
   - safe-to-hand-to-a-friend
   - friends-pilot
 ---
@@ -63,13 +65,26 @@ depende do anterior:
    candidatos (DeepSeek v4 Pro, GLM 5.3 Pro, GPT Sol 6, Opus 5.5) e três
    configurações de papel do planner, e troca o juiz único da D9 por uma matriz
    de juiz permitido por vendor de worker.
-3. **`safe-to-hand-to-a-friend`.** O planner para de divergir, acha prova
-   impossível antes da revisão e representa passo humano (ficou em 0 de 10
-   contratos nas campanhas 1 e 2 e na anterior); o worker deixa de herdar o ambiente inteiro,
-   o modo de sandbox diz o que custa, o guia de primeiros passos passa a ser
-   executado, o planner enxerga repositório que não é Node, plano contestado,
-   pacote recusado e pacote com defeito têm caminho de volta, e sair é um
-   comando.
+3a. **`planner-and-routing`.** O planner congela, e cada nó tem o juiz certo. A
+   regra de vendor passa a comparar o provedor canônico, e não o rótulo livre;
+   o juiz de cada nó sai da lista ordenada da D9; o planner ganha revisores
+   próprios (D11), para de divergir, acha prova impossível antes da revisão,
+   representa passo humano e aceita `proof.ref` por texto ou índice. O planner
+   está em 0 de 13: os 10 contratos das campanhas anteriores foram escritos à
+   mão, e os 3 planos do R5 da `choose-the-judges` não congelaram.
+   **Fechada em 27/09.** O portão passou: o plano da fase 1 da 3b congelou sem
+   edição à mão depois de seis tentativas, cada uma expondo um defeito do
+   próprio planner (o revise nunca recebia o plano que revisava, o R14 contava
+   a rodada inválida e os achados mecânicos, o check de congelamento só rodava
+   depois da revisão). Gasto: US$ 90,92 nas runs e US$ 32,23 nos planos do
+   portão. Retrospectiva em `docs/campaigns/planner-and-routing/RETROSPECTIVE.md`.
+3b. **`safe-to-hand-to-a-friend`.** O worker deixa de herdar o ambiente
+   inteiro, o modo de sandbox diz o que custa, o guia de primeiros passos passa
+   a ser executado, o planner enxerga repositório que não é Node, pacote recusado
+   e pacote com defeito têm caminho de volta, e sair é um comando. R22 a R31
+   vêm da retrospectiva da `agent-belt-security-quality-review`, a primeira
+   campanha fora deste repositório. Todo contrato dela sai do `faberun plan`:
+   ela é o teste do portão 3 para 4.
 4. **`friends-pilot`.** Três a cinco pessoas próximas rodam uma campanha real
    nos próprios repositórios, começando pelo Campaign Brief. O que elas vivem
    volta como pacote redigido e como atrito com id no roadmap. O programa
@@ -87,8 +102,9 @@ Toda campanha fecha com `faberun spec validate <spec> --strict-traceability
 | 0 para 1 | a suíte passa sob carga no macOS do operador; nó que escreve fonte de ignore é avisado; nenhum juiz precisa de `workspace-write` |
 | 1 para 2 | `evals/baseline.json` recomputa a partir de ledgers versionados; o registro do `orchestration-arms` está em main; o orçamento de bytes da skill está em vigor |
 | 2 para 3 | três repetições do round complexo com banda; canário medido em pelo menos dois runtimes de juiz; D9 registrada |
-| 2b para 3 | D9 revisada com a matriz de juízes; D11 sobre os papéis do planner registrada |
-| 3 para 4 | segredo plantado não chega ao worker; `GETTING-STARTED.md` conferido no CI; primeira campanha offline de um estranho verde; a próxima campanha do próprio operador fecha sem contrato escrito à mão |
+| 2b para 3a | D9 revisada com a matriz de juízes; D11 sobre os papéis do planner registrada |
+| 3a para 3b | o plano da fase 1 da 3b congela sem edição à mão; a regra de vendor compara o provedor canônico |
+| 3b para 4 | segredo plantado não chega ao worker; `GETTING-STARTED.md` conferido no CI; primeira campanha offline de um estranho verde; a 3b fechou com 0 contratos escritos à mão |
 | 4 para divulgação | D10 registrada |
 
 ## Regras que valem para o programa inteiro
@@ -108,11 +124,13 @@ Toda campanha fecha com `faberun spec validate <spec> --strict-traceability
   entregando com uma a duas ordens de grandeza a menos de custo (deepseek-flash,
   glm-5.3-flash, gpt-5.6-luna). Sonnet ou opus entram só por nó com
   `riskTier: high`, com o motivo no pacote.
-- **Juiz barato, fallback do mesmo nível.** Até a D9, item `judgment: true` só
-  entra em nó onde nenhum comando prova o requisito, com `reason` declarado. O
-  juiz padrão é um runtime barato de outro vendor, e o fallback declarado é de
-  custo parecido: na `rec-audit-remediation`, o juiz GLM custou 2,8% da campanha
-  e o fallback sonnet custou 62% por três nós.
+- **Juiz por lista ordenada (D9, 2026-09-24).** Item `judgment: true` só entra
+  em nó onde nenhum comando prova o requisito, com `reason` declarado. O juiz de
+  cada nó é o primeiro da lista `gpt-6-sol`, `claude-opus-5-5`,
+  `glm-5.3-flash` que não seja do provedor canônico do worker. Se ele estiver
+  sem quota ou com a janela do Codex acima de 90%, a vez passa ao próximo. Até o
+  `RM-101` chegar, o contrato declara à mão o juiz e um fallback tirados dessa
+  lista.
 - **O brief antes do play.** A partir da campanha zero, todo plano congelado
   passa por `faberun campaign brief generate` e é lido antes do primeiro run.
 - **Nada de repositório de terceiro entra aqui.** Nem de empregador, nem de
@@ -126,8 +144,9 @@ Toda campanha fecha com `faberun spec validate <spec> --strict-traceability
 | `first-target-frictions` | até US$ 5 | 0 |
 | `evidence-you-can-recompute` | até US$ 15 com writers baratos | 0 |
 | `evals-with-a-budget` | até US$ 20 | até US$ 100 (R11) |
-| `choose-the-judges` | até US$ 5 | até US$ 70 (R4 e R5) |
-| `safe-to-hand-to-a-friend` | até US$ 25 | 0 |
+| `choose-the-judges` | até US$ 5 | até US$ 100 (R4 e R5; elevado de 70 pelo dono em 24/09) |
+| `planner-and-routing` | até US$ 150 (de 15; elevado pelo dono em 24 e 25/09, gasto não é restrição); gasto real US$ 123,15 | 0 |
+| `safe-to-hand-to-a-friend` | até US$ 60 (de 20, com R22 a R31) | 0 |
 | `friends-pilot` | até US$ 10 | 0 (o custo do participante é dele, com teto sugerido) |
 
 As estimativas de execução vêm de três ledgers: `durable-state-integrity` (10
@@ -150,7 +169,8 @@ seguem a D8 da PR #63: D9 (juiz) e D10 (divulgação).
 | `first-target-frictions` | RM-051, RM-052, RM-053 | RM-056 (orçamento de teste abaixo de 1 s), RM-057 (timeout congelado abaixo do medido), RM-058 (juiz somente-leitura); RM-059 (dependência inventada) fica registrado, sem requisito |
 | `evidence-you-can-recompute` | RM-030, RM-016 (parcial), RM-055 | RM-060 (ledger completo), RM-061 (`reledger`), RM-062 (motivo de custo desconhecido), RM-063 (North Star), RM-064 (orçamento de bytes), RM-065 (`orchestration-arms` em main), RM-066 (baseline recomputável) |
 | `evals-with-a-budget` | RM-013, RM-035, RM-031 (parcial) | RM-067 (orçamento estocástico), RM-068 (`reason` em item de julgamento) |
-| `safe-to-hand-to-a-friend` | RM-025, RM-050, RM-054, D2 (parcial) | RM-069 (ambiente permitido), RM-070 (guia executado), RM-071 (layout legado nas docs), RM-072 (fatos fora do Node), RM-073 (primeira campanha offline), RM-074 (`plan --resolve`), RM-075 (`uninstall`), RM-087 (revise que não converge para), RM-088 (prova impossível achada antes da revisão), RM-089 (passo humano no plano), RM-090 (`AGENTS.md` não bloqueia o lançamento) |
+| `planner-and-routing` | — | RM-074 (`plan --resolve`), RM-087 (revise que não converge para), RM-088 (prova impossível achada antes da revisão), RM-089 (passo humano no plano), RM-090 (`AGENTS.md` não bloqueia o lançamento), RM-101 (juiz por lista, D9), RM-099 (revisores do planner, D11), RM-102 (modo de um provedor só), RM-104 (`proof.ref` por texto ou índice) |
+| `safe-to-hand-to-a-friend` | RM-025, RM-050, RM-054, D2 (parcial) | RM-069 (ambiente permitido), RM-070 (guia executado), RM-071 (layout legado nas docs), RM-072 (fatos fora do Node), RM-073 (primeira campanha offline), RM-075 (`uninstall`) |
 | `friends-pilot` | RM-036, RM-015 (parcial) | RM-076 (exportação redigida), RM-077 (atrito no journal), RM-078 (classe `pilot`), RM-079 (protocolo do piloto) |
 
 O lugar de cada item que ficou fora do programa, e o que o traria para dentro,
@@ -179,6 +199,7 @@ portão atingido.
 | `first-target-frictions` | 2026-09-23 | 1 h 50 min (02:32 a 04:22, sessão Opus direta) | US$ 0,08 via faberun (revisão cross-vendor deepseek-flash); a sessão Opus não é medida em `usage.jsonl` | 0 para 1 atingido: três suítes verdes com `--test-concurrency=16` neste macOS (1.571 pass, 0 fail, 411 a 431 s), `writes_ignore_source` no `validate`, juiz somente-leitura entrega o veredito |
 | `evidence-you-can-recompute` | 2026-09-23 | 5,1 h de relógio nas runs (07:16 a 14:30); `intentToVerifiedSeconds` 16.826 s | US$ 7,36 via faberun, 0 de 31 `unknown` (planejamento contestado 3,79; contratos luna 1,65; revisão Opus 1,92) | 1 para 2 atingido: o baseline recomputa a partir de ledgers versionados, o `orchestration-arms` está em main e as docs da skill têm um orçamento só (46.852 de 46.855 bytes). Os contratos foram escritos à mão depois de dois planos contestados |
 | `evals-with-a-budget` | 2026-09-24 | 8,7 h de campanha (21:08 a 05:48), das quais cerca de 3 h esperando a quota do Codex voltar | US$ 11,32 via faberun (4 de 18 `unknown`, `provider-reported-nothing` do codex) e US$ 80,69 nas leituras do R11 (pareado 58,05, canário 22,64) | 2 para 3 atingido: três repetições de cada arm do round complexo (`evals/results/paired/combined-*.json`), canário medido em três juízes e D9 registrada no ROADMAP. H1 refutado para o faberun com juiz contra uma sessão, H4 refutado; o writer barato (E, H, J) custa de 22 a 43 vezes menos por prova que a sessão B, com a mesma entrega |
+| `choose-the-judges` | 2026-09-24 | cerca de 8 h (09:35 a 17:45), a maior parte fora das runs: quota do Codex e da Z.ai, leituras em série antes do `--concurrency`, um plano que morreu calado | US$ 43,76 nas leituras (R4 30,57; R5 13,19) de US$ 100, mais US$ 3,55 via faberun (0 de 34 `unknown`); US$ 27,92 lançados por estimativa em chamadas recusadas não custaram nada | 2b para 3 atingido: D9 por lista ordenada (gpt-6-sol, claude-opus-5-5, glm-5.3-flash) com as tabelas bloqueantes, D11 com revisores de planejamento à parte, 10 de 25 defeitos do canário de fora da Anthropic. Nenhum dos três planos do R5 congelou; o (c) é insumo, não contrato, da fase 1 da campanha 3 |
 
 ## Fora do programa, de propósito
 

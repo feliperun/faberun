@@ -33,9 +33,12 @@ import {
   upsertTierExhaustionCandidate,
 } from "./backoff.mjs";
 import { exhaustedUntilOf } from "./runtime-discovery.mjs";
+import { getHarness, normalizeProviderAvailability } from "../harnesses/index.mjs";
+import { availabilityKey, recordRefusal, refusalOfAvailability } from "../run/availability.mjs";
+import { judgeFallbackVendorConflict, nextListJudge } from "./judge-list.mjs";
 
 import { acquire as acquireLock } from "../run/lock.mjs";
-import { parseDiscoveryResult } from "../contract/worker-result.mjs";
+import { invalidResultRepair, parseDiscoveryResult } from "../contract/worker-result.mjs";
 import { boundedUtf8, errorCode, errorMessage, excerpt } from "../util.mjs";
 import { readJson, writeJsonAtomic } from "../run/store.mjs";
 import { invocationAlive } from "./process.mjs";
@@ -441,7 +444,7 @@ export async function finalizeClosedJobs(contract, runDir, states, closed, lock,
     // path fails it today.
     if (workerResultError) {
       if (envelope.status === "done") {
-        await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, errorMessage(workerResultError), states, campaignPath);
+        await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, workerResultError, states, campaignPath);
         continue;
       }
       adoptedWorkerResult = null;
@@ -547,7 +550,7 @@ export async function finalizeClosedJobs(contract, runDir, states, closed, lock,
           }, lock);
           continue;
         }
-        await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, errorMessage(error), states, campaignPath);
+        await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, error, states, campaignPath);
         continue;
       }
       // The artifact demand follows the documented discovery contract, not the
@@ -560,7 +563,7 @@ export async function finalizeClosedJobs(contract, runDir, states, closed, lock,
         try {
           parseDiscoveryResult(workerResult, attemptWorkspace(state) ?? contract.cwd);
         } catch (error) {
-          await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, errorMessage(error), states, campaignPath);
+          await applyInvalidWorkerResult(contract, job.node, state, runDir, running, lock, error, states, campaignPath);
           continue;
         }
       }
@@ -635,7 +638,19 @@ export function handleProviderExhaustion(contract, runDir, node, state, role, en
     now,
   });
   const exhaustedUntil = exhaustedUntilOf(envelope);
-  const plan = planRoute(contract, node, state, role, error, current, schedule, now, exhaustedUntil);
+  // Every other process on this machine learns the refusal now, not from its own failed call.
+  const runtime = contract.runtimes?.[current];
+  const refusal = runtime ? refusalOfAvailability(normalizeProviderAvailability(runtime, envelope)) : null;
+  if (runtime && refusal) recordRefusal(availabilityKey({ harness: runtime.harness, model: runtime.model, executable: getHarness(runtime.harness).executable(runtime) }), refusal);
+  // R18: a list-driven judge that is about to hop reads the durable refusal
+  // and usage-window stores here -- the impure orchestration layer, not
+  // `planRoute`'s pure decision -- so `current` joins the excluded set before
+  // the next eligible entry is chosen. A reset (wait, no hop) leaves the list
+  // untouched: it costs no runtime and must not spend a list entry either.
+  const judgeListState = role === "judge" && schedule.kind === "failover" && state.routing?.judgeList
+    ? nextListJudge(contract, state.routing.judgeList, sourceWorkerRuntime(state) ?? state.routing?.assignments?.worker ?? current, now)
+    : undefined;
+  const plan = planRoute(contract, node, state, role, error, current, schedule, now, exhaustedUntil, judgeListState ? { judgeListState } : {});
   const status = envelope.status === "failed" ? "failed" : "exhausted";
   if (plan.blocked) {
     // A caller that classified the failure itself also owns what happens when
@@ -653,17 +668,21 @@ export function handleProviderExhaustion(contract, runDir, node, state, role, en
         phase: role,
         result: state.result,
         usage: state.usage,
-        routing: { ...(state.routing ?? {}), tierExhaustion },
+        routing: { ...(state.routing ?? {}), tierExhaustion, ...(judgeListState ? { judgeList: judgeListState } : {}) },
         error: { ...plan.blocked, ...(exhaustedUntil ? { exhaustedUntil } : {}) },
       }, lock);
       void raiseNodeAttention(campaignPath, runDir, state, plan.blocked.code).catch(() => {});
     } else {
-      // Any other block reason is not this feature's evidence to keep.
+      // `judge_list_exhausted` reaches this branch (it is not
+      // `runtime_tier_exhausted`), and its evidence -- naming the judge that
+      // was just refused and why every remaining entry was ineligible -- is
+      // exactly this feature's evidence to keep; only `tierExhaustion` is not.
       clearTierExhaustion(state);
       transition(runDir, state, "exhausted", {
         phase: role,
         result: state.result,
         usage: state.usage,
+        ...(judgeListState ? { routing: { ...(state.routing ?? {}), judgeList: judgeListState } } : {}),
         error: { ...plan.blocked, ...(exhaustedUntil ? { exhaustedUntil } : {}) },
       }, lock);
     }
@@ -675,21 +694,11 @@ export function handleProviderExhaustion(contract, runDir, node, state, role, en
   // so it is refused here, and the node is parked for a human rather than
   // quietly arbitrated by the vendor it is supposed to check.
   if (role === "judge" && plan.nextRuntime !== current) {
-    const workerRuntimeId = sourceWorkerRuntime(state);
-    const workerVendor = workerRuntimeId ? contract.runtimes[workerRuntimeId]?.vendor : undefined;
-    const judgeFallbackVendor = contract.runtimes[plan.nextRuntime]?.vendor;
-    if (workerVendor && judgeFallbackVendor && workerVendor === judgeFallbackVendor) {
+    const conflict = judgeFallbackVendorConflict(contract, sourceWorkerRuntime(state), plan.nextRuntime);
+    if (conflict) {
       if (precomputed) return false;
       clearTierExhaustion(state);
-      transition(runDir, state, "blocked", {
-        phase: role,
-        result: state.result,
-        usage: state.usage,
-        error: {
-          code: "judge_fallback_vendor_conflict",
-          message: `judge fallback runtime ${plan.nextRuntime} shares vendor ${judgeFallbackVendor} with worker runtime ${workerRuntimeId}`,
-        },
-      }, lock);
+      transition(runDir, state, "blocked", { phase: role, result: state.result, usage: state.usage, error: conflict }, lock);
       return true;
     }
   }
@@ -731,19 +740,21 @@ function applyRoute(contract, runDir, state, lock, { role, error, current, plan,
  * told to return. A second one is evidence about the provider rather than the
  * packet, so the node records a protocol_failure and takes its failover edge —
  * and when no edge remains, it blocks and raises attention rather than filing
- * a quiet exhaustion nobody reads.
+ * a quiet exhaustion nobody reads. The repair names what was wrong
+ * (invalidResultRepair), so a broken byte ceiling is not told about fences.
  *
- * @param {ValidatedContract} contract @param {ValidatedNode} node @param {NodeSnapshot} state @param {string} runDir @param {Map<string, Job>|null} running @param {LockHandle} lock @param {string} message @param {Map<string, NodeSnapshot>} states @param {string} campaignPath
+ * @param {ValidatedContract} contract @param {ValidatedNode} node @param {NodeSnapshot} state @param {string} runDir @param {Map<string, Job>|null} running @param {LockHandle} lock @param {unknown} cause @param {Map<string, NodeSnapshot>} states @param {string} campaignPath
  */
-export async function applyInvalidWorkerResult(contract, node, state, runDir, running, lock, message, states, campaignPath) {
+export async function applyInvalidWorkerResult(contract, node, state, runDir, running, lock, cause, states, campaignPath) {
   clearTierExhaustion(state);
+  const message = errorMessage(cause);
   const verdict = /** @type {JudgeVerdict} */ ({
     verdict: "fail",
     maxSeverity: "critical",
     summary: "worker result did not match the structured result protocol",
     findings: [{
       severity: "critical",
-      description: "the entire final message must be exactly the required JSON object: no markdown fences, no prose before or after it. Return it as the only content of the final message.",
+      description: invalidResultRepair(cause),
       evidence: boundedUtf8(message, 4 * 1024),
     }],
   });

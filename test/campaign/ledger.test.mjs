@@ -113,7 +113,7 @@ test("a closed ledger carries every source the projectors read", () => {
   assert.deepEqual(expectedFiles.map((path) => existsSync(join(ledgerDir, path))), expectedFiles.map(() => true));
   assert.equal(existsSync(join(ledgerDir, "run-b.notify.jsonl")), false);
   assert.deepEqual(JSON.parse(readFileSync(join(ledgerDir, "run-a.nodes.json"), "utf8")), readMetricNodeSnapshots(runA));
-  assert.deepEqual(Object.keys(JSON.parse(readFileSync(join(ledgerDir, "run-a.nodes.json"), "utf8"))[0]).sort(), ["attempt", "id", "review", "revisions", "status"]);
+  assert.deepEqual(Object.keys(JSON.parse(readFileSync(join(ledgerDir, "run-a.nodes.json"), "utf8"))[0]).sort(), ["attempt", "id", "review", "revisions", "sameProviderReview", "status"]);
   assert.deepEqual(closed.ledgerSkipped, [{ runId: "run-b", source: "notify.jsonl" }]);
 
   const firstListing = readdirSync(ledgerDir, { recursive: true }).sort();

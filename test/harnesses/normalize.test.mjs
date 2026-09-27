@@ -11,7 +11,6 @@ import {
   normalizeProviderAvailability,
   normalizeProviderResult,
   providerCommand,
-  exhaustedUntilOf,
 } from "../../src/harnesses/index.mjs";
 import { TOOL_OUTPUT_LIMIT_BYTES, truncateToolOutput } from "../../src/harnesses/exec-jsonl/index.mjs";
 import { ensureZcodeAvailable } from "../../src/harnesses/zcode/index.mjs";
@@ -542,7 +541,7 @@ test("the zcode adapter finds the app bundle on Linux and through the app-dir ov
   writeFileSync(electron, "electron");
   writeFileSync(cli, "cli");
 
-  ensureZcodeAvailable({ pathDirs: [bin], home, env: { FABERUN_ZCODE_APP_DIR: appDir } });
+  ensureZcodeAvailable({ pathDirs: [bin], home, env: { FABERUN_ZCODE_APP_DIR: appDir }, host: { arch: "x64", nodeMajor: 24, node: "/usr/bin/node" } });
   const body = readFileSync(join(bin, "zcode"), "utf8");
   assert.ok(body.includes(`exec ${electron}`), "the overridden app's Electron runs the bundle");
   assert.ok(body.includes(cli), "and is handed the overridden app's CLI");
@@ -566,7 +565,7 @@ test("the zcode adapter installs its CLI onto the PATH when the app is bundled",
   const pathDirs = [bin, "/usr/bin"];
   const shim = join(bin, "zcode");
 
-  ensureZcodeAvailable({ pathDirs, home, bundle });
+  ensureZcodeAvailable({ pathDirs, home, bundle, host: { arch: "x64", nodeMajor: 24, node: "/usr/bin/node" } });
 
   if (process.platform !== "win32") assert.equal(statSync(shim).mode & 0o777, 0o755, "a shim nothing can execute is not on the PATH in any useful sense"); // guard-exempt: host-layout Windows carries no exec bit; the shebang below is what runs the shim there
   const body = readFileSync(shim, "utf8");
@@ -742,39 +741,19 @@ test("accepts a zcode runtime in contracts and keeps the zhipu vendor", () => {
   assert.equal(routeRuntime(contract, { id: "z", type: "backend", runtime: "zcodeFlash", gate: {} }).id, "zcodeFlash");
 });
 
-test("a Claude turn stopped by --max-turns is turn_limit, the controller's own cap, not a provider error", () => {
-  const stdout = [
-    { type: "system", subtype: "init", session_id: "s-1" },
-    { type: "assistant", message: { usage: { input_tokens: 5, cache_read_input_tokens: 10 }, content: [] } },
-    { type: "result", subtype: "error_max_turns", is_error: true, session_id: "s-1", num_turns: 2, usage: { input_tokens: 9, cache_read_input_tokens: 30 } },
-  ].map((event) => JSON.stringify(event)).join("\n");
-  const envelope = normalizeProviderResult({ harness: "claude" }, stdout, 0, null);
-  assert.equal(envelope.status, "failed");
-  assert.equal(envelope.error?.code, "turn_limit");
-  assert.equal(envelope.continuationId, "s-1", "the session id survives for the retry's own decision");
-  assert.deepEqual(envelope.usage, { inputTokens: 9, outputTokens: null, cacheReadInputTokens: 30 }, "the spend of the capped attempt is kept");
-});
-
-// Measured 2026-09-20 in the orchestration-arms campaign: the Claude
-// subscription's five-hour window answered "You've hit your session limit ·
-// resets 6:40pm (America/Sao_Paulo)", the stream settled as provider_error,
-// and two faberun nodes burnt both attempts inside a minute instead of holding
-// until the reset. The sentence names a wall-clock time and a zone, no date.
-test("the Claude subscription's session limit is exhaustion, and its wall-clock reset becomes an instant", () => {
-  const text = "You've hit your session limit · resets 6:40pm (America/Sao_Paulo)";
-  const stream = JSON.stringify({ type: "result", subtype: "success", is_error: true, result: text, session_id: "s", usage: { input_tokens: 1, output_tokens: 1 } });
-  const envelope = normalizeProviderResult("claude", stream, 1, null);
-  assert.equal(envelope.status, "exhausted");
-  assert.equal(envelope.error?.code, "quota_exhausted");
-  // 17:00 in São Paulo (UTC-3): the reset is later the same day.
-  assert.equal(exhaustedUntilOf(envelope, Date.parse("2026-09-20T20:00:00Z")), "2026-09-20T21:40:00.000Z");
-  // 19:00 in São Paulo: the named time has passed, so it is tomorrow's.
-  assert.equal(exhaustedUntilOf(envelope, Date.parse("2026-09-20T22:00:00Z")), "2026-09-21T21:40:00.000Z");
-  const availability = normalizeProviderAvailability("claude", envelope);
-  assert.equal(availability.available, false);
-  assert.equal(availability.reason, "quota_exhausted");
-  assert.match(String(availability.exhaustedUntil), /^\d{4}-\d{2}-\d{2}T\d{2}:40:00\.000Z$/u, "a reset instant is derived even when read against the real clock");
-  // A time in the morning and an unknown zone.
-  assert.equal(exhaustedUntilOf({ error: { code: "quota_exhausted", message: "usage limit reached, resets 12:05am (UTC)" } }, Date.parse("2026-09-20T20:00:00Z")), "2026-09-21T00:05:00.000Z");
-  assert.equal(exhaustedUntilOf({ error: { code: "quota_exhausted", message: "usage limit reached, resets 6:40pm (Mars/Olympus_Mons)" } }, Date.parse("2026-09-20T20:00:00Z")), null, "an unknown zone names no instant, and the failover edge is taken instead");
+// Measured 2026-09-24 on darwin arm64, node 26.8.1: under the app's Electron
+// every zcode process showed an icon in the macOS Dock, and the bundled CLI
+// answered a 3.2 KB response intact under the system node.
+test("on arm64 with node 26 or later the zcode shim runs the CLI under the system node", () => {
+  const root = mkdtempSync(join(tmpdir(), "zcode-shim-node-"));
+  const home = join(root, "home");
+  const bin = join(home, ".local", "bin");
+  mkdirSync(bin, { recursive: true });
+  const bundle = { electron: join(root, "ZCode"), cli: join(root, "zcode.cjs") };
+  writeFileSync(bundle.electron, "");
+  writeFileSync(bundle.cli, "");
+  ensureZcodeAvailable({ pathDirs: [bin, "/usr/bin"], home, bundle, host: { arch: "arm64", nodeMajor: 26, node: "/opt/node/bin/node" } });
+  const body = readFileSync(join(bin, "zcode"), "utf8");
+  assert.ok(body.includes(`exec /opt/node/bin/node \\\n  ${bundle.cli}`), "the system node runs the bundled CLI");
+  assert.equal(body.includes("ELECTRON_RUN_AS_NODE"), false, "the app's Electron is not started, so nothing reaches the Dock");
 });

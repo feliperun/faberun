@@ -16,7 +16,7 @@ import { emptyUsage } from "../run/usage.mjs";
 import { errorMessage } from "../util.mjs";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { normalizeProviderResult, probeRuntime, providerCommand } from "../harnesses/index.mjs";
+import { normalizeProviderAvailability, normalizeProviderResult, probeRuntime, providerCommand } from "../harnesses/index.mjs";
 import { killTarget, spawnInvocation } from "../host/platform.mjs";
 import { reachableRuntimes } from "../host/preflight.mjs";
 import { spawn } from "node:child_process";
@@ -46,7 +46,7 @@ const LIVE_PREFLIGHT_OUTPUT_LIMIT_BYTES = 512 * 1024;
  * whole is part of the answer.
  *
  * @param {string} contractPath
- * @param {{static?: boolean, liveTimeoutSec?: number, persisted?: boolean}} [options]
+ * @param {{static?: boolean, liveTimeoutSec?: number, minimumTimeoutSec?: number, persisted?: boolean}} [options]
  * @returns {Promise<ProbeResult[]>}
  */
 export async function preflightContract(contractPath, options = {}) {
@@ -70,7 +70,7 @@ export async function preflightContract(contractPath, options = {}) {
  * once, so a caller cannot accidentally ask a different question.
  *
  * @param {{runtime: RuntimeSnapshot, requiredCapabilitySets?: import("../harnesses/index.mjs").CapabilityRequirements[]}[]} entries
- * @param {{static?: boolean, liveTimeoutSec?: number, cwd?: string}} [options]
+ * @param {{static?: boolean, liveTimeoutSec?: number, minimumTimeoutSec?: number, cwd?: string}} [options]
  * @returns {Promise<ProbeResult[]>}
  */
 export async function preflightRuntimes(entries, options = {}) {
@@ -80,7 +80,7 @@ export async function preflightRuntimes(entries, options = {}) {
   ));
   if (options.static === true) return staticChecks;
 
-  const timeoutSec = livePreflightTimeout(options.liveTimeoutSec);
+  const configuredTimeoutSec = configuredLivePreflightTimeout(options.liveTimeoutSec);
   let liveRepo;
   try {
     liveRepo = createLivePreflightRepo();
@@ -95,7 +95,7 @@ export async function preflightRuntimes(entries, options = {}) {
   }
   try {
     return await Promise.all(staticChecks.map(async (check, index) => {
-      const live = await livePreflight(runtimes[index], liveRepo, timeoutSec);
+      const live = await livePreflight(runtimes[index], liveRepo, configuredTimeoutSec ?? Math.max(options.minimumTimeoutSec ?? 0, defaultLivePreflightTimeout(runtimes[index])));
       const liveDetail = live.status === "done"
         ? `live done · usage ${formatUsage(live.usage)} · cost ${formatCost(live.costUsd)}`
         : `live ${live.status} · ${live.error?.code ?? "provider_error"}: ${redactProviderText(live.error?.message ?? "generation failed")} · usage ${formatUsage(live.usage)} · cost ${formatCost(live.costUsd)}`;
@@ -106,6 +106,9 @@ export async function preflightRuntimes(entries, options = {}) {
         liveStatus: live.status,
         usage: live.usage,
         costUsd: live.costUsd,
+        // A failed ask carries its classified cause (quota, balance, model) and
+        // reset instant, so a refusal can be recorded as one instead of as an answer.
+        ...(live.status === "done" ? {} : { availability: normalizeProviderAvailability(/** @type {any} */ (runtimes[index]), live) }),
         detail: `${check.detail ?? "static probe failed"} · ${liveDetail}`,
       };
     }));
@@ -113,15 +116,53 @@ export async function preflightRuntimes(entries, options = {}) {
     rmSync(liveRepo, { recursive: true, force: true });
   }
 }
-/** @param {number|undefined} configured */
-function livePreflightTimeout(configured) {
+/**
+ * An explicit budget (option, then environment) applies to every runtime.
+ *
+ * @param {number|undefined} configured
+ * @returns {number|null}
+ */
+function configuredLivePreflightTimeout(configured) {
   const raw = configured ?? (process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC === undefined
-    ? 15
+    ? null
     : Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC));
+  if (raw === null) return null;
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
     throw new TypeError("preflight live timeout must be a positive number of seconds");
   }
   return raw;
+}
+/**
+ * Without an explicit budget, the wait follows the runtime's reasoning effort:
+ * a model at high effort thinks before answering even a one-word prompt.
+ * Measured 2026-09-26: Opus 5.5 at `xhigh` failed every `faberun plan`
+ * preflight at 15 s and passed once the budget was raised, so the planning
+ * pipeline was refusing a runtime that was healthy.
+ *
+ * @param {RuntimeSnapshot} runtime
+ * @returns {number}
+ */
+export function defaultLivePreflightTimeout(runtime) {
+  // Keep LIVE_PREFLIGHT_CEILING_SEC equal to the largest value returned here.
+  const reasoning = /** @type {{reasoning?: unknown}} */ (runtime).reasoning;
+  if (reasoning === "xhigh" || reasoning === "max") return 180;
+  if (reasoning === "high") return 60;
+  return 15;
+}
+/**
+ * The longest a live preflight can take without an explicit budget: what a
+ * detached launcher must be willing to wait before the controller it spawned
+ * can report ready, because the dispatch gate asks before it does.
+ */
+export const LIVE_PREFLIGHT_CEILING_SEC = 180;
+/**
+ * The longest one live preflight ask may take under the current environment.
+ *
+ * @returns {number}
+ */
+export function livePreflightCeilingSec() {
+  const override = Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC);
+  return process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC !== undefined && Number.isFinite(override) && override > 0 ? override : LIVE_PREFLIGHT_CEILING_SEC;
 }
 /** @returns {string} */
 function createLivePreflightRepo() {

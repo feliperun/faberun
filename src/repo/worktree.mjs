@@ -1,8 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { gitArguments } from "../host/platform.mjs";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { RUNS_DIR_NAME, attemptWorktreePath, candidateWorktreePath } from "../run/paths.mjs";
+import { RUNS_DIR_NAME, attemptWorktreePath, candidateWorktreePath, worktreeRoot } from "../run/paths.mjs";
 
 /** @typedef {import("../contract/index.mjs").NodeSnapshot} NodeSnapshot */
 
@@ -480,4 +480,51 @@ export function cleanupCandidate(repo, runDir, runId) {
 export function attemptWorkspace(state) {
   const path = state?.worktree?.path;
   return path && state?.worktree?.status !== "removed" && existsSync(path) ? path : null;
+}
+
+/**
+ * Release every attempt worktree a finished run left behind, keeping what it
+ * held. Measured 2026-09-24: attempts that were never accepted (a failed or
+ * blocked try, the first of two, a discovery node) kept their worktree and
+ * branch forever, and one machine held 41 registered and 42 orphaned
+ * worktrees (909 MB) from campaigns long closed. Each worktree's HEAD, and its
+ * uncommitted delta when it has one (`git stash create`, which touches no
+ * file), is kept under `refs/faberun-archive/<run>/<attempt>` before the
+ * worktree and its branch go, so removal loses nothing git can hold.
+ *
+ * @param {string} repo
+ * @param {string} runDir
+ * @param {string} runId
+ * @returns {{removed: number, archived: string[]}}
+ */
+export function releaseRunWorktrees(repo, runDir, runId) {
+  const root = worktreeRoot(runDir, runId);
+  if (!existsSync(root)) return { removed: 0, archived: [] };
+  /** @type {string[]} */
+  const archived = [];
+  let removed = 0;
+  for (const entry of readdirSync(root)) {
+    const path = join(root, entry);
+    /** @param {string[]} args @returns {string} */
+    const inTree = (args) => {
+      try {
+        return git(path, args);
+      } catch {
+        // An orphaned directory git no longer knows answers nothing; it is removed below all the same.
+        return "";
+      }
+    };
+    const branch = inTree(["symbolic-ref", "--quiet", "--short", "HEAD"]);
+    const keep = inTree(["stash", "create"]) || inTree(["rev-parse", "HEAD"]);
+    if (keep) {
+      const ref = `refs/faberun-archive/${runId}/${entry}`;
+      runGit(["-C", repo, "update-ref", ref, keep]);
+      archived.push(ref);
+    }
+    removeWorktree(repo, path);
+    if (branch) deleteRef(repo, `refs/heads/${branch}`);
+    removed += 1;
+  }
+  rmSync(root, { recursive: true, force: true });
+  return { removed, archived };
 }

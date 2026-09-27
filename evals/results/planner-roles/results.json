@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "spec": "evals/results/planner-roles/phase-1.SPEC.md",
+  "reviewRounds": 4,
+  "runtimes": {
+    "roles-a": "runtimes.json",
+    "roles-b": "runtimes.json",
+    "roles-c": "runtimes.json",
+    "roles-c2": "runtimes-c2.json"
+  },
+  "configs": {
+    "roles-a": {
+      "worker": "codex-luna (gpt-5.6-luna)",
+      "reviewer": "claude-opus (claude-opus-5-5)",
+      "outcome": "contested",
+      "roundsUsed": 4,
+      "reviews": [
+        {
+          "round": 1,
+          "findings": 10,
+          "critical": 3,
+          "freezeFailed": "task packet scope does not close; declare in readFiles or writeFiles, or acknowledge in scopeAcknowledged: nodes[2] (managed-signal-launch): test/cli/cli.test.mjs (imports: runs src/cli.mjs, which imports src/engine/supervise.mjs); nodes[0] (plan-integrity): test/cli/plan.test.mjs (cross-node: this node writes src/plan/pipeline.mjs, which operator-resolution wrote a test against; declare test/cli/plan.test.mjs in writeFiles or scopeAcknowledged so this node may change the test its work breaks); nodes[2] (managed-signal-launch): test/cli/plan.test.mjs (cross-node: this node writes src/engine/supervise.mjs, which operator-resolution wrote a test against; declare test/cli/plan.test.mjs in writeFiles or scopeAcknowledged so this node may change the test its work breaks); nodes[0] (plan-integrity): test/campaign/campaign-brief.test.mjs (cross-node: this node writes src/plan/freeze.mjs, which operator-resolution wrote a test against; declare test/campaign/campaign-brief.test.mjs in writeFiles or scopeAcknowledged so this node may change the test its work breaks); nodes[1] (operator-resolution): test/repo/signal.test.mjs (cross-node: this node writes src/campaign/journal.mjs, which managed-signal-launch wrote a test against; declare test/repo/signal.test.mjs in writeFiles or scopeAcknowledged so this node may change the test its work breaks) Resolve it by declaring each named file in writeFiles — or acknowledging it in scopeAcknowledged when the node must not change it — never by dropping a write the node needs: removing a file from writeFiles clears this failure too, and leaves the worker without a file the work requires."
+        },
+        {
+          "round": 2,
+          "findings": 15,
+          "critical": 4,
+          "freezeFailed": "nodes[0].taskPacket.readFiles[6] does not exist: src/plan/review.mjs"
+        },
+        {
+          "round": 3,
+          "findings": 10,
+          "critical": 2,
+          "freezeFailed": "task packet scope does not close; declare in readFiles or writeFiles, or acknowledge in scopeAcknowledged: nodes[1] (operator-resolution): test/cli/cli.test.mjs (imports: runs src/cli.mjs, which imports src/cli/campaign.mjs); nodes[0] (plan-integrity): test/cli/plan.test.mjs (cross-node: this node writes src/plan/pipeline.mjs, which operator-resolution wrote a test against; declare test/cli/plan.test.mjs in writeFiles or scopeAcknowledged so this node may change the test its work breaks); nodes[2] (managed-signal-launch): test/engine/resume.test.mjs (cross-node: this node writes src/repo/workspace.mjs, which operator-resolution wrote a test against; declare test/engine/resume.test.mjs in writeFiles or scopeAcknowledged so this node may change the test its work breaks); nodes[0] (plan-integrity): test/campaign/campaign-brief.test.mjs (cross-node: this node writes src/plan/freeze.mjs, which operator-resolution wrote a test against; declare test/campaign/campaign-brief.test.mjs in writeFiles or scopeAcknowledged so this node may change the test its work breaks); nodes[1] (operator-resolution): test/repo/signal.test.mjs (cross-node: this node writes src/campaign/journal.mjs, which managed-signal-launch wrote a test against; declare test/repo/signal.test.mjs in writeFiles or scopeAcknowledged so this node may change the test its work breaks) Resolve it by declaring each named file in writeFiles — or acknowledging it in scopeAcknowledged when the node must not change it — never by dropping a write the node needs: removing a file from writeFiles clears this failure too, and leaves the worker without a file the work requires."
+        }
+      ],
+      "invalidOutputs": [
+        {
+          "stage": "revise",
+          "round": 3,
+          "invalid": "plan.nodes[0].definitionOfDone[0].proof.ref must be a non-empty string"
+        }
+      ],
+      "costUsd": 2.14,
+      "unknownCostRecords": 0,
+      "bootstrapFailure": "entry.text is 4706 bytes, over the 2048-byte cap; cut 2658 bytes and retry"
+    },
+    "roles-b": {
+      "worker": "codex-luna (gpt-5.6-luna)",
+      "reviewer": "codex-astra (gpt-6-astra)",
+      "outcome": "contested",
+      "roundsUsed": 4,
+      "reviews": [
+        {
+          "round": 1,
+          "findings": 3,
+          "critical": 1,
+          "freezeFailed": "runtime_routing_unmet: plan-integrity.judge (rule: runtimeDefaults); operator-resolve.judge (rule: runtimeDefaults); human-step-stop.judge (rule: runtimeDefaults); managed-signal-launch.judge (rule: runtimeDefaults); command-docs.judge (rule: runtimeDefaults)"
+        },
+        {
+          "round": 2,
+          "findings": 5,
+          "critical": 1,
+          "freezeFailed": "runtime_routing_unmet: plan-integrity.judge (rule: runtimeDefaults); human-step-stop.judge (rule: runtimeDefaults); operator-resolve.judge (rule: runtimeDefaults); managed-signal-launch.judge (rule: runtimeDefaults); command-docs.judge (rule: runtimeDefaults)"
+        },
+        {
+          "round": 3,
+          "findings": 5,
+          "critical": 1,
+          "freezeFailed": "runtime_routing_unmet: plan-integrity.judge (rule: runtimeDefaults); human-step-stop.judge (rule: runtimeDefaults); operator-resolve.judge (rule: runtimeDefaults); managed-signal-launch.judge (rule: runtimeDefaults); command-docs.judge (rule: runtimeDefaults)"
+        },
+        {
+          "round": 4,
+          "findings": 4,
+          "critical": 1,
+          "freezeFailed": "runtime_routing_unmet: plan-integrity.judge (rule: runtimeDefaults); operator-resolve.judge (rule: runtimeDefaults); human-step-stop.judge (rule: runtimeDefaults); managed-signal-launch.judge (rule: runtimeDefaults); command-docs.judge (rule: runtimeDefaults)"
+        }
+      ],
+      "invalidOutputs": [],
+      "costUsd": 2.24,
+      "unknownCostRecords": 0,
+      "bootstrapFailure": "entry.text is 11342 bytes, over the 2048-byte cap; cut 9294 bytes and retry"
+    },
+    "roles-c": {
+      "worker": "claude-opus (claude-opus-5-5)",
+      "reviewer": "codex-astra (gpt-6-astra)",
+      "outcome": "contested",
+      "roundsUsed": 4,
+      "reviews": [
+        {
+          "round": 2,
+          "findings": 4,
+          "critical": 1,
+          "freezeFailed": "nodes[0] (revise-validated-and-converging) has verification but worker runtime claude-opus uses permissionMode=acceptEdits; claude executes commands only in bypassPermissions"
+        },
+        {
+          "round": 4,
+          "findings": 2,
+          "critical": 1,
+          "freezeFailed": "nodes[0] (human-step-carried-by-frozen-plan) has verification but worker runtime claude-opus uses permissionMode=acceptEdits; claude executes commands only in bypassPermissions"
+        }
+      ],
+      "invalidOutputs": [
+        {
+          "stage": "draft",
+          "round": null,
+          "invalid": "plan.nodes[0].definitionOfDone[0].proof.ref must be a non-empty string"
+        },
+        {
+          "stage": "revise",
+          "round": 2,
+          "invalid": "plan.nodes[0].definitionOfDone[0].proof.ref must be a non-empty string"
+        }
+      ],
+      "costUsd": 7.64,
+      "unknownCostRecords": 0,
+      "bootstrapFailure": null
+    },
+    "roles-c2": {
+      "worker": "claude-opus (claude-opus-5-5, bypassPermissions)",
+      "reviewer": "codex-astra (gpt-6-astra)",
+      "outcome": "did not finish",
+      "roundsUsed": null,
+      "reviews": [],
+      "invalidOutputs": [],
+      "costUsd": 1.16,
+      "unknownCostRecords": 0,
+      "bootstrapFailure": "detached bootstrap failed before readiness for pid 49554"
+    }
+  }
+}

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "defect-scope-drift-inside-writefiles-macos-process-start-token",
   "label": "defect:scope-drift-inside-writefiles",
   "sourceTask": "macos-process-start-token",
@@ -125,6 +125,10 @@
       "skills/mine/intent-factory/test/lock.test.mjs"
     ],
     "missingContext": []
+  },
+  "authoredBy": {
+    "runtime": "claude-opus-5-5",
+    "family": "anthropic"
   },
   "mutation": {
     "kind": "scope-drift-inside-writefiles",

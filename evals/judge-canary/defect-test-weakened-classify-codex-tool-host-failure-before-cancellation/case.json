@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "defect-test-weakened-classify-codex-tool-host-failure-before-cancellation",
   "label": "defect:test-weakened",
   "sourceTask": "classify-codex-tool-host-failure-before-cancellation",
@@ -151,6 +151,10 @@
       "skills/mine/intent-factory/test/drivers.test.mjs"
     ],
     "missingContext": []
+  },
+  "authoredBy": {
+    "runtime": "claude-opus-5-5",
+    "family": "anthropic"
   },
   "mutation": {
     "kind": "test-weakened",

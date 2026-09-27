@@ -15,6 +15,7 @@ import { faberunContract } from "./contract.mjs";
 import { deliveredOf } from "./corpus.mjs";
 import { auditScope, commitAll, git, keepFinalTree, prepareCheckout, removeCheckout, runAcceptance } from "./fork.mjs";
 import { FABERUN_CLI, PAIRED_EXPERIMENT_HOME, PAIRED_LOGS, PAIRED_STATE, providerEnv, readJsonl, writeJson } from "./lib.mjs";
+import { releaseRunWorktrees } from "../../src/repo/worktree.mjs";
 
 /** @typedef {import("./corpus.mjs").CorpusSet} CorpusSet */
 /** @typedef {import("./contract.mjs").PairedArm} PairedArm */
@@ -151,6 +152,10 @@ export async function runFaberunArm({ label, repetition, corpus, arm }) {
   const delivery = deliveredOf(acceptance);
   const keptSha = keepFinalTree(finalCheckout.dir, `refs/arms/paired/${arm.name}-r${repetition}`);
   removeCheckout(finalCheckout.dir);
+  // The arm's run is read and its tree kept; the attempt worktrees it left are
+  // released (archived under refs/faberun-archive/ first). Measured 2026-09-24:
+  // the R11 round left 28 of them registered in this repository.
+  releaseRunWorktrees(dir, runDir, runId);
   if (finalCheckout.dir !== dir) removeCheckout(dir);
 
   return {

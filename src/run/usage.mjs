@@ -16,6 +16,7 @@ import { priceUsage } from "../engine/process.mjs";
 import { readBoundedTail, sessionLedger } from "../engine/transcript.mjs";
 import { writeNode } from "../engine/state.mjs";
 import { harnessCapabilities, normalizeProviderResult } from "../harnesses/index.mjs";
+import { recordInvocationWindows } from "./usage-windows.mjs";
 
 // `priceUsage` is defined beside `invocationResult`, the second source point,
 // and re-exported here so the ledger's public surface is unchanged. This module
@@ -88,6 +89,12 @@ export function recordInvocationUsage(job, options = {}) {
   // Price only after the backfill has run: the counters this function persists
   // and returns are the ones the price is derived from, and the envelope becomes
   // the single priced object every later copy spreads from.
+  try {
+    recordInvocationWindows(job.runtime, envelope.continuationId);
+  } catch {
+    // The window record is telemetry about the account, never a reason to fail
+    // the invocation it rode on: a missing or unreadable session file means no reading.
+  }
   const priced = priceUsage(job.runtime, envelope.usage, envelope.costUsd);
   envelope = { ...envelope, costUsd: priced.costUsd, costProvenance: priced.costProvenance };
   // The per-request ledger is read here, with the usage, for the same reason

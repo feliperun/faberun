@@ -160,6 +160,17 @@ export function resolvePermissionExecution(runtime) {
 }
 
 /**
+ * The mode in which a runtime's harness cannot write its workspace, or `null`
+ * when the harness declares none.
+ *
+ * @param {{harness: string}} runtime
+ * @returns {string|null}
+ */
+export function readOnlyModeOf(runtime) {
+  return getHarness(runtime.harness).permissionExecution?.readOnlyModes?.[0] ?? null;
+}
+
+/**
  * Whether a runtime can write its workspace. False only in a mode its adapter
  * declares read-only; RM-058 measured a codex reviewer under `read-only`
  * whose result-file write was rejected and which then stalled for 300s.
@@ -179,7 +190,7 @@ export function writesWorkspace(runtime) {
  * the exec'd binary actually is, so neither gets a default here — a contract
  * using either must declare `vendor` outright.
  */
-const DEFAULT_HARNESS_VENDORS = Object.freeze({
+export const DEFAULT_HARNESS_VENDORS = Object.freeze({
   claude: "anthropic",
   codex: "openai",
   agy: "google",
@@ -326,7 +337,7 @@ export function exhaustedUntilOf(envelope, now = Date.now()) {
  * @returns {{available: false, exhaustedUntil: string|null, reason: string}|null} null when text names none of the known patterns
  */
 function classifyAvailabilityText(text) {
-  if (/insufficient balance/iu.test(text) || /\b402\b/u.test(text)) {
+  if (/insufficient balance|spend limit/iu.test(text) || /\b402\b/u.test(text)) {
     return { available: false, exhaustedUntil: null, reason: "insufficient_balance" };
   }
   if (/quota|rate.?limit|usage limit|session limit|limit exhausted|1310/iu.test(text)) {

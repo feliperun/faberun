@@ -208,7 +208,7 @@ function authToken(runtime) {
  * each one, `doctor` checks binaries), so a permissions or disk failure has to
  * degrade into "not found" — never into an aborted run or a crashed report.
  *
- * @param {{env?: Record<string, string|undefined>, pathDirs?: string[], home?: string, bundle?: {electron: string, cli: string}}} [options]
+ * @param {{env?: Record<string, string|undefined>, pathDirs?: string[], home?: string, bundle?: {electron: string, cli: string}, host?: {arch: string, nodeMajor: number, node: string}}} [options]
  * @returns {void}
  */
 export function ensureZcodeAvailable(options = {}) {
@@ -218,7 +218,7 @@ export function ensureZcodeAvailable(options = {}) {
     if (resolvesOnPath(pathDirs, ZCODE_BIN_NAME)) return;
     const bundle = options.bundle ?? zcodeBundle(env);
     if (!bundle || !existsSync(bundle.electron) || !existsSync(bundle.cli)) return;
-    const body = zcodeShim(bundle);
+    const body = zcodeShim(bundle, options.host);
     for (const dir of shimDirs(options.home ?? homedir())) {
       if (!pathDirs.includes(dir)) continue;
       if (settleShim(join(dir, ZCODE_BIN_NAME), body)) return;
@@ -252,9 +252,23 @@ function zcodeBundle(env) {
  * outlives it.
  *
  * @param {{electron: string, cli: string}} bundle
+ * @param {{arch: string, nodeMajor: number, node: string}} [host]
  * @returns {string}
  */
-function zcodeShim(bundle) {
+function zcodeShim(bundle, host = { arch: process.arch, nodeMajor: Number(process.versions.node.split(".")[0]), node: process.execPath }) {
+  // Measured 2026-09-24 on darwin arm64 with node 26.8.1: the bundled CLI
+  // answers a 3.2 KB response intact under the system node, and every process
+  // it spawns under the app's Electron shows an icon in the macOS Dock. The
+  // Electron path stays for every other host, where the detached-ArrayBuffer
+  // failure (node 24 x64) is the only measurement there is.
+  if (host.arch === "arm64" && host.nodeMajor >= 26) {
+    return `#!/usr/bin/env bash
+set -euo pipefail
+# Written by the faberun zcode harness; the ZCode app owns the CLI path.
+exec ${host.node} \\
+  ${bundle.cli} "$@"
+`;
+  }
   return `#!/usr/bin/env bash
 set -euo pipefail
 # Written by the faberun zcode harness; the ZCode app owns both paths.

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "id": "defect-scope-drift-inside-writefiles-deepseek-balance-classification",
   "label": "defect:scope-drift-inside-writefiles",
   "sourceTask": "deepseek-balance-classification",
@@ -118,6 +118,10 @@
       "skills/mine/intent-factory/test/drivers.test.mjs"
     ],
     "missingContext": []
+  },
+  "authoredBy": {
+    "runtime": "claude-opus-5-5",
+    "family": "anthropic"
   },
   "mutation": {
     "kind": "scope-drift-inside-writefiles",

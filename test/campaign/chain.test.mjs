@@ -137,7 +137,7 @@ function chainContract(repo, campaignId, id, overrides = {}) {
     runtimeDefaults: { worker: "luna", judge: "sol" },
     runtimes: {
       luna: { harness: "codex", model: "gpt-5.6-luna" },
-      sol: { harness: "codex", model: "gpt-5.6-sol", vendor: "openai-sol" },
+      sol: { harness: "codex", model: "gpt-5.6-sol", config: { model_provider: "deepseek" } },
     },
     nodes: [{ id: "build", type: "backend", phase: "phase", taskPacket: packet({ readFiles: ["base.txt"], writeFiles: ["out.txt"] }), gate: false }],
     ...overrides,

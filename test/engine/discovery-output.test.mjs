@@ -1,6 +1,7 @@
 import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -143,4 +144,41 @@ test("an execution node whose worker returns output ends failed, naming the fiel
   const state = nodeState(result, "build");
   assert.equal(state.status, "failed");
   assert.match(state.error?.message ?? "", /output/u);
+});
+
+test("a planning-sized output copied into artifacts is re-asked with the broken ceiling named, and settles done once artifacts is empty", async () => {
+  // Observed 2026-09-25: a 38 KiB plan copied into artifacts[0] was re-asked
+  // with a repair about markdown fences, which it could not act on.
+  const directory = mkdtempSync(join(tmpdir(), "discovery-output-ceiling-"));
+  const recordingDir = mkdtempSync(join(tmpdir(), "discovery-output-ceiling-rec-"));
+  writeFileSync(join(directory, "spec.md"), "# Feature 42\n\nThe spec under planning.\n");
+  const plan = {
+    nodes: Array.from({ length: 24 }, (_, index) => ({
+      id: `node-${index}`, objective: `Implement part ${index} ${"of the feature ".repeat(40)}`, taskKind: "implement", riskTier: "standard",
+      dependsOn: [], readFiles: ["spec.md"], writeFiles: [`src/part-${index}.mjs`], definitionOfDone: [], verification: [],
+    })),
+  };
+  const planText = JSON.stringify(plan);
+  assert.ok(Buffer.byteLength(planText) > 16 * 1024, "the plan is past the artifact ceiling");
+  const result = (/** @type {string[]} */ artifacts) => JSON.stringify({ status: "done", summary: "planned", verification: [], artifacts, missingContext: [], output: { plan } });
+  const workerRecording = writeRecording(recordingDir, [
+    { envelope: envelope({ result: result([planText]) }) },
+    { envelope: envelope({ result: result([]) }) },
+  ], "worker.jsonl");
+
+  const path = replayContractPath(directory, "discovery-output-ceiling-run", [{
+    id: "plan",
+    type: "backend",
+    taskPacket: packet({ mode: "discovery", readFiles: ["spec.md"], writeFiles: [], objective: "Draft the plan" }),
+    gate: false,
+  }], workerRecording);
+
+  const run = await runContract(path);
+  const state = nodeState(run, "plan");
+  assert.equal(state.status, "done", state.error?.message);
+  assert.deepEqual(/** @type {{output?: unknown}} */ (state.result).output, { plan });
+  const repairPrompt = readFileSync(join(run.runDir, "logs", "plan.2.worker.prompt"), "utf8");
+  assert.match(repairPrompt, /worker result\.artifacts\[0\] exceeds 16384 bytes/);
+  assert.match(repairPrompt, /never copies `output` into `artifacts`/);
+  assert.ok(!repairPrompt.includes("no markdown fences"), "the repair names the ceiling, not the formatting");
 });

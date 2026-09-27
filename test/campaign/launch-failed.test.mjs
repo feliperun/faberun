@@ -39,7 +39,7 @@ test("a failed detached bootstrap names the run and the resume that completes it
     runtimeDefaults: { worker: "luna", judge: "sol" },
     runtimes: {
       luna: { harness: "codex", model: "gpt-5.6-luna" },
-      sol: { harness: "codex", model: "gpt-5.6-sol", vendor: "openai-sol" },
+      sol: { harness: "codex", model: "gpt-5.6-sol", config: { model_provider: "deepseek" } },
     },
     nodes: ["one", "two", "three"].map((id) => ({ id, type: "backend", phase: "phase", taskPacket: packet({ readFiles: ["base.txt"], writeFiles: [`${id}.txt`] }), gate: false })),
   }, null, 2)}\n`);
