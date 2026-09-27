@@ -59,7 +59,8 @@ they lived was not.
 
 The ideas this repository generates were being lost. Sixteen written proposals,
 each with its own measurement and named for what it found, lived only under
-`.runs/…/proposals/`, which is gitignored, and `campaign close` copies the
+the legacy in-tree runs directory's `proposals/` folder, which is gitignored,
+and `campaign close` copies the
 journal, the campaign record and every `usage.jsonl` into
 `docs/campaigns/<id>/ledger/` but **not the proposals**. They were rescued into
 `docs/campaigns/state-location-and-routing-economics/proposals/` when this file
@@ -385,7 +386,7 @@ judgment; they do not transport information.
 
 | id | item | evidence | state |
 | --- | --- | --- | --- |
-| RM-030 | `campaign close` preserves `proposals/` in the ledger | 16 proposals lived only in gitignored `.runs/`; the close copies journal, record and usage, not these | landed: `evidence-you-can-recompute` R1, 2026-09-23 |
+| RM-030 | `campaign close` preserves `proposals/` in the ledger | 16 proposals lived only in the gitignored legacy in-tree runs directory; the close copies journal, record and usage, not these | landed: `evidence-you-can-recompute` R1, 2026-09-23 |
 | RM-031 | Emit `judgment` proofs only where no `command`/`path` proof covers the item, and support `gate.skipWhen` | `judgeRequired` already skips the judge when no `judgment` item exists, and `gate.skipWhen` exists; R10 makes a `judgment` item name what no command checks, the emission half is still open | landed in part: `evals-with-a-budget` R10, 2026-09-24 |
 | RM-032 | Detect unproductive loops and stop them | 23 turns with no result accounted for 25% of one campaign's spend; `process.mjs` restarts the stall clock on any event | measured |
 | RM-094 | A provider refusal is shared across processes and stops the next launch | `choose-the-judges`, 2026-09-24: a probe answered `quota_exhausted` was cached as an answer; six canaries on two accounts each found the exhausted quota by failing on their own, and zcode's `[1308]` reached stderr only | landed: `bce1e01`, `76387b9`, 2026-09-24 |
@@ -402,8 +403,8 @@ judgment; they do not transport information.
 | RM-105 | A contested plan's open-question always reaches the campaign | `choose-the-judges` R5: roles-a and roles-b contested, and the pipeline failed to record the open-question (`entry.text is 4706 bytes` and `11342 bytes, over the 2048-byte cap`, `bootstrap-failure.json`), so two contested plans told the campaign nothing | measured |
 | RM-106 | The operator's session is a cost of the campaign | the session that conducts a campaign and writes its contracts (an Opus session in every `leaving-home` campaign) is measured nowhere: `usage.jsonl` holds only what faberun launches, so every campaign's stated cost leaves out the model that did the orchestration and the hand-authoring | measured |
 | RM-033 | Ask the owner asynchronously (WhatsApp, then `campaign resolve`) instead of keeping a session alive to be present when a question appears | none yet | idea |
-| RM-070 | The getting-started walkthrough is executed, not only read | its first output shows `.runs/campaigns/hello`; the CLI prints a path under the home layout | specified: `safe-to-hand-to-a-friend` R5 |
-| RM-071 | No current document describes the legacy run layout as current | 31 lines cite `.runs` across `GETTING-STARTED.md`, `CONCEPTS.md`, `ARCHITECTURE.md` and `README.md` | specified: `safe-to-hand-to-a-friend` R6 |
+| RM-070 | The getting-started walkthrough is executed, not only read | its first output showed the legacy in-tree path before the sweep; the CLI prints a path under the home layout | specified: `safe-to-hand-to-a-friend` R5 |
+| RM-071 | No current document describes the legacy run layout as current | 31 lines cite the legacy in-tree run directory across `GETTING-STARTED.md`, `CONCEPTS.md`, `ARCHITECTURE.md` and `README.md` | specified: `safe-to-hand-to-a-friend` R6 |
 | RM-075 | Leaving is one command | nothing undoes what `setup`, `init` and `skills register` write outside the target repository | specified: `safe-to-hand-to-a-friend` R11 |
 
 ---

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { RUNS_DIR_NAME } from '../../src/run/paths.mjs';
 
 // Raised from 1024 on 2026-09-17: SKILL.md gained one router row linking a
 // seventh reference, references/spec-format.md, documenting the spec format
@@ -254,4 +255,77 @@ test('done-when 8: the notify docs match notify/index.mjs and SKILL.md arms the 
   assert.match(skill, /launchd/u);
   assert.match(skill, /StartInterval 300/u);
   assert.match(skill, /launchctl load/u);
+});
+
+// R6: no current document describes the legacy in-tree run layout as current.
+//
+// The runs root moved out of the target repository into the operator's home
+// (`$FABERUN_HOME`, default `~/.faberun`), so a current doc that still names
+// the old in-tree `.runs/` directory — or a path under it — as where run state
+// lives is stale. This ratchet fails until such a mention is removed, or the
+// passage that keeps it is labelled as the legacy layout.
+//
+// Scope is README.md and the top-level docs. `docs/history/`,
+// `docs/campaigns/` and `docs/adr/` are dated records and out of scope by
+// design. `docs/COMMANDS.md` is excluded because it is the generated command
+// manual: `src/cli/manual.mjs` regenerates its command surface, so a docs
+// sweep does not own its reads/writes prose. `docs/GETTING-STARTED.md` is
+// scanned, and its four remaining mentions are allowlisted because they
+// describe current behaviour (`init` still ignores a legacy in-tree runs
+// directory and prints so, the docs map describes the architecture page, and
+// the `AGENTS.md` signal block predates the move) and cannot be removed
+// without changing the CLI itself.
+
+const rootDir = fileURLToPath(new URL('../..', import.meta.url));
+const docsDir = join(rootDir, 'docs');
+
+/** Files under `docs/` that are generated rather than hand-authored. */
+const GENERATED_DOCS = new Set(['COMMANDS.md']);
+
+/**
+ * A line that labels its passage as legacy is allowed to name the old layout,
+ * so a migration note can say exactly what moved.
+ */
+const LEGACY_LABEL = /\b(?:legacy|pre-?migration|before the move|migrat(?:e|es|ed|ion)|historical)\b/iu;
+
+/**
+ * Current-behaviour references in the executed walkthrough. Each is owned by
+ * the CLI or by the signal block, not by the legacy run layout.
+ */
+const ALLOWED_GETTING_STARTED = [
+  /adds `\.runs\/` to `\.gitignore`/u,
+  /\[ok\] \.runs ignored/u,
+  /the `\.runs\/` layout/u,
+  /Check `\.runs\/` and the managed signal block/u,
+];
+
+/** @returns {string[]} absolute paths of README.md and the current top-level docs */
+function currentDocs() {
+  const generated = new Set([...GENERATED_DOCS].map((name) => join(docsDir, name)));
+  return [
+    join(rootDir, 'README.md'),
+    ...readdirSync(docsDir)
+      .filter((name) => name.endsWith('.md'))
+      .map((name) => join(docsDir, name))
+      .filter((path) => !generated.has(path)),
+  ];
+}
+
+test('no current doc describes the legacy run layout as current', () => {
+  const gettingStarted = relative(rootDir, join(docsDir, 'GETTING-STARTED.md'));
+  const offenders = [];
+  for (const file of currentDocs()) {
+    const name = relative(rootDir, file);
+    for (const [index, line] of readFileSync(file, 'utf8').split('\n').entries()) {
+      if (!line.includes(RUNS_DIR_NAME)) continue;
+      if (LEGACY_LABEL.test(line)) continue;
+      if (name === gettingStarted && ALLOWED_GETTING_STARTED.some((pattern) => pattern.test(line))) continue;
+      offenders.push(`${name}:${index + 1}: ${line.trim()}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `current docs present the legacy .runs run layout as current:\n${offenders.join('\n')}`,
+  );
 });

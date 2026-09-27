@@ -47,8 +47,9 @@ budgeted, isolated runs: `faberun plan` drives draft, review and — while a
 repository facts and the plan under review, never the author's own packet or
 reasoning. A converged draft is sized (`src/plan/sizing.mjs`), routed
 (`src/plan/routing.mjs`, where the operator's `--runtime-defaults` always wins
-over the table) and frozen (`src/plan/freeze.mjs`) into
-`.runs/campaigns/<id>/plans/<phase>/plan.json` and `contract.json`. The
+over the table) and frozen (`src/plan/freeze.mjs`) into the project's runs directory at
+`<home>/projects/<project>/runs/campaigns/<id>/plans/<phase>/plan.json` and
+`contract.json`. The
 invariant: freezing never launches, and a plan exhausted without convergence
 ends `contested` — no contract, and a campaign `open-question` naming the open
 findings — the same terminal shape an unapproved `riskTier` gets, resolved
@@ -58,13 +59,14 @@ through `faberun campaign resolve`. See [COMMANDS.md](COMMANDS.md#plan).
 
 The durable layer above runs: a goal, an ordered manifest of contracts, a
 landing branch, and the journal of what happened. Campaign state lives at
-`.runs/campaigns/<campaign-id>/` in `campaign.json`, `journal.jsonl` and
-`HANDOFF.md`, managed by `campaign init`, `attach`, `note`, `sync`, `ack`,
-`watch`, `resolve`, `close`, `list` and `show`. The invariant: every contract
-requires a `campaignId`; a campaign can link many runs, and `close` refuses
-until a `retrospective` note exists. `close` also copies the journal, the
-record and every linked run's usage into `docs/campaigns/<id>/ledger/`, so
-that history survives once `.runs/` (gitignored) is pruned. See
+`<home>/projects/<project>/runs/campaigns/<campaign-id>/` in `campaign.json`,
+`journal.jsonl` and `HANDOFF.md`, managed by `campaign init`, `attach`, `note`,
+`sync`, `ack`, `watch`, `resolve`, `close`, `list` and `show`. The invariant:
+every contract requires a `campaignId`; a campaign can link many runs, and
+`close` refuses until a `retrospective` note exists. `close` also copies the
+journal, the record and every linked run's usage into
+`docs/campaigns/<id>/ledger/`, so that history survives once the run state in
+the home is pruned. See
 [COMMANDS.md](COMMANDS.md#campaign) and
 [operations.md](../skills/faberun/references/operations.md).
 
@@ -82,13 +84,13 @@ See [contract.md](../skills/faberun/references/contract.md) and
 
 ## Run
 
-The execution of one contract in place: a self-contained directory under
-`<cwd>/.runs/<id>/` with the contract, node snapshots, logs, usage,
-integration ledger and `STATUS.md`. A run is started by `run --detach`, watched
-by `supervise`, and continued in place by `resume`. The invariant: one
-controller drives a run at a time, holding `<run-dir>/controller.lock`; an
-existing run directory is never overwritten, and a non-terminal run is never
-re-authored when it can be resumed. See
+The execution of one contract in place: a self-contained directory under the
+project's runs root, `<home>/projects/<project>/runs/<id>/`, with the contract,
+node snapshots, logs, usage, integration ledger and `STATUS.md`. A run is
+started by `run --detach`, watched by `supervise`, and continued in place by
+`resume`. The invariant: one controller drives a run at a time, holding
+`<run-dir>/controller.lock`; an existing run directory is never overwritten,
+and a non-terminal run is never re-authored when it can be resumed. See
 [operations.md](../skills/faberun/references/operations.md) and
 [workflow.md](../skills/faberun/references/workflow.md).
 
@@ -296,14 +298,14 @@ the node snapshots.
 ## Attempt worktree
 
 The isolated checkout one worker attempt runs in:
-`.runs/worktrees/<run-id>/<node-id>.<attempt>` on branch
-`faberun/<run-id>/<node-id>/<attempt>`, cut from the run ref
+`<home>/projects/<project>/runs/worktrees/<run-id>/<node-id>.<attempt>` on
+branch `faberun/<run-id>/<node-id>/<attempt>`, cut from the run ref
 `refs/faberun/<run-id>/run`. The node snapshot records its `path`, `branch`,
-`baseSha` and sealed `commit`; `contract.cwd` stays the home of run and control
-artifacts. The invariant: every attempt gets its own worktree, and a retried
-attempt never discards the previous attempt's edits, because the next attempt is
-cut from the previous seal when it has a diff and from the run ref tip when it
-does not. See
+`baseSha` and sealed `commit`; `contract.cwd` stays the target repository,
+whose run and control artifacts live under the runs root. The invariant: every
+attempt gets its own worktree, and a retried attempt never discards the previous
+attempt's edits, because the next attempt is cut from the previous seal when it
+has a diff and from the run ref tip when it does not. See
 [operations.md](../skills/faberun/references/operations.md) and
 [workflow.md](../skills/faberun/references/workflow.md).
 
@@ -322,7 +324,8 @@ from the sealed sha instead of starting over. See
 
 The per-run ref `refs/faberun/<run-id>/run` is the integration head. Integration
 builds a candidate on `refs/faberun/<run-id>/candidate` and
-`.runs/worktrees/<run-id>/.candidate`, where the node's verification runs once,
+`<home>/projects/<project>/runs/worktrees/<run-id>/.candidate`, where the node's
+verification runs once,
 except that a command the candidate failed but the attempt passed is retried
 once before the candidate is judged failed, since that disagreement is
 evidence about the two worktrees rather than about the work. A passing
@@ -367,8 +370,8 @@ The operator's interactive surface: one tmux session, `faberun-seat`, with one
 window per open campaign, managed by `seat start`, `attach`, `status` and
 `stop`. It hosts an interactive harness for the operator. The invariant: the
 seat never drives a run and never writes run state, because state writes stay
-with the controller; a dead pane cannot touch `.runs/`, and tmux being absent
-only costs reattaching. See
+with the controller; a dead pane cannot touch the runs root, and tmux being
+absent only costs reattaching. See
 [operations.md](../skills/faberun/references/operations.md) and
 [COMMANDS.md](COMMANDS.md#seat).
 
@@ -431,16 +434,18 @@ terminal, and a run is continued rather than re-authored. See
 [operations.md](../skills/faberun/references/operations.md) and
 [workflow.md](../skills/faberun/references/workflow.md).
 
-## Evidence: the .runs/ layout
+## Evidence: the run state layout
 
-The durable evidence of a run lives under `<cwd>/.runs/<id>/`: `contract.json`,
-`run.json`, `status.json`, `findings.json`, `nodes/<id>.json`, `logs/`,
-`operations/`, `usage.jsonl`, `integration.jsonl`, `events.jsonl`,
-`notify.jsonl` and `STATUS.md`; a smaller `<cwd>/.runs/status.json` pointer
-carries the live summary. The invariant: stored files are state and logs are
-diagnostics, raw worker output stays under `.runs/` while only status and
-actionable verdicts enter the control session, and the run directory is
-self-contained enough to resume. The status payload's `executionPhase` names
+The durable evidence of a run lives under the project's runs root,
+`<home>/projects/<project>/runs/<id>/` (`<home>` is `$FABERUN_HOME`, default
+`~/.faberun`): `contract.json`, `run.json`, `status.json`, `findings.json`,
+`nodes/<id>.json`, `logs/`, `operations/`, `usage.jsonl`, `integration.jsonl`,
+`events.jsonl`, `notify.jsonl` and `STATUS.md`; a smaller `status.json` pointer
+at the root of the runs directory carries the live summary. The invariant:
+stored files are state and logs are diagnostics, raw worker output stays under
+the runs root while only status and actionable verdicts enter the control
+session, and the run directory is self-contained enough to resume. The status
+payload's `executionPhase` names
 `candidate` while a node's sealed integration candidate is being re-verified
 (distinct from `worker` or `judge`), and its `gateOutcome` (`passed` or
 `rejected`) names what the gate actually decided rather than echoing the
