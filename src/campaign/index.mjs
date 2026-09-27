@@ -18,7 +18,7 @@ import { readProjectionState } from "./projection.mjs";
 import { handoffFromState, materializeHandoff } from "./handoff.mjs";
 import { preserveCampaignLedger, reledgerCampaignLedger } from "./ledger.mjs";
 
-export { preserveCampaignLedger, reledgerCampaignLedger } from "./ledger.mjs";
+export { markCampaignLedgerPreserved, preserveCampaignLedger, reledgerCampaignLedger, unpreservedLedgerCampaigns } from "./ledger.mjs";
 
 /** @typedef {Record<string, unknown>} JsonObject */
 /** @typedef {{path: string, digest: string}} CampaignContract */
@@ -27,7 +27,7 @@ export { preserveCampaignLedger, reledgerCampaignLedger } from "./ledger.mjs";
 /** @typedef {{runId: string, node: string, passed: boolean|null, verdict: string|null}} RequirementNodeEvidence */
 /** @typedef {{requirementId: string, status: "covered"|"open", nodes: RequirementNodeEvidence[]}} RequirementClosure */
 /** @typedef {{oldPath: string, newPath: string, runIds: string[], at: string}} ContractReplacement */
-/** @typedef {{id: string, goal: string, status: "active"|"closed", linkedRunIds: string[], contracts: CampaignContract[], replacements?: ContractReplacement[], landBranch: string, promotions: PromotionRecord[], attention?: CampaignAttention, requirements?: RequirementClosure[], createdAt: string, updatedAt: string, closedAt?: string}} Campaign */
+/** @typedef {{id: string, goal: string, status: "active"|"closed", linkedRunIds: string[], contracts: CampaignContract[], replacements?: ContractReplacement[], landBranch: string, promotions: PromotionRecord[], attention?: CampaignAttention, requirements?: RequirementClosure[], ledgerPreserved?: boolean, createdAt: string, updatedAt: string, closedAt?: string}} Campaign */
 /** @typedef {{type: string, eventId: string, at: string, sessionId?: string, text?: string, tool?: string, transcript?: string|null, transcriptUnavailable?: boolean, format?: string|null, cursor?: string|null, decisionId?: string, supersedes?: string, runId?: string, questionId?: string, campaignId?: string, nodeId?: string|null, phase?: string, checkpointsDone?: number, checkpointsTotal?: number, runtime?: string|null, state?: string, lastProgressAt?: string, attention?: string|null}} JournalEntry */
 /** @typedef {{updatedAt: string|null, decisions: Record<string, JournalEntry>, questions: Record<string, JournalEntry>, constraints: JournalEntry[], intents: JournalEntry[], outcomes: JournalEntry[], sessions: JournalEntry[], next: JournalEntry|null, evicted: Record<string, number>}} Projection */
 /** @typedef {{cursor: number, byte: number, size: number, projection: Projection}} ProjectionRecord */
@@ -163,6 +163,9 @@ export function closeCampaign(campaignPath, { at = new Date().toISOString(), eve
   // defaults to the home.
   const repoRoot = campaignRepoRoot(campaignPath);
   const ledger = preserveCampaignLedger(campaignPath, repoRoot, ledgerInRepo ? undefined : join(campaignPath, "ledger"));
+  // A versioned preservation marks the record inside `preserveCampaignLedger`;
+  // re-reading returns the record the caller can read, marker included.
+  const persisted = readCampaign(campaignPath);
   // A closed campaign resumes nothing, so the attempt worktrees its runs left
   // go now, each archived under a ref first (releaseRunWorktrees).
   const runsDir = resolve(campaignPath, "..", "..");
@@ -172,13 +175,15 @@ export function closeCampaign(campaignPath, { at = new Date().toISOString(), eve
     worktrees.removed += released.removed;
     worktrees.archived.push(...released.archived);
   }
-  return { path: campaignPath, campaign: closed, ledgerFiles: ledger.written, ledgerSkipped: ledger.skipped, worktrees };
+  return { path: campaignPath, campaign: persisted, ledgerFiles: ledger.written, ledgerSkipped: ledger.skipped, worktrees };
 }
 
 /**
  * Complete the versioned evidence ledger of a closed campaign. Unlike close,
- * this operation never updates the campaign record or journal: it only adds
- * surviving run sources beneath the repository's ledger directory.
+ * this operation does not otherwise update the campaign record or journal: it
+ * adds surviving run sources beneath the repository's ledger directory and
+ * marks the record's `ledgerPreserved`, the one state the durable copy makes
+ * true.
  *
  * @param {string} campaignPath
  * @returns {import("./ledger.mjs").LedgerReledger & {ledgerDir: string}}

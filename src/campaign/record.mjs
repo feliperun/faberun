@@ -36,6 +36,11 @@ export function readCampaign(path) {
   record.contracts ??= [];
   record.landBranch ??= `campaign/${String(record.id)}`;
   record.promotions ??= [];
+  // The preservation state of the campaign's ledger. A record written before
+  // the marker existed, or written by a close that kept the ledger only in the
+  // operator home, reads as not preserved: removal refuses on the default
+  // rather than deleting evidence it cannot prove is safe.
+  record.ledgerPreserved ??= false;
   return /** @type {Campaign} */ (campaign);
 }
 /**
@@ -117,6 +122,12 @@ export function validateCampaign(campaign) {
     }
   }
   if (record.landBranch !== undefined) requireText(record.landBranch, "campaign.landBranch");
+  // The ledger preservation marker is optional on read (a record written
+  // before it existed reads as not preserved), but once written it must be a
+  // boolean so removal can rely on the state it carries.
+  if (record.ledgerPreserved !== undefined && typeof record.ledgerPreserved !== "boolean") {
+    throw new TypeError("campaign.ledgerPreserved must be a boolean");
+  }
   // The chain's durable park: the campaign stays active but carries the reason
   // it stopped, naming the contract, the node and the status when they exist.
   if (record.attention !== undefined && record.attention !== null) {
