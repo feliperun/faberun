@@ -23,6 +23,7 @@ import { spawn } from "node:child_process";
 import { boundedGitSync } from "../repo/worktree.mjs";
 import { tmpdir } from "node:os";
 import { validateContract } from "../contract/index.mjs";
+import { assertInlineScriptProofsParse } from "../contract/definition-of-done.mjs";
 import { validateNodeSnapshot } from "../contract/snapshot.mjs";
 import { compactCost as formatCost } from "../util.mjs";
 import { runsRoot } from "../run/paths.mjs";
@@ -92,6 +93,10 @@ const PROVIDER_NAMED_CAUSES = new Set([
 export async function preflightContract(contractPath, options = {}) {
   const absoluteContractPath = resolve(contractPath);
   const contract = validateContract(JSON.parse(readFileSync(absoluteContractPath, "utf8")), absoluteContractPath, options.persisted === true ? { persisted: true } : {});
+  // R34: every command proof that is an inline script is parsed before the
+  // first dispatch, so a body no attempt could ever make exit 0 refuses the
+  // launch here, naming its node and item, instead of after three paid tries.
+  assertInlineScriptProofsParse(contract.nodes);
   return preflightRuntimes([...reachableRuntimes(contract).values()], { ...options, cwd: contract.cwd });
 }
 
