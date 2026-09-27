@@ -4,6 +4,7 @@
  * contested. This file only owns the wire — `src/plan/pipeline.mjs` owns the
  * sequencing and every decision the pipeline makes.
  */
+import { validateJudgeIndependence } from "../contract/judge-independence.mjs";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { detachArgv, detachSelf, waitForBootstrap } from "./launch.mjs";
@@ -144,7 +145,7 @@ export function loadVerificationSuites(path) {
 
 /**
  * @param {string} target
- * @param {{campaign?: string, phase?: string, "review-rounds"?: string, "approve-below"?: string, "runtime-defaults"?: string, reviewers?: string, runtimes?: string, verification?: string, package?: string, "targeted-fix"?: boolean, detach?: boolean, resolve?: string, answer?: string[], json?: boolean}} values
+ * @param {{campaign?: string, phase?: string, "review-rounds"?: string, "approve-below"?: string, "runtime-defaults"?: string, reviewers?: string, runtimes?: string, verification?: string, package?: string, "targeted-fix"?: boolean, "judge-independence"?: string, detach?: boolean, resolve?: string, answer?: string[], json?: boolean}} values
  * @returns {Promise<void>}
  */
 export async function planCli(target, values) {
@@ -166,6 +167,9 @@ export async function planCli(target, values) {
     ? loadVerificationSuites(values.verification)
     : {};
   const packageMode = packageModeOf(values.package);
+  const judgeIndependence = values["judge-independence"] === undefined
+    ? undefined
+    : validateJudgeIndependence(values["judge-independence"], "--judge-independence");
 
   if (values.detach === true) {
     const argv = ["plan", specPath, "--campaign", campaignId, "--phase", phase, "--review-rounds", String(reviewRounds)];
@@ -176,6 +180,7 @@ export async function planCli(target, values) {
     if (typeof values.verification === "string" && values.verification) argv.push("--verification", resolve(values.verification));
     if (packageMode !== "implementation") argv.push("--package", packageMode);
     if (values["targeted-fix"] === true) argv.push("--targeted-fix");
+    if (judgeIndependence !== undefined) argv.push("--judge-independence", judgeIndependence);
     const failurePath = planBootstrapFailurePath(process.cwd(), campaignId, phase);
     // Read the campaign before creating anything: the failure record lives
     // inside the campaign tree, so a typo in --campaign would otherwise leave
@@ -222,6 +227,7 @@ export async function planCli(target, values) {
       verification,
       targetedFix: values["targeted-fix"] === true,
       packageMode,
+      ...(judgeIndependence === undefined ? {} : { judgeIndependence }),
       launch: async (contractPath, contract) => {
         const child = detachSelf("run", contractPath);
         if (child.pid === undefined) throw new Error("detached planning run has no pid");
