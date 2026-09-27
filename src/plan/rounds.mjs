@@ -26,6 +26,7 @@ import { validateContract } from "../contract/index.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
 import { stableJson } from "../util.mjs";
 import { assertTimeoutsCoverMeasured, raiseTimeoutsToMeasured } from "./freeze.mjs";
+import { assertFilteredProofsNameTheirTest, declareDirectoryGuards } from "./proof-scope.mjs";
 import { validateFindings, validatePlanOutput } from "./template.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
@@ -254,7 +255,9 @@ export async function runReviewRounds(options) {
    */
   const freezePreflightError = (candidate) => {
     try {
-      assertTimeoutsCoverMeasured(validateContract(frozenContractRaw(assembleFrozenNodes(raiseTimeoutsToMeasured(candidate, repoFacts).plan)), join(plansDir, "contract.json")), repoFacts);
+      const contract = validateContract(frozenContractRaw(assembleFrozenNodes(declareDirectoryGuards(raiseTimeoutsToMeasured(candidate, repoFacts).plan, repoFacts, cwd).plan)), join(plansDir, "contract.json"));
+      assertFilteredProofsNameTheirTest(contract);
+      assertTimeoutsCoverMeasured(contract, repoFacts);
       return null;
     } catch (error) {
       return error;
@@ -340,8 +343,10 @@ export async function runReviewRounds(options) {
       // R14's mechanical repair with a single answer, applied before review so
       // the reviewer grades, and freeze checks, the plan that would ship.
       const timeouts = raiseTimeoutsToMeasured(plan, repoFacts);
-      plan = timeouts.plan;
       if (timeouts.raised.length) logStage("timeouts-raised", { round, raised: timeouts.raised });
+      const guards = declareDirectoryGuards(timeouts.plan, repoFacts, cwd);
+      if (guards.declared.length) logStage("guards-declared", { round, declared: guards.declared });
+      plan = guards.plan;
       // The reviewer grades a structurally valid plan; an invalid one skips
       // review and reaches revise through the validator's finding instead.
       writeJsonAtomic(workingPlanPath, plan);

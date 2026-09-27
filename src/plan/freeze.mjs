@@ -21,6 +21,7 @@ import { assertObject, rejectUnknown, requirePacketHash, requireString } from ".
 import { writeJsonAtomic, writeTextAtomic } from "../run/store.mjs";
 import { VERIFICATION_LIMITS } from "../contract/verification.mjs";
 import { validatePlanPhases } from "./template.mjs";
+import { NODE_VALUE_OPTIONS, assertFilteredProofsNameTheirTest } from "./proof-scope.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
 /** @typedef {import("./human-step.mjs").HumanStep} PlanHumanStep */
@@ -47,8 +48,6 @@ const MEASURED_TIMEOUT_MARGIN = 1.5;
 /** `node --test` options that run a subset of the files they name. */
 const FILTER_OPTIONS = ["--test-name-pattern", "--test-skip-pattern", "--test-only", "--test-shard"];
 
-/** `node` options whose value is the next argument, so it is not a path. */
-const NODE_VALUE_OPTIONS = new Set(["--import", "--require", "-r", "--loader", "--experimental-loader", "--env-file", "--test-reporter", "--test-reporter-destination", "--test-name-pattern", "--test-skip-pattern", "--test-concurrency", "--test-timeout"]);
 
 /**
  * The `node --test <dir>` candidates one path argument includes: a directory
@@ -413,6 +412,7 @@ export function freezePlan(plan, { outDir, provenance, phases, spec, humanSteps,
   writeJsonAtomic(contractPath, raw);
   try {
     const validated = validateContract(raw, contractPath);
+    assertFilteredProofsNameTheirTest(validated);
     if (facts) assertTimeoutsCoverMeasured(validated, facts);
   } catch (error) {
     rmSync(contractPath, { force: true });

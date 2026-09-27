@@ -1,0 +1,15 @@
+{"at":"2026-09-25T01:15:57.299Z","node":"canonical-provider","to":"running","phase":"worker","runtime":"claude-sonnet"}
+{"at":"2026-09-25T01:15:58.476Z","node":"pipeline-split","to":"running","phase":"worker","runtime":"claude-sonnet"}
+{"at":"2026-09-25T01:15:59.672Z","node":"proof-ref","to":"running","phase":"worker","runtime":"claude-sonnet"}
+{"at":"2026-09-25T01:21:16.108Z","node":"managed-block","to":"running","phase":"worker","runtime":"claude-sonnet"}
+{"at":"2026-09-25T01:22:42.569Z","node":"proof-ref","to":"done","phase":"complete","runtime":"claude-sonnet","verdict":"pass"}
+{"at":"2026-09-25T01:26:14.882Z","node":"managed-block","to":"running","phase":"judge","runtime":"claude-opus"}
+{"at":"2026-09-25T01:27:31.524Z","node":"managed-block","to":"done","phase":"complete","runtime":"claude-opus","verdict":"pass"}
+{"at":"2026-09-25T01:34:18.299Z","node":"pipeline-split","to":"running","phase":"worker","runtime":"claude-sonnet","verdict":"fail","revisions":1}
+{"at":"2026-09-25T01:53:12.982Z","node":"pipeline-split","to":"done","phase":"complete","runtime":"claude-sonnet","verdict":"pass","revisions":1}
+{"at":"2026-09-25T01:54:30.343Z","node":"canonical-provider","to":"pending","phase":"worker","runtime":"claude-sonnet"}
+{"at":"2026-09-25T01:54:30.343Z","node":"canonical-provider","to":"pending","phase":"worker","runtime":"claude-sonnet"}
+{"at":"2026-09-25T01:54:32.144Z","node":"canonical-provider","to":"running","phase":"worker","runtime":"claude-sonnet"}
+{"at":"2026-09-25T02:13:46.423Z","node":"canonical-provider","to":"running","phase":"judge","runtime":"claude-opus"}
+{"at":"2026-09-25T02:16:44.228Z","node":"canonical-provider","to":"running","phase":"judge","runtime":"claude-opus"}
+{"at":"2026-09-25T02:25:20.912Z","node":"canonical-provider","to":"done","phase":"complete","runtime":"claude-opus","verdict":"pass"}

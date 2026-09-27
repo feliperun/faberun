@@ -35,7 +35,7 @@ function seedRun(repo, runsDir, runId, { status, runRef }) {
   if (runRef === null) {
     writeFileSync(join(attempt, "work.txt"), `${runId}\n`);
     execFileSync("git", ["-C", attempt, "add", "work.txt"]);
-    execFileSync("git", ["-C", attempt, "commit", "-q", "-m", "chore(faberun): seal build attempt 1"]);
+    execFileSync("git", ["-C", attempt, "-c", "user.email=runner@example.test", "-c", "user.name=runner", "-c", "commit.gpgSign=false", "commit", "-q", "-m", "chore(faberun): seal build attempt 1"]);
   }
   gitOut(repo, ["update-ref", runRefName(runId), runRef ?? gitOut(attempt, ["rev-parse", "HEAD"])]);
   return attempt;

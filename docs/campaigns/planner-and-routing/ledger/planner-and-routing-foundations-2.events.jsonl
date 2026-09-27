@@ -1,0 +1,7 @@
+{"at":"2026-09-25T01:14:40.912Z","node":"canonical-provider","to":"running","phase":"worker","runtime":"claude-sonnet"}
+{"at":"2026-09-25T01:14:42.102Z","node":"pipeline-split","to":"running","phase":"worker","runtime":"claude-sonnet"}
+{"at":"2026-09-25T01:14:43.359Z","node":"proof-ref","to":"running","phase":"worker","runtime":"claude-sonnet"}
+{"at":"2026-09-25T01:15:22.794Z","node":"canonical-provider","to":"canceled","phase":"canceled","runtime":"claude-sonnet"}
+{"at":"2026-09-25T01:15:22.818Z","node":"pipeline-split","to":"canceled","phase":"canceled","runtime":"claude-sonnet"}
+{"at":"2026-09-25T01:15:22.841Z","node":"proof-ref","to":"canceled","phase":"canceled","runtime":"claude-sonnet"}
+{"at":"2026-09-25T01:15:22.865Z","node":"managed-block","to":"canceled","phase":"canceled"}

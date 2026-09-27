@@ -142,8 +142,9 @@ function proveVerification(id, proof, recorded) {
  * `--test-skip-pattern`) is judged on more than its exit code, because the
  * runner exits 0 whether its filter selected anything or not. The proof runs
  * with the TAP reporter selected through `NODE_OPTIONS` and is refused when the
- * output carries TAP's zero-plan line. Measured 2026-09-21 on node v26.8.1: a
- * filter that matches emits `1..0` zero times, a filter that matches nothing
+ * output says the filter selected nothing (`tapSelectedNothing`). Measured
+ * 2026-09-21 on node v26.8.1, in a single-file run: a filter that matches
+ * emits `1..0` zero times, a filter that matches nothing
  * emits it exactly once, a run with no filter emits it zero times, and an empty
  * suite under a matching filter emits no nested zero plan. The default reporter
  * cannot make the distinction -- both cases print identical counters, because
@@ -154,7 +155,26 @@ function proveVerification(id, proof, recorded) {
  * never sees it.
  */
 const TEST_FILTER_FLAGS = ["--test-name-pattern", "--test-skip-pattern"];
-const TAP_ZERO_PLAN = /^1\.\.0$/mu;
+const TAP_ZERO_PLAN = /^1\.\.0$/gmu;
+const TAP_TOP_LEVEL_RESULT = /^(?:not )?ok \d+ /gmu;
+
+/**
+ * Whether a filtered run's TAP says its filter selected no test. A run of
+ * several files prints, for each file the filter selected nothing in, an
+ * unindented `1..0` followed by that file's own top-level `ok` line, while a
+ * selected test prints its own top-level result with no zero plan in front of
+ * it. Measured 2026-09-26 on node v26.8.1 (AP1 of safe-to-hand-to-a-friend):
+ * reading a single `1..0` as "nothing selected" refused two proofs whose
+ * filter had selected a passing test in one of several files. Nothing was
+ * selected exactly when every top-level result is one of those file lines.
+ *
+ * @param {string} stdout
+ * @returns {boolean}
+ */
+function tapSelectedNothing(stdout) {
+  const zeroPlans = stdout.match(TAP_ZERO_PLAN)?.length ?? 0;
+  return zeroPlans > 0 && zeroPlans >= (stdout.match(TAP_TOP_LEVEL_RESULT)?.length ?? 0);
+}
 
 /**
  * The full controller environment a Definition of Done verification proof runs
@@ -267,7 +287,7 @@ async function proveCommand(id, proof, cwd, timeoutMs) {
     child.on("close", (code, signal) => {
       // Its own detail, not an ordinary command failure: the command succeeded,
       // so what failed is that the declared filter selected nothing to prove.
-      if (code === 0 && signal === null && filters.length > 0 && TAP_ZERO_PLAN.test(stdout)) {
+      if (code === 0 && signal === null && filters.length > 0 && tapSelectedNothing(stdout)) {
         finish({
           id,
           kind: "command",

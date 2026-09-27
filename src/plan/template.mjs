@@ -148,6 +148,14 @@ function instructionsFor(kind, inputs) {
   return INSTRUCTIONS[kind].map((line) => (line === SIZING_INSTRUCTION ? EXPLORATORY_SIZING_INSTRUCTION : line));
 }
 
+// AP1 of safe-to-hand-to-a-friend, measured 2026-09-26: a draft copied the
+// spec's requirement proof `node --test --test-name-pattern="<title>"` into a
+// Definition of Done item with no file, which runs every test file in the
+// tree and read as having measured nothing; two nodes exhausted on it. The
+// freeze now refuses that shape (proof-scope.mjs); this is the same rule told
+// to the author, so the draft never writes it.
+const NAMED_TEST_FILE_RULE = 'A command that filters node:test by name (--test-name-pattern) names the test file it selects from, as in node --test --test-name-pattern="<exact test title>" test/<area>/<file>.test.mjs: with no path node --test runs every test file in the tree and the freeze refuses it. A requirement proof the spec writes without a file gains the file of the test that carries that title.';
+
 // The rule every planned packet is held to at freeze time, worded from
 // AGENTS.md's Faberun protocol and src/repo/scope-closure.mjs ("reading it
 // cannot fix it"): a first draft that ignores it produces a plan that fails
@@ -173,6 +181,7 @@ const INSTRUCTIONS = Object.freeze({
     `Consult the ${TASK_KIND_CATALOGUE_FILE} in readFiles before classifying any node; taskKind must be one of that catalogue and riskTier must be one of ${RISK_TIERS.join(", ")}.`,
     "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies, the planned node ids it assigns, and the deliverable it produces in one sentence. Every planned node must appear in exactly one phase's nodeIds; a missing, duplicate, or unknown node assignment is refused.",
     ...SCOPE_CLOSURE_RULE,
+    NAMED_TEST_FILE_RULE,
     `Return exactly one worker-result JSON object. Put the plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan. taskKind and riskTier are the only classification a draft makes; a routing table assigns a runtime afterward, from those two fields alone.",
     SIZING_INSTRUCTION,
@@ -182,6 +191,7 @@ const INSTRUCTIONS = Object.freeze({
     "Read the findings and resolve every one; do not leave a critical or major finding unaddressed.",
     "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies, the planned node ids it assigns, and the deliverable it produces in one sentence. Every planned node must appear in exactly one phase's nodeIds; a missing, duplicate, or unknown node assignment is refused.",
     ...SCOPE_CLOSURE_RULE,
+    NAMED_TEST_FILE_RULE,
     `Return exactly one worker-result JSON object. Put the revised plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan.",
     SIZING_INSTRUCTION,

@@ -97,3 +97,21 @@ test("a command with no filter is judged by exit code exactly as before", async 
   assert.equal(fails.pass, false);
   assert.match(fails.detail, /^exit 1/u);
 });
+
+test("a filter that selects a test in one of several files is a pass, not a zero plan", async () => {
+  // AP1 of safe-to-hand-to-a-friend, measured 2026-09-26 on node v26.8.1:
+  // with several test files in the run, every file the filter selects nothing
+  // in prints its own unindented `1..0` before its file-level `ok` line, so a
+  // proof whose filter did select a test was refused as having measured
+  // nothing. Two nodes exhausted on exactly this.
+  const directory = proofWorkspace();
+  writeFileSync(join(directory, "other.test.mjs"), 'import { test } from "node:test";\ntest("unrelated", () => {});\n');
+  const gate = await proveAll(directory, [
+    ["selects-one", "node --test --test-name-pattern=real sample.test.mjs other.test.mjs"],
+    ["selects-none", "node --test --test-name-pattern=zzz-no-match sample.test.mjs other.test.mjs"],
+  ]);
+  assert.equal(byId(gate.results, "selects-one").pass, true, byId(gate.results, "selects-one").detail);
+  const none = byId(gate.results, "selects-none");
+  assert.equal(none.pass, false);
+  assert.match(none.detail, /selected no test/u);
+});
