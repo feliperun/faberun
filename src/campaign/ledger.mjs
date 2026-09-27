@@ -32,14 +32,20 @@ export const NOTIFY_PROJECTION_FIELDS = Object.freeze(["at", "dedupeKey", "attem
  * sources are reported so a pruned run cannot make the close fail or look
  * complete by accident. Repeated calls overwrite the same paths.
  *
+ * `ledgerDir` is the exact destination. It defaults to the versioned ledger
+ * under `repoRoot/docs/campaigns/<id>/ledger`; `closeCampaign` passes the
+ * campaign directory in the operator home instead when `--ledger-in-repo` was
+ * not given, so the target repository is not dirtied by a plain close.
+ *
  * @param {string} campaignPath
  * @param {string} repoRoot
+ * @param {string|undefined} [ledgerDir]
  * @returns {LedgerPreservation}
  */
-export function preserveCampaignLedger(campaignPath, repoRoot) {
+export function preserveCampaignLedger(campaignPath, repoRoot, ledgerDir = undefined) {
   const campaign = readCampaign(campaignPath);
   const runsDir = resolve(campaignPath, "..", "..");
-  const ledgerDir = join(repoRoot, "docs", "campaigns", campaign.id, "ledger");
+  ledgerDir ??= join(repoRoot, "docs", "campaigns", campaign.id, "ledger");
   mkdirSync(ledgerDir, { recursive: true });
   /** @type {string[]} */
   const written = [];

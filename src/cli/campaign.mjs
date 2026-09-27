@@ -82,7 +82,7 @@ const OPERATION_OPTIONS = {
     text: { type: "string" },
     "event-id": { type: "string" },
   },
-  close: { cwd: { type: "string" }, "event-id": { type: "string" } },
+  close: { cwd: { type: "string" }, "event-id": { type: "string" }, "ledger-in-repo": { type: "boolean" } },
   reledger: { cwd: { type: "string" } },
   supervise: { cwd: { type: "string" }, "allow-main": { type: "boolean" }, "refresh-controller": { type: "boolean" } },
   unpark: { cwd: { type: "string" }, force: { type: "boolean" }, "event-id": { type: "string" } },
@@ -94,7 +94,7 @@ const OPERATION_OPTIONS = {
   ack: { cwd: { type: "string" }, "session-id": { type: "string" }, "event-id": { type: "string" } },
 };
 
-/** @typedef {{cwd?: string, goal?: string, contract?: string[], landBranch?: string, tool?: string, sessionId?: string, transcript?: string, format?: string, cursor?: string, since?: string, kind?: string, text?: string, runId?: string, supersedes?: string, decisionId?: string, questionId?: string, eventId?: string, noTranscript?: boolean, wake?: boolean, detach?: boolean, interval?: string, once?: boolean, allowMain?: boolean, refreshController?: boolean, force?: boolean, path?: string, replace?: string, phase?: string}} CliValues */
+/** @typedef {{cwd?: string, goal?: string, contract?: string[], landBranch?: string, tool?: string, sessionId?: string, transcript?: string, format?: string, cursor?: string, since?: string, kind?: string, text?: string, runId?: string, supersedes?: string, decisionId?: string, questionId?: string, eventId?: string, noTranscript?: boolean, wake?: boolean, detach?: boolean, interval?: string, once?: boolean, allowMain?: boolean, refreshController?: boolean, force?: boolean, path?: string, replace?: string, phase?: string, ledgerInRepo?: boolean}} CliValues */
 /** @typedef {import("../campaign/index.mjs").Campaign} Campaign */
 
 /**
@@ -311,10 +311,12 @@ function resolveQuestion(campaignId, values) {
  */
 function close(campaignId, values) {
   const { path, runsDir } = selectCampaign(campaignId, values);
-  const closed = closeCampaign(path, { eventId: values.eventId ?? randomUUID() });
+  const ledgerInRepo = values.ledgerInRepo === true;
+  const closed = closeCampaign(path, { eventId: values.eventId ?? randomUUID(), ledgerInRepo });
   renderHandoff(path, runsDir);
   process.stdout.write(`[campaign] ${closed.campaign.id} closed\n`);
-  process.stdout.write(`[campaign] ledger · docs/campaigns/${closed.campaign.id}/ledger · ${closed.ledgerFiles.length} files\n`);
+  const ledgerLocation = ledgerInRepo ? `docs/campaigns/${closed.campaign.id}/ledger` : join(path, "ledger");
+  process.stdout.write(`[campaign] ledger · ${ledgerLocation} · ${closed.ledgerFiles.length} files\n`);
   reportUnknownCostFraction(path, runsDir);
   for (const skipped of closed.ledgerSkipped) {
     process.stdout.write(`[campaign] ledger skipped · ${skipped.runId}/${skipped.source}\n`);

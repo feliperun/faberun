@@ -10,7 +10,7 @@ import { initializeCampaign, registerRun } from "../../src/campaign/index.mjs";
 import { appendInbox, noTransportWarning, readInbox, wakeCapabilityNotice, NOTIFY_NO_TRANSPORT_WARNING, NotifyQueue } from "../../src/notify/index.mjs";
 import { enqueueCampaignNotification } from "../../src/engine/notify-queue.mjs";
 import { environmentPreflight, notifyTransportCheck } from "../../src/host/preflight.mjs";
-import { renderAgentSignalBlock, syncAgentSignal } from "../../src/repo/signal.mjs";
+import { renderAgentSignalBlock, SIGNAL_END, SIGNAL_START, syncAgentSignal } from "../../src/repo/signal.mjs";
 import { acquireWatchLock, watchCampaignWake } from "../../src/campaign/watch.mjs";
 import { runProgress } from "../../src/engine/supervise.mjs";
 import { SPAWN_WAIT_FACTOR, fixture, packet, writeContract, withEmptyPath, withFakeCodex, readStatus, waitForValue } from "../helpers.mjs";
@@ -50,7 +50,7 @@ test("done-when 1: a parked run appears in the managed block with its nodes, cod
     build: { status: "blocked", error: { code: "provider_error", message: "boom" } },
     docs: { status: "done" },
   });
-  writeFileSync(join(directory, "AGENTS.md"), "# repo\n");
+  writeFileSync(join(directory, "AGENTS.md"), `# repo\n\n${SIGNAL_START}\n${SIGNAL_END}\n`);
 
   const block = renderAgentSignalBlock(runsDir);
   assert.match(block, /run `r1`: parked/u, block);
@@ -91,7 +91,7 @@ test("a multi-line inbox summary (renderRunProgress's own shape) collapses to it
     summary: "node build needs you · run r1 · judge_unavailable\nthis node: 12s\nworker says: multi-line progress text",
     dedupeKey: "attention:cm:r1:build",
   });
-  writeFileSync(join(directory, "AGENTS.md"), "# repo\n");
+  writeFileSync(join(directory, "AGENTS.md"), `# repo\n\n${SIGNAL_START}\n${SIGNAL_END}\n`);
 
   const block = renderAgentSignalBlock(runsDir);
   const attentionLines = block.split("\n").filter((line) => line.includes("attention:"));

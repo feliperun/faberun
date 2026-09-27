@@ -200,6 +200,31 @@ test("close preserves the ledger at the project's registered repository, not und
   assert.equal(existsSync(join(home, "docs")), false, "nothing is preserved under the home");
 });
 
+// R27: the close verb keeps the evidence beside the campaign in the operator
+// home by default, so a plain close against a repository the operator does not
+// own leaves the tree clean. The versioned copy under docs/ is opt-in with
+// --ledger-in-repo.
+test("close writes the ledger to the home unless --ledger-in-repo", async () => {
+  const home = mkdtempSync(join(tmpdir(), "faberun-ledger-home-"));
+  process.env.FABERUN_HOME = home;
+  const repo = realpathSync(mkdtempSync(join(tmpdir(), "runner-campaign-ledger-cli-")));
+  const runsDir = runsRoot(repo);
+
+  const homed = initializeCampaign(runsDir, { campaignId: "homed-ledger", goal: "Keep the target repository clean" });
+  recordRetrospective(homed.path, "retro-homed-ledger");
+  await campaignCli(["close", "homed-ledger", "--cwd", repo]);
+  assert.ok(existsSync(join(homed.path, "ledger", "journal.jsonl")), "the ledger lands in the campaign directory in the home");
+  assert.ok(existsSync(join(homed.path, "ledger", "campaign.json")));
+  assert.equal(existsSync(join(repo, "docs", "campaigns", "homed-ledger", "ledger")), false, "the target repository is untouched");
+
+  const versioned = initializeCampaign(runsDir, { campaignId: "versioned-ledger", goal: "Version the evidence" });
+  recordRetrospective(versioned.path, "retro-versioned-ledger");
+  await campaignCli(["close", "versioned-ledger", "--cwd", repo, "--ledger-in-repo"]);
+  const ledgerDir = join(repo, "docs", "campaigns", "versioned-ledger", "ledger");
+  assert.ok(existsSync(join(ledgerDir, "journal.jsonl")), "the flag writes the versioned ledger");
+  assert.equal(existsSync(join(versioned.path, "ledger")), false, "the home copy is not written with the flag");
+});
+
 test("a project reassociated after creation preserves the ledger at its new path", () => {
   const home = mkdtempSync(join(tmpdir(), "faberun-ledger-home-"));
   process.env.FABERUN_HOME = home;
