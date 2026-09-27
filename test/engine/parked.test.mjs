@@ -23,7 +23,7 @@ import { emitScheduledAttention, attentionScheduleSlot, alreadyNotified } from "
 import { cancelRun } from "../../src/engine/cancel.mjs";
 import { checkWorkerScope } from "../../src/engine/scope.mjs";
 import { runIsNonterminal } from "../../src/cli/launch.mjs";
-import { syncAgentSignal } from "../../src/repo/signal.mjs";
+import { SIGNAL_END, SIGNAL_START, syncAgentSignal } from "../../src/repo/signal.mjs";
 import { describeRuns, selectGarbageCollectableRuns } from "../../src/run/disk-gc.mjs";
 import { renderStatus } from "../../src/report/render.mjs";
 import { validateContract, loadPersistedContract, CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/contract/index.mjs";
@@ -546,7 +546,7 @@ test("done-when 13: a parked node keeps the managed signal active and blocks gar
   mkdirSync(join(runDir, "nodes"), { recursive: true });
   writeFileSync(join(runDir, "run.json"), JSON.stringify({ startedAt: new Date(0).toISOString() }));
   writeFileSync(join(runDir, "nodes", "alpha.json"), JSON.stringify({ id: "alpha", status: "blocked" }));
-  writeFileSync(join(runsDir, "..", "AGENTS.md"), "# repo\n");
+  writeFileSync(join(runsDir, "..", "AGENTS.md"), `# repo\n\n${SIGNAL_START}\n${SIGNAL_END}\n`);
 
   assert.equal(syncAgentSignal(runsDir), true, "a parked run still appears in the managed block");
   assert.match(readFileSync(join(runsDir, "..", "AGENTS.md"), "utf8"), /parked-run/u);
