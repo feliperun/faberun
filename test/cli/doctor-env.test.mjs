@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { fakeCodex, fixture, writeContract } from "../helpers.mjs";
-import { environmentListings, isSecretEnvName, runtimeEnvironmentReport } from "../../src/host/preflight.mjs";
+import { environmentListings, isSecretEnvName, runtimeEnvironmentReport } from "../../src/host/environment-report.mjs";
 
 const runner = fileURLToPath(new URL("../../src/cli.mjs", import.meta.url));
 
