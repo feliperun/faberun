@@ -14,7 +14,7 @@
 import { SETTLED } from "../engine/prompts.mjs";
 import { bootstrapAckPath, bootstrapAttemptPath, bootstrapPath, cleanupBootstrapAttempts, readJson, writeJsonAtomic } from "../run/store.mjs";
 import { bootstrapFailureMatchesChild, bootstrapMatchesChild, processStartToken, readLock, sameProcessStartToken, validBootstrapNonce } from "../run/lock.mjs";
-import { cleanupBootstrapNonce } from "../engine/detach.mjs";
+import { cleanupBootstrapNonce, discardNodeLessRunDirectory } from "../engine/detach.mjs";
 import { delay, errorCode } from "../util.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -111,6 +111,7 @@ export async function waitForBootstrap(runDir, pid, child = null, timeoutMs = 30
         const childIdentity = bootstrapMatchesChild(bootstrap, pid, nonce, expectedProcessStartToken);
         if (bootstrap.status === "failed" && bootstrapFailureMatchesChild(bootstrap, pid, nonce, expectedProcessStartToken)) {
           cleanupBootstrapAttempts(runDir);
+          discardNodeLessRunDirectory(runDir);
           throw new Error(`detached bootstrap failed: ${bootstrap.error}`);
         }
         const lock = readLock(runDir);
@@ -138,6 +139,7 @@ export async function waitForBootstrap(runDir, pid, child = null, timeoutMs = 30
         const failure = /** @type {BootstrapRecord} */ (readJson(bootstrapAttemptPath(runDir, nonce)));
         if (failure.status === "failed" && bootstrapFailureMatchesChild(failure, pid, nonce, expectedProcessStartToken)) {
           cleanupBootstrapAttempts(runDir);
+          discardNodeLessRunDirectory(runDir);
           throw new Error(`detached bootstrap failed: ${failure.error}`);
         }
       } catch (error) {
@@ -149,6 +151,7 @@ export async function waitForBootstrap(runDir, pid, child = null, timeoutMs = 30
       }
       cleanupBootstrapNonce(runDir, nonce);
       cleanupBootstrapAttempts(runDir);
+      discardNodeLessRunDirectory(runDir);
       throw new Error(`detached bootstrap failed before readiness for pid ${pid}`);
     }
     await delay(50);
@@ -219,7 +222,14 @@ export function writeBootstrapFailure(command, target, error) {
   if (!runDir || !existsSync(runDir)) return;
   const nonce = validBootstrapNonce(process.env.FABERUN_BOOTSTRAP_NONCE) ? process.env.FABERUN_BOOTSTRAP_NONCE : null;
   const failure = { status: "failed", pid: process.pid, processStartToken: processStartToken(process.pid), runDir, nonce, at: new Date().toISOString(), error: error.message };
-  if (command === "run" && existsSync(join(runDir, "contract.json"))) return;
+  // A `run` that names an existing run directory is refused before it writes
+  // anything, and its failure must not be stamped into that run's bootstrap
+  // record. The detached child is the exception: it wrote contract.json and
+  // then died before readiness, and the launcher has no other channel to
+  // learn the controller's error, so it must record that error before it
+  // exits.
+  const detachedChild = nonce !== null && !process.argv.includes("--detach");
+  if (command === "run" && !detachedChild && existsSync(join(runDir, "contract.json"))) return;
   /** @type {BootstrapRecord|null} */
   let current = null;
   try {

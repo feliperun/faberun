@@ -21,7 +21,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { stableJson } from "../util.mjs";
+import { stableJson, errorCode } from "../util.mjs";
 import { validateRunMetadata } from "../contract/snapshot.mjs";
 import { contractDigest } from "../contract/index.mjs";
 import { RUNS_DIR_NAME, runDirectory } from "../run/paths.mjs";
@@ -95,6 +95,26 @@ export function createRunMetadata(lock, sourceIdentity, resume = {}, integration
 function runDirFor(sourceIdentity) {
   if (!sourceIdentity.cwd || !sourceIdentity.contractId) return null;
   return runDirectory(sourceIdentity.cwd, sourceIdentity.contractId);
+}
+
+/**
+ * Whether a run directory never materialized a node. The directory, its
+ * frozen contract and its empty `nodes/` folder are written before runtime
+ * assignment and identity capture; node states are written after. A launch
+ * refused in that window leaves a directory that never held a node, so
+ * nothing can resume it and it would refuse the next attempt as an existing
+ * run.
+ *
+ * @param {string} runDir
+ * @returns {boolean}
+ */
+export function runNeverHeldNode(runDir) {
+  try {
+    return readdirSync(join(runDir, "nodes")).every((name) => !name.endsWith(".json"));
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return true;
+    throw error;
+  }
 }
 
 /**
