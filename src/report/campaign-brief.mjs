@@ -90,6 +90,10 @@ function renderIdentity(model) {
     `- Frozen plan: ${link(identity.planPath)}`,
     `- Plan digest: \`${identity.planDigest}\``,
     `- Contract digest: \`${identity.contractDigest}\``,
+    // R36: the effective mode the launch recorded on the run snapshot, read
+    // back here rather than re-derived from the contract; absent reads as the
+    // cross-vendor default.
+    `- Judge independence: \`${identity.judgeIndependence ?? "cross-vendor"}\``,
     `- Journal cursor: \`${identity.journalCursor}\``,
     `- Usage sample cutoff: \`${identity.usageSampleCutoff ?? "not recorded"}\``,
   ].join("\n");

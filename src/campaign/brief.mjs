@@ -17,12 +17,13 @@ import { boundedText, compactCost, compactTokens, finite, readJsonTolerant } fro
 import { join } from "node:path";
 import { readCampaign } from "./record.mjs";
 import { readProjectionState } from "./projection.mjs";
+import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
 import { writeTextAtomic } from "../run/store.mjs";
 
 /** @typedef {import("./index.mjs").Campaign} Campaign */
 /** @typedef {import("./index.mjs").JournalEntry} JournalEntry */
 /** @typedef {import("./index.mjs").Projection} Projection */
-/** @typedef {{id: string, exists: boolean, summary: string, controller: string, phase: string|null, done: number, total: number, costUsd: number|null, inputTokens: number|null, outputTokens: number|null, attention: {id: string, status: string, note: string}[]}} BriefRun */
+/** @typedef {{id: string, exists: boolean, summary: string, controller: string, phase: string|null, judgeIndependence?: string|null, done: number, total: number, costUsd: number|null, inputTokens: number|null, outputTokens: number|null, attention: {id: string, status: string, note: string}[]}} BriefRun */
 /** @typedef {{campaign: Campaign, updatedAt: string, phase: string|null, checkpoints: {done: number, total: number}, runs: BriefRun[], openQuestions: JournalEntry[], transitions: JournalEntry[], budget: {costUsd: number|null, inputTokens: number|null, outputTokens: number|null}, notes: JournalEntry[], commands: string[]}} Brief */
 /** @typedef {{limit: number, used: number, lines: string[]}} BriefBudget */
 
@@ -75,9 +76,11 @@ export function materializeBrief(campaignPath, brief) {
 }
 
 /**
- * Read the campaign's live projection and each linked run's `status.json`, then
+ * Read the campaign's live projection, each linked run's `status.json` and the
+ * effective judge-independence mode recorded on that run's node snapshots, then
  * materialize the brief. `heartbeat.json` does not exist in this tree -- the
- * projection and per-run status are the durable sources.
+ * projection, the per-run status and the persisted node snapshots are the
+ * durable sources.
  *
  * @param {string} campaignPath
  * @param {string} runsDir
@@ -95,16 +98,42 @@ export function renderBrief(campaignPath, runsDir) {
  * @returns {BriefRun[]}
  */
 function readRunBriefs(runsDir, runIds) {
-  return runIds.map((runId) => runBrief(runId, readJsonTolerant(join(runsDir, runId, "status.json"))));
+  return runIds.map((runId) => {
+    const runDir = join(runsDir, runId);
+    return runBrief(runId, readJsonTolerant(join(runDir, "status.json")), recordedJudgeIndependence(runDir));
+  });
+}
+
+/**
+ * The effective judge-independence mode the launch recorded on this run's node
+ * snapshots (`routing.assignments.judgeIndependence`). The launch composes one
+ * mode per contract, so the first node that recorded one answers for the run;
+ * reading it here keeps the brief from re-deriving the mode from the contract,
+ * which cannot see a machine-config opt-in. A run with no persisted node or no
+ * recorded mode has no recorded opt-in (the cross-vendor default).
+ *
+ * @param {string} runDir
+ * @returns {string|null}
+ */
+export function recordedJudgeIndependence(runDir) {
+  for (const name of [...listNodeSnapshots(runDir)].sort()) {
+    const snapshot = readJsonTolerant(nodeSnapshotPath(runDir, name.slice(0, -".json".length)));
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) continue;
+    const routing = /** @type {Record<string, any>} */ (snapshot).routing;
+    const mode = routing && typeof routing === "object" ? routing.assignments?.judgeIndependence : undefined;
+    if (typeof mode === "string" && mode) return mode;
+  }
+  return null;
 }
 
 /**
  * @param {string} runId
  * @param {unknown} status
+ * @param {string|null} [judgeIndependence] the mode the launch recorded on the run snapshot
  * @returns {BriefRun}
  */
-function runBrief(runId, status) {
-  if (!status || typeof status !== "object" || Array.isArray(status)) return missingRunBrief(runId);
+function runBrief(runId, status, judgeIndependence = null) {
+  if (!status || typeof status !== "object" || Array.isArray(status)) return missingRunBrief(runId, judgeIndependence);
   const record = /** @type {Record<string, any>} */ (status);
   const nodes = Array.isArray(record.nodes) ? record.nodes : [];
   const usage = record.usage && typeof record.usage === "object" ? /** @type {Record<string, unknown>} */ (record.usage) : {};
@@ -122,6 +151,7 @@ function runBrief(runId, status) {
     summary: typeof record.summary === "string" ? record.summary : "",
     controller: typeof record.controller?.state === "string" ? record.controller.state : "none",
     phase,
+    judgeIndependence,
     done: nodes.filter((node) => node.status === "done" || node.status === "no-op").length,
     total: nodes.length,
     costUsd: finite(usage.costUsd),
@@ -139,10 +169,11 @@ function runBrief(runId, status) {
 
 /**
  * @param {string} runId
+ * @param {string|null} [judgeIndependence]
  * @returns {BriefRun}
  */
-function missingRunBrief(runId) {
-  return { id: runId, exists: false, summary: "no status.json yet", controller: "none", phase: null, done: 0, total: 0, costUsd: null, inputTokens: null, outputTokens: null, attention: [] };
+function missingRunBrief(runId, judgeIndependence = null) {
+  return { id: runId, exists: false, summary: "no status.json yet", controller: "none", phase: null, judgeIndependence, done: 0, total: 0, costUsd: null, inputTokens: null, outputTokens: null, attention: [] };
 }
 
 /**
@@ -367,7 +398,8 @@ function runLine(run, cap, idCap) {
   const hidden = run.attention.length - ATTENTION_LINE_LIMIT;
   if (hidden > 0) attention.push(`${hidden} more`);
   const detail = attention.length ? ` · ${attention.join("; ")}` : "";
-  return `- ${id}: ${boundedText(run.summary, cap)} · checkpoints ${run.done}/${run.total} · controller ${boundedText(run.controller, cap)}${detail}`;
+  const independence = run.judgeIndependence ? ` · judge independence ${boundedText(run.judgeIndependence, cap)}` : "";
+  return `- ${id}: ${boundedText(run.summary, cap)} · checkpoints ${run.done}/${run.total} · controller ${boundedText(run.controller, cap)}${independence}${detail}`;
 }
 
 /**
