@@ -16,6 +16,7 @@ import {
   createCandidateWorktree,
   createRunRef,
   gitHead,
+  runRefName,
   sealAttempt,
 } from "../../src/repo/worktree.mjs";
 import { integrateAttempt, promoteRun } from "../../src/repo/integrate.mjs";
@@ -255,6 +256,53 @@ test("a verifyCandidate stub whose retry still fails leaves the candidate reject
 
   assert.equal(retryCalls, 1, "the retry hook still ran exactly once, not repeatedly");
   assert.equal(result?.status, "verification_failed", "a second failure on retry stands as the verdict");
+});
+
+// R26: a candidate that has to be synthesized as a merge commit carries a
+// Conventional Commits message, with the run id in the body.
+test("a candidate commit message follows the conventional commit shape", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "runner-candidate-message-"));
+  const run = /** @param {...string} args */ (...args) => execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
+  run("init", "-q");
+  run("config", "user.email", "test@example.test");
+  run("config", "user.name", "test");
+  writeFileSync(join(repo, "README.md"), "base\n");
+  run("add", "-A");
+  run("-c", "commit.gpgSign=false", "commit", "-qm", "base");
+  const base = gitHead(repo, "HEAD");
+  const runDir = runDirectory(repo, "conventional-run");
+  mkdirSync(runDir, { recursive: true });
+  createRunRef(repo, "conventional-run", base);
+
+  const worktree = createAttemptWorktree({ repo, runDir, runId: "conventional-run", nodeId: "build", attempt: 1 });
+  writeFileSync(join(worktree.path, "output.txt"), "worker\n");
+  const sealed = sealAttempt({ repo, path: worktree.path, baseSha: worktree.baseSha, runId: "conventional-run", nodeId: "build", attempt: 1 });
+
+  // Move the run ref onto an independent sibling of the attempt so the
+  // integration cannot fast-forward and must synthesize a merge commit.
+  writeFileSync(join(repo, "sibling.txt"), "sibling\n");
+  run("add", "-A");
+  run("-c", "commit.gpgSign=false", "commit", "-qm", "sibling");
+  const sibling = gitHead(repo, "HEAD");
+  git(repo, ["update-ref", runRefName("conventional-run"), sibling]);
+
+  const result = await integrateAttempt({
+    repo,
+    runDir,
+    runId: "conventional-run",
+    nodeId: "build",
+    attempt: 1,
+    attemptSha: sealed.sha,
+    branch: worktree.branch,
+    verifyCandidate: async () => ({ passed: true }),
+  });
+
+  assert.equal(result?.status, "accepted");
+  const message = execFileSync("git", ["-C", repo, "log", "-1", "--format=%B", /** @type {string} */ (result.candidateSha)], { encoding: "utf8" });
+  const subject = message.trim().split("\n")[0];
+  assert.match(subject, /^chore\(faberun\): integrate build attempt 1$/u, "the subject is the conventional seal for the node and attempt");
+  assert.match(subject, /^[a-z]+(?:\([^)]+\))?: \S/u, "the subject has the conventional-commit shape");
+  assert.match(message, /conventional-run/u, "the run id is in the body");
 });
 
 test("a failing git command carries git's own reason into the error", () => {

@@ -2,11 +2,11 @@ import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { mirrorCoverageWarnings, unsnapshottedWriteWarnings } from "../../src/repo/declared-paths.mjs";
+import { ignoreSourceWriteWarnings, mirrorCoverageWarnings, unsnapshottedWriteWarnings } from "../../src/repo/declared-paths.mjs";
 import { RUNS_DIR_NAME } from "../../src/run/paths.mjs";
 
 /** @param {string} root @param {...string} args */
@@ -62,6 +62,27 @@ test(`a declared write under ${RUNS_DIR_NAME} warns with no .gitignore rule invo
   // warns, the runs directory is unobservable by construction -- it warns
   // with no .gitignore in the repository at all.
   assert.deepEqual(warnings, [`nodes[0] (build): writeFiles under ${RUNS_DIR_NAME}/ are outside the workspace snapshot, so the closed-scope gate cannot observe them`]);
+});
+
+// R22: the warning that used to name only writeFiles now covers a declared
+// write root, which a worker may populate with a `.gitignore` the same way.
+test("the authorship notice covers a write root that contains an ignore source", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "declared-paths-root-"));
+  mkdirSync(join(cwd, ".husky", "_"), { recursive: true });
+  writeFileSync(join(cwd, ".husky", "_", ".gitignore"), "*\n");
+  const node = {
+    id: "ignores",
+    taskPacket: {
+      writeFiles: ["README.md"],
+      writeRoots: [".husky"],
+    },
+  };
+  const warnings = ignoreSourceWriteWarnings(/** @type {any} */ (node), 3, cwd);
+  assert.equal(warnings.length, 1, `one finding for the node:\n${warnings.join("\n")}`);
+  assert.match(warnings[0], /nodes\[3\] \(ignores\)/u);
+  assert.match(warnings[0], /writeRoots \.husky/u);
+  assert.match(warnings[0], /\.husky\/_\/\.gitignore/u, "the finding names the ignore source the root contains");
+  assert.match(warnings[0], /snapshot_ignore_changed/u, "the finding says what happens if the worker changes it");
 });
 
 /**
