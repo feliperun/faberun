@@ -48,7 +48,7 @@ These are the variables `src/` reads that a user, not a test, would set.
 | `FABERUN_REQUIRE_CLEAN_WORKTREE` | `1` | Make any dirt in the launch base a fatal `git` check instead of an advisory. | unset (dirt is advisory) |
 | `FABERUN_MIN_FREE_DISK_BYTES` | non-negative integer | Free-disk threshold the `disk` check enforces. | `536870912` (512 MiB) |
 | `FABERUN_GIT_TIMEOUT_MS` | positive integer | Wall-clock ceiling for every synchronous git call. | `30000` |
-| `FABERUN_PREFLIGHT_TIMEOUT_SEC` | positive number | Per-runtime timeout of the live `preflight` generation. | `15` |
+| `FABERUN_PREFLIGHT_TIMEOUT_SEC` | positive number | Per-runtime timeout of the live `preflight` generation; when set, it applies to every runtime. | unset: follows the runtime's `reasoning` (`180` for `xhigh`/`max`, `60` for `high`, `15` otherwise) |
 
 ## faberun run
 ```text
