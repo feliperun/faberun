@@ -185,7 +185,7 @@ faberun init
 `faberun init`:
 
 - refuses a directory that is not a git work tree;
-- adds `.runs/` to `.gitignore` unless an equivalent line is already there;
+- adds the legacy in-tree `.runs/` to `.gitignore` unless an equivalent line is already there;
 - installs the `faberun` skill into `.claude/skills/faberun/` (skip with
   `--no-skill`);
 - offers the agent kit (`AGENTS.md`, `docs/`, ADRs) and always asks its
@@ -395,7 +395,7 @@ dirties the ignore snapshot the controller compares against.
 - [CONCEPTS.md](CONCEPTS.md) — the vocabulary: intent, contract, campaign, run,
   node, packet, worker, judge, gate, harness, runtime, vendor, worktree,
   integration, promotion, seat, handoff, attention.
-- [ARCHITECTURE.md](ARCHITECTURE.md) — the layers, the `.runs/` layout, the
+- [ARCHITECTURE.md](ARCHITECTURE.md) — the layers, the run state layout, the
   process model, the quality gates, the security model.
 - [COMMANDS.md](COMMANDS.md) — every verb and subcommand with signature, flags,
   exit codes and an example.
@@ -411,9 +411,9 @@ dirties the ignore snapshot the controller compares against.
 ## First contribution checklist
 
 - [ ] Read [AGENTS.md](../AGENTS.md), including the *Source tree rules* section.
-- [ ] Check `.runs/` and the managed signal block at the bottom of `AGENTS.md`
-  before starting: an active campaign or a non-terminal run is work to continue,
-  not to redo.
+- [ ] Check the project's runs under `$FABERUN_HOME` and the managed signal block
+  at the bottom of `AGENTS.md` before starting: an active campaign or a
+  non-terminal run is work to continue, not to redo.
 - [ ] Run `npm run check`, `npm run typecheck` and `npm test`, and confirm green
   before and after the change.
 - [ ] Keep a change inside one layer; `test/repo/source-shape.test.mjs` enforces

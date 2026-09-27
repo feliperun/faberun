@@ -108,8 +108,9 @@ checkout. The operator keeps working while the campaign runs.
 ### Durable campaigns
 
 A run is not tied to the terminal that launched it. The controller runs
-detached, state is persisted under `.runs/`, `supervise` resumes a controller
-that died, and a campaign carries its intent across many runs and sessions. If a
+detached, state is persisted under the project's runs directory in
+`$FABERUN_HOME` (default `~/.faberun`), `supervise` resumes a controller that
+died, and a campaign carries its intent across many runs and sessions. If a
 provider goes down or a harness session ends, the work does not have to be
 re-authored.
 
@@ -226,7 +227,7 @@ The full walkthrough, from a fresh machine to a first verified node, is in
 | Step | Command | What it does |
 | --- | --- | --- |
 | 1 | `faberun setup` | Onboards the machine: checks node and git, discovers the harnesses, and writes the default worker and judge. |
-| 2 | `faberun init` | Prepares a repository: confirms a git work tree, ignores `.runs/`, and installs the `faberun` skill. |
+| 2 | `faberun init` | Prepares a repository: confirms a git work tree, ignores the legacy in-tree runs directory, and installs the `faberun` skill. |
 | 3 | `faberun campaign init <id> --goal "..."` | Opens the durable campaign that carries the intent across runs. |
 | 4 | write a contract | Fixes `contract.json`: the node DAG, each packet's read and write scope, and each definition of done. |
 | 5 | `faberun validate contract.json` | Parses the contract and prints the report the authoring turn reads. |
