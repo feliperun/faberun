@@ -119,7 +119,7 @@ scaffold`, o pipeline de plano com seus estágios, `validateContract` com
 
 ## Requisitos
 
-Esta fase cobre R8, R10, R11, R12 e R13: a primeira campanha de um estranho fechando sem rede, o pacote recusado reautorado, a saída limpa, o custo do modo de sandbox declarado e o override do operador em nó não terminal.
+Esta fase cobre R8, R10, R12 e R13: a primeira campanha de um estranho fechando sem rede, o pacote recusado reautorado, o custo do modo de sandbox declarado e o override do operador em nó não terminal. R11 (sair é limpo) saiu desta fase em 27/09: um worker que rode o uninstall de verdade apaga o ~/.faberun e as skills do operador, o que é irreversível; ele vai para uma fase própria com o isolamento exigido na spec.
 
 ### R8. A primeira campanha de um estranho fecha sem rede
 
@@ -146,17 +146,6 @@ Esta fase cobre R8, R10, R11, R12 e R13: a primeira campanha de um estranho fech
 - **proof:** `command: node --test --test-name-pattern="a refused packet is widened and the node resumes"`
 - **constraints:** um pacote alargado que invade o `writeFiles` de outro nó é
   recusado, nunca aplicado. O orçamento de rodadas é duro.
-
-### R11. Sair é limpo
-
-- **statement:** `faberun uninstall [--dry-run]` lista e remove o que o
-  faberun escreveu fora de qualquer repositório alvo: skills registradas nos
-  diretórios dos harnesses, integrações de statusLine e hooks que ele instalou,
-  e `~/.faberun`. A remoção de `~/.faberun` pede confirmação e recusa enquanto
-  houver campanha com ledger não preservado, a menos que venha `--force`. Nenhum
-  arquivo rastreado de um repositório alvo é tocado. A saída final diz como
-  remover o pacote npm.
-- **proof:** `command: node --test --test-name-pattern="uninstall removes everything faberun wrote outside the repository"`
 
 ### R12. O modo de sandbox diz o que custa
 
