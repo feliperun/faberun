@@ -1,9 +1,10 @@
 import { validateWorkerResult } from "../contract/worker-result.mjs";
 import { scopeFindingsPromptSection } from "../contract/scope-findings.mjs";
 import { JUDGE_ENVELOPE_REASON, JUDGE_FINDING_ENVELOPE_REASON, JUDGE_LIMITS } from "../contract/judge-envelope.mjs";
+import { RESERVED_OWNER_DECISIONS, uncoveredReservedOwnerDecisions } from "../contract/articles.mjs";
 import { harnessCapabilities } from "../harnesses/index.mjs";
 
-/** @typedef {{id: string, definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], taskPacket: {mode?: "execution"|"discovery"|"autonomous", objective: string, instructions: string[], writeFiles?: string[], writeRoots?: string[], verification: {argv: string[]}[]}}} JudgeNode */
+/** @typedef {{id: string, definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], taskPacket: {mode?: "execution"|"discovery"|"autonomous", objective: string, instructions: string[], decisions?: string[], writeFiles?: string[], writeRoots?: string[], verification: {argv: string[]}[]}}} JudgeNode */
 /** @typedef {{verdict: "pass"|"fail"|"invalid_judge_output", maxSeverity: "none"|"minor"|"major"|"critical", summary: string, findings: {severity: "minor"|"major"|"critical", description: string, evidence: string}[]}} JudgeVerdict */
 
 /**
@@ -178,10 +179,33 @@ function judgeVerificationEvidence(verification) {
   };
 }
 
+/** Heading `renderPreviousAttemptSection` (engine/retry.mjs) writes an operator answer under. */
+const OPERATOR_ANSWER_HEADING = "Operator answer:";
+
+/**
+ * The latest operator answer carried by a `Previous attempt` section, or null.
+ * `renderPreviousAttemptSection` writes it verbatim under the heading, so the
+ * judge reads the same newest answer the worker read without a second copy on
+ * the node snapshot. A second `--answer` appends an override and the section is
+ * rebuilt from the newest record on the next resume.
+ *
+ * @param {unknown} previousAttempt
+ * @returns {string|null}
+ */
+export function previousAttemptOperatorAnswer(previousAttempt) {
+  if (typeof previousAttempt !== "string") return null;
+  const start = previousAttempt.indexOf(OPERATOR_ANSWER_HEADING);
+  if (start < 0) return null;
+  const rest = previousAttempt.slice(start + OPERATOR_ANSWER_HEADING.length);
+  const stop = rest.search(/^(?:Attempt \d+ failed|Error:|Judge findings|Scope findings|Failing verification:)/mu);
+  const answer = (stop >= 0 ? rest.slice(0, stop) : rest).trim();
+  return answer || null;
+}
+
 /**
  * @param {JudgeNode} node
  * @param {unknown} workerResult
- * @param {{diff?: unknown[], verification?: unknown, deterministic?: unknown, scopeFindings?: {unexpectedPaths: string[]}|null, previousAttempt?: string}} context
+ * @param {{diff?: unknown[], verification?: unknown, deterministic?: unknown, scopeFindings?: {unexpectedPaths: string[]}|null, previousAttempt?: string, operatorAnswer?: string}} context
  * @returns {string}
  */
 export function judgePrompt(node, workerResult, context = {}) {
@@ -211,9 +235,23 @@ export function judgePrompt(node, workerResult, context = {}) {
   const diff = Array.isArray(context.diff) ? /** @type {unknown[]} */ (context.diff).slice(0, 64) : [];
   const verificationResult = judgeVerificationEvidence(context.verification);
   const scopeSection = scopeFindingsPromptSection(context.scopeFindings);
+  const decisions = node.taskPacket.decisions ?? [];
+  const uncoveredReserved = uncoveredReservedOwnerDecisions(decisions);
+  const operatorAnswer = typeof context.operatorAnswer === "string" && context.operatorAnswer.trim()
+    ? context.operatorAnswer.trim()
+    : previousAttemptOperatorAnswer(context.previousAttempt);
+  const decisionsSection =
+    `Decisions already made by the operator:\n${decisions.length ? decisions.map((decision) => `- ${decision}`).join("\n") : "- (none)"}\n\n` +
+    `Reserved owner decisions (the repository owner alone decides these):\n${RESERVED_OWNER_DECISIONS.map((decision) => `- ${decision}`).join("\n")}\n\n` +
+    `Reserved owner decisions with no coverage in the decisions above:\n${uncoveredReserved.length ? uncoveredReserved.map((decision) => `- ${decision}`).join("\n") : "- (none)"}\n\n` +
+    "A diff that takes an owner decision with no coverage is a blocking finding: fail and name the decision. Referencing an existing owner decision does not take it.";
+  const operatorSection = operatorAnswer
+    ? `Operator answer:\n${operatorAnswer}\n\nThat operator answer is a blocking judgment item: an unmet answer is a blocking finding, so fail with a finding that cites the Definition of Done judgment item the answer bears on, and do not pass work that ignores it.`
+    : "";
   return `Review node ${node.id} independently. The review context is closed: inspect only the ${node.taskPacket.mode === "autonomous" ? "write roots" : "write files"} below and do not perform repository-wide discovery. Do not re-run the verification commands — the controller already executed them and attached the results; re-running suites duplicates cost without adding evidence.\n\n` +
     `${writeBoundaryLabel}:\n${writeFiles}\n\nVerification commands (already executed by the controller):\n${verification}\n\n` +
-    `Task brief:\n${node.taskPacket.objective}\n\nInstructions:\n${taskInstructions}\n\nDefinition of Done:\n${criteria}\n\n` +
+    `Task brief:\n${node.taskPacket.objective}\n\nInstructions:\n${taskInstructions}\n\n${decisionsSection}\n\nDefinition of Done:\n${criteria}\n\n` +
+    (operatorSection ? `${operatorSection}\n\n` : "") +
     `Worker result (structured):\n${structured ? JSON.stringify(structured) : "(invalid worker result withheld)"}\n\n` +
     `Controller diff paths:\n${diff.length ? diff.map((path) => `- ${path}`).join("\n") : "- (none)"}\n\n` +
     `Controller verification:\n${JSON.stringify(verificationResult)}\n\n` +

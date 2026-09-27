@@ -1,7 +1,7 @@
 import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -9,7 +9,11 @@ import {
 } from "../../src/contract/index.mjs";
 import { renderWorkerPrompt } from "../../src/contract/task-packet.mjs";
 import { validateWorkerResult } from "../../src/contract/worker-result.mjs";
+import { RESERVED_OWNER_DECISIONS } from "../../src/contract/articles.mjs";
 import { judgePrompt } from "../../src/engine/prompts.mjs";
+import { resumeRun } from "../../src/engine/resume.mjs";
+import { nodeState, notifications } from "../runner-helpers.mjs";
+import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 import { JUDGE_LIMITS } from "../../src/contract/judge-envelope.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import * as helpers from "../helpers.mjs";
@@ -341,6 +345,60 @@ test("an autonomous write root may name an existing regular file", () => {
   assert.deepEqual(contract.nodes[0].taskPacket.writeRoots, ["docs/NOTES.md"]);
 });
 
+test("an autonomous prompt states that scope is advisory", () => {
+  const prompt = renderWorkerPrompt(
+    /** @type {import("../../src/contract/index.mjs").TaskPacket} */ (helpers.packet({ mode: "autonomous", writeRoots: ["src"] })),
+    "build",
+  );
+  // The write roots are the expected boundary, not a wall: the engine records
+  // a write outside them and shows it to the judge rather than treating the
+  // worker as failed for stepping past a declaration.
+  assert.match(prompt, /The write roots below are the expected boundary, not a hard wall/u);
+  assert.match(prompt, /a write outside them is allowed when the task requires it/u);
+  assert.match(prompt, /the result must name the path and the reason/u);
+  // blocked_context is reserved for context that is genuinely missing, not for
+  // a write that crossed a declared root.
+  assert.match(prompt, /blocked_context worker-result object below only for context that is genuinely missing/u);
+  assert.doesNotMatch(prompt, /do not write outside those directory boundaries/u);
+  assert.match(prompt, /## Write roots\n- src/u);
+});
+
+test("a reserved owner decision without coverage is refused with blocked_context", () => {
+  const uncovered = renderWorkerPrompt(
+    /** @type {import("../../src/contract/index.mjs").TaskPacket} */ (helpers.packet({ decisions: [] })),
+    "build",
+  );
+  assert.match(uncovered, /## Reserved owner decisions/u);
+  assert.match(uncovered, /return the blocked_context worker-result object naming the decision/u);
+  const uncoveredList = uncovered.slice(
+    uncovered.indexOf("Reserved decisions with no coverage"),
+    uncovered.indexOf("If the task requires taking an uncovered decision"),
+  );
+  for (const decision of RESERVED_OWNER_DECISIONS) {
+    assert.ok(uncoveredList.includes(decision), `the worker must be told ${decision} is uncovered`);
+  }
+
+  // A decision the packet already made is not refused.
+  const covered = renderWorkerPrompt(
+    /** @type {import("../../src/contract/index.mjs").TaskPacket} */ (helpers.packet({ decisions: ["license: MIT"] })),
+    "build",
+  );
+  const coveredList = covered.slice(
+    covered.indexOf("Reserved decisions with no coverage"),
+    covered.indexOf("If the task requires taking an uncovered decision"),
+  );
+  assert.doesNotMatch(coveredList, /license/u, "a covered decision is not refused");
+  assert.match(coveredList, /pricing/u, "an uncovered decision is still named");
+
+  // The autonomous prompt reads the same list and refuses the same way.
+  const autonomous = renderWorkerPrompt(
+    /** @type {import("../../src/contract/index.mjs").TaskPacket} */ (helpers.packet({ mode: "autonomous", writeRoots: ["src"], decisions: [] })),
+    "build",
+  );
+  assert.match(autonomous, /## Reserved owner decisions/u);
+  assert.match(autonomous, /return the blocked_context worker-result object naming the decision/u);
+});
+
 test("replayPolicy defaults to safe and accepts only its enumerated values", () => {
   const defaulted = writeFixture();
   const contract = validateContract(JSON.parse(readFileSync(defaulted.path, "utf8")), defaulted.path);
@@ -511,4 +569,127 @@ test("a closed discovery prompt asks for output and an empty artifacts list; an 
   assert.ok(!closed.includes("artifacts[0]"), "a closed discovery prompt never asks for an artifact");
   const open = renderWorkerPrompt(/** @type {import("../../src/contract/index.mjs").TaskPacket} */ (packet({ mode: "discovery", readFiles: [], writeFiles: [], verification: [] })), "discover");
   assert.match(open, /put exactly one execution task packet JSON string in artifacts\[0\]/);
+});
+
+// This crash-recovery test moved here from test/engine/judge.test.mjs when that
+// file reached the repository's 800-line ceiling; the same verification command
+// runs both files, so the judge re-ask coverage is unchanged.
+test("the judge re-ask bound survives a controller crash in either gap because it is persisted with the node", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-judge-reask-durable-"));
+  const outDir = mkdtempSync(join(tmpdir(), "runner-judge-reask-durable-out-"));
+  const counter = join(outDir, "judge-calls.txt");
+  const promptTwo = join(outDir, "judge-prompt-2.txt");
+  const runDir = runDirectory(directory, "judge-reask-durable-run");
+  // Crash images the controller itself persisted, taken at the two instants a
+  // standalone marker left open: the write that dispatches the bounded re-ask,
+  // and the moment its verdict is durable while the blocked transition is not.
+  // Each excludes what no successor controller inherits: the dead controller's
+  // lock, its in-flight atomic temporaries and its file locks.
+  const dispatchGap = join(runsRoot(directory), "judge-reask-dispatch-gap");
+  const verdictGap = join(runsRoot(directory), "judge-reask-verdict-gap");
+  /** @param {string} source @returns {boolean} */
+  const inherited = (source) => !source.endsWith(".tmp") && !source.endsWith(".lock") && !source.endsWith("controller.lock");
+  const uncited = JSON.stringify({ verdict: "fail", maxSeverity: "critical", summary: "not acceptable", findings: [{ severity: "critical", description: "the work is not acceptable", evidence: "inspected the delivered diff" }] });
+  const fake = join(directory, "durable-provider.mjs");
+  writeFileSync(fake, `#!${process.execPath}
+import { appendFileSync, cpSync, readFileSync, writeFileSync } from "node:fs";
+if (process.argv.includes("--version")) {
+  console.log("durable-provider 1.0.0");
+  process.exit(0);
+}
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => { input += chunk; });
+process.stdin.on("end", () => {
+  const request = JSON.parse(input);
+  if (request.prompt.startsWith("Review node")) {
+    let count = 0;
+    try { count = readFileSync(${JSON.stringify(counter)}, "utf8").trim().split("\\n").filter(Boolean).length; } catch {}
+    appendFileSync(${JSON.stringify(counter)}, "x\\n");
+    writeFileSync(count === 0 ? ${JSON.stringify(join(outDir, "judge-prompt-1.txt"))} : ${JSON.stringify(promptTwo)}, request.prompt);
+    // The re-ask is in flight and its verdict is not written yet: this is the
+    // image a controller loss leaves behind between dispatch and verdict.
+    if (count === 1) cpSync(${JSON.stringify(runDir)}, ${JSON.stringify(dispatchGap)}, { recursive: true, filter: ${inherited.toString()} });
+    console.log(JSON.stringify({ schemaVersion: 1, type: "run.started", continuationId: "judge" }));
+    console.log(JSON.stringify({ schemaVersion: 1, type: "run.completed", result: ${JSON.stringify(uncited)}, continuationId: "judge", usage: { inputTokens: 2, outputTokens: 1, cacheReadInputTokens: 0 } }));
+    return;
+  }
+  const result = JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
+  console.log(JSON.stringify({ schemaVersion: 1, type: "run.started", continuationId: "worker" }));
+  console.log(JSON.stringify({ schemaVersion: 1, type: "run.completed", result, continuationId: "worker", usage: { inputTokens: 5, outputTokens: 1, cacheReadInputTokens: 0 } }));
+});
+`);
+  chmodSync(fake, 0o755);
+  const path = helpers.writeContract(directory, helpers.fixture({
+    id: "judge-reask-durable-run",
+    pollIntervalMs: 10,
+    runtimeDefaults: { worker: "jsonl", judge: "jsonl-judge" },
+    runtimes: {
+      jsonl: { harness: "exec-jsonl", model: "fake", vendor: "exec-jsonl-worker", executable: fake },
+      "jsonl-judge": { harness: "exec-jsonl", model: "fake", vendor: "exec-jsonl-judge", executable: fake },
+    },
+    nodes: [{
+      id: "build",
+      type: "backend",
+      definitionOfDone: [{ id: "works", text: "It works", judgment: true }],
+      taskPacket: helpers.packet(),
+      gate: { review: "blocking", failOn: ["major", "critical"] },
+    }],
+  }));
+  // Crash the controller between the two writes: the verdict and the spent
+  // bound land in the node snapshot first, then the interrupt throws and the
+  // blocked transition never runs. The image is the code's own write, so no
+  // sampler has to win a race against the transition.
+  const previousInterrupt = process.env.FABERUN_JUDGE_REASK_INTERRUPT;
+  process.env.FABERUN_JUDGE_REASK_INTERRUPT = "after-verdict";
+  try {
+    await assert.rejects(() => runContract(path), /judge re-ask interrupted after verdict persistence/u);
+  } finally {
+    if (previousInterrupt === undefined) delete process.env.FABERUN_JUDGE_REASK_INTERRUPT;
+    else process.env.FABERUN_JUDGE_REASK_INTERRUPT = previousInterrupt;
+  }
+  cpSync(runDir, verdictGap, { recursive: true, filter: inherited });
+  assert.equal(existsSync(join(runDir, "judge-reask")), false, "the bound is node state, not a standalone marker beside it");
+  assert.match(readFileSync(promptTwo, "utf8"), /Your previous fail verdict cited no Definition of Done item id/u);
+
+  // Gap one: the write that spends the bound is the write that dispatches the
+  // re-ask, so no crash image can hold one without the other.
+  const dispatched = JSON.parse(readFileSync(join(dispatchGap, "nodes", "build.json"), "utf8"));
+  assert.ok(
+    /** @type {Record<string, unknown>[]} */ (dispatched.executionOverrides).some((item) => item.kind === "judge-reask"),
+    "the crash image carries the bound in the node snapshot",
+  );
+  assert.equal(
+    /** @type {Record<string, unknown>[]} */ (dispatched.invocations).filter((item) => item.phase === "judge").length,
+    2,
+    "the same atomic write carries the re-ask that bound permits",
+  );
+  const afterDispatch = nodeState(await resumeRun(dispatchGap));
+  assert.equal(afterDispatch.status, "blocked", afterDispatch.error?.message);
+  assert.equal(afterDispatch.phase, "judge");
+  assert.equal(afterDispatch.error?.code, "judge_protocol", "the replayed re-ask blocks instead of asking a second one");
+  assert.equal(afterDispatch.revisions, 0, "an uncited rejection never consumes a revision");
+  assert.equal(afterDispatch.attempt, 1, "the recovered re-ask does not burn a worker attempt");
+  assert.equal((afterDispatch.invocations ?? []).filter((invocation) => invocation.phase === "worker").length, 1, "the worker is never re-run");
+  assert.equal((afterDispatch.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 3, "recovery replays the interrupted re-ask exactly once");
+
+  // Gap two: the re-ask verdict and the spent bound are durable and the blocked
+  // transition is not, so recovery reads them from the node and blocks rather
+  // than treating the second uncited verdict as a first failure.
+  const persistedVerdict = JSON.parse(readFileSync(join(verdictGap, "nodes", "build.json"), "utf8"));
+  assert.equal(persistedVerdict.status, "running", "the crash image halted before the blocked transition");
+  assert.ok(
+    /** @type {Record<string, unknown>[]} */ (persistedVerdict.executionOverrides).some((item) => item.kind === "judge-reask"),
+    "the durable record carries the spent bound",
+  );
+  const persistedJudges = /** @type {Record<string, unknown>[]} */ (persistedVerdict.invocations).filter((item) => item.phase === "judge");
+  assert.equal(persistedJudges.length, 2, "the durable record carries the completed re-ask whose bound permits no third ask");
+  assert.equal(persistedJudges.at(-1)?.status, "closed");
+  const afterVerdict = nodeState(await resumeRun(verdictGap));
+  assert.equal(afterVerdict.status, "blocked", afterVerdict.error?.message);
+  assert.equal(afterVerdict.phase, "judge");
+  assert.equal(afterVerdict.error?.code, "judge_protocol", "the recovered second uncited verdict is not a first failure");
+  assert.equal(afterVerdict.revisions, 0, "an uncited rejection never consumes a revision");
+  assert.equal((afterVerdict.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 2, "the recovered verdict settles the node without another judge invocation");
+  assert.ok(notifications(verdictGap).some((event) => event.type === "attention" && event.errorCode === "judge_protocol"));
 });

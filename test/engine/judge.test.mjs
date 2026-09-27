@@ -1,15 +1,16 @@
 import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resumeRun } from "../../src/engine/resume.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
+import { judgePrompt } from "../../src/engine/prompts.mjs";
+import { renderPreviousAttemptSection } from "../../src/engine/retry.mjs";
 import { fakeCodex, fixture, packet, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState, notifications, withBrokenGateCodex } from "../runner-helpers.mjs";
 import { renderFindings } from "../../src/report/render.mjs";
-import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
 
 test("fails deterministic verification before the judge", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-verification-fail-"));
@@ -562,126 +563,6 @@ process.stdin.on("end", () => {
   assert.match(readFileSync(join(outDir, "judge-prompt-2.txt"), "utf8"), /already proven by the controller/u);
 });
 
-test("the judge re-ask bound survives a controller crash in either gap because it is persisted with the node", async () => {
-  const directory = mkdtempSync(join(tmpdir(), "runner-judge-reask-durable-"));
-  const outDir = mkdtempSync(join(tmpdir(), "runner-judge-reask-durable-out-"));
-  const counter = join(outDir, "judge-calls.txt");
-  const promptTwo = join(outDir, "judge-prompt-2.txt");
-  const runDir = runDirectory(directory, "judge-reask-durable-run");
-  // Crash images the controller itself persisted, taken at the two instants a
-  // standalone marker left open: the write that dispatches the bounded re-ask,
-  // and the moment its verdict is durable while the blocked transition is not.
-  // Each excludes what no successor controller inherits: the dead controller's
-  // lock, its in-flight atomic temporaries and its file locks.
-  const dispatchGap = join(runsRoot(directory), "judge-reask-dispatch-gap");
-  const verdictGap = join(runsRoot(directory), "judge-reask-verdict-gap");
-  /** @param {string} source @returns {boolean} */
-  const inherited = (source) => !source.endsWith(".tmp") && !source.endsWith(".lock") && !source.endsWith("controller.lock");
-  const uncited = JSON.stringify({ verdict: "fail", maxSeverity: "critical", summary: "not acceptable", findings: [{ severity: "critical", description: "the work is not acceptable", evidence: "inspected the delivered diff" }] });
-  const fake = join(directory, "durable-provider.mjs");
-  writeFileSync(fake, `#!${process.execPath}
-import { appendFileSync, cpSync, readFileSync, writeFileSync } from "node:fs";
-if (process.argv.includes("--version")) {
-  console.log("durable-provider 1.0.0");
-  process.exit(0);
-}
-let input = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => { input += chunk; });
-process.stdin.on("end", () => {
-  const request = JSON.parse(input);
-  if (request.prompt.startsWith("Review node")) {
-    let count = 0;
-    try { count = readFileSync(${JSON.stringify(counter)}, "utf8").trim().split("\\n").filter(Boolean).length; } catch {}
-    appendFileSync(${JSON.stringify(counter)}, "x\\n");
-    writeFileSync(count === 0 ? ${JSON.stringify(join(outDir, "judge-prompt-1.txt"))} : ${JSON.stringify(promptTwo)}, request.prompt);
-    // The re-ask is in flight and its verdict is not written yet: this is the
-    // image a controller loss leaves behind between dispatch and verdict.
-    if (count === 1) cpSync(${JSON.stringify(runDir)}, ${JSON.stringify(dispatchGap)}, { recursive: true, filter: ${inherited.toString()} });
-    console.log(JSON.stringify({ schemaVersion: 1, type: "run.started", continuationId: "judge" }));
-    console.log(JSON.stringify({ schemaVersion: 1, type: "run.completed", result: ${JSON.stringify(uncited)}, continuationId: "judge", usage: { inputTokens: 2, outputTokens: 1, cacheReadInputTokens: 0 } }));
-    return;
-  }
-  const result = JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
-  console.log(JSON.stringify({ schemaVersion: 1, type: "run.started", continuationId: "worker" }));
-  console.log(JSON.stringify({ schemaVersion: 1, type: "run.completed", result, continuationId: "worker", usage: { inputTokens: 5, outputTokens: 1, cacheReadInputTokens: 0 } }));
-});
-`);
-  chmodSync(fake, 0o755);
-  const path = writeContract(directory, fixture({
-    id: "judge-reask-durable-run",
-    pollIntervalMs: 10,
-    runtimeDefaults: { worker: "jsonl", judge: "jsonl-judge" },
-    runtimes: {
-      jsonl: { harness: "exec-jsonl", model: "fake", vendor: "exec-jsonl-worker", executable: fake },
-      "jsonl-judge": { harness: "exec-jsonl", model: "fake", vendor: "exec-jsonl-judge", executable: fake },
-    },
-    nodes: [{
-      id: "build",
-      type: "backend",
-      definitionOfDone: [{ id: "works", text: "It works", judgment: true }],
-      taskPacket: packet(),
-      gate: { review: "blocking", failOn: ["major", "critical"] },
-    }],
-  }));
-  // Crash the controller between the two writes: the verdict and the spent
-  // bound land in the node snapshot first, then the interrupt throws and the
-  // blocked transition never runs. The image is the code's own write, so no
-  // sampler has to win a race against the transition.
-  const previousInterrupt = process.env.FABERUN_JUDGE_REASK_INTERRUPT;
-  process.env.FABERUN_JUDGE_REASK_INTERRUPT = "after-verdict";
-  try {
-    await assert.rejects(() => runContract(path), /judge re-ask interrupted after verdict persistence/u);
-  } finally {
-    if (previousInterrupt === undefined) delete process.env.FABERUN_JUDGE_REASK_INTERRUPT;
-    else process.env.FABERUN_JUDGE_REASK_INTERRUPT = previousInterrupt;
-  }
-  cpSync(runDir, verdictGap, { recursive: true, filter: inherited });
-  assert.equal(existsSync(join(runDir, "judge-reask")), false, "the bound is node state, not a standalone marker beside it");
-  assert.match(readFileSync(promptTwo, "utf8"), /Your previous fail verdict cited no Definition of Done item id/u);
-
-  // Gap one: the write that spends the bound is the write that dispatches the
-  // re-ask, so no crash image can hold one without the other.
-  const dispatched = JSON.parse(readFileSync(join(dispatchGap, "nodes", "build.json"), "utf8"));
-  assert.ok(
-    /** @type {Record<string, unknown>[]} */ (dispatched.executionOverrides).some((item) => item.kind === "judge-reask"),
-    "the crash image carries the bound in the node snapshot",
-  );
-  assert.equal(
-    /** @type {Record<string, unknown>[]} */ (dispatched.invocations).filter((item) => item.phase === "judge").length,
-    2,
-    "the same atomic write carries the re-ask that bound permits",
-  );
-  const afterDispatch = nodeState(await resumeRun(dispatchGap));
-  assert.equal(afterDispatch.status, "blocked", afterDispatch.error?.message);
-  assert.equal(afterDispatch.phase, "judge");
-  assert.equal(afterDispatch.error?.code, "judge_protocol", "the replayed re-ask blocks instead of asking a second one");
-  assert.equal(afterDispatch.revisions, 0, "an uncited rejection never consumes a revision");
-  assert.equal(afterDispatch.attempt, 1, "the recovered re-ask does not burn a worker attempt");
-  assert.equal((afterDispatch.invocations ?? []).filter((invocation) => invocation.phase === "worker").length, 1, "the worker is never re-run");
-  assert.equal((afterDispatch.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 3, "recovery replays the interrupted re-ask exactly once");
-
-  // Gap two: the re-ask verdict and the spent bound are durable and the blocked
-  // transition is not, so recovery reads them from the node and blocks rather
-  // than treating the second uncited verdict as a first failure.
-  const persistedVerdict = JSON.parse(readFileSync(join(verdictGap, "nodes", "build.json"), "utf8"));
-  assert.equal(persistedVerdict.status, "running", "the crash image halted before the blocked transition");
-  assert.ok(
-    /** @type {Record<string, unknown>[]} */ (persistedVerdict.executionOverrides).some((item) => item.kind === "judge-reask"),
-    "the durable record carries the spent bound",
-  );
-  const persistedJudges = /** @type {Record<string, unknown>[]} */ (persistedVerdict.invocations).filter((item) => item.phase === "judge");
-  assert.equal(persistedJudges.length, 2, "the durable record carries the completed re-ask whose bound permits no third ask");
-  assert.equal(persistedJudges.at(-1)?.status, "closed");
-  const afterVerdict = nodeState(await resumeRun(verdictGap));
-  assert.equal(afterVerdict.status, "blocked", afterVerdict.error?.message);
-  assert.equal(afterVerdict.phase, "judge");
-  assert.equal(afterVerdict.error?.code, "judge_protocol", "the recovered second uncited verdict is not a first failure");
-  assert.equal(afterVerdict.revisions, 0, "an uncited rejection never consumes a revision");
-  assert.equal((afterVerdict.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 2, "the recovered verdict settles the node without another judge invocation");
-  assert.ok(notifications(verdictGap).some((event) => event.type === "attention" && event.errorCode === "judge_protocol"));
-});
-
 test("preserves the worker report when the judge provider fails", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-judge-fail-"));
   const path = writeContract(directory, fixture({
@@ -797,3 +678,27 @@ test("a fully done run writes no findings.json", async () => {
   assert.equal(nodeState(result).status, "done");
   assert.equal(existsSync(join(result.runDir, "findings.json")), false);
 });
+
+/**
+ * R24: the judge prompt carries the newest operator answer as a blocking
+ * judgment item, read from the same `Previous attempt` section the worker read.
+ * R25: it also carries the reserved owner decisions with the packet's coverage.
+ */
+test("an unmet operator answer fails the review", () => {
+  const previousAttempt = /** @type {string} */ (renderPreviousAttemptSection(/** @type {any} */ ({ attempt: 1, executionOverrides: [{ kind: "operator-answer", at: "2026-01-01T00:00:00.000Z", reason: "operator answered", text: "answer" }] })));
+  const node = /** @type {any} */ ({ id: "build", taskPacket: packet(), definitionOfDone: [] });
+  const prompt = judgePrompt(node, "worker complete", { previousAttempt });
+  assert.match(prompt, /Operator answer:\nanswer[\s\S]*unmet answer is a blocking finding/u, "the answer is a blocking judgment item");
+  const without = judgePrompt(node, "worker complete", { previousAttempt: "## Previous attempt\n\nAttempt 1 failed; this is attempt 2. The packet is unchanged." });
+  assert.doesNotMatch(without, /Operator answer:/u, "no answer carries no blocking criterion");
+});
+test("a reserved owner decision taken by the worker fails the review", () => {
+  const node = /** @type {any} */ ({ id: "build", taskPacket: packet(), definitionOfDone: [] });
+  const prompt = judgePrompt(node, "worker complete");
+  assert.match(prompt, /Reserved owner decisions with no coverage in the decisions above:\n- license\n- pricing\n- branding\n- publication\n- third-party data[\s\S]*A diff that takes an owner decision with no coverage is a blocking finding: fail/u);
+  const covered = judgePrompt(/** @type {any} */ ({ ...node, taskPacket: packet({ decisions: ["license: MIT"] }) }), "worker complete");
+  const uncovered = covered.slice(covered.indexOf("Reserved owner decisions with no coverage"), covered.indexOf("A diff that takes an owner decision"));
+  assert.doesNotMatch(uncovered, /license/u, "a covered decision is not failed by the judge");
+  assert.match(uncovered, /pricing/u, "an uncovered decision is still failed by the judge");
+});
+
