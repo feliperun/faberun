@@ -154,3 +154,29 @@ com a campanha de melhoria do faberun: cada item aqui vira requisito lá.
   não distingue criar de apagar), então fechar isso pede primeiro um jeito de o plano dizer
   que um nó remove um arquivo.
 
+## AP10. Uma recusa de lançamento num estágio do planner vira "failed before readiness"
+
+- **Sintoma:** em 27/09 o primeiro `faberun plan` da fase 2 levou 16 min no `repo-facts` e
+  morreu no rascunho com *"detached bootstrap failed before readiness for pid 82057"*, sem
+  run dir e sem motivo. Rodando o mesmo contrato em primeiro plano, a causa apareceu:
+  *"refusing to launch against HEAD: the working tree has 2 uncommitted paths"* (os
+  contratos `phase-1b`/`phase-1c` fora do git).
+- **Causa:** o estágio lança a run destacada, e a recusa acontece antes de o controlador
+  escrever o registro de bootstrap; o stderr do filho é descartado. É o caso do R32.
+- **Correção sugerida:** o `plan` confere a árvore limpa antes do `repo-facts` (e não 16 min
+  depois), e a recusa do filho destacado é gravada no registro de bootstrap (R32).
+
+## AP11. O plano escreveu uma prova mais estrita que a spec
+
+- **Sintoma:** o nó `r6-legacy-sweep` da fase 2 falhou duas vezes na prova
+  `! grep -q "\.runs" README.md docs/*.md`, embora o R6 aceite menção dentro de trecho
+  rotulado como layout legado; o worker também tratou `docs/COMMANDS.md` inteiro como gerado,
+  quando só sinopses e tabelas de flags o são.
+- **Custo:** 2 tentativas do nó e a fase 2 fechando 2/3.
+- **Decisão (27/09, autorizada pelo dono):** R6 replanejado como fase 2b pelo `faberun plan`,
+  com a spec esclarecendo a prova e o escopo do `COMMANDS.md`, e o trabalho da tentativa 2
+  salvo em `salvage/r6-legacy-sweep.patch` como ponto de partida. Nenhum contrato editado à
+  mão.
+- **Correção sugerida no produto:** o revisor do plano compara cada prova de comando com a
+  frase da spec que ela prova e acusa a prova mais estrita que o requisito.
+
