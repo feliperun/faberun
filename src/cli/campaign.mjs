@@ -49,7 +49,7 @@ const NOTE_KIND_FLAGS = {
 };
 
 /** Flags are scoped to the operations that declare them; all other flags are rejected. */
-/** @typedef {import("node:util").ParseArgsOptionConfig & {required?: boolean}} CampaignOption */
+/** @typedef {{type: "string"|"boolean", multiple?: boolean, required?: boolean}} CampaignOption */
 /** @type {Record<string, Record<string, CampaignOption>>} */
 const OPERATION_OPTIONS = {
   list: { cwd: { type: "string" } },
