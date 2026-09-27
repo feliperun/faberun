@@ -116,3 +116,41 @@ com a campanha de melhoria do faberun: cada item aqui vira requisito lá.
 - **Correção sugerida:** `cancel` (e `status`) leem o contrato persistido como registro, sem
   revalidá-lo pelas regras atuais; só `resume` precisa do contrato válido hoje.
 
+## AP7. A fase 1 integrou uma árvore vermelha, e nenhum portão viu
+
+- **Sintoma:** ao trazer a `main` (0.26.0) para a branch da campanha em 27/09, quatro testes
+  estruturais falharam, todos introduzidos pela fase 1: `src/host/preflight.mjs` com 840
+  linhas (teto de 800), `declaredEnvironment` exportado por sete módulos, três arquivos de
+  teste novos sem `scoped-home.mjs` como primeiro import, e uma asserção do zcode que a
+  mudança do R1 tornou falsa.
+- **Causa:** `plan-inputs/verification.json` só punha `npm run typecheck` em cada nó e
+  `npm run check` (sintaxe) e `docs:check` no fim. Nenhum comando rodava
+  `test/repo/source-shape.test.mjs`, e o juiz aprovou nós que só rodaram os próprios testes.
+- **Correção feita:** os quatro reparos em commits separados na branch da campanha
+  (`refactor(host)`, dois `test(harnesses)`, `test(repo)`), com a decisão de isentar
+  `declaredEnvironment` da regra de nome único pelo mesmo motivo que isenta `harness`, e
+  `node --test test/repo/source-shape.test.mjs` (0,36 s medido) entrou na verificação
+  compartilhada de todo nó a partir da fase 2.
+- **Correção sugerida no produto:** o planner lê as regras que a suíte do alvo impõe à forma
+  do código e propõe o teste delas como verificação compartilhada, em vez de depender do
+  operador lembrar.
+
+## AP8. A prova escrita na própria spec continua sem arquivo de teste
+
+- **Sintoma:** as provas de R1 a R7 na spec são `node --test --test-name-pattern="<título>"`
+  sem arquivo. O planner agora acrescenta o arquivo (AP1), mas `spec validate
+  --run-proofs` roda a prova como a spec a escreve, por `plan/proof-run.mjs`, que não passa
+  pelo congelamento.
+- **Decisão (27/09):** fica fora da fase 2, que cobre R5 a R7. Vira requisito candidato: a
+  checagem de `spec validate` recusa (ou avisa) prova filtrada sem arquivo, com a mesma regra
+  de `plan/proof-scope.mjs`.
+
+## AP9. O reparo do AP2 só vê arquivo criado
+
+- **Sintoma:** um nó que apaga ou renomeia um arquivo dentro de um diretório que algum teste
+  enumera também quebra esse teste, e `declareDirectoryGuards` só olha caminhos que ainda não
+  existem.
+- **Decisão (27/09):** fora do escopo da fase 2. O plano não declara remoções (`writeFiles`
+  não distingue criar de apagar), então fechar isso pede primeiro um jeito de o plano dizer
+  que um nó remove um arquivo.
+
