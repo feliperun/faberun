@@ -52,8 +52,11 @@ export const claudeHarness = {
     signalsProcesses: true,
   },
 
-  // Headless acceptEdits denies Bash; bypassPermissions executes commands.
-  permissionExecution: { field: "permissionMode", executingModes: ["bypassPermissions"], defaultMode: "acceptEdits" },
+  // Headless acceptEdits denies Bash; bypassPermissions executes commands;
+  // plan neither edits nor runs anything, the mode a judge or a preflight ask
+  // needs (measured 2026-09-27: an Opus judge left on the acceptEdits default
+  // edited the review it was grading and was blocked judge_protocol).
+  permissionExecution: { field: "permissionMode", executingModes: ["bypassPermissions"], defaultMode: "acceptEdits", readOnlyModes: ["plan"] },
 
   /** @param {import("../index.mjs").HarnessRuntime} runtime @returns {string} */
   executable(runtime) {

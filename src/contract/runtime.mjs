@@ -11,7 +11,7 @@
  */
 import { assertObject, nonNegativeNumber, positiveInteger, positiveNumber, rejectUnknown, requireId, requireString, requireStringArray, requireTimestamp } from "./assert.mjs";
 import { composeAssignments } from "../engine/runtime-discovery.mjs";
-import { harnessCapabilities, resolvePermissionExecution, resolveVendor, validateCapabilityRequirements, writesWorkspace } from "../harnesses/index.mjs";
+import { harnessCapabilities, readOnlyModeOf, resolvePermissionExecution, resolveVendor, validateCapabilityRequirements, writesWorkspace } from "../harnesses/index.mjs";
 import { canonicalProvider } from "./provider.mjs";
 import { stableJson } from "../util.mjs";
 /** @typedef {import("./index.mjs").NodeStatus} NodeStatus */
@@ -245,9 +245,12 @@ export function judgeWriteWarnings(runtimes, defaults, nodes) {
   return [...judges].flatMap((id) => {
     const runtime = runtimes[/** @type {string} */ (id)];
     const execution = resolvePermissionExecution(runtime);
-    if (!execution.field || runtime[execution.field] === undefined || !writesWorkspace(runtime)) return [];
-    if (writesWorkspace({ ...runtime, [execution.field]: "read-only" })) return [];
-    return [`judge runtime ${id} declares ${execution.field} ${execution.mode}; a judge's verdict reaches the gate without writing, so declare ${execution.field} read-only`];
+    // A mode left undeclared is the harness default, which writes just the same.
+    if (!execution.field || !writesWorkspace(runtime)) return [];
+    const readOnlyMode = readOnlyModeOf(runtime);
+    if (readOnlyMode === null) return [];
+    const declared = runtime[execution.field] === undefined ? "runs on the default" : "declares";
+    return [`judge runtime ${id} ${declared} ${execution.field} ${execution.mode}; a judge's verdict reaches the gate without writing, so declare ${execution.field} ${readOnlyMode}`];
   });
 }
 /**
