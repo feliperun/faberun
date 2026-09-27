@@ -122,3 +122,10 @@ test("every manual heading names a real CLI verb or operation", () => {
     `docs/COMMANDS.md names ${difference(documented.operations, cli.operations).join(", ")}, which the CLI does not dispatch`,
   );
 });
+
+test("the command surface carries faberun uninstall", () => {
+  const cli = cliSurface();
+  const documented = documentedSurface();
+  assert.ok(cli.verbs.has("uninstall"), "the CLI must dispatch faberun uninstall");
+  assert.ok(documented.verbs.has("uninstall"), "docs/COMMANDS.md must document faberun uninstall");
+});

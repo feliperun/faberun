@@ -122,6 +122,14 @@ node src/cli.mjs --help
 runtime dependencies, so the checkout needs no install step; TypeScript is a
 development-only check.
 
+### Uninstall
+
+`faberun uninstall --dry-run` lists everything the install wrote outside a
+target repository — the registered skill, the status line and hooks, and
+`$FABERUN_HOME`. `faberun uninstall` removes it after confirming, refuses while
+a campaign's ledger is not preserved at its repository unless `--force`, and
+prints the command that removes the published package.
+
 ## Set up the machine
 
 ```bash

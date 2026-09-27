@@ -219,6 +219,11 @@ An installed copy updates itself from the newest GitHub release:
 faberun update
 ```
 
+To leave cleanly, `faberun uninstall --dry-run` lists what the install wrote
+outside a repository — registered skills, status-line and hook entries, and
+`$FABERUN_HOME` — and `faberun uninstall` removes it after confirming, refusing
+while a campaign's ledger is not preserved at its repository unless `--force`.
+
 ## Quickstart
 
 The full walkthrough, from a fresh machine to a first verified node, is in

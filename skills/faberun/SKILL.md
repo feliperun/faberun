@@ -16,10 +16,10 @@ Read [rules](references/rules.md) first.
 | Dispatch a node | [handoffs](references/handoffs.md) |
 | Supervise, answer | [operations](references/operations.md), [handoffs](references/handoffs.md) |
 | Verify, judge | [engineering](references/engineering.md) |
-| Install, set up, update | [operations](references/operations.md) |
+| Install, set up, update, uninstall | [operations](references/operations.md) |
 | Doctor --env | [local-env](references/local-env.md) |
 
-Watchdog re-invocations:
+Watchdog:
 
     faberun supervise campaign <id> [--allow-main]
 
