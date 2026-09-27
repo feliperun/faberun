@@ -72,11 +72,19 @@ depende do anterior:
    representa passo humano e aceita `proof.ref` por texto ou índice. O planner
    está em 0 de 13: os 10 contratos das campanhas anteriores foram escritos à
    mão, e os 3 planos do R5 da `choose-the-judges` não congelaram.
+   **Fechada em 27/09.** O portão passou: o plano da fase 1 da 3b congelou sem
+   edição à mão depois de seis tentativas, cada uma expondo um defeito do
+   próprio planner (o revise nunca recebia o plano que revisava, o R14 contava
+   a rodada inválida e os achados mecânicos, o check de congelamento só rodava
+   depois da revisão). Gasto: US$ 90,92 nas runs e US$ 32,23 nos planos do
+   portão. Retrospectiva em `docs/campaigns/planner-and-routing/RETROSPECTIVE.md`.
 3b. **`safe-to-hand-to-a-friend`.** O worker deixa de herdar o ambiente
    inteiro, o modo de sandbox diz o que custa, o guia de primeiros passos passa
    a ser executado, o planner enxerga repositório que não é Node, pacote recusado
-   e pacote com defeito têm caminho de volta, e sair é um comando. Todo contrato
-   dela sai do `faberun plan`: ela é o teste do portão 3 para 4.
+   e pacote com defeito têm caminho de volta, e sair é um comando. R22 a R31
+   vêm da retrospectiva da `agent-belt-security-quality-review`, a primeira
+   campanha fora deste repositório. Todo contrato dela sai do `faberun plan`:
+   ela é o teste do portão 3 para 4.
 4. **`friends-pilot`.** Três a cinco pessoas próximas rodam uma campanha real
    nos próprios repositórios, começando pelo Campaign Brief. O que elas vivem
    volta como pacote redigido e como atrito com id no roadmap. O programa
@@ -137,8 +145,8 @@ Toda campanha fecha com `faberun spec validate <spec> --strict-traceability
 | `evidence-you-can-recompute` | até US$ 15 com writers baratos | 0 |
 | `evals-with-a-budget` | até US$ 20 | até US$ 100 (R11) |
 | `choose-the-judges` | até US$ 5 | até US$ 100 (R4 e R5; elevado de 70 pelo dono em 24/09) |
-| `planner-and-routing` | até US$ 15 | 0 |
-| `safe-to-hand-to-a-friend` | até US$ 20 | 0 |
+| `planner-and-routing` | até US$ 150 (de 15; elevado pelo dono em 24 e 25/09, gasto não é restrição); gasto real US$ 123,15 | 0 |
+| `safe-to-hand-to-a-friend` | até US$ 60 (de 20, com R22 a R31) | 0 |
 | `friends-pilot` | até US$ 10 | 0 (o custo do participante é dele, com teto sugerido) |
 
 As estimativas de execução vêm de três ledgers: `durable-state-integrity` (10

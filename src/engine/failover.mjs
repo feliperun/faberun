@@ -17,6 +17,7 @@
 import { harnessCapabilities } from "../harnesses/index.mjs";
 import { isRuntimeAvailable, nextSameTierRuntime } from "./runtime-discovery.mjs";
 import { routeRuntime } from "../contract/runtime.mjs";
+import { effectiveProvider } from "../contract/provider.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedNode} ValidatedNode */
 /** @typedef {import("../contract/index.mjs").NodeSnapshot} NodeSnapshot */
@@ -188,11 +189,17 @@ export function routingBackoffActive(state, phase) {
  * survives both a routed hop and the revision boundary: `resetPhaseRouting`
  * clears the routing override between revisions, but never the invocations.
  *
+ * Exported so a same-provider-review mark (R20) can be taken from the worker
+ * invocation that actually ran instead of `state.runtime`, which `startJudge`
+ * overwrites with the judge's own runtime as soon as it dispatches -- a re-ask
+ * or a judge-failure retry then calls `startJudge` again with the judge still
+ * in `state.runtime`, so comparing against it compares the judge to itself.
+ *
  * @param {NodeSnapshot} state
  * @param {"worker"|"judge"} role
  * @returns {string|undefined}
  */
-function previousAttemptRuntimeId(state, role) {
+export function previousAttemptRuntimeId(state, role) {
   const found = [...(state.invocations ?? [])].reverse().find((invocation) => invocation.phase === role)?.runtimeId;
   return typeof found === "string" ? found : undefined;
 }
@@ -223,7 +230,8 @@ function admitsAffinity(contract, state, role, candidate) {
   if (availability && !isRuntimeAvailable(availability)) return false;
   if (role !== "judge") return true;
   const workerId = previousAttemptRuntimeId(state, "worker") ?? state.routing?.assignments?.worker;
-  return runtime.vendor !== (workerId ? contract.runtimes[workerId]?.vendor : null);
+  const workerRuntime = workerId ? contract.runtimes[workerId] : undefined;
+  return effectiveProvider(runtime) !== (workerRuntime ? effectiveProvider(workerRuntime) : null);
 }
 
 /**

@@ -145,6 +145,20 @@ test("the canary report says which judges may judge each worker vendor", () => {
     assert.equal(beta.byAuthorFamily.anthropic.recall, 0.85);
     assert.equal(beta.byAuthorFamily.openai.recall, null);
 
+    // R20: same-family reading. beta is a deepseek judge but every case here
+    // is authored by anthropic (the fixture default), so beta's own-family
+    // slice is empty; delta is anthropic and every one of its cases is too, so
+    // its same-family reading equals its pooled score exactly.
+    assert.deepEqual(beta.sameFamily, beta.byAuthorFamily.deepseek);
+    assert.equal(beta.sameFamily.cases, 0);
+    const deltaJudge = byId.get("judge-delta");
+    assert.ok(deltaJudge);
+    assert.equal(deltaJudge.sameFamily?.cases, 25);
+    assert.equal(deltaJudge.sameFamily?.recall, 0.7);
+    assert.match(markdown, /same-family review \(R20\)/);
+    assert.match(markdown, /judge-beta \(deepseek\): no same-family cases/);
+    assert.match(markdown, /judge-delta \(anthropic\): 0\.700 \/ 0\.000 \/ 0\.0200 \(25 cases\)/);
+
     // Mixed corpus hashes are refused, naming the file that disagrees.
     const mixedA = writeResult(dir, "mixed-a.json", resultFixture("judge-alpha", "openai", "corpus-a", [outcomeOf("mixed-a-clean")]));
     const mixedB = writeResult(dir, "mixed-b.json", resultFixture("judge-alpha", "openai", "corpus-b", [outcomeOf("mixed-b-clean")]));

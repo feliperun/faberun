@@ -1,4 +1,6 @@
 import { normalizeProviderAvailability, probeRuntime } from "../harnesses/index.mjs";
+import { effectiveProvider } from "../contract/provider.mjs";
+import { SAME_VENDOR_REVIEW_MODE, sameVendorTierRefusal } from "../contract/judge-independence.mjs";
 
 // Availability normalization belongs to the adapter registry, which is where
 // each provider's own exhaustion, balance, and authentication wording is
@@ -8,7 +10,7 @@ export { exhaustedUntilOf, normalizeProviderAvailability } from "../harnesses/in
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {{harness?: string, model?: string, vendor: string, tier?: number|string, costRank?: number, [key: string]: unknown}} RuntimeLike */
-/** @typedef {{runtimes: Record<string, RuntimeLike>, runtimeDefaults?: {worker?: string, judge?: string}, nodes?: {id: string, runtime?: string, gate: {enabled: boolean, runtime?: string}}[]}} RuntimeContract */
+/** @typedef {{runtimes: Record<string, RuntimeLike>, runtimeDefaults?: {worker?: string, judge?: string}, judgeIndependence?: string, nodes?: {id: string, runtime?: string, gate: {enabled: boolean, runtime?: string}}[]}} RuntimeContract */
 /**
  * One runtime's catalogue record: what the harness de facto reported, and
  * when. An unobservable datum is null -- never zero and never full allowance,
@@ -20,7 +22,20 @@ export { exhaustedUntilOf, normalizeProviderAvailability } from "../harnesses/in
 /** @typedef {{harness: string, model: string, vendor: string, tier: number, costRank: number, config?: Record<string, unknown>}} DiscoveryRuntime */
 /** @typedef {{id: string, runtime: RuntimeLike, order: number}} RuntimeCandidate */
 /** @typedef {import("../host/config.mjs").UserConfig} UserConfig */
-/** @typedef {{config?: UserConfig|null, onWarning?: (message: string) => void}} ComposeOptions */
+/** @typedef {{id: string, gate: {enabled: boolean, runtime?: string}}} ComposeOptionsNode */
+/**
+ * `listJudge`'s return governs precedence, not just a value: `undefined`
+ * means no list applies to this node (its gate is disabled), so
+ * `composeAssignments` falls through to its own candidates unchanged; once a
+ * list applies, its pick is final and nothing else is tried, whether that
+ * pick is a runtime id (`chosen`) or `null` for an exhausted list. The full
+ * pick, not just `chosen`, is returned so an exhausted list's thrown error can
+ * name every skipped entry and why -- an operator reading an aborted run
+ * cannot otherwise tell the list was even consulted.
+ * @typedef {{id: string, reason: string}} JudgeListSkip
+ * @typedef {{chosen: string|null, skipped: JudgeListSkip[]}} JudgeListPick
+ * @typedef {{config?: UserConfig|null, onWarning?: (message: string) => void, listJudge?: (node: ComposeOptionsNode, workerId: string, workerProvider: string|undefined) => JudgeListPick|undefined}} ComposeOptions
+ */
 
 /**
  * Candidates used when a contract omits its runtime catalogue. The catalogue
@@ -124,6 +139,16 @@ export function availableCandidates(runtimes, availability = {}) {
  * `options.onWarning`; config never overrides an explicit node, gate or
  * runtime-default declaration, and the cross-vendor judge rule still applies.
  *
+ * `options.listJudge` (R18) is asked for an omitted judge before the single
+ * `config.judge` preference and the strongest-candidate default: it is the
+ * caller's own ordered-list selection (`engine/judge-list.mjs`), kept out of
+ * this module so a list pick's refusal- and usage-window reads never import a
+ * `run/` consumer of this very function back into a cycle. Returning
+ * `undefined` -- no list governs this node -- falls through to the candidates
+ * below exactly as if it had not been asked. A governed node's pick is final
+ * instead: a string is used as-is, and `null` -- every entry was skipped --
+ * throws rather than silently falling through to a judge outside the list.
+ *
  * @param {RuntimeContract} contract
  * @param {Record<string, RuntimeAvailability>} availability
  * @param {ComposeOptions} [options]
@@ -149,19 +174,55 @@ export function composeAssignments(contract, availability = {}, options = {}) {
     const workerRuntime = contract.runtimes[worker];
     const judgeOmitted = node.gate.runtime === undefined && contract.runtimeDefaults?.judge === undefined;
     const preferredJudge = judgeOmitted ? candidateById(candidates, config?.judge) : undefined;
-    const judge = node.gate.runtime ?? contract.runtimeDefaults?.judge
-      ?? (preferredJudge && preferredJudge.runtime.vendor !== workerRuntime.vendor ? preferredJudge.id : undefined)
-      ?? strongest(candidates, workerRuntime.vendor)?.id;
+    const workerProvider = effectiveProvider(workerRuntime);
+    const declaredJudge = node.gate.runtime ?? contract.runtimeDefaults?.judge;
+    // R18: once a list governs this node (`judgeListPick` is not
+    // `undefined`), its pick is final -- a string is used as-is, and `null`
+    // (every entry skipped) must not fall through to
+    // `preferredJudge`/`strongest` below, or the node would land on a judge
+    // outside the declared list and the skip evidence `listJudge` already
+    // recorded would go unused. The thrown error itself names every skipped
+    // entry and why: this is the only trace of the list an operator reading
+    // an aborted run has, since the caller's own record of `judgeListStates`
+    // is never reached when this constructor throws before returning.
+    const judgeListPick = declaredJudge === undefined && judgeOmitted ? options.listJudge?.(node, worker, workerProvider) : undefined;
+    if (judgeListPick && judgeListPick.chosen === null) {
+      const reasons = judgeListPick.skipped.map((entry) => `${entry.id}: ${entry.reason}`).join("; ");
+      throw new Error(`runtime_assignment_judge_unavailable: every entry of the judge list is unavailable for node ${node.id} and worker ${worker} (${reasons})`);
+    }
+    // R20: in same-vendor mode a judge of the worker's own provider is
+    // admissible when it is another model at an equal or higher declared tier;
+    // the strongest such candidate is the default only when no other vendor has one.
+    const sameVendorMode = contract.judgeIndependence === SAME_VENDOR_REVIEW_MODE;
+    const judge = declaredJudge
+      ?? judgeListPick?.chosen
+      ?? (preferredJudge && effectiveProvider(preferredJudge.runtime) !== workerProvider ? preferredJudge.id : undefined)
+      ?? strongest(candidates, workerProvider)?.id
+      ?? (sameVendorMode ? strongest(candidates.filter(({ id, runtime }) => id !== worker && isTierAdmissible(workerRuntime, runtime)), undefined)?.id : undefined);
     if (node.gate.enabled && (!judge || !contract.runtimes[judge])) {
       throw new Error(`runtime_assignment_judge_unavailable: no available cross-vendor judge for node ${node.id} and worker ${worker}`);
     }
     const judgeRuntime = judge ? contract.runtimes[judge] : undefined;
-    if (node.gate.enabled && workerRuntime && judgeRuntime && judgeRuntime.vendor === workerRuntime.vendor) {
-      throw new Error(`runtime_assignment_judge_unavailable: no available cross-vendor judge for node ${node.id} and worker ${worker}`);
+    if (node.gate.enabled && workerRuntime && judgeRuntime && effectiveProvider(judgeRuntime) === workerProvider) {
+      if (!sameVendorMode) throw new Error(`runtime_assignment_judge_unavailable: no available cross-vendor judge for node ${node.id} and worker ${worker}`);
+      if (judge === worker) throw new Error(`runtime_assignment_judge_unavailable: same-vendor mode needs a judge other than worker ${worker} for node ${node.id}`);
+      const refusal = sameVendorTierRefusal(/** @type {{harness: string, model: string}} */ (workerRuntime), /** @type {{harness: string, model: string}} */ (judgeRuntime));
+      if (refusal) throw new Error(`runtime_assignment_judge_unavailable: ${refusal.message} for node ${node.id}`);
     }
     assignments[node.id] = { worker, judge: judge ?? worker };
   }
   return assignments;
+}
+
+/**
+ * @param {RuntimeLike} workerRuntime
+ * @param {RuntimeLike} judgeRuntime
+ * @returns {boolean}
+ */
+function isTierAdmissible(workerRuntime, judgeRuntime) {
+  if (typeof workerRuntime.harness !== "string" || typeof workerRuntime.model !== "string") return false;
+  if (typeof judgeRuntime.harness !== "string" || typeof judgeRuntime.model !== "string") return false;
+  return sameVendorTierRefusal({ harness: workerRuntime.harness, model: workerRuntime.model }, { harness: judgeRuntime.harness, model: judgeRuntime.model }) === null;
 }
 
 /**
@@ -189,12 +250,12 @@ export function nextSameTierRuntime(contract, stateRouting, role, current, attem
   const currentRuntime = contract.runtimes[current];
   if (!currentRuntime) return null;
   const workerId = stateRouting.assignments?.worker;
-  const workerVendor = workerId ? contract.runtimes[workerId]?.vendor : null;
+  const workerProvider = workerId && contract.runtimes[workerId] ? effectiveProvider(contract.runtimes[workerId]) : null;
   const used = new Set(attempted);
   return Object.entries(contract.runtimes)
     .filter(([id, runtime]) => id !== current && !used.has(id) && sameTier(runtime, currentRuntime))
     .filter(([id]) => isRuntimeAvailable(stateRouting.availability?.[id]))
-    .filter(([, runtime]) => role !== "judge" || runtime.vendor !== workerVendor)
+    .filter(([, runtime]) => role !== "judge" || effectiveProvider(runtime) !== workerProvider)
     .sort((left, right) => runtimeOrder(left[1]) - runtimeOrder(right[1]))
     .map(([id]) => id)
     .at(0) ?? null;
@@ -232,11 +293,11 @@ export function cheapest(candidates) {
  * `cheapest` for `setup`'s cross-vendor judge default.
  *
  * @param {RuntimeCandidate[]} candidates
- * @param {string} vendor
+ * @param {string|undefined} vendor
  * @returns {RuntimeCandidate|null}
  */
 export function strongest(candidates, vendor) {
-  return [...candidates].filter(({ runtime }) => runtime.vendor !== vendor)
+  return [...candidates].filter(({ runtime }) => effectiveProvider(runtime) !== vendor)
     .sort((left, right) => tierOrder(right.runtime) - tierOrder(left.runtime)
       || runtimeOrder(right.runtime) - runtimeOrder(left.runtime)
       || left.order - right.order).at(0) ?? null;

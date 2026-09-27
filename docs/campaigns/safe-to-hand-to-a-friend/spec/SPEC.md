@@ -1,9 +1,9 @@
 ---
 id: safe-to-hand-to-a-friend
 title: "Um estranho instala, roda e desinstala sem ajuda e sem expor as credenciais dele"
-version: 2.0.0
+version: 2.1.0
 status: draft
-date: 2026-09-24
+date: 2026-09-25
 owner: Felipe Broering
 target: feliperun/faberun
 baseline: 6ecb804
@@ -82,6 +82,16 @@ dentro da recusa.
 **Não há como sair.** Nenhum verbo desfaz o que `setup`, `init` e
 `skills register` escreveram fora do repositório alvo (`grep -rn
 "uninstall|unregister" src` volta vazio).
+
+**A primeira campanha fora deste repositório achou doze atritos.** A campanha
+`agent-belt-security-quality-review` (faberun 0.10.0, repositório
+`feliperun/agent-belt`, 2026-09-25: 64 achados, 60 corrigidos, cerca de US$ 207
+de worker, 3 intervenções do operador) deixou os achados F1 a F12 na sua
+retrospectiva. Conferidos contra a árvore da 0.25.1: F1 (veredito do dsh
+ilegível) e F2 (retomada de `judge_unavailable`) já estão corrigidos, e os
+outros dez viram R22 a R31. Cada um cita o achado de origem. R32 a R36 vêm da
+própria campanha `planner-and-routing`, que achou esses defeitos enquanto rodava. Os dez são o que
+um estranho encontra na primeira campanha, fora do repositório do autor.
 
 ## Estado medido
 
@@ -232,6 +242,157 @@ scaffold`, o pipeline de plano com seus estágios, `validateContract` com
   e o `packetHash` ficam intactos, e a próxima tentativa parte do selo da
   anterior quando ele existe.
 - **proof:** `command: node --test --test-name-pattern="an operator override reaches any non-terminal node"`
+
+### R22. Uma fonte de ignore dentro do escopo declarado não derruba o nó
+
+- **origin:** agent-belt F3 (e a metade restante do F2).
+- **statement:** quando a única fonte de ignore que mudou está nos `writeFiles`
+  do nó ou sob um dos seus `writeRoots`, o snapshot de depois é tirado com as
+  regras de ignore de antes da tentativa, e a edição conta como escrita
+  declarada. Uma mudança de ignore fora do escopo declarado continua falhando
+  com `snapshot_ignore_changed`. O aviso de autoria (`src/repo/declared-paths.mjs`)
+  passa a cobrir um `writeRoots` que contém uma fonte de ignore.
+- **proof:** `command: node --test --test-name-pattern="a declared ignore-source edit is judged under the base rules, not failed" test/repo/workspace.test.mjs`
+
+### R23. O worker autônomo sabe que o escopo é consultivo
+
+- **origin:** agent-belt F4.
+- **statement:** o prompt autônomo (`src/contract/task-packet.mjs`) diz o que o
+  engine já faz (`src/engine/scope.mjs`, `docs/CONCEPTS.md`): as raízes de
+  escrita são a fronteira esperada, não uma parede. Uma escrita fora delas é
+  permitida quando a tarefa a exige, e o resultado nomeia o caminho e o
+  motivo. `blocked_context` fica para contexto que falta de verdade. O
+  controlador continua registrando `scopeFindings` e mostrando-os ao juiz.
+- **proof:** `command: node --test --test-name-pattern="an autonomous prompt states that scope is advisory" test/contract/packet.test.mjs`
+
+### R24. A resposta do operador é critério do juiz, não só contexto
+
+- **origin:** agent-belt F5. Depende do R13.
+- **statement:** o prompt do juiz leva a resposta mais recente do operador
+  (`operator-answer`) como item de julgamento que ele arbitra e cita. Uma
+  resposta não cumprida é finding bloqueante.
+- **proof:** `command: node --test --test-name-pattern="an unmet operator answer fails the review" test/engine/judge.test.mjs`
+
+### R25. Uma decisão reservada ao dono vira pergunta, não escolha do worker
+
+- **origin:** agent-belt F6 (o worker escolheu uma licença e fechou o achado).
+- **statement:** uma constante única lista as decisões reservadas: licença,
+  preço, marca, publicação e dados de terceiros. Para qualquer uma que o
+  pacote não traga em `decisions`, o worker devolve `blocked_context` nomeando
+  a decisão. O juiz recebe a mesma lista e reprova um diff que toma uma delas
+  sem cobertura em `decisions`.
+- **proof:** `command: node --test --test-name-pattern="a reserved owner decision taken by the worker fails the review" test/engine/judge.test.mjs`
+
+### R26. Todo commit que o faberun escreve segue Conventional Commits
+
+- **origin:** agent-belt F7.
+- **statement:** o commit de candidato (`src/repo/integrate.mjs`, hoje
+  `faberun candidate <run> <node> attempt N`) passa a ter o formato do selo,
+  `chore(faberun): integrate <node> attempt <n>`, com o run id no corpo.
+  Nenhum commit que o faberun escreve no ref da run falha no
+  `@commitlint/config-conventional`. Um template de mensagem por contrato fica
+  fora, porque o PR é squash.
+- **proof:** `command: node --test --test-name-pattern="a candidate commit message follows the conventional commit shape" test/repo/integration.test.mjs`
+
+### R27. Estado efêmero não suja o repositório alvo por padrão
+
+- **origin:** agent-belt F8, medido aqui também: toda operação de campanha
+  deste repositório reescreve o bloco do `AGENTS.md`.
+- **statement:** o bloco gerenciado só é reescrito num `AGENTS.md` que já tem o
+  marcador de início. O operador opta colando o marcador uma vez, e este
+  repositório já o tem. `campaign close` grava o ledger no diretório da
+  campanha na home, e em `docs/campaigns/<id>/ledger` só com
+  `--ledger-in-repo`, que este repositório passa a usar (RM-060).
+- **proof:** `command: node --test --test-name-pattern="an AGENTS.md without the marker is never written|close writes the ledger to the home unless --ledger-in-repo" test/repo/signal.test.mjs test/campaign/ledger.test.mjs`
+
+### R28. Um preflight que expira mostra o que o provedor disse
+
+- **origin:** agent-belt F9 (um 401 do Codex apareceu como `preflight_timeout`).
+- **statement:** num timeout, a sonda viva (`src/engine/live-preflight.mjs`)
+  classifica o fim da saída do provedor como já faz quando ele sai, e anexa o
+  trecho redigido ao detalhe. Um 401 que o provedor re-tenta aparece como
+  `authentication_failed`. `doctor --discover` chama a sonda estática de
+  `binary present`, não de `available`.
+- **proof:** `command: node --test --test-name-pattern="a preflight that times out after a 401 reports authentication_failed" test/engine/live-gate.test.mjs`
+
+### R29. Um prazo de preflight, e o hello sem raciocínio
+
+- **origin:** agent-belt F10 (juízes `xhigh` e `-high` reprovados só por prazo).
+- **statement:** o hello roda com o menor esforço de raciocínio que o harness
+  aceita. Um único default medido (60 s) mora em `live-preflight.mjs` e vale
+  para o gate de despacho, o `doctor` e o `faberun preflight`, que hoje usa 15 s.
+  Os dois defaults duplicados em `run-identity.mjs` e `host/preflight.mjs` saem.
+- **proof:** `command: node --test --test-name-pattern="the liveness hello drops the declared reasoning effort" test/engine/live-gate.test.mjs`
+
+### R30. `campaign note` gera os ids que pode gerar
+
+- **origin:** agent-belt F11, medido aqui também em 2026-09-25.
+- **statement:** sem `--decision-id` ou `--question-id`, o comando gera um id a
+  partir do texto, com sufixo curto, e o imprime. Sem `--session-id`, usa a
+  última sessão anexada à campanha e só recusa quando não há nenhuma. O uso
+  gerado deixa de mostrar entre colchetes um flag exigido.
+- **proof:** `command: node --test --test-name-pattern="a decision note without ids gets a generated id and the attached session" test/campaign/campaign.test.mjs`
+
+### R31. O `status` mostra o custo por tentativa e avisa quando re-tentar custa mais
+
+- **origin:** agent-belt F12 (um nó custou cerca de US$ 112 em 4 tentativas).
+- **statement:** o payload de cada nó ganha o custo de cada tentativa, derivado
+  das `invocations` que o snapshot já guarda. A linha de texto marca quando a
+  soma das tentativas depois da primeira passa o custo da primeira.
+- **proof:** `command: node --test --test-name-pattern="status flags retries that out-spend the first attempt" test/report/cost.test.mjs`
+
+### R32. Um lançamento destacado recusado diz por quê e não deixa resto
+
+- **origin:** `planner-and-routing`, 2026-09-25: um `run --detach` que a
+  atribuição de runtimes recusou imprimiu só `detached bootstrap failed before
+  readiness`, e o diretório da run que ficou para trás (só o `contract.json`)
+  recusou a nova tentativa com `run already exists`.
+- **statement:** o bootstrap destacado repassa ao terminal a mensagem de erro
+  do controlador que morreu antes da prontidão. Um diretório de run que nunca
+  chegou a ter um nó é removido pelo próprio lançamento que falhou.
+- **proof:** `command: node --test --test-name-pattern="a refused detached launch prints the controller error and leaves no run directory" test/engine/detach.test.mjs`
+
+### R33. Um limite de sessão com hora de reset espera o reset
+
+- **origin:** `planner-and-routing`, 2026-09-25: três nós esgotaram com
+  `quota_exhausted` num 429 do Claude cujo texto dizia `You've hit your session
+  limit · resets 2:40pm (America/Sao_Paulo)`.
+- **statement:** a classificação de disponibilidade lê a hora de reset desse
+  texto, com o fuso que ele nomeia, e o nó espera o reset como já espera um
+  `exhaustedUntil` de outro provedor, em vez de esgotar.
+- **proof:** `command: node --test --test-name-pattern="a session limit that names its reset time waits for it" test/harnesses/claude.test.mjs`
+
+### R34. Uma prova que não roda nem na base é recusada no lançamento
+
+- **origin:** `planner-and-routing`, 2026-09-25: a prova `r9-named` de um
+  contrato escrito à mão tinha um apóstrofo dentro de uma string entre aspas
+  simples de `node -e`, e o nó pagou três tentativas antes de alguém ver que
+  nenhuma entrega passaria.
+- **statement:** antes do primeiro despacho, cada prova `command` que é um
+  `node -e` tem o corpo checado pelo parser. Um erro de sintaxe recusa o
+  lançamento, nomeando o nó e o item.
+- **proof:** `command: node --test --test-name-pattern="a proof command that cannot parse refuses the launch" test/contract/definition-of-done.test.mjs`
+
+### R35. A regra do juiz e a atribuição de runtimes dizem a mesma coisa
+
+- **origin:** `planner-and-routing`, 2026-09-25: o `validate` aceitou um
+  contrato em `judgeIndependence: "same-vendor"` que a atribuição de runtimes
+  recusou no lançamento (corrigido em `fix(engine): same-vendor mode admits a
+  same-provider judge at runtime assignment`).
+- **statement:** `faberun validate` roda a atribuição de runtimes do lançamento
+  sobre o contrato, com a disponibilidade dada como tudo disponível, e recusa o
+  que o lançamento recusaria.
+- **proof:** `command: node --test --test-name-pattern="validate refuses what runtime assignment would refuse" test/cli/validate.test.mjs`
+
+### R36. O modo de um provedor só também vale pelo config da máquina
+
+- **origin:** R20 da `planner-and-routing` pede o opt-in "no contrato ou no
+  config da máquina". Só a metade do contrato pousou, porque a validação do
+  contrato não lê o config da máquina.
+- **statement:** `judgeIndependence` no config da máquina vale para um contrato
+  que não o declara. O lançamento grava no snapshot da run o modo efetivo, e o
+  Brief, o relatório e as métricas leem esse modo.
+- **proof:** `command: node --test --test-name-pattern="the machine config opts a contract into same-vendor review" test/engine/runtime-discovery.test.mjs`
 
 ## Não-objetivos
 

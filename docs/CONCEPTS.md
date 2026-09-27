@@ -200,14 +200,17 @@ attempts kept in the record and the first flagged `signalDeath`. See
 A runtime is one way to run a turn: `harness` names the adapter (`claude`,
 `codex`, `agy`, `dsh`, `zcode`, `exec-jsonl`, `replay`), `model` names what it
 asks, and the two vary independently. A vendor is the independent review
-identity, resolved by `resolveVendor` in `src/harnesses/index.mjs` from an
-explicit `vendor`, a provider-config override, or the harness default; `dsh`,
-`replay` and `exec-jsonl` have no default and must declare one. Runtimes are
-declared in `runtimes` and `runtimeDefaults` on the contract, and a runtime id
-is named `<harness>-<model>`. The invariant: vendor is resolved, not inferred
-from the harness name; validation rejects a gate-enabled node whose worker and
-judge resolve to the same vendor, and the same for every runtime in the worker's
-fallback chain. See
+identity: `canonicalProvider` in `src/contract/provider.mjs` derives it from
+the runtime's route (a codex or dsh provider-config override), its model's
+family, or its harness default; `replay` and `exec-jsonl` derive none and keep
+whatever `vendor` the contract declares, as `resolveVendor` in
+`src/harnesses/index.mjs` always did. Runtimes are declared in `runtimes` and
+`runtimeDefaults` on the contract, and a runtime id is named `<harness>-<model>`.
+The invariant: the vendor rule compares the derived provider, not a free-text
+label, so a declared `vendor` that contradicts it is refused; validation
+rejects a gate-enabled node whose worker and judge resolve to the same
+provider, and the same for every runtime in the worker's fallback chain,
+unless same-vendor mode (R20, below) admits the pair. See
 [contract.md](../skills/faberun/references/contract.md).
 
 ## Tier, costRank and fallback
@@ -222,6 +225,59 @@ worker that actually ran the attempt, and budget, scope, permission or authority
 failures never trigger failover. See
 [contract.md](../skills/faberun/references/contract.md) and
 [operations.md](../skills/faberun/references/operations.md).
+
+## Judge list (R18)
+
+A contract's `judges` (or, absent that, the machine config's own `judges`
+written by `faberun setup`) is a static, ordered list of runtime ids read only
+for a node whose judge is otherwise omitted (no `gate.runtime`, no
+`runtimeDefaults.judge`); either governs `composeAssignments`' choice outright,
+ahead of its own single `config.judge` preference and strongest-candidate
+default, and the contract's own list wins over the machine's. Once a list
+governs a node, its pick is final: `composeAssignments` never falls through to
+those other candidates, and an exhausted list (every entry skipped) blocks the
+node (`runtime_assignment_judge_unavailable`) rather than silently handing it a
+judge outside the declared list. `engine/judge-list.mjs`'s `selectListJudge`
+picks the first entry whose provider (and every provider the worker's declared
+fallback chain reaches) differs from the worker's, skipping one already
+attempted this run, one with a machine-recorded refusal
+(`run/availability.mjs`), or one whose account usage window is over 90%
+(`run/usage-windows.mjs`); the pick and every skip's reason are the node's
+`routing.judgeList` evidence. The invariant: a chosen entry that is later
+refused during the run hops to the next eligible one, as many times as the
+list allows and never back to one already refused. A list-governed hop
+replaces the judge's own declared `fallback` edge outright — `planRoute` never
+follows it once a list applies — and is exempt from the single-hop cap that
+edge is otherwise bound by; an exhausted list mid-run blocks with
+`judge_list_exhausted`. See [contract.md](../skills/faberun/references/contract.md).
+
+## Same-vendor review (R20)
+
+An operator with a single provider opts in, explicitly, with
+`judgeIndependence: "same-vendor"` on the contract or the machine config
+(the contract's own value wins, as with `judges`); without it, a gate-enabled
+node whose worker and judge share a vendor stays refused exactly as the
+invariant above states. In the mode, the judge may be a runtime of the
+worker's own vendor, but only a model whose declared tier
+(`src/harnesses/catalogue.mjs`'s `ANTHROPIC_MODEL_TIERS`: Sonnet 2, Opus and
+`claude-opus-5-5` 3, Fable 4) is at or above the worker's; a lower tier is
+refused naming both, and a model absent from the table cannot judge in the
+mode at all (`contract/judge-independence.mjs`'s `sameVendorTierRefusal`).
+`validateContract` decides the static admissibility fact, once, at contract
+validation: a node it admits is marked `sameProviderReview` on the
+`ValidatedNode`, and only the Campaign Brief's work graph — a plan-time
+surface with no run to read — reads that mark back. Every other surface reads
+a dynamic, per-attempt fact instead: `engine/dispatch.mjs`'s `startJudge`
+pairs the worker runtime that actually ran (fallback included) against the
+judge candidate routed for that attempt and stamps the result onto the node
+snapshot, which the run report, `status --json` and campaign metrics'
+`sameProviderReviewNodeCount` all read — never the contract's static fact,
+and never a second enforcement of the vendor-and-tier rule. The
+judge-canary matrix (`evals/judge-canary-matrix.mjs`) reads the scenario apart
+too: each judge's `sameFamily` score is its recall and false-alarm rate on the
+cases its own vendor's family authored, pooled from `byAuthorFamily` rather
+than from a second provider call. See
+[contract.md](../skills/faberun/references/contract.md).
 
 ## Concurrency per runtime
 
@@ -323,6 +379,24 @@ transitions and terminal completion, while the journal is the source that is
 never rewritten. See
 [operations.md](../skills/faberun/references/operations.md) and
 [handoffs.md](../skills/faberun/references/handoffs.md).
+
+## Human step (R16)
+
+A requirement whose `constraints` name the operator (the `operator` keyword
+plus a backtick-quoted command) declares a step only a human can perform.
+`plan/human-step.mjs`'s `detectHumanStep` finds it in the structured spec;
+`plan/freeze.mjs` stamps it, as `humanStep: {step, command}`, onto the frozen
+contract node that carries that requirement's id. The invariant: that node
+never dispatches to a provider. Once its dependencies are done the scheduler
+stops it there instead, `blocked` with `human_step_pending`, `error.message`
+naming the step and its command; its dependants wait exactly as they would
+behind any other blocked node. `resume --answer <node-id>=<path>` is how the
+operator continues it: unlike an answer to a `context_missing` node, it
+settles the human node `done` directly — no worktree, no re-dispatch — and
+releases its dependants on the next tick. The Campaign Brief's decisions
+section lists it among the human decisions, alongside the spec's own "Human
+decisions" bullets. See
+[contract.md](../skills/faberun/references/contract.md).
 
 ## Attention and parked
 

@@ -124,15 +124,17 @@ function twoNodePlan({ highRisk = false } = {}) {
  * invocation emits, in order (the draft, then one revise output per later
  * invocation); the default repeats the same valid two-node plan. `reviews`
  * does the same for the reviewer, one findings array per round, for a test
- * about what one round remembers of another.
+ * about what one round remembers of another. `files` adds repository files
+ * beyond the fixed set, path to text.
  *
  * @param {string} campaignId
- * @param {{reviewMode?: "clean"|"critical", highRisk?: boolean, plans?: unknown[], reviews?: unknown[][]}} [options]
- * @returns {{cwd: string, campaignId: string, runtimes: Record<string, Record<string, unknown>>, runtimeDefaults: {worker: string, judge: string}}}
+ * @param {{reviewMode?: "clean"|"critical", highRisk?: boolean, plans?: unknown[], reviews?: unknown[][], files?: Record<string, string>}} [options]
+ * @returns {{cwd: string, campaignId: string, runtimes: Record<string, Record<string, unknown>>, runtimeDefaults: {worker: string, judge: string}, reviewers: string[]}}
  */
-function setup(campaignId, { reviewMode = "clean", highRisk = false, plans, reviews } = {}) {
+function setup(campaignId, { reviewMode = "clean", highRisk = false, plans, reviews, files = {} } = {}) {
   const cwd = mkdtempSync(join(tmpdir(), "plan-pipeline-"));
   writeFixtureFile(cwd, "src/index.mjs", "export default 1;\n");
+  for (const [path, text] of Object.entries(files)) writeFixtureFile(cwd, path, text);
   writeFixtureFile(cwd, "docs/spec.md", "# Feature 42\n\nA legacy spec with no front matter, accepted outright.\n");
   // The scope-closure pair a planned write set is checked against: the entry
   // point imports the module a scope-gap plan writes, and the test named
@@ -170,7 +172,11 @@ function setup(campaignId, { reviewMode = "clean", highRisk = false, plans, revi
     "planner-judge": { harness: "replay", model: "replay-judge-model", vendor: "vendor-judge", config: { "replay.recording": reviewRecording } },
   };
   const runtimeDefaults = { worker: "planner-worker", judge: "planner-judge" };
-  return { cwd, campaignId, runtimes, runtimeDefaults };
+  // R19: the planner's own reviewer list is separate from runtimeDefaults.judge;
+  // this fixture points it at the same replay runtime so every existing test
+  // below keeps exercising the review stage exactly as before.
+  const reviewers = ["planner-judge"];
+  return { cwd, campaignId, runtimes, runtimeDefaults, reviewers };
 }
 
 /** @param {string} contractPath @returns {Promise<void>} */
@@ -184,7 +190,7 @@ function wait(runDir) {
 }
 
 test("the pipeline runs draft and review from recordings and freezes", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("freeze-demo");
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("freeze-demo");
   const result = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
     campaignId,
@@ -192,6 +198,7 @@ test("the pipeline runs draft and review from recordings and freezes", async () 
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     launch,
     wait,
   });
@@ -208,6 +215,18 @@ test("the pipeline runs draft and review from recordings and freezes", async () 
   assert.equal(existsSync(runDirectory(cwd, contract.id)), false);
 });
 
+test("re-planning a phase skips the stage run ids an earlier plan left", async () => {
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("replan-demo");
+  // What an earlier `faberun plan` of this phase leaves behind: its draft run.
+  mkdirSync(runDirectory(cwd, `${campaignId}-plan-build-draft-1`), { recursive: true });
+  const result = await runPlanningPipeline({
+    specPath: join(cwd, "docs/spec.md"), campaignId, phase: "build", cwd, runtimes, runtimeDefaults, reviewers, launch, wait,
+  });
+  assert.equal(result.status, "frozen");
+  const stages = readFileSync(join(result.plansDir, "pipeline.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(stages.find((entry) => entry.stage === "draft")?.runId, `${campaignId}-plan-build-draft-2`);
+});
+
 test("the frozen contract declares the parallelism sizing proved, and a plan sizing proved nothing about stays serial", async () => {
   // Both nodes of the default plan are dependency-free with disjoint write
   // sets, so sizing marks both parallelisable — a conclusion the contract had
@@ -221,6 +240,7 @@ test("the frozen contract declares the parallelism sizing proved, and a plan siz
     cwd: independent.cwd,
     runtimes: independent.runtimes,
     runtimeDefaults: independent.runtimeDefaults,
+    reviewers: independent.reviewers,
     launch,
     wait,
   });
@@ -242,6 +262,7 @@ test("the frozen contract declares the parallelism sizing proved, and a plan siz
     cwd: chained.cwd,
     runtimes: chained.runtimes,
     runtimeDefaults: chained.runtimeDefaults,
+    reviewers: chained.reviewers,
     launch,
     wait,
   });
@@ -252,7 +273,7 @@ test("the frozen contract declares the parallelism sizing proved, and a plan siz
 });
 
 test("operator override wins: --runtime-defaults appears in the frozen contract's runtimeDefaults over the table", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("override-demo");
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("override-demo");
   const result = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
     campaignId,
@@ -260,6 +281,7 @@ test("operator override wins: --runtime-defaults appears in the frozen contract'
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     launch,
     wait,
   });
@@ -270,7 +292,7 @@ test("operator override wins: --runtime-defaults appears in the frozen contract'
 });
 
 test("approval policy", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("approval-demo", { highRisk: true });
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("approval-demo", { highRisk: true });
 
   const underStandard = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
@@ -279,6 +301,7 @@ test("approval policy", async () => {
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     approveBelow: "standard",
     launch,
     wait,
@@ -297,6 +320,7 @@ test("approval policy", async () => {
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     approveBelow: "high",
     launch,
     wait,
@@ -308,7 +332,7 @@ test("approval policy", async () => {
 });
 
 test("--runtimes loads a catalogue file, which drives the pipeline end to end", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("catalogue-demo");
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("catalogue-demo");
   const runtimesPath = join(cwd, "runtimes.json");
   writeFileSync(runtimesPath, JSON.stringify(runtimes, null, 2));
 
@@ -322,6 +346,7 @@ test("--runtimes loads a catalogue file, which drives the pipeline end to end", 
     cwd,
     runtimes: loaded,
     runtimeDefaults,
+    reviewers,
     launch,
     wait,
   });
@@ -346,7 +371,7 @@ test("--runtimes rejects a catalogue entry that fails runtime validation", () =>
 });
 
 test("--verification loads a suites file, which the frozen contract carries end to end", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("verification-demo");
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("verification-demo");
   const verificationPath = join(cwd, "verification.json");
   writeFileSync(verificationPath, JSON.stringify({
     sharedVerification: [{ argv: ["node", "--eval", "process.exit(0)"], timeoutSec: 10 }],
@@ -369,6 +394,7 @@ test("--verification loads a suites file, which the frozen contract carries end 
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     verification: loaded,
     launch,
     wait,
@@ -381,7 +407,7 @@ test("--verification loads a suites file, which the frozen contract carries end 
 });
 
 test("freezing without either verification suite warns, and the contract carries no ratchet", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("unratcheted-demo");
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("unratcheted-demo");
   const result = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
     campaignId,
@@ -389,6 +415,7 @@ test("freezing without either verification suite warns, and the contract carries
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     launch,
     wait,
   });
@@ -423,7 +450,7 @@ test("--verification rejects a key that is not a contract suite", () => {
 });
 
 test("contested plan writes no contract", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("contested-demo", { reviewMode: "critical" });
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("contested-demo", { reviewMode: "critical" });
   const result = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
     campaignId,
@@ -431,6 +458,7 @@ test("contested plan writes no contract", async () => {
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     reviewRounds: 2,
     launch,
     wait,
@@ -444,7 +472,7 @@ test("contested plan writes no contract", async () => {
 });
 
 test("a plan that cannot freeze is caught while a revise round remains, and the revise closes the scope", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("preflight-demo", {
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("preflight-demo", {
     plans: [scopeGapPlan(), scopeGapPlan({ closed: true })],
   });
   const result = await runPlanningPipeline({
@@ -454,6 +482,7 @@ test("a plan that cannot freeze is caught while a revise round remains, and the 
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     launch,
     wait,
   });
@@ -483,12 +512,16 @@ test("a revise that clears a finding by shrinking the write set is contested, th
   // the reviewer's critical finding by declaring one — a smaller write set
   // clears scope closure without judging any importer, but it leaves the node
   // without a file the work needs (measured 2026-09-20: two context_missing
-  // refusals from exactly this). The revision is contested, never frozen.
+  // refusals from exactly this). The drop goes to the next revise, which
+  // re-emits the same shrunk plan: the drop and the review's objection both
+  // stand on a node it left unchanged, so round 3 is R14's stop. The
+  // revision is contested, never frozen.
   const draft = /** @type {any} */ (twoNodePlan());
   draft.nodes[0].writeFiles = ["src/index.mjs", "src/other.mjs"];
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("shrink-demo", {
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("shrink-demo", {
     reviewMode: "critical",
-    plans: [draft, twoNodePlan()],
+    plans: [draft, twoNodePlan(), twoNodePlan()],
+    files: { "src/other.mjs": "export const other = 1;\n" },
   });
   const result = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
@@ -497,11 +530,14 @@ test("a revise that clears a finding by shrinking the write set is contested, th
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
+    reviewRounds: 3,
     launch,
     wait,
   });
   assert.equal(result.status, "contested");
-  assert.equal(result.round, 2);
+  assert.equal(result.round, 3);
+  assert.ok(result.findings.some((finding) => finding.id === "revision-not-converging-r3"));
   const dropped = result.findings.find((finding) => finding.id === "dropped-write-build-1");
   assert.ok(dropped, "the dropped write is recorded as a critical finding");
   assert.equal(dropped.severity, "critical");
@@ -516,12 +552,21 @@ test("a revise that clears a finding by shrinking the write set is contested, th
 });
 
 test("a finding the next round's reviewer does not repeat is still open, and reaches the reviser", async () => {
-  // Round 1 objects; rounds 2 and 3 say nothing at all. Every revise re-emits
-  // the same plan, so nothing was done about the objection — and a reviewer's
-  // silence is not an answer. Replacing the findings each round dropped it,
-  // and a plan froze that way with a defect a worker later refused.
-  const rollback = [{ id: "F1", severity: "critical", nodeId: "build", text: "the plan is missing a rollback path" }];
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("carry-demo", { reviews: [rollback, [], []] });
+  // Round 1 objects twice, on two different nodes; the round-1 revise answers
+  // the docs objection (touching that node) but not the rollback one, so
+  // round 2 measures fewer criticals than round 1 and keeps its round.
+  // Rounds 2 and 3 then say nothing at all and every later revise re-emits
+  // the same plan, so nothing further is done about the rollback objection —
+  // a reviewer's silence is not an answer, and round 3 measures the same
+  // count as round 2, which is R14's non-convergence stop.
+  const rollback = { id: "F1", severity: "critical", nodeId: "build", text: "the plan is missing a rollback path" };
+  const docsGap = { id: "F2", severity: "critical", nodeId: "docs", text: "the docs page needs a versioning note" };
+  const revisedDocs = /** @type {any} */ (twoNodePlan());
+  revisedDocs.nodes[1].objective = "Document the feature with a versioning note";
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("carry-demo", {
+    reviews: [[rollback, docsGap], [], []],
+    plans: [twoNodePlan(), revisedDocs, revisedDocs],
+  });
   const result = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
     campaignId,
@@ -529,16 +574,18 @@ test("a finding the next round's reviewer does not repeat is still open, and rea
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     reviewRounds: 3,
     launch,
     wait,
   });
   assert.equal(result.status, "contested");
   assert.equal(result.round, 3);
-  assert.deepEqual(result.findings.map((finding) => finding.id), ["F1"]);
+  assert.deepEqual(result.findings.map((finding) => finding.id), ["F1", "revision-not-converging-r3"]);
 
-  // Round 2's reviser was handed the round-1 objection, not the empty file
-  // its own reviewer produced.
+  // Round 2's reviser was handed the round-1 objection still open against
+  // "build", not the empty file its own reviewer produced, and not the
+  // "docs" objection the round-1 revise already answered.
   const secondRoundFindings = JSON.parse(readFileSync(join(cwd, ".faberun-plan", campaignId, "build", "findings-round-2.json"), "utf8"));
   assert.deepEqual(secondRoundFindings.map((/** @type {any} */ finding) => finding.id), ["F1"]);
   const stages = readPipelineStages(result.plansDir);
@@ -554,7 +601,7 @@ test("a finding the revise answered is not carried, and a plan that answers ever
   const answered = /** @type {any} */ (twoNodePlan());
   answered.nodes[0].objective = "Implement the feature behind a rollback path";
   const rollback = [{ id: "F1", severity: "critical", nodeId: "build", text: "the plan is missing a rollback path" }];
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("answered-demo", {
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("answered-demo", {
     plans: [twoNodePlan(), answered],
     reviews: [rollback, []],
   });
@@ -565,6 +612,7 @@ test("a finding the revise answered is not carried, and a plan that answers ever
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     reviewRounds: 2,
     launch,
     wait,
@@ -595,7 +643,7 @@ test("a deterministic stage that fails after the rounds ends contested with its 
   // With no review round configured there is no in-round pre-flight to catch
   // the single-node plan sizing refuses; the wrap must still record the
   // failure and contest instead of dying between stage lines.
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("tail-wrap-demo", { plans: [soloPlan] });
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("tail-wrap-demo", { plans: [soloPlan] });
   const result = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
     campaignId,
@@ -603,6 +651,7 @@ test("a deterministic stage that fails after the rounds ends contested with its 
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     reviewRounds: 0,
     launch,
     wait,
@@ -654,7 +703,7 @@ test("a mute runtime refuses planning before the first stage launches", async ()
 });
 
 test("planning whose runtimes all answer runs its stages unchanged", async () => {
-  const { cwd, campaignId, runtimes, runtimeDefaults } = setup("asks-first-green");
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("asks-first-green");
   let asked = 0;
   const result = await runPlanningPipeline({
     specPath: join(cwd, "docs/spec.md"),
@@ -663,6 +712,7 @@ test("planning whose runtimes all answer runs its stages unchanged", async () =>
     cwd,
     runtimes,
     runtimeDefaults,
+    reviewers,
     launch,
     wait,
     ask: async () => { asked += 1; return []; },
@@ -684,6 +734,7 @@ test("a single-node plan is refused by default and frozen under --targeted-fix",
     cwd: refused.cwd,
     runtimes: refused.runtimes,
     runtimeDefaults: refused.runtimeDefaults,
+    reviewers: refused.reviewers,
     launch,
     wait,
   });
@@ -701,6 +752,7 @@ test("a single-node plan is refused by default and frozen under --targeted-fix",
     cwd: allowed.cwd,
     runtimes: allowed.runtimes,
     runtimeDefaults: allowed.runtimeDefaults,
+    reviewers: allowed.reviewers,
     targetedFix: true,
     launch,
     wait,

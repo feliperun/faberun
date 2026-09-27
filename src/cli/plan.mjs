@@ -15,8 +15,11 @@ import { validateFinalVerification, validateSharedVerification } from "../contra
 import { colorLevel, statusToken } from "./brand.mjs";
 import { delay } from "../util.mjs";
 import { runPlanningPipeline } from "../plan/pipeline.mjs";
+import { parseAnswerFlags, resolvePlanningPipeline } from "../plan/resolve.mjs";
+import { resolveReviewerList } from "../plan/reviewer.mjs";
 import { campaignTree, runDirectory } from "../run/paths.mjs";
 import { readCampaign } from "../campaign/record.mjs";
+import { readUserConfig } from "../host/config.mjs";
 
 /** How often a foreground `plan` polls a launched stage's run directory. */
 const DEFAULT_POLL_MS = 1_000;
@@ -54,6 +57,21 @@ export function parseRuntimeDefaults(value) {
     result[role] = id;
   }
   return result;
+}
+
+/**
+ * `--reviewers <a,b>`: the planner's own ordered reviewer list (R19),
+ * separate from `--runtime-defaults judge=` and from the frozen contract's
+ * R18 judge list even when an operator names the same runtime id in both.
+ *
+ * @param {string|undefined} value
+ * @returns {string[]|undefined}
+ */
+export function parseReviewerList(value) {
+  if (value === undefined) return undefined;
+  const ids = value.split(",").map((id) => id.trim()).filter(Boolean);
+  if (ids.length === 0) throw new Error("--reviewers needs at least one runtime id");
+  return ids;
 }
 
 /**
@@ -126,10 +144,11 @@ export function loadVerificationSuites(path) {
 
 /**
  * @param {string} target
- * @param {{campaign?: string, phase?: string, "review-rounds"?: string, "approve-below"?: string, "runtime-defaults"?: string, runtimes?: string, verification?: string, package?: string, "targeted-fix"?: boolean, detach?: boolean, json?: boolean}} values
+ * @param {{campaign?: string, phase?: string, "review-rounds"?: string, "approve-below"?: string, "runtime-defaults"?: string, reviewers?: string, runtimes?: string, verification?: string, package?: string, "targeted-fix"?: boolean, detach?: boolean, resolve?: string, answer?: string[], json?: boolean}} values
  * @returns {Promise<void>}
  */
 export async function planCli(target, values) {
+  if (typeof values.resolve === "string" && values.resolve) return await resolvePlanCli(values);
   const specPath = resolve(target);
   if (typeof values.campaign !== "string" || !values.campaign) throw new Error("plan requires --campaign <id>");
   const campaignId = values.campaign;
@@ -137,6 +156,9 @@ export async function planCli(target, values) {
   const reviewRounds = reviewRoundsOf(values["review-rounds"]);
   const approveBelow = /** @type {"standard"|"high"|"none"|undefined} */ (values["approve-below"]);
   const runtimeDefaults = parseRuntimeDefaults(values["runtime-defaults"]);
+  // R19: the planner's own reviewer list, never `runtimeDefaults.judge` --
+  // `--reviewers` wins over the machine's own `config.reviewers` default.
+  const reviewers = resolveReviewerList({ reviewers: parseReviewerList(values.reviewers) }, readUserConfig(process.env));
   const runtimes = typeof values.runtimes === "string" && values.runtimes
     ? loadRuntimesCatalogue(values.runtimes)
     : DISCOVERY_RUNTIME_DEFINITIONS;
@@ -149,6 +171,7 @@ export async function planCli(target, values) {
     const argv = ["plan", specPath, "--campaign", campaignId, "--phase", phase, "--review-rounds", String(reviewRounds)];
     if (approveBelow !== undefined) argv.push("--approve-below", approveBelow);
     if (values["runtime-defaults"] !== undefined) argv.push("--runtime-defaults", values["runtime-defaults"]);
+    if (values.reviewers !== undefined) argv.push("--reviewers", values.reviewers);
     if (typeof values.runtimes === "string" && values.runtimes) argv.push("--runtimes", resolve(values.runtimes));
     if (typeof values.verification === "string" && values.verification) argv.push("--verification", resolve(values.verification));
     if (packageMode !== "implementation") argv.push("--package", packageMode);
@@ -194,6 +217,7 @@ export async function planCli(target, values) {
       reviewRounds,
       approveBelow,
       runtimeDefaults,
+      reviewers,
       runtimes,
       verification,
       targetedFix: values["targeted-fix"] === true,
@@ -222,12 +246,60 @@ export async function planCli(target, values) {
     return;
   }
   if (result.status === "contested") {
-    process.stdout.write(`[plan] ${campaignId} phase ${phase} contested after ${result.round} round(s) · ${result.findings.length} finding(s) · ${result.planPath}\n`);
-    process.exitCode = 1;
+    renderContested(campaignId, phase, result);
     return;
   }
   for (const warning of result.warnings) process.stdout.write(`${statusToken("warn", colorLevel(process.env, process.stdout.isTTY))} ${warning}\n`);
   process.stdout.write(`[plan] ${campaignId} phase ${phase} frozen · approved ${result.approved} · ${result.contractPath}\n`);
+}
+
+/**
+ * `faberun plan --resolve <plan-dir> --answer <finding-id>=accept|reject:<reason>`
+ * (R9): apply the operator's decisions to a contested plan's open critical
+ * findings and resume straight to sizing/routing/freeze, without redrafting
+ * or asking a provider anything. `--campaign`/`--phase`/the spec positional
+ * are not needed here — everything this needs is the resume context the
+ * contest already wrote to `plan.json` (`src/plan/contest.mjs`).
+ *
+ * @param {{resolve?: string, answer?: string[], json?: boolean}} values
+ * @returns {Promise<void>}
+ */
+async function resolvePlanCli(values) {
+  const plansDir = resolve(/** @type {string} */ (values.resolve));
+  const rawAnswers = values.answer ?? [];
+  if (rawAnswers.length === 0) throw new Error("--resolve requires at least one --answer <finding-id>=accept or --answer <finding-id>=reject:<reason>");
+  const answers = parseAnswerFlags(rawAnswers);
+  const result = await resolvePlanningPipeline({ plansDir, cwd: process.cwd(), answers });
+  if (values.json === true) {
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+    return;
+  }
+  if (result.status === "contested") {
+    renderContested(undefined, undefined, result);
+    return;
+  }
+  for (const warning of result.warnings) process.stdout.write(`${statusToken("warn", colorLevel(process.env, process.stdout.isTTY))} ${warning}\n`);
+  process.stdout.write(`[plan] resolved · frozen · approved ${result.approved} · ${result.contractPath}\n`);
+}
+
+/**
+ * A contested result's console rendering: the summary line, then every
+ * critical finding with its id, the node or requirement it concerns, and
+ * what would resolve it (R9's own words for what the output must list), and
+ * the exact command to answer it.
+ *
+ * @param {string|undefined} campaignId
+ * @param {string|undefined} phase
+ * @param {import("../plan/contest.mjs").ContestedPipelineResult} result
+ * @returns {void}
+ */
+function renderContested(campaignId, phase, result) {
+  const criticalFindings = result.findings.filter((finding) => finding.severity === "critical");
+  const label = campaignId ? `${campaignId} phase ${phase} ` : "";
+  process.stdout.write(`[plan] ${label}contested after ${result.round} round(s) · ${criticalFindings.length} critical finding(s) · ${result.planPath}\n`);
+  for (const finding of criticalFindings) process.stdout.write(`  - ${finding.id} (${finding.nodeId}): ${finding.text}\n`);
+  process.stdout.write(`[plan] resolve with: faberun plan --resolve ${result.plansDir} --answer <finding-id>=accept or --answer <finding-id>=reject:<reason>\n`);
+  process.exitCode = 1;
 }
 
 /**

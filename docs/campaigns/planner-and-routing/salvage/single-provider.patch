@@ -1,0 +1,1315 @@
+diff --git a/docs/CONCEPTS.md b/docs/CONCEPTS.md
+index 305d6c1..7803a34 100644
+--- a/docs/CONCEPTS.md
++++ b/docs/CONCEPTS.md
+@@ -209,7 +209,8 @@ whatever `vendor` the contract declares, as `resolveVendor` in
+ The invariant: the vendor rule compares the derived provider, not a free-text
+ label, so a declared `vendor` that contradicts it is refused; validation
+ rejects a gate-enabled node whose worker and judge resolve to the same
+-provider, and the same for every runtime in the worker's fallback chain. See
++provider, and the same for every runtime in the worker's fallback chain,
++unless same-vendor mode (R20, below) admits the pair. See
+ [contract.md](../skills/faberun/references/contract.md).
+ 
+ ## Tier, costRank and fallback
+@@ -250,6 +251,29 @@ follows it once a list applies — and is exempt from the single-hop cap that
+ edge is otherwise bound by; an exhausted list mid-run blocks with
+ `judge_list_exhausted`. See [contract.md](../skills/faberun/references/contract.md).
+ 
++## Same-vendor review (R20)
++
++An operator with a single provider opts in, explicitly, with
++`judgeIndependence: "same-vendor"` on the contract or the machine config
++(the contract's own value wins, as with `judges`); without it, a gate-enabled
++node whose worker and judge share a vendor stays refused exactly as the
++invariant above states. In the mode, the judge may be a runtime of the
++worker's own vendor, but only a model whose declared tier
++(`src/harnesses/catalogue.mjs`'s `ANTHROPIC_MODEL_TIERS`: Sonnet 2, Opus and
++`claude-opus-5-5` 3, Fable 4) is at or above the worker's; a lower tier is
++refused naming both, and a model absent from the table cannot judge in the
++mode at all (`contract/judge-independence.mjs`'s `sameVendorTierRefusal`).
++`validateContract` is the sole place this is decided, once, at contract
++validation: a node it admits is marked `sameProviderReview` on the
++`ValidatedNode`, and the mark is read back — never recomputed — by every
++human-facing surface: the Campaign Brief's work graph, the run report and
++`status --json`, and campaign metrics' `sameProviderReviewNodeCount`. The
++judge-canary matrix (`evals/judge-canary-matrix.mjs`) reads the scenario apart
++too: each judge's `sameFamily` score is its recall and false-alarm rate on the
++cases its own vendor's family authored, pooled from `byAuthorFamily` rather
++than from a second provider call. See
++[contract.md](../skills/faberun/references/contract.md).
++
+ ## Concurrency per runtime
+ 
+ `maxParallel` bounds the run; a runtime's `maxConcurrent` bounds that runtime
+diff --git a/docs/FIELD-OWNERSHIP.md b/docs/FIELD-OWNERSHIP.md
+index 9010b35..f169962 100644
+--- a/docs/FIELD-OWNERSHIP.md
++++ b/docs/FIELD-OWNERSHIP.md
+@@ -203,6 +203,23 @@ and `runMutation` (`src/engine/mutation.mjs`) only reads the declared tier,
+ resolving the kill fraction from `MUTATION_TIERS` — a reader, not a second
+ writer. One writer (the packet's authoring), one moment.
+ 
++## Same-provider review, marked once
++
++`sameProviderReview` (R20) is a fact `validateContract` decides once, at
++contract validation, for a node whose worker and judge share a vendor under
++`judgeIndependence: "same-vendor"`: it lands on the `ValidatedNode` there and
++nowhere else writes it. Two readers stamp it onward rather than recomputing
++it: `engine/dispatch.mjs`'s `startJudge` copies the contract's own value onto
++the node snapshot's `sameProviderReview` (`contract/snapshot.mjs`) at the same
++moment it stamps `review`, and the campaign ledger's `readMetricNodeSnapshots`
++(`src/campaign/metrics-command.mjs`) carries that snapshot field into
++`.nodes.json` unchanged. Every renderer — the Campaign Brief's work graph
++(`src/campaign/campaign-brief-graph.mjs`), the run report and status
++(`src/report/render.mjs`), and campaign metrics
++(`src/report/metrics-report.mjs`) — reads one of these two already-decided
++copies; none of them re-derives the vendor-and-tier rule
++(`contract/judge-independence.mjs`) itself.
++
+ ## The ratchet, measured
+ 
+ Measured 2026-09-16: **15 entries have more than one writer.** They are a
+diff --git a/evals/README.md b/evals/README.md
+index 1abf942..24d9a5a 100644
+--- a/evals/README.md
++++ b/evals/README.md
+@@ -169,7 +169,11 @@ gate whose `failOn` includes `minor` and for one that stops at `major`, and its
+ estimate.
+ The vendor rule (`src/contract/index.mjs`) forbids a judge of the worker's own
+ vendor, so a family's cells are blank where the rule blocks it and a family
+-with no allowed judge says so. The best allowed judge is the highest recall;
++with no allowed judge says so — same-vendor mode's own scenario (R20), read
++apart below the table rather than folded into a blank cell: each judge's
++`sameFamily` reading is its `byAuthorFamily` entry for its own vendor, recall
++and false-alarm rate on the cases that vendor's family authored, and never a
++second provider call. The best allowed judge is the highest recall;
+ inside 0.05 of it the lowest cost per case wins, then the lower false-alarm
+ rate, then the id. It refuses (exit 2, naming the file) a result that is not
+ class `judge-canary`, has no `provenance.corpusHash`, or was scored on a
+diff --git a/evals/judge-canary-matrix.mjs b/evals/judge-canary-matrix.mjs
+index 54771fa..4fcd385 100644
+--- a/evals/judge-canary-matrix.mjs
++++ b/evals/judge-canary-matrix.mjs
+@@ -76,6 +76,7 @@ const BLOCKING_SETS = { "minor-and-above": ["minor", "major", "critical"], "majo
+  *   resultFiles: string[],
+  *   repetitions: number,
+  *   byAuthorFamily: Record<string, FamilyScore>,
++ *   sameFamily: FamilyScore|null,
+  * }} JudgeRow
+  * @typedef {object} AllowedJudge
+  * @property {string} id
+@@ -307,14 +308,23 @@ function poolJudges(files) {
+   }
+   return [...byJudge.values()]
+     .sort((left, right) => left.id.localeCompare(right.id))
+-    .map((entry) => ({
+-      id: entry.id,
+-      vendor: entry.vendor,
+-      resultFiles: entry.resultFiles,
+-      repetitions: entry.repetitions,
+-      ...poolOutcomes(entry.outcomes),
+-      byAuthorFamily: poolByAuthorFamily(entry.outcomes),
+-    }));
++    .map((entry) => {
++      const byAuthorFamily = poolByAuthorFamily(entry.outcomes);
++      return {
++        id: entry.id,
++        vendor: entry.vendor,
++        resultFiles: entry.resultFiles,
++        repetitions: entry.repetitions,
++        ...poolOutcomes(entry.outcomes),
++        byAuthorFamily,
++        // R20: same-vendor review's own canary reading. `byAuthorFamily`
++        // already pools every author family's cases against this judge; a
++        // same-family judge (the mode's whole scenario) is this one lookup by
++        // the judge's own vendor, read apart from the cross-vendor family
++        // rows below rather than folded into them. No provider is called.
++        sameFamily: byAuthorFamily[entry.vendor] ?? null,
++      };
++    });
+ }
+ 
+ /** @param {number|null} value @returns {number} */
+@@ -435,6 +445,14 @@ export function renderJudgeMatrix(matrix) {
+     const label = row.note === null ? row.family : `${row.family} (${row.note})`;
+     lines.push(`| ${label} | ${cells.join(" | ")} |`);
+   }
++  lines.push("", "same-family review (R20): recall / false-alarm rate / cost per case, cases authored by the judge's own vendor");
++  for (const judge of matrix.judges) {
++    const same = judge.sameFamily;
++    const reading = same === null || same.cases === 0
++      ? "no same-family cases"
++      : `${formatRate(same.recall)} / ${formatRate(same.falseAlarmRate)} / ${formatCost(same.costPerCaseUsd)} (${same.cases} cases)`;
++    lines.push(`- ${judge.id} (${judge.vendor}): ${reading}`);
++  }
+   return lines.join("\n");
+ }
+ 
+diff --git a/src/campaign/campaign-brief-graph.mjs b/src/campaign/campaign-brief-graph.mjs
+new file mode 100644
+index 0000000..a966a74
+--- /dev/null
++++ b/src/campaign/campaign-brief-graph.mjs
+@@ -0,0 +1,218 @@
++/**
++ * The Campaign Brief's work graph: dependency edges, per-node worker/judge
++ * runtimes, per-runtime concurrency caps and the schedule they allow. Split
++ * out of `campaign-brief.mjs` (R20), already at this repository's 800-line
++ * ceiling, so the same-provider review marking (R20) had a file with room to
++ * land in.
++ *
++ * The frozen contract this reads has already passed `validateContract`, which
++ * is the one place that enforces same-vendor mode's tier rule
++ * (`contract/judge-independence.mjs`); a node this module marks
++ * `sameProviderReview` could only exist here because that check already
++ * passed, so the mark is a plain vendor-and-opt-in comparison, not a second
++ * enforcement of the rule.
++ */
++import { asArray } from "./brief-text.mjs";
++import { sharesVendorThroughFallback } from "../contract/judge-independence.mjs";
++
++/** @typedef {Record<string, any>} AnyRecord */
++/** @typedef {{id: string, runtimeId: string|null, model: string|null, judgeRuntimeId?: string|null, sameProviderReview?: boolean, dependsOn: string[], requirementIds: string[]}} BriefGraphNode */
++/** @typedef {{from: string, to: string}} BriefGraphEdge */
++/** @typedef {{node: string, prerequisites: string[]}} BriefBlockingNode */
++/** @typedef {{nodes: BriefGraphNode[], edges: BriefGraphEdge[], independent: string[], blocking: BriefBlockingNode[], maxParallel: number, maxConcurrent: Record<string, number>, effectiveConcurrency: number, dispatchableTogether: string[], dispatchNote: string, gaps: string[]}} BriefGraph */
++
++/**
++ * @param {AnyRecord} contract
++ * @param {AnyRecord[]} nodes
++ * @returns {BriefGraph}
++ */
++export function buildGraph(contract, nodes) {
++  const runtimes = contract.runtimes && typeof contract.runtimes === "object" && !Array.isArray(contract.runtimes)
++    ? /** @type {Record<string, AnyRecord>} */ (contract.runtimes)
++    : {};
++  const ids = new Set(nodes.map((node) => String(node.id ?? "")));
++  /** @type {string[]} */
++  const gaps = [];
++  /** @type {BriefGraphEdge[]} */
++  const edges = [];
++  /** @type {BriefGraphNode[]} */
++  const graphNodes = nodes.map((node) => {
++    const id = String(node.id ?? "");
++    const dependsOn = asArray(node.dependsOn).map(String);
++    for (const dependency of dependsOn) {
++      if (dependency === id) {
++        gaps.push(`node ${id} depends on itself`);
++      } else if (!ids.has(dependency)) {
++        gaps.push(`node ${id} depends on unknown node ${dependency}`);
++      } else {
++        edges.push({ from: dependency, to: id });
++      }
++    }
++    const runtimeId = typeof node.runtime === "string"
++      ? node.runtime
++      : typeof contract.runtimeDefaults?.worker === "string" ? contract.runtimeDefaults.worker : null;
++    const runtime = runtimeId !== null && typeof runtimes[runtimeId] === "object" ? runtimes[runtimeId] : null;
++    return {
++      id,
++      runtimeId,
++      model: runtime && typeof runtime.model === "string" ? runtime.model : null,
++      judgeRuntimeId: judgeRuntimeIdOf(contract, node),
++      sameProviderReview: sameProviderReviewOf(contract, runtimes, runtimeId, node),
++      dependsOn,
++      requirementIds: asArray(node.requirementIds).map(String),
++    };
++  });
++  const independent = graphNodes.filter((node) => node.dependsOn.length === 0).map((node) => node.id);
++  const blocking = graphNodes.filter((node) => node.dependsOn.length > 0).map((node) => ({ node: node.id, prerequisites: node.dependsOn }));
++  /** @type {Record<string, number>} */
++  const maxConcurrent = {};
++  for (const node of graphNodes) {
++    if (node.runtimeId === null) continue;
++    const runtime = runtimes[node.runtimeId];
++    const limit = runtime && Number.isInteger(runtime.maxConcurrent) && runtime.maxConcurrent > 0 ? runtime.maxConcurrent : 1;
++    maxConcurrent[node.runtimeId] = maxConcurrent[node.runtimeId] === undefined ? limit : Math.min(maxConcurrent[node.runtimeId], limit);
++  }
++  const maxParallel = Number.isInteger(contract.maxParallel) && contract.maxParallel > 0 ? contract.maxParallel : 1;
++  // Effective concurrency, and the workers that can actually be in flight
++  // together, are properties of the graph and the capacities -- not the size of
++  // the dependency-independent set. Two independent nodes still cannot run
++  // together when maxParallel is 1 or their shared runtime is at its cap.
++  const schedule = scheduleUnderCapacity(
++    graphNodes.map((node) => ({ id: node.id, runtimeId: node.runtimeId, dependsOn: node.dependsOn })),
++    () => 1,
++    maxParallel,
++    maxConcurrent,
++  );
++  const effectiveConcurrency = Math.max(1, schedule.peakConcurrency);
++  const dispatchableTogether = schedule.peakNodeIds;
++  return {
++    nodes: graphNodes,
++    edges,
++    independent,
++    blocking,
++    maxParallel,
++    maxConcurrent,
++    effectiveConcurrency,
++    dispatchableTogether,
++    dispatchNote: dispatchNoteFor(dispatchableTogether, graphNodes.length, maxParallel),
++    gaps,
++  };
++}
++
++/**
++ * @param {AnyRecord} contract
++ * @param {AnyRecord} node
++ * @returns {string|null}
++ */
++function judgeRuntimeIdOf(contract, node) {
++  const gate = node.gate;
++  const gateEnabled = gate !== false && gate !== undefined && (gate.enabled === undefined || gate.enabled === true);
++  if (!gateEnabled) return null;
++  if (typeof gate.runtime === "string") return gate.runtime;
++  return typeof contract.runtimeDefaults?.judge === "string" ? contract.runtimeDefaults.judge : null;
++}
++
++/**
++ * Whether the frozen contract already marked this node's pairing admitted
++ * under same-vendor mode (R20): the worker's declared runtime, or its one-hop
++ * fallback, shares a vendor with the judge, and only `judgeIndependence:
++ * "same-vendor"` on the contract admits that -- `validateContract` refuses
++ * every other same-vendor pairing (primary or fallback) before it can reach a
++ * frozen `contract.json`. The fallback is included because it is a real way
++ * this node lands a same-provider review, not only the primary pairing: a
++ * plan-time surface has no run to read, so it reports every reachable
++ * pairing rather than only the one dispatch happens to pick.
++ *
++ * @param {AnyRecord} contract
++ * @param {Record<string, AnyRecord>} runtimes
++ * @param {string|null} workerRuntimeId
++ * @param {AnyRecord} node
++ * @returns {boolean}
++ */
++function sameProviderReviewOf(contract, runtimes, workerRuntimeId, node) {
++  if (contract.judgeIndependence !== "same-vendor") return false;
++  const judgeRuntimeId = judgeRuntimeIdOf(contract, node);
++  if (workerRuntimeId === null || judgeRuntimeId === null) return false;
++  const judgeVendor = runtimes[judgeRuntimeId]?.vendor;
++  return sharesVendorThroughFallback(runtimes, workerRuntimeId, judgeVendor);
++}
++
++/**
++ * Why capacity does or does not let two workers run at the same time. The note
++ * is the model's honest reading of the limits, so a renderer never has to
++ * decide whether an independent pair is "simultaneously dispatchable": with
++ * `maxParallel` 1 the answer is always no.
++ *
++ * @param {string[]} dispatchableTogether
++ * @param {number} nodeCount
++ * @param {number} maxParallel
++ * @returns {string}
++ */
++function dispatchNoteFor(dispatchableTogether, nodeCount, maxParallel) {
++  if (dispatchableTogether.length >= 2) {
++    return `up to ${dispatchableTogether.length} workers run together under maxParallel ${maxParallel} and the per-runtime maxConcurrent caps`;
++  }
++  if (nodeCount < 2) return "fewer than two nodes are planned";
++  if (maxParallel <= 1) return "maxParallel is 1, so dependency-independent nodes are not simultaneously dispatchable";
++  return "each assigned runtime's maxConcurrent admits only one worker at a time";
++}
++
++/**
++ * Schedule a dependency graph under a global `maxParallel` ceiling and each
++ * runtime's own `maxConcurrent` ceiling, reporting the wall-clock makespan and
++ * the peak number of nodes running at once. `durationOf` supplies each node's
++ * duration, so scheduling the graph with lower and upper per-node durations
++ * turns a per-node range into a plan-level elapsed range. The peak is a
++ * property of the graph and the capacities, not of the dependency-independent
++ * set.
++ *
++ * @param {{id: string, runtimeId: string|null, dependsOn: string[]}[]} nodes
++ * @param {(node: {id: string}) => number} durationOf
++ * @param {number} maxParallel
++ * @param {Record<string, number>} maxConcurrent
++ * @returns {{makespanMs: number, peakConcurrency: number, peakNodeIds: string[]}}
++ */
++export function scheduleUnderCapacity(nodes, durationOf, maxParallel, maxConcurrent) {
++  const byId = new Map(nodes.map((node) => [node.id, node]));
++  const remaining = new Map();
++  const dependents = new Map();
++  for (const node of nodes) {
++    const dependencies = node.dependsOn.filter((id) => byId.has(id));
++    remaining.set(node.id, dependencies.length);
++    for (const dependency of dependencies) dependents.set(dependency, [...(dependents.get(dependency) ?? []), node.id]);
++  }
++  const running = new Map();
++  const runtimeRunning = new Map();
++  const done = new Set();
++  const limit = Number.isInteger(maxParallel) && maxParallel > 0 ? maxParallel : 1;
++  let time = 0;
++  let peak = 0;
++  /** @type {string[]} */
++  let peakNodeIds = [];
++  while (done.size < nodes.length) {
++    for (const node of nodes) {
++      if (done.has(node.id) || running.has(node.id) || (remaining.get(node.id) ?? 0) > 0) continue;
++      if (running.size >= limit) break;
++      const runtimeKey = node.runtimeId ?? "";
++      const width = node.runtimeId !== null && Number.isInteger(maxConcurrent[node.runtimeId]) && maxConcurrent[node.runtimeId] > 0 ? maxConcurrent[node.runtimeId] : 1;
++      if ((runtimeRunning.get(runtimeKey) ?? 0) >= width) continue;
++      const duration = durationOf(node);
++      running.set(node.id, time + (Number.isFinite(duration) ? Math.max(0, duration) : 0));
++      runtimeRunning.set(runtimeKey, (runtimeRunning.get(runtimeKey) ?? 0) + 1);
++      if (running.size > peak) {
++        peak = running.size;
++        peakNodeIds = [...running.keys()];
++      }
++    }
++    if (running.size === 0) break; // a cycle or nothing dispatchable
++    time = Math.min(...running.values());
++    for (const [id, finish] of [...running]) {
++      if (finish !== time) continue;
++      running.delete(id);
++      runtimeRunning.set(byId.get(id)?.runtimeId ?? "", Math.max(0, (runtimeRunning.get(byId.get(id)?.runtimeId ?? "") ?? 1) - 1));
++      done.add(id);
++      for (const dependent of dependents.get(id) ?? []) remaining.set(dependent, Math.max(0, (remaining.get(dependent) ?? 1) - 1));
++    }
++  }
++  return { makespanMs: time, peakConcurrency: peak, peakNodeIds };
++}
+diff --git a/src/campaign/campaign-brief.mjs b/src/campaign/campaign-brief.mjs
+index d1ab233..f31ec91 100644
+--- a/src/campaign/campaign-brief.mjs
++++ b/src/campaign/campaign-brief.mjs
+@@ -26,6 +26,7 @@ import { contentDigest, fileDigest } from "../plan/freeze.mjs";
+ import { parseSpec } from "../plan/spec.mjs";
+ import { errorCode } from "../util.mjs";
+ import { asArray, bulletLines, firstSentence, riskRows, successCriteriaRows, unique } from "./brief-text.mjs";
++import { buildGraph } from "./campaign-brief-graph.mjs";
+ import { projectCampaignDecisions } from "./projection.mjs";
+ 
+ /** @typedef {import("../plan/spec.mjs").ParsedSpec} ParsedSpec */
+@@ -41,10 +42,7 @@ import { projectCampaignDecisions } from "./projection.mjs";
+ /** @typedef {{id: string, proof: string}} BriefProofNode */
+ /** @typedef {{requirementId: string, title: string, declaredNodeIds: string[], nodes: BriefProofNode[], state: CoverageState, reasons: string[]}} BriefCoverageRow */
+ /** @typedef {{rows: BriefCoverageRow[], unknownIds: string[], unknownDeclared: string[], unknownStamped: string[], gaps: string[], specPath: string, planPath: string, covered: number, uncovered: number, outside: number, traceabilityMissing: number, total: number}} BriefCoverage */
+-/** @typedef {{id: string, runtimeId: string|null, model: string|null, dependsOn: string[], requirementIds: string[]}} BriefGraphNode */
+-/** @typedef {{from: string, to: string}} BriefGraphEdge */
+-/** @typedef {{node: string, prerequisites: string[]}} BriefBlockingNode */
+-/** @typedef {{nodes: BriefGraphNode[], edges: BriefGraphEdge[], independent: string[], blocking: BriefBlockingNode[], maxParallel: number, maxConcurrent: Record<string, number>, effectiveConcurrency: number, dispatchableTogether: string[], dispatchNote: string, gaps: string[]}} BriefGraph */
++/** @typedef {import("./campaign-brief-graph.mjs").BriefGraph} BriefGraph */
+ /** @typedef {{status: "range"|"insufficient data", min: number|null, max: number|null, samples: number|null, reason: string|null, sourceRuns: string[], method: string|null, provenance: string|null}} BriefMeasure */
+ /** @typedef {{status?: "range"|"insufficient data", min?: number|null, max?: number|null, samples?: number|null, reason?: string|null, sourceRuns?: string[], method?: string|null, provenance?: string|null}} BriefMeasureInput */
+ /** @typedef {{cost?: BriefMeasureInput, duration?: BriefMeasureInput, runtimes?: string[], models?: string[], effectiveConcurrency?: number, nodeCount?: number, workerCount?: number, sampleCutoff?: string|null, method?: string[], assumptions?: string[]}} BriefEstimateInput */
+@@ -391,166 +389,6 @@ function buildCoverage(parsedSpec, declarations, nodes, specPath, planPath) {
+   };
+ }
+ 
+-/**
+- * The actual `dependsOn` graph plus the contract's capacity limits. The
+- * dependency-independent set is distinct from the workers capacity actually
+- * lets dispatch together.
+- *
+- * @param {AnyRecord} contract
+- * @param {AnyRecord[]} nodes
+- * @returns {BriefGraph}
+- */
+-function buildGraph(contract, nodes) {
+-  const runtimes = contract.runtimes && typeof contract.runtimes === "object" && !Array.isArray(contract.runtimes)
+-    ? /** @type {Record<string, AnyRecord>} */ (contract.runtimes)
+-    : {};
+-  const ids = new Set(nodes.map((node) => String(node.id ?? "")));
+-  /** @type {string[]} */
+-  const gaps = [];
+-  /** @type {BriefGraphEdge[]} */
+-  const edges = [];
+-  /** @type {BriefGraphNode[]} */
+-  const graphNodes = nodes.map((node) => {
+-    const id = String(node.id ?? "");
+-    const dependsOn = asArray(node.dependsOn).map(String);
+-    for (const dependency of dependsOn) {
+-      if (dependency === id) {
+-        gaps.push(`node ${id} depends on itself`);
+-      } else if (!ids.has(dependency)) {
+-        gaps.push(`node ${id} depends on unknown node ${dependency}`);
+-      } else {
+-        edges.push({ from: dependency, to: id });
+-      }
+-    }
+-    const runtimeId = typeof node.runtime === "string"
+-      ? node.runtime
+-      : typeof contract.runtimeDefaults?.worker === "string" ? contract.runtimeDefaults.worker : null;
+-    const runtime = runtimeId !== null && typeof runtimes[runtimeId] === "object" ? runtimes[runtimeId] : null;
+-    return {
+-      id,
+-      runtimeId,
+-      model: runtime && typeof runtime.model === "string" ? runtime.model : null,
+-      dependsOn,
+-      requirementIds: asArray(node.requirementIds).map(String),
+-    };
+-  });
+-  const independent = graphNodes.filter((node) => node.dependsOn.length === 0).map((node) => node.id);
+-  const blocking = graphNodes.filter((node) => node.dependsOn.length > 0).map((node) => ({ node: node.id, prerequisites: node.dependsOn }));
+-  /** @type {Record<string, number>} */
+-  const maxConcurrent = {};
+-  for (const node of graphNodes) {
+-    if (node.runtimeId === null) continue;
+-    const runtime = runtimes[node.runtimeId];
+-    const limit = runtime && Number.isInteger(runtime.maxConcurrent) && runtime.maxConcurrent > 0 ? runtime.maxConcurrent : 1;
+-    maxConcurrent[node.runtimeId] = maxConcurrent[node.runtimeId] === undefined ? limit : Math.min(maxConcurrent[node.runtimeId], limit);
+-  }
+-  const maxParallel = Number.isInteger(contract.maxParallel) && contract.maxParallel > 0 ? contract.maxParallel : 1;
+-  // Effective concurrency, and the workers that can actually be in flight
+-  // together, are properties of the graph and the capacities -- not the size of
+-  // the dependency-independent set. Two independent nodes still cannot run
+-  // together when maxParallel is 1 or their shared runtime is at its cap.
+-  const schedule = scheduleUnderCapacity(
+-    graphNodes.map((node) => ({ id: node.id, runtimeId: node.runtimeId, dependsOn: node.dependsOn })),
+-    () => 1,
+-    maxParallel,
+-    maxConcurrent,
+-  );
+-  const effectiveConcurrency = Math.max(1, schedule.peakConcurrency);
+-  const dispatchableTogether = schedule.peakNodeIds;
+-  return {
+-    nodes: graphNodes,
+-    edges,
+-    independent,
+-    blocking,
+-    maxParallel,
+-    maxConcurrent,
+-    effectiveConcurrency,
+-    dispatchableTogether,
+-    dispatchNote: dispatchNoteFor(dispatchableTogether, graphNodes.length, maxParallel),
+-    gaps,
+-  };
+-}
+-
+-/**
+- * Why capacity does or does not let two workers run at the same time. The note
+- * is the model's honest reading of the limits, so a renderer never has to
+- * decide whether an independent pair is "simultaneously dispatchable": with
+- * `maxParallel` 1 the answer is always no.
+- *
+- * @param {string[]} dispatchableTogether
+- * @param {number} nodeCount
+- * @param {number} maxParallel
+- * @returns {string}
+- */
+-function dispatchNoteFor(dispatchableTogether, nodeCount, maxParallel) {
+-  if (dispatchableTogether.length >= 2) {
+-    return `up to ${dispatchableTogether.length} workers run together under maxParallel ${maxParallel} and the per-runtime maxConcurrent caps`;
+-  }
+-  if (nodeCount < 2) return "fewer than two nodes are planned";
+-  if (maxParallel <= 1) return "maxParallel is 1, so dependency-independent nodes are not simultaneously dispatchable";
+-  return "each assigned runtime's maxConcurrent admits only one worker at a time";
+-}
+-
+-/**
+- * Schedule a dependency graph under a global `maxParallel` ceiling and each
+- * runtime's own `maxConcurrent` ceiling, reporting the wall-clock makespan and
+- * the peak number of nodes running at once. `durationOf` supplies each node's
+- * duration, so scheduling the graph with lower and upper per-node durations
+- * turns a per-node range into a plan-level elapsed range. The peak is a
+- * property of the graph and the capacities, not of the dependency-independent
+- * set.
+- *
+- * @param {{id: string, runtimeId: string|null, dependsOn: string[]}[]} nodes
+- * @param {(node: {id: string}) => number} durationOf
+- * @param {number} maxParallel
+- * @param {Record<string, number>} maxConcurrent
+- * @returns {{makespanMs: number, peakConcurrency: number, peakNodeIds: string[]}}
+- */
+-export function scheduleUnderCapacity(nodes, durationOf, maxParallel, maxConcurrent) {
+-  const byId = new Map(nodes.map((node) => [node.id, node]));
+-  const remaining = new Map();
+-  const dependents = new Map();
+-  for (const node of nodes) {
+-    const dependencies = node.dependsOn.filter((id) => byId.has(id));
+-    remaining.set(node.id, dependencies.length);
+-    for (const dependency of dependencies) dependents.set(dependency, [...(dependents.get(dependency) ?? []), node.id]);
+-  }
+-  const running = new Map();
+-  const runtimeRunning = new Map();
+-  const done = new Set();
+-  const limit = Number.isInteger(maxParallel) && maxParallel > 0 ? maxParallel : 1;
+-  let time = 0;
+-  let peak = 0;
+-  /** @type {string[]} */
+-  let peakNodeIds = [];
+-  while (done.size < nodes.length) {
+-    for (const node of nodes) {
+-      if (done.has(node.id) || running.has(node.id) || (remaining.get(node.id) ?? 0) > 0) continue;
+-      if (running.size >= limit) break;
+-      const runtimeKey = node.runtimeId ?? "";
+-      const width = node.runtimeId !== null && Number.isInteger(maxConcurrent[node.runtimeId]) && maxConcurrent[node.runtimeId] > 0 ? maxConcurrent[node.runtimeId] : 1;
+-      if ((runtimeRunning.get(runtimeKey) ?? 0) >= width) continue;
+-      const duration = durationOf(node);
+-      running.set(node.id, time + (Number.isFinite(duration) ? Math.max(0, duration) : 0));
+-      runtimeRunning.set(runtimeKey, (runtimeRunning.get(runtimeKey) ?? 0) + 1);
+-      if (running.size > peak) {
+-        peak = running.size;
+-        peakNodeIds = [...running.keys()];
+-      }
+-    }
+-    if (running.size === 0) break; // a cycle or nothing dispatchable
+-    time = Math.min(...running.values());
+-    for (const [id, finish] of [...running]) {
+-      if (finish !== time) continue;
+-      running.delete(id);
+-      runtimeRunning.set(byId.get(id)?.runtimeId ?? "", Math.max(0, (runtimeRunning.get(byId.get(id)?.runtimeId ?? "") ?? 1) - 1));
+-      done.add(id);
+-      for (const dependent of dependents.get(id) ?? []) remaining.set(dependent, Math.max(0, (remaining.get(dependent) ?? 1) - 1));
+-    }
+-  }
+-  return { makespanMs: time, peakConcurrency: peak, peakNodeIds };
+-}
+-
+ /**
+  * Human decisions and delegated decisions from the explicit spec sections and
+  * the active campaign journal projection; risks and planned evals only from
+diff --git a/src/campaign/metrics-command.mjs b/src/campaign/metrics-command.mjs
+index ddd4796..6d21cbf 100644
+--- a/src/campaign/metrics-command.mjs
++++ b/src/campaign/metrics-command.mjs
+@@ -15,7 +15,7 @@ import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
+ import { runsRoot } from "../run/paths.mjs";
+ 
+ /** @typedef {Record<string, unknown>} JsonObject */
+-/** @typedef {{runId: string, id: string, status: string, attempt?: number|null, revisions?: number|null, review?: string|null}} RunNode */
++/** @typedef {{runId: string, id: string, status: string, attempt?: number|null, revisions?: number|null, review?: string|null, sameProviderReview?: boolean|null}} RunNode */
+ 
+ /** Flags of `faberun metrics`, declared here so the router only names them. */
+ /** @type {import("node:util").ParseArgsOptionsConfig} */
+@@ -153,6 +153,7 @@ function readLedgerNodeSnapshots(path) {
+         attempt: typeof object.attempt === "number" ? object.attempt : null,
+         revisions: typeof object.revisions === "number" ? object.revisions : null,
+         review: typeof object.review === "string" ? object.review : null,
++        sameProviderReview: typeof object.sameProviderReview === "boolean" ? object.sameProviderReview : null,
+       }];
+     });
+   } catch {
+@@ -187,6 +188,7 @@ export function readMetricNodeSnapshots(runDir) {
+       attempt: typeof record.attempt === "number" ? record.attempt : null,
+       revisions: typeof record.revisions === "number" ? record.revisions : null,
+       review: typeof record.review === "string" ? record.review : null,
++      sameProviderReview: typeof record.sameProviderReview === "boolean" ? record.sameProviderReview : null,
+     });
+   }
+   return nodes;
+diff --git a/src/contract/index.mjs b/src/contract/index.mjs
+index 15895d0..9b44f42 100644
+--- a/src/contract/index.mjs
++++ b/src/contract/index.mjs
+@@ -15,6 +15,7 @@ import { assertObject, boundedString, nonNegativeInteger, nonNegativeNumber, pos
+ import { validateMetadata } from "./schema-version.mjs";
+ import { assertRuntimeExecutesCommands, judgeWriteWarnings, requireRuntime, validateRuntime } from "./runtime.mjs";
+ import { validateJudgeList } from "./judges.mjs";
++import { SAME_VENDOR_REVIEW_MODE, sameVendorTierRefusal, validateJudgeIndependence } from "./judge-independence.mjs";
+ import { validateSourceIdentity } from "../repo/source-identity.mjs";
+ import { commandCoverageWarnings, ignoreSourceWriteWarnings, mirrorCoverageWarnings, unsnapshottedWriteWarnings } from "../repo/declared-paths.mjs";
+ import { crossNodeScopeFindings, scopeClosureFindings } from "../repo/scope-closure.mjs";
+@@ -35,12 +36,13 @@ const CONTRACT_FIELDS = new Set([
+   "schemaVersion", "contractVersion", "id", "campaignId", "goal", "cwd", "sourceIdentity",
+   "maxParallel", "pollIntervalMs", "stallTimeoutSec", "timeoutSec", "maxTurns", "phaseSessionReuse",
+   "runtimeDefaults", "runtimes", "nodes", "warnings", "finalVerification", "sharedVerification", "nodeAdvisory", "judges",
++  "judgeIndependence",
+ ]);
+ const DEFAULTS_FIELDS = new Set(["worker", "judge"]);
+ const NODE_FIELDS = new Set([
+   "id", "type", "phase", "requirementIds", "runtime", "dependsOn", "taskPacket", "taskPacketFile", "prompt", "promptFile",
+   "definitionOfDone", "gate", "timeoutSec", "maxTurns",
+-  "requiredCapabilities", "packetHash", "sourceIdentity", "replayPolicy",
++  "requiredCapabilities", "packetHash", "sourceIdentity", "replayPolicy", "sameProviderReview",
+ ]);
+ const REPLAY_POLICIES = new Set(["safe", "reconcile", "never"]);
+ /**
+@@ -69,9 +71,9 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
+ 
+ /** @typedef {{enabled: boolean, review?: ("none"|"advisory"|"blocking"), runtime?: string, failOn?: ("minor"|"major"|"critical")[], maxRevisions?: number, requiredCapabilities?: CapabilityRequirements, skipWhen?: {verificationGreen: true, maxChangedPaths: number}}} ValidatedGate */
+ 
+-/** @typedef {{id: string, type: string, phase: string, requirementIds?: string[], runtime?: string, dependsOn: string[], taskPacket: TaskPacket, taskPacketFile?: string, prompt: string, definitionOfDone: import("./definition-of-done.mjs").DefinitionOfDoneItem[], gate: ValidatedGate, timeoutSec?: number, maxTurns?: number, requiredCapabilities: CapabilityRequirements, packetHash: string, sourceIdentity: SourceIdentity, replayPolicy: "safe"|"reconcile"|"never"}} ValidatedNode */
++/** @typedef {{id: string, type: string, phase: string, requirementIds?: string[], runtime?: string, dependsOn: string[], taskPacket: TaskPacket, taskPacketFile?: string, prompt: string, definitionOfDone: import("./definition-of-done.mjs").DefinitionOfDoneItem[], gate: ValidatedGate, timeoutSec?: number, maxTurns?: number, requiredCapabilities: CapabilityRequirements, packetHash: string, sourceIdentity: SourceIdentity, replayPolicy: "safe"|"reconcile"|"never", sameProviderReview: boolean}} ValidatedNode */
+ 
+-/** @typedef {{schemaVersion: number, contractVersion: string, id: string, campaignId: string, goal: string, cwd: string, sourceIdentity: SourceIdentity, runtimes: Record<string, ValidatedRuntime>, runtimeDefaults: {worker?: string, judge?: string}, judges?: string[], nodes: ValidatedNode[], maxParallel: number, pollIntervalMs: number, stallTimeoutSec: number, timeoutSec: number, maxTurns: number, phaseSessionReuse: boolean, finalVerification?: VerificationCommand[], sharedVerification?: VerificationCommand[], nodeAdvisory?: NodeAdvisoryPolicy, warnings: string[]}} ValidatedContract */
++/** @typedef {{schemaVersion: number, contractVersion: string, id: string, campaignId: string, goal: string, cwd: string, sourceIdentity: SourceIdentity, runtimes: Record<string, ValidatedRuntime>, runtimeDefaults: {worker?: string, judge?: string}, judges?: string[], judgeIndependence?: "same-vendor", nodes: ValidatedNode[], maxParallel: number, pollIntervalMs: number, stallTimeoutSec: number, timeoutSec: number, maxTurns: number, phaseSessionReuse: boolean, finalVerification?: VerificationCommand[], sharedVerification?: VerificationCommand[], nodeAdvisory?: NodeAdvisoryPolicy, warnings: string[]}} ValidatedContract */
+ /** @typedef {{costUsd?: number, durationSec?: number}} NodeAdvisoryPolicy */
+ 
+ /** @typedef {"pending"|"running"|"done"|"no-op"|"blocked"|"failed"|"exhausted"|"stalled"|"canceled"} NodeStatus */
+@@ -101,7 +103,7 @@ const GATE_REVIEWS = new Set(["none", "advisory", "blocking"]);
+ /** @typedef {{history: RoutingHistoryEntry[], currentOverride: RoutingOverride|null, assignments?: RuntimeAssignments, availability?: Record<string, RuntimeAvailability>, tierExhaustion?: TierExhaustion, tierExhaustionCycle?: number, judgeList?: JudgeListState}} RoutingState */
+ /** @typedef {{revision?: number, heartbeatCount: number, dryHeartbeatCount: number, progressSignature?: string|null, lastHeartbeatAt: string|null, lastProgressAt: string|null, nextCheckAt?: string|null}} ProgressState */
+ /** @typedef {{status: "unassigned"|"provisioning"|"ready"|"failed"|"removed", path: string|null, branch: string|null, commit: string|null, baseSha?: string|null, sealedSha?: string|null, sealError?: string|null, previousAttempt?: number|null}} WorktreeState */
+-/** @typedef {{schemaVersion: number, contractVersion: string, id: string, type: string, sourceIdentity: SourceIdentity, packetHash: string, requirementIds?: string[], status: NodeStatus, phase: NodePhase, attempt: number, revisions: number, judgeFailures?: number, review?: ("none"|"advisory"|"blocking"), runtime: RuntimeSnapshot|null, blockedBy: string[], startedAt: string|null, updatedAt: string, result: unknown, gate: GateResult|null, error: SnapshotError|null, usage?: Usage, costUsd?: number, routing?: RoutingState|null, progress?: ProgressState|null, worktree?: WorktreeState|null, integratedHead?: string|null, invocations?: Invocation[], executionOverrides?: ExecutionOverride[], verification?: VerificationState|null, scope?: BoundedScope|null, scopeFindings?: ScopeFindings|null, verificationArtifacts?: string[], previousAttempt?: string, sessionPolicy?: {forceFresh?: boolean}|null, declaredReadBytes?: number|null}} NodeSnapshot */
++/** @typedef {{schemaVersion: number, contractVersion: string, id: string, type: string, sourceIdentity: SourceIdentity, packetHash: string, requirementIds?: string[], status: NodeStatus, phase: NodePhase, attempt: number, revisions: number, judgeFailures?: number, review?: ("none"|"advisory"|"blocking"), runtime: RuntimeSnapshot|null, blockedBy: string[], startedAt: string|null, updatedAt: string, result: unknown, gate: GateResult|null, error: SnapshotError|null, usage?: Usage, costUsd?: number, routing?: RoutingState|null, progress?: ProgressState|null, worktree?: WorktreeState|null, integratedHead?: string|null, invocations?: Invocation[], executionOverrides?: ExecutionOverride[], verification?: VerificationState|null, scope?: BoundedScope|null, scopeFindings?: ScopeFindings|null, verificationArtifacts?: string[], previousAttempt?: string, sessionPolicy?: {forceFresh?: boolean}|null, declaredReadBytes?: number|null, sameProviderReview?: boolean}} NodeSnapshot */
+ /** @typedef {{path: string, sha: string}} ControllerIdentity */
+ /** @typedef {{schemaVersion: number, contractVersion: string, pid: number, processStartToken: string|null, startedAt: string, sourceIdentity: SourceIdentity, controllerIdentity?: ControllerIdentity, integrationRef?: string, identityWarnings?: string[], relaunchCount?: number, lastRelaunchProgressAt?: string|null, attention?: {code: string, message: string, at: string}|null, contractDigest?: string, scopeDecision?: ScopeDecision, autoRetries?: Record<string, {code: string, at: string}>}} RunMetadata */
+ /** @typedef {{at: string, base: string|null, dirtyTreeFingerprint: string|null}} ScopeDecision */
+@@ -164,6 +166,7 @@ export function validateContract(raw, contractPath, options = {}) {
+   if (defaults.worker !== undefined) requireRuntime(runtimes, defaults.worker, "runtimeDefaults.worker");
+   if (defaults.judge !== undefined) requireRuntime(runtimes, defaults.judge, "runtimeDefaults.judge");
+   const judges = validateJudgeList(raw.judges, runtimes, "contract.judges");
++  const judgeIndependence = validateJudgeIndependence(raw.judgeIndependence, "contract.judgeIndependence");
+ 
+   if (!Array.isArray(raw.nodes) || raw.nodes.length === 0) {
+     throw new TypeError("contract.nodes must be a non-empty array");
+@@ -261,6 +264,10 @@ export function validateContract(raw, contractPath, options = {}) {
+       timeoutSec,
+       maxTurns,
+       replayPolicy,
++      // Flipped true below, once the worker/judge vendor check has run for
++      // every node: same-vendor mode (R20) is only known admissible after
++      // that pass reads the pair's declared tiers.
++      sameProviderReview: false,
+     });
+   });
+ 
+@@ -297,6 +304,10 @@ export function validateContract(raw, contractPath, options = {}) {
+   // A gated node whose worker and judge share a vendor cannot produce an
+   // independent review — the same vendor grading its own output is not a
+   // gate, so this is rejected outright rather than left to reach dispatch.
++  // R20's opt-in relaxes exactly this refusal: `judgeIndependence:
++  // "same-vendor"` admits the pair when the judge's declared tier is at or
++  // above the worker's (`sameVendorTierRefusal`), and the node is marked
++  // `sameProviderReview` for every human-facing surface to read back.
+   // The worker's declared fallback chain is checked the same way, since it is
+   // statically known which runtime a worker failover lands on; the symmetric
+   // case — the judge's own fallback landing on the worker's vendor — depends
+@@ -307,10 +318,19 @@ export function validateContract(raw, contractPath, options = {}) {
+     const workerRuntimeId = node.runtime ?? defaults.worker;
+     const judgeRuntimeId = node.gate.runtime ?? defaults.judge;
+     if (!workerRuntimeId || !judgeRuntimeId) continue;
+-    const workerVendor = runtimes[/** @type {string} */ (workerRuntimeId)].vendor;
+-    const judgeVendor = runtimes[/** @type {string} */ (judgeRuntimeId)].vendor;
++    const workerRuntime = runtimes[/** @type {string} */ (workerRuntimeId)];
++    const judgeRuntime = runtimes[/** @type {string} */ (judgeRuntimeId)];
++    const workerVendor = workerRuntime.vendor;
++    const judgeVendor = judgeRuntime.vendor;
+     if (workerVendor === judgeVendor) {
+-      throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} and judge runtime ${judgeRuntimeId} share vendor ${workerVendor}`);
++      if (judgeIndependence !== SAME_VENDOR_REVIEW_MODE) {
++        throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} and judge runtime ${judgeRuntimeId} share vendor ${workerVendor}`);
++      }
++      const refusal = sameVendorTierRefusal(workerRuntime, judgeRuntime);
++      if (refusal) {
++        throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} and judge runtime ${judgeRuntimeId} share vendor ${workerVendor}: ${refusal.message}`);
++      }
++      nodes[index] = { ...node, sameProviderReview: true };
+     }
+     const seenFallbacks = new Set([/** @type {string} */ (workerRuntimeId)]);
+     let fallbackId = runtimes[/** @type {string} */ (workerRuntimeId)].fallback;
+@@ -321,7 +341,18 @@ export function validateContract(raw, contractPath, options = {}) {
+       seenFallbacks.add(fallbackId);
+       const fallbackVendor = runtimes[fallbackId].vendor;
+       if (fallbackVendor === judgeVendor) {
+-        throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} fallback runtime ${fallbackId} and judge runtime ${judgeRuntimeId} share vendor ${fallbackVendor}`);
++        if (judgeIndependence !== SAME_VENDOR_REVIEW_MODE) {
++          throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} fallback runtime ${fallbackId} and judge runtime ${judgeRuntimeId} share vendor ${fallbackVendor}`);
++        }
++        const fallbackRefusal = sameVendorTierRefusal(runtimes[fallbackId], judgeRuntime);
++        if (fallbackRefusal) {
++          throw new TypeError(`nodes[${index}] worker runtime ${workerRuntimeId} fallback runtime ${fallbackId} and judge runtime ${judgeRuntimeId} share vendor ${fallbackVendor}: ${fallbackRefusal.message}`);
++        }
++        // The fallback is only reachable if it actually runs, but the tier
++        // rule above already admitted it -- so the node is marked here too,
++        // not only when the primary matches (the plan-time "could this land
++        // same-provider" fact every human-facing surface reads back).
++        nodes[index] = { ...nodes[index], sameProviderReview: true };
+       }
+       fallbackId = runtimes[fallbackId].fallback;
+     }
+@@ -408,6 +439,7 @@ export function validateContract(raw, contractPath, options = {}) {
+     runtimes,
+     runtimeDefaults: /** @type {{worker?: string, judge?: string}} */ (defaults),
+     judges,
++    judgeIndependence,
+     nodes,
+     maxParallel: validateMaxParallel(raw.maxParallel ?? 1),
+     pollIntervalMs: positiveInteger(raw.pollIntervalMs ?? 1_000, "contract.pollIntervalMs"),
+diff --git a/src/contract/judge-independence.mjs b/src/contract/judge-independence.mjs
+new file mode 100644
+index 0000000..16a3438
+--- /dev/null
++++ b/src/contract/judge-independence.mjs
+@@ -0,0 +1,102 @@
++/**
++ * Validation for the `judgeIndependence` contract field (R20): the opt-in
++ * that lets a same-vendor judge review a node an operator with a single
++ * provider could otherwise never gate. Split from `contract/index.mjs`,
++ * mirroring `judges.mjs` (R18), because the tier comparison and its refusal
++ * belong with the field that turns them on, not scattered through the
++ * vendor-conflict check that calls them.
++ */
++import { declaredModelTier } from "../harnesses/catalogue.mjs";
++
++/** The only value `judgeIndependence` accepts, on the contract or the machine config. */
++export const SAME_VENDOR_REVIEW_MODE = "same-vendor";
++
++/** The label every human-facing surface uses to mark a node reviewed under the mode. */
++export const SAME_PROVIDER_REVIEW_LABEL = "same-provider review";
++
++/**
++ * @param {unknown} value
++ * @param {string} label
++ * @returns {"same-vendor"|undefined}
++ */
++export function validateJudgeIndependence(value, label) {
++  if (value === undefined) return undefined;
++  if (value !== SAME_VENDOR_REVIEW_MODE) throw new TypeError(`${label} must be "${SAME_VENDOR_REVIEW_MODE}"`);
++  return value;
++}
++
++/**
++ * Same-vendor mode's own admissibility rule for a worker/judge pair that
++ * share a vendor: a judge model absent from the declared tier table can never
++ * judge in this mode, and a judge tier below the worker's is refused, naming
++ * both. `null` means the pair is admissible.
++ *
++ * @param {{harness: string, model: string}} workerRuntime
++ * @param {{harness: string, model: string}} judgeRuntime
++ * @returns {{code: string, message: string}|null}
++ */
++export function sameVendorTierRefusal(workerRuntime, judgeRuntime) {
++  const judgeTier = declaredModelTier(judgeRuntime.harness, judgeRuntime.model);
++  if (judgeTier === null) {
++    return {
++      code: "same_vendor_judge_no_tier",
++      message: `judge model ${judgeRuntime.model} declares no tier and cannot judge in same-vendor mode`,
++    };
++  }
++  const workerTier = declaredModelTier(workerRuntime.harness, workerRuntime.model);
++  if (workerTier !== null && judgeTier < workerTier) {
++    return {
++      code: "same_vendor_judge_tier_too_low",
++      message: `judge tier ${judgeTier} (${judgeRuntime.model}) is below worker tier ${workerTier} (${workerRuntime.model})`,
++    };
++  }
++  return null;
++}
++
++/**
++ * Whether a worker runtime that actually ran and a judge runtime that
++ * actually ran are a same-provider pairing: the mode is opted in and the two
++ * share a vendor. Contract validation already refused every reachable
++ * worker/judge pairing (primary or fallback) that fails the tier rule, so
++ * this is a plain vendor comparison at dispatch time, not a second
++ * enforcement of it.
++ *
++ * @param {{judgeIndependence?: string}} contract
++ * @param {{vendor?: string}|null|undefined} workerRuntime
++ * @param {{vendor?: string}|null|undefined} judgeRuntime
++ * @returns {boolean}
++ */
++export function isSameProviderReviewPair(contract, workerRuntime, judgeRuntime) {
++  if (contract.judgeIndependence !== SAME_VENDOR_REVIEW_MODE) return false;
++  const workerVendor = workerRuntime?.vendor;
++  const judgeVendor = judgeRuntime?.vendor;
++  return Boolean(workerVendor) && workerVendor === judgeVendor;
++}
++
++/**
++ * Whether `workerRuntimeId` or its one declared fallback hop could share
++ * `judgeVendor`: the structural "this pairing might land same-provider"
++ * fact a plan-time surface (the Campaign Brief) can read before any node has
++ * run, mirroring the one-hop rule `engine/failover.mjs` enforces at dispatch.
++ * A run-time surface reading a completed node's snapshot should prefer the
++ * dynamic fact instead (`isSameProviderReviewPair` against the runtime that
++ * actually ran).
++ *
++ * @param {Record<string, {vendor?: string, fallback?: string}>} runtimes
++ * @param {string} workerRuntimeId
++ * @param {string|null|undefined} judgeVendor
++ * @returns {boolean}
++ */
++export function sharesVendorThroughFallback(runtimes, workerRuntimeId, judgeVendor) {
++  if (!judgeVendor) return false;
++  const seen = new Set([workerRuntimeId]);
++  let currentId = workerRuntimeId;
++  while (currentId !== undefined) {
++    if (runtimes[currentId]?.vendor === judgeVendor) return true;
++    const nextId = runtimes[currentId]?.fallback;
++    if (nextId === undefined || seen.has(nextId)) break;
++    seen.add(nextId);
++    currentId = nextId;
++  }
++  return false;
++}
+diff --git a/src/contract/snapshot.mjs b/src/contract/snapshot.mjs
+index 5114bbe..4f0bb3d 100644
+--- a/src/contract/snapshot.mjs
++++ b/src/contract/snapshot.mjs
+@@ -130,6 +130,7 @@ export function validateNodeSnapshot(value, expectedNode = null) {
+     "attempt", "revisions", "judgeFailures", "requirementIds", "runtime", "blockedBy", "startedAt", "updatedAt", "result", "gate", "error", "usage",
+     "costUsd", "routing", "progress", "worktree", "invocations", "executionOverrides", "verification", "scope",
+     "scopeFindings", "verificationArtifacts", "review", "previousAttempt", "sessionPolicy", "integratedHead", "declaredReadBytes",
++    "sameProviderReview",
+   ]), "node snapshot");
+   validateMetadata(value, "node snapshot");
+   requireId(value.id, "node snapshot.id");
+@@ -148,6 +149,11 @@ export function validateNodeSnapshot(value, expectedNode = null) {
+   if (value.review !== undefined && !REVIEW_MODES.has(/** @type {string} */ (value.review))) {
+     throw new TypeError("node snapshot.review is invalid");
+   }
++  // R20: whether this attempt's judge was admitted under same-vendor mode,
++  // stamped by `startJudge` from the contract's own `sameProviderReview`.
++  if (value.sameProviderReview !== undefined && typeof value.sameProviderReview !== "boolean") {
++    throw new TypeError("node snapshot.sameProviderReview must be a boolean");
++  }
+   requirePacketHash(value.packetHash, "node snapshot.packetHash");
+   validateSourceIdentity(value.sourceIdentity, "node snapshot.sourceIdentity", { kind: "node" });
+   if (value.integratedHead !== undefined && value.integratedHead !== null) boundedString(value.integratedHead, "node snapshot.integratedHead", 256);
+diff --git a/src/engine/dispatch.mjs b/src/engine/dispatch.mjs
+index 8d16efc..d1f61d7 100644
+--- a/src/engine/dispatch.mjs
++++ b/src/engine/dispatch.mjs
+@@ -37,6 +37,7 @@ import { mkdirSync, statSync } from "node:fs";
+ import { READ_BYTE_LIMIT, READ_LINE_LIMIT, harnessCapabilities, normalizeProviderResult, writesWorkspace } from "../harnesses/index.mjs";
+ import { writeJsonAtomic } from "../run/store.mjs";
+ import { judgeReaskInstruction, reviewMode } from "../contract/review-modes.mjs";
++import { isSameProviderReviewPair } from "../contract/judge-independence.mjs";
+ import { routeRuntimeForState, runtimeSnapshot } from "./failover.mjs";
+ import { fingerprintRuntime, forceFreshSession, phaseInvocationPlan } from "./phase-session.mjs";
+ 
+@@ -495,6 +496,13 @@ export async function startJudge(contract, node, state, runDir, running, workerR
+     /** @type {import("../contract/index.mjs").VerificationState|null} */ (state.verification),
+   );
+   state.review = reviewMode(node.gate);
++  // The judge candidate this attempt would actually use, computed here (while
++  // `state.runtime` still holds the worker that just ran, not yet overwritten
++  // below) so the mark reflects the pairing that ran, fallback included --
++  // not `node.sameProviderReview`, which only says the pairing was admitted
++  // under same-vendor mode at contract validation, primary or fallback alike.
++  const judgeCandidate = routeRuntimeForState(contract, node, state, "judge");
++  state.sameProviderReview = isSameProviderReviewPair(contract, state.runtime, judgeCandidate);
+   if (verdict.verdict === "fail") return { kind: "rejected", verdict };
+   // `skipWhen` is checked before the ordinary judgment rule so a green-and-small
+   // change settles mechanically even when a Definition of Done item carries
+@@ -502,7 +510,7 @@ export async function startJudge(contract, node, state, runDir, running, workerR
+   // and a gate whose review mode is `none` is skipped there exactly as before.
+   if (judgeSkippedByScope(node, state)) return { kind: "settle", gate: verdict };
+   if (!judgeRequired(node)) return { kind: "settle", gate: verdict };
+-  const runtime = routeRuntimeForState(contract, node, state, "judge");
++  const runtime = judgeCandidate;
+   const paths = logPaths(runDir, node.id, "judge", state.attempt);
+   state.phase = "judge";
+   state.runtime = runtime;
+diff --git a/src/harnesses/catalogue.mjs b/src/harnesses/catalogue.mjs
+index c604e31..fa89f01 100644
+--- a/src/harnesses/catalogue.mjs
++++ b/src/harnesses/catalogue.mjs
+@@ -52,7 +52,24 @@ const GLM_CONTEXT_WINDOW_TOKENS = 200_000;
+ const GLM_ONE_MILLION_CONTEXT_WINDOW_TOKENS = 1_048_576;
+ 
+ /**
+- * @typedef {{id: string, contextWindowTokens: number|null, efforts: readonly string[], defaultEffort: string|null, effortInModelId: string|null}} DeclaredModel
++ * Every Anthropic model's tier, in the order of the owner's price list (R20):
++ * Sonnet 2 (US$ 2 / 10 per MTok), Opus 3 (5 / 25 and 4 / 20), Fable 4 (10 /
++ * 50). Sonnet is cheap enough to work; Opus or Fable is what judges it. A
++ * model absent from this table declares no tier and cannot judge in
++ * same-vendor mode (`contract/judge-independence.mjs`).
++ *
++ * @type {Readonly<Record<string, number>>}
++ */
++const ANTHROPIC_MODEL_TIERS = Object.freeze({
++  "claude-sonnet-5": 2,
++  "claude-opus-5": 3,
++  "claude-opus-5-5": 3,
++  "claude-fable-5": 4,
++  "claude-fable-5-1": 4,
++});
++
++/**
++ * @typedef {{id: string, contextWindowTokens: number|null, efforts: readonly string[], defaultEffort: string|null, effortInModelId: string|null, tier: number|null}} DeclaredModel
+  * @typedef {{harness: string, vendor: string|null}} ModelPath
+  * @typedef {{id: string, contextWindowTokens: number|null, efforts: string[], defaultEffort: string|null, effortInModelId: string|null, declaredBy: ModelPath[]}} ModelView
+  * @typedef {{ok: boolean, available: boolean, reason: string, version: string|null}} ProbeView
+@@ -73,6 +90,9 @@ export const DECLARED_MODEL_CATALOGUES = Object.freeze({
+   claude: Object.freeze([
+     declaredModel("claude-sonnet-5", { efforts: CLAUDE_EFFORTS }),
+     declaredModel("claude-opus-5", { efforts: CLAUDE_EFFORTS }),
++    declaredModel("claude-opus-5-5", { efforts: CLAUDE_EFFORTS }),
++    declaredModel("claude-fable-5", { efforts: CLAUDE_EFFORTS }),
++    declaredModel("claude-fable-5-1", { efforts: CLAUDE_EFFORTS }),
+     declaredModel("claude-sonnet-4-6", { efforts: CLAUDE_EFFORTS }),
+   ]),
+   codex: Object.freeze([
+@@ -163,6 +183,7 @@ function declaredModel(id, options) {
+     efforts: options.efforts,
+     defaultEffort: options.defaultEffort ?? null,
+     effortInModelId: options.effortInModelId ?? null,
++    tier: ANTHROPIC_MODEL_TIERS[id] ?? null,
+   });
+ }
+ 
+@@ -183,9 +204,26 @@ function agyModel(id, contextWindowTokens = null) {
+     efforts: AGY_EFFORTS,
+     defaultEffort: encoded,
+     effortInModelId: encoded,
++    tier: ANTHROPIC_MODEL_TIERS[id] ?? null,
+   });
+ }
+ 
++/**
++ * The declared tier of a model reached through a given harness (R20): only an
++ * Anthropic model run through the `claude` harness carries one today. `null`
++ * covers every other harness and every model this table does not list, which
++ * is exactly what `sameVendorTierRefusal` reads as "cannot judge in
++ * same-vendor mode".
++ *
++ * @param {string} harness
++ * @param {string} model
++ * @returns {number|null}
++ */
++export function declaredModelTier(harness, model) {
++  const entry = (DECLARED_MODEL_CATALOGUES[harness] ?? []).find((candidate) => candidate.id === model);
++  return entry?.tier ?? null;
++}
++
+ /**
+  * @param {{probe?: boolean, cwd?: string}} [options]
+  * @returns {Promise<ModelsReport>}
+diff --git a/src/report/campaign-brief-estimate.mjs b/src/report/campaign-brief-estimate.mjs
+index c2437ba..557b8cb 100644
+--- a/src/report/campaign-brief-estimate.mjs
++++ b/src/report/campaign-brief-estimate.mjs
+@@ -20,7 +20,7 @@
+  */
+ import { collectCompletedExecutionNodes } from "../run/usage.mjs";
+ import { asArray, unique } from "../campaign/brief-text.mjs";
+-import { scheduleUnderCapacity } from "../campaign/campaign-brief.mjs";
++import { scheduleUnderCapacity } from "../campaign/campaign-brief-graph.mjs";
+ 
+ /** @typedef {import("../run/usage.mjs").CompletedExecutionNode} CompletedExecutionNode */
+ /** @typedef {import("../run/usage.mjs").CompletedExecutionPool} CompletedExecutionPool */
+diff --git a/src/report/campaign-brief.mjs b/src/report/campaign-brief.mjs
+index dc72cd0..8ab1e72 100644
+--- a/src/report/campaign-brief.mjs
++++ b/src/report/campaign-brief.mjs
+@@ -231,6 +231,7 @@ function renderWorkGraph(model) {
+   const concurrent = Object.entries(graph.maxConcurrent)
+     .map(([runtimeId, limit]) => `\`${runtimeId}\` ${limit}`)
+     .join(", ");
++  const sameProviderReview = graph.nodes.filter((node) => node.sameProviderReview).map((node) => `\`${node.id}\``);
+   return [
+     "## Work graph",
+     ...edgeLines,
+@@ -240,6 +241,9 @@ function renderWorkGraph(model) {
+     `- maxConcurrent: ${concurrent || "none"}`,
+     `- Effective concurrency: ${graph.effectiveConcurrency}`,
+     `- ${renderDispatchable(graph)}`,
++    // R20: same-vendor mode admits a worker/judge pair sharing a vendor, and
++    // every human-facing surface names which nodes that applies to.
++    `- Same-provider review: ${sameProviderReview.length > 0 ? sameProviderReview.join(", ") : "none"}`,
+   ].join("\n");
+ }
+ 
+diff --git a/src/report/metrics-report.mjs b/src/report/metrics-report.mjs
+index 01d6781..659fb8a 100644
+--- a/src/report/metrics-report.mjs
++++ b/src/report/metrics-report.mjs
+@@ -41,7 +41,7 @@ const HOURS_PRECISION = 10_000;
+ export function renderMetricsReport(sources, metrics) {
+   const missingSources = sources.missingSources ?? [];
+   const lines = [
+-    `[metrics] ${sources.campaignId} · ${sources.runIds.length} runs · ${sources.events.length} events · ${Object.keys(metrics).length} indicators`,
++    `[metrics] ${sources.campaignId} · ${sources.runIds.length} runs · ${sources.events.length} events · ${Object.keys(metrics).length} indicators · ${sameProviderReviewSummary(sources)}`,
+   ];
+   if (missingSources.length > 0) lines.push(`missing sources: ${missingSources.join(", ")}`);
+   for (const [name, indicator] of Object.entries(metrics)) {
+@@ -78,10 +78,43 @@ export function renderMetricsJson(sources, metrics) {
+     runs: sources.runIds.length,
+     events: sources.events.length,
+     missingSources,
++    sameProviderReviewNodeCount: sameProviderReviewNodeIds(sources).length,
++    sameProviderReviewNodeIds: sameProviderReviewNodeIds(sources),
+     indicators: metrics,
+   })}\n`;
+ }
+ 
++/**
++ * Which recorded nodes had their judge review the same vendor's own output
++ * under same-vendor mode (R20), `runId/id` so a node id repeated across runs
++ * still names a specific one — metadata about the sources, like `runs` and
++ * `events`, not a TECH-SPEC section 6 indicator, so it sits beside the
++ * indicator set rather than inside it.
++ *
++ * @param {MetricsSources} sources
++ * @returns {string[]}
++ */
++function sameProviderReviewNodeIds(sources) {
++  return (sources.nodes ?? [])
++    .filter((node) => node.sameProviderReview === true)
++    .map((node) => `${node.runId}/${node.id}`);
++}
++
++/**
++ * The bounded human summary of `sameProviderReviewNodeIds`, eliding past
++ * `MAX_GROUPS` like every other grouped indicator this report prints.
++ *
++ * @param {MetricsSources} sources
++ * @returns {string}
++ */
++function sameProviderReviewSummary(sources) {
++  const ids = sameProviderReviewNodeIds(sources);
++  if (ids.length === 0) return "0 same-provider review nodes";
++  const shown = ids.slice(0, MAX_GROUPS);
++  const elided = ids.length > shown.length ? `, +${ids.length - shown.length} more` : "";
++  return `${ids.length} same-provider review nodes (${shown.join(", ")}${elided})`;
++}
++
+ /**
+  * @param {string} name
+  * @param {number|Record<string, number>|null} value
+diff --git a/src/report/render.mjs b/src/report/render.mjs
+index 126f8eb..e10088c 100644
+--- a/src/report/render.mjs
++++ b/src/report/render.mjs
+@@ -5,6 +5,7 @@ import { readJson, writeJsonAtomic } from "../run/store.mjs";
+ import { lockStale, pidAlive, readLock } from "../run/lock.mjs";
+ import { scopeFindingsNote, verificationArtifactsNote } from "../contract/scope-findings.mjs";
+ import { reviewNote } from "../contract/review-modes.mjs";
++import { SAME_PROVIDER_REVIEW_LABEL } from "../contract/judge-independence.mjs";
+ import { validateNodeSnapshot, validateRunMetadata } from "../contract/snapshot.mjs";
+ import { compactCost, compactTokens, truncateChars } from "../util.mjs";
+ import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
+@@ -32,7 +33,7 @@ const POINTER_ATTENTION_CHARS = 80;
+ /** @typedef {{inputTokens: number|null, outputTokens: number|null, cacheReadInputTokens: number|null}} StatusPayloadUsage */
+ /** @typedef {{index: number, total: number, argv: string}} VerificationProgress */
+ /** @typedef {{verdict: string, maxSeverity: string, findingCount: number, summary: string|null}} StatusPayloadGate */
+-/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, judgeRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, roleCostUsd: {worker: number|null, judge: number|null}, costProvenance: {worker: string, judge: string}, verdict: string|null, gate: StatusPayloadGate|null, gateOutcome: "passed"|"rejected"|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, verificationArtifacts: string[]|null, errorCode: string|null, blockedBy: string[], verificationProgress: VerificationProgress|null, declaredReadBytes: number|null}} StatusPayloadNode */
++/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, judgeRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, roleCostUsd: {worker: number|null, judge: number|null}, costProvenance: {worker: string, judge: string}, verdict: string|null, gate: StatusPayloadGate|null, gateOutcome: "passed"|"rejected"|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, verificationArtifacts: string[]|null, errorCode: string|null, blockedBy: string[], verificationProgress: VerificationProgress|null, declaredReadBytes: number|null, sameProviderReview: boolean}} StatusPayloadNode */
+ /** @typedef {{schemaVersion: 1, run: string, contractId: string, campaignId: string, goal: string, usage: {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUsd: number|null}, roles: {worker: RoleUsage, judge: RoleUsage}, controller: JsonObject, identityWarnings: string[], summary: string, nodes: StatusPayloadNode[]}} StatusPayload */
+ 
+ /** The glyph each terminal state prints in a status table. */
+@@ -126,7 +127,8 @@ function nowLine(payload, now) {
+     const progress = active.verificationProgress;
+     const verification = progress ? ` · verification ${progress.index}/${progress.total} · ${progress.argv}` : "";
+     const candidate = !progress && active.executionPhase === "candidate" ? " · candidate verification" : "";
+-    return `now: ${active.id} ${active.status} (${formatElapsed(active, now)}) · ${active.runtime ?? "-"} · ${compactCost(active.costUsd)}${verification}${candidate}`;
++    const sameProviderReview = active.sameProviderReview ? ` · ${SAME_PROVIDER_REVIEW_LABEL}` : "";
++    return `now: ${active.id} ${active.status} (${formatElapsed(active, now)}) · ${active.runtime ?? "-"} · ${compactCost(active.costUsd)}${verification}${candidate}${sameProviderReview}`;
+   }
+   const allTerminal = payload.nodes.every((node) => SUCCESS.has(node.status));
+   return allTerminal ? `now: idle · run done · ${compactCost(payload.usage.costUsd)}` : "now: idle";
+@@ -259,10 +261,11 @@ function buildStatusPayload(runDir, contract, nodes, identityWarnings, usage) {
+     nodes: nodes.map((node) => {
+       const progress = verificationProgress(node);
+       const nodeRoles = roleUsage([node]);
++      const contractNode = contract.nodes.find((candidate) => candidate.id === node.id);
+       return {
+         id: node.id,
+         status: node.status,
+-        phase: contract.nodes.find((candidate) => candidate.id === node.id)?.phase ?? null,
++        phase: contractNode?.phase ?? null,
+         // A running controller verification command does not move
+         // `node.phase` (it stays `worker`, the phase that dispatched it), so
+         // the surface that shows it is computed here rather than persisted.
+@@ -301,6 +304,11 @@ function buildStatusPayload(runDir, contract, nodes, identityWarnings, usage) {
+         blockedBy: node.blockedBy ?? [],
+         verificationProgress: progress,
+         declaredReadBytes: typeof node.declaredReadBytes === "number" ? node.declaredReadBytes : null,
++        // R20: the dynamic per-attempt fact `startJudge` stamped from the
++        // runtimes that actually ran (`engine/dispatch.mjs`) -- not the
++        // contract's static admission, which only says the pairing was
++        // possible (primary or fallback), not that this attempt hit it.
++        sameProviderReview: node.sameProviderReview === true,
+       };
+     }),
+   };
+@@ -446,6 +454,10 @@ export function renderReport(runDir) {
+     for (const key of /** @type {("inputTokens"|"outputTokens"|"cacheReadInputTokens")[]} */ (Object.keys(totals).filter((key) => key !== "costUsd"))) totals[key] = (totals[key] ?? 0) + (usage[key] ?? 0);
+     const runtime = workerRuntimeLabel(node) ?? "-";
+     const planNode = contract.nodes.find((candidate) => candidate.id === node.id);
++    // `nodeNote` already carries the same-provider review mark (R20) through
++    // `statusNote`, in both branches below -- it is never conditioned on the
++    // scope-findings branch, unlike the phase/continuation prefix which only
++    // applies when there is no scope finding to report instead.
+     const note = scopeFindingsNote(node.scopeFindings)
+       ? nodeNote(node)
+       : `phase ${planNode?.phase ?? "-"} · ${continuationMode(node)} · ${nodeNote(node)}`;
+@@ -475,10 +487,15 @@ export function renderReportJson(runDir) {
+     for (const key of /** @type {("inputTokens"|"outputTokens"|"cacheReadInputTokens")[]} */ (["inputTokens", "outputTokens", "cacheReadInputTokens"])) totals[key] = (totals[key] ?? 0) + (usage[key] ?? 0);
+     const cost = costs[index];
+     totals.declaredReadBytes += typeof node.declaredReadBytes === "number" ? node.declaredReadBytes : 0;
++    const planNode = contract.nodes.find((candidate) => candidate.id === node.id);
+     return {
+       id: node.id,
+       status: node.status,
+-      phase: contract.nodes.find((candidate) => candidate.id === node.id)?.phase ?? null,
++      phase: planNode?.phase ?? null,
++      // The dynamic per-attempt fact (see buildStatusPayload), not the
++      // contract's static admission: this is what actually ran, fallback
++      // included.
++      sameProviderReview: node.sameProviderReview === true,
+       executionPhase: node.phase,
+       runtime: node.runtime ? `${node.runtime.harness}/${node.runtime.model}` : null,
+       attempt: node.attempt,
+@@ -714,20 +731,24 @@ function boundedNote(segments, maxLength = MAX_NOTE_LENGTH) {
+ 
+ /**
+  * The note a status surface shows for a node: gate summary or error, led by
+- * any advisory scope finding and by the review outcome, so a gated done node
+- * cannot hide an advisory finding or an invalid verdict behind its gate
+- * summary (TECH-SPEC lean, rules 1 and 2). The order is the stable format
+- * every surface shares: `scope: N unexpected paths · <review note> · <gate
+- * summary or error>`, bounded so the tables and the JSON cannot disagree.
++ * any advisory scope finding, the same-provider review mark (R20) and the
++ * review outcome, so a gated done node cannot hide an advisory finding or an
++ * invalid verdict behind its gate summary (TECH-SPEC lean, rules 1 and 2).
++ * The order is the stable format every surface shares: `scope: N unexpected
++ * paths · same-provider review · <review note> · <gate summary or error>`,
++ * bounded so the tables and the JSON cannot disagree. `sameProviderReview` is
++ * led with the other markers rather than appended, so `boundedNote`'s cut
++ * (it drops the trailing segment first) never silently loses the mark.
+  *
+  * @param {NodeSnapshot} node
+  * @returns {string|null}
+  */
+ export function statusNote(node) {
+   const scope = boundedNote([scopeFindingsNote(node.scopeFindings), verificationArtifactsNote(node.verificationArtifacts)]);
++  const sameProviderReview = node.sameProviderReview === true ? SAME_PROVIDER_REVIEW_LABEL : null;
+   const review = reviewNote(node);
+   const detail = node.gate?.summary ?? node.error?.message ?? node.blockedBy?.join(", ") ?? (candidateVerificationActive(node) ? "candidate" : node.phase);
+-  const note = boundedNote([review, detail]);
++  const note = boundedNote([sameProviderReview, review, detail]);
+   if (!scope) return note;
+   return boundedNote([scope, note]);
+ }
+diff --git a/test/campaign/ledger.test.mjs b/test/campaign/ledger.test.mjs
+index 6dc6e5b..6ca9c9c 100644
+--- a/test/campaign/ledger.test.mjs
++++ b/test/campaign/ledger.test.mjs
+@@ -113,7 +113,7 @@ test("a closed ledger carries every source the projectors read", () => {
+   assert.deepEqual(expectedFiles.map((path) => existsSync(join(ledgerDir, path))), expectedFiles.map(() => true));
+   assert.equal(existsSync(join(ledgerDir, "run-b.notify.jsonl")), false);
+   assert.deepEqual(JSON.parse(readFileSync(join(ledgerDir, "run-a.nodes.json"), "utf8")), readMetricNodeSnapshots(runA));
+-  assert.deepEqual(Object.keys(JSON.parse(readFileSync(join(ledgerDir, "run-a.nodes.json"), "utf8"))[0]).sort(), ["attempt", "id", "review", "revisions", "status"]);
++  assert.deepEqual(Object.keys(JSON.parse(readFileSync(join(ledgerDir, "run-a.nodes.json"), "utf8"))[0]).sort(), ["attempt", "id", "review", "revisions", "sameProviderReview", "status"]);
+   assert.deepEqual(closed.ledgerSkipped, [{ runId: "run-b", source: "notify.jsonl" }]);
+ 
+   const firstListing = readdirSync(ledgerDir, { recursive: true }).sort();
+diff --git a/test/contract/judge-independence.test.mjs b/test/contract/judge-independence.test.mjs
+new file mode 100644
+index 0000000..4f5a7e3
+--- /dev/null
++++ b/test/contract/judge-independence.test.mjs
+@@ -0,0 +1,88 @@
++import "../scoped-home.mjs";
++import test from "node:test";
++import assert from "node:assert/strict";
++import { readFileSync } from "node:fs";
++import { validateContract } from "../../src/contract/index.mjs";
++import { declaredModelTier } from "../../src/harnesses/catalogue.mjs";
++import { packet, writeFixture } from "./helpers.mjs";
++
++// R20: an operator with a single provider opts in to same-vendor judge
++// review with `judgeIndependence: "same-vendor"`; without it, a gate-enabled
++// node whose worker and judge share a vendor stays refused exactly as today.
++
++function sonnetJudgeFixture(overrides = {}) {
++  return writeFixture({
++    runtimeDefaults: { worker: "worker", judge: "judge" },
++    runtimes: {
++      worker: { harness: "claude", model: "claude-sonnet-5", executable: "/nonexistent/claude", permissionMode: "bypassPermissions" },
++      judge: { harness: "claude", model: "claude-opus-5-5", executable: "/nonexistent/claude" },
++    },
++    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: { failOn: ["critical"] } }],
++    ...overrides,
++  });
++}
++
++test("same-vendor review is opt-in, needs a judge of equal or higher tier and is marked everywhere", () => {
++  // Declared tiers back the whole test: Sonnet works, Opus judges above it.
++  assert.equal(declaredModelTier("claude", "claude-sonnet-5"), 2);
++  assert.equal(declaredModelTier("claude", "claude-opus-5-5"), 3);
++
++  // Without the opt-in, a same-vendor pair is refused exactly as today.
++  const { path: offPath } = sonnetJudgeFixture();
++  assert.throws(
++    () => validateContract(JSON.parse(readFileSync(offPath, "utf8")), offPath),
++    /worker runtime worker and judge runtime judge share vendor anthropic/u,
++  );
++
++  // Opted in, with a judge tier at or above the worker's: admitted and marked.
++  const { path: onPath } = sonnetJudgeFixture({ judgeIndependence: "same-vendor" });
++  const contract = validateContract(JSON.parse(readFileSync(onPath, "utf8")), onPath);
++  assert.equal(contract.judgeIndependence, "same-vendor");
++  assert.equal(contract.nodes[0].gate.enabled, true);
++  assert.equal(contract.nodes[0].sameProviderReview, true, "the node is marked same-provider review");
++
++  // A gated node this mode never touches is not marked.
++  const { path: ungatedPath } = writeFixture({
++    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
++    judgeIndependence: "same-vendor",
++  });
++  const ungated = validateContract(JSON.parse(readFileSync(ungatedPath, "utf8")), ungatedPath);
++  assert.equal(ungated.nodes[0].sameProviderReview, false);
++
++  // Opted in, but the judge's tier is below the worker's: refused, naming both.
++  const { path: lowTierPath } = writeFixture({
++    runtimeDefaults: { worker: "worker", judge: "judge" },
++    runtimes: {
++      worker: { harness: "claude", model: "claude-opus-5-5", executable: "/nonexistent/claude", permissionMode: "bypassPermissions" },
++      judge: { harness: "claude", model: "claude-sonnet-5", executable: "/nonexistent/claude" },
++    },
++    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: { failOn: ["critical"] } }],
++    judgeIndependence: "same-vendor",
++  });
++  assert.throws(
++    () => validateContract(JSON.parse(readFileSync(lowTierPath, "utf8")), lowTierPath),
++    /judge tier 2 \(claude-sonnet-5\) is below worker tier 3 \(claude-opus-5-5\)/u,
++  );
++
++  // Opted in, but the judge model declares no tier at all: cannot judge in the mode.
++  const { path: noTierPath } = writeFixture({
++    runtimeDefaults: { worker: "worker", judge: "judge" },
++    runtimes: {
++      worker: { harness: "claude", model: "claude-sonnet-5", executable: "/nonexistent/claude", permissionMode: "bypassPermissions" },
++      judge: { harness: "claude", model: "claude-sonnet-4-6", executable: "/nonexistent/claude" },
++    },
++    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: { failOn: ["critical"] } }],
++    judgeIndependence: "same-vendor",
++  });
++  assert.throws(
++    () => validateContract(JSON.parse(readFileSync(noTierPath, "utf8")), noTierPath),
++    /judge model claude-sonnet-4-6 declares no tier and cannot judge in same-vendor mode/u,
++  );
++
++  // Only "same-vendor" is accepted.
++  const { path: badValuePath } = sonnetJudgeFixture({ judgeIndependence: "cross-vendor" });
++  assert.throws(
++    () => validateContract(JSON.parse(readFileSync(badValuePath, "utf8")), badValuePath),
++    /contract\.judgeIndependence must be "same-vendor"/u,
++  );
++});
+diff --git a/test/evals/judge-canary-matrix.test.mjs b/test/evals/judge-canary-matrix.test.mjs
+index b0d1824..91c3359 100644
+--- a/test/evals/judge-canary-matrix.test.mjs
++++ b/test/evals/judge-canary-matrix.test.mjs
+@@ -145,6 +145,20 @@ test("the canary report says which judges may judge each worker vendor", () => {
+     assert.equal(beta.byAuthorFamily.anthropic.recall, 0.85);
+     assert.equal(beta.byAuthorFamily.openai.recall, null);
+ 
++    // R20: same-family reading. beta is a deepseek judge but every case here
++    // is authored by anthropic (the fixture default), so beta's own-family
++    // slice is empty; delta is anthropic and every one of its cases is too, so
++    // its same-family reading equals its pooled score exactly.
++    assert.deepEqual(beta.sameFamily, beta.byAuthorFamily.deepseek);
++    assert.equal(beta.sameFamily.cases, 0);
++    const deltaJudge = byId.get("judge-delta");
++    assert.ok(deltaJudge);
++    assert.equal(deltaJudge.sameFamily?.cases, 25);
++    assert.equal(deltaJudge.sameFamily?.recall, 0.7);
++    assert.match(markdown, /same-family review \(R20\)/);
++    assert.match(markdown, /judge-beta \(deepseek\): no same-family cases/);
++    assert.match(markdown, /judge-delta \(anthropic\): 0\.700 \/ 0\.000 \/ 0\.0200 \(25 cases\)/);
++
+     // Mixed corpus hashes are refused, naming the file that disagrees.
+     const mixedA = writeResult(dir, "mixed-a.json", resultFixture("judge-alpha", "openai", "corpus-a", [outcomeOf("mixed-a-clean")]));
+     const mixedB = writeResult(dir, "mixed-b.json", resultFixture("judge-alpha", "openai", "corpus-b", [outcomeOf("mixed-b-clean")]));
+diff --git a/test/report/campaign-brief-estimate.test.mjs b/test/report/campaign-brief-estimate.test.mjs
+index 68798bd..06b88a0 100644
+--- a/test/report/campaign-brief-estimate.test.mjs
++++ b/test/report/campaign-brief-estimate.test.mjs
+@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+ import { tmpdir } from "node:os";
+ import { join } from "node:path";
+ import { collectCompletedExecutionNodes } from "../../src/run/usage.mjs";
+-import { scheduleUnderCapacity } from "../../src/campaign/campaign-brief.mjs";
++import { scheduleUnderCapacity } from "../../src/campaign/campaign-brief-graph.mjs";
+ import { estimateBriefExpense } from "../../src/report/campaign-brief-estimate.mjs";
+ 
+ // R5: the expense range is derived only from this target project's durable

@@ -4,15 +4,17 @@
  * (sizing, routing, freeze), never as one long-lived process. Separate from
  * `template.mjs` (which only builds the one-node contracts) and from
  * `freeze.mjs` (which only turns a plan into a validated contract on disk):
- * this module is the one place that sequences those runs, checks each round's
- * plan against the contract it would freeze into while a revise can still
- * act on the failure, compares a revision's write set against the plan it
- * revised so scope closure cannot be satisfied by shrinking the work, and
- * decides when a plan is contested instead of frozen. `launch` and `wait`
- * are the only two seams that touch a process or the wall clock, so a test
- * drives the whole pipeline through `runContract` in-process, deterministically.
+ * this module sequences the draft and stages the sizing/routing/freeze
+ * assembly both the round loop and the final freeze run through. The round
+ * loop itself — checking each round's plan against the contract it would
+ * freeze into, comparing a revision's write set against the plan it revised,
+ * and the finding bookkeeping that decides when a round is done — lives in
+ * `rounds.mjs`; the contested-plan exit every unresolvable path returns
+ * through lives in `contest.mjs`. `launch` and `wait` are the only two seams
+ * that touch a process or the wall clock, so a test drives the whole pipeline
+ * through `runContract` in-process, deterministically.
  */
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { CONTRACT_VERSION, DEFAULT_MAX_TURNS, PROTOCOL_SCHEMA_VERSION, validateContract } from "../contract/index.mjs";
 import { discoveryOutput } from "../contract/worker-result.mjs";
@@ -21,18 +23,28 @@ import { classifyRunProgress } from "../campaign/chain.mjs";
 import { appendSeatAllowanceEvent, readJournal } from "../campaign/journal.mjs";
 import { readCampaign } from "../campaign/record.mjs";
 import { campaignCli } from "../cli/campaign.mjs";
-import { appendJsonl, writeJsonAtomic } from "../run/store.mjs";
-import { stableJson } from "../util.mjs";
+import { appendJsonl } from "../run/store.mjs";
 import { allowanceDelta, allowanceEventFields, sampleAllowance } from "../seat/allowance.mjs";
 import { askPlanningRuntimes, refusePlanningSilence, refuseUnplannableRuntimes } from "./preflight.mjs";
+import { firstEligibleReviewer, reviewerProvenanceOf } from "./reviewer.mjs";
 import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
-import { RISK_TIERS, TASK_KIND_CATALOGUE_FILE, buildPlanningContract, renderTaskKindCatalogue, validateFindings, validatePlanOutput } from "./template.mjs";
+import { checkPlanProofs } from "./proof-check.mjs";
+import { collectHumanSteps } from "./human-step.mjs";
+import { RISK_TIERS, TASK_KIND_CATALOGUE_FILE, buildPlanningContract, renderTaskKindCatalogue, validatePlanOutput } from "./template.mjs";
 import { MIN_WRITE_FILES, applySizingRules, provenParallelism } from "./sizing.mjs";
 import { resolveRuntimes } from "./routing.mjs";
-import { assertTimeoutsCoverMeasured, contentDigest, freezePlan, writeFrozenPlanRecord } from "./freeze.mjs";
+import { contentDigest, freezePlan, writeFrozenPlanRecord } from "./freeze.mjs";
 import { availabilityOf, fileLineCount, highestOf, modelOf, toContractNode, toSizingNode } from "./pipeline-shape.mjs";
 import { campaignTree, runDirectory } from "../run/paths.mjs";
+import { contestPlan } from "./contest.mjs";
+import { runReviewRounds } from "./rounds.mjs";
+
+// `droppedWriteFindings` and `unresolvedFindings` are defined in
+// `rounds.mjs`, the only module that calls them: this is a compatibility
+// re-export, not a second home, kept because `test/plan/template.test.mjs`
+// already names this path.
+export { droppedWriteFindings, unresolvedFindings } from "./rounds.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -48,7 +60,7 @@ import { campaignTree, runDirectory } from "../run/paths.mjs";
 /** @typedef {(runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, cwd: string) => Promise<import("../harnesses/index.mjs").ProbeResult[]>} AskFn */
 /** @typedef {(runDir: string) => Promise<import("../engine/supervise.mjs").RunProgress>|import("../engine/supervise.mjs").RunProgress} WaitFn */
 /** @typedef {{status: "frozen", plansDir: string, planPath: string, contractPath: string, approved: boolean, findings: PlanFindingOutput[], warnings: string[]}} FrozenPipelineResult */
-/** @typedef {{status: "contested", plansDir: string, planPath: string, findings: PlanFindingOutput[], round: number}} ContestedPipelineResult */
+/** @typedef {import("./contest.mjs").ContestedPipelineResult} ContestedPipelineResult */
 
 /**
  * The session id every automated journal entry this pipeline writes carries.
@@ -84,7 +96,7 @@ export const DEFAULT_NODE_BUDGET_MS = 600_000;
 const APPROVE_BELOW_VALUES = new Set(["standard", "high", "none"]);
 
 /**
- * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, runtimes: Record<string, JsonObject>, verification?: VerificationSuites, packageMode?: import("./sizing.mjs").PackageMode, targetedFix?: boolean, launch: LaunchFn, wait: WaitFn, ask?: AskFn}} options
+ * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, reviewers?: string[], runtimes: Record<string, JsonObject>, verification?: VerificationSuites, packageMode?: import("./sizing.mjs").PackageMode, targetedFix?: boolean, launch: LaunchFn, wait: WaitFn, ask?: AskFn}} options
  *   `targetedFix` allows a plan with a single node. Sizing refuses one by
  *   default because a phase that decomposes into one node is usually a plan
  *   that was never decomposed; a targeted fix is the case where one node is
@@ -94,7 +106,7 @@ const APPROVE_BELOW_VALUES = new Set(["standard", "high", "none"]);
 export async function runPlanningPipeline(options) {
   const {
     specPath, campaignId, phase, runtimes, launch, wait,
-    reviewRounds = 2, runtimeDefaults = {}, verification = {}, targetedFix = false,
+    reviewRounds = 2, runtimeDefaults = {}, reviewers = [], verification = {}, targetedFix = false,
   } = options;
   const ask = options.ask ?? askPlanningRuntimes;
   // Implementation work is sized by what it writes; exploratory work -- an
@@ -147,6 +159,10 @@ export async function runPlanningPipeline(options) {
   // from the spec's prose.
   const parsedSpec = parseSpec(specText);
   const repoFacts = collectRepoFacts(cwd, { requirements: parsedSpec.requirements });
+  // R16: an operator step a requirement's constraints declare, detected once
+  // here so both the freeze below and a caller inspecting the pipeline agree
+  // on the same list.
+  const humanSteps = collectHumanSteps(parsedSpec.requirements);
   const repoFactsPath = join(scratchDir, "repo-facts.json");
   writeFileSync(repoFactsPath, `${JSON.stringify(repoFacts, null, 2)}\n`);
   const relativeRepoFactsPath = relative(cwd, repoFactsPath);
@@ -172,14 +188,24 @@ export async function runPlanningPipeline(options) {
    * @returns {Promise<{contract: ValidatedContract, output: Record<string, unknown>}>}
    */
   const runStage = async (kind, inputs) => {
-    const stageN = nextN();
-    const contractPath = join(plansDir, "nodes", `${kind}-${stageN}.contract.json`);
+    // R19: a review or spec-review stage's runtime comes from the planner's
+    // own reviewer list, resolved fresh at every stage so a refusal recorded
+    // between rounds is not repeated.
+    const reviewerId = kind === "review" || kind === "spec-review" ? firstEligibleReviewer(reviewers, runtimes) ?? undefined : undefined;
+    // A stage number whose run already exists belongs to an earlier `plan` of
+    // this phase and is skipped: measured 2026-09-25, re-planning a phase
+    // reused `draft-1`, whose run the first attempt had left, and the launch
+    // died at bootstrap on "run already exists".
+    let contractPath, raw, validated;
+    do {
+      const stageN = nextN();
+      contractPath = join(plansDir, "nodes", `${kind}-${stageN}.contract.json`);
+      raw = buildPlanningContract(kind, {
+        campaignId, phase, n: stageN, runtimes, runtimeDefaults, ...(reviewerId === undefined ? {} : { reviewerId }), cwd: relative(join(plansDir, "nodes"), cwd) || ".", ...inputs,
+      });
+      validated = validateContract(raw, contractPath);
+    } while (existsSync(runDirectory(validated.cwd, validated.id)));
     mkdirSync(dirname(contractPath), { recursive: true });
-    const relativeCwd = relative(dirname(contractPath), cwd) || ".";
-    const raw = buildPlanningContract(kind, {
-      campaignId, phase, n: stageN, runtimes, runtimeDefaults, cwd: relativeCwd, ...inputs,
-    });
-    const validated = validateContract(raw, contractPath);
     writeFileSync(contractPath, `${JSON.stringify(raw, null, 2)}\n`);
     await launch(contractPath, validated);
     const runDir = runDirectory(validated.cwd, validated.id);
@@ -207,12 +233,6 @@ export async function runPlanningPipeline(options) {
   // a finding back out once the plan moved under it.
   /** @type {PlanFindingOutput[]} */
   let findings = [];
-  // The writes the most recent revise dropped, computed where the revise's
-  // output is validated and held for the next round: merged in there, after
-  // the review's own findings, so a drop is never cleaned away by a fresh
-  // review passing over a plan that no longer declares the write.
-  /** @type {PlanFindingOutput[]} */
-  let droppedWrites = [];
   try {
     plan = validatePlanOutput(draft.output.plan);
   } catch (error) {
@@ -222,6 +242,17 @@ export async function runPlanningPipeline(options) {
     ? { runId: draft.contract.id, invalid: findings[0].text }
     : { runId: draft.contract.id, nodeCount: plan.nodes.length });
 
+  // R15: a deterministic check for a DoD proof no node can satisfy, run once
+  // against the drafted plan before the first review round grades it — a
+  // finding this raises is exactly as actionable to a revise as a reviewer's
+  // own, and raising it before review means review never spends a round
+  // re-discovering what a mechanical check already knows for certain.
+  if (plan !== null) {
+    const proofFindings = checkPlanProofs(plan, repoFacts, cwd);
+    if (proofFindings.length > 0) findings = [...findings, ...proofFindings];
+    logStage("proof-check", { findingsCount: proofFindings.length });
+  }
+
   const workingPlanPath = join(scratchDir, "plan.working.json");
   const relativeWorkingPlanPath = relative(cwd, workingPlanPath);
 
@@ -229,25 +260,28 @@ export async function runPlanningPipeline(options) {
    * End the pipeline the way an unresolvable plan already ends: the contested
    * result, the outstanding findings that forced it, and an open question on
    * the campaign journal. Every no-valid-plan exit funnels through here.
+   * `currentPlan` and the `resume` context ride along on the written record
+   * so `faberun plan --resolve` (R9) can continue from it without redrafting
+   * or re-collecting repo facts.
    *
    * @param {number} round
+   * @param {PlanFindingOutput[]} currentFindings
+   * @param {PlanOutput|null} currentPlan
    * @returns {Promise<ContestedPipelineResult>}
    */
-  const contest = async (round) => {
-    const criticalFindings = findings.filter((finding) => finding.severity === "critical");
-    const planPath = join(plansDir, "plan.json");
-    writeJsonAtomic(planPath, { formatVersion: 1, status: "contested", rounds: round, findings });
-    logStage("contested", { round, criticalCount: criticalFindings.length });
-    await campaignCli([
-      "note", campaignId, "--cwd", cwd, "--session-id", PLANNER_SESSION_ID,
-      "--kind", "open-question", "--question-id", `plan-${phase}-contested`,
-      "--text", `Plan for phase ${phase} is contested after ${round} review round(s): ${criticalFindings.map((finding) => finding.text).join("; ")}`,
-    ]);
-    return { status: "contested", plansDir, planPath, findings, round };
-  };
+  const contest = (round, currentFindings, currentPlan) => contestPlan({
+    campaignId, phase, cwd, plansDir, sessionId: PLANNER_SESSION_ID, findings: currentFindings, round, logStage,
+    plan: currentPlan ?? null,
+    resume: {
+      campaignId, phase, specPath: relativeSpecPath, specDigest, reviewRounds,
+      runtimeDefaults, reviewers, runtimes, verification, packageMode, targetedFix, approveBelow, repoFacts,
+    },
+  });
 
-  // Which deterministic stage is running, advanced by `assembleFrozenNodes`
-  // so the freeze-wrap catch below names the stage that threw.
+  // Which deterministic stage is running, so the freeze-wrap catch below
+  // names the stage that threw when the thrown error carries no `planStage`
+  // of its own (`assembleFrozenPlan` tags sizing and routing failures; a
+  // plain error reaching the catch after that call is `freezePlan`'s).
   let stage = "sizing";
   // The last review round entered, so the freeze-wrap catch contests with
   // the count of rounds that actually ran.
@@ -255,178 +289,40 @@ export async function runPlanningPipeline(options) {
 
   /**
    * The one assembly a plan freezes through, one home for the expression the
-   * in-round pre-flight and the final freeze must run identically: sizing
-   * reshapes the drafted nodes, routing assigns worker and judge, and
-   * `toContractNode` renders the contract shape. Local and cheap — no I/O,
-   * no model — so running it once per round costs nothing. It advances
-   * `stage` as it goes; see the declaration above.
+   * in-round pre-flight and the final freeze must run identically. Delegates
+   * to `assembleFrozenPlan`, exported below, so `resolve.mjs` can run the
+   * exact same reshape over a plan it read back off disk instead of holding
+   * it in this closure.
    *
    * @param {PlanOutput} currentPlan
    * @returns {AssembledPlan}
    */
-  const assembleFrozenNodes = (currentPlan) => {
-    stage = "sizing";
-    const sizing = applySizingRules(
-      { nodes: currentPlan.nodes.map(toSizingNode), justification: currentPlan.justification },
-      { nodeBudgetMs: DEFAULT_NODE_BUDGET_MS, facts: repoFacts, minWriteFiles: MIN_WRITE_FILES, turnCeiling: DEFAULT_MAX_TURNS, packageMode, readVolume: (path) => fileLineCount(join(cwd, path)), targetedFix },
-    );
-    stage = "routing";
-    const routing = resolveRuntimes(sizing.plan.nodes, {
-      table: [...DEFAULT_ROUTING_TABLE],
-      runtimes: /** @type {Record<string, import("./routing.mjs").RoutingRuntime>} */ (runtimes),
-      availability: availabilityOf(runtimes),
-      runtimeDefaults,
-    });
-    stage = "freeze";
-    return {
-      sizing,
-      routing,
-      nodes: sizing.plan.nodes.map((node) => toContractNode(/** @type {SizedPlanNode} */ (node), phase, routing.assignments[node.id])),
-      // The declarations a reviewer saw, remapped onto the nodes sizing
-      // actually produced: a merge removes a node id, and a declaration that
-      // named it must now name the node that absorbed it or freeze would see
-      // an unknown assignment.
-      phases: carryPhaseDeclarations(currentPlan.phases, sizing.transformations),
-    };
-  };
+  const assembleFrozenNodes = (currentPlan) => assembleFrozenPlan(currentPlan, { repoFacts, packageMode, targetedFix, phase, cwd, runtimes, runtimeDefaults });
 
   /**
-   * The raw contract exactly as `freezePlan` will assemble and validate it,
-   * schemaVersion and contractVersion included. It takes the whole assembly
-   * rather than its nodes because the contract carries a run-level conclusion
-   * of sizing's too (`maxParallel`), and the in-round pre-flight must validate
-   * the same bytes the freeze writes. `validateContract` never
-   * reads the path it is given — only `dirname(resolve(contractPath))` to
-   * resolve `raw.cwd` — so the pre-flight passes the path the contract will
-   * occupy, `contract.json` inside `plansDir`, and validates in memory
-   * without writing or deleting anything.
+   * The raw contract exactly as `freezePlan` will assemble and validate it.
+   * Delegates to `frozenContractRawOf`, exported below for the same reason
+   * as `assembleFrozenPlan`.
    *
    * @param {AssembledPlan} assembly
    * @returns {JsonObject}
    */
-  const frozenContractRaw = ({ sizing, nodes }) => ({
-    schemaVersion: PROTOCOL_SCHEMA_VERSION,
-    contractVersion: CONTRACT_VERSION,
-    id: `${campaignId}-${phase}`,
-    campaignId,
-    goal: campaign.goal,
-    // `freezePlan` writes contract.json inside `outDir` (`plansDir`), so
-    // `cwd` has to point back at the repo root from there, exactly like
-    // `runStage` computes it for the nodes it writes under `plansDir/nodes/`.
-    cwd: relative(plansDir, cwd) || ".",
-    // Sizing's `parallelisable` conclusion, which nothing else carries: a
-    // contract node has no `parallel` field, so a plan that says nothing here
-    // freezes at the validator's default of 1 and every independent node it
-    // proved waits for its turn. What the engine does with the number is the
-    // scheduler's business; declaring it is this stage's.
-    maxParallel: provenParallelism(sizing.plan),
-    runtimes,
-    runtimeDefaults,
-    // The operator's ratchets, carried verbatim: which suites a repository
-    // runs on every node is the operator's policy, supplied through
-    // `--verification`, never derived from repository facts. Validated at the
-    // flag boundary, so freeze neither re-derives nor edits them.
-    ...(verification.sharedVerification ? { sharedVerification: verification.sharedVerification } : {}),
-    ...(verification.finalVerification ? { finalVerification: verification.finalVerification } : {}),
-    nodes,
-  });
+  const frozenContractRaw = (assembly) => frozenContractRawOf(assembly, { campaignId, phase, campaignGoal: campaign.goal, cwd, plansDir, runtimes, runtimeDefaults, verification });
 
-  for (let round = 1; round <= reviewRounds; round += 1) {
-    roundsRun = round;
-    if (plan) {
-      // The reviewer grades a structurally valid plan; an invalid one skips
-      // review and reaches revise through the validator's finding instead.
-      writeJsonAtomic(workingPlanPath, plan);
-      const review = await runStage("review", { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, planPath: relativeWorkingPlanPath });
-      /** @type {PlanFindingOutput|null} */
-      let invalidFindings = null;
-      try {
-        // Merged over what is still open, never substituted for it: a round's
-        // reviewer grades the plan in front of it and may simply not mention
-        // an objection the last round raised, which a plain assignment here
-        // threw away.
-        findings = mergeFindings(findings, validateFindings(review.output.findings));
-      } catch (error) {
-        // The review said nothing usable about the plan, so the plan cannot be
-        // treated as clean: the malformed-output finding is critical and
-        // drives the same revise-or-contest path a real critical finding does,
-        // with the still-outstanding findings riding along.
-        invalidFindings = invalidPlanFinding(`review-r${round}`, error);
-        findings = [...findings, invalidFindings];
-      }
-      // The contract this plan would freeze into is checked here, inside the
-      // round and after the review's findings merged into the open ones,
-      // because freeze runs after the last one: caught here, a plan that
-      // cannot freeze still has a revise left to fix it. The failure is a
-      // critical finding, never an auto-filled acknowledgement — scope
-      // closure exists to force the per-file decision (declare a write, or
-      // acknowledge a read-only importer), and the revise worker, which can
-      // read the repository, makes it from the validator's own message.
-      /** @type {PlanFindingOutput|null} */
-      let freezeFailure = null;
-      try {
-        assertTimeoutsCoverMeasured(validateContract(frozenContractRaw(assembleFrozenNodes(plan)), join(plansDir, "contract.json")), repoFacts);
-      } catch (error) {
-        freezeFailure = invalidPlanFinding(`freeze-r${round}`, error);
-        findings = [...findings, freezeFailure];
-      }
-      logStage("review", {
-        round,
-        runId: review.contract.id,
-        findingsCount: findings.length,
-        criticalCount: findings.filter((finding) => finding.severity === "critical").length,
-        ...(freezeFailure === null ? {} : { freezeFailed: freezeFailure.text }),
-        ...(invalidFindings === null ? {} : { invalid: invalidFindings.text }),
-      });
-    }
-    // The revise's write-drops land here — after the review above, before the
-    // critical check below — so a drop survives into the same
-    // revise-or-contest decision a review finding reaches. Merged by id: a
-    // drop the last round already carried and this revise made again is one
-    // finding, not two.
-    findings = mergeFindings(findings, droppedWrites);
-    const criticalFindings = findings.filter((finding) => finding.severity === "critical");
-    if (criticalFindings.length === 0) break;
-    if (round === reviewRounds) return await contest(round);
-    const findingsPath = join(scratchDir, `findings-round-${round}.json`);
-    writeJsonAtomic(findingsPath, findings);
-    const revise = await runStage("revise", {
-      specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, findingsPath), packageMode,
-    });
-    // Kept for the write-drop comparison: the plan the revise revised, against
-    // the plan it produced.
-    const planBeforeRevise = plan;
-    /** @type {PlanFindingOutput|null} */
-    let invalid = null;
-    try {
-      plan = validatePlanOutput(revise.output.plan);
-    } catch (error) {
-      // The revise output was rejected wholesale, so the round's review
-      // findings are still outstanding and ride along to the next round.
-      invalid = invalidPlanFinding(`revise-r${round}`, error);
-      plan = null;
-      findings = [...findings, invalid];
-    }
-    // Null when the revise output was refused: there is no revised write set
-    // to compare, and the refused-output finding already drives the round.
-    droppedWrites = droppedWriteFindings(planBeforeRevise, plan);
-    // What the next round starts from: the findings this revise did not move
-    // the plan under. Everything else — a node it changed, a node it removed,
-    // and the pipeline's own shape findings, which the next round re-derives
-    // — is dropped here rather than carried forever.
-    findings = unresolvedFindings(findings, planBeforeRevise, plan);
-    logStage("revise", {
-      round,
-      runId: revise.contract.id,
-      droppedWrites: droppedWrites.length,
-      carriedFindings: findings.length,
-      ...(invalid === null ? {} : { invalid: invalid.text }),
-    });
-  }
+  const roundsResult = await runReviewRounds({
+    reviewRounds, plan, rejectedDraft: plan === null ? draft.output.plan : undefined, findings, cwd, plansDir, scratchDir, workingPlanPath, relativeWorkingPlanPath,
+    relativeSpecPath, relativeRepoFactsPath, relativeCataloguePath, packageMode, repoFacts,
+    runStage, assembleFrozenNodes, frozenContractRaw, contest,
+    invalidPlanFinding, logStage,
+  });
+  if (!roundsResult.resolved) return roundsResult.result;
+  plan = roundsResult.plan;
+  findings = roundsResult.findings;
+  roundsRun = roundsResult.roundsRun;
   // Reached only when no review round is configured (reviewRounds <= 0) and
   // the draft never validated: no revise exists to reach, so contested is the
   // end rather than a silent crash at sizing.
-  if (plan === null) return await contest(0);
+  if (plan === null) return await contest(0, findings, null);
 
   // The pre-flight ran this exact assembly through the same validator in the
   // round that just broke, so a failure here is nearly impossible — but
@@ -449,6 +345,7 @@ export async function runPlanningPipeline(options) {
     : ["the frozen contract carries neither sharedVerification nor finalVerification, so no repository ratchet runs on its nodes and no final check closes the phase; pass --verification <file> if the target repository has ratchets every node must run"];
   try {
     assembled = assembleFrozenNodes(plan);
+    stage = "freeze";
     logStage("sizing", { transformations: assembled.sizing.transformations.length, nodeCount: assembled.sizing.plan.nodes.length, overheadMinutes: assembled.sizing.estimate.overheadMinutes });
     logStage("routing", { assignments: Object.keys(assembled.routing.assignments).length });
     highestRiskTier = highestOf(assembled.sizing.plan.nodes.map((node) => node.riskTier ?? RISK_TIERS[0]));
@@ -458,27 +355,37 @@ export async function runPlanningPipeline(options) {
       // The pipeline's own pinned spec bytes: a wrong or missing digest is the
       // first thing the Campaign Brief refuses on, never a summary.
       spec: { path: relativeSpecPath, digest: specDigest },
+      humanSteps,
       facts: repoFacts,
       provenance: {
         targetGitHead: repoFacts.gitHead,
         planner: { runtimeId: runtimeDefaults.worker ?? "", model: modelOf(runtimes, runtimeDefaults.worker) },
-        reviewer: { runtimeId: runtimeDefaults.judge ?? "", model: modelOf(runtimes, runtimeDefaults.judge) },
+        reviewer: reviewerProvenanceOf(reviewers, runtimes),
         sizing: assembled.sizing.transformations,
         findings,
       },
     });
-    logStage("freeze", { contractId: `${campaignId}-${phase}`, highestRiskTier, ...(freezeWarnings.length ? { warnings: freezeWarnings } : {}) });
+    logStage("freeze", {
+      contractId: `${campaignId}-${phase}`,
+      highestRiskTier,
+      ...(humanSteps.length ? { humanSteps: humanSteps.length } : {}),
+      ...(freezeWarnings.length ? { warnings: freezeWarnings } : {}),
+    });
   } catch (error) {
     // The stage line the pipeline would otherwise have stopped short of, the
     // failure carried as the critical finding that names it, and the
-    // contested end every other unresolvable plan takes.
-    logStage(stage, { failed: error instanceof Error ? error.message : String(error) });
-    findings = [...findings, invalidPlanFinding(stage, error)];
+    // contested end every other unresolvable plan takes. `planStage` names a
+    // sizing or routing failure precisely; anything else reaching here is
+    // `freezePlan`'s, so the outer `stage` (bumped to "freeze" once assembly
+    // itself succeeded) is the fallback.
+    const failedStage = /** @type {{planStage?: string}} */ (error)?.planStage ?? stage;
+    logStage(failedStage, { failed: error instanceof Error ? error.message : String(error) });
+    findings = [...findings, invalidPlanFinding(failedStage, error)];
     // freezePlan removes contract.json itself when validation refuses it; a
     // failure after that write and before its return would otherwise leave a
     // contract.json no contested result may have.
     rmSync(join(plansDir, "contract.json"), { force: true });
-    return await contest(roundsRun);
+    return await contest(roundsRun, findings, plan);
   }
 
   // A delta only means something between two samples of the same seat: freeze
@@ -568,120 +475,21 @@ const SCOPE_CLOSURE_RESOLUTION = "Resolve it by declaring each named file in wri
  * `SCOPE_CLOSURE_RESOLUTION` after the validator's verbatim message, which
  * stays intact because it names the exact paths the reviser must act on.
  *
+ * Used both outside any round (the draft validation above, and the freeze
+ * catch inside `runPlanningPipeline`) and inside one, so `rounds.mjs` takes
+ * it as an injected function rather than importing it, which would cycle
+ * back into this module. Exported for `resolve.mjs`, which reaches the same
+ * freeze catch from a plan read back off disk instead of one this module
+ * just assembled.
+ *
  * @param {string} label
  * @param {unknown} error
  * @returns {PlanFindingOutput}
  */
-function invalidPlanFinding(label, error) {
+export function invalidPlanFinding(label, error) {
   const text = error instanceof Error ? error.message : String(error);
   const guided = text.startsWith(SCOPE_CLOSURE_MESSAGE_PREFIX) ? `${text} ${SCOPE_CLOSURE_RESOLUTION}` : text;
   return { id: `plan-shape-${label}`, severity: "critical", nodeId: "plan", text: guided };
-}
-
-/**
- * `incoming` merged over `carried`, keyed by finding id. A finding both
- * rounds raise is the newer reviewer's own re-judgement of the same
- * objection, severity included, so it replaces the carried copy instead of
- * duplicating it — this merge never rewrites a severity of its own. Carried
- * findings keep their order and come first, so the oldest outstanding
- * objection is at the top of the file the reviser reads.
- *
- * @param {PlanFindingOutput[]} carried
- * @param {PlanFindingOutput[]} incoming
- * @returns {PlanFindingOutput[]}
- */
-function mergeFindings(carried, incoming) {
-  const merged = new Map(carried.map((finding) => [finding.id, finding]));
-  for (const finding of incoming) merged.set(finding.id, finding);
-  return [...merged.values()];
-}
-
-/**
- * The findings still open against the plan a revise produced. A review round
- * is under no obligation to repeat what the last one found, so replacing the
- * finding set each round silently drops any objection the new reviewer is
- * quiet about: a spike run froze a plan carrying a defect round 1 had named
- * and round 2 did not repeat, and the worker refused the packet with
- * context_missing.
- *
- * What counts as resolved is read off the two plans, never off the reviewer's
- * silence. A finding whose node the revise removed is moot. A finding whose
- * node the revise changed at all was acted on — the next review grades the
- * changed node and can object again in its own words. A finding against a
- * node the revise left identical was not addressed, and stays open. That rule
- * is also what keeps a carried finding from making convergence impossible:
- * every one of them clears the moment the reviser touches the node it names,
- * so a plan that answers its objections still freezes inside the round
- * budget, and a plan that does not still ends contested at it. A finding
- * naming no node of the plan — the pipeline's own `nodeId: "plan"` shape and
- * freeze failures — is re-derived from scratch by the next round's pre-flight,
- * so carrying it would double it.
- *
- * @param {PlanFindingOutput[]} findings everything open at the end of the round
- * @param {PlanOutput|null} previousPlan the plan the revise revised
- * @param {PlanOutput|null} revisedPlan the plan the revise produced, null when its output was refused
- * @returns {PlanFindingOutput[]}
- */
-export function unresolvedFindings(findings, previousPlan, revisedPlan) {
-  // No revised plan to measure against: the refused-output finding drives the
-  // next round and everything raised so far is still outstanding.
-  if (!revisedPlan) return findings;
-  const before = new Map((previousPlan?.nodes ?? []).map((node) => [node.id, stableJson(node)]));
-  const after = new Map(revisedPlan.nodes.map((node) => [node.id, stableJson(node)]));
-  return findings.filter((finding) => after.has(finding.nodeId) && before.get(finding.nodeId) === after.get(finding.nodeId));
-}
-
-/**
- * The write files the plan going into a revise declared that the revised plan
- * no longer declares, one finding per (node id, path). This is the check the
- * scope-closure validator cannot make: a shrink satisfies closure without a
- * judgement about any importer, so the cheap move needs a comparator of its
- * own. Severity is critical — a drop is not automatically wrong, but it is
- * always worth a second look, and only a critical finding reaches the round
- * loop's revise-or-contest decision; major would ride along in the findings
- * file while the plan froze. Nodes are matched by id alone: a node the
- * revision renamed or removed entirely is out of scope, because tracking
- * identity across a rename is a judgement about the graph this check does
- * not make — a removed node's writes were reviewed as a removal, not as a
- * silent shrink.
- *
- * Membership is judged against the whole revised plan, not against the node
- * that used to hold the path. A revise that splits one node in two and hands
- * a file to the new sibling has not dropped that file: it is still declared,
- * still reviewable, and the graph change is visible in the plan. Measured
- * 2026-09-21 on durable-state-integrity phase 1, where a per-node test made
- * exactly that move a critical and contested a sound plan — the draft's only
- * node wrote src/repo/worktree.mjs and src/engine/cancel.mjs, and the revise
- * layered them into worktree-preserve-ref-verb and
- * cancel-preserves-integrated-heads, which is the decomposition this
- * repository's own layering asks for.
- *
- * @param {PlanOutput|null} previousPlan the plan the revise revised, null when the draft never validated
- * @param {PlanOutput|null} revisedPlan the plan the revise produced, null when its output was refused
- * @returns {PlanFindingOutput[]}
- */
-export function droppedWriteFindings(previousPlan, revisedPlan) {
-  if (!previousPlan || !revisedPlan) return [];
-  const before = new Map(previousPlan.nodes.map((node) => [node.id, new Set(node.writeFiles)]));
-  const stillDeclared = new Set(revisedPlan.nodes.flatMap((node) => node.writeFiles));
-  /** @type {PlanFindingOutput[]} */
-  const findings = [];
-  for (const node of revisedPlan.nodes) {
-    const previousWrites = before.get(node.id);
-    if (!previousWrites) continue;
-    let dropped = 0;
-    for (const path of previousWrites) {
-      if (stillDeclared.has(path)) continue;
-      dropped += 1;
-      findings.push({
-        id: `dropped-write-${node.id}-${dropped}`,
-        severity: "critical",
-        nodeId: node.id,
-        text: `Node ${node.id} no longer declares ${path} in writeFiles, which the plan this revise revised did declare, and no other node in the revised plan declares it either. Declare it again on whichever node owns the work: the resolution to a scope-closure finding is to declare or acknowledge the dragged-along file, never to drop a write the node needs — a smaller write set clears the same finding while leaving the worker unable to do the work. Moving the file to another node is a resolution; removing it from the plan is not.`,
-      });
-    }
-  }
-  return findings;
 }
 
 /**
@@ -725,6 +533,109 @@ export function carryPhaseDeclarations(phases, transformations) {
     if (phase.nodeIds === undefined) return phase;
     return { ...phase, nodeIds: [...new Set(phase.nodeIds.map(resolve))] };
   });
+}
+
+/**
+ * Tag an error with the sizing/routing sub-stage that threw it, so a catch
+ * far from here (this module's own freeze-wrap, or `resolve.mjs`'s) can name
+ * it precisely instead of defaulting to whichever stage it last saw start.
+ *
+ * @param {string} planStage
+ * @param {unknown} error
+ * @returns {Error}
+ */
+function taggedStageError(planStage, error) {
+  const wrapped = error instanceof Error ? error : new Error(String(error));
+  return Object.assign(wrapped, { planStage });
+}
+
+/**
+ * The one assembly a plan freezes through: sizing reshapes the drafted
+ * nodes, routing assigns worker and judge, and `toContractNode` renders the
+ * contract shape. Exported (rather than kept a `runPlanningPipeline`
+ * closure) so both the in-round pre-flight there and `resolve.mjs`'s
+ * freeze-only resume run the identical reshape over a plan, wherever that
+ * plan came from — a fresh draft/revise or one read back off a contested
+ * `plan.json`.
+ *
+ * @param {PlanOutput} currentPlan
+ * @param {{repoFacts: import("./repo-facts.mjs").RepoFacts, packageMode: import("./sizing.mjs").PackageMode, targetedFix: boolean, phase: string, cwd: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}}} ctx
+ * @returns {AssembledPlan}
+ */
+export function assembleFrozenPlan(currentPlan, ctx) {
+  const { repoFacts, packageMode, targetedFix, phase, cwd, runtimes, runtimeDefaults } = ctx;
+  let sizing;
+  try {
+    sizing = applySizingRules(
+      { nodes: currentPlan.nodes.map(toSizingNode), justification: currentPlan.justification },
+      { nodeBudgetMs: DEFAULT_NODE_BUDGET_MS, facts: repoFacts, minWriteFiles: MIN_WRITE_FILES, turnCeiling: DEFAULT_MAX_TURNS, packageMode, readVolume: (path) => fileLineCount(join(cwd, path)), targetedFix },
+    );
+  } catch (error) {
+    throw taggedStageError("sizing", error);
+  }
+  let routing;
+  try {
+    routing = resolveRuntimes(sizing.plan.nodes, {
+      table: [...DEFAULT_ROUTING_TABLE],
+      runtimes: /** @type {Record<string, import("./routing.mjs").RoutingRuntime>} */ (runtimes),
+      availability: availabilityOf(runtimes),
+      runtimeDefaults,
+    });
+  } catch (error) {
+    throw taggedStageError("routing", error);
+  }
+  return {
+    sizing,
+    routing,
+    nodes: sizing.plan.nodes.map((node) => toContractNode(/** @type {SizedPlanNode} */ (node), phase, routing.assignments[node.id])),
+    // The declarations a reviewer saw, remapped onto the nodes sizing
+    // actually produced: a merge removes a node id, and a declaration that
+    // named it must now name the node that absorbed it or freeze would see
+    // an unknown assignment.
+    phases: carryPhaseDeclarations(currentPlan.phases, sizing.transformations),
+  };
+}
+
+/**
+ * The raw contract exactly as `freezePlan` will assemble and validate it,
+ * schemaVersion and contractVersion included. It takes the whole assembly
+ * rather than its nodes because the contract carries a run-level conclusion
+ * of sizing's too (`maxParallel`), and the in-round pre-flight must validate
+ * the same bytes the freeze writes. Exported alongside `assembleFrozenPlan`
+ * for the same reason.
+ *
+ * @param {AssembledPlan} assembly
+ * @param {{campaignId: string, phase: string, campaignGoal: string, cwd: string, plansDir: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, verification: VerificationSuites}} ctx
+ * @returns {JsonObject}
+ */
+export function frozenContractRawOf({ sizing, nodes }, ctx) {
+  const { campaignId, phase, campaignGoal, cwd, plansDir, runtimes, runtimeDefaults, verification } = ctx;
+  return {
+    schemaVersion: PROTOCOL_SCHEMA_VERSION,
+    contractVersion: CONTRACT_VERSION,
+    id: `${campaignId}-${phase}`,
+    campaignId,
+    goal: campaignGoal,
+    // `freezePlan` writes contract.json inside `outDir` (`plansDir`), so
+    // `cwd` has to point back at the repo root from there, exactly like
+    // `runStage` computes it for the nodes it writes under `plansDir/nodes/`.
+    cwd: relative(plansDir, cwd) || ".",
+    // Sizing's `parallelisable` conclusion, which nothing else carries: a
+    // contract node has no `parallel` field, so a plan that says nothing here
+    // freezes at the validator's default of 1 and every independent node it
+    // proved waits for its turn. What the engine does with the number is the
+    // scheduler's business; declaring it is this stage's.
+    maxParallel: provenParallelism(sizing.plan),
+    runtimes,
+    runtimeDefaults,
+    // The operator's ratchets, carried verbatim: which suites a repository
+    // runs on every node is the operator's policy, supplied through
+    // `--verification`, never derived from repository facts. Validated at the
+    // flag boundary, so freeze neither re-derives nor edits them.
+    ...(verification.sharedVerification ? { sharedVerification: verification.sharedVerification } : {}),
+    ...(verification.finalVerification ? { finalVerification: verification.finalVerification } : {}),
+    nodes,
+  };
 }
 
 /**

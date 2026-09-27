@@ -1,0 +1,12 @@
+{"at":"2026-09-25T04:47:30.069Z","node":"single-provider","to":"running","phase":"worker","runtime":"claude-sonnet"}
+{"at":"2026-09-25T04:47:31.582Z","node":"proof-check","to":"running","phase":"worker","runtime":"claude-sonnet"}
+{"at":"2026-09-25T05:05:52.982Z","node":"proof-check","to":"done","phase":"complete","runtime":"claude-sonnet","verdict":"pass"}
+{"at":"2026-09-25T05:05:55.059Z","node":"human-step","to":"running","phase":"worker","runtime":"claude-sonnet"}
+{"at":"2026-09-25T05:26:47.282Z","node":"single-provider","to":"running","phase":"judge","runtime":"claude-opus"}
+{"at":"2026-09-25T05:35:33.323Z","node":"human-step","to":"running","phase":"judge","runtime":"claude-opus"}
+{"at":"2026-09-25T05:35:36.004Z","node":"single-provider","to":"running","phase":"worker","runtime":"claude-sonnet","verdict":"fail","revisions":1}
+{"at":"2026-09-25T05:36:14.924Z","node":"human-step","to":"running","phase":"judge","runtime":"claude-opus","verdict":"fail"}
+{"at":"2026-09-25T05:36:34.502Z","node":"human-step","to":"running","phase":"worker","runtime":"claude-sonnet","verdict":"fail","revisions":1}
+{"at":"2026-09-25T05:47:24.105Z","node":"human-step","to":"exhausted","phase":"worker","runtime":"claude-sonnet","verdict":"fail","error":"quota_exhausted","revisions":1}
+{"at":"2026-09-25T05:47:25.162Z","node":"reviewer-list","to":"blocked","phase":"dependency","error":"dependency_failed"}
+{"at":"2026-09-25T05:47:25.666Z","node":"single-provider","to":"exhausted","phase":"worker","runtime":"claude-sonnet","verdict":"fail","error":"quota_exhausted","revisions":1}

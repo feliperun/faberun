@@ -25,7 +25,7 @@ import { validateVerificationCommands } from "../contract/verification.mjs";
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
 /** @typedef {"draft"|"review"|"revise"|"spec-author"|"spec-review"} PlanningKind */
 /** @typedef {"low"|"standard"|"high"} RiskTier */
-/** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, specPath?: string, repoFactsPath?: string, cataloguePath?: string, packageMode?: import("./sizing.mjs").PackageMode, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
+/** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, reviewerId?: string, specPath?: string, repoFactsPath?: string, cataloguePath?: string, packageMode?: import("./sizing.mjs").PackageMode, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
 /** @typedef {{id: string, objective: string, taskKind: string, riskTier: RiskTier, dependsOn: string[], readFiles: string[], writeFiles: string[], scopeAcknowledged: string[], definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], verification: import("../contract/verification.mjs").VerificationCommand[], expectedTurns?: number}} PlanOutputNode */
 /** @typedef {{nodes: PlanOutputNode[], phases?: PlanPhase[], findings?: PlanFindingOutput[], justification?: string}} PlanOutput */
 /** @typedef {{id: string, requirementIds: string[], nodeIds?: string[], deliverable: string}} PlanPhase */
@@ -78,26 +78,30 @@ export function renderTaskKindCatalogue() {
 }
 
 /**
- * Which of the caller's `runtimeDefaults` roles resolves this contract's
- * single node. A draft or revise is authored by the worker role; a review or
- * spec-review is graded by the judge role — there is no gate on this
- * single-node contract, so the role only decides which runtime id the node
- * itself carries.
+ * Which of the caller's runtime inputs resolves this contract's single node.
+ * A draft or revise is authored by the worker role, read off
+ * `runtimeDefaults.worker`; a review or spec-review is graded by the
+ * reviewer role, read off `inputs.reviewerId` instead (R19) -- the planner's
+ * own ordered reviewer list (`reviewer.mjs`), never `runtimeDefaults.judge`,
+ * which is R18's judge-list default for the frozen contract's nodes and
+ * shares nothing with this one. There is no gate on this single-node
+ * contract, so the role only decides which runtime id the node itself
+ * carries.
  *
- * @type {Record<PlanningKind, "worker"|"judge">}
+ * @type {Record<PlanningKind, "worker"|"reviewer">}
  */
 const KIND_ROLE = Object.freeze({
   draft: "worker",
   revise: "worker",
   "spec-author": "worker",
-  review: "judge",
-  "spec-review": "judge",
+  review: "reviewer",
+  "spec-review": "reviewer",
 });
 
 /** @type {Record<PlanningKind, string[]>} */
 const REQUIRED_INPUTS = Object.freeze({
   draft: ["specPath", "repoFactsPath", "cataloguePath"],
-  revise: ["specPath", "repoFactsPath", "cataloguePath", "findingsPath"],
+  revise: ["specPath", "repoFactsPath", "cataloguePath", "findingsPath", "planPath"],
   review: ["specPath", "repoFactsPath", "planPath"],
   "spec-author": ["notesPath"],
   "spec-review": ["specPath"],
@@ -144,6 +148,14 @@ function instructionsFor(kind, inputs) {
   return INSTRUCTIONS[kind].map((line) => (line === SIZING_INSTRUCTION ? EXPLORATORY_SIZING_INSTRUCTION : line));
 }
 
+// AP1 of safe-to-hand-to-a-friend, measured 2026-09-26: a draft copied the
+// spec's requirement proof `node --test --test-name-pattern="<title>"` into a
+// Definition of Done item with no file, which runs every test file in the
+// tree and read as having measured nothing; two nodes exhausted on it. The
+// freeze now refuses that shape (proof-scope.mjs); this is the same rule told
+// to the author, so the draft never writes it.
+const NAMED_TEST_FILE_RULE = 'A command that filters node:test by name (--test-name-pattern) names the test file it selects from, as in node --test --test-name-pattern="<exact test title>" test/<area>/<file>.test.mjs: with no path node --test runs every test file in the tree and the freeze refuses it. A requirement proof the spec writes without a file gains the file of the test that carries that title.';
+
 // The rule every planned packet is held to at freeze time, worded from
 // AGENTS.md's Faberun protocol and src/repo/scope-closure.mjs ("reading it
 // cannot fix it"): a first draft that ignores it produces a plan that fails
@@ -157,7 +169,7 @@ const SCOPE_CLOSURE_RULE = Object.freeze([
 /** @type {Record<PlanningKind, string>} */
 const OBJECTIVES = Object.freeze({
   draft: "Draft an execution plan for this phase: classify every node's taskKind and riskTier from the spec and the repository facts, and propose the dependency graph.",
-  revise: "Revise the plan to resolve every one of the reviewer's findings, keeping the same classification and graph shape as a fresh draft.",
+  revise: "Revise the plan in readFiles to resolve every one of the reviewer's findings, changing only what a finding requires.",
   review: "Review this plan against the spec and the repository facts, and report only findings.",
   "spec-author": "Turn free notes into a structured spec document following the spec format.",
   "spec-review": "Review this spec for traceability and completeness, and report only findings.",
@@ -169,14 +181,17 @@ const INSTRUCTIONS = Object.freeze({
     `Consult the ${TASK_KIND_CATALOGUE_FILE} in readFiles before classifying any node; taskKind must be one of that catalogue and riskTier must be one of ${RISK_TIERS.join(", ")}.`,
     "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies, the planned node ids it assigns, and the deliverable it produces in one sentence. Every planned node must appear in exactly one phase's nodeIds; a missing, duplicate, or unknown node assignment is refused.",
     ...SCOPE_CLOSURE_RULE,
+    NAMED_TEST_FILE_RULE,
     `Return exactly one worker-result JSON object. Put the plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan. taskKind and riskTier are the only classification a draft makes; a routing table assigns a runtime afterward, from those two fields alone.",
     SIZING_INSTRUCTION,
   ],
   revise: [
+    "Start from the plan JSON in readFiles, the plan the findings were raised against, and return it with only the changes the findings require. Keep every node id, write file and definitionOfDone item that no finding asks you to change: a revise that redrafts from the findings alone loses what the plan already got right.",
     "Read the findings and resolve every one; do not leave a critical or major finding unaddressed.",
     "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies, the planned node ids it assigns, and the deliverable it produces in one sentence. Every planned node must appear in exactly one phase's nodeIds; a missing, duplicate, or unknown node assignment is refused.",
     ...SCOPE_CLOSURE_RULE,
+    NAMED_TEST_FILE_RULE,
     `Return exactly one worker-result JSON object. Put the revised plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan.",
     SIZING_INSTRUCTION,
@@ -214,7 +229,7 @@ const NON_GOALS = Object.freeze({
 function readFilesForKind(kind, inputs) {
   if (kind === "draft") return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.cataloguePath)];
   if (kind === "revise") {
-    return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.cataloguePath), /** @type {string} */ (inputs.findingsPath)];
+    return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.cataloguePath), /** @type {string} */ (inputs.findingsPath), /** @type {string} */ (inputs.planPath)];
   }
   if (kind === "review") return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.planPath)];
   if (kind === "spec-author") return [/** @type {string} */ (inputs.notesPath)];
@@ -243,7 +258,7 @@ export function buildPlanningContract(kind, inputs) {
 
   const readFiles = readFilesForKind(kind, inputs);
   const role = KIND_ROLE[kind];
-  const runtimeId = (inputs.runtimeDefaults ?? {})[role];
+  const runtimeId = role === "reviewer" ? inputs.reviewerId : (inputs.runtimeDefaults ?? {})[role];
 
   /** @type {JsonObject} */
   const taskPacket = {
@@ -328,8 +343,15 @@ export function validatePlanOutput(plan) {
     // round could not resolve the finding the preflight had just raised.
     const scopeAcknowledged = nodeRecord.scopeAcknowledged ?? [];
     requireStringArray(scopeAcknowledged, `${label}.scopeAcknowledged`);
-    const definitionOfDone = validateDefinitionOfDone(nodeRecord.definitionOfDone ?? [], `${label}.definitionOfDone`);
+    // Verification is validated first so a DoD proof that names a verification
+    // command by its exact text (R21) can be checked and normalized to that
+    // command's index against this node's own commands, in hand here.
     const verification = validateVerificationCommands(nodeRecord.verification ?? [], `${label}.verification`);
+    const definitionOfDone = validateDefinitionOfDone(
+      nodeRecord.definitionOfDone ?? [],
+      `${label}.definitionOfDone`,
+      { commands: verification, nodeId: /** @type {string} */ (nodeRecord.id) },
+    );
     const expectedTurns = nodeRecord.expectedTurns === undefined ? undefined : positiveInteger(nodeRecord.expectedTurns, `${label}.expectedTurns`);
     return /** @type {PlanOutputNode} */ ({
       id: /** @type {string} */ (nodeRecord.id),

@@ -11,11 +11,14 @@ import { PARKED } from "./prompts.mjs";
 import { composeAssignments, discoverRuntimes } from "./runtime-discovery.mjs";
 import { readUserConfig } from "../host/config.mjs";
 import { transition } from "./state.mjs";
+import { isHumanStepPending } from "../contract/human-step.mjs";
+import { initialJudgeListState, resolveJudgeList } from "./judge-list.mjs";
 
 /** @typedef {import("../cli.mjs").LockHandle} LockHandle */
 /** @typedef {import("../contract/index.mjs").NodeSnapshot} NodeSnapshot */
 /** @typedef {import("./runtime-discovery.mjs").RuntimeAvailability} RuntimeAvailability */
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
+/** @typedef {import("../contract/index.mjs").JudgeListState} JudgeListState */
 
 /**
  * Resolve role assignments once at run creation. Discovery is used only for
@@ -30,7 +33,7 @@ import { transition } from "./state.mjs";
  * observables); it widens when a reader needs the record durably.
  *
  * @param {ValidatedContract} contract
- * @returns {Promise<{assignments: Record<string, {worker: string, judge: string, composedWorker: boolean, composedJudge: boolean}>, decisions: Record<string, {worker: {strategy: string|null, reason: string}, judge: {strategy: string|null, reason: string}}>, availability: Record<string, import("./runtime-discovery.mjs").RuntimeAvailability>}>}
+ * @returns {Promise<{assignments: Record<string, {worker: string, judge: string, composedWorker: boolean, composedJudge: boolean}>, decisions: Record<string, {worker: {strategy: string|null, reason: string}, judge: {strategy: string|null, reason: string}}>, availability: Record<string, import("./runtime-discovery.mjs").RuntimeAvailability>, judgeListStates: Record<string, JudgeListState|undefined>}>}
  */
 export async function runtimeAssignments(contract) {
   const needsComposition = contract.nodes.some((node) =>
@@ -38,7 +41,27 @@ export async function runtimeAssignments(contract) {
     || (node.gate.enabled && node.gate.runtime === undefined && contract.runtimeDefaults?.judge === undefined));
   const availability = needsComposition ? await discoverRuntimes(contract.runtimes, { cwd: contract.cwd }) : {};
   const config = readUserConfig(process.env);
-  const assignments = composeAssignments(contract, availability, { config });
+  const list = resolveJudgeList(contract, config);
+  /** @type {Record<string, JudgeListState|undefined>} */
+  const judgeListStates = {};
+  // R18: an omitted judge reads the ordered list, contract over machine
+  // config, before `composeAssignments`' own single `config.judge` preference
+  // and strongest-candidate default. The callback records the evidence
+  // (`judgeListStates`) as a side effect and returns `undefined` only for a
+  // node the list does not govern (its gate is disabled), which falls through
+  // to those candidates unchanged; once the list governs, its pick is final --
+  // the whole state, so an exhausted list's thrown error can still name every
+  // skip, not just `chosen` (`null` when every entry was skipped), which
+  // `composeAssignments` must not fall through either.
+  const listJudge = list
+    ? (/** @type {{id: string, gate: {enabled: boolean}}} */ node, /** @type {string} */ workerId) => {
+      if (!node.gate.enabled) return undefined;
+      const judgeListState = initialJudgeListState(contract, list, workerId);
+      judgeListStates[node.id] = judgeListState;
+      return judgeListState;
+    }
+    : undefined;
+  const assignments = composeAssignments(contract, availability, { config, listJudge });
   /** @type {Record<string, {worker: {strategy: string|null, reason: string}, judge: {strategy: string|null, reason: string}}>} */
   const decisions = {};
   return {
@@ -54,20 +77,28 @@ export async function runtimeAssignments(contract) {
       const workerSource = node?.runtime !== undefined
         ? "node runtime"
         : contract.runtimeDefaults?.worker !== undefined ? "runtimeDefaults.worker" : null;
+      // A list state exists only when the callback actually ran for this node
+      // (composedJudge). An exhausted list (chosen null) never reaches this
+      // point at all: composeAssignments throws before this map runs rather
+      // than falling through to the discovery ranking.
+      const fromList = judgeListStates[nodeId]?.chosen === assignment.judge;
       decisions[nodeId] = {
         worker: {
           strategy: composedWorker ? "cost" : workerSource !== null ? "declared" : null,
           reason: composedWorker ? "discovery: cheapest available runtime" : /** @type {string} */ (workerSource),
         },
         judge: {
-          strategy: composedJudge ? "priority" : judgeSource !== null ? "declared" : null,
-          reason: composedJudge ? "discovery: strongest available runtime" : /** @type {string} */ (judgeSource ?? "no judge required"),
+          strategy: composedJudge ? (fromList ? "judge-list" : "priority") : judgeSource !== null ? "declared" : null,
+          reason: composedJudge
+            ? (fromList ? `judge list: chose ${assignment.judge}` : "discovery: strongest available runtime")
+            : /** @type {string} */ (judgeSource ?? "no judge required"),
         },
       };
       return [nodeId, { ...assignment, composedWorker, composedJudge }];
     })),
     decisions,
     availability,
+    judgeListStates,
   };
 }
 /**
@@ -85,6 +116,11 @@ export function blockDependents(contract, runDir, states, lock) {
     // automatic retry is still unspent is re-opened to `pending` before this
     // runs, so the dependants stay `pending`/`phase: "waiting"` until it parks.
     const blockedBy = node.dependsOn.filter((id) => PARKED.has(states.get(id)?.status ?? ""));
-    if (blockedBy.length) transition(runDir, state, "blocked", { phase: "dependency", blockedBy, error: { code: "dependency_failed", message: `blocked by ${blockedBy.join(", ")}` } }, lock);
+    // A dependant of a pending human step (R16) is waiting, not failed: the
+    // code stays `dependency_failed` so `resume --answer` re-opens it, and the
+    // message says what it waits for.
+    const waiting = blockedBy.every((id) => isHumanStepPending(/** @type {NodeSnapshot} */ (states.get(id))));
+    const message = waiting ? `waiting for human step ${blockedBy.join(", ")}` : `blocked by ${blockedBy.join(", ")}`;
+    if (blockedBy.length) transition(runDir, state, "blocked", { phase: "dependency", blockedBy, error: { code: "dependency_failed", message } }, lock);
   }
 }

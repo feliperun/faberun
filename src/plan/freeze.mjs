@@ -21,8 +21,10 @@ import { assertObject, rejectUnknown, requirePacketHash, requireString } from ".
 import { writeJsonAtomic, writeTextAtomic } from "../run/store.mjs";
 import { VERIFICATION_LIMITS } from "../contract/verification.mjs";
 import { validatePlanPhases } from "./template.mjs";
+import { NODE_VALUE_OPTIONS, assertFilteredProofsNameTheirTest } from "./proof-scope.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
+/** @typedef {import("./human-step.mjs").HumanStep} PlanHumanStep */
 
 /** @typedef {{runtimeId: string, model: string}} PlanParticipant */
 /** @typedef {{id: string, severity: "minor"|"major"|"critical", nodeId?: string, text: string}} PlanFinding */
@@ -30,7 +32,7 @@ import { validatePlanPhases } from "./template.mjs";
 /** @typedef {PlanProvenanceInput & {packageVersion: string, schemaVersion: number, contractVersion: string}} PlanProvenance */
 /** @typedef {{id: string, requirementIds: string[], nodeIds?: string[], deliverable: string}} PlanPhase */
 /** @typedef {{path: string, digest: string}} PlanSpecIdentity */
-/** @typedef {{formatVersion: number, contractDigest: string, spec?: PlanSpecIdentity, phases?: PlanPhase[], provenance: PlanProvenance}} FrozenPlan */
+/** @typedef {{formatVersion: number, contractDigest: string, spec?: PlanSpecIdentity, phases?: PlanPhase[], humanSteps?: PlanHumanStep[], provenance: PlanProvenance}} FrozenPlan */
 /** @typedef {{ok: boolean, digest: string, expectedDigest: string}} FrozenPlanVerdict */
 /** @typedef {{scripts?: Record<string, string>, verificationCandidates: {argv: string[], measuredMs: number}[]}} MeasuredFacts */
 
@@ -46,8 +48,6 @@ const MEASURED_TIMEOUT_MARGIN = 1.5;
 /** `node --test` options that run a subset of the files they name. */
 const FILTER_OPTIONS = ["--test-name-pattern", "--test-skip-pattern", "--test-only", "--test-shard"];
 
-/** `node` options whose value is the next argument, so it is not a path. */
-const NODE_VALUE_OPTIONS = new Set(["--import", "--require", "-r", "--loader", "--experimental-loader", "--env-file", "--test-reporter", "--test-reporter-destination", "--test-name-pattern", "--test-skip-pattern", "--test-concurrency", "--test-timeout"]);
 
 /**
  * The `node --test <dir>` candidates one path argument includes: a directory
@@ -134,6 +134,38 @@ export function assertTimeoutsCoverMeasured(contract, facts) {
   if (problems.size) throw new TypeError(`verification timeouts do not cover their measured durations: ${[...problems].join("; ")}`);
 }
 
+/**
+ * Raise every plan node's verification timeout that sits under
+ * `MEASURED_TIMEOUT_MARGIN` times its measured duration to exactly that
+ * bound — the one repair `assertTimeoutsCoverMeasured` names, so it has a
+ * single answer and needs no worker. A command whose bound passes
+ * `maxTimeoutSec` is left alone: splitting it is a judgement, and the check
+ * still contests it. Measured 2026-09-26 on the 3a gate: four rounds left a
+ * plan with no critical from review, contested only because three nodes gave
+ * `node --test test/harnesses` 120s against a measured 84.4s (bound 127s).
+ *
+ * @param {import("./template.mjs").PlanOutput} plan
+ * @param {MeasuredFacts} facts
+ * @returns {{plan: import("./template.mjs").PlanOutput, raised: string[]}}
+ */
+export function raiseTimeoutsToMeasured(plan, facts) {
+  /** @type {string[]} */
+  const raised = [];
+  const nodes = plan.nodes.map((node) => ({
+    ...node,
+    verification: (node.verification ?? []).map((command) => {
+      const measuredMs = measuredMsFor(command.argv, facts);
+      if (measuredMs === null) return command;
+      const requiredSec = Math.ceil((measuredMs * MEASURED_TIMEOUT_MARGIN) / 1_000);
+      const timeoutSec = command.timeoutSec ?? 120;
+      if (timeoutSec >= requiredSec || requiredSec > VERIFICATION_LIMITS.maxTimeoutSec) return command;
+      raised.push(`${node.id}: ${command.argv.join(" ")} ${timeoutSec}s -> ${requiredSec}s`);
+      return { ...command, timeoutSec: requiredSec };
+    }),
+  }));
+  return { plan: raised.length ? { ...plan, nodes } : plan, raised };
+}
+
 /** @returns {string} the installed package's own version, read once per call so a freeze always names the toolchain that produced it */
 function packageVersion() {
   const packageJsonPath = fileURLToPath(new URL("../../package.json", import.meta.url));
@@ -215,6 +247,78 @@ function specIdentityOf(spec) {
   return { path: /** @type {string} */ (record.path), digest: /** @type {string} */ (record.digest) };
 }
 
+/** The fields a human step declaration carries: requirementId|step|command. */
+const HUMAN_STEP_FIELDS = new Set(["requirementId", "step", "command"]);
+
+/**
+ * The human steps a frozen plan records, shape-checked before anything is
+ * written. Absent or empty is legal: most plans declare none.
+ *
+ * @param {unknown} humanSteps
+ * @returns {PlanHumanStep[]|undefined}
+ */
+function humanStepsOf(humanSteps) {
+  if (humanSteps === undefined) return undefined;
+  if (!Array.isArray(humanSteps) || humanSteps.length === 0) return undefined;
+  return humanSteps.map((step, index) => {
+    const label = `humanSteps[${index}]`;
+    assertObject(step, label);
+    const record = /** @type {Record<string, unknown>} */ (step);
+    rejectUnknown(record, HUMAN_STEP_FIELDS, label);
+    requireString(record.requirementId, `${label}.requirementId`);
+    requireString(record.step, `${label}.step`);
+    requireString(record.command, `${label}.command`);
+    return /** @type {PlanHumanStep} */ ({
+      requirementId: /** @type {string} */ (record.requirementId),
+      step: /** @type {string} */ (record.step),
+      command: /** @type {string} */ (record.command),
+    });
+  });
+}
+
+/**
+ * Add one human node per declared step (R16): the frozen contract node the
+ * scheduler stops on instead of dispatching (`contract/human-step.mjs`
+ * validates the shape; the scheduler reads it at dispatch time). The node the
+ * planner drafted for the requirement keeps its own provider work: the human
+ * node depends on every node that carries the requirement (matched by the
+ * already-inherited `requirementIds`), and every node that depended on one of
+ * those carriers now waits for the human node too. A requirement no node
+ * carries still gets its stop, with no dependencies. The packet is a
+ * discovery packet with no files because it is never dispatched; only its
+ * `humanStep` is read.
+ *
+ * @param {unknown} nodes
+ * @param {PlanHumanStep[]} humanSteps
+ * @returns {unknown}
+ */
+function addHumanStepNodes(nodes, humanSteps) {
+  if (!Array.isArray(nodes)) return nodes;
+  let records = nodes.map((node) => /** @type {Record<string, unknown>} */ (node && typeof node === "object" ? node : {}));
+  for (const step of humanSteps) {
+    const id = `human-step-${step.requirementId.toLowerCase()}`;
+    if (records.some((record) => record.id === id)) throw new TypeError(`human step node id ${id} is already a planned node id`);
+    const carriers = records.filter((record) => Array.isArray(record.requirementIds) && record.requirementIds.includes(step.requirementId));
+    const carrierIds = new Set(carriers.map((record) => /** @type {string} */ (record.id)));
+    records = records.map((record) => {
+      const dependsOn = Array.isArray(record.dependsOn) ? /** @type {string[]} */ (record.dependsOn) : [];
+      if (carrierIds.has(/** @type {string} */ (record.id)) || !dependsOn.some((dependency) => carrierIds.has(dependency))) return record;
+      return { ...record, dependsOn: [...dependsOn, id] };
+    });
+    records.push({
+      id,
+      type: "human",
+      ...(carriers[0]?.phase === undefined ? {} : { phase: carriers[0].phase }),
+      requirementIds: [step.requirementId],
+      dependsOn: [...carrierIds],
+      gate: false,
+      humanStep: { step: step.step, command: step.command },
+      taskPacket: { mode: "discovery", objective: step.step, instructions: [`The operator runs \`${step.command}\` and records it done with faberun resume --answer.`], readFiles: [], writeFiles: [], symbols: [], decisions: [], nonGoals: [], verification: [] },
+    });
+  }
+  return records;
+}
+
 /**
  * The SHA-256 of a file's exact bytes: the independent digest a frozen plan's
  * `plan.json.sha256` sidecar carries, recomputable by a reader without parsing
@@ -272,16 +376,18 @@ export function writeFrozenPlanRecord(outDir, record) {
  * validatePlanOutput applies, and recorded on plan.json verbatim.
  * `options.spec` carries the structured spec's path and content digest; when
  * given, both are recorded so a reader can pin the plan to the exact spec it
- * was planned from.
+ * was planned from. `options.humanSteps` carries the operator steps R16
+ * detected in the spec's requirements (`human-step.mjs`); recorded verbatim
+ * as the explicit stop the frozen plan carries for each of them.
  *
  * @param {JsonObject} plan
  * `options.facts` carries repo facts' measured durations; given, a
  * verification timeout that does not cover one is refused.
  *
- * @param {{outDir: string, provenance: PlanProvenanceInput, phases?: import("./template.mjs").PlanPhase[], spec?: PlanSpecIdentity, facts?: MeasuredFacts}} options
+ * @param {{outDir: string, provenance: PlanProvenanceInput, phases?: import("./template.mjs").PlanPhase[], spec?: PlanSpecIdentity, humanSteps?: PlanHumanStep[], facts?: MeasuredFacts}} options
  * @returns {FrozenPlan}
  */
-export function freezePlan(plan, { outDir, provenance, phases, spec, facts }) {
+export function freezePlan(plan, { outDir, provenance, phases, spec, humanSteps, facts }) {
   // Shape-checked before anything is written, so a malformed declaration
   // leaves the outDir exactly as it was — the same failure discipline as the
   // validateContract rollback below. A declaration in the nodeIds shape must
@@ -290,19 +396,23 @@ export function freezePlan(plan, { outDir, provenance, phases, spec, facts }) {
   // report rather than a reason to refuse the freeze.
   const phaseDeclarations = validatePlanPhases(phases, plannedNodeIdsOf(plan.nodes));
   const specIdentity = specIdentityOf(spec);
+  const humanStepList = humanStepsOf(humanSteps);
   mkdirSync(outDir, { recursive: true });
   const contractPath = join(outDir, "contract.json");
+  const requirementStampedNodes = phaseDeclarations ? stampPhaseRequirementIds(plan.nodes, phaseDeclarations) : plan.nodes;
+  const stampedNodes = humanStepList ? addHumanStepNodes(requirementStampedNodes, humanStepList) : requirementStampedNodes;
   const raw = /** @type {JsonObject} */ ({
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
     contractVersion: CONTRACT_VERSION,
     ...plan,
     // Listed again, not mutated in place, so the caller's plan object keeps
     // the shape it was reviewed with.
-    ...(phaseDeclarations ? { nodes: stampPhaseRequirementIds(plan.nodes, phaseDeclarations) } : {}),
+    ...(phaseDeclarations || humanStepList ? { nodes: stampedNodes } : {}),
   });
   writeJsonAtomic(contractPath, raw);
   try {
     const validated = validateContract(raw, contractPath);
+    assertFilteredProofsNameTheirTest(validated);
     if (facts) assertTimeoutsCoverMeasured(validated, facts);
   } catch (error) {
     rmSync(contractPath, { force: true });
@@ -318,6 +428,7 @@ export function freezePlan(plan, { outDir, provenance, phases, spec, facts }) {
     // contract schema takes no extra field), so the traceability a reviewer
     // saw is readable straight off plan.json, nodeIds included.
     ...(phaseDeclarations === undefined ? {} : { phases: phaseDeclarations }),
+    ...(humanStepList === undefined ? {} : { humanSteps: humanStepList }),
     provenance: {
       packageVersion: packageVersion(),
       schemaVersion: /** @type {number} */ (raw.schemaVersion),

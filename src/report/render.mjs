@@ -5,6 +5,7 @@ import { readJson, writeJsonAtomic } from "../run/store.mjs";
 import { lockStale, pidAlive, readLock } from "../run/lock.mjs";
 import { scopeFindingsNote, verificationArtifactsNote } from "../contract/scope-findings.mjs";
 import { reviewNote } from "../contract/review-modes.mjs";
+import { SAME_PROVIDER_REVIEW_LABEL } from "../contract/judge-independence.mjs";
 import { validateNodeSnapshot, validateRunMetadata } from "../contract/snapshot.mjs";
 import { compactCost, compactTokens, truncateChars } from "../util.mjs";
 import { listNodeSnapshots, nodeSnapshotPath } from "../run/node-store.mjs";
@@ -32,7 +33,7 @@ const POINTER_ATTENTION_CHARS = 80;
 /** @typedef {{inputTokens: number|null, outputTokens: number|null, cacheReadInputTokens: number|null}} StatusPayloadUsage */
 /** @typedef {{index: number, total: number, argv: string}} VerificationProgress */
 /** @typedef {{verdict: string, maxSeverity: string, findingCount: number, summary: string|null}} StatusPayloadGate */
-/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, judgeRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, roleCostUsd: {worker: number|null, judge: number|null}, costProvenance: {worker: string, judge: string}, verdict: string|null, gate: StatusPayloadGate|null, gateOutcome: "passed"|"rejected"|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, verificationArtifacts: string[]|null, errorCode: string|null, blockedBy: string[], verificationProgress: VerificationProgress|null, declaredReadBytes: number|null}} StatusPayloadNode */
+/** @typedef {{id: string, status: NodeStatus, phase: string|null, executionPhase: string|null, runtime: string|null, workerRuntime: string|null, judgeRuntime: string|null, continuation: string, attempt: number, revisions: number, startedAt: string|null, updatedAt: string|null, usage: StatusPayloadUsage|null, costUsd: number|null, roleCostUsd: {worker: number|null, judge: number|null}, costProvenance: {worker: string, judge: string}, verdict: string|null, gate: StatusPayloadGate|null, gateOutcome: "passed"|"rejected"|null, pendingHandoff: {runtime: string, reason: string}|null, note: string|null, scopeFindings: string[]|null, verificationArtifacts: string[]|null, errorCode: string|null, blockedBy: string[], verificationProgress: VerificationProgress|null, declaredReadBytes: number|null, sameProviderReview: boolean}} StatusPayloadNode */
 /** @typedef {{schemaVersion: 1, run: string, contractId: string, campaignId: string, goal: string, usage: {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUsd: number|null}, roles: {worker: RoleUsage, judge: RoleUsage}, controller: JsonObject, identityWarnings: string[], summary: string, nodes: StatusPayloadNode[]}} StatusPayload */
 
 /** The glyph each terminal state prints in a status table. */
@@ -126,7 +127,8 @@ function nowLine(payload, now) {
     const progress = active.verificationProgress;
     const verification = progress ? ` · verification ${progress.index}/${progress.total} · ${progress.argv}` : "";
     const candidate = !progress && active.executionPhase === "candidate" ? " · candidate verification" : "";
-    return `now: ${active.id} ${active.status} (${formatElapsed(active, now)}) · ${active.runtime ?? "-"} · ${compactCost(active.costUsd)}${verification}${candidate}`;
+    const sameProviderReview = active.sameProviderReview ? ` · ${SAME_PROVIDER_REVIEW_LABEL}` : "";
+    return `now: ${active.id} ${active.status} (${formatElapsed(active, now)}) · ${active.runtime ?? "-"} · ${compactCost(active.costUsd)}${verification}${candidate}${sameProviderReview}`;
   }
   const allTerminal = payload.nodes.every((node) => SUCCESS.has(node.status));
   return allTerminal ? `now: idle · run done · ${compactCost(payload.usage.costUsd)}` : "now: idle";
@@ -259,10 +261,11 @@ function buildStatusPayload(runDir, contract, nodes, identityWarnings, usage) {
     nodes: nodes.map((node) => {
       const progress = verificationProgress(node);
       const nodeRoles = roleUsage([node]);
+      const contractNode = contract.nodes.find((candidate) => candidate.id === node.id);
       return {
         id: node.id,
         status: node.status,
-        phase: contract.nodes.find((candidate) => candidate.id === node.id)?.phase ?? null,
+        phase: contractNode?.phase ?? null,
         // A running controller verification command does not move
         // `node.phase` (it stays `worker`, the phase that dispatched it), so
         // the surface that shows it is computed here rather than persisted.
@@ -301,6 +304,11 @@ function buildStatusPayload(runDir, contract, nodes, identityWarnings, usage) {
         blockedBy: node.blockedBy ?? [],
         verificationProgress: progress,
         declaredReadBytes: typeof node.declaredReadBytes === "number" ? node.declaredReadBytes : null,
+        // R20: the dynamic per-attempt fact `startJudge` stamped from the
+        // runtimes that actually ran (`engine/dispatch.mjs`) -- not the
+        // contract's static admission, which only says the pairing was
+        // possible (primary or fallback), not that this attempt hit it.
+        sameProviderReview: node.sameProviderReview === true,
       };
     }),
   };
@@ -446,6 +454,10 @@ export function renderReport(runDir) {
     for (const key of /** @type {("inputTokens"|"outputTokens"|"cacheReadInputTokens")[]} */ (Object.keys(totals).filter((key) => key !== "costUsd"))) totals[key] = (totals[key] ?? 0) + (usage[key] ?? 0);
     const runtime = workerRuntimeLabel(node) ?? "-";
     const planNode = contract.nodes.find((candidate) => candidate.id === node.id);
+    // `nodeNote` already carries the same-provider review mark (R20) through
+    // `statusNote`, in both branches below -- it is never conditioned on the
+    // scope-findings branch, unlike the phase/continuation prefix which only
+    // applies when there is no scope finding to report instead.
     const note = scopeFindingsNote(node.scopeFindings)
       ? nodeNote(node)
       : `phase ${planNode?.phase ?? "-"} · ${continuationMode(node)} · ${nodeNote(node)}`;
@@ -475,10 +487,15 @@ export function renderReportJson(runDir) {
     for (const key of /** @type {("inputTokens"|"outputTokens"|"cacheReadInputTokens")[]} */ (["inputTokens", "outputTokens", "cacheReadInputTokens"])) totals[key] = (totals[key] ?? 0) + (usage[key] ?? 0);
     const cost = costs[index];
     totals.declaredReadBytes += typeof node.declaredReadBytes === "number" ? node.declaredReadBytes : 0;
+    const planNode = contract.nodes.find((candidate) => candidate.id === node.id);
     return {
       id: node.id,
       status: node.status,
-      phase: contract.nodes.find((candidate) => candidate.id === node.id)?.phase ?? null,
+      phase: planNode?.phase ?? null,
+      // The dynamic per-attempt fact (see buildStatusPayload), not the
+      // contract's static admission: this is what actually ran, fallback
+      // included.
+      sameProviderReview: node.sameProviderReview === true,
       executionPhase: node.phase,
       runtime: node.runtime ? `${node.runtime.harness}/${node.runtime.model}` : null,
       attempt: node.attempt,
@@ -714,20 +731,24 @@ function boundedNote(segments, maxLength = MAX_NOTE_LENGTH) {
 
 /**
  * The note a status surface shows for a node: gate summary or error, led by
- * any advisory scope finding and by the review outcome, so a gated done node
- * cannot hide an advisory finding or an invalid verdict behind its gate
- * summary (TECH-SPEC lean, rules 1 and 2). The order is the stable format
- * every surface shares: `scope: N unexpected paths · <review note> · <gate
- * summary or error>`, bounded so the tables and the JSON cannot disagree.
+ * any advisory scope finding, the same-provider review mark (R20) and the
+ * review outcome, so a gated done node cannot hide an advisory finding or an
+ * invalid verdict behind its gate summary (TECH-SPEC lean, rules 1 and 2).
+ * The order is the stable format every surface shares: `scope: N unexpected
+ * paths · same-provider review · <review note> · <gate summary or error>`,
+ * bounded so the tables and the JSON cannot disagree. `sameProviderReview` is
+ * led with the other markers rather than appended, so `boundedNote`'s cut
+ * (it drops the trailing segment first) never silently loses the mark.
  *
  * @param {NodeSnapshot} node
  * @returns {string|null}
  */
 export function statusNote(node) {
   const scope = boundedNote([scopeFindingsNote(node.scopeFindings), verificationArtifactsNote(node.verificationArtifacts)]);
+  const sameProviderReview = node.sameProviderReview === true ? SAME_PROVIDER_REVIEW_LABEL : null;
   const review = reviewNote(node);
   const detail = node.gate?.summary ?? node.error?.message ?? node.blockedBy?.join(", ") ?? (candidateVerificationActive(node) ? "candidate" : node.phase);
-  const note = boundedNote([review, detail]);
+  const note = boundedNote([sameProviderReview, review, detail]);
   if (!scope) return note;
   return boundedNote([scope, note]);
 }
