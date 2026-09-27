@@ -444,3 +444,30 @@ export async function runReviewRounds(options) {
   }
   return { resolved: true, plan, findings, roundsRun };
 }
+
+/**
+ * A hard round budget around any discovery pass: at most `rounds` calls to
+ * `step`, stopping at the first result whose `accepted` flag is true. The
+ * reauthor flow spends this budget widening a refused packet; the planning
+ * pipeline's own review/revise loop keeps its bespoke bookkeeping and does not
+ * use it. `step` receives the round number and the results so far, so a round
+ * can feed the previous rounds' findings into its own prompt.
+ *
+ * @template T
+ * @param {number} rounds a positive integer; the budget is never exceeded
+ * @param {(round: number, history: T[]) => T|Promise<T>} step
+ * @returns {Promise<{accepted: boolean, roundsUsed: number, last: T|null, history: T[]}>}
+ */
+export async function runBoundedRounds(rounds, step) {
+  if (!Number.isInteger(rounds) || rounds < 1) throw new TypeError(`rounds must be a positive integer: ${String(rounds)}`);
+  /** @type {T[]} */
+  const history = [];
+  for (let round = 1; round <= rounds; round += 1) {
+    const result = await step(round, history);
+    history.push(result);
+    if (/** @type {{accepted?: boolean}} */ (result).accepted === true) {
+      return { accepted: true, roundsUsed: round, last: result, history };
+    }
+  }
+  return { accepted: false, roundsUsed: rounds, last: history.at(-1) ?? null, history };
+}

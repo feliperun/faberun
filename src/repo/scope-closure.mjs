@@ -232,6 +232,65 @@ export function crossNodeScopeFindings(nodes, cwd) {
 }
 
 /**
+ * Every scope-closure obligation of a whole contract at once: the per-node
+ * detectors and the cross-node pair. `validateContract` runs exactly this pair
+ * as a refusal; a widening pass needs the same findings without throwing, so
+ * it can show them to the operator and hand them to the next discovery round.
+ *
+ * @param {ValidatedNode[]} nodes every node of one contract
+ * @param {string} cwd
+ * @returns {(ScopeClosureFinding|CrossNodeScopeFinding)[]}
+ */
+export function contractScopeFindings(nodes, cwd) {
+  return [
+    ...nodes.flatMap((node, index) => scopeClosureFindings(node, index, cwd)),
+    ...crossNodeScopeFindings(nodes, cwd),
+  ];
+}
+
+/**
+ * Widen a task packet with a discovery pass's proposed additions. Only unions:
+ * a reauthor may add a read, a write, an acknowledgement, or a symbol, never
+ * remove one -- a shrink clears a closure finding while leaving the worker
+ * unable to do the work.
+ *
+ * @param {TaskPacket} packet
+ * @param {import("../contract/scope-findings.mjs").ReauthorAdditions} additions
+ * @returns {TaskPacket}
+ */
+export function widenTaskPacket(packet, additions) {
+  /** @param {string[]|undefined} base @param {string[]|undefined} extra @returns {string[]} */
+  const union = (base, extra) => [...new Set([...(base ?? []), ...(extra ?? [])])];
+  const acknowledged = union(packet.scopeAcknowledged, additions.scopeAcknowledged);
+  return {
+    ...packet,
+    readFiles: union(packet.readFiles, additions.readFiles),
+    writeFiles: union(packet.writeFiles, additions.writeFiles),
+    symbols: union(packet.symbols, additions.symbols),
+    ...(acknowledged.length ? { scopeAcknowledged: acknowledged } : {}),
+  };
+}
+
+/**
+ * Replace one node's inline packet in a raw contract and drop its `packetHash`,
+ * which `validateContract` recomputes for the widened packet. The caller
+ * re-stamps the new hash before persisting the accepted widening.
+ *
+ * @param {Record<string, unknown>} raw
+ * @param {string} nodeId
+ * @param {TaskPacket} packet
+ * @returns {Record<string, unknown>}
+ */
+export function replacePacketInContract(raw, nodeId, packet) {
+  const candidate = /** @type {any} */ (structuredClone(raw));
+  const record = candidate.nodes.find((/** @type {any} */ node) => node.id === nodeId);
+  if (!record) throw new Error(`unknown node id: ${nodeId}`);
+  record.taskPacket = packet;
+  delete record.packetHash;
+  return candidate;
+}
+
+/**
  * DETECTOR 1. An importer of a written module must change with it, so it is in
  * scope unless declared. A packet that names `symbols` narrows the rule to
  * importers that take one of those symbols -- the surface the node announced it

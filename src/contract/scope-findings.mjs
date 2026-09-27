@@ -87,3 +87,123 @@ export function verificationFailureWithScope(verdict, scope) {
     }],
   };
 }
+
+/** The additions a reauthor discovery pass may propose to a refused packet. */
+/** @typedef {{readFiles?: string[], writeFiles?: string[], scopeAcknowledged?: string[], symbols?: string[]}} ReauthorAdditions */
+
+/** The bounded journal record a reauthor attempt leaves behind. */
+export const MAX_REAUTHOR_PATHS = 64;
+
+/**
+ * A widened packet may not take over a write another node's packet already
+ * owns. `validateContract` catches a packet that does not close its own scope
+ * and a pair whose test one node cannot touch, but two nodes declaring the
+ * same write are each individually closed, so no per-packet check sees the
+ * collision. This names the owner the discovery pass must leave alone.
+ *
+ * @param {import("../contract/index.mjs").ValidatedNode[]} nodes every node of the contract
+ * @param {string} nodeId the node being widened
+ * @param {string[]|undefined} addedWriteFiles the writes the discovery pass proposes to add
+ * @returns {{path: string, nodeId: string, reason: string}[]}
+ */
+export function reauthorWriteConflicts(nodes, nodeId, addedWriteFiles) {
+  const added = new Set(addedWriteFiles ?? []);
+  if (added.size === 0) return [];
+  /** @type {{path: string, nodeId: string, reason: string}[]} */
+  const conflicts = [];
+  for (const node of nodes) {
+    if (node.id === nodeId) continue;
+    for (const path of node.taskPacket.writeFiles ?? []) {
+      if (!added.has(path)) continue;
+      conflicts.push({
+        path,
+        nodeId: node.id,
+        reason: `${path} is already declared in writeFiles by node ${node.id}; a widened packet may not take over another node's write`,
+      });
+    }
+  }
+  return conflicts;
+}
+
+/**
+ * The bounded journal record a reauthor attempt leaves: the widened packet the
+ * discovery pass proposed (`reauthorProposal`) and the hard budget it spent
+ * (`reauthorRounds`). It lives in `reauthor.jsonl` beside the run's events
+ * rather than on the node snapshot, so a proposal never moves the authored
+ * packet hash or asks the snapshot schema to carry a transient shape.
+ *
+ * @param {{
+ *   nodeId: string,
+ *   outcome: "applied"|"approval_required"|"rounds_exhausted",
+ *   riskTier: string,
+ *   budget: number,
+ *   roundsUsed: number,
+ *   additions: ReauthorAdditions|null|undefined,
+ *   packet: import("./task-packet.mjs").TaskPacket|null|undefined,
+ *   findings: string[]|null|undefined,
+ *   history: {round: number, accepted: boolean, additions?: ReauthorAdditions, findings?: string[]}[],
+ * }} entry
+ * @returns {Record<string, unknown>}
+ */
+export function reauthorProposalRecord({ nodeId, outcome, riskTier, budget, roundsUsed, additions, packet, findings, history }) {
+  /** @param {string[]|undefined} paths @returns {string[]} */
+  const bounded = (paths) => [...new Set(paths ?? [])].slice(0, MAX_REAUTHOR_PATHS);
+  return {
+    at: new Date().toISOString(),
+    node: nodeId,
+    outcome,
+    riskTier,
+    reauthorProposal: {
+      packet: packet ?? null,
+      addedReadFiles: bounded(additions?.readFiles),
+      addedWriteFiles: bounded(additions?.writeFiles),
+      addedScopeAcknowledged: bounded(additions?.scopeAcknowledged),
+      findings: (findings ?? []).slice(0, 8),
+    },
+    reauthorRounds: {
+      budget,
+      used: roundsUsed,
+      exhausted: outcome === "rounds_exhausted",
+      history: history.map((item) => ({
+        round: item.round,
+        accepted: item.accepted,
+        addedReadFiles: bounded(item.additions?.readFiles),
+        addedWriteFiles: bounded(item.additions?.writeFiles),
+        findings: (item.findings ?? []).slice(0, 8),
+      })),
+    },
+  };
+}
+
+/**
+ * The risk tier a frozen node's gate encodes: a disabled gate is low risk, a
+ * blocking review is high, an advisory review is standard. A contract does not
+ * carry the plan's own riskTier, so the gate it froze into is the durable
+ * statement of how much a widening of its packet is trusted.
+ *
+ * @param {import("../contract/index.mjs").ValidatedNode} node
+ * @returns {"low"|"standard"|"high"}
+ */
+export function reauthorRiskTier(node) {
+  if (!node.gate.enabled) return "low";
+  return node.gate.review === "blocking" ? "high" : "standard";
+}
+
+/**
+ * Whether a validated widening may be applied without an explicit operator
+ * yes. Mirrors the planning pipeline's `--approve-below`: `high` approves
+ * everything, `none` approves nothing, and the default `standard` approves
+ * everything but a high-risk node. `approve` overrides the threshold.
+ *
+ * @param {import("../contract/index.mjs").ValidatedNode} node
+ * @param {{approve?: boolean, approveBelow?: string}} [options]
+ * @returns {boolean}
+ */
+export function reauthorApproved(node, options = {}) {
+  if (options.approve === true) return true;
+  const approveBelow = options.approveBelow ?? "standard";
+  if (approveBelow === "high") return true;
+  if (approveBelow === "none") return false;
+  if (approveBelow !== "standard") throw new TypeError(`approveBelow must be one of standard, high, none: ${approveBelow}`);
+  return reauthorRiskTier(node) !== "high";
+}

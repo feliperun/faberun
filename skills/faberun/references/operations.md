@@ -13,8 +13,7 @@ the home of run/control artifacts.
 
 A retried attempt never discards the previous one's edits: the controller seals
 the previous worktree first and, when that seal has a diff, cuts the next
-attempt from that sha (`worktree.previousAttempt`); an empty seal falls back to
-the run ref tip.
+attempt from that sha (`worktree.previousAttempt`).
 
 ## Integration transaction
 
@@ -44,11 +43,13 @@ otherwise it exits `controller_active`, untouched. Takeover renames the lock
 aside and re-checks it is stale before installing its own. Worker/judge/
 verification children run detached in their own process group, so before
 dispatching new work `resume`'s recovery pass terminates (`SIGTERM` then
-`SIGKILL`, same as `cancel`) every invocation recorded for a `running` node —
-unless it is still inside its deadline, when it is adopted and its result read.
+`SIGKILL`) every invocation recorded for a `running` node —
+unless still inside its deadline, when it is adopted and its result read.
 `cancel` signals a live controller first, so its takeover never waits.
+`resume --reauthor <node-id>` re-widens a refused packet under a hard round
+budget.
 
-`supervise <run-dir> [--detach] [--interval <sec>]` is the watchdog above that;
+`supervise <run-dir> [--detach] [--interval <sec>]` is the watchdog;
 it holds no lock and writes no state. A detached controller outlives its
 launcher, not the session scope (cgroup) holding it: run long work under
 `tmux`, `systemd-run` or the seat.
