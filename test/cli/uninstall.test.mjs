@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { applyUninstall, planUninstall, removalHome, uninstallCommand } from "../../src/cli/uninstall.mjs";
 import { installSettingsEntry } from "../../src/host/install-registry.mjs";
@@ -108,7 +108,7 @@ test("uninstall removes everything faberun wrote outside the repository", async 
   assert.ok(out.text().includes(`npm uninstall -g ${packageName()}`), "the published-package removal is named");
 });
 
-test("uninstall --dry-run lists what would go and removes nothing", async () => {
+test("uninstall dry run lists and removes nothing", async () => {
   const { home, faberun, env } = scopedHome("uninstall-dry-");
   const skills = installSkills(home);
   mkdirSync(faberun, { recursive: true });
@@ -122,7 +122,7 @@ test("uninstall --dry-run lists what would go and removes nothing", async () => 
   assert.equal(existsSync(faberun), true, "dry run leaves the home in place");
 });
 
-test("uninstall refuses an unpreserved campaign ledger unless --force", async () => {
+test("uninstall refuses an unpreserved ledger without force", async () => {
   const { faberun, env } = scopedHome("uninstall-ledger-");
   const runsDir = join(faberun, "projects", "p1", "runs");
   const created = initializeCampaign(runsDir, { campaignId: "unpreserved", goal: "Keep the evidence" });
@@ -161,6 +161,107 @@ test("uninstall keeps the effective home whole when FABERUN_HOME points at it", 
   assert.match(err.text(), /effective home/u);
   assert.equal(existsSync(root), true, "the home itself is never removed");
   assert.equal(existsSync(skill), false, "the owned artifact is still removed");
+});
+
+test("uninstall removes artifacts that predate the registry", async () => {
+  // No install-registry.json at all: every artifact below is older than the
+  // registry and is found only by walking the published known install sites and
+  // testing ownership, so nothing here may depend on a recorded entry.
+  const { home, faberun, env } = scopedHome("uninstall-preregistry-");
+  const skills = installSkills(home);
+  const settingsPath = under(home, ".claude/settings.json");
+  mkdirSync(under(home, ".claude"), { recursive: true });
+  writeFileSync(settingsPath, `${JSON.stringify({
+    statusLine: { type: "command", command: "sh ~/.faberun/current/integrations/claude-code/statusline.sh" },
+    permissions: { allow: ["Bash(git status)"] },
+    hooks: {
+      PreToolUse: [
+        { matcher: "Bash", hooks: [{ type: "command", command: "node .claude/hooks/neighbour.mjs" }] },
+        { matcher: "Write", hooks: [{ type: "command", command: "node ~/.faberun/current/src/host/tool-policy-hook.mjs" }] },
+      ],
+    },
+  })}\n`);
+  const hooksDir = under(home, ".claude/hooks");
+  mkdirSync(hooksDir, { recursive: true });
+  writeFileSync(join(hooksDir, "faberun-tool-policy.mjs"), "// faberun pre-registry hook\n");
+  writeFileSync(join(hooksDir, "neighbour.mjs"), "// the operator's own hook\n");
+  mkdirSync(faberun, { recursive: true });
+  writeFileSync(join(faberun, "config.json"), "{}\n");
+  assert.equal(existsSync(join(faberun, "install-registry.json")), false, "the registry is absent");
+
+  const err = capture();
+  const code = await uninstallCommand({ env, yes: true, stdout: () => {}, stderr: err.write });
+  assert.equal(code, 0, err.text());
+
+  for (const skill of skills) assert.equal(existsSync(skill), false, `${skill} removed`);
+  const cleaned = JSON.parse(readFileSync(settingsPath, "utf8"));
+  assert.equal(Object.hasOwn(cleaned, "statusLine"), false, "the pre-registry status line is removed");
+  assert.deepEqual(cleaned.permissions, { allow: ["Bash(git status)"] }, "a neighbouring settings key survives");
+  assert.deepEqual(
+    cleaned.hooks.PreToolUse,
+    [{ matcher: "Bash", hooks: [{ type: "command", command: "node .claude/hooks/neighbour.mjs" }] }],
+    "the pre-registry hook is removed and the operator's survives",
+  );
+  assert.equal(existsSync(join(hooksDir, "faberun-tool-policy.mjs")), false, "the pre-registry hook script is removed");
+  assert.equal(existsSync(join(hooksDir, "neighbour.mjs")), true, "a neighbouring hook script survives");
+  assert.equal(existsSync(faberun), false, "$FABERUN_HOME is removed");
+});
+
+test("uninstall leaves a repository-like file under home untouched", async () => {
+  const { home, faberun, env } = scopedHome("uninstall-repo-file-");
+  // A target repository checked out under the effective home. Its own `.claude`
+  // tree is repository content, not a known install site, so every file in it
+  // must survive the removal -- status line, hook, skill and all.
+  const repo = join(home, "target-repo");
+  const repoSettings = under(repo, ".claude/settings.json");
+  mkdirSync(dirname(repoSettings), { recursive: true });
+  writeFileSync(repoSettings, `${JSON.stringify({
+    statusLine: { type: "command", command: "sh ~/.faberun/current/integrations/claude-code/statusline.sh" },
+    hooks: { PreToolUse: [{ matcher: "Write", hooks: [{ type: "command", command: "node ~/.faberun/current/src/host/tool-policy-hook.mjs" }] }] },
+  })}\n`);
+  const repoSettingsBefore = readFileSync(repoSettings, "utf8");
+  mkdirSync(under(repo, ".claude/skills/faberun"), { recursive: true });
+  writeFileSync(under(repo, ".claude/skills/faberun/SKILL.md"), "# repo-local skill\n");
+  mkdirSync(under(repo, ".claude/hooks"), { recursive: true });
+  writeFileSync(under(repo, ".claude/hooks/faberun-tool-policy.mjs"), "// repo-local hook\n");
+  writeFileSync(join(repo, "README.md"), "# repository\n");
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  writeFileSync(join(repo, ".git/config"), "[core]\n");
+
+  // A real home-level install site proves the command ran and removed its own
+  // artifacts alongside the untouched repository.
+  const [homeSkill] = installSkills(home);
+  mkdirSync(faberun, { recursive: true });
+  writeFileSync(join(faberun, "config.json"), "{}\n");
+
+  const err = capture();
+  const code = await uninstallCommand({ env, yes: true, stdout: () => {}, stderr: err.write });
+  assert.equal(code, 0, err.text());
+
+  assert.equal(existsSync(homeSkill), false, "the home-level install site is removed");
+  assert.equal(existsSync(faberun), false, "$FABERUN_HOME is removed");
+  assert.equal(existsSync(join(repo, "README.md")), true, "the repository survives");
+  assert.equal(existsSync(join(repo, ".git/config")), true, "the repository's git metadata survives");
+  assert.equal(existsSync(under(repo, ".claude/skills/faberun/SKILL.md")), true, "the repository's own skill stays");
+  assert.equal(existsSync(under(repo, ".claude/hooks/faberun-tool-policy.mjs")), true, "the repository's own hook stays");
+  assert.equal(readFileSync(repoSettings, "utf8"), repoSettingsBefore, "the repository's settings file is byte-for-byte untouched");
+});
+
+test("force skips confirmation and a non-interactive run refuses without it", async () => {
+  const { home, env } = scopedHome("uninstall-force-");
+  const [skill] = installSkills(home);
+
+  const err = capture();
+  const refused = await uninstallCommand({ env, isTTY: false, stdout: () => {}, stderr: err.write });
+  assert.equal(refused, 1, "a non-interactive run with no consent refuses");
+  assert.match(err.text(), /confirmation required/u);
+  assert.equal(existsSync(skill), true, "an unconfirmed removal changes nothing");
+
+  const out = capture();
+  const forced = await uninstallCommand({ env, force: true, isTTY: false, stdout: out.write, stderr: () => {} });
+  assert.equal(forced, 0, "--force is explicit consent and needs no terminal");
+  assert.equal(existsSync(skill), false, "--force removes the owned artifact");
+  assert.ok(out.text().includes(`npm uninstall -g ${packageName()}`), "the published-package removal is named");
 });
 
 test("the plan never proposes a removal outside the removal roots", () => {

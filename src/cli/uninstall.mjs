@@ -21,7 +21,8 @@
  * refuses the command unless `--force`, because deleting `$FABERUN_HOME` would
  * delete the only copy.
  *
- * Removal of `$FABERUN_HOME` is confirmed interactively (or by `--yes`). A
+ * Removal of `$FABERUN_HOME` is confirmed interactively (or by `--yes`; and
+ * `--force`, being the operator's explicit consent, skips the prompt too). A
  * removal never touches the effective `HOME` itself: when `$FABERUN_HOME` is
  * the effective home, that would delete the operator's whole home and whatever
  * repositories live under it, so only the individually owned artifacts are
@@ -473,10 +474,13 @@ export async function uninstallCommand(options = {}) {
     return 0;
   }
 
-  if (options.yes !== true) {
+  // `--force` and `--yes` are both explicit consent: the operator who asked to
+  // remove an unpreserved ledger without being prompted has already decided not
+  // to be prompted about the rest either.
+  if (options.yes !== true && options.force !== true) {
     const confirmed = await confirmRemoval(options, plan, isTTY);
     if (confirmed === null) {
-      stderr(`${statusToken("fail", level)} uninstall · confirmation required; re-run with --yes\n`);
+      stderr(`${statusToken("fail", level)} uninstall · confirmation required; re-run with --yes or --force\n`);
       return 1;
     }
     if (!confirmed) {

@@ -373,8 +373,9 @@ union of the install registry and the published known install sites, so an
 artifact an older faberun wrote before the registry existed is still found and
 removed. A campaign whose ledger was not preserved at its durable repository
 location refuses the whole command unless `--force`. Removal of `$FABERUN_HOME`
-is confirmed interactively; when the environment has no terminal, `--yes` is
-required. Nothing under the current working directory is ever a candidate, and
+is confirmed interactively; when the environment has no terminal, `--yes` (or
+`--force`, which is itself an explicit consent) is required. Nothing under the
+current working directory is ever a candidate, and
 `$FABERUN_HOME` is never deleted when it is the effective home, so a target
 repository's files cannot be touched.
 
