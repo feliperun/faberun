@@ -54,10 +54,16 @@ const CODEX_UPSTREAM = "https://chatgpt.com/backend-api/codex";
  * from the operator's real profile through `FX_AUTH_HOME`.
  */
 const PROVIDER_KINDS = new Set(["openai-compatible", "codex"]);
-/** Measured: DeepSeek's `max_tokens` ceiling on deepseek-flash; fx needs a declared value. */
+/**
+ * Measured: DeepSeek's `max_tokens` ceiling on deepseek-flash; fx needs a
+ * declared value. It is the default, not a law: a runtime may declare
+ * `max_output_tokens` when its provider allows more. Measured 2026-09-27 on
+ * frb-linux2: a `faberun plan` draft node cannot fit in 8,192 output tokens
+ * and died with `OutputTruncated` with no way to raise the ceiling.
+ */
 const MAX_OUTPUT_TOKENS = 8192;
 
-/** @typedef {{fx: string, model: string, sandbox: string, provider: string, baseUrl: string|null, keyEnv: string, contextWindow: number}} RunnerOptions */
+/** @typedef {{fx: string, model: string, sandbox: string, provider: string, baseUrl: string|null, keyEnv: string, contextWindow: number, maxOutputTokens: number}} RunnerOptions */
 
 /**
  * @param {string[]} argv
@@ -73,6 +79,7 @@ function parseArgs(argv) {
     baseUrl: null,
     keyEnv: "DEEPSEEK_API_KEY",
     contextWindow: 1_000_000,
+    maxOutputTokens: MAX_OUTPUT_TOKENS,
   };
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index];
@@ -87,6 +94,7 @@ function parseArgs(argv) {
     } else if (flag === "--base-url") options.baseUrl = value;
     else if (flag === "--key-env") options.keyEnv = value;
     else if (flag === "--context-window") options.contextWindow = Number(value);
+    else if (flag === "--max-output-tokens") options.maxOutputTokens = Number(value);
     else throw new Error(`unknown argument: ${flag}`);
   }
   if (!options.model) throw new Error("--model is required");
@@ -165,7 +173,7 @@ prepareFxHome(homedir(), home, codex ? {
       base_url: proxy.url,
       auth: { type: "bearer", env: options.keyEnv },
       model_metadata: {
-        [options.model]: { context_window: options.contextWindow, max_output_tokens: MAX_OUTPUT_TOKENS, supports_tool_use: true },
+        [options.model]: { context_window: options.contextWindow, max_output_tokens: options.maxOutputTokens, supports_tool_use: true },
       },
     },
   },

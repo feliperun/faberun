@@ -38,7 +38,11 @@ const codex_upstream = "https://chatgpt.com/backend-api/codex";
 /// from the operator's real profile through `FX_AUTH_HOME`.
 const ProviderKind = enum { openai_compatible, codex };
 /// Measured: DeepSeek's `max_tokens` ceiling on deepseek-flash; fx needs a declared value.
-const max_output_tokens = 8192;
+/// Medido: o teto de saida que o DeepSeek aceita em `deepseek-flash` e' maior que
+/// 8192, mas o valor precisa ser declarado. E' o default, nao a lei: um runtime
+/// pode declarar `max_output_tokens`. Medido em 2026-09-27: um rascunho de plano
+/// do faberun nao cabe em 8192 tokens de saida.
+const default_max_output_tokens = 8192;
 
 const Options = struct {
     fx: []const u8 = "fx",
@@ -48,6 +52,7 @@ const Options = struct {
     base_url: ?[]const u8 = null,
     key_env: []const u8 = "DEEPSEEK_API_KEY",
     context_window: u64 = 1_000_000,
+    max_output_tokens: u64 = default_max_output_tokens,
 };
 
 const ProviderFailure = struct {
@@ -104,7 +109,7 @@ fn parseArgs(args: []const [:0]const u8) !Options {
         const flag = args[index];
         if (index + 1 >= args.len) return fatal("{s} needs a value", .{flag});
         const value: []const u8 = args[index + 1];
-        if (std.mem.eql(u8, flag, "--fx")) options.fx = value else if (std.mem.eql(u8, flag, "--model")) options.model = value else if (std.mem.eql(u8, flag, "--sandbox")) options.sandbox = value else if (std.mem.eql(u8, flag, "--provider")) options.provider_kind = parseProviderKind(value) orelse return fatal("unknown provider: {s}", .{value}) else if (std.mem.eql(u8, flag, "--base-url")) options.base_url = value else if (std.mem.eql(u8, flag, "--key-env")) options.key_env = value else if (std.mem.eql(u8, flag, "--context-window")) options.context_window = try std.fmt.parseInt(u64, value, 10) else return fatal("unknown argument: {s}", .{flag});
+        if (std.mem.eql(u8, flag, "--fx")) options.fx = value else if (std.mem.eql(u8, flag, "--model")) options.model = value else if (std.mem.eql(u8, flag, "--sandbox")) options.sandbox = value else if (std.mem.eql(u8, flag, "--provider")) options.provider_kind = parseProviderKind(value) orelse return fatal("unknown provider: {s}", .{value}) else if (std.mem.eql(u8, flag, "--base-url")) options.base_url = value else if (std.mem.eql(u8, flag, "--key-env")) options.key_env = value else if (std.mem.eql(u8, flag, "--context-window")) options.context_window = try std.fmt.parseInt(u64, value, 10) else if (std.mem.eql(u8, flag, "--max-output-tokens")) options.max_output_tokens = try std.fmt.parseInt(u64, value, 10) else return fatal("unknown argument: {s}", .{flag});
     }
     if (options.model.len == 0) return fatal("--model is required", .{});
     return options;
@@ -325,7 +330,7 @@ pub fn main(init: std.process.Init) !void {
             try json.objectField("model_metadata");
             try json.beginObject();
             try json.objectField(options.model);
-            try json.write(.{ .context_window = options.context_window, .max_output_tokens = max_output_tokens, .supports_tool_use = true });
+            try json.write(.{ .context_window = options.context_window, .max_output_tokens = options.max_output_tokens, .supports_tool_use = true });
             try json.endObject();
             try json.endObject();
             try json.endObject();

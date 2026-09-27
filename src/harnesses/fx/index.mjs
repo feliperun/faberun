@@ -97,6 +97,7 @@ export const fxHarness = {
     if (typeof config.base_url === "string" && config.base_url) args.push("--base-url", config.base_url);
     if (typeof config["api_key.env_key"] === "string" && config["api_key.env_key"]) args.push("--key-env", config["api_key.env_key"]);
     if (typeof config.context_window === "number") args.push("--context-window", String(config.context_window));
+    if (typeof config.max_output_tokens === "number") args.push("--max-output-tokens", String(config.max_output_tokens));
     const native = existsSync(NATIVE_RUNNER);
     return {
       executable: native ? NATIVE_RUNNER : process.execPath,
