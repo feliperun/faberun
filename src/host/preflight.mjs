@@ -543,12 +543,10 @@ async function liveAvailabilityChecks(contractPath, runtimes) {
   // cycle the source gate bans. At call time both modules are fully
   // evaluated; this is a plain cache hit, not a cycle.
   const { preflightContract } = await import("../engine/live-preflight.mjs");
-  // measured 2026-09-22 (dispatch gate): four routed runtimes asked in
-  // parallel took about 18s, so 60s is the budget; FABERUN_PREFLIGHT_TIMEOUT_SEC
-  // is the same operator override the gate honours.
-  const override = Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC);
-  const timeoutSec = process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC !== undefined && Number.isFinite(override) && override > 0 ? override : 60;
-  const probes = await preflightContract(contractPath, { liveTimeoutSec: timeoutSec });
+  // The live budget is `live-preflight.mjs`'s single measured default (60s,
+  // `FABERUN_PREFLIGHT_TIMEOUT_SEC` the operator override); it is not restated
+  // here, where a second copy would be a second default to keep honest.
+  const probes = await preflightContract(contractPath);
   recordProbeVerdicts(probes.filter((probe) => liveVerdict(probe).recorded));
   return probes.map((probe) => {
     const verdict = liveVerdict(probe);
@@ -668,7 +666,11 @@ export async function doctorCommand(contractPath, values) {
     checks.push({
       name: "runtime discovery",
       ok: available > 0,
-      detail: Object.entries(discovered).map(([id, entry]) => `${id}: ${entry.available ? "available" : `unavailable (${entry.reason})`}${entry.exhaustedUntil ? ` until ${entry.exhaustedUntil}` : ""}`).join(" · ") || "no runtimes discovered",
+      // `discoverRuntimes` runs the static version probe, not the live hello:
+      // a binary that answers `--version` is present, not proven available.
+      // `doctor`'s `availability` lines are the only word on whether a
+      // provider answered.
+      detail: Object.entries(discovered).map(([id, entry]) => `${id}: ${entry.available ? "binary present" : `binary missing (${entry.reason})`}${entry.exhaustedUntil ? ` until ${entry.exhaustedUntil}` : ""}`).join(" · ") || "no runtimes discovered",
     });
   }
   // A PATH-only check must not fail a runtime whose binary is supplied through

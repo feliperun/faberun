@@ -295,6 +295,20 @@ test("doctor reports the vendored pricing seed as a fact that never fails", () =
   assert.match(seed.detail, /models\.dev/u);
 });
 
+test("doctor --discover labels its static probe binary present", () => {
+  const directory = mkdtempSync(join(tmpdir(), "env-preflight-discover-"));
+  const contractPath = writeContract(directory, fixture());
+  const result = spawnSync(process.execPath, [runner, "doctor", "--discover", "--json", "--cwd", directory, contractPath], {
+    encoding: "utf8",
+    env: { ...process.env, FABERUN_CODEX_BIN: fakeCodex(directory) },
+  });
+  const payload = /** @type {{checks: {name: string, detail: string}[]}} */ (JSON.parse(result.stdout));
+  const discovery = payload.checks.find((check) => check.name === "runtime discovery");
+  assert.ok(discovery, "doctor --discover reports the runtime discovery check");
+  assert.match(discovery.detail, /luna: binary present/u, "the static probe is labelled by what it proves: the binary is present");
+  assert.doesNotMatch(discovery.detail, /: available\b/u, "no line claims a live availability the static probe never checked");
+});
+
 test("verification timing measures each declared command against its own timeout", () => {
   const contract = /** @type {any} */ ({
     cwd: process.cwd(),
