@@ -2,6 +2,14 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.26.3](https://github.com/feliperun/faberun/compare/v0.26.2...v0.26.3) (2026-09-27)
+
+
+### Bug Fixes
+
+* **harness:** a Claude judge has a read-only mode, and a declared writing mode is warned ([#90](https://github.com/feliperun/faberun/issues/90)) ([08814dc](https://github.com/feliperun/faberun/commit/08814dcde3248b7f78e8de340d510eea9adcfcc3))
+* **plan:** size each planning stage's wall clock by its runtime's reasoning effort ([#91](https://github.com/feliperun/faberun/issues/91)) ([9abfc70](https://github.com/feliperun/faberun/commit/9abfc70e3d9f0245ffb830381c29773ad6419c86))
+
 ## [0.26.2](https://github.com/feliperun/faberun/compare/v0.26.1...v0.26.2) (2026-09-27)
 
 
