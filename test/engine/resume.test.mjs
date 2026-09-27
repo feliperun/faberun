@@ -720,11 +720,14 @@ test("an operator override reaches any non-terminal node", async () => {
     assert.equal(state.worktree?.previousAttempt, 1, `${parked.status}: the next attempt is cut from the previous seal`);
 
     // A terminal node has no attempt left to receive the answer, so the engine
-    // refuses it instead of recording an override nothing can act on.
-    await assert.rejects(
+    // refuses it instead of recording an override nothing can act on. The
+    // harness stays pinned here too: this refusal is the engine's terminal
+    // gate, and source identity is checked before it, so an unpinned probe
+    // would surface a harness-versions drift instead of the gate.
+    await withFakeCodex(directory, "pass", () => assert.rejects(
       () => resumeRun(runDir, { answer: { node: "build", path: answerPath } }),
       /not blocked on missing context/u,
       `${parked.status}: a done node refuses the override`,
-    );
+    ));
   }
 });
