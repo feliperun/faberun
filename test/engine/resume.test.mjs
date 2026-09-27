@@ -731,3 +731,13 @@ test("an operator override reaches any non-terminal node", async () => {
     ));
   }
 });
+
+test("resume refuses a --reauthor target that conflicts with --node", async () => {
+  // Two different targets would widen one node while narrowing the retry to
+  // another, leaving the widened node's dependants blocked; refused before the
+  // run is even resolved.
+  await assert.rejects(
+    () => resumeRun("/nonexistent-run-dir", { node: "a", reauthor: { node: "b", discover: async () => ({}) } }),
+    /--reauthor b conflicts with --node a/u,
+  );
+});

@@ -19,6 +19,7 @@ import { applyInvalidWorkerResult, assertRunMutable, handleProviderExhaustion } 
 import { applyJudgeResult } from "./review.mjs";
 import { assertSourceUnchanged, captureRunIdentity, recordedBaseRef, statesFingerprint } from "./run-identity.mjs";
 import { attemptWorkspace, gitHead, removeWorktree, runRefName } from "../repo/worktree.mjs";
+import { replacePacketInContract, widenTaskPacket } from "../repo/scope-closure.mjs";
 import { attemptWorktreePath } from "../run/paths.mjs";
 import { canonicalWorkerResultText, isResultMaterializationInvocation, materializeAttemptResult, recoverWorkerResult } from "./result-file.mjs";
 import { checkPersistedWorkerScope, persistedScopeBoundary, reconcileAmbiguousWorkerRestart, resolveUnknownEffect } from "./scope.mjs";
@@ -35,16 +36,17 @@ import { hasOperationIntent, hasOperationSettlement, operationNeedsRecovery, pro
 import { isUnknownEffectStop, planResumeRetry, renderPreviousAttemptSection } from "./retry.mjs";
 import { join, resolve } from "node:path";
 import { parseDiscoveryResult, parseWorkerResult } from "../contract/worker-result.mjs";
-import { readJson, writeJsonAtomic } from "../run/store.mjs";
+import { readJson, writeJsonAtomic, appendJsonl } from "../run/store.mjs";
 import { recoverIntegrations } from "../repo/integrate.mjs";
 import { registerRun, resolveCampaign } from "../campaign/index.mjs";
 import { syncAgentSignal } from "../repo/signal.mjs";
 import { validateContract } from "../contract/index.mjs";
 import { validateRunMetadata, OPERATOR_ANSWER_MAX_BYTES } from "../contract/snapshot.mjs";
 import { verificationFailureVerdict } from "./judge-gate.mjs";
-import { verificationFailureWithScope } from "../contract/scope-findings.mjs";
+import { verificationFailureWithScope, reauthorProposalRecord, reauthorWriteConflicts, reauthorRiskTier, reauthorApproved } from "../contract/scope-findings.mjs";
 import { applyRejection, applyVerificationFailure, raiseNodeAttention, settleDone } from "./settle.mjs";
 import { isHumanStepPending } from "../contract/human-step.mjs";
+import { runBoundedRounds } from "../plan/rounds.mjs";
 
 /** @typedef {import("../repo/integrate.mjs").IntegrationResult} IntegrationResult */
 /** @typedef {import("./lifecycle.mjs").Invocation} Invocation */
@@ -84,11 +86,14 @@ export function recoveryExhaustionEnvelope(recovery, invocation) {
 
 /**
  * @param {string} runDirPath
- * @param {{node?: string, reconcile?: string, answer?: {node: string, path: string}, detachedBootstrap?: boolean}} [options]
+ * @param {{node?: string, reconcile?: string, answer?: {node: string, path: string}, detachedBootstrap?: boolean, reauthor?: {node: string, discover: (context: {round: number, node: import("../contract/index.mjs").ValidatedNode, state: NodeSnapshot, missingContext: string[], findings: string[]}) => (import("../contract/scope-findings.mjs").ReauthorAdditions|Promise<import("../contract/scope-findings.mjs").ReauthorAdditions>), rounds?: number, approve?: boolean, approveBelow?: string}}} [options]
  *   `node` limits the retry in place to one node and its dependants,
  *   `reconcile` acknowledges a node stopped as `unknown_effect_reconciled`,
  *   `answer` records an operator's answer for any non-terminal node and
- *   re-dispatches it, and
+ *   re-dispatches it,
+ *   `reauthor` widens one `context_missing` node's packet from a bounded
+ *   discovery pass and re-dispatches it once the widening validates and is
+ *   approved, and
  *   `detachedBootstrap` is set only by the CLI entry when this process is its
  *   own detached child
  * @returns {Promise<RunOutcome>}
@@ -100,10 +105,16 @@ export async function resumeRun(runDirPath, options = {}) {
   if (options.node && options.answer && options.node !== options.answer.node) {
     throw new Error(`--answer ${options.answer.node} conflicts with --node ${options.node}`);
   }
+  if (options.reauthor && options.node && options.reauthor.node !== options.node) {
+    throw new Error(`--reauthor ${options.reauthor.node} conflicts with --node ${options.node}`);
+  }
+  if (options.reauthor && options.answer) {
+    throw new Error(`--reauthor ${options.reauthor.node} cannot be combined with --answer ${options.answer.node}`);
+  }
   const runDir = resolve(runDirPath);
   assertRunMutable(runDir);
   const contractPath = join(runDir, "contract.json");
-  const contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath, { persisted: true });
+  let contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath, { persisted: true });
   const lock = acquireLock(runDir);
   try {
     const storedMetadata = validateRunMetadata(readJson(join(runDir, "run.json")), { requireSourceIdentity: true });
@@ -182,6 +193,32 @@ export async function resumeRun(runDirPath, options = {}) {
         answerState.previousAttempt = renderPreviousAttemptSection(answerState) ?? answerState.previousAttempt;
       }
     }
+    /** @type {string|null} */
+    let reauthorAppliedNode = null;
+    if (options.reauthor) {
+      const targetNode = contract.nodes.find((node) => node.id === options.reauthor?.node);
+      const targetState = states.get(options.reauthor.node);
+      if (!targetNode) throw new Error(`unknown node id: ${options.reauthor.node}`);
+      if (!targetState) throw new Error(`missing persisted node snapshot for ${options.reauthor.node}`);
+      const reauthorBudget = options.reauthor.rounds ?? DEFAULT_REAUTHOR_ROUNDS;
+      const outcome = await reauthorRefusedNode({
+        contract, contractPath, runDir, node: targetNode, state: targetState,
+        discover: options.reauthor.discover,
+        rounds: reauthorBudget,
+        approve: options.reauthor.approve === true,
+        approveBelow: options.reauthor.approveBelow,
+      });
+      process.stdout.write(`[resume] ${contract.id} · reauthor ${targetNode.id} · ${outcome.outcome} (${outcome.roundsUsed}/${reauthorBudget} round${reauthorBudget === 1 ? "" : "s"})\n`);
+      if (outcome.applied && outcome.contract && outcome.raw) {
+        contract = outcome.contract;
+        const replacement = contract.nodes.find((node) => node.id === targetNode.id);
+        if (!replacement) throw new Error(`widened contract lost node ${targetNode.id}`);
+        targetState.packetHash = replacement.packetHash;
+        targetState.sourceIdentity = replacement.sourceIdentity;
+        writeJsonAtomic(contractPath, outcome.raw);
+        reauthorAppliedNode = targetNode.id;
+      }
+    }
     const plan = planResumeRetry(contract, states, { node: options.node, reconcile: options.reconcile, answer: options.answer?.node });
     for (const item of plan.attention) {
       process.stdout.write(`[run] ${contract.id} attention · ${item.id} · ${item.reason}\n`);
@@ -195,9 +232,9 @@ export async function resumeRun(runDirPath, options = {}) {
       const state = states.get(node.id);
       if (!state) continue;
       if (state.status === "done") continue;
-      if (isBlockedContextTerminal(state) && node.id !== options.answer?.node) continue;
+      if (isBlockedContextTerminal(state) && node.id !== options.answer?.node && node.id !== reauthorAppliedNode) continue;
       if (isHumanStepPending(state) && node.id !== options.answer?.node) continue;
-      const action = plan.actions.get(node.id) ?? "recover";
+      const action = node.id === reauthorAppliedNode ? "retry" : plan.actions.get(node.id) ?? "recover";
       // Adoption before retry: an unresolved blocking review is re-judged from
       // the preserved worker result, never reset to a fresh worker attempt.
       if (action === "rejudge") {
@@ -555,6 +592,66 @@ export async function resumeRun(runDirPath, options = {}) {
  */
 export function isBlockedContextTerminal(state) {
   return state.status === "blocked" && state.error?.code === "context_missing";
+}
+/**
+ * The default number of discovery rounds a `resume --reauthor` spends widening
+ * one refused packet. The budget is hard: the round after this one never runs.
+ */
+export const DEFAULT_REAUTHOR_ROUNDS = 1;
+/** One round of the reauthor budget: its proposal, candidate, verdict, findings. */
+/** @typedef {{accepted: boolean, round: number, additions: import("../contract/scope-findings.mjs").ReauthorAdditions, packet: import("../contract/index.mjs").TaskPacket, candidate: Record<string, unknown>, widened: ValidatedContract|null, findings: string[]}} ReauthorRound */
+/**
+ * Run the bounded discovery pass for one `context_missing` node, validate the
+ * widened packet against the whole contract (per-node closure, the cross-node
+ * pair, and the write-overlap check no single packet can see), and return the
+ * decision. The caller owns applying it: an accepted packet below the approval
+ * threshold, or any packet the operator approved, is persisted and the node
+ * re-dispatched; everything else leaves the node refused.
+ *
+ * @param {{contract: ValidatedContract, contractPath: string, runDir: string, node: import("../contract/index.mjs").ValidatedNode, state: NodeSnapshot, discover: (context: {round: number, node: import("../contract/index.mjs").ValidatedNode, state: NodeSnapshot, missingContext: string[], findings: string[]}) => (import("../contract/scope-findings.mjs").ReauthorAdditions|Promise<import("../contract/scope-findings.mjs").ReauthorAdditions>), rounds?: number, approve?: boolean, approveBelow?: string}} options
+ * @returns {Promise<{accepted: boolean, roundsUsed: number, last: ReauthorRound|null, history: ReauthorRound[], applied: boolean, outcome: string, record: Record<string, unknown>, contract: ValidatedContract|null, raw: Record<string, unknown>|null}>}
+ */
+export async function reauthorRefusedNode(options) {
+  const { contract, contractPath, runDir, node, state, discover, rounds = DEFAULT_REAUTHOR_ROUNDS, approve = false, approveBelow } = options;
+  if (!isBlockedContextTerminal(state)) throw new Error(`node ${node.id} is not blocked on missing context, so it cannot be reauthored`);
+  if (typeof discover !== "function") throw new TypeError("resume --reauthor requires a discovery runner");
+  const raw = JSON.parse(readFileSync(contractPath, "utf8"));
+  const refused = /** @type {{missingContext?: string[]}|null|undefined} */ (state.result);
+  const missingContext = Array.isArray(refused?.missingContext) ? refused.missingContext : [];
+  const budget = await runBoundedRounds(rounds, async (round, history) => {
+    const additions = (await discover({ round, node, state, missingContext, findings: history.flatMap((item) => item.findings) })) ?? {};
+    const packet = widenTaskPacket(node.taskPacket, additions);
+    const candidate = replacePacketInContract(raw, node.id, packet);
+    const findings = reauthorWriteConflicts(contract.nodes, node.id, additions.writeFiles).map((conflict) => conflict.reason);
+    /** @type {ValidatedContract|null} */
+    let widened = null;
+    try {
+      widened = validateContract(candidate, contractPath);
+    } catch (error) {
+      findings.push(errorMessage(error));
+    }
+    const accepted = widened !== null && findings.length === 0;
+    if (accepted && widened) {
+      const replacement = widened.nodes.find((item) => item.id === node.id);
+      if (replacement) /** @type {any} */ (candidate).nodes.find((/** @type {any} */ item) => item.id === node.id).packetHash = replacement.packetHash;
+    }
+    return { accepted, round, additions, packet, candidate, widened, findings };
+  });
+  const last = budget.last;
+  const outcome = budget.accepted ? (reauthorApproved(node, { approve, approveBelow }) ? "applied" : "approval_required") : "rounds_exhausted";
+  const record = reauthorProposalRecord({
+    nodeId: node.id, outcome, riskTier: reauthorRiskTier(node), budget: rounds, roundsUsed: budget.roundsUsed,
+    additions: last?.additions, packet: last?.packet, findings: last?.findings, history: budget.history,
+  });
+  appendJsonl(join(runDir, "reauthor.jsonl"), record);
+  return {
+    ...budget,
+    applied: outcome === "applied",
+    outcome,
+    record,
+    contract: budget.accepted ? last?.widened ?? null : null,
+    raw: budget.accepted ? last?.candidate ?? null : null,
+  };
 }
 /**
  * The operator-answer result summary for a human-step node's `done`
