@@ -24,6 +24,7 @@
  */
 import { renderStatusJson } from "./render.mjs";
 import { buildCampaignProgress, remainingEstimateMs } from "./progress.mjs";
+import { attemptCosts, retriesOutspendFirst } from "../run/usage.mjs";
 import { chooseLanguage, labelsFor } from "./locale.mjs";
 import { readNodeSnapshot } from "../run/node-store.mjs";
 import { campaignDir } from "../campaign/layout.mjs";
@@ -39,9 +40,11 @@ import { basename, dirname, join } from "node:path";
 /** @typedef {import("./render.mjs").RoleUsage} RoleUsage */
 /** @typedef {import("../notify/index.mjs").NotifyEvent} NotifyEvent */
 /** @typedef {import("./locale.mjs").Language} Language */
-/** @typedef {{campaignId: string, usage: {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUsd: number|null}, roles: {worker: RoleUsage, judge: RoleUsage}, nodes: StatusPayloadNode[]}} Payload */
+/** @typedef {{attempt: number, costUsd: number|null}} AttemptCost */
+/** @typedef {StatusPayloadNode & {attemptCosts: AttemptCost[], retriesOutspendFirst: boolean}} MessageNode */
+/** @typedef {{campaignId: string, usage: {inputTokens: number, outputTokens: number, cacheReadInputTokens: number, costUsd: number|null}, roles: {worker: RoleUsage, judge: RoleUsage}, nodes: MessageNode[]}} Payload */
 /** @typedef {{id: string, goal: string|null, percentDone: number, nodesTotal: number, phasesDone: number, phasesTotal: number, costTotalUsd: number|null, elapsedMs: number|null, nextCommand: string|null}} CampaignSummary */
-/** @typedef {{runDir: string, runId: string, payload: Payload, objectives: Map<string, string|null>, snapshots: Map<string, Record<string, unknown>>, campaign: CampaignSummary|null, label: (key: string) => string, subject: StatusPayloadNode}} View */
+/** @typedef {{runDir: string, runId: string, payload: Payload, objectives: Map<string, string|null>, snapshots: Map<string, Record<string, unknown>>, campaign: CampaignSummary|null, label: (key: string) => string, subject: MessageNode}} View */
 
 /**
  * The message's byte ceiling. Measured 2026-09-21 on the live campaign's
@@ -105,6 +108,15 @@ export function renderRunProgress(runDir, event) {
   const runsDir = dirname(runDir);
   const objectives = readObjectives(runDir);
   const snapshots = new Map(payload.nodes.map((node) => [node.id, readSnapshotSafe(runDir, node.id)]));
+  // R31: the status payload's nodes carry their per-attempt cost, the same
+  // `usage.mjs` reader the campaign roll-up uses, so the message's text line
+  // can mark a node whose retries out-spent the first attempt without
+  // re-deriving the comparison here.
+  for (const node of payload.nodes) {
+    const snapshot = /** @type {import("../contract/index.mjs").NodeSnapshot} */ (/** @type {unknown} */ (snapshots.get(node.id) ?? {}));
+    node.attemptCosts = attemptCosts(snapshot);
+    node.retriesOutspendFirst = retriesOutspendFirst(snapshot);
+  }
   const campaign = campaignSummary(runsDir, payload.campaignId);
   const label = labelsFor(chooseLanguage(process.env, [campaign?.goal], journalTexts(runsDir, payload.campaignId), [...objectives.values()]));
   const subject = subjectNode(payload.nodes, event.nodeId ?? null);
@@ -130,7 +142,7 @@ function nodeTerminal(view) {
   const ending = QUIET_STATES.has(subject.status) && !SUCCESS.has(subject.status)
     ? label(subject.status === "running" ? "running" : "pending")
     : `${label(OUTCOME_LABEL[subject.status] ?? "doneIn")} ${shortSpan(subject)}`;
-  const headline = `${OUTCOME[subject.status] ?? "❔"} ${subject.id} · ${ending} · ${formatUsd(subject.costUsd)}${model}${error}`;
+  const headline = `${OUTCOME[subject.status] ?? "❔"} ${subject.id} · ${ending} · ${formatUsd(subject.costUsd)}${model}${error}${retryOutspendMark(subject)}`;
   const pad = padder(label, ["asked", "did", "proof"]);
   return [
     headline,
@@ -199,7 +211,7 @@ function attention(view) {
   const { subject, label, snapshots, objectives, runDir } = view;
   const snapshot = snapshots.get(subject.id) ?? {};
   const reason = subject.errorCode ?? subject.status;
-  const headline = `👀 ${subject.id} ${label("needsYou")} · ${reason} · ${label("attempt")} ${subject.attempt} · ${shortSpan(subject)} · ${formatUsd(subject.costUsd)}`;
+  const headline = `👀 ${subject.id} ${label("needsYou")} · ${reason} · ${label("attempt")} ${subject.attempt} · ${shortSpan(subject)} · ${formatUsd(subject.costUsd)}${retryOutspendMark(subject)}`;
   const pad = padder(label, ["why", "asked", "do"]);
   return [
     headline,
@@ -461,9 +473,10 @@ function workerSummary(snapshot) {
  * most recently settled node (a `run.terminal` event names the run, not a
  * node), else the run's first node.
  *
- * @param {StatusPayloadNode[]} nodes
+ * @template {{id: string, status: import("../contract/index.mjs").NodeStatus, updatedAt?: string|null}} T
+ * @param {T[]} nodes
  * @param {string|null} nodeId
- * @returns {StatusPayloadNode}
+ * @returns {T}
  */
 function subjectNode(nodes, nodeId) {
   const named = nodeId ? nodes.find((node) => node.id === nodeId) : undefined;
@@ -575,6 +588,24 @@ function formatUsd(value) {
   if (typeof value !== "number" || !Number.isFinite(value)) return "$-";
   if (value > 0 && value < 0.01) return "<$0.01";
   return `$${value.toFixed(2)}`;
+}
+
+/**
+ * R31's mark for a node's text line: when the attempts after the first
+ * together out-spend the first, the line says so and quotes both sides, so a
+ * reader sees the size of the overrun rather than only that one exists. Empty
+ * when the comparison cannot be made -- a single attempt, or an attempt on
+ * either side that is not fully priced -- because an unknown comparison is
+ * not a warning.
+ *
+ * @param {MessageNode} node
+ * @returns {string}
+ */
+function retryOutspendMark(node) {
+  if (!node.retriesOutspendFirst) return "";
+  const [first, ...retries] = node.attemptCosts;
+  const retryTotal = retries.reduce((total, entry) => total + /** @type {number} */ (entry.costUsd), 0);
+  return ` · ⚠️ retries out-spend the first attempt (${formatUsd(retryTotal)} vs ${formatUsd(/** @type {number} */ (first.costUsd))})`;
 }
 
 /** Whole dollars once a campaign passes a hundred: `$132`, not `$132.21`, in a footer. @param {number|null} value @returns {string} */
