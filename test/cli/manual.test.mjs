@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { collectSurface, renderManual } from "../../src/cli/manual.mjs";
+import { parseWalkthrough } from "../../src/cli/walkthrough.mjs";
 
 /** @typedef {import("../../src/cli/manual.mjs").Surface} Surface */
 
@@ -116,4 +117,14 @@ test("manual preserves authored blocks", () => {
   assert.ok(rendered.includes("node src/cli.mjs widget gizmo --spin"));
   assert.ok(rendered.includes("Related: `faberun doctor`."));
   assert.ok(rendered.includes("| `--spin` | none | Spin once before reporting. | off |"));
+});
+
+test("the docs check carries a getting-started walkthrough", () => {
+  // `manual.mjs --check` is the repository's docs check; it must find marked
+  // command-and-output pairs in the guide for the walkthrough half to run.
+  const steps = parseWalkthrough(read("../../docs/GETTING-STARTED.md"));
+  const commands = steps.filter((step) => step.type === "command");
+  const checked = commands.filter((step) => step.output !== null);
+  assert.ok(commands.length > 0, "docs/GETTING-STARTED.md must mark commands the check runs");
+  assert.ok(checked.length > 0, "docs/GETTING-STARTED.md must mark at least one command-and-output pair");
 });

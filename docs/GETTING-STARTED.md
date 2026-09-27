@@ -176,6 +176,7 @@ registration, remove the `faberun` entry from each listed skills directory
 
 In the repository that will receive the work:
 
+<!-- walkthrough:run -->
 ```bash
 cd /path/to/target-repository
 faberun init
@@ -192,11 +193,12 @@ faberun init
   published contracts). `--agentkit` installs it without asking;
   `--greenfield`/`--stable` answer the rule by flag.
 
+<!-- walkthrough:check -->
 ```text
-[ok] .runs ignored · /path/to/target-repository/.gitignore
-installed faberun · /path/to/target-repository/.claude/skills
+[ok] .runs ignored · <project>/.gitignore
+installed faberun · <project>/.claude/skills
 1 installed · 0 skipped
-next · faberun doctor --cwd /path/to/target-repository · faberun campaign init <id> --cwd /path/to/target-repository --goal "..."
+next · faberun doctor --cwd <project> · faberun campaign init <id> --cwd <project> --goal "..."
 ```
 
 `--cwd <dir>` targets another directory and `--json` reports
@@ -211,13 +213,15 @@ The walkthrough below runs one node.
 
 **1. Open the campaign** from the target repository:
 
+<!-- walkthrough:run -->
 ```bash
 cd /path/to/target-repository
 faberun campaign init hello --cwd . --goal "Create hello.txt with the greeting"
 ```
 
+<!-- walkthrough:check -->
 ```text
-[campaign] hello initialized · .runs/campaigns/hello · landBranch campaign/hello · 0 contract(s)
+[campaign] hello initialized · <home>/projects/<project>/runs/campaigns/hello · landBranch campaign/hello · 0 contract(s)
 ```
 
 **2. Write the contract.** A complete, minimal one-node contract; save it as
@@ -227,6 +231,7 @@ cheapest available runtime works, the strongest available runtime of a
 different vendor judges. Add a `runtimes` map and `runtimeDefaults` to pin a
 specific harness pair.
 
+<!-- walkthrough:contract -->
 ```json
 {
   "schemaVersion": 3,
@@ -265,7 +270,8 @@ specific harness pair.
         { "id": "greeting-exact", "text": "hello.txt contains hello on its own line",
           "proof": { "kind": "verification", "ref": 0 } },
         { "id": "objective-met", "text": "The change honors the objective",
-          "judgment": true }
+          "judgment": true,
+          "reason": "No command proves the change reads as the greeting the goal asked for; the judge reviews it." }
       ],
       "gate": { "failOn": ["major", "critical"], "maxRevisions": 1 }
     }
@@ -284,13 +290,25 @@ cross-vendor judge. The full schema is the
 checks the host, the runtime binaries and their credentials without dispatching
 a worker.
 
+<!-- walkthrough:run -->
 ```bash
 faberun validate contract.json
+```
+
+<!-- walkthrough:check -->
+```text
+valid
+```
+
+<!-- walkthrough:run -->
+```bash
 faberun preflight contract.json
 ```
 
+On a host with the enabled runtimes installed, `preflight` reports the host and
+each runtime it resolved:
+
 ```text
-valid
 [ok] git · git version 2.52.0 · HEAD a267d1e
 [ok] runtime binaries · agy-gemini 1.2.3 · codex-gpt codex-cli 0.154.0
 [ok] agy-gemini · agy · agy · gemini-3.8-flash-low · 1.2.3
@@ -303,22 +321,32 @@ outside the tree or commit it too. `run` cuts every worktree from HEAD and
 refuses to launch over uncommitted paths; `--base-ref <ref>` is the alternative
 when the base is another ref.
 
+<!-- walkthrough:run -->
 ```bash
 git add -A && git commit -m "chore: prepare the repository for faberun"
 ```
 
-**5. Run detached.** `run --detach` returns immediately with the run
-directory; the controller keeps working in its own process group.
+**5. Run it.** `run` drives the nodes in the foreground and prints the final
+status when the run settles. `run --detach` is the alternative for a long run:
+it returns immediately with the run directory and keeps the controller in its
+own process group.
 
+<!-- walkthrough:run -->
 ```bash
-faberun run --detach contract.json
+faberun run contract.json
+```
+
+<!-- walkthrough:check -->
+```text
+[run] hello done · <home>/projects/<project>/runs/<run>
 ```
 
 **6. Watch it.** `status` renders Needs you, Now, Nodes and Cost for one run;
 `next` names the most urgent action across the active campaigns.
 
+<!-- walkthrough:run -->
 ```bash
-faberun status .runs/<run-id>
+faberun status <home>/projects/<project>/runs/<run>
 faberun next --cwd .
 ```
 
@@ -326,13 +354,15 @@ faberun next --cwd .
 without holding a lock. `supervise campaign hello` drives the whole campaign
 chain instead.
 
+<!-- walkthrough:run -->
 ```bash
-faberun supervise --detach .runs/<run-id>
+faberun supervise <home>/projects/<project>/runs/<run>
 ```
 
 **8. Close the campaign.** A campaign refuses to close until a `retrospective`
 note exists; that note is the record of what the campaign learned.
 
+<!-- walkthrough:run -->
 ```bash
 faberun campaign note hello --cwd . --session-id <session-id> --kind retrospective --text "First campaign complete"
 faberun campaign close hello --cwd .
