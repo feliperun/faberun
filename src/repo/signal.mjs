@@ -40,7 +40,7 @@ import { discoverCampaigns } from "../campaign/index.mjs";
 import { runProgress } from "../engine/supervise.mjs";
 import { readInbox } from "../notify/index.mjs";
 import { repositoryForRunsDir } from "../run/paths.mjs";
-import { SIGNAL_END, SIGNAL_START } from "./signal-block.mjs";
+import { applyManagedSignalBlock, SIGNAL_END, SIGNAL_START } from "./signal-block.mjs";
 import { HANDOFF_FILE } from "../campaign/layout.mjs";
 import { classifyRunProgress } from "../campaign/chain.mjs";
 
@@ -298,9 +298,12 @@ function boundLines(lines) {
 
 /**
  * Rewrites the managed signal block at the bottom of the repository's
- * AGENTS.md from the current runs state. Leaves the file untouched when there
- * is no AGENTS.md, no active work, or nothing changed. Returns true when the
- * file was written.
+ * AGENTS.md from the current runs state. The file must already contain the
+ * start marker: the operator opts in by pasting it once, and this repository
+ * already carries it, so no campaign operation can append a managed block to a
+ * document that never asked for one. Leaves the file untouched when there is
+ * no AGENTS.md, no start marker, no active work, or nothing changed. Returns
+ * true when the file was written.
  *
  * The repository is named by the project registry, not derived as a sibling
  * of `runsDir`: since the runs directory moved under the home, a directory
@@ -315,26 +318,8 @@ export function syncAgentSignal(runsDir) {
   const agentsPath = join(repositoryForRunsDir(runsDir) ?? dirname(runsDir), "AGENTS.md");
   if (!existsSync(agentsPath)) return false;
   const current = readFileSync(agentsPath, "utf8");
-  const block = renderAgentSignalBlock(runsDir);
-  const start = current.indexOf(SIGNAL_START);
-  const end = current.indexOf(SIGNAL_END);
-  if (!block && start < 0 && end < 0) return false;
-  let before;
-  let after;
-  if (start >= 0 && end > start) {
-    before = current.slice(0, start).trimEnd();
-    after = current.slice(end + SIGNAL_END.length);
-  } else if (start >= 0) {
-    before = current.slice(0, start).trimEnd();
-    after = "";
-  } else if (end >= 0) {
-    before = current.slice(0, end).trimEnd();
-    after = current.slice(end + SIGNAL_END.length);
-  } else {
-    before = current.trimEnd();
-    after = "";
-  }
-  const next = [before, block, after.trimStart()].filter((part) => part.length).join("\n\n") + "\n";
+  if (!current.includes(SIGNAL_START)) return false;
+  const next = applyManagedSignalBlock(current, renderAgentSignalBlock(runsDir));
   if (next === current) return false;
   writeFileSync(agentsPath, next);
   return true;

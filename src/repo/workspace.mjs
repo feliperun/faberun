@@ -17,7 +17,7 @@ import { Buffer } from "node:buffer";
 import { gitArguments } from "../host/platform.mjs";
 import { VERIFICATION_LIMITS } from "../contract/verification.mjs";
 import { basename, isAbsolute, relative, resolve } from "node:path";
-import { closeSync, lstatSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, realpathSync, statSync } from "node:fs";
+import { closeSync, lstatSync, openSync, readFileSync, readSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { errorCode } from "../util.mjs";
 import { execFileSync } from "node:child_process";
@@ -28,10 +28,14 @@ import { RUNS_DIR_NAME } from "../run/paths.mjs";
 /** A `node_modules` directory at any depth, matched as a whole path segment. */
 const NODE_MODULES_SEGMENT = /(?:^|\/)node_modules(?:\/|$)/u;
 
+/** Ignore sources at most this large are kept verbatim so base rules can be replayed. */
+const IGNORE_SOURCE_CONTENT_LIMIT = 64 * 1024;
+
 /**
- * One entry of a workspace snapshot.
+ * One entry of a workspace snapshot. `content` is present on text ignore
+ * sources small enough to replay the base ignore rules for a declared edit.
  *
- * @typedef {{path: string, kind: "file"|"symlink"|"missing", digest?: string, size?: number}} SnapshotEntry
+ * @typedef {{path: string, kind: "file"|"symlink"|"missing", digest?: string, size?: number, content?: string}} SnapshotEntry
  */
 /** @typedef {{entries: SnapshotEntry[], ignoreSources: SnapshotEntry[], truncated: boolean}} WorkspaceSnapshot */
 /** @typedef {{literal: string, paths: string[]}} WorkspaceScopeOrigin */
@@ -55,15 +59,29 @@ export function captureWorkspaceSnapshot(cwd, expectedIgnoreSources) {
   if (expectedIgnoreSources !== undefined && !sameSnapshotEntries(expectedIgnoreSources, ignoreSources)) {
     throw ignoreSourcesChanged(expectedIgnoreSources, ignoreSources);
   }
+  return { entries: captureWorkspaceEntries(root, relevantWorkspacePaths(root)), ignoreSources, truncated: false };
+}
+/**
+ * Hash the observable workspace paths into snapshot entries. This is separate
+ * from `captureWorkspaceSnapshot` so a declared ignore-source edit can be
+ * enumerated with the base ignore rules and still hash the current file
+ * content, which is what makes the edit count as a declared write.
+ *
+ * @param {string} root
+ * @param {string[]} paths
+ * @returns {SnapshotEntry[]}
+ */
+function captureWorkspaceEntries(root, paths) {
   /** @type {SnapshotEntry[]} */
   const entries = [];
-  const add = (/** @type {SnapshotEntry} */ entry) => {
+  /** @param {SnapshotEntry} entry */
+  const add = (entry) => {
     if (entries.length >= VERIFICATION_LIMITS.snapshotEntries) {
       throw fail("snapshot_too_large", `workspace snapshot exceeds ${VERIFICATION_LIMITS.snapshotEntries} entries`);
     }
     entries.push(entry);
   };
-  for (const rel of relevantWorkspacePaths(root)) {
+  for (const rel of paths) {
     if (Buffer.byteLength(rel, "utf8") > VERIFICATION_LIMITS.snapshotPathBytes) {
       throw fail("snapshot_path_too_long", `workspace path exceeds ${VERIFICATION_LIMITS.snapshotPathBytes} bytes: ${rel.slice(0, 128)}`);
     }
@@ -99,7 +117,7 @@ export function captureWorkspaceSnapshot(cwd, expectedIgnoreSources) {
       throw fail("snapshot_unsupported_entry", `unsupported workspace entry: ${rel}`);
     }
   }
-  return { entries, ignoreSources, truncated: false };
+  return entries;
 }
 /**
  * @param {WorkspaceSnapshot|undefined} before
@@ -121,10 +139,22 @@ export function compareWorkspaceSnapshot(before, cwd, scope = {}) {
       files: expandScopePaths(root, normalizeScopePaths(scope.files ?? [], "files")),
       roots: expandScopePaths(root, normalizeScopePaths(scope.roots ?? [], "roots")),
     });
-  const after = captureWorkspaceSnapshot(cwd, before.ignoreSources);
-  if (!sameSnapshotEntries(before.ignoreSources, after.ignoreSources)) {
-    throw ignoreSourcesChanged(before.ignoreSources, after.ignoreSources);
+  const currentIgnoreSources = captureIgnoreSources(root);
+  const changedIgnoreSources = changedSnapshotPaths(before.ignoreSources, currentIgnoreSources);
+  // A changed ignore source inside the declared scope is the node's own work:
+  // it is judged under the base rules instead of failing. Anything outside the
+  // scope still fails closed before scope matching.
+  if (changedIgnoreSources.some((path) => !isDeclaredScopePath(allowed, path))) {
+    throw ignoreSourcesChanged(before.ignoreSources, currentIgnoreSources);
   }
+  /** @type {WorkspaceSnapshot} */
+  const after = {
+    entries: changedIgnoreSources.length
+      ? captureWorkspaceEntriesUnderBaseRules(root, before.ignoreSources, changedIgnoreSources)
+      : captureWorkspaceEntries(root, relevantWorkspacePaths(root)),
+    ignoreSources: currentIgnoreSources,
+    truncated: false,
+  };
   const prior = new Map(before.entries.map((/** @type {SnapshotEntry} */ entry) => [entry.path, JSON.stringify(entry)]));
   const current = new Map(after.entries.map((/** @type {SnapshotEntry} */ entry) => [entry.path, JSON.stringify(entry)]));
   const changed = new Set();
@@ -141,6 +171,143 @@ export function compareWorkspaceSnapshot(before, cwd, scope = {}) {
     !fileRoots.has(path) &&
     !directoryRoots.some((scopeRoot) => path === scopeRoot || path.startsWith(`${scopeRoot}/`)));
   return { after, changedPaths, unexpectedPaths };
+}
+/**
+ * Whether a workspace-relative path falls inside the captured scope boundary,
+ * using the same file-root versus directory-root rule as the entry comparison.
+ *
+ * @param {WorkspaceScopeBoundary} allowed
+ * @param {string} path
+ * @returns {boolean}
+ */
+function isDeclaredScopePath(allowed, path) {
+  const fileRoots = new Set(allowed.fileRoots ?? []);
+  if (allowed.files.includes(path) || fileRoots.has(path)) return true;
+  return allowed.roots.some((scopeRoot) => !fileRoots.has(scopeRoot) && (path === scopeRoot || path.startsWith(`${scopeRoot}/`)));
+}
+/**
+ * The ignore sources whose fingerprint moved between two snapshots.
+ *
+ * @param {SnapshotEntry[]} before
+ * @param {SnapshotEntry[]} after
+ * @returns {string[]}
+ */
+function changedSnapshotPaths(before, after) {
+  const prior = new Map(before.map((entry) => [entry.path, snapshotEntryKey(entry)]));
+  const current = new Map(after.map((entry) => [entry.path, snapshotEntryKey(entry)]));
+  return [...new Set([...prior.keys(), ...current.keys()])].filter((path) => prior.get(path) !== current.get(path)).sort();
+}
+/**
+ * The identity of a snapshot entry for comparison. `content` is deliberately
+ * excluded: it is only carried to replay base ignore rules, so a persisted
+ * snapshot captured before that field existed still compares equal.
+ *
+ * @param {SnapshotEntry} entry
+ * @returns {string}
+ */
+function snapshotEntryKey(entry) {
+  return JSON.stringify({ path: entry.path, kind: entry.kind, digest: entry.digest, size: entry.size });
+}
+/**
+ * The after entries for a declared ignore-source edit. Paths are enumerated
+ * with the ignore rules captured before the attempt, so a worker cannot edit a
+ * declared ignore file to hide a change the base rules would have shown. The
+ * changed sources are put back afterwards and hashed from their current
+ * content, so the edit itself still counts as a declared write.
+ *
+ * @param {string} root
+ * @param {SnapshotEntry[]} beforeIgnoreSources
+ * @param {string[]} changedIgnoreSources
+ * @returns {SnapshotEntry[]}
+ */
+function captureWorkspaceEntriesUnderBaseRules(root, beforeIgnoreSources, changedIgnoreSources) {
+  const beforeByPath = new Map(beforeIgnoreSources.map((entry) => [entry.path, entry]));
+  /** @type {{path: string, saved: ReplayableFileState}[]} */
+  const restorations = [];
+  /** @type {string[]} */
+  let paths = [];
+  try {
+    for (const path of changedIgnoreSources) {
+      const beforeEntry = beforeByPath.get(path);
+      if (beforeEntry !== undefined && typeof beforeEntry.content !== "string") continue;
+      const child = ignoreSourceAbsolutePath(root, path);
+      const saved = readReplayableFileState(child);
+      if (saved === undefined) continue;
+      restorations.push({ path: child, saved });
+      if (beforeEntry === undefined) removeReplayableFile(child);
+      else if (typeof beforeEntry.content === "string") writeReplayableFile(child, beforeEntry.content);
+    }
+    paths = relevantWorkspacePaths(root);
+  } finally {
+    for (const { path, saved } of restorations.reverse()) restoreReplayableFileState(path, saved);
+  }
+  const observable = new Set(paths);
+  // A source the worker created is new under the base rules, so the walk above
+  // cannot list it; the declared edit still has to appear as a write.
+  for (const path of changedIgnoreSources) {
+    if (!path.startsWith(".git/")) observable.add(path);
+  }
+  return captureWorkspaceEntries(root, [...observable].sort());
+}
+/** @typedef {{missing: true}|{missing: false, content: string, mode: number}} ReplayableFileState */
+/**
+ * @param {string} path
+ * @returns {ReplayableFileState|undefined} undefined when replay would be unsafe
+ */
+function readReplayableFileState(path) {
+  let metadata;
+  try {
+    metadata = lstatSync(path);
+  } catch (error) {
+    if (errorCode(error) === "ENOENT" || errorCode(error) === "ENOTDIR") return { missing: true };
+    return undefined;
+  }
+  if (!metadata.isFile()) return undefined;
+  try {
+    return { missing: false, content: readFileSync(path, "utf8"), mode: metadata.mode };
+  } catch {
+    return undefined;
+  }
+}
+/** @param {string} path @param {string} content @returns {void} */
+function writeReplayableFile(path, content) {
+  writeFileSync(path, content);
+}
+/** @param {string} path @returns {void} */
+function removeReplayableFile(path) {
+  rmSync(path, { force: true });
+}
+/** @param {string} path @param {ReplayableFileState} saved @returns {void} */
+function restoreReplayableFileState(path, saved) {
+  if (saved.missing) {
+    rmSync(path, { force: true });
+    return;
+  }
+  writeFileSync(path, saved.content, { mode: saved.mode });
+}
+/**
+ * The on-disk file behind an ignore source. `.git/config` and
+ * `.git/info/exclude` may live outside the workspace in a linked worktree, so
+ * ask Git for their real path.
+ *
+ * @param {string} root
+ * @param {string} path
+ * @returns {string}
+ */
+function ignoreSourceAbsolutePath(root, path) {
+  if (path === ".git/config" || path === ".git/info/exclude") {
+    const name = path === ".git/config" ? "config" : "info/exclude";
+    try {
+      const value = execFileSync("git", gitArguments(["-C", root, "rev-parse", "--git-path", name]), {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      if (value) return isAbsolute(value) ? value : resolve(root, value);
+    } catch {
+      // Fall through to the literal workspace path.
+    }
+  }
+  return resolve(root, path);
 }
 /**
  * Resolve a declared worker scope before an untrusted worker starts. The
@@ -295,9 +462,7 @@ export function isIgnoreSource(path) {
  * @returns {Error}
  */
 function ignoreSourcesChanged(before, after) {
-  const prior = new Map(before.map((entry) => [entry.path, JSON.stringify(entry)]));
-  const current = new Map(after.map((entry) => [entry.path, JSON.stringify(entry)]));
-  const changed = [...new Set([...prior.keys(), ...current.keys()])].filter((path) => prior.get(path) !== current.get(path)).sort();
+  const changed = changedSnapshotPaths(before, after);
   return fail("snapshot_ignore_changed", `workspace ignore sources changed during worker execution: ${changed.join(", ")}`);
 }
 
@@ -437,14 +602,24 @@ function captureIgnoreSources(root) {
       const bytes = Buffer.byteLength(relevant, "utf8");
       return [{ path, kind: "file", digest: `config:${createHash("sha256").update(relevant).digest("hex")}:${bytes}`, size: bytes }];
     }
-    return [{ path, kind: "file", digest: fileIdentity(child, metadata).digest, size: metadata.size }];
+    const identity = fileIdentity(child, metadata);
+    /** @type {SnapshotEntry} */
+    const entry = { path, kind: "file", digest: identity.digest, size: metadata.size };
+    if (metadata.size <= IGNORE_SOURCE_CONTENT_LIMIT) {
+      try {
+        entry.content = readFileSync(child, "utf8");
+      } catch {
+        // Content is only needed to replay base rules for a declared edit.
+      }
+    }
+    return [entry];
   };
   return [...paths].sort().flatMap(capturePath);
 }
 /** @param {SnapshotEntry[]} before @param {SnapshotEntry[]} after @returns {boolean} */
 function sameSnapshotEntries(before, after) {
   if (before.length !== after.length) return false;
-  return before.every((entry, index) => JSON.stringify(entry) === JSON.stringify(after[index]));
+  return before.every((entry, index) => snapshotEntryKey(entry) === snapshotEntryKey(after[index]));
 }
 /** @param {string} root @param {string[]} paths @returns {string[]} */
 function expandScopePaths(root, paths) {

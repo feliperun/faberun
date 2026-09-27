@@ -822,22 +822,26 @@ node src/cli.mjs campaign resolve feature-42 --cwd /repo --session-id 1f3c \
 Related: `faberun campaign note`, `faberun campaign show`.
 ### faberun campaign close
 ```text
-faberun campaign close <campaign-id> [--cwd <value>] [--event-id <value>]
+faberun campaign close <campaign-id> [--cwd <value>] [--event-id <value>] [--ledger-in-repo]
 ```
 Close a campaign. It refuses until a `retrospective` note exists; a closed
 campaign stays inspectable but rejects further writes. Before sealing it,
-close copies the journal, the campaign record and every linked run's
-`usage.jsonl` into `docs/campaigns/<id>/ledger/`, since the run state under the
-home is not versioned with the repository and would otherwise take that history
-with it.
+close copies the journal, the campaign record and every linked run's projector
+sources into the campaign directory in the operator home, so a plain close
+leaves the target repository untouched. Pass `--ledger-in-repo` to write the
+versioned copy into `docs/campaigns/<id>/ledger/` instead, since the run state
+under the home is not versioned with the repository and would otherwise take
+that history with it.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
 | `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--event-id` | id | Event id for the close entry. | a random UUID |
+| `--ledger-in-repo` | none | Write the ledger under `docs/campaigns/<id>/ledger/` in the repository instead of the campaign directory in the home. | off |
 Writes the campaign's `campaign.json`, `journal.jsonl` and `HANDOFF.md` under
-the project's runs root; `docs/campaigns/<id>/ledger/`; updates the managed
-signal block in `AGENTS.md`.
+the project's runs root; the ledger under the campaign directory in the home,
+or `docs/campaigns/<id>/ledger/` with `--ledger-in-repo`; updates the managed
+signal block in `AGENTS.md` when its start marker is present.
 ```bash
 node src/cli.mjs campaign close feature-42 --cwd /repo
 ```

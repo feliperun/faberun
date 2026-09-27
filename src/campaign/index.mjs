@@ -130,10 +130,10 @@ export function resolveCampaign(runsDir, campaignId) {
 
 /**
  * @param {string} campaignPath
- * @param {{at?: string, eventId?: string}} options
+ * @param {{at?: string, eventId?: string, ledgerInRepo?: boolean}} options
  * @returns {{path: string, campaign: Campaign, ledgerFiles: string[], ledgerSkipped: {runId: string, source: string}[], worktrees: {removed: number, archived: string[]}}}
  */
-export function closeCampaign(campaignPath, { at = new Date().toISOString(), eventId = randomUUID() } = {}) {
+export function closeCampaign(campaignPath, { at = new Date().toISOString(), eventId = randomUUID(), ledgerInRepo = true } = {}) {
   requireTimestamp(at, "at");
   const campaign = readCampaign(campaignPath);
   if (campaign.status === "closed") throw new Error(`campaign already closed: ${campaign.id}`);
@@ -154,13 +154,21 @@ export function closeCampaign(campaignPath, { at = new Date().toISOString(), eve
   appendJournal(campaignPath, { type: "campaign.closed", at, eventId });
   // Preserve after the closed record exists: the ledger is the recomputable
   // closed record, including requirements used by the north-star projector.
-  const ledger = preserveCampaignLedger(campaignPath, campaignRepoRoot(campaignPath));
+  //
+  // A plain close keeps the evidence beside the campaign in the operator home.
+  // The versioned copy under docs/ is opt-in with --ledger-in-repo, so closing
+  // a campaign against a repository the operator does not own leaves the tree
+  // untouched. The library default stays the versioned copy: existing callers
+  // and already-committed ledgers keep their location, and the CLI is what
+  // defaults to the home.
+  const repoRoot = campaignRepoRoot(campaignPath);
+  const ledger = preserveCampaignLedger(campaignPath, repoRoot, ledgerInRepo ? undefined : join(campaignPath, "ledger"));
   // A closed campaign resumes nothing, so the attempt worktrees its runs left
   // go now, each archived under a ref first (releaseRunWorktrees).
   const runsDir = resolve(campaignPath, "..", "..");
   const worktrees = { removed: 0, archived: /** @type {string[]} */ ([]) };
   for (const runId of campaign.linkedRunIds) {
-    const released = releaseRunWorktrees(campaignRepoRoot(campaignPath), join(runsDir, runId), runId);
+    const released = releaseRunWorktrees(repoRoot, join(runsDir, runId), runId);
     worktrees.removed += released.removed;
     worktrees.archived.push(...released.archived);
   }

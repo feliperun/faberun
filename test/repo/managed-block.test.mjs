@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { assertLaunchBaseClean } from "../../src/repo/source-identity.mjs";
-import { SIGNAL_END, SIGNAL_START } from "../../src/repo/signal-block.mjs";
+import { applyManagedSignalBlock, SIGNAL_END, SIGNAL_START } from "../../src/repo/signal-block.mjs";
 
 /**
  * R17: a launch checks `AGENTS.md` by content, not by git status. The
@@ -66,4 +66,20 @@ test("a managed block appended to an AGENTS.md that committed none does not bloc
   assert.doesNotThrow(() => assertLaunchBaseClean(directory, undefined));
   writeFileSync(join(directory, "AGENTS.md"), `# AGENTS.md\n\nChanged guidance.\n\n${SIGNAL_START}\nrun state\n${SIGNAL_END}\n`);
   assert.throws(() => assertLaunchBaseClean(directory, undefined), /uncommitted path/u);
+});
+
+/**
+ * R27: the managed-block apply step is opt-in. A document without the start
+ * marker is the operator's file, so applying a freshly rendered block — or an
+ * empty block that would remove one — returns the bytes unchanged. An end
+ * marker by itself is not opt-in either.
+ */
+test("a document without the start marker is left byte-identical", () => {
+  const document = "# AGENTS.md\n\nHuman guidance.\n";
+  const block = `${SIGNAL_START}\nmanaged\n${SIGNAL_END}`;
+  assert.equal(applyManagedSignalBlock(document, block), document);
+  assert.equal(applyManagedSignalBlock(document, ""), document);
+  const endOnly = `# AGENTS.md\n\nHuman guidance.\n\n${SIGNAL_END}\n`;
+  assert.equal(applyManagedSignalBlock(endOnly, block), endOnly);
+  assert.equal(applyManagedSignalBlock(endOnly, ""), endOnly);
 });

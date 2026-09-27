@@ -506,13 +506,10 @@ export async function assertEnvironmentReady(contract, runDir, sourceIdentity) {
   // state reads done, this launch replays an accepted transaction, starts no
   // worker and no judge, and can spend no availability.
   if (blocking === null && launchMayDispatch(runDir)) {
-    // measured 2026-09-22: asking four routed runtimes in parallel took about
-    // 18s, so the default budget is 60s. FABERUN_PREFLIGHT_TIMEOUT_SEC stays
-    // the operator override; preflightContract validates it, so only a valid
-    // number is lifted here.
-    const override = Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC);
-    const timeoutSec = process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC !== undefined && Number.isFinite(override) && override > 0 ? override : 60;
-    const probes = await livePreflightProbes(contract, runDir, sourceIdentity, timeoutSec);
+    // The live budget is `live-preflight.mjs`'s single measured default (60s,
+    // `FABERUN_PREFLIGHT_TIMEOUT_SEC` the operator override). It is not
+    // restated here: a second copy is a second default to keep honest.
+    const probes = await livePreflightProbes(contract, runDir, sourceIdentity);
     const silent = probes.filter((probe) => liveSilenceCause(probe) !== null);
     writeJsonAtomic(join(runDir, "env-preflight.json"), evidence(silent.length === 0, probes));
     if (silent.length > 0) {
@@ -552,10 +549,9 @@ export async function assertEnvironmentReady(contract, runDir, sourceIdentity) {
  * @param {ValidatedContract} contract
  * @param {string} runDir
  * @param {SourceIdentity|undefined} sourceIdentity
- * @param {number} timeoutSec
  * @returns {Promise<ProbeResult[]>}
  */
-async function livePreflightProbes(contract, runDir, sourceIdentity, timeoutSec) {
+async function livePreflightProbes(contract, runDir, sourceIdentity) {
   const routed = reachableRuntimes(contract);
   /** @type {Map<string, RuntimeAvailability>} */
   const fresh = new Map();
@@ -628,7 +624,7 @@ async function livePreflightProbes(contract, runDir, sourceIdentity, timeoutSec)
       };
     });
   }
-  const probes = await preflightContract(join(runDir, "contract.json"), { liveTimeoutSec: timeoutSec, persisted: true });
+  const probes = await preflightContract(join(runDir, "contract.json"), { persisted: true });
   // What this launch bought is durable from here on: every ask that reached a
   // provider -- a refusal included, an answer being an answer -- is recorded
   // under the provider's own identity. Silence and a command that never

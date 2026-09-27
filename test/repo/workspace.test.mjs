@@ -143,3 +143,40 @@ test("a node that writes an ignore source is warned before and told which one af
     "the failure names the ignore source that changed, and only that one",
   );
 });
+
+// R22: an ignore source the node declared may change. The comparison is taken
+// under the ignore rules captured before the attempt, so the worker cannot use
+// its declared `.gitignore` edit to hide a file the base rules would show.
+test("a declared ignore-source edit is judged under the base rules, not failed", () => {
+  const directory = mkdtempSync(join(tmpdir(), "workspace-declared-ignore-"));
+  /** @param {...string} args */
+  const git = (...args) => execFileSync("git", ["-C", directory, ...args], { stdio: "ignore" });
+  git("init", "-q");
+  git("config", "user.email", "test@example.test");
+  git("config", "user.name", "test");
+  writeFileSync(join(directory, ".gitignore"), "node_modules/\n");
+  mkdirSync(join(directory, "sub"), { recursive: true });
+  writeFileSync(join(directory, "sub", "kept.txt"), "kept\n");
+  git("add", "-A");
+  git("-c", "commit.gpgSign=false", "commit", "-qm", "seed");
+
+  const before = captureWorkspaceSnapshot(directory);
+
+  // The node declares the directory it may touch, not the ignore file inside
+  // it. The worker adds a rule and hides two files the base rules would show:
+  // one inside the declared root and one outside it.
+  writeFileSync(join(directory, "sub", ".gitignore"), "*.log\n");
+  writeFileSync(join(directory, "sub", "debug.log"), "log\n");
+  writeFileSync(join(directory, "outside.log"), "outside\n");
+
+  const result = compareWorkspaceSnapshot(before, directory, { roots: ["sub"] });
+
+  assert.ok(result.changedPaths.includes("sub/.gitignore"), "the declared edit itself is a change under the base rules");
+  assert.ok(result.changedPaths.includes("sub/debug.log"), "a file the new rule hides inside the root is still judged");
+  assert.deepEqual(result.unexpectedPaths, ["outside.log"], "a file the new rule hides outside the root is still named");
+  assert.equal(
+    readFileSync(join(directory, "sub", ".gitignore"), "utf8"),
+    "*.log\n",
+    "the worker's edit is restored after the base-rules snapshot",
+  );
+});
