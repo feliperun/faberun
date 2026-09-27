@@ -224,3 +224,54 @@ com a campanha de melhoria do faberun: cada item aqui vira requisito lá.
   importam os módulos que o nó escreve (o mesmo grafo que a checagem de fechamento de escopo
   já percorre), e a campanha roda a suíte inteira uma vez antes de fechar.
 
+## Achados da campanha `open-source-readiness` (Fordita, frb-linux2), recebidos em 27/09
+
+Conferidos contra AP1 a AP15. N1 compartilha o sintoma com o AP10; os outros quatro são novos.
+
+## AP16. O teto de saída do harness fx estava cravado em 8192 nos dois clientes (N1)
+
+- **Sintoma:** o `draft` de um `faberun plan` morria com `{"code":-32603,"message":"OutputTruncated"}`,
+  e o operador via só *"detached bootstrap failed before readiness for pid N"*.
+- **Causa:** `MAX_OUTPUT_TOKENS = 8192` em `src/harnesses/fx/runner.mjs` e `max_output_tokens =
+  8192` em `src/harnesses/fx/native/main.zig`, sem configuração; o adapter prefere o cliente
+  nativo, então corrigir só o Node deixava o defeito no caminho preferido.
+- **Relação:** a mensagem opaca é o mesmo caso do AP10 (recusa de um estágio destacado que chega
+  ao operador sem a causa). O teto cravado é novo.
+- **Correção:** `config.max_output_tokens` do runtime vira `--max-output-tokens` nos dois
+  clientes, 8192 como default; o `deepseek-flash` aceita 65536 (medido pela Fordita).
+
+## AP17. O `revise` devolve o plano inteiro, e um plano de 9 nós não cabe em 65536 tokens (N2)
+
+- **Sintoma:** dois `revise` falharam em `prompt_failed` com 65.932 e 66.821 tokens de saída, no
+  teto de 65536; o `deepseek-flash` como worker produz 68k a 156k tokens por nó.
+- **Relação:** o commit que faz o `revise` ler o plano que revisa (27/09) resolveu a perda de
+  conteúdo, não o tamanho da resposta: o estágio ainda pede o plano completo de volta.
+- **Correção sugerida:** o `revise` devolve um patch sobre os nós afetados, ou o estágio é fatiado
+  por nó.
+
+## AP18. Um artefato acima de 16 KiB vira `protocol_failure` opaco (N3)
+
+- **Sintoma:** um worker GLM produziu `artifacts[0]` com 19.810 bytes contra o limite de 16.384, e
+  o nó falhou com `protocol_failure`, sem nomear tamanho nem limite.
+- **Correção sugerida:** o artefato grande transborda para arquivo com o caminho no lugar, ou o
+  erro nomeia o tamanho e o limite.
+
+## AP19. `plan` sem `--runtimes` ignora em silêncio o catálogo da campanha (N4)
+
+- **Sintoma:** a campanha tinha `plan-inputs/runtimes.json` com o teto maior, e o `plan` caiu no
+  catálogo padrão (8192) sem avisar; o operador descobriu depois de queimar rodadas.
+- **Correção sugerida:** o `plan` usa o `plan-inputs/runtimes.json` da campanha quando existe, ou
+  avisa na subida que ele existe e não foi passado.
+
+## AP20. O juiz aprovou um nó que entregou o requisito pela metade (N5)
+
+- **Sintoma:** o nó `guards-core` entregou a guarda sem as exclusões padrão que o R1 da campanha
+  declara, o juiz aprovou, e o operador interveio duas vezes na ref de integração (`6f47f4a`,
+  `4881faf`) para a fase fechar.
+- **Relação:** é o avesso do AP11 (prova mais estrita que a spec): aqui a entrega fica aquém do
+  statement e passa. O AP15 é vizinho (o portão não roda o que devia), mas o mecanismo é outro:
+  o juiz não conferiu o statement classe por classe.
+- **Correção sugerida:** o juiz confere cada classe do statement contra a entrega, ou o
+  fechamento da fase roda a guarda da spec sobre a árvore final e reprova enquanto houver
+  classe aberta.
+
