@@ -13,7 +13,7 @@ import { runContract } from "../../src/engine/scheduler.mjs";
 import { processStartToken } from "../../src/run/lock.mjs";
 
 import { closeResult, ensureAttemptWorktree, fakeCodex, fixture, initializeGit, orphan, packet, readStatus, waitForValue, withFakeCodex, writeContract } from "../helpers.mjs";
-import { nodeState, childPid, withCitedGateCodex, withAdvisoryGateCodex } from "../runner-helpers.mjs";
+import { nodeState, childPid, persistFailure, withCitedGateCodex, withAdvisoryGateCodex } from "../runner-helpers.mjs";
 import { invocationAlive } from "../../src/engine/process.mjs";
 
 /**
@@ -660,4 +660,71 @@ test("gate revisions are not consumed by attempts burned in restarts", async () 
   assert.equal(nodeState(final).status, "exhausted");
   assert.equal(nodeState(final).attempt, 5, "two burned starts, the automatic retry, and the gate retry start");
   assert.equal(nodeState(final).revisions, 1, "one real gate rejection consumed");
+});
+
+test("an operator override reaches any non-terminal node", async () => {
+  // Every parked status, not only the `context_missing` boundary: the answer is
+  // recorded for each, rendered into the re-dispatched attempt's prompt, and
+  // the next attempt is cut from the previous attempt's seal. The authored
+  // packet and its packet hash never move.
+  const parkedStates = [
+    { status: "stalled", code: "stall_timeout" },
+    { status: "failed", code: "provider_error" },
+    { status: "exhausted", code: "verification_failed" },
+    { status: "blocked", code: "integration_conflict" },
+  ];
+  for (const parked of parkedStates) {
+    const directory = mkdtempSync(join(tmpdir(), `runner-override-${parked.status}-`));
+    const path = writeContract(directory, fixture({ id: `override-${parked.status}-run`, pollIntervalMs: 10 }));
+    const runDir = await withFakeCodex(directory, "pass", async () => (await runContract(path)).runDir);
+
+    // What the run was authored with, before any answer can touch it.
+    const contractPath = join(runDir, "contract.json");
+    const authored = JSON.parse(readFileSync(contractPath, "utf8"));
+    const authoredPacket = JSON.stringify(authored.nodes[0].taskPacket);
+    const authoredPacketHash = authored.nodes[0].packetHash;
+
+    // Park the node in the named non-terminal state, but recreate the previous
+    // attempt's worktree and leave uncommitted work in it: only the seal can
+    // carry that work into the next attempt.
+    const nodePath = join(runDir, "nodes", "build.json");
+    const parkedNode = JSON.parse(readFileSync(nodePath, "utf8"));
+    parkedNode.worktree = ensureAttemptWorktree(runDir, parkedNode);
+    writeFileSync(nodePath, JSON.stringify(parkedNode, null, 2));
+    writeFileSync(join(parkedNode.worktree.path, "carried.txt"), "sealed by the previous attempt\n");
+    persistFailure(runDir, "build", parked);
+
+    const answerText = `operator answer for ${parked.status}`;
+    const answerPath = join(directory, "answer.txt");
+    writeFileSync(answerPath, answerText);
+
+    const resumed = await withFakeCodex(directory, "pass", () => resumeRun(runDir, { answer: { node: "build", path: answerPath } }));
+    const state = nodeState(resumed);
+    assert.equal(state.status, "done", `${parked.status}: ${state.error?.message}`);
+    assert.equal(state.attempt, 2, `${parked.status}: the answered node is re-dispatched exactly once`);
+
+    const override = /** @type {Record<string, unknown>[]} */ (state.executionOverrides ?? []).find((item) => item.kind === "operator-answer");
+    assert.ok(override, `${parked.status}: the answer is recorded as an operator-answer override`);
+    assert.equal(override.text, answerText, `${parked.status}: the recorded text is the operator's answer`);
+
+    const workerPrompt = readFileSync(join(runDir, "logs", "build.2.worker.prompt"), "utf8");
+    assert.ok(workerPrompt.includes(answerText), `${parked.status}: the answer reaches the re-dispatched worker prompt`);
+
+    const after = JSON.parse(readFileSync(contractPath, "utf8"));
+    assert.equal(JSON.stringify(after.nodes[0].taskPacket), authoredPacket, `${parked.status}: the authored packet is intact`);
+    assert.equal(after.nodes[0].packetHash, authoredPacketHash, `${parked.status}: the packet hash is intact`);
+
+    // The engine records `previousAttempt` only when the previous worktree
+    // sealed a non-empty diff, and the only uncommitted change made to the
+    // parked attempt was `carried.txt`, so this is the seal continuation.
+    assert.equal(state.worktree?.previousAttempt, 1, `${parked.status}: the next attempt is cut from the previous seal`);
+
+    // A terminal node has no attempt left to receive the answer, so the engine
+    // refuses it instead of recording an override nothing can act on.
+    await assert.rejects(
+      () => resumeRun(runDir, { answer: { node: "build", path: answerPath } }),
+      /not blocked on missing context/u,
+      `${parked.status}: a done node refuses the override`,
+    );
+  }
 });

@@ -12,7 +12,7 @@
  * contract left open, and only from runtimes that are available now: a resume
  * after an exhausted provider is exactly when that matters.
  */
-import { JUDGE_SCHEMA, SETTLED } from "./prompts.mjs";
+import { JUDGE_SCHEMA, SETTLED, TERMINAL } from "./prompts.mjs";
 import { Buffer } from "node:buffer";
 import { acquire as acquireLock } from "../run/lock.mjs";
 import { applyInvalidWorkerResult, assertRunMutable, handleProviderExhaustion } from "./lifecycle.mjs";
@@ -87,8 +87,8 @@ export function recoveryExhaustionEnvelope(recovery, invocation) {
  * @param {{node?: string, reconcile?: string, answer?: {node: string, path: string}, detachedBootstrap?: boolean}} [options]
  *   `node` limits the retry in place to one node and its dependants,
  *   `reconcile` acknowledges a node stopped as `unknown_effect_reconciled`,
- *   `answer` records an operator's answer for a node blocked on
- *   `context_missing` and re-dispatches it, and
+ *   `answer` records an operator's answer for any non-terminal node and
+ *   re-dispatches it, and
  *   `detachedBootstrap` is set only by the CLI entry when this process is its
  *   own detached child
  * @returns {Promise<RunOutcome>}
@@ -161,15 +161,25 @@ export async function resumeRun(runDirPath, options = {}) {
           result: { status: "done", summary: boundedSummary(answerText.trim() || answerNode.humanStep.step), verification: [], artifacts: [], missingContext: [] },
         }, lock);
       } else {
-        if (!answerState || !isBlockedContextTerminal(answerState)) {
-          throw new Error(`node ${options.answer.node} is not blocked on missing context`);
+        // Any non-terminal node accepts an operator answer, not only the
+        // `context_missing` boundary. A node that already reached a terminal
+        // status has no attempt left to receive the answer, so it is refused
+        // here -- in the engine, where the resume decisions are made and the
+        // engine test can reach the gate.
+        if (!answerState || TERMINAL.has(answerState.status)) {
+          throw new Error(`node ${options.answer.node} is not blocked on missing context and is terminal, so it cannot accept an operator answer`);
         }
         const answerOverride = /** @type {import("../contract/index.mjs").ExecutionOverride} */ (/** @type {unknown} */ ({
           kind: "operator-answer",
-          reason: `operator answered missing context for node ${options.answer.node}`,
+          reason: `operator answered node ${options.answer.node}`,
           text: answerText,
         }));
         recordExecutionOverride(runDir, answerState, answerOverride, lock);
+        // Render the answer into the bounded `Previous attempt` section before
+        // classification. The retry path below renders it too, but a parked
+        // node the recover path re-dispatches would otherwise carry the
+        // override without ever showing it to the worker.
+        answerState.previousAttempt = renderPreviousAttemptSection(answerState) ?? answerState.previousAttempt;
       }
     }
     const plan = planResumeRetry(contract, states, { node: options.node, reconcile: options.reconcile, answer: options.answer?.node });
