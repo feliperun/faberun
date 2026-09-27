@@ -98,7 +98,7 @@ export function hasDetachedBootstrapNonce() {
 /** @type {Record<string, import("node:util").ParseArgsOptionsConfig>} */
 export const COMMAND_OPTIONS = {
   run: { detach: { type: "boolean" }, "base-ref": { type: "string" }, "fresh-preflight": { type: "boolean" } },
-  resume: { detach: { type: "boolean" }, node: { type: "string" }, reconcile: { type: "string" }, answer: { type: "string" }, "fresh-preflight": { type: "boolean" } },
+  resume: { detach: { type: "boolean" }, node: { type: "string" }, reconcile: { type: "string" }, answer: { type: "string" }, reauthor: { type: "string" }, "approve-below": { type: "string" }, "fresh-preflight": { type: "boolean" } },
   supervise: { detach: { type: "boolean" }, interval: { type: "string" } },
   cancel: {},
   preflight: { static: { type: "boolean" }, json: { type: "boolean" }, "time-verification": { type: "boolean" } },
@@ -177,12 +177,15 @@ function parseCli(argv, quiet = false) {
 
 /**
  * The retry-in-place options of a `resume` invocation, validated before any
- * lock is taken.
+ * lock is taken. `--reauthor <node-id>` widens one `context_missing` node's
+ * frozen packet from a bounded discovery pass and re-dispatches it once the
+ * widening validates and clears the approval threshold; `--approve-below`
+ * overrides that threshold exactly as `plan`'s flag of the same name does.
  *
  * @param {Record<string, unknown>} values
- * @returns {{node?: string, reconcile?: string, answer?: {node: string, path: string}}}
+ * @returns {{node?: string, reconcile?: string, answer?: {node: string, path: string}, reauthor?: {node: string, discover: (context: {round: number, node: import("./contract/index.mjs").ValidatedNode, state: NodeSnapshot, missingContext: string[], findings: string[]}) => import("./contract/scope-findings.mjs").ReauthorAdditions, approveBelow?: string}}}
  */
-function resumeOptionsOf(values) {
+export function resumeOptionsOf(values) {
   const node = typeof values.node === "string" && values.node ? values.node : undefined;
   const reconcile = typeof values.reconcile === "string" && values.reconcile ? values.reconcile : undefined;
   const answer = answerOf(values.answer);
@@ -192,7 +195,48 @@ function resumeOptionsOf(values) {
   if (node && answer && node !== answer.node) {
     throw new Error(`--answer ${answer.node} conflicts with --node ${node}`);
   }
-  return { node, reconcile, answer };
+  const reauthor = typeof values.reauthor === "string" && values.reauthor ? values.reauthor : undefined;
+  // `--reauthor` names the node it widens the same way `--node` names the node
+  // it retries: a different target in each would widen one node and narrow the
+  // retry to another, so the two must agree when both are given. `--answer`
+  // and `--reauthor` are two mutually exclusive repairs of the same refusal.
+  if (reauthor && node && reauthor !== node) {
+    throw new Error(`--reauthor ${reauthor} conflicts with --node ${node}`);
+  }
+  if (reauthor && answer) {
+    throw new Error(`--reauthor ${reauthor} cannot be combined with --answer ${answer.node}`);
+  }
+  const approveBelow = typeof values["approve-below"] === "string" && values["approve-below"] ? values["approve-below"] : undefined;
+  if (approveBelow !== undefined && !APPROVE_BELOW_VALUES.has(approveBelow)) {
+    throw new Error(`--approve-below must be one of standard, high, none: ${approveBelow}`);
+  }
+  if (approveBelow !== undefined && !reauthor) {
+    throw new Error("--approve-below requires --reauthor");
+  }
+  const reauthorOptions = reauthor
+    ? { node: reauthor, discover: discoverReauthorAdditions, ...(approveBelow === undefined ? {} : { approveBelow }) }
+    : undefined;
+  return { node, reconcile, answer, ...(reauthorOptions === undefined ? {} : { reauthor: reauthorOptions }) };
+}
+
+/** The approval thresholds `reauthorApproved` accepts, mirroring the planning pipeline's set. */
+const APPROVE_BELOW_VALUES = new Set(["standard", "high", "none"]);
+
+/**
+ * The discovery pass `resume --reauthor` spends its hard round budget on: the
+ * refusal already names the files the worker could not reach, so the bounded
+ * proposal widens the frozen packet with exactly those entries. `validateContract`
+ * still decides whether the widening closed scope and `reauthorWriteConflicts`
+ * whether it invaded another node's writes; an inadmissible proposal is refused
+ * and never applied. The engine owns the budget, the recording and the resume;
+ * this is only the CLI's discovery seam.
+ *
+ * @param {{missingContext: string[]}} context
+ * @returns {import("./contract/scope-findings.mjs").ReauthorAdditions}
+ */
+export function discoverReauthorAdditions({ missingContext }) {
+  const files = [...missingContext];
+  return { readFiles: files, writeFiles: files };
 }
 
 /**
@@ -387,6 +431,8 @@ async function main(argv) {
         ...(resumeOptions.node ? ["--node", resumeOptions.node] : []),
         ...(resumeOptions.reconcile ? ["--reconcile", resumeOptions.reconcile] : []),
         ...(resumeOptions.answer ? ["--answer", `${resumeOptions.answer.node}=${resumeOptions.answer.path}`] : []),
+        ...(resumeOptions.reauthor ? ["--reauthor", resumeOptions.reauthor.node] : []),
+        ...(resumeOptions.reauthor?.approveBelow ? ["--approve-below", resumeOptions.reauthor.approveBelow] : []),
         ...(values["fresh-preflight"] === true ? ["--fresh-preflight"] : []),
       ];
       const child = detachSelf("resume", target, extraArgs);

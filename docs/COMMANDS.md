@@ -118,12 +118,14 @@ Related: `faberun doctor`, `faberun run`, `faberun validate`.
 
 ## faberun resume
 ```text
-faberun resume <run-dir> [--detach] [--node <value>] [--reconcile <value>] [--answer <value>] [--fresh-preflight]
+faberun resume <run-dir> [--detach] [--node <value>] [--reconcile <value>] [--answer <value>] [--reauthor <value>] [--approve-below <value>] [--fresh-preflight]
 ```
 Continue an interrupted run in place: the same run, node and frozen packet,
 attempt plus one. It adopts completed work first, then re-dispatches ordinary
-failures; it never re-authors. A run launched with `run --base-ref` resumes
-against that same ref, from any checkout.
+failures. `--reauthor <node-id>` re-widens one `context_missing` node's packet
+from its refusal before re-dispatching it; every other resume never re-authors.
+A run launched with `run --base-ref` resumes against that same ref, from any
+checkout.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
@@ -131,14 +133,19 @@ against that same ref, from any checkout.
 | `--node` | node id | Limit the retry to that node and its dependents. | every eligible node |
 | `--reconcile` | node id | Re-dispatch a node blocked with `unknown_effect_reconciled`; refuses without it. | none |
 | `--answer` | `<node-id>=<path>` | Record an operator answer for a node blocked on context, then re-dispatch it and its dependents. The file is refused above 8 KiB. | none |
+| `--reauthor` | node id | Re-widen that `context_missing` node's packet from a bounded discovery pass, validate it against the whole contract, and re-dispatch it only with approval or below `--approve-below`. | none |
+| `--approve-below` | `standard`, `high`, or `none` | The risk threshold below which an accepted reauthor widening is applied without an explicit operator yes. | `standard` |
 | `--fresh-preflight` | none | Ask every routed runtime the live preflight again, ignoring any stored verdict inside its freshness window; the fresh answers are recorded for later launches. | off |
 Reads and writes the run directory under the project's runs root in
 `$FABERUN_HOME` (`<home>/projects/<project>/runs/<run-id>/`: node snapshots,
 integration ledger, operations, logs) and its attempt worktrees. `--answer` is
-text only and is never written into a worktree.
+text only and is never written into a worktree. `--reauthor` writes the accepted
+widening to the run's `contract.json` and its proposal and spent budget to
+`reauthor.jsonl`.
 ```bash
 node src/cli.mjs resume --detach /home/me/.faberun/projects/<project>/runs/feature-42
 node src/cli.mjs resume /home/me/.faberun/projects/<project>/runs/feature-42 --answer spec-missing=/tmp/answer.md
+node src/cli.mjs resume /home/me/.faberun/projects/<project>/runs/feature-42 --reauthor build --approve-below high
 ```
 Related: `faberun supervise`, `faberun status`, `faberun findings`.
 
