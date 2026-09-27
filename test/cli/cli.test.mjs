@@ -675,3 +675,24 @@ test("skills register records what it wrote in the install registry under the ho
   assert.equal(entry.path, join(home, ".claude", "skills", "faberun"));
   assert.equal(entry.root, join(home, ".claude", "skills"));
 });
+
+test("uninstall --dry-run through the CLI lists without removing", () => {
+  const home = mkdtempSync(join(tmpdir(), "runner-uninstall-dry-"));
+  const faberunHome = join(home, ".faberun");
+  const skill = join(home, ".claude", "skills", "faberun");
+  mkdirSync(skill, { recursive: true });
+  writeFileSync(join(skill, "SKILL.md"), "# faberun skill\n");
+  mkdirSync(faberunHome, { recursive: true });
+  writeFileSync(join(faberunHome, "config.json"), "{}\n");
+  const env = { ...process.env, HOME: home, FABERUN_HOME: faberunHome, FORCE_COLOR: "0" };
+  const result = spawnSync(
+    process.execPath,
+    [fileURLToPath(new URL("../../bin/faberun.mjs", import.meta.url)), "uninstall", "--dry-run"],
+    { env, encoding: "utf8" },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /dry run/u);
+  assert.match(result.stdout, /npm uninstall -g/u);
+  assert.ok(existsSync(join(skill, "SKILL.md")), "dry run removes nothing");
+  assert.ok(existsSync(faberunHome), "dry run leaves the home in place");
+});

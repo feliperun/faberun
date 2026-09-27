@@ -362,6 +362,35 @@ update available · run faberun update
 ```
 Related: `faberun --version`, `faberun doctor`.
 
+## faberun uninstall
+```text
+faberun uninstall [--dry-run] [--force] [--yes]
+```
+Remove everything faberun wrote outside a target repository: the skills it
+registered in a harness's skills directory, the status-line and hook entries it
+added to a harness's settings file, and `$FABERUN_HOME` itself. The list is the
+union of the install registry and the published known install sites, so an
+artifact an older faberun wrote before the registry existed is still found and
+removed. A campaign whose ledger was not preserved at its durable repository
+location refuses the whole command unless `--force`. Removal of `$FABERUN_HOME`
+is confirmed interactively; when the environment has no terminal, `--yes` is
+required. Nothing under the current working directory is ever a candidate, and
+`$FABERUN_HOME` is never deleted when it is the effective home, so a target
+repository's files cannot be touched.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--dry-run` | none | List what would be removed; remove nothing. | off |
+| `--force` | none | Remove even when a campaign ledger is not preserved at its repository. | off |
+| `--yes` | none | Skip the interactive confirmation. | off |
+Reads the install registry, the known install sites and `$FABERUN_HOME`.
+Writes by removing those paths, and closes by naming the command that removes
+the published package.
+```bash
+node src/cli.mjs uninstall --dry-run
+```
+Related: `faberun setup`, `faberun init`, `faberun skills register`.
+
 ## faberun project
 ```text
 faberun project <new-path> [--from <value>]

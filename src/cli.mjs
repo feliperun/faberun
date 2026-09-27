@@ -35,6 +35,7 @@ import { campaignCli } from "./cli/campaign.mjs";
 import { seatCli } from "./cli/seat.mjs";
 import { initCommand } from "./cli/init.mjs";
 import { setupCommand } from "./cli/setup.mjs";
+import { uninstallCommand } from "./cli/uninstall.mjs";
 import { skillsCli } from "./cli/skills.mjs";
 import { updateCommand } from "./cli/update.mjs";
 import { contractCli, validateContractFile } from "./cli/contract.mjs";
@@ -116,6 +117,7 @@ export const COMMAND_OPTIONS = {
   prune: { cwd: { type: "string" }, parked: { type: "boolean" }, json: { type: "boolean" } },
   setup: { yes: { type: "boolean" }, harnesses: { type: "string" }, worker: { type: "string" }, judge: { type: "string" }, "no-skill": { type: "boolean" }, json: { type: "boolean" } },
   init: { cwd: { type: "string" }, yes: { type: "boolean" }, "no-skill": { type: "boolean" }, agentkit: { type: "boolean" }, greenfield: { type: "boolean" }, stable: { type: "boolean" }, json: { type: "boolean" } },
+  uninstall: { "dry-run": { type: "boolean" }, force: { type: "boolean" }, yes: { type: "boolean" } },
   metrics: METRICS_OPTIONS,
   plan: {
     campaign: { type: "string" },
@@ -162,12 +164,13 @@ function parseCli(argv, quiet = false) {
   if (command === "init" && parsed.positionals.length !== 0) return null;
   if (command === "migrate" && parsed.positionals.length !== 0) return null;
   if (command === "prune" && parsed.positionals.length !== 0) return null;
+  if (command === "uninstall" && parsed.positionals.length !== 0) return null;
   // `plan --resolve <plan-dir>` (R9) takes no spec positional: everything a
   // fresh `plan` reads from it and its flags is already on the contested
   // plan.json the run it resumes wrote.
   if (command === "plan" && typeof parsed.values.resolve === "string" && parsed.values.resolve !== "") {
     if (parsed.positionals.length !== 0) return null;
-  } else if (command !== "doctor" && command !== "models" && command !== "bulk-read" && command !== "next" && command !== "update" && command !== "setup" && command !== "init" && command !== "migrate" && command !== "prune" && parsed.positionals.length !== 1) return null;
+  } else if (command !== "doctor" && command !== "models" && command !== "bulk-read" && command !== "next" && command !== "update" && command !== "setup" && command !== "init" && command !== "migrate" && command !== "prune" && command !== "uninstall" && parsed.positionals.length !== 1) return null;
   return {
     command,
     target: parsed.positionals[0],
@@ -350,6 +353,16 @@ async function main(argv) {
       agentkit: values.agentkit === true,
       variant: values.stable === true ? "stable" : values.greenfield === true ? "greenfield" : undefined,
       json: values.json === true,
+      env: process.env,
+      isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+    });
+    return;
+  }
+  if (command === "uninstall") {
+    process.exitCode = await uninstallCommand({
+      dryRun: values["dry-run"] === true,
+      force: values.force === true,
+      yes: values.yes === true,
       env: process.env,
       isTTY: Boolean(process.stdin.isTTY && process.stdout.isTTY),
     });
