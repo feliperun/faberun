@@ -44,6 +44,7 @@ import { writeJsonAtomic } from "../run/store.mjs";
  *   targetedFix: boolean,
  *   approveBelow: "standard"|"high"|"none",
  *   repoFacts: import("./repo-facts.mjs").RepoFacts,
+ *   judgeIndependence?: "same-vendor",
  * }} ContestResumeContext
  */
 /** @typedef {{formatVersion: 1, status: "contested", rounds: number, findings: PlanFindingOutput[], plan: PlanOutput|null, resume: ContestResumeContext}} ContestedPlanRecord */

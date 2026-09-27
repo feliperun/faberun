@@ -14,6 +14,7 @@
 import { ROUTING_STRATEGIES } from "../contract/runtime.mjs";
 import { cheapest, isRuntimeAvailable, strongest } from "../engine/runtime-discovery.mjs";
 import { effectiveProvider } from "../contract/provider.mjs";
+import { SAME_VENDOR_REVIEW_MODE, sameVendorTierRefusal } from "../contract/judge-independence.mjs";
 
 /** @typedef {import("../contract/runtime.mjs").RoutingStrategy} RoutingStrategy */
 /** @typedef {RoutingStrategy|"declared"} AppliedStrategy */
@@ -27,12 +28,18 @@ import { effectiveProvider } from "../contract/provider.mjs";
  * reader, `isRuntimeAvailable` in runtime-discovery.mjs.
  * @typedef {{available: boolean, exhaustedUntil: string|null, observedAt?: string|null, window?: string|null, remaining?: number|null, [key: string]: unknown}} RoutingAvailability
  */
-/** @typedef {{vendor: string, tier?: number|string, costRank?: number, fallback?: string, [key: string]: unknown}} RoutingRuntime */
+/** @typedef {{vendor: string, harness?: string, model?: string, tier?: number|string, costRank?: number, fallback?: string, [key: string]: unknown}} RoutingRuntime */
 /** @typedef {{id: string, taskKind?: string, riskTier?: string}} RoutingNode */
 /** @typedef {{taskKind?: string, riskTier?: string}} RoutingWhen */
 /** @typedef {{name?: string, when: RoutingWhen, prefer: string[], role: "worker"|"judge", strategy?: RoutingStrategy}} RoutingRule */
 /** @typedef {{worker?: string, judge?: string}} RoutingRoleMap */
-/** @typedef {{table?: RoutingRule[], runtimes: Record<string, RoutingRuntime>, availability?: Record<string, RoutingAvailability>, runtimeDefaults?: RoutingRoleMap, overrides?: Record<string, RoutingRoleMap>}} RoutingConfig */
+/**
+ * Why a runtime may not take a role on a node, or `null` when it may: the
+ * judge's bar follows the worker actually chosen (its vendor, its fallback
+ * chain, and in same-vendor mode the tier rule); the worker has none.
+ * @typedef {(id: string, runtime: RoutingRuntime) => string|null} JudgeBar
+ */
+/** @typedef {{table?: RoutingRule[], runtimes: Record<string, RoutingRuntime>, availability?: Record<string, RoutingAvailability>, runtimeDefaults?: RoutingRoleMap, overrides?: Record<string, RoutingRoleMap>, judgeIndependence?: "same-vendor"}} RoutingConfig */
 /** @typedef {{worker: string|null, judge: string|null, rule: {worker: string, judge: string}, strategy: {worker: AppliedStrategy|null, judge: AppliedStrategy|null}, reason: {worker: string, judge: string}}} RoutingAssignment */
 /** @typedef {{nodeId: string, role: "worker"|"judge", rule: string}} RoutingUnmet */
 /** @typedef {{assignments: Record<string, RoutingAssignment>, unmet: RoutingUnmet[]}} RoutingResult */
@@ -53,6 +60,7 @@ export function resolveRuntimes(nodes, config, options = {}) {
   const runtimeDefaults = config.runtimeDefaults ?? {};
   const overrides = config.overrides ?? {};
   const previous = options.previous ?? {};
+  const judgeIndependence = config.judgeIndependence;
 
   // A strategy name outside the vocabulary is an authored-table defect, not an
   // unobservable datum: it fails fast, before any node is resolved.
@@ -69,13 +77,13 @@ export function resolveRuntimes(nodes, config, options = {}) {
 
   for (const node of nodes) {
     const override = overrides[node.id] ?? {};
-    const worker = resolveRole(node, "worker", { runtimes, availability, runtimeDefaults, table, override, forbiddenVendors: EMPTY_VENDORS, previousId: previous[node.id]?.worker });
+    const worker = resolveRole(node, "worker", { runtimes, availability, runtimeDefaults, table, override, judgeBar: NO_BAR, previousId: previous[node.id]?.worker });
     if (worker.runtimeId === null) unmet.push({ nodeId: node.id, role: "worker", rule: worker.rule });
-    // The judge's forbidden vendors follow the worker runtime that was
-    // actually chosen, never the row that named it — a worker unmet leaves
-    // nothing to conflict with, so the judge resolves without restriction.
-    const forbiddenVendors = worker.runtimeId ? forbiddenJudgeVendors(worker.runtimeId, runtimes) : EMPTY_VENDORS;
-    const judge = resolveRole(node, "judge", { runtimes, availability, runtimeDefaults, table, override, forbiddenVendors, previousId: previous[node.id]?.judge });
+    // The judge's bar follows the worker runtime that was actually chosen,
+    // never the row that named it — a worker unmet leaves nothing to
+    // conflict with, so the judge resolves without restriction.
+    const judgeBar = worker.runtimeId ? judgeBarFor(worker.runtimeId, runtimes, judgeIndependence) : NO_BAR;
+    const judge = resolveRole(node, "judge", { runtimes, availability, runtimeDefaults, table, override, judgeBar, previousId: previous[node.id]?.judge });
     if (judge.runtimeId === null) unmet.push({ nodeId: node.id, role: "judge", rule: judge.rule });
     assignments[node.id] = {
       worker: worker.runtimeId,
@@ -94,8 +102,8 @@ export function resolveRuntimes(nodes, config, options = {}) {
   return { assignments, unmet };
 }
 
-/** @type {ReadonlySet<string>} */
-const EMPTY_VENDORS = Object.freeze(new Set());
+/** @type {JudgeBar} */
+const NO_BAR = () => null;
 
 /**
  * Precedence for one role on one node: an explicit node override, then the
@@ -110,16 +118,16 @@ const EMPTY_VENDORS = Object.freeze(new Set());
  *
  * @param {RoutingNode} node
  * @param {"worker"|"judge"} role
- * @param {{runtimes: Record<string, RoutingRuntime>, availability: Record<string, RoutingAvailability>, runtimeDefaults: RoutingRoleMap, table: RoutingRule[], override: RoutingRoleMap, forbiddenVendors: ReadonlySet<string>, previousId: string|undefined}} context
+ * @param {{runtimes: Record<string, RoutingRuntime>, availability: Record<string, RoutingAvailability>, runtimeDefaults: RoutingRoleMap, table: RoutingRule[], override: RoutingRoleMap, judgeBar: JudgeBar, previousId: string|undefined}} context
  * @returns {{runtimeId: string|null, rule: string, strategy: AppliedStrategy|null, reason: string}}
  */
 function resolveRole(node, role, context) {
-  const { runtimes, availability, runtimeDefaults, table, override, forbiddenVendors, previousId } = context;
+  const { runtimes, availability, runtimeDefaults, table, override, judgeBar, previousId } = context;
 
   if (override[role] !== undefined) {
     const id = override[role];
     return {
-      runtimeId: admits(id, runtimes, availability, forbiddenVendors) ? id : null,
+      runtimeId: admits(id, runtimes, availability, judgeBar) ? id : null,
       rule: "override",
       strategy: "declared",
       reason: `operator override on node ${node.id}`,
@@ -129,7 +137,7 @@ function resolveRole(node, role, context) {
   if (runtimeDefaults[role] !== undefined) {
     const id = runtimeDefaults[role];
     return {
-      runtimeId: admits(id, runtimes, availability, forbiddenVendors) ? id : null,
+      runtimeId: admits(id, runtimes, availability, judgeBar) ? id : null,
       rule: "runtimeDefaults",
       strategy: "declared",
       reason: "operator runtimeDefaults",
@@ -141,13 +149,13 @@ function resolveRole(node, role, context) {
     && (candidate.when.riskTier === undefined || candidate.when.riskTier === node.riskTier));
   if (row) {
     const strategy = row.strategy ?? "priority";
-    const decision = chooseByStrategy(strategy, row.prefer, { runtimes, availability, forbiddenVendors, previousId });
+    const decision = chooseByStrategy(strategy, row.prefer, { runtimes, availability, judgeBar, previousId });
     return { runtimeId: decision.runtimeId, rule: ruleLabel(row), strategy, reason: decision.reason };
   }
 
   const discovered = role === "worker"
-    ? cheapestAvailable(runtimes, availability, forbiddenVendors)
-    : strongestAvailable(runtimes, availability, forbiddenVendors);
+    ? cheapestAvailable(runtimes, availability, judgeBar)
+    : strongestAvailable(runtimes, availability, judgeBar);
   return {
     runtimeId: discovered,
     rule: "discovery",
@@ -168,12 +176,12 @@ function resolveRole(node, role, context) {
  *
  * @param {RoutingStrategy} strategy
  * @param {string[]} prefer
- * @param {{runtimes: Record<string, RoutingRuntime>, availability: Record<string, RoutingAvailability>, forbiddenVendors: ReadonlySet<string>, previousId: string|undefined}} context
+ * @param {{runtimes: Record<string, RoutingRuntime>, availability: Record<string, RoutingAvailability>, judgeBar: JudgeBar, previousId: string|undefined}} context
  * @returns {{runtimeId: string|null, reason: string}}
  */
 function chooseByStrategy(strategy, prefer, context) {
-  const { runtimes, availability, forbiddenVendors, previousId } = context;
-  const candidates = prefer.map((id) => ({ id, admissible: admits(id, runtimes, availability, forbiddenVendors) }));
+  const { runtimes, availability, judgeBar, previousId } = context;
+  const candidates = prefer.map((id) => ({ id, admissible: admits(id, runtimes, availability, judgeBar) }));
   const admissible = candidates.filter((candidate) => candidate.admissible);
   if (admissible.length === 0) return { runtimeId: null, reason: "no admissible candidate in the prefer list" };
 
@@ -185,10 +193,10 @@ function chooseByStrategy(strategy, prefer, context) {
     // where the prefer list does not name it -- reusing it is the strategy's
     // whole point. It yields by name whenever it would violate availability
     // or vendor distinction, the yields `admits` already speaks.
-    if (admits(previousId, runtimes, availability, forbiddenVendors)) {
+    if (admits(previousId, runtimes, availability, judgeBar)) {
       return { runtimeId: previousId, reason: `attempt-affinity: previous attempt's runtime ${previousId} still admissible` };
     }
-    return { runtimeId: admissible[0].id, reason: `attempt-affinity yielded: ${previousId} ${blockedWhy(previousId, runtimes, availability, forbiddenVendors)}; prefer order decided` };
+    return { runtimeId: admissible[0].id, reason: `attempt-affinity yielded: ${previousId} ${blockedWhy(previousId, runtimes, availability, judgeBar)}; prefer order decided` };
   }
 
   if (strategy === "cost") {
@@ -222,54 +230,68 @@ function chooseByStrategy(strategy, prefer, context) {
  * @param {string} id
  * @param {Record<string, RoutingRuntime>} runtimes
  * @param {Record<string, RoutingAvailability>} availability
- * @param {ReadonlySet<string>} forbiddenVendors
+ * @param {JudgeBar} judgeBar
  * @returns {string}
  */
-function blockedWhy(id, runtimes, availability, forbiddenVendors) {
+function blockedWhy(id, runtimes, availability, judgeBar) {
   const runtime = runtimes[id];
   if (!runtime) return "is not declared in runtimes";
-  const provider = effectiveProvider(runtime);
-  if (provider !== undefined && forbiddenVendors.has(provider)) return `carries forbidden vendor ${provider}`;
-  return "is unavailable";
+  return judgeBar(id, runtime) ?? "is unavailable";
 }
 
 /**
  * @param {string} id
  * @param {Record<string, RoutingRuntime>} runtimes
  * @param {Record<string, RoutingAvailability>} availability
- * @param {ReadonlySet<string>} forbiddenVendors
+ * @param {JudgeBar} judgeBar
  * @returns {boolean}
  */
-function admits(id, runtimes, availability, forbiddenVendors) {
+function admits(id, runtimes, availability, judgeBar) {
   const runtime = runtimes[id];
   if (!runtime) return false;
-  const provider = effectiveProvider(runtime);
-  if (provider !== undefined && forbiddenVendors.has(provider)) return false;
+  if (judgeBar(id, runtime) !== null) return false;
   return isRuntimeAvailable(availability[id]);
 }
 
 /**
- * Every vendor a judge may not carry: the worker's own vendor, plus the
- * vendor of each runtime reachable through the worker's declared `fallback`
- * chain — the same independence the contract validator enforces statically
- * once a worker is actually chosen dynamically here.
+ * The judge's bar for one chosen worker: the worker's own vendor, plus the
+ * vendor of each runtime reachable through its declared `fallback` chain —
+ * the same independence the contract validator enforces statically
+ * (`markSameProviderReviewNodes`), applied here once a worker is chosen.
+ * Outside same-vendor mode any of those vendors bars the judge. In
+ * same-vendor mode a shared vendor admits the judge only when the tier rule
+ * does against every chain runtime of that vendor, and the worker's own
+ * runtime never judges itself (`runtime-discovery.mjs` excludes it too).
  *
  * @param {string} workerId
  * @param {Record<string, RoutingRuntime>} runtimes
- * @returns {Set<string>}
+ * @param {"same-vendor"|undefined} judgeIndependence
+ * @returns {JudgeBar}
  */
-function forbiddenJudgeVendors(workerId, runtimes) {
-  const vendors = new Set();
+function judgeBarFor(workerId, runtimes, judgeIndependence) {
+  /** @type {RoutingRuntime[]} */
+  const chain = [];
   const seen = new Set();
   /** @type {string|undefined} */
   let id = workerId;
   while (id !== undefined && runtimes[id] && !seen.has(id)) {
     seen.add(id);
-    const provider = effectiveProvider(runtimes[id]);
-    if (provider !== undefined) vendors.add(provider);
+    chain.push(runtimes[id]);
     id = runtimes[id].fallback;
   }
-  return vendors;
+  const vendors = new Set(chain.map((runtime) => effectiveProvider(runtime)).filter((provider) => provider !== undefined));
+  return (candidateId, candidate) => {
+    const provider = effectiveProvider(candidate);
+    if (provider === undefined || !vendors.has(provider)) return null;
+    if (judgeIndependence !== SAME_VENDOR_REVIEW_MODE) return `carries forbidden vendor ${provider}`;
+    if (candidateId === workerId) return "is the worker runtime itself";
+    for (const member of chain) {
+      if (effectiveProvider(member) !== provider) continue;
+      const refusal = sameVendorTierRefusal(/** @type {{harness: string, model: string}} */ (member), /** @type {{harness: string, model: string}} */ (candidate));
+      if (refusal) return `shares vendor ${provider} and ${refusal.message}`;
+    }
+    return null;
+  };
 }
 
 /** @param {RoutingRule} row @returns {string} */
@@ -281,16 +303,13 @@ function ruleLabel(row) {
 /**
  * @param {Record<string, RoutingRuntime>} runtimes
  * @param {Record<string, RoutingAvailability>} availability
- * @param {ReadonlySet<string>} forbiddenVendors
+ * @param {JudgeBar} judgeBar
  * @returns {{id: string, runtime: RoutingRuntime, order: number}[]}
  */
-function candidateEntries(runtimes, availability, forbiddenVendors) {
+function candidateEntries(runtimes, availability, judgeBar) {
   return Object.entries(runtimes)
     .map(([id, runtime], order) => ({ id, runtime, order }))
-    .filter(({ id, runtime }) => {
-      const provider = effectiveProvider(runtime);
-      return (provider === undefined || !forbiddenVendors.has(provider)) && isRuntimeAvailable(availability[id]);
-    });
+    .filter(({ id, runtime }) => judgeBar(id, runtime) === null && isRuntimeAvailable(availability[id]));
 }
 
 /**
@@ -301,11 +320,11 @@ function candidateEntries(runtimes, availability, forbiddenVendors) {
  *
  * @param {Record<string, RoutingRuntime>} runtimes
  * @param {Record<string, RoutingAvailability>} availability
- * @param {ReadonlySet<string>} forbiddenVendors
+ * @param {JudgeBar} judgeBar
  * @returns {string|null}
  */
-function cheapestAvailable(runtimes, availability, forbiddenVendors) {
-  return cheapest(candidateEntries(runtimes, availability, forbiddenVendors))?.id ?? null;
+function cheapestAvailable(runtimes, availability, judgeBar) {
+  return cheapest(candidateEntries(runtimes, availability, judgeBar))?.id ?? null;
 }
 
 /**
@@ -317,9 +336,9 @@ function cheapestAvailable(runtimes, availability, forbiddenVendors) {
  *
  * @param {Record<string, RoutingRuntime>} runtimes
  * @param {Record<string, RoutingAvailability>} availability
- * @param {ReadonlySet<string>} forbiddenVendors
+ * @param {JudgeBar} judgeBar
  * @returns {string|null}
  */
-function strongestAvailable(runtimes, availability, forbiddenVendors) {
-  return strongest(candidateEntries(runtimes, availability, forbiddenVendors), "")?.id ?? null;
+function strongestAvailable(runtimes, availability, judgeBar) {
+  return strongest(candidateEntries(runtimes, availability, judgeBar), "")?.id ?? null;
 }

@@ -98,7 +98,7 @@ export async function resolvePlanningPipeline({ plansDir, cwd, answers }) {
   if (record.status !== "contested") throw new Error(`plan at ${planPath} is not contested (status: ${record.status})`);
   if (!record.plan) throw new Error(`plan at ${planPath} has no plan to resume: the draft or revise that produced it never validated; run faberun plan again instead of --resolve`);
   if (!record.resume) throw new Error(`plan at ${planPath} predates faberun plan --resolve and carries no resume context; run faberun plan again`);
-  const { campaignId, phase, specPath, specDigest, runtimeDefaults, reviewers, runtimes, verification, packageMode, targetedFix, approveBelow, repoFacts } = record.resume;
+  const { campaignId, phase, specPath, specDigest, runtimeDefaults, reviewers, runtimes, verification, packageMode, targetedFix, approveBelow, repoFacts, judgeIndependence } = record.resume;
   // R16: recomputed from the same spec bytes the contest recorded, so a plan
   // resumed through --resolve carries the same declared operator steps a
   // fresh freeze would.
@@ -137,12 +137,12 @@ export async function resolvePlanningPipeline({ plansDir, cwd, answers }) {
     : ["the frozen contract carries neither sharedVerification nor finalVerification, so no repository ratchet runs on its nodes and no final check closes the phase; pass --verification <file> if the target repository has ratchets every node must run"];
   let stage = "sizing";
   try {
-    const assembled = assembleFrozenPlan(plan, { repoFacts, packageMode, targetedFix, phase, cwd, runtimes, runtimeDefaults });
+    const assembled = assembleFrozenPlan(plan, { repoFacts, packageMode, targetedFix, phase, cwd, runtimes, runtimeDefaults, judgeIndependence });
     stage = "freeze";
     logStage("sizing", { transformations: assembled.sizing.transformations.length, nodeCount: assembled.sizing.plan.nodes.length, overheadMinutes: assembled.sizing.estimate.overheadMinutes });
     logStage("routing", { assignments: Object.keys(assembled.routing.assignments).length });
     const highestRiskTier = highestOf(assembled.sizing.plan.nodes.map((node) => node.riskTier ?? RISK_TIERS[0]));
-    const frozen = freezePlan(frozenContractRawOf(assembled, { campaignId, phase, campaignGoal: campaign.goal, cwd, plansDir, runtimes, runtimeDefaults, verification }), {
+    const frozen = freezePlan(frozenContractRawOf(assembled, { campaignId, phase, campaignGoal: campaign.goal, cwd, plansDir, runtimes, runtimeDefaults, verification, judgeIndependence }), {
       outDir: plansDir,
       phases: assembled.phases,
       spec: { path: specPath, digest: specDigest },
