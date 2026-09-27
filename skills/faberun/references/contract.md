@@ -187,17 +187,15 @@ never zero.
 
 Non-empty `taskPacket.verification` is rejected when the resolved worker or a
 worker fallback cannot execute commands. Adapters declare
-`permissionExecution`: `claude` only `bypassPermissions` (default
-`acceptEdits`), `zcode` only `yolo` (also default), `dsh` both its default
-`workspace-write` (measured: executes and writes inside the worktree) and
-`danger-full-access` (only for effects outside it); every `codex` sandbox mode
-executes, and `agy`/`exec-jsonl`/`replay` expose no denying mode. Each adapter
-also declares `signalsProcesses` (`true`, `false`, or `null` when unmeasured):
+`permissionExecution`: `claude` `bypassPermissions` (default `acceptEdits`),
+`zcode` `yolo` (also default), `dsh` both its default `workspace-write` and
+`danger-full-access`; every `codex` sandbox mode executes, and
+`agy`/`exec-jsonl`/`replay` expose no denying mode. Each adapter
+also declares `signalsProcesses` (`true`, `false`, or unmeasured `null`):
 a worker whose adapter declares `false` gets a `## Sandbox` prompt warning not
 to run tests that start and terminate child processes, and
 `requiredCapabilities.signalsProcesses: true` admits only an adapter declaring
-`true`. Judge modes
-are excluded because judges review captured results.
+`true`. Judge modes are excluded: they review captured results.
 
 - `claude`: `permissionMode` (a node that runs commands needs
   `bypassPermissions`, or the worker can only return `blocked_context`).
@@ -237,7 +235,9 @@ are excluded because judges review captured results.
   (`deepseek-flash` is the default); unknown ids fail in the harness.
   Authentication stays in `DEEPSEEK_API_KEY`;
   `config["api_key.env_key"]` only names it for `preflight`. `sandbox` maps to
-  `DSH_PERMISSION_MODE`, default `workspace-write` (above). Every attempt loads
+  `DSH_PERMISSION_MODE`, default `workspace-write`: a toolchain cache outside
+  the worktree gets `ReadOnlyFileSystem`, so compiling needs
+  `danger-full-access`. Every attempt loads
   `dsh/closed-packet.patch.yml`; `config.patch` stacks one layer. Executable
   override: `executable` or `FABERUN_DSH_BIN`. No default vendor,
   continuation (`session/resume` is ACP-only), or native schema flag; the judge

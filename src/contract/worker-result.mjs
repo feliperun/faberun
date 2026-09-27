@@ -26,6 +26,16 @@ const RESULT_LIMITS = Object.freeze({
 export const DERIVED_WORKER_RESULT_FIELDS = Object.freeze(["changedFiles"]);
 
 /**
+ * The named classification a `workspace-write` sandbox earns when a toolchain
+ * is refused a write outside the worktree. It is a classification of the
+ * failure, not a worker-result status: the controller derives it from the
+ * failed command's output (`src/engine/run-command.mjs`) and records it beside
+ * the attempt, carrying the mode and the denied path, so what the operator
+ * reads says "sandbox", not "filesystem".
+ */
+export const SANDBOX_BLOCKED_WRITE = "sandbox_blocked_write";
+
+/**
  * A worker result that is well-formed JSON but breaks one of the byte
  * ceilings above. Typed, not a plain TypeError, so the repair prompt can name
  * the ceiling that was broken: observed 2026-09-25, a planning draft that
