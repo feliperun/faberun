@@ -519,7 +519,9 @@ setInterval(() => {}, 1000);
     }
     assert.ok(observed, "the fake provider wrote its marker within five seconds");
     assert.equal(observed.notify, null, "FABERUN_NOTIFY_BIN must not reach the worker provider");
-    assert.equal(observed.ambient, "ambient-value", "ambient runtime variables must survive");
+    // Since safe-to-hand-to-a-friend R1 a worker receives only the allowlisted
+    // environment, so a controller variable no adapter declares stays behind.
+    assert.equal(observed.ambient, null, "an undeclared controller variable does not reach the worker");
     assert.equal(observed.baseUrl, "https://api.z.ai/api/anthropic", "harness env overlay must still apply");
     assert.equal(observed.model, "glm/glm-5.3", "the [1m] tier marker is stripped before ZCODE_MODEL");
     assert.equal(observed.token, "zcode-notify-test-token");

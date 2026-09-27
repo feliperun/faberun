@@ -395,8 +395,14 @@ test("ignore-source changes fail closed before mutable rules can hide files", ()
   writeFileSync(join(cwd, ".faberunignore"), "*\n");
   writeFileSync(join(cwd, "undeclared.txt"), "hidden");
 
+  // Since safe-to-hand-to-a-friend R22 a declared ignore-source edit is judged
+  // under the rules from before the attempt instead of failing, so the file it
+  // would hide is still counted, and still unexpected.
+  const judged = compareWorkspaceSnapshot(before, cwd, { files: [".faberunignore"], roots: [] });
+  assert.deepEqual(judged.unexpectedPaths, ["undeclared.txt"], "the new rule hides nothing from the scope check");
+  // An ignore source the node did not declare still fails closed.
   assert.throws(
-    () => compareWorkspaceSnapshot(before, cwd, { files: [".faberunignore"], roots: [] }),
+    () => compareWorkspaceSnapshot(before, cwd, { files: ["README.md"], roots: [] }),
     /ignore sources changed/u,
   );
 });
