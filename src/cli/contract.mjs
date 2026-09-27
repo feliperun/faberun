@@ -8,6 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs as parseFlags } from "node:util";
 import { loadPersistedContract, validateContract } from "../contract/index.mjs";
+import { assertRuntimeAssignment } from "../engine/assignment.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 
@@ -52,9 +53,18 @@ export function contractCli(args) {
  */
 export function validateContractFile(path, { strictTraceability = false } = {}) {
   const runJsonPath = join(dirname(path), "run.json");
-  const contract = existsSync(runJsonPath)
+  const persisted = existsSync(runJsonPath);
+  const contract = persisted
     ? loadPersistedContract(path, readRunDigest(runJsonPath))
     : validateContract(JSON.parse(readFileSync(path, "utf8")), path);
+  // R35: the launch assigns roles before any node dispatches, so an authored
+  // contract must also survive that assignment. The live launch probes
+  // providers, so this dry run gives every runtime as available and refuses
+  // only what no probe could rescue -- an omitted judge with no cross-vendor
+  // candidate, a same-vendor pair below the admitted tier, an exhausted judge
+  // list. A persisted run's contract is a replay of an assignment already
+  // made, so it is not re-decided here.
+  if (!persisted) assertRuntimeAssignment(contract);
   const count = contract.warnings.length;
   const blockingTraceability = strictTraceability
     ? contract.warnings.filter((warning) => isTraceabilityFinding(warning))
