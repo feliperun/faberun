@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.26.1](https://github.com/feliperun/faberun/compare/v0.26.0...v0.26.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* **preflight:** size live preflight budgets by reasoning effort and wait for them when detached ([#85](https://github.com/feliperun/faberun/issues/85)) ([787512b](https://github.com/feliperun/faberun/commit/787512b352e0c980c4fc308bdb00872bdd2516e4))
+
 ## [0.26.0](https://github.com/feliperun/faberun/compare/v0.25.1...v0.26.0) (2026-09-27)
 
 
