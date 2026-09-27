@@ -158,6 +158,17 @@ export function resolvePermissionExecution(runtime) {
 }
 
 /**
+ * The mode in which a runtime's harness cannot write its workspace, or `null`
+ * when the harness declares none.
+ *
+ * @param {{harness: string}} runtime
+ * @returns {string|null}
+ */
+export function readOnlyModeOf(runtime) {
+  return getHarness(runtime.harness).permissionExecution?.readOnlyModes?.[0] ?? null;
+}
+
+/**
  * Whether a runtime can write its workspace. False only in a mode its adapter
  * declares read-only; RM-058 measured a codex reviewer under `read-only`
  * whose result-file write was rejected and which then stalled for 300s.
