@@ -101,7 +101,7 @@ com a campanha de melhoria do faberun: cada item aqui vira requisito lá.
   limit"*; o estágio terminou `provider_error` e a lista de revisores do planner não passou
   ao próximo.
 - **Correção feita:** a frase agora é esgotamento (`insufficient_balance`, sem hora de
-  reset), commit `2bf4444`. O revisor voltou a ser trocado; o Fable continua fora até o
+  reset), commit `cbc280a`. O revisor voltou a ser trocado; o Fable continua fora até o
   crédito ser restaurado.
 
 ## AP6. `cancel` recusa uma run cujo contrato antigo não valida mais

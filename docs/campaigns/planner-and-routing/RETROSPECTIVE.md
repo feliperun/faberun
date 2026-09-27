@@ -8,24 +8,24 @@ UTC (`plans/phase-1/contract.json`, rounds 3 and 4 with no critical finding).
 
 | requirement | what | commits |
 | --- | --- | --- |
-| R9 | `plan --resolve` resumes a contested plan from the operator's answers | `bffb268` |
-| R14 | a revise that does not converge stops; see below for how it got there | `e815002`, `368c6a5`, `efd49bd`, `8a3ad2b`, `f61a13e` |
-| R15 | an unwritable proof is found before review, without a model | `f8433c0` |
-| R16 | a declared human step freezes as its own node and its dependants wait | `7f0d9f1`, `cd14f08` |
-| R17 | the managed `AGENTS.md` block alone never blocks a launch | `2905b82`, `f3d0d81` |
-| R18 | the judge comes from an ordered list per node | `68eb380`, `c465bdc` |
-| R19 | the planner has reviewers of its own (`--reviewers`) | `09e57e8` |
-| R20 | same-vendor review, opt-in in the contract | `de88732`, `f2c5c48` |
-| R21 | `proof.ref` accepted as text or index | `fd6e134` |
+| R9 | `plan --resolve` resumes a contested plan from the operator's answers | `25ebe75` |
+| R14 | a revise that does not converge stops; see below for how it got there | `270dd76`, `4db5281`, `7ae2c50`, `bfb1e54`, `f67f330` |
+| R15 | an unwritable proof is found before review, without a model | `8712efd` |
+| R16 | a declared human step freezes as its own node and its dependants wait | `14ebfe1`, `194cd89` |
+| R17 | the managed `AGENTS.md` block alone never blocks a launch | `5ddb588`, `af890c2` |
+| R18 | the judge comes from an ordered list per node | `2420b78`, `fcad975` |
+| R19 | the planner has reviewers of its own (`--reviewers`) | `61fa73b` |
+| R20 | same-vendor review, opt-in in the contract | `61889fb`, `31a5737` |
+| R21 | `proof.ref` accepted as text or index | `39c577f` |
 
 `campaign close` reads R9 as open (8 of 9 carried by a done node): R9's
-node exhausted and its work landed from the salvaged patch (`bffb268`), outside
+node exhausted and its work landed from the salvaged patch (`25ebe75`), outside
 any node. The close is right to say so; the code is on the branch.
 
-Also landed while running: `faberun prune` (`615ae19`), a re-plan that skips
-stage ids an earlier plan left (`1739f39`), a monthly spend limit read as
-exhaustion (`2bf4444`), an under-measured verification timeout raised instead
-of contested (`1938db7`).
+Also landed while running: `faberun prune` (`dbc8217`), a re-plan that skips
+stage ids an earlier plan left (`a32b855`), a monthly spend limit read as
+exhaustion (`cbc280a`), an under-measured verification timeout raised instead
+of contested (`75729a3`).
 
 ## The gate took ten launches
 
