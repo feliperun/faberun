@@ -80,7 +80,7 @@ export async function preflightRuntimes(entries, options = {}) {
   ));
   if (options.static === true) return staticChecks;
 
-  const timeoutSec = livePreflightTimeout(options.liveTimeoutSec);
+  const configuredTimeoutSec = configuredLivePreflightTimeout(options.liveTimeoutSec);
   let liveRepo;
   try {
     liveRepo = createLivePreflightRepo();
@@ -95,7 +95,7 @@ export async function preflightRuntimes(entries, options = {}) {
   }
   try {
     return await Promise.all(staticChecks.map(async (check, index) => {
-      const live = await livePreflight(runtimes[index], liveRepo, timeoutSec);
+      const live = await livePreflight(runtimes[index], liveRepo, configuredTimeoutSec ?? defaultLivePreflightTimeout(runtimes[index]));
       const liveDetail = live.status === "done"
         ? `live done · usage ${formatUsage(live.usage)} · cost ${formatCost(live.costUsd)}`
         : `live ${live.status} · ${live.error?.code ?? "provider_error"}: ${redactProviderText(live.error?.message ?? "generation failed")} · usage ${formatUsage(live.usage)} · cost ${formatCost(live.costUsd)}`;
@@ -116,15 +116,37 @@ export async function preflightRuntimes(entries, options = {}) {
     rmSync(liveRepo, { recursive: true, force: true });
   }
 }
-/** @param {number|undefined} configured */
-function livePreflightTimeout(configured) {
+/**
+ * An explicit budget (option, then environment) applies to every runtime.
+ *
+ * @param {number|undefined} configured
+ * @returns {number|null}
+ */
+function configuredLivePreflightTimeout(configured) {
   const raw = configured ?? (process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC === undefined
-    ? 15
+    ? null
     : Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC));
+  if (raw === null) return null;
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
     throw new TypeError("preflight live timeout must be a positive number of seconds");
   }
   return raw;
+}
+/**
+ * Without an explicit budget, the wait follows the runtime's reasoning effort:
+ * a model at high effort thinks before answering even a one-word prompt.
+ * Measured 2026-09-26: Opus 5.5 at `xhigh` failed every `faberun plan`
+ * preflight at 15 s and passed once the budget was raised, so the planning
+ * pipeline was refusing a runtime that was healthy.
+ *
+ * @param {RuntimeSnapshot} runtime
+ * @returns {number}
+ */
+export function defaultLivePreflightTimeout(runtime) {
+  const reasoning = /** @type {{reasoning?: unknown}} */ (runtime).reasoning;
+  if (reasoning === "xhigh" || reasoning === "max") return 180;
+  if (reasoning === "high") return 60;
+  return 15;
 }
 /** @returns {string} */
 function createLivePreflightRepo() {
