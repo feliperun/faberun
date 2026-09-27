@@ -133,7 +133,10 @@ result. A worker runtime is resolved from `nodes[].runtime`, then
 `runtimeDefaults.worker`, and runs inside the node's attempt worktree. The
 invariant: a worker inspects only the paths its packet lists and returns `done`
 or the structured `blocked_context` result rather than exploring; its result is
-bounded and canonical, and unknown provider fields are dropped. See
+bounded and canonical, and unknown provider fields are dropped. Its process
+receives only the permitted environment — the base set plus the names its
+harness and runtime declare — while this phase's verification commands keep
+today's environment. See
 [contract.md](../skills/faberun/references/contract.md) and
 [handoffs.md](../skills/faberun/references/handoffs.md).
 

@@ -9,17 +9,12 @@ source `gitHead`. Every worker attempt gets a linked worktree at
 `faberun/<run-id>/<node-id>/<attempt>`, cut from that ref; the node snapshot records
 `worktree.path`, `.branch`, `.baseSha` and the sealed `.commit`. Provider,
 scope, verification and judge processes all use that path; `contract.cwd` stays
-the home of run/control artifacts. An installed root `node_modules` is
-symlinked into every attempt worktree, never copied.
+the home of run/control artifacts.
 
 A retried attempt never discards the previous one's edits: the controller seals
 the previous worktree first and, when that seal has a diff, cuts the next
 attempt from that sha (`worktree.previousAttempt`); an empty seal falls back to
 the run ref tip.
-
-`contract.maxParallel` bounds concurrent nodes; each tick dispatches every
-`pending` node whose dependencies are `done`, up to the free slots, each into
-its own worktree.
 
 ## Integration transaction
 
@@ -36,9 +31,8 @@ untouched, and keeps the attempt worktree. A conflict marks the node `attention`
 with the conflicting paths and cleans the scratch worktree.
 
 Resume replays `integration.jsonl`, never ancestry, to identify the one
-unfinished transaction and complete it idempotently. A resume that re-dispatches
-a failed/stalled/exhausted/canceled node cuts the next attempt from the previous
-attempt's sealed sha, the same continuation rule as any other retry.
+unfinished transaction and complete it idempotently; a re-dispatch follows the
+same continuation rule as any other retry.
 
 ## Controller lock and takeover
 
@@ -54,13 +48,10 @@ dispatching new work `resume`'s recovery pass terminates (`SIGTERM` then
 unless it is still inside its deadline, when it is adopted and its result read.
 `cancel` signals a live controller first, so its takeover never waits.
 
-`supervise <run-dir> [--detach] [--interval <sec>]` is the watchdog above that.
-It holds no lock and writes no state: every interval (default 30s) it launches
-`resume --detach` when a node is unfinished and no controller is live, exits 0
-once all are terminal, and stops after three failed launches. An empty run
-directory is never resumed. A detached controller outlives its launcher,
-not the session scope (cgroup) holding it: run long work under `tmux`,
-`systemd-run` or the seat.
+`supervise <run-dir> [--detach] [--interval <sec>]` is the watchdog above that;
+it holds no lock and writes no state. A detached controller outlives its
+launcher, not the session scope (cgroup) holding it: run long work under
+`tmux`, `systemd-run` or the seat.
 
 ## Runtime discovery
 

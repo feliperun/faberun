@@ -95,8 +95,15 @@ const HANDOFFS_BYTE_CEILING = 2048;
 // other reserved articles' ceilings rather than the file's exact size, since
 // this one is expected to grow with the format itself across the campaign.
 const SPEC_FORMAT_BYTE_CEILING = 6144;
+// Set on 2026-09-25 when references/local-env.md was added for `doctor --env`:
+// a generous ratchet for the article documenting the environment a worker
+// receives, sized like the other reference ceilings rather than the file's
+// exact size.
+const LOCAL_ENV_BYTE_CEILING = 1024;
 // Measured 2026-09-23: SKILL.md plus every references/*.md is 46852 bytes.
 // The aggregate ceiling is fixed at the campaign baseline of 46855 bytes.
+// references/local-env.md and its router row were added 2026-09-25 and paid
+// for by trimming repetition from operations.md, so the balance is 46833.
 // Raising it requires a new ADR cited here as docs/adr/NNNN-*.md; the proof
 // below checks the cited concrete path and its number against ADR 0010.
 const TOTAL_BYTE_BUDGET = 46855;
@@ -158,6 +165,15 @@ test('references/spec-format.md stays within its byte ceiling', () => {
   );
 });
 
+test('references/local-env.md stays within its byte ceiling', () => {
+  const bytes = statSync(fileURLToPath(new URL('../../skills/faberun/references/local-env.md', import.meta.url))).size;
+  assert.ok(bytes > 0, 'references/local-env.md must not be empty');
+  assert.ok(
+    bytes <= LOCAL_ENV_BYTE_CEILING,
+    `references/local-env.md is ${bytes} bytes; the ceiling is ${LOCAL_ENV_BYTE_CEILING} bytes.`,
+  );
+});
+
 test("the skill and its references share one byte budget", () => {
   const referencePaths = readdirSync(referencesDir)
     .filter((name) => name.endsWith('.md'))
@@ -187,12 +203,12 @@ test("the skill and its references share one byte budget", () => {
   );
 });
 
-test('references/ holds the two foundation documents, the four reserved articles, and spec-format.md', () => {
+test('references/ holds the two foundation documents, the four reserved articles, spec-format.md and local-env.md', () => {
   const entries = readdirSync(referencesDir).sort();
   assert.deepEqual(
     entries,
-    ['contract.md', 'engineering.md', 'handoffs.md', 'operations.md', 'rules.md', 'spec-format.md', 'workflow.md'],
-    'references/ is contract.md, operations.md, spec-format.md, and the four reserved constitution articles',
+    ['contract.md', 'engineering.md', 'handoffs.md', 'local-env.md', 'operations.md', 'rules.md', 'spec-format.md', 'workflow.md'],
+    'references/ is contract.md, operations.md, spec-format.md, local-env.md, and the four reserved constitution articles',
   );
 });
 

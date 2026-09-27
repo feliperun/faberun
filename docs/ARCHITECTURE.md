@@ -185,6 +185,11 @@ after a `retrospective` note. A campaign refuses to close without one.
   `config["api_key.env_key"]` and `config["auth_token.env_key"]` name the
   environment variable for preflight; `verification[].env` declares names only.
   Values stay in the shell and in the harness's own session.
+- **A worker sees the permitted environment.** Every worker and judge process
+  receives only the base set plus the names its harness adapter and runtime
+  declare, never the rest of the controller's environment, while this phase's
+  deterministic verification commands and `finalVerification` keep today's
+  environment.
 - **`bypassPermissions` only in a recoverable repository.** Headless
   `acceptEdits` denies execution, so a node that runs commands needs
   `bypassPermissions` (claude) or `yolo` (zcode); `dsh` defaults to
