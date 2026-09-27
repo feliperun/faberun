@@ -9,6 +9,7 @@
 import { CAMPAIGN_FILE, basenameSafe } from "./layout.mjs";
 import { errorCode } from "../util.mjs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { assertObject, requireId, requirePacketHash, requireString, requireText, requireTimestamp } from "../contract/assert.mjs";
 
@@ -47,6 +48,28 @@ export function campaignIdOf(campaignPath) {
   } catch {
     return basenameSafe(campaignPath);
   }
+}
+/**
+ * A generated identifier for a note that arrives without one: the note text
+ * reduced to a lowercase ASCII slug, plus a short random suffix so two notes
+ * with identical text still get distinct ids. The slug is capped so a long
+ * note cannot produce an unusably long identifier, and an empty slug falls
+ * back to a bare `note-<suffix>`.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function generatedNoteId(text) {
+  const slug = text
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    .slice(0, 40)
+    .replace(/-+$/gu, "");
+  const suffix = randomUUID().replace(/-/gu, "").slice(0, 6);
+  return slug ? `${slug}-${suffix}` : `note-${suffix}`;
 }
 /**
  * The campaign record's schema, in one home. Exported so the repair verb in

@@ -774,23 +774,24 @@ node src/cli.mjs campaign attach feature-42 --cwd /repo --tool codex \
 Related: `faberun campaign sync`, `faberun campaign ack`, `faberun seat start`.
 ### faberun campaign note
 ```text
-faberun campaign note <campaign-id> [--cwd <value>] [--session-id <value>] [--kind <value>] [--text <value>] [--event-id <value>] [--decision-id <value>] [--supersedes <value>] [--question-id <value>] [--run-id <value>]
+faberun campaign note <campaign-id> [--cwd <value>] [--session-id <value>] --kind <value> --text <value> [--event-id <value>] [--decision-id <value>] [--supersedes <value>] [--question-id <value>] [--run-id <value>]
 ```
 Append a narrative note to the campaign journal and refresh the handoff. The
 kinds are `intent`, `decision`, `supersede`, `constraint`, `outcome`, `next`,
 `open-question` and `retrospective`. A retrospective note is required before
-`campaign close` will work.
+`campaign close` will work. Without `--decision-id` or `--question-id` the
+command generates an id from the note text, with a short suffix, and prints it.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
 | `--cwd` | directory | Repository whose project runs are read. | current directory |
-| `--session-id` | id | Authoring session. Required. | — |
+| `--session-id` | id | Authoring session; defaults to the last session attached to the campaign. | last attached session |
 | `--kind` | kind | One of the eight note kinds. Required. | — |
 | `--text` | text or `-` | Note body; `-` reads it from stdin. Required. | — |
 | `--event-id` | id | Event id for the entry. | a random UUID |
-| `--decision-id` | id | Required for `--kind decision`. | — |
+| `--decision-id` | id | Generated from `--text` when omitted for `--kind decision`. | — |
 | `--supersedes` | id | Required for `--kind supersede`. | — |
-| `--question-id` | id | Required for `--kind open-question`. | — |
+| `--question-id` | id | Generated from `--text` when omitted for `--kind open-question`. | — |
 | `--run-id` | run id | Optional for `--kind outcome`. | none |
 A kind flag used with any other kind is rejected. Writes the campaign's
 `journal.jsonl` and `HANDOFF.md` under the project's runs root.

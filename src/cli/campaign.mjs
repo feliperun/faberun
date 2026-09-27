@@ -18,7 +18,7 @@ import { syncAgentSignal } from "../repo/signal.mjs";
 import { acknowledgeJournalEvent, appendJournal, appendSeatAllowanceEvent, readJournal, watchJournal } from "../campaign/journal.mjs";
 import { driveCampaignChain } from "../campaign/chain.mjs";
 import { unparkCampaign } from "../campaign/unpark.mjs";
-import { readCampaign } from "../campaign/record.mjs";
+import { generatedNoteId, readCampaign } from "../campaign/record.mjs";
 import { projectMetrics } from "../campaign/metrics.mjs";
 import { readMetricsSources } from "../campaign/metrics-command.mjs";
 import { DEFAULT_WAKE_POLL_MS, watchCampaignWake } from "../campaign/watch.mjs";
@@ -49,7 +49,8 @@ const NOTE_KIND_FLAGS = {
 };
 
 /** Flags are scoped to the operations that declare them; all other flags are rejected. */
-/** @type {Record<string, import("node:util").ParseArgsOptionsConfig>} */
+/** @typedef {{type: "string"|"boolean", multiple?: boolean, required?: boolean}} CampaignOption */
+/** @type {Record<string, Record<string, CampaignOption>>} */
 const OPERATION_OPTIONS = {
   list: { cwd: { type: "string" } },
   init: { cwd: { type: "string" }, goal: { type: "string" }, contract: { type: "string", multiple: true }, "land-branch": { type: "string" } },
@@ -67,8 +68,8 @@ const OPERATION_OPTIONS = {
   note: {
     cwd: { type: "string" },
     "session-id": { type: "string" },
-    kind: { type: "string" },
-    text: { type: "string" },
+    kind: { type: "string", required: true },
+    text: { type: "string", required: true },
     "event-id": { type: "string" },
     "decision-id": { type: "string" },
     supersedes: { type: "string" },
@@ -273,16 +274,36 @@ function note(campaignId, values) {
     type: kind,
     eventId: values.eventId ?? randomUUID(),
     at: new Date().toISOString(),
-    sessionId: required(values.sessionId, "--session-id"),
+    sessionId: values.sessionId ?? lastAttachedSessionId(path),
     text: textValue(values.text, "--text"),
   };
-  if (kind === "decision") entry.decisionId = required(values.decisionId, "--decision-id");
+  if (kind === "decision") entry.decisionId = values.decisionId ?? generatedNoteId(String(entry.text));
   if (kind === "supersede") entry.supersedes = required(values.supersedes, "--supersedes");
-  if (kind === "open-question") entry.questionId = required(values.questionId, "--question-id");
+  if (kind === "open-question") entry.questionId = values.questionId ?? generatedNoteId(String(entry.text));
   if (kind === "outcome" && values.runId !== undefined) entry.runId = required(values.runId, "--run-id");
   appendJournal(path, entry);
   renderHandoff(path, runsDir);
-  process.stdout.write(`[campaign] ${kind} noted\n`);
+  const generatedId = entry.decisionId ?? entry.questionId;
+  process.stdout.write(`[campaign] ${kind} noted${generatedId ? ` · ${generatedId}` : ""}\n`);
+}
+
+/**
+ * The newest session recorded by a `session.attached` journal entry, used when
+ * a note arrives without `--session-id`. Refuses with the flag it needs when
+ * the campaign has no attached session at all.
+ *
+ * @param {string} campaignPath
+ * @returns {string}
+ */
+function lastAttachedSessionId(campaignPath) {
+  const attaches = readJournal(campaignPath).filter(
+    (entry) => entry.type === "session.attached" && typeof entry.sessionId === "string" && entry.sessionId,
+  );
+  const sessionId = attaches.at(-1)?.sessionId;
+  if (typeof sessionId !== "string" || !sessionId) {
+    throw new TypeError("--session-id requires a value and no session is attached to the campaign");
+  }
+  return sessionId;
 }
 
 /**
