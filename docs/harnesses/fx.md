@@ -157,5 +157,26 @@ Memory per worker, measured the same day on the same fixture:
 A Faberun run of the same contract through the native client peaked at 16.6 MB
 for the client, 62k cached input tokens, and a passing Definition of Done.
 
-GLM is not routed through fx: Z.ai's Coding Plan lists its supported tools and
-fx is not one of them.
+Until commit `8fc8809`, GLM was not routed through fx, because Z.ai's Coding Plan
+lists its supported tools and fx is not one of them. That caveat still holds:
+`fx-glm` now runs GLM on fx over the plan endpoint by the operator's choice, and
+`claude-glm` remains the route the plan supports (see [Runtime](#runtime)).
+
+Memory per model, native CLI against fx, measured 2026-09-27 on the same
+fixture: one parseDuration turn per run, three runs per route interleaved, the
+exact command Faberun builds for each runtime, and the peak RSS of the whole
+process tree sampled every 200 ms. "Agent" sums the harness processes (runner
+and `fx acp`, or the CLI); "tree" adds what the agent ran (shells, `npm test`),
+which follows the model's choices rather than the harness.
+
+| Model | Route | Agent peak, min / median / max | Tree peak, min / median / max |
+| --- | --- | ---: | ---: |
+| `gpt-5.6-sol` | `codex` CLI 0.156.1 | 197 / 199 / 200 MB | 319 / 381 / 382 MB |
+| `gpt-5.6-sol` | `fx-gpt` | 37 / 37 / 38 MB | 48 / 104 / 173 MB |
+| `glm-5.3` | `claude-glm` (Claude Code 2.1.283) | 304 / 306 / 313 MB | 312 / 390 / 448 MB |
+| `glm-5.3` | `fx-glm` | 22 / 22 / 23 MB | 84 / 100 / 165 MB |
+| `glm-5.3` | `zcode-glm` (ZCode 0.16.5) | 1,045 / 1,054 / 1,066 MB | 1,045 / 1,066 / 1,126 MB |
+
+All 15 runs exited 0 with the suite passing and only `src/parse-duration.mjs`
+changed. The method, the machine and the raw results are in
+[fx-integracao.md](../fx-integracao.md#5-o-que-foi-medido).
