@@ -208,3 +208,19 @@ com a campanha de melhoria do faberun: cada item aqui vira requisito lá.
 - **Correção sugerida:** `spec validate` avisa de uma linha `- **…:**` cuja chave não casa, em
   vez de tratá-la como nada.
 
+## AP15. Cada fase deixou regressões em testes vizinhos que nenhum nó rodou
+
+- **Sintoma:** com as fases 3, 4, 5 e 3r8 integradas, `npm test` deu 4 falhas em 1763:
+  um defeito real (`shellWords` partia um `node -e "…\"fs\"…"` na aspa escapada, e a checagem
+  do R34 recusou um script que parseia) e três expectativas que R1 e R22 tornaram velhas
+  (variável ambiente chegando ao worker, `withoutNotifyEnv` no probe, ignore declarado
+  falhando). Todos os nós tinham passado nos próprios testes.
+- **Causa:** a verificação compartilhada é typecheck mais o teste de forma; nenhum nó roda os
+  testes dos módulos que ele muda indiretamente, e a verificação final não roda `npm test`
+  (35 min medidos).
+- **Correção feita:** o defeito e as três expectativas corrigidos em dois commits na branch da
+  campanha.
+- **Correção sugerida no produto:** o planner acrescenta, por nó, os arquivos de teste que
+  importam os módulos que o nó escreve (o mesmo grafo que a checagem de fechamento de escopo
+  já percorre), e a campanha roda a suíte inteira uma vez antes de fechar.
+
