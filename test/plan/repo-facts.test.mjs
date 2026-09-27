@@ -63,7 +63,7 @@ function manifestRepo(files) {
 function neverMeasure() {
   return {
     now: () => 0,
-    run: /** @type {any} */ ((file, ...args) => {
+    run: /** @type {any} */ ((/** @type {string} */ file, /** @type {unknown[]} */ ...args) => {
       throw new Error(`detection executed a command: ${[file, ...args].join(" ")}`);
     }),
   };
@@ -147,6 +147,7 @@ test("collectRepoFacts emits a deterministic JSON inventory built with no model"
   for (const candidate of facts.verificationCandidates) {
     const key = candidate.argv.join(" ");
     assert.equal(candidate.measuredMs, DURATIONS[key], `measuredMs for ${key} came from the injected measurer, not an estimate`);
+    assert.equal(candidate.manifest, "package.json", `manifest for ${key} names package.json`);
     assert.equal(candidate.eligible, true);
   }
 
@@ -247,13 +248,14 @@ test("repo facts find verification commands outside node", () => {
     "Makefile": ".PHONY: test\ntest:\n\tnode --test\n",
   });
   const facts = collectRepoFacts(directory, { measure: neverMeasure() });
-  assert.deepEqual(facts.verificationCandidates, [
+  assert.deepEqual(facts.detectedVerificationCandidates, [
     { argv: ["pytest"], manifest: "pyproject.toml", measuredMs: null, eligible: true },
     { argv: ["go", "test", "./..."], manifest: "go.mod", measuredMs: null, eligible: true },
     { argv: ["cargo", "test"], manifest: "Cargo.toml", measuredMs: null, eligible: true },
     { argv: ["zig", "build", "test"], manifest: "build.zig", measuredMs: null, eligible: true },
     { argv: ["make", "test"], manifest: "Makefile", measuredMs: null, eligible: true },
   ]);
+  assert.deepEqual(facts.verificationCandidates, [], "no Node candidate is measured in this repository");
   assert.deepEqual(
     collectRepoFacts(directory, { measure: neverMeasure() }),
     facts,
@@ -270,21 +272,23 @@ test("repo facts find verification commands outside node beside the package.json
   assert.deepEqual(facts.verificationCandidates, [
     { argv: ["npm", "run", "check"], manifest: "package.json", measuredMs: DURATIONS["npm run check"], eligible: true },
     { argv: ["npm", "run", "typecheck"], manifest: "package.json", measuredMs: DURATIONS["npm run typecheck"], eligible: true },
+  ]);
+  assert.deepEqual(facts.detectedVerificationCandidates, [
     { argv: ["go", "test", "./..."], manifest: "go.mod", measuredMs: null, eligible: true },
   ]);
-  assert.equal(facts.verificationCandidates[2].measuredMs, null, "the detected command was never timed");
+  assert.equal(facts.detectedVerificationCandidates?.[0]?.measuredMs, null, "the detected command was never timed");
 });
 
 test("repo facts find verification commands outside node: pytest.ini stands in for pyproject.toml", () => {
   const directory = manifestRepo({ "pytest.ini": "[pytest]\n" });
   const facts = collectRepoFacts(directory, { measure: neverMeasure() });
-  assert.deepEqual(facts.verificationCandidates, [{ argv: ["pytest"], manifest: "pytest.ini", measuredMs: null, eligible: true }]);
+  assert.deepEqual(facts.detectedVerificationCandidates, [{ argv: ["pytest"], manifest: "pytest.ini", measuredMs: null, eligible: true }]);
 });
 
 test("repo facts find verification commands outside node: pyproject.toml wins when both pytest manifests exist", () => {
   const directory = manifestRepo({ "pyproject.toml": "[project]\n", "pytest.ini": "[pytest]\n" });
   const facts = collectRepoFacts(directory, { measure: neverMeasure() });
-  assert.deepEqual(facts.verificationCandidates, [{ argv: ["pytest"], manifest: "pyproject.toml", measuredMs: null, eligible: true }]);
+  assert.deepEqual(facts.detectedVerificationCandidates, [{ argv: ["pytest"], manifest: "pyproject.toml", measuredMs: null, eligible: true }]);
 });
 
 test("repo facts find verification commands outside node: a Makefile without a test target adds no candidate", () => {
@@ -295,6 +299,6 @@ test("repo facts find verification commands outside node: a Makefile without a t
   ]) {
     const directory = manifestRepo({ Makefile: makefile });
     const facts = collectRepoFacts(directory, { measure: neverMeasure() });
-    assert.deepEqual(facts.verificationCandidates, [], `no make candidate is found for:\n${makefile}`);
+    assert.deepEqual(facts.detectedVerificationCandidates, [], `no make candidate is found for:\n${makefile}`);
   }
 });

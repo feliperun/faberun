@@ -27,17 +27,26 @@ import { runShellCapture } from "./proof-run.mjs";
 /** @typedef {import("./proof-run.mjs").MeasureProbes} MeasureProbes */
 /** @typedef {{requirementId: string|null, command: string, output: string, exitCode: number|null, truncated: boolean}} RequirementMeasurement */
 /**
- * A verification command repo facts detected, the manifest file it was read
- * from, and its eligibility. The Node candidates are timed, so they carry a
- * numeric `measuredMs`; every other ecosystem's candidate was found by reading
- * its manifest, never by running the command, so its `measuredMs` is null —
- * the same "no measurement" sentinel `freeze.mjs` reads — and its `eligible`
- * is true because the manifest's own presence is the evidence.
+ * A verification command repo facts measured: a timed Node candidate, the
+ * manifest file it was read from, and its eligibility. It keeps the shape
+ * `freeze.mjs`'s `MeasuredFacts` reads (`argv` plus a numeric `measuredMs`),
+ * so a repository's facts stay assignable there while carrying the manifest
+ * the planner needs.
  *
- * @typedef {{argv: string[], manifest: string, measuredMs: number|null, eligible: boolean}} VerificationCandidate
+ * @typedef {{argv: string[], manifest: string, measuredMs: number, eligible: boolean}} VerificationCandidate
+ */
+/**
+ * A verification command repo facts detected in a non-Node manifest it never
+ * ran: `pyproject.toml`/`pytest.ini` (Python), `go.mod`, `Cargo.toml`,
+ * `build.zig`, or a `Makefile` with a `test` target. Detection is file
+ * inspection alone, so `measuredMs` is the null "no measurement" sentinel
+ * `freeze.mjs` reads and `eligible` is true — the manifest's own presence is
+ * the evidence. `manifest` names the file the command was read from.
+ *
+ * @typedef {{argv: string[], manifest: string, measuredMs: number|null, eligible: boolean}} DetectedVerificationCandidate
  */
 /** @typedef {{path: string, covers: string|null}} TestFileEntry */
-/** @typedef {{formatVersion: number, gitHead: string|null, paths: string[], truncated: boolean, scripts: Record<string, string>, verificationCandidates: VerificationCandidate[], testFiles: TestFileEntry[], requirementMeasurements: RequirementMeasurement[]}} RepoFacts */
+/** @typedef {{formatVersion: number, gitHead: string|null, paths: string[], truncated: boolean, scripts: Record<string, string>, verificationCandidates: VerificationCandidate[], detectedVerificationCandidates?: DetectedVerificationCandidate[], testFiles: TestFileEntry[], requirementMeasurements: RequirementMeasurement[]}} RepoFacts */
 
 const FORMAT_VERSION = 1;
 const DEFAULT_MAX_PATHS = 2000;
@@ -155,6 +164,7 @@ function makefileWithTestTarget(cwd) {
 function manifestCandidateCommands(cwd) {
   /** @type {{argv: string[], manifest: string}[]} */
   const commands = [];
+  /** @param {string} name @returns {boolean} */
   const present = (name) => existsSync(join(cwd, name));
   if (present("pyproject.toml")) commands.push({ argv: ["pytest"], manifest: "pyproject.toml" });
   else if (present("pytest.ini")) commands.push({ argv: ["pytest"], manifest: "pytest.ini" });
@@ -177,7 +187,7 @@ function manifestCandidateCommands(cwd) {
  * @param {string} cwd
  * @param {{argv: string[]}[]} commands
  * @param {MeasureProbes} probes
- * @returns {VerificationCandidate[]}
+ * @returns {{argv: string[], measuredMs: number, eligible: boolean}[]}
  */
 function measureCandidates(cwd, commands, probes) {
   if (commands.length === 0) return [];
@@ -254,15 +264,14 @@ export function collectRepoFacts(cwd, options = {}) {
     paths: truncated ? allPaths.slice(0, maxPaths) : allPaths,
     truncated,
     scripts,
-    // The Node candidates first, in their measured order, then the
-    // manifest-only candidates in a fixed ecosystem order. Only the Node ones
-    // carry a numeric `measuredMs`: a detected command is never run, so its
-    // manifest's presence is the whole eligibility evidence and its
-    // measurement is the null sentinel freeze.mjs already reads.
-    verificationCandidates: [
-      ...measured.map((candidate) => ({ ...candidate, manifest: PACKAGE_MANIFEST })),
-      ...detected.map((candidate) => ({ ...candidate, measuredMs: null, eligible: true })),
-    ],
+    // The measured Node candidates first, in their timed order, each naming
+    // package.json as the manifest it came from; then the manifest-only
+    // candidates in a fixed ecosystem order, each naming the manifest it was
+    // read from. Only the measured candidates carry a numeric `measuredMs`:
+    // a detected command is never run, so it lands in its own array with the
+    // null "no measurement" sentinel freeze.mjs reads and eligibility true.
+    verificationCandidates: measured.map((candidate) => ({ ...candidate, manifest: PACKAGE_MANIFEST })),
+    detectedVerificationCandidates: detected.map((candidate) => ({ ...candidate, measuredMs: null, eligible: true })),
     testFiles: testFileEntries(allPaths, pathSet),
     requirementMeasurements: measureRequirements(cwd, options.requirements ?? [], options.measure ?? {}),
   };
