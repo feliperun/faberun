@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.26.0](https://github.com/feliperun/faberun/compare/v0.25.1...v0.26.0) (2026-09-27)
+
+
+### Features
+
+* campaign 3a planner-and-routing lands, and the freeze checks proof and scope ([#84](https://github.com/feliperun/faberun/issues/84)) ([2729d12](https://github.com/feliperun/faberun/commit/2729d12654394f9fad445d7553e2e5b859ce1262))
+
 ## [0.25.1](https://github.com/feliperun/faberun/compare/v0.25.0...v0.25.1) (2026-09-25)
 
 
