@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { collectRepoFacts, measureRequirements } from "../../src/plan/repo-facts.mjs";
 
@@ -29,6 +29,44 @@ function fixtureRepo() {
   execFileSync("git", ["-C", directory, "add", "."]);
   execFileSync("git", ["-C", directory, "-c", "user.email=runner@example.test", "-c", "user.name=runner", "-c", "commit.gpgSign=false", "commit", "-qm", "fixture"]);
   return directory;
+}
+
+/**
+ * A temp git repository holding exactly the given files, every one committed
+ * so `git ls-files` reports it. Detection is a property of the tracked tree,
+ * so each ecosystem fixture is a real repository rather than a bare directory.
+ *
+ * @param {Record<string, string>} files
+ * @returns {string}
+ */
+function manifestRepo(files) {
+  const directory = mkdtempSync(join(tmpdir(), "repo-facts-manifests-"));
+  for (const [path, content] of Object.entries(files)) {
+    const target = join(directory, path);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, content);
+  }
+  execFileSync("git", ["init", "-q", directory]);
+  execFileSync("git", ["-C", directory, "add", "."]);
+  execFileSync("git", ["-C", directory, "-c", "user.email=runner@example.test", "-c", "user.name=runner", "-c", "commit.gpgSign=false", "commit", "-qm", "fixture"]);
+  return directory;
+}
+
+/**
+ * A measurer that fails the test if anything is ever run through it. A
+ * repository with no measurable Node candidate must never reach the probe:
+ * detection of another ecosystem's command is manifest inspection, not
+ * execution.
+ *
+ * @returns {{now: () => number, run: typeof import("node:child_process").spawnSync}}
+ */
+function neverMeasure() {
+  return {
+    now: () => 0,
+    run: /** @type {any} */ ((file, ...args) => {
+      throw new Error(`detection executed a command: ${[file, ...args].join(" ")}`);
+    }),
+  };
 }
 
 /**
@@ -198,4 +236,65 @@ test("a requirement without a measure, or with a non-command kind, contributes n
     fakeMeasure(DURATIONS),
   );
   assert.deepEqual(measurements, []);
+});
+
+test("repo facts find verification commands outside node", () => {
+  const directory = manifestRepo({
+    "pyproject.toml": "[project]\nname = \"fixture\"\n",
+    "go.mod": "module example.test/fixture\n",
+    "Cargo.toml": "[package]\nname = \"fixture\"\n",
+    "build.zig": "pub fn build(b: *std.Build) void {}\n",
+    "Makefile": ".PHONY: test\ntest:\n\tnode --test\n",
+  });
+  const facts = collectRepoFacts(directory, { measure: neverMeasure() });
+  assert.deepEqual(facts.verificationCandidates, [
+    { argv: ["pytest"], manifest: "pyproject.toml", measuredMs: null, eligible: true },
+    { argv: ["go", "test", "./..."], manifest: "go.mod", measuredMs: null, eligible: true },
+    { argv: ["cargo", "test"], manifest: "Cargo.toml", measuredMs: null, eligible: true },
+    { argv: ["zig", "build", "test"], manifest: "build.zig", measuredMs: null, eligible: true },
+    { argv: ["make", "test"], manifest: "Makefile", measuredMs: null, eligible: true },
+  ]);
+  assert.deepEqual(
+    collectRepoFacts(directory, { measure: neverMeasure() }),
+    facts,
+    "two calls at the same head produce identical detection",
+  );
+});
+
+test("repo facts find verification commands outside node beside the package.json manifest", () => {
+  const directory = manifestRepo({
+    "package.json": JSON.stringify({ name: "fixture", scripts: { check: "tsc", typecheck: "tsc --noEmit" } }),
+    "go.mod": "module example.test/fixture\n",
+  });
+  const facts = collectRepoFacts(directory, { measure: fakeMeasure(DURATIONS) });
+  assert.deepEqual(facts.verificationCandidates, [
+    { argv: ["npm", "run", "check"], manifest: "package.json", measuredMs: DURATIONS["npm run check"], eligible: true },
+    { argv: ["npm", "run", "typecheck"], manifest: "package.json", measuredMs: DURATIONS["npm run typecheck"], eligible: true },
+    { argv: ["go", "test", "./..."], manifest: "go.mod", measuredMs: null, eligible: true },
+  ]);
+  assert.equal(facts.verificationCandidates[2].measuredMs, null, "the detected command was never timed");
+});
+
+test("repo facts find verification commands outside node: pytest.ini stands in for pyproject.toml", () => {
+  const directory = manifestRepo({ "pytest.ini": "[pytest]\n" });
+  const facts = collectRepoFacts(directory, { measure: neverMeasure() });
+  assert.deepEqual(facts.verificationCandidates, [{ argv: ["pytest"], manifest: "pytest.ini", measuredMs: null, eligible: true }]);
+});
+
+test("repo facts find verification commands outside node: pyproject.toml wins when both pytest manifests exist", () => {
+  const directory = manifestRepo({ "pyproject.toml": "[project]\n", "pytest.ini": "[pytest]\n" });
+  const facts = collectRepoFacts(directory, { measure: neverMeasure() });
+  assert.deepEqual(facts.verificationCandidates, [{ argv: ["pytest"], manifest: "pyproject.toml", measuredMs: null, eligible: true }]);
+});
+
+test("repo facts find verification commands outside node: a Makefile without a test target adds no candidate", () => {
+  for (const makefile of [
+    "all:\n\tnode --test\n",
+    "test := 1\nbuild:\n\tgo build\n",
+    ".PHONY: test\nall:\n\tgo build\n",
+  ]) {
+    const directory = manifestRepo({ Makefile: makefile });
+    const facts = collectRepoFacts(directory, { measure: neverMeasure() });
+    assert.deepEqual(facts.verificationCandidates, [], `no make candidate is found for:\n${makefile}`);
+  }
 });
