@@ -235,7 +235,7 @@ function captureWorkspaceEntriesUnderBaseRules(root, beforeIgnoreSources, change
       if (saved === undefined) continue;
       restorations.push({ path: child, saved });
       if (beforeEntry === undefined) removeReplayableFile(child);
-      else writeReplayableFile(child, beforeEntry.content);
+      else if (typeof beforeEntry.content === "string") writeReplayableFile(child, beforeEntry.content);
     }
     paths = relevantWorkspacePaths(root);
   } finally {

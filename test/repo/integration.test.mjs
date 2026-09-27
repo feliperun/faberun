@@ -283,8 +283,8 @@ test("a candidate commit message follows the conventional commit shape", async (
   writeFileSync(join(repo, "sibling.txt"), "sibling\n");
   run("add", "-A");
   run("-c", "commit.gpgSign=false", "commit", "-qm", "sibling");
-  const sibling = gitHead(repo, "HEAD");
-  git(repo, ["update-ref", runRefName("conventional-run"), sibling]);
+  const sibling = /** @type {string} */ (gitHead(repo, "HEAD"));
+  git(repo, ["update-ref", /** @type {string} */ (runRefName("conventional-run")), sibling]);
 
   const result = await integrateAttempt({
     repo,
