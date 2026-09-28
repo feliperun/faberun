@@ -154,6 +154,14 @@ function instructionsFor(kind, inputs) {
 // tree and read as having measured nothing; two nodes exhausted on it. The
 // freeze now refuses that shape (proof-scope.mjs); this is the same rule told
 // to the author, so the draft never writes it.
+// AP11 of safe-to-hand-to-friend, measured 2026-09-27: the plan proved R6 with
+// `! grep -q "\.runs" README.md docs/*.md` while the requirement allowed the
+// mention inside a section labelled as legacy layout, and the node exhausted
+// both attempts on a proof stricter than the statement it proved. The proof's
+// wording is a claim the reviewer can compare with the requirement's own; no
+// deterministic check does, because "stricter" is a reading of two sentences.
+const PROOF_NOT_STRICTER_THAN_REQUIREMENT_RULE = "For every node, compare each command proof with the requirement statement it proves, sentence by sentence: a proof that asserts more than the statement is a finding, because the node is refused for work the requirement allows. A bare `grep` for an absence the statement does not claim, a pattern narrower than the statement's words, or a whole-file scope where the statement names a section are the three shapes this takes.";
+
 const NAMED_TEST_FILE_RULE = 'A command that filters node:test by name (--test-name-pattern) names the test file it selects from, as in node --test --test-name-pattern="<exact test title>" test/<area>/<file>.test.mjs: with no path node --test runs every test file in the tree and the freeze refuses it. A requirement proof the spec writes without a file gains the file of the test that carries that title.';
 
 // The rule every planned packet is held to at freeze time, worded from
@@ -198,6 +206,7 @@ const INSTRUCTIONS = Object.freeze({
   ],
   review: [
     "You are given only the spec, the repository facts, and the plan under review; you have not seen how the plan was produced or any reasoning behind it. Review the artefact alone.",
+    PROOF_NOT_STRICTER_THAN_REQUIREMENT_RULE,
     `Return exactly one worker-result JSON object. Put your findings in output.findings as ${FINDINGS_SHAPE} and nothing else in output.`,
     "severity must be one of critical, major, minor. Every finding's nodeId must name a node id that actually appears in the plan under review.",
   ],

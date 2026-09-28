@@ -108,6 +108,22 @@ test("review packet is isolated", () => {
   assert.equal(reviewPacket.readFiles.length, 3);
 });
 
+// AP11 of safe-to-hand-to-friend, measured 2026-09-27: R6's node exhausted both
+// attempts on `! grep -q "\.runs" README.md docs/*.md` while the requirement
+// allowed the mention inside a section labelled as legacy layout. No
+// deterministic check reads two sentences against each other, so the rule has
+// to reach the reviewer.
+test("the review stage is told to compare each proof with the requirement it proves", () => {
+  const cwd = checkout();
+  const reviewPacket = validateContract(buildPlanningContract("review", baseInputs()), join(cwd, "contract.json")).nodes[0].taskPacket;
+  const rule = reviewPacket.instructions.find((instruction) => instruction.startsWith("For every node, compare each command proof"));
+  assert.ok(rule, JSON.stringify(reviewPacket.instructions));
+  assert.match(rule, /asserts more than the statement/u);
+
+  const draftPacket = validateContract(buildPlanningContract("draft", baseInputs()), join(cwd, "contract.json")).nodes[0].taskPacket;
+  assert.ok(!draftPacket.instructions.some((instruction) => instruction.startsWith("For every node, compare")), "the rule belongs to the reviewer, not the draft");
+});
+
 test("planner vendors distinct", () => {
   const cwd = checkout();
   const contractPath = join(cwd, "contract.json");
