@@ -24,7 +24,7 @@
 
 import { spawn } from "node:child_process";
 import { spawnInvocation } from "../../host/platform.mjs";
-import { writeSync } from "node:fs";
+import { emit, readPrompt } from "../runner-io.mjs";
 
 const HANDSHAKE_ID = 1;
 const PROMPT_ID = 2;
@@ -63,22 +63,6 @@ function parseArgs(argv) {
   if (!options.provider) throw new Error("--provider is required");
   if (!options.model) throw new Error("--model is required");
   return options;
-}
-
-/**
- * Whole-line writes to fd 1: `process.exit` cannot lose an unfinished write.
- *
- * @param {Record<string, unknown>} event
- */
-function emit(event) {
-  const line = Buffer.from(`${JSON.stringify(event)}\n`, "utf8");
-  for (let written = 0; written < line.length; ) written += writeSync(1, line, written);
-}
-
-async function readPrompt() {
-  const chunks = [];
-  for await (const chunk of process.stdin) chunks.push(chunk);
-  return Buffer.concat(chunks).toString("utf8");
 }
 
 /**

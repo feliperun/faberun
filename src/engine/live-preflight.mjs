@@ -227,7 +227,7 @@ function safeLiveRuntime(runtime) {
   const effort = LIVE_PREFLIGHT_REASONING[runtime.harness];
   const safe = effort ? { ...runtime, reasoning: effort } : { ...runtime };
   if (safe.harness === "codex") return { ...safe, sandbox: "read-only" };
-  if (safe.harness === "dsh") return { ...safe, sandbox: "read-only" };
+  if (safe.harness === "dsh" || safe.harness === "fx") return { ...safe, sandbox: "read-only" };
   if (safe.harness === "claude") return { ...safe, permissionMode: "plan" };
   // `plan` is the ZCode mode that reads without writing; the adapter's own
   // default is `yolo`, which a preflight prompt must never reach.

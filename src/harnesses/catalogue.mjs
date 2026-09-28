@@ -9,6 +9,7 @@ import { declaredEnvironment as claudeEnvironment } from "./claude/index.mjs";
 import { declaredEnvironment as codexEnvironment } from "./codex/index.mjs";
 import { declaredEnvironment as agyEnvironment } from "./agy/index.mjs";
 import { declaredEnvironment as dshEnvironment } from "./dsh/index.mjs";
+import { declaredEnvironment as fxEnvironment } from "./fx/index.mjs";
 import { declaredEnvironment as zcodeEnvironment } from "./zcode/index.mjs";
 import { declaredEnvironment as execJsonlEnvironment } from "./exec-jsonl/index.mjs";
 import { declaredEnvironment as replayEnvironment } from "./replay/index.mjs";
@@ -33,12 +34,13 @@ import { declaredEnvironment as replayEnvironment } from "./replay/index.mjs";
  * opt-in that reads the host.
  */
 
-/** Display order of the registered harnesses: claude, codex, agy, dsh, zcode, exec-jsonl, replay. */
+/** Display order of the registered harnesses: claude, codex, agy, dsh, fx, zcode, exec-jsonl, replay. */
 export const MODEL_HARNESS_ORDER = Object.freeze([
   "claude",
   "codex",
   "agy",
   "dsh",
+  "fx",
   "zcode",
   "exec-jsonl",
   "replay",
@@ -59,6 +61,7 @@ export const DECLARED_HARNESS_ENVIRONMENTS = Object.freeze({
   codex: codexEnvironment,
   agy: agyEnvironment,
   dsh: dshEnvironment,
+  fx: fxEnvironment,
   zcode: zcodeEnvironment,
   "exec-jsonl": execJsonlEnvironment,
   replay: replayEnvironment,
@@ -105,6 +108,11 @@ export const DECLARED_MODEL_CATALOGUES = Object.freeze({
     declaredModel("claude-fable-5", { efforts: CLAUDE_EFFORTS }),
     declaredModel("claude-fable-5-1", { efforts: CLAUDE_EFFORTS }),
     declaredModel("claude-sonnet-4-6", { efforts: CLAUDE_EFFORTS }),
+    // GLM through a runtime whose `config.base_url` names Z.ai's
+    // Anthropic-compatible endpoint. The CLI sized its own window at 200,000
+    // tokens for this model (2026-09-25 result event), and `--effort` is a
+    // Claude-model flag, so no effort is declared.
+    declaredModel("glm-5.3", { contextWindowTokens: 200_000, efforts: NO_EFFORTS }),
   ]),
   codex: Object.freeze([
     declaredModel("gpt-5.6", { efforts: CODEX_EFFORTS }),
@@ -125,6 +133,20 @@ export const DECLARED_MODEL_CATALOGUES = Object.freeze({
     declaredModel("deepseek-v4-pro", { contextWindowTokens: DSH_CONTEXT_WINDOW_TOKENS, efforts: DSH_EFFORTS, defaultEffort: "high" }),
     declaredModel("deepseek-v4-flash-vision-exp", { contextWindowTokens: DSH_CONTEXT_WINDOW_TOKENS, efforts: DSH_EFFORTS, defaultEffort: "high" }),
   ]),
+  // The two ids api.deepseek.com/models listed on 2026-09-24. No efforts:
+  // fx's settings carry one `effort` for the Gateway catalogue and send
+  // nothing a custom Chat Completions connection is known to honour.
+  fx: Object.freeze([
+    declaredModel("deepseek-flash", { contextWindowTokens: DSH_CONTEXT_WINDOW_TOKENS, efforts: NO_EFFORTS }),
+    declaredModel("deepseek-v4-pro", { contextWindowTokens: DSH_CONTEXT_WINDOW_TOKENS, efforts: NO_EFFORTS }),
+    // GLM through a Z.ai Chat Completions endpoint named by `config.base_url`.
+    declaredModel("glm-5.3", { contextWindowTokens: GLM_CONTEXT_WINDOW_TOKENS, efforts: NO_EFFORTS }),
+    // GPT through fx's ChatGPT login (`config.provider: "codex"`). Measured
+    // 2026-09-26: fx listed these among the account's seven models, and both
+    // answered a review turn through the runner.
+    declaredModel("gpt-5.6-sol", { efforts: NO_EFFORTS }),
+    declaredModel("gpt-6-sol", { efforts: NO_EFFORTS }),
+  ]),
   zcode: Object.freeze([
     declaredModel("glm-5.3-flash", { contextWindowTokens: GLM_CONTEXT_WINDOW_TOKENS, efforts: NO_EFFORTS }),
     // No `[1m]` row: the suffix is a Claude Code convention the ZCode CLI does
@@ -142,6 +164,7 @@ const CATALOGUE_SOURCES = Object.freeze({
   claude: "declared",
   codex: "declared",
   dsh: "declared",
+  fx: "declared",
   zcode: "declared",
   "exec-jsonl": "runtime-declared",
   replay: "runtime-declared",
@@ -157,18 +180,20 @@ const EFFORT_TRANSPORT = Object.freeze({
   codex: "config.model_reasoning_effort",
   agy: "--effort",
   dsh: "--reasoning (harness reasoningEffort)",
+  fx: null,
   zcode: null,
   "exec-jsonl": null,
   replay: null,
 });
 
 /**
- * Why a harness resolves no vendor: dsh, exec-jsonl, and replay declare none.
+ * Why a harness resolves no vendor: dsh, fx, exec-jsonl, and replay declare none.
  *
  * @type {Readonly<Record<string, string>>}
  */
 const VENDOR_NOTES = Object.freeze({
   dsh: "unresolved: dsh declares no default vendor; the contract names it",
+  fx: "unresolved: fx declares no default vendor; the contract names it",
   "exec-jsonl": "unresolved: exec-jsonl declares no default vendor; the contract names it",
   replay: "unresolved: replay declares no default vendor; the contract names it",
 });

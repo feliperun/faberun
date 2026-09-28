@@ -3,6 +3,7 @@ import { claudeHarness } from "./claude/index.mjs";
 import { codexHarness } from "./codex/index.mjs";
 import { agyHarness } from "./agy/index.mjs";
 import { dshHarness } from "./dsh/index.mjs";
+import { fxHarness } from "./fx/index.mjs";
 import { zcodeHarness } from "./zcode/index.mjs";
 import { execJsonlHarness } from "./exec-jsonl/index.mjs";
 import { replayHarness } from "./replay/index.mjs";
@@ -20,6 +21,7 @@ const HARNESSES = new Map([
   ["codex", codexHarness],
   ["agy", agyHarness],
   ["dsh", dshHarness],
+  ["fx", fxHarness],
   ["zcode", zcodeHarness],
   ["exec-jsonl", execJsonlHarness],
   ["replay", replayHarness],
@@ -65,7 +67,7 @@ const CAPABILITY_NAMES = new Set([
 
 /**
  * One declared runtime. `harness` names a registered adapter (`claude`,
- * `codex`, `agy`, `dsh`, `zcode`, `exec-jsonl`, or `replay`) and `model` names
+ * `codex`, `agy`, `dsh`, `fx`, `zcode`, `exec-jsonl`, or `replay`) and `model` names
  * what that harness asks; the two are independent. replay requires
  * `config["replay.recording"]` for commands, and dsh requires
  * `config.provider` for the provider route every attempt runs on.
@@ -106,7 +108,7 @@ export const READ_BYTE_LIMIT = 32 * 1024;
  * One provider adapter: capabilities plus executable, version, command, and
  * result-normalization behavior.
  *
- * @typedef {{capabilities: HarnessCapabilities, permissionExecution: PermissionExecutionPolicy, executable: (runtime: HarnessRuntime) => string, versionArgs: (runtime: HarnessRuntime) => string[], parseVersion: (stdout: string, stderr?: string) => string|null, command: (runtime: HarnessRuntime, prompt: string, options: CommandOptions) => HarnessCommand, normalize: (stdout: string, exitCode: number|null, signal: string|null, options?: NormalizeOptions) => ProviderEnvelope}} HarnessAdapter
+ * @typedef {{capabilities: HarnessCapabilities, permissionExecution: PermissionExecutionPolicy, executable: (runtime: HarnessRuntime) => string, versionArgs: (runtime: HarnessRuntime) => string[], parseVersion: (stdout: string, stderr?: string) => string|null, command: (runtime: HarnessRuntime, prompt: string, options: CommandOptions) => HarnessCommand, normalize: (stdout: string, exitCode: number|null, signal: string|null, options?: NormalizeOptions) => ProviderEnvelope, reportsCost?: (runtime: {harness: string, config?: Record<string, unknown>}) => boolean}} HarnessAdapter
  */
 
 /**
@@ -255,7 +257,7 @@ export function providerCommand(runtime, prompt, options = {}) {
 }
 
 /**
- * @param {string|{harness: string}} runtimeOrHarness
+ * @param {string|{harness: string, model?: string, config?: Record<string, unknown>}} runtimeOrHarness
  * @param {string} stdout
  * @param {number|null} exitCode
  * @param {string|null} signal
@@ -265,7 +267,9 @@ export function providerCommand(runtime, prompt, options = {}) {
 export function normalizeProviderResult(runtimeOrHarness, stdout, exitCode, signal, options = {}) {
   const runtime = typeof runtimeOrHarness === "string" ? { harness: runtimeOrHarness } : runtimeOrHarness;
   const harness = getHarness(runtime.harness);
-  return harness.normalize(stdout, exitCode, signal, options);
+  const envelope = harness.normalize(stdout, exitCode, signal, options);
+  // A cost the harness reports in another vendor's rates is not a bill.
+  return harness.reportsCost?.(runtime) === false ? { ...envelope, costUsd: null } : envelope;
 }
 
 /**

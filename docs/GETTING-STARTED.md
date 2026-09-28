@@ -23,6 +23,7 @@ machine, prepare a repository, and run one node to a verified result.
 | `codex` | `codex` | OpenAI | the CLI's own sign-in (`codex`); `OPENAI_API_KEY` when the CLI is configured with one |
 | `agy` | `agy` | Google | the CLI's own sign-in (`agy`) |
 | `dsh` | `dsh` | declared per runtime (the discovery entry uses `deepseek`) | `DEEPSEEK_API_KEY` in the environment |
+| `fx` | `fx`, the fx-faberun build `install.sh` installs | declared per runtime (the discovery entry uses `deepseek`) | `DEEPSEEK_API_KEY` in the environment |
 | `zcode` | `zcode` | Zhipu | `ZAI_API_KEY` in the environment |
 
 `faberun setup` prints the exact environment variable a runtime is missing
@@ -413,7 +414,9 @@ dirties the ignore snapshot the controller compares against.
   append-only event records.
 - [history/README.md](history/README.md) — dated records and the path mapping
   from before the move.
+- [harnesses/claude-endpoints.md](harnesses/claude-endpoints.md) — GLM through Claude Code on the Z.ai Coding Plan.
 - [harnesses/zcode-cli.md](harnesses/zcode-cli.md) — the Z.ai Code harness.
+- [harnesses/fx.md](harnesses/fx.md) — the ACP-driven harness for DeepSeek, GLM and GPT.
 - [AGENTS.md](../AGENTS.md) — the canonical contributor and agent playbook.
 
 ## First contribution checklist

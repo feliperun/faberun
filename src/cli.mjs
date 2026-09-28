@@ -594,7 +594,7 @@ function warnIfNoTransport() {
 }
 
 /** The harness binaries whose presence the banner counts on PATH. */
-const HARNESS_BINARIES = ["claude", "codex", "agy", "dsh", "zcode"];
+const HARNESS_BINARIES = ["claude", "codex", "agy", "dsh", "fx", "zcode"];
 
 /** Handled before verb dispatch, so they are not options of any command. */
 const HELP_FLAGS = new Set(["--help", "-h"]);

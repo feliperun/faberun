@@ -25,6 +25,7 @@ import { declaredEnvironment as claudeEnvironment } from "../harnesses/claude/in
 import { declaredEnvironment as codexEnvironment } from "../harnesses/codex/index.mjs";
 import { declaredEnvironment as agyEnvironment } from "../harnesses/agy/index.mjs";
 import { declaredEnvironment as dshEnvironment } from "../harnesses/dsh/index.mjs";
+import { declaredEnvironment as fxEnvironment } from "../harnesses/fx/index.mjs";
 import { declaredEnvironment as zcodeEnvironment } from "../harnesses/zcode/index.mjs";
 import { declaredEnvironment as execJsonlEnvironment } from "../harnesses/exec-jsonl/index.mjs";
 import { declaredEnvironment as replayEnvironment } from "../harnesses/replay/index.mjs";
@@ -73,6 +74,7 @@ const ADAPTER_ENVIRONMENTS = new Map([
   ["codex", codexEnvironment],
   ["agy", agyEnvironment],
   ["dsh", dshEnvironment],
+  ["fx", fxEnvironment],
   ["zcode", zcodeEnvironment],
   ["exec-jsonl", execJsonlEnvironment],
   ["replay", replayEnvironment],

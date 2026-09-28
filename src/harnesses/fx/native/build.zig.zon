@@ -1,0 +1,7 @@
+.{
+    .name = .faberun_fx_runner,
+    .version = "0.1.0",
+    .fingerprint = 0x899586834bb2a4a8,
+    .minimum_zig_version = "0.16.0",
+    .paths = .{ "build.zig", "build.zig.zon", "main.zig", "home.zig", "permissions.zig", "relay.zig", "usage.zig" },
+}

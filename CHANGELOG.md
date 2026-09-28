@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.27.0](https://github.com/feliperun/faberun/compare/v0.26.3...v0.27.0) (2026-09-28)
+
+
+### Features
+
+* **harnesses:** fx becomes an official harness, with a native client ([#93](https://github.com/feliperun/faberun/issues/93)) ([ab6decd](https://github.com/feliperun/faberun/commit/ab6decd44321c79245b3e2f4de55474b0cf49c70))
+
 ## [0.26.3](https://github.com/feliperun/faberun/compare/v0.26.2...v0.26.3) (2026-09-27)
 
 

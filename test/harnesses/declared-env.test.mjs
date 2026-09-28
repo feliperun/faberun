@@ -9,6 +9,7 @@ import { declaredEnvironment as claudeDeclared } from "../../src/harnesses/claud
 import { declaredEnvironment as codexDeclared } from "../../src/harnesses/codex/index.mjs";
 import { declaredEnvironment as agyDeclared } from "../../src/harnesses/agy/index.mjs";
 import { declaredEnvironment as dshDeclared } from "../../src/harnesses/dsh/index.mjs";
+import { declaredEnvironment as fxDeclared } from "../../src/harnesses/fx/index.mjs";
 import { declaredEnvironment as zcodeDeclared } from "../../src/harnesses/zcode/index.mjs";
 import { declaredEnvironment as execJsonlDeclared } from "../../src/harnesses/exec-jsonl/index.mjs";
 import { declaredEnvironment as replayDeclared } from "../../src/harnesses/replay/index.mjs";
@@ -17,7 +18,7 @@ import { DECLARED_HARNESS_ENVIRONMENTS, MODEL_HARNESS_ORDER } from "../../src/ha
 const HARNESS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "src", "harnesses");
 
 /**
- * The seven adapters this regression covers, in the catalogue's canonical
+ * The eight adapters this regression covers, in the catalogue's canonical
  * order. Each entry names the adapter's own frozen `declaredEnvironment`
  * export, the source files whose environment reads the static scan covers, the
  * binary override the adapter reads for itself, and the authentication or
@@ -63,6 +64,13 @@ const ADAPTERS = [
     declared: dshDeclared,
     sources: [join(HARNESS_DIR, "dsh", "index.mjs")],
     binary: "FABERUN_DSH_BIN",
+    required: ["DEEPSEEK_API_KEY"],
+  },
+  {
+    harness: "fx",
+    declared: fxDeclared,
+    sources: [join(HARNESS_DIR, "fx", "index.mjs")],
+    binary: "FABERUN_FX_BIN",
     required: ["DEEPSEEK_API_KEY"],
   },
   {
@@ -139,19 +147,19 @@ function environmentReads(text) {
 }
 
 test("every harness adapter declares the environment it reads", () => {
-  // The catalogue is the single surface that exposes the seven declarations to
+  // The catalogue is the single surface that exposes the eight declarations to
   // the worker environment builder, so a name missing from it is a name the
   // child process never receives.
   assert.ok(Object.isFrozen(DECLARED_HARNESS_ENVIRONMENTS), "the catalogue declaration is frozen");
   assert.deepEqual(
     Object.keys(DECLARED_HARNESS_ENVIRONMENTS),
     [...MODEL_HARNESS_ORDER],
-    "the catalogue covers exactly the seven canonical harnesses, in order",
+    "the catalogue covers exactly the eight canonical harnesses, in order",
   );
   assert.deepEqual(
     ADAPTERS.map((adapter) => adapter.harness),
     [...MODEL_HARNESS_ORDER],
-    "the regression covers all seven adapters the catalogue exposes",
+    "the regression covers all eight adapters the catalogue exposes",
   );
 
   for (const adapter of ADAPTERS) {

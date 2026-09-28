@@ -65,7 +65,7 @@ import { discoverSkillTargets, registerSkills } from "./skills.mjs";
 const MIN_NODE_MAJOR = 22;
 
 /** The harnesses a fresh machine can install, named in the failure hint. */
-const INSTALL_HARNESSES = ["claude", "codex", "agy", "dsh", "zcode"];
+const INSTALL_HARNESSES = ["claude", "codex", "agy", "dsh", "fx", "zcode"];
 
 /**
  * @param {SetupOptions} [options]

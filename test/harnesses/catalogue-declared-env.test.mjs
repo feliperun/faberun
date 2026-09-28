@@ -9,6 +9,7 @@ import { declaredEnvironment as claudeDeclared } from "../../src/harnesses/claud
 import { declaredEnvironment as codexDeclared } from "../../src/harnesses/codex/index.mjs";
 import { declaredEnvironment as agyDeclared } from "../../src/harnesses/agy/index.mjs";
 import { declaredEnvironment as dshDeclared } from "../../src/harnesses/dsh/index.mjs";
+import { declaredEnvironment as fxDeclared } from "../../src/harnesses/fx/index.mjs";
 import { declaredEnvironment as zcodeDeclared } from "../../src/harnesses/zcode/index.mjs";
 import { declaredEnvironment as execJsonlDeclared } from "../../src/harnesses/exec-jsonl/index.mjs";
 import { declaredEnvironment as replayDeclared } from "../../src/harnesses/replay/index.mjs";
@@ -27,6 +28,7 @@ const DECLARATIONS = new Map([
   ["codex", codexDeclared],
   ["agy", agyDeclared],
   ["dsh", dshDeclared],
+  ["fx", fxDeclared],
   ["zcode", zcodeDeclared],
   ["exec-jsonl", execJsonlDeclared],
   ["replay", replayDeclared],
@@ -112,12 +114,12 @@ function environmentReads(text) {
   return names;
 }
 
-test("the harness catalogue exposes the declared environment of all seven adapters", () => {
+test("the harness catalogue exposes the declared environment of all eight adapters", () => {
   assert.ok(Object.isFrozen(DECLARED_HARNESS_ENVIRONMENTS), "the catalogue declaration is frozen");
   assert.deepEqual(
     Object.keys(DECLARED_HARNESS_ENVIRONMENTS).sort(),
     [...MODEL_HARNESS_ORDER].sort(),
-    "the catalogue covers exactly the seven canonical harnesses",
+    "the catalogue covers exactly the eight canonical harnesses",
   );
   for (const harness of MODEL_HARNESS_ORDER) {
     const declared = DECLARED_HARNESS_ENVIRONMENTS[harness];

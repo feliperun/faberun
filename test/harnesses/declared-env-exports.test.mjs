@@ -9,6 +9,7 @@ import { declaredEnvironment as claudeDeclared } from "../../src/harnesses/claud
 import { declaredEnvironment as codexDeclared } from "../../src/harnesses/codex/index.mjs";
 import { declaredEnvironment as agyDeclared } from "../../src/harnesses/agy/index.mjs";
 import { declaredEnvironment as dshDeclared } from "../../src/harnesses/dsh/index.mjs";
+import { declaredEnvironment as fxDeclared } from "../../src/harnesses/fx/index.mjs";
 
 const HARNESS_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "src", "harnesses");
 
@@ -46,6 +47,12 @@ const ADAPTERS = [
     sources: [join(HARNESS_DIR, "dsh", "index.mjs")],
     required: ["DEEPSEEK_API_KEY"],
   },
+  {
+    harness: "fx",
+    declared: fxDeclared,
+    sources: [join(HARNESS_DIR, "fx", "index.mjs")],
+    required: ["DEEPSEEK_API_KEY"],
+  },
 ];
 
 /**
@@ -58,7 +65,7 @@ function environmentReads(text) {
   const names = new Set();
   for (const match of text.matchAll(/process\.env\.([A-Za-z_][A-Za-z0-9_]*)/gu)) names.add(match[1]);
   for (const match of text.matchAll(/process\.env\[["']([^"']+)["']\]/gu)) names.add(match[1]);
-  for (const match of text.matchAll(/\benv\.([A-Z][A-Z0-9_]*)/gu)) names.add(match[1]);
+  for (const match of text.matchAll(/\benv\.([A-Z][A-Z0-9_]*)\b(?!\s*=)/gu)) names.add(match[1]);
   return names;
 }
 

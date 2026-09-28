@@ -56,6 +56,18 @@ export { exhaustedUntilOf, normalizeProviderAvailability } from "../harnesses/in
  * @type {Readonly<Record<string, DiscoveryRuntime>>}
  */
 export const DISCOVERY_RUNTIME_DEFINITIONS = Object.freeze({
+  // Every vendor this harness reaches is declared ahead of the older harness
+  // for the same models, so fx wins each tie-break. Measured on the
+  // parseDuration benchmark (2026-09-25): 22-27 MB per fx worker against
+  // 362-422 MB for dsh, with the same scope and hidden-test results.
+  "fx-deepseek": {
+    harness: "fx",
+    model: "deepseek-flash",
+    vendor: "deepseek",
+    config: { "api_key.env_key": "DEEPSEEK_API_KEY" },
+    tier: 1,
+    costRank: 1,
+  },
   // `dsh` defaults no vendor and no provider route, so both are declared here
   // or nothing can build a command from this entry.
   "dsh-deepseek": {
@@ -63,6 +75,32 @@ export const DISCOVERY_RUNTIME_DEFINITIONS = Object.freeze({
     model: "deepseek-flash",
     vendor: "deepseek",
     config: { provider: "deepseek-official", "api_key.env_key": "DEEPSEEK_API_KEY" },
+    tier: 1,
+    costRank: 1,
+  },
+  // GLM 5.3 on fx through the Z.ai Coding Plan's Chat Completions endpoint.
+  // The operator chose this default knowing the plan's usage policy lists
+  // Claude Code and ZCode, not fx, and restricts or bans an account for
+  // detected third-party use; `claude-glm` below is the supported route.
+  // Measured 2026-09-26: the tiny-text campaign with a GLM worker and a
+  // DeepSeek judge, both on fx, peaked at 283 MB.
+  "fx-glm": {
+    harness: "fx",
+    model: "glm-5.3",
+    vendor: "zhipu",
+    config: { base_url: "https://api.z.ai/api/coding/paas/v4", "api_key.env_key": "ZAI_API_KEY", context_window: 200_000 },
+    tier: 1,
+    costRank: 1,
+  },
+  // GLM through Claude Code, which the Z.ai Coding Plan lists as a supported
+  // tool. Declared before zcode-glm so it wins the tie-break: measured
+  // 2026-09-25 on one review prompt, 384-392 MB per turn against 0.9-1.0 GB
+  // for zcode, and the tiny-text campaign peaked at 865 MB against 1,575 MB.
+  "claude-glm": {
+    harness: "claude",
+    model: "glm-5.3",
+    vendor: "zhipu",
+    config: { base_url: "https://api.z.ai/api/anthropic", "auth_token.env_key": "ZAI_API_KEY" },
     tier: 1,
     costRank: 1,
   },
@@ -78,15 +116,19 @@ export const DISCOVERY_RUNTIME_DEFINITIONS = Object.freeze({
     costRank: 1,
   },
   "agy-gemini": { harness: "agy", model: "gemini-3.8-flash-low", vendor: "google", tier: 1, costRank: 1 },
+  // GPT on fx through fx's own ChatGPT login, which fx-faberun reads from the
+  // operator's profile (`FX_AUTH_HOME`). Measured 2026-09-26: one review turn
+  // peaked at 35-47 MB for the runner and fx together.
+  "fx-gpt": { harness: "fx", model: "gpt-5.6-sol", vendor: "openai", config: { provider: "codex" }, tier: 2, costRank: 2 },
   // Three codex rows, because the harness declares three models and an
   // account is entitled to only some of them: measured 2026-09-21 on the
   // owner's ChatGPT account, plain `gpt-5.6` answers HTTP 400 while
   // `gpt-5.6-sol` answers normally. One row meant `setup` could offer only the
   // model that account cannot use, and the operator's only way out was to hand
-  // every contract its own catalogue through `--runtimes`. Declaration order is
-  // unchanged, so the composed default is still `codex-gpt`: which of the three
-  // an account can reach is not something this file can know, and the live
-  // preflight is what reports it per id.
+  // every contract its own catalogue through `--runtimes`. `fx-gpt` above is
+  // declared first, so it is the composed tier-2 default; among these three,
+  // which an account can reach is not something this file can know, and the
+  // live preflight is what reports it per id.
   "codex-gpt": { harness: "codex", model: "gpt-5.6", vendor: "openai", tier: 2, costRank: 2 },
   "codex-sol": { harness: "codex", model: "gpt-5.6-sol", vendor: "openai", tier: 2, costRank: 2 },
   "codex-luna": { harness: "codex", model: "gpt-5.6-luna", vendor: "openai", tier: 2, costRank: 2 },
