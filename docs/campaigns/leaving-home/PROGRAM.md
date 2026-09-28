@@ -120,6 +120,16 @@ Toda campanha fecha com `faberun spec validate <spec> --strict-traceability
   cinco specs. Defeito achado durante o programa entra como `RM-###` e só é
   corrigido dentro do programa se bloquear a campanha em andamento ou expuser
   dado de alguém.
+  **Suspensa em 2026-09-28, por ordem do dono.** A ordem veio no handoff
+  `/Users/frb/handoff-achados-029.md`, lido e executado por esta sessão em
+  28/09: os 21 achados de
+  `docs/campaigns/safe-to-hand-to-a-friend/ACHADOS-PRODUTO.md` são todos
+  corrigidos numa passada, e não só o que bloqueia uma campanha ou expõe dado
+  de alguém. A suspensão é do critério de entrada, não do congelamento: nenhuma
+  capacidade fora das cinco specs entra com ela. O critério volta a valer
+  quando o livro dos 21 fechar com um desfecho para cada um, e o que não puder
+  ser corrigido sem decisão do dono continua virando `RM-###` em vez de
+  correção.
 - **Orçamento de docs.** Nenhum teto de `test/docs/docs-diet.test.mjs` sobe
   durante o programa. Na campanha zero, frase nova é paga com corte no mesmo
   arquivo; a partir da primeira, vale o teto de soma que ela cria.
