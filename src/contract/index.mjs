@@ -153,7 +153,7 @@ export function validateContract(raw, contractPath, options = {}) {
     throw new TypeError("contract.runtimes must be an object");
   }
   const runtimes = /** @type {Record<string, ValidatedRuntime>} */ ({});
-  for (const [id, runtime] of Object.entries(rawRuntimes)) runtimes[id] = validateRuntime(id, runtime);
+  for (const [id, runtime] of Object.entries(rawRuntimes)) runtimes[id] = validateRuntime(id, runtime, { persisted });
   // A runtime's fallback is validated against sibling runtimes once every
   // runtime is known, so declaration order never matters.
   for (const [id, runtime] of Object.entries(runtimes)) {

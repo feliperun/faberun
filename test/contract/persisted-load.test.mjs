@@ -307,6 +307,30 @@ test("done-when 8: contractDigest and scopeDecision survive creation, a resume a
   assert.deepEqual(relaunched.scopeDecision, created.scopeDecision, "a metadata rewrite preserves the launch scope decision");
 });
 
+test("done-when 9: a persisted contract keeps a vendor label a later rule refuses", () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-persisted-vendor-"));
+  const path = writeContract(directory, fixture({
+    id: "persisted-vendor-run",
+    runtimes: {
+      // The label R18 refuses at authoring. Measured 2026-09-27 (AP6): three
+      // runs launched before R18 carried exactly this shape, and every reader
+      // of their contract threw, so `cancel` could not stop them and `status`
+      // could not describe them.
+      luna: { harness: "codex", model: "gpt-5.6-luna", reasoning: "xhigh", vendor: "openai-luna" },
+      sol: { harness: "codex", model: "gpt-5.6-sol", reasoning: "xhigh", config: { model_provider: "deepseek" } },
+    },
+  }));
+  const raw = JSON.parse(readFileSync(path, "utf8"));
+  assert.throws(
+    () => validateContract(raw, path),
+    /runtime luna declares vendor openai-luna but codex gpt-5\.6-luna is provider openai/u,
+    "authoring still refuses the free label",
+  );
+  const loaded = validateContract(raw, path, { persisted: true });
+  assert.equal(loaded.runtimes.luna.vendor, "openai", "the replay canonicalizes the label routing already used");
+  assert.doesNotThrow(() => loadPersistedContract(path, undefined));
+});
+
 /**
  * The fs names the contract graph imports; every one but readFileSync throws.
  * The list must track the graph's imports, not its calls: a name missing here

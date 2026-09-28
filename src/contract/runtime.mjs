@@ -93,9 +93,11 @@ export function routeRuntime(contract, node, role = "worker", event = {}) {
 /**
  * @param {string} id
  * @param {unknown} runtime
+ * @param {{persisted?: boolean}} [options] `persisted` is a replay of a contract
+ *   already accepted at launch; see the vendor rule below.
  * @returns {ValidatedRuntime}
  */
-export function validateRuntime(id, runtime) {
+export function validateRuntime(id, runtime, options = {}) {
   requireId(id, `runtime ${id}`);
   assertObject(runtime, `runtime ${id}`);
   rejectUnknown(runtime, RUNTIME_FIELDS, `runtime ${id}`);
@@ -103,16 +105,24 @@ export function validateRuntime(id, runtime) {
   const typedRuntime = /** @type {{harness: string, model: string, vendor?: string, config?: Record<string, unknown>}} */ (runtime);
   // The canonical provider derived from the route, the model's family, or the
   // harness default outranks a declared `vendor`: a label that contradicts it
-  // is refused (R18), and the runtime's vendor becomes the derived provider
-  // rather than whatever text the contract declared. `replay` and `exec-jsonl`
-  // derive none — for those the declared vendor stands, as it always has.
+  // is refused (R18) at authoring, and the runtime's vendor becomes the derived
+  // provider rather than whatever text the contract declared. `replay` and
+  // `exec-jsonl` derive none — for those the declared vendor stands, as it
+  // always has. A persisted load takes the derived provider without refusing,
+  // so a run launched before R18 stays readable and cancelable.
   const derived = canonicalProvider(typedRuntime);
   const declared = typeof typedRuntime.vendor === "string" && typedRuntime.vendor.length ? typedRuntime.vendor : undefined;
   let vendor;
   if (derived) {
-    if (declared !== undefined && declared !== derived) {
+    if (declared !== undefined && declared !== derived && options.persisted !== true) {
       throw new TypeError(`runtime ${id} declares vendor ${declared} but ${typedRuntime.harness} ${typedRuntime.model} is provider ${derived}`);
     }
+    // A replay canonicalizes a contradicting label instead of refusing it.
+    // Measured 2026-09-27 (AP6): three runs launched before R18 carried
+    // `vendor: anthropic-sonnet` against the model claude-sonnet-5, and every
+    // reader of their persisted contract — `cancel`, `status`, `report` — threw
+    // on a rule those contracts predate, leaving the runs unsuspended forever.
+    // The rule still refuses the label where it can be acted on: at authoring.
     vendor = derived;
   } else {
     vendor = resolveVendor(typedRuntime);
