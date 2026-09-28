@@ -23,7 +23,7 @@ import { spawn } from "node:child_process";
 import { boundedGitSync } from "../repo/worktree.mjs";
 import { tmpdir } from "node:os";
 import { validateContract } from "../contract/index.mjs";
-import { assertInlineScriptProofsParse } from "../contract/definition-of-done.mjs";
+import { assertInlineScriptProofsParse, assertProofCommandsParse } from "../contract/definition-of-done.mjs";
 import { validateNodeSnapshot } from "../contract/snapshot.mjs";
 import { compactCost as formatCost } from "../util.mjs";
 import { runsRoot } from "../run/paths.mjs";
@@ -97,6 +97,9 @@ export async function preflightContract(contractPath, options = {}) {
   // first dispatch, so a body no attempt could ever make exit 0 refuses the
   // launch here, naming its node and item, instead of after three paid tries.
   assertInlineScriptProofsParse(contract.nodes);
+  // AP13: a proof command /bin/sh cannot parse never runs, so it refuses here
+  // for the same reason an inline script that does not parse does.
+  assertProofCommandsParse(contract.nodes);
   return preflightRuntimes([...reachableRuntimes(contract).values()], { ...options, cwd: contract.cwd });
 }
 

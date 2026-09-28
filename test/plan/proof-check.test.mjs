@@ -66,6 +66,30 @@ test("a proof no node can write is found before review", () => {
   assert.match(findings[0].text, /a test nobody wrote or promised to write/u);
 });
 
+// AP13 of safe-to-hand-to-friend, measured 2026-09-27: the proof text held an
+// apostrophe inside an unquoted --test-name-pattern, `/bin/sh -c` refused the
+// command with "unexpected EOF while looking for matching `'`", and both
+// attempts of a node whose work passed its own test were spent on it.
+test("a proof command the shell cannot parse is found before review", () => {
+  const cwd = tempCwd();
+  const plan = {
+    nodes: [node({
+      id: "r8-offline-first-campaign",
+      definitionOfDone: [{
+        id: "proof",
+        text: "A stranger's first campaign completes offline.",
+        proof: { kind: "command", ref: "node --test --test-name-pattern=a stranger's first campaign completes offline test/evals/offline.test.mjs" },
+      }],
+    })],
+  };
+
+  const findings = checkPlanProofs(plan, repoFacts([]), cwd);
+  assert.equal(findings.length, 1, JSON.stringify(findings));
+  assert.equal(findings[0].nodeId, "r8-offline-first-campaign");
+  assert.equal(findings[0].severity, "critical");
+  assert.match(findings[0].text, /leaves a ' open/u);
+});
+
 test("a --test-name-pattern that matches a test already in the tree is not flagged", () => {
   const cwd = tempCwd();
   writeTestFile(cwd, "test/cli/flag.test.mjs", 'test("the flag renders correctly", () => {});\n');

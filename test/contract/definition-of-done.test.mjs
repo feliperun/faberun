@@ -3,8 +3,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   assertInlineScriptProofsParse,
+  assertProofCommandsParse,
   inlineScriptBody,
   inlineScriptParseError,
+  unclosedQuote,
 } from "../../src/contract/definition-of-done.mjs";
 
 test("a proof command that cannot parse refuses the launch", () => {
@@ -26,6 +28,41 @@ test("a proof command that cannot parse refuses the launch", () => {
       return true;
     },
   );
+});
+
+// Measured 2026-09-27 (AP13 of safe-to-hand-to-friend): the freeze accepted a
+// proof whose unquoted --test-name-pattern held an apostrophe, `/bin/sh -c`
+// refused it with "unexpected EOF while looking for matching `'`", the node's
+// work passed its own test in 15 s, and both attempts were spent on a command
+// the shell never ran.
+test("a proof command the shell cannot parse refuses the launch", () => {
+  const nodes = [{
+    id: "r8-offline-first-campaign",
+    definitionOfDone: [
+      { id: "proof", text: "The first campaign completes offline", proof: { kind: "command", ref: "node --test --test-name-pattern=a stranger's first campaign completes offline test/evals/offline.test.mjs" } },
+    ],
+  }];
+
+  assert.throws(
+    () => assertProofCommandsParse(nodes),
+    (error) => {
+      assert.ok(error instanceof TypeError, "the refusal is a validation TypeError");
+      assert.match(error.message, /node r8-offline-first-campaign/u, "names the node");
+      assert.match(error.message, /item "proof"/u, "names the definition-of-done item");
+      assert.match(error.message, /leaves a ' open/u);
+      return true;
+    },
+  );
+
+  assert.equal(unclosedQuote(`node --test --test-name-pattern="a stranger's first campaign" test/evals/offline.test.mjs`), null, "an apostrophe inside double quotes is literal");
+  assert.equal(unclosedQuote(`grep -q "don't" file`), null);
+  assert.equal(unclosedQuote("node -e 'const value = ('"), null, "a body that does not parse closes its own quotes");
+  assert.equal(unclosedQuote('node -e "unterminated'), '"');
+  assert.equal(unclosedQuote("echo don't"), "'");
+  // A backslash inside single quotes is literal, so it does not escape the
+  // closing quote; inside double quotes it does.
+  assert.equal(unclosedQuote("node -e 'don\\'"), null, "a backslash inside single quotes does not escape the closing quote");
+  assert.equal(unclosedQuote('echo "a\\"b"'), null, "a backslash inside double quotes escapes the quote after it");
 });
 
 test("an inline script body is read from node -e and checked by node's own parser", () => {

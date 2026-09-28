@@ -13,7 +13,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { shellWords } from "../util.mjs";
-import { inlineScriptParseError } from "../contract/definition-of-done.mjs";
+import { inlineScriptParseError, unclosedQuote } from "../contract/definition-of-done.mjs";
 import { NAME_PATTERN_FLAG } from "./proof-run.mjs";
 
 /** @typedef {import("./template.mjs").PlanOutput} PlanOutput */
@@ -147,6 +147,18 @@ export function checkPlanProofs(plan, repoFacts, cwd) {
           severity: "critical",
           nodeId: node.id,
           text: `Node ${node.id}'s Definition of Done item "${item.id}" proves itself with an inline script that does not parse ("${inlineScriptError}"), so no delivery can make this proof exit 0. Fix the script body.`,
+        });
+        continue;
+      }
+      // AP13: a command the shell cannot parse never runs, so no delivery
+      // makes the item pass; the proof text has to change before the freeze.
+      const openQuote = unclosedQuote(commandText);
+      if (openQuote !== null) {
+        findings.push({
+          id: `proof-unparseable-${node.id}-${item.id}`,
+          severity: "critical",
+          nodeId: node.id,
+          text: `Node ${node.id}'s Definition of Done item "${item.id}" proves itself with a command that leaves a ${openQuote} open ("${commandText}"), which /bin/sh refuses before it runs, so no delivery can make this proof exit 0. Quote the value, as in --test-name-pattern="<title>".`,
         });
         continue;
       }

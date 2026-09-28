@@ -279,6 +279,61 @@ export function assertInlineScriptProofsParse(nodes) {
   }
 }
 
+/**
+ * The quote a command proof's text leaves open, or null when every quote it
+ * opens is closed. `kind: "command"` goes through `/bin/sh -c`, so a text with
+ * an odd number of `'` or `"` is refused by the shell before the command runs,
+ * with `unexpected EOF while looking for matching`. Measured 2026-09-27 (AP13
+ * of safe-to-hand-to-friend): the freeze accepted
+ * `node --test --test-name-pattern=a stranger's first campaign completes
+ * offline test/…` — an apostrophe inside an unquoted test title — the node did
+ * the work and passed its own test in 15 s, and both attempts were spent on a
+ * command `/bin/sh` never ran.
+ *
+ * This is a quote scanner, not a shell parser: it reports the two failures a
+ * proof can carry without expanding anything (an open quote, or nothing at
+ * all), and leaves every other shell construct to the shell. A `$'…'` string
+ * and a quote inside a here-document are the constructs it does not model.
+ *
+ * @param {string} commandText
+ * @returns {string|null}
+ */
+export function unclosedQuote(commandText) {
+  /** @type {string|null} */
+  let quote = null;
+  let escaped = false;
+  for (const character of commandText) {
+    if (escaped) { escaped = false; continue; }
+    // Outside double quotes a backslash escapes the next character; a
+    // backslash inside single quotes is literal, which POSIX also gives it.
+    if (quote !== "'" && character === "\\") { escaped = true; continue; }
+    if (quote === null && (character === "'" || character === '"')) { quote = character; continue; }
+    if (quote === character) quote = null;
+  }
+  return quote;
+}
+
+/**
+ * Refuse a contract whose command proof the shell cannot parse, naming the
+ * node, the item and the open quote. The freeze and the launch both call it:
+ * a command no attempt can run is the same waste as an inline script that
+ * cannot parse, and cheaper to refuse than to discover.
+ *
+ * @param {{id?: unknown, definitionOfDone?: {id?: unknown, proof?: {kind?: unknown, ref?: unknown}}[]}[]} nodes
+ * @returns {void}
+ */
+export function assertProofCommandsParse(nodes) {
+  for (const node of nodes) {
+    for (const item of node.definitionOfDone ?? []) {
+      if (item.proof?.kind !== "command" || typeof item.proof.ref !== "string") continue;
+      const quote = unclosedQuote(item.proof.ref);
+      if (quote === null) continue;
+      const nodeName = node.id === undefined ? "a node" : `node ${node.id}`;
+      throw new TypeError(`${nodeName}, Definition of Done item "${item.id}": the proof command leaves a ${quote} open, so /bin/sh refuses it before it runs ("unexpected EOF while looking for matching \`${quote}'"). Quote the value, as in --test-name-pattern="<title>".`);
+    }
+  }
+}
+
 /** @param {string} token @returns {boolean} */
 function isNodeExecutable(token) {
   const base = (token.split(/[\\/]/u).pop() ?? token).toLowerCase();

@@ -21,6 +21,7 @@ import { assertObject, rejectUnknown, requirePacketHash, requireString } from ".
 import { writeJsonAtomic, writeTextAtomic } from "../run/store.mjs";
 import { VERIFICATION_LIMITS } from "../contract/verification.mjs";
 import { validatePlanPhases } from "./template.mjs";
+import { assertProofCommandsParse } from "../contract/definition-of-done.mjs";
 import { NODE_VALUE_OPTIONS, assertFilteredProofsNameTheirTest } from "./proof-scope.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
@@ -413,6 +414,7 @@ export function freezePlan(plan, { outDir, provenance, phases, spec, humanSteps,
   try {
     const validated = validateContract(raw, contractPath);
     assertFilteredProofsNameTheirTest(validated);
+    assertProofCommandsParse(validated.nodes);
     if (facts) assertTimeoutsCoverMeasured(validated, facts);
   } catch (error) {
     rmSync(contractPath, { force: true });
