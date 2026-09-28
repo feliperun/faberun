@@ -3,6 +3,10 @@
 Cada achado traz o sintoma, a causa, o custo medido e a correção sugerida. A ponte
 com a campanha de melhoria do faberun: cada item aqui vira requisito lá.
 
+O veredito dos 21 está na tabela do fim do arquivo, e é ela que manda. O texto de
+cada achado fica como foi escrito quando o achado apareceu, sugestão inclusive: o
+registro de um problema não se reescreve depois que ele fecha.
+
 ## AP1. O plano congela prova de comando que não mede nada
 
 - **Sintoma:** dois nós (`declared-env-test`, `allowed-env-core`) reprovados pelo
@@ -284,4 +288,53 @@ Conferidos contra AP1 a AP15. N1 compartilha o sintoma com o AP10; os outros qua
   tem em checkout; as demais tentativas da mesma run ficam.
 - **Correção aceita pelo dono (28/09):** o `prune`, e o prune automático do `run`, apagam também a
   branch de tentativa cujo commit já é alcançável por uma dessas refs, e nunca uma que não seja.
+
+## Desfecho dos 21 (28/09)
+
+- **estado:** CORRIGIDO ou ABERTO. Dezessete fechados, quatro abertos.
+- **entrou em:** a versão que carrega a correção, com o commit entre parênteses. A
+  0.29.0 é a leva deste mesmo dia; as anteriores são tags publicadas, e um leitor
+  não precisa abrir o `git log` para saber desde quando a correção existe.
+- **prova:** o teste que quebra sem a correção, ou o que falta quando ele não existe.
+- **RM:** o item do `docs/ROADMAP.md` que carrega o que sobrou. Os quatro abertos
+  pedem uma decisão do dono ou mudam comportamento visível (o planner propondo a
+  verificação da suíte do alvo, um campo novo no plano, a suíte inteira rodando no
+  fechamento da campanha, um `revise` em forma de patch), então viraram item de
+  fila em vez de correção nesta leva.
+
+| achado | estado | entrou em | prova | RM |
+| --- | --- | --- | --- | --- |
+| AP1 | CORRIGIDO | 0.26.0 (`2729d12`, PR #84; commit original `af5765a`) | `test/engine/proof-selected-no-test.test.mjs` | - |
+| AP2 | CORRIGIDO | 0.26.0 (`2729d12`, PR #84; commit original `2843205`) | `test/plan/proof-scope.test.mjs` | - |
+| AP3 | CORRIGIDO | 0.29.0 (`bcf36a4`) | `test/plan/repo-facts.test.mjs` e o `pipeline.jsonl` da fase no `test/cli/plan.test.mjs` | - |
+| AP4 | CORRIGIDO | 0.29.0 (`bcf36a4`) | `test/plan/progress.test.mjs`; o aviso no `--detach` no `test/cli/plan.test.mjs` | - |
+| AP5 | CORRIGIDO | 0.26.0 (`2729d12`; commit original `cbc280a`) | `test/harnesses/claude-exhaustion.test.mjs` | - |
+| AP6 | CORRIGIDO | 0.29.0 (`90c1345`) | `test/contract/persisted-load.test.mjs` | - |
+| AP7 | ABERTO | - | o produto não tem teste: o planner continua dependendo do operador para propor `test/repo/source-shape.test.mjs`. A árvore vermelha foi reparada na campanha e a verificação compartilhada passou a incluí-lo à mão desde a fase 2 | RM-107 |
+| AP8 | CORRIGIDO | 0.29.0 (`5887dcb`) | `test/plan/spec.test.mjs` | - |
+| AP9 | ABERTO | - | sem teste: `writeFiles` não distingue criar de apagar, e é isso que falta primeiro | RM-108 |
+| AP10 | CORRIGIDO | 0.29.0 (`7574c17`) | `test/cli/plan.test.mjs` | - |
+| AP11 | CORRIGIDO | 0.29.0 (`b00e2b6`) | `test/plan/template.test.mjs` | - |
+| AP12 | CORRIGIDO | 0.29.0 (`7d20119`) | `test/engine/heartbeat.test.mjs` | - |
+| AP13 | CORRIGIDO | 0.29.0 (`7e436b1`) | `test/plan/proof-check.test.mjs`, `test/contract/definition-of-done.test.mjs` | - |
+| AP14 | CORRIGIDO | 0.29.0 (`5887dcb`) | `test/plan/spec.test.mjs` | - |
+| AP15 | ABERTO | - | sem teste: nenhum nó roda os testes dos módulos que muda indiretamente. O escalonamento do plano (`plan/sizing.mjs`) já troca um comando acima do orçamento pelos arquivos de teste que cobrem os `writeFiles` do nó, e o fechamento da campanha ainda não roda a suíte inteira (35 min medidos) | RM-109 |
+| AP16 | CORRIGIDO | 0.27.0 (`ab6decd`, PR #93); prova em 0.29.0 (`318202b`) | `test/harnesses/fx.test.mjs` | - |
+| AP17 | ABERTO | - | sem teste: o estágio pede o plano inteiro de volta, e foi o tamanho da resposta que estourou o teto | RM-110 |
+| AP18 | CORRIGIDO | 0.29.0 (`b06824a`) | `test/contract/worker-result-output.test.mjs` | - |
+| AP19 | CORRIGIDO | 0.29.0 (`9ed379d`) | `test/cli/plan.test.mjs` | - |
+| AP20 | CORRIGIDO | 0.29.0 (`d2cedd6`) | `test/contract/packet.test.mjs` | - |
+| AP21 | CORRIGIDO | 0.29.0 (`10f007e`) | `test/repo/worktree-prune.test.mjs` | - |
+
+Duas notas de escopo que a tabela não cabe:
+
+- **AP19** só passa a ler `plan-inputs/runtimes.json`. Um `verification.json` no
+  mesmo diretório continua sem ser lido: o contrato congelado já fixa as suítes
+  que o operador escolheu, e uma segunda fonte silenciosa é o defeito que o AP19
+  fecha, não a correção dele.
+- **AP7, AP9, AP15 e AP17** foram corrigidos onde a campanha podia (a árvore
+  vermelha, a suíte vizinha) e o que sobra é decisão de produto. A ordem do dono
+  em 28/09 suspendeu o critério de entrada da regra de congelamento para que os
+  vinte e um fossem triados nesta leva, e a suspensão está registrada em
+  `docs/campaigns/leaving-home/PROGRAM.md`.
 
