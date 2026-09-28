@@ -32,6 +32,7 @@
  */
 import { formatDuration, readRunUsage, renderStatusJson, roleUsage } from "./render.mjs";
 import { nodeSnapshotPath, readNodeSnapshot } from "../run/node-store.mjs";
+import { attemptCosts, retriesOutspendFirst } from "../run/usage.mjs";
 import { finite } from "../util.mjs";
 import { SETTLED, SUCCESS } from "../engine/prompts.mjs";
 import { campaignDir } from "../campaign/layout.mjs";
@@ -128,7 +129,7 @@ function campaignCumulativeCostUsd(runsDir, campaignId) {
 }
 
 /**
- * @typedef {{id: string, dependsOn: string[], status: string, attempt: number, workerRuntime: string|null, judgeRuntime: string|null, elapsedSpan: string|null, costUsd: number|null, runDir: string|null, workerLogPath: string|null, judgeLogPaths: string[], verificationRecordPath: string|null, attemptBranch: string|null, sealCommit: string|null}} RollupNode
+ * @typedef {{id: string, dependsOn: string[], status: string, attempt: number, workerRuntime: string|null, judgeRuntime: string|null, elapsedSpan: string|null, costUsd: number|null, attemptCosts: import("../run/usage.mjs").AttemptCost[], retriesOutspendFirst: boolean, runDir: string|null, workerLogPath: string|null, judgeLogPaths: string[], verificationRecordPath: string|null, attemptBranch: string|null, sealCommit: string|null}} RollupNode
  * `status` carries every `NodeStatus` plus two the manifest alone can
  * explain: `not_started` (the contract has no run yet) and `unreadable` (a
  * run exists but this node's own snapshot does not).
@@ -138,6 +139,10 @@ function campaignCumulativeCostUsd(runsDir, campaignId) {
  * three points), so a single `runtime` field reads as though the judge did
  * the worker's job. `judgeRuntime` is `null` for a node with no gate, or one
  * whose gate never ran -- never the worker's own runtime repeated.
+ * `attemptCosts` is the per-attempt cost R31 adds to the payload, derived
+ * from the snapshot's own invocations by the ledger's shared reader;
+ * `retriesOutspendFirst` is the flag that marks the notification's text line
+ * when those retries together cost more than the first attempt.
  */
 /**
  * `counts.done` and `counts.settled` are two different numbers: `done` is
@@ -411,7 +416,7 @@ function judgeRuntimeLabel(invocations) {
 function rollupNode(node, contractId, runDir, hasRun, settledCandidates, workerRuntimeById) {
   const id = String(node.id);
   const dependsOn = Array.isArray(node.dependsOn) ? node.dependsOn.map(String) : [];
-  const empty = { id, dependsOn, attempt: 0, workerRuntime: null, judgeRuntime: null, elapsedSpan: null, costUsd: null, workerLogPath: null, judgeLogPaths: /** @type {string[]} */ ([]), attemptBranch: null, sealCommit: null };
+  const empty = { id, dependsOn, attempt: 0, workerRuntime: null, judgeRuntime: null, elapsedSpan: null, costUsd: null, attemptCosts: /** @type {import("../run/usage.mjs").AttemptCost[]} */ ([]), retriesOutspendFirst: false, workerLogPath: null, judgeLogPaths: /** @type {string[]} */ ([]), attemptBranch: null, sealCommit: null };
   if (!hasRun) return { ...empty, status: "not_started", runDir: null, verificationRecordPath: null };
 
   let snapshot;
@@ -429,6 +434,10 @@ function rollupNode(node, contractId, runDir, hasRun, settledCandidates, workerR
     .map((invocation) => invocation.stdoutPath)
     .filter((path) => typeof path === "string");
   const worktree = snapshot.worktree && typeof snapshot.worktree === "object" ? /** @type {Record<string, unknown>} */ (snapshot.worktree) : null;
+  // The snapshot reader returns the raw persisted object; the ledger's
+  // per-attempt reader wants the validated shape, and only its `invocations`
+  // are read here.
+  const attemptState = /** @type {import("../contract/index.mjs").NodeSnapshot} */ (/** @type {unknown} */ (snapshot));
 
   return {
     id,
@@ -439,6 +448,8 @@ function rollupNode(node, contractId, runDir, hasRun, settledCandidates, workerR
     judgeRuntime: judgeRuntimeLabel(invocations),
     elapsedSpan: spanOf({ startedAt: typeof snapshot.startedAt === "string" ? snapshot.startedAt : null, updatedAt: typeof snapshot.updatedAt === "string" ? snapshot.updatedAt : null }),
     costUsd: typeof snapshot.costUsd === "number" ? snapshot.costUsd : null,
+    attemptCosts: attemptCosts(attemptState),
+    retriesOutspendFirst: retriesOutspendFirst(attemptState),
     runDir,
     workerLogPath: typeof worker?.stdoutPath === "string" ? worker.stdoutPath : null,
     judgeLogPaths,

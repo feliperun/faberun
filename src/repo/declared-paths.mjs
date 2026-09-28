@@ -14,7 +14,7 @@ import { errorCode, exitStatus } from "../util.mjs";
 import { execFileSync } from "node:child_process";
 import { gitArguments } from "../host/platform.mjs";
 import { join, resolve } from "node:path";
-import { lstatSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { RUNS_DIR_NAME } from "../run/paths.mjs";
 import { isIgnoreSource } from "./workspace.mjs";
@@ -54,16 +54,84 @@ export function unsnapshottedWriteWarnings(node, index, cwd) {
  * `writes_ignore_source`: a declared write the workspace snapshot fingerprints
  * as an ignore source. The node fails with `snapshot_ignore_changed` the
  * moment the worker changes it, and two campaigns each lost a node learning
- * that (RM-051), so the author hears it before dispatch.
+ * that (RM-051), so the author hears it before dispatch. A declared write root
+ * is covered too: a worker is free to edit a `.gitignore` anywhere under it,
+ * and the node would fail the same way.
  *
  * @param {ValidatedNode} node
  * @param {number} index
+ * @param {string} [cwd]
  * @returns {string[]}
  */
-export function ignoreSourceWriteWarnings(node, index) {
-  const sources = (node.taskPacket.writeFiles ?? []).filter(isIgnoreSource);
-  if (!sources.length) return [];
-  return [`nodes[${index}] (${node.id}): writes_ignore_source: writeFiles ${sources.join(", ")} ${sources.length === 1 ? "is an ignore source" : "are ignore sources"} the workspace snapshot fingerprints; a worker that changes one fails the node with snapshot_ignore_changed, so make that edit outside the run`];
+export function ignoreSourceWriteWarnings(node, index, cwd) {
+  const nodeCwd = /** @type {{cwd?: unknown}} */ (node).cwd;
+  const directory = typeof cwd === "string" ? cwd : (typeof nodeCwd === "string" ? nodeCwd : undefined);
+  const fileSources = (node.taskPacket.writeFiles ?? []).filter(isIgnoreSource);
+  const rootSources = [];
+  for (const root of node.taskPacket.writeRoots ?? []) {
+    const sources = ignoreSourcesUnderWriteRoot(root, directory);
+    if (sources.length) rootSources.push({ root, sources });
+  }
+  if (!fileSources.length && !rootSources.length) return [];
+  const clauses = [];
+  if (fileSources.length) {
+    clauses.push(`writeFiles ${fileSources.join(", ")} ${fileSources.length === 1 ? "is an ignore source" : "are ignore sources"}`);
+  }
+  for (const { root, sources } of rootSources) {
+    const literal = normalizeDeclaredPath(root);
+    clauses.push(isIgnoreSource(literal)
+      ? `writeRoots ${literal} is an ignore source`
+      : `writeRoots ${literal} contains ${sources.join(", ")}`);
+  }
+  return [`nodes[${index}] (${node.id}): writes_ignore_source: ${clauses.join("; ")} the workspace snapshot fingerprints; a worker that changes one fails the node with snapshot_ignore_changed, so make that edit outside the run`];
+}
+/** Directories a write-root scan never descends into, mirroring `isIgnoreSource`. */
+const UNSCANNED_WRITE_ROOT_DIRS = new Set([".git", RUNS_DIR_NAME, "node_modules", ".venv", "venv"]);
+/**
+ * The ignore sources inside a declared write root. The root itself counts; a
+ * directory is walked with the same exclusions `isIgnoreSource` applies, and
+ * the walk is bounded so a broad root cannot stall validation.
+ *
+ * @param {string} root
+ * @param {string|undefined} cwd
+ * @returns {string[]}
+ */
+function ignoreSourcesUnderWriteRoot(root, cwd) {
+  const literal = normalizeDeclaredPath(root);
+  if (!literal) return [];
+  if (isIgnoreSource(literal)) return [literal];
+  if (!cwd) return [];
+  /** @type {string[]} */
+  const found = [];
+  /** @param {string} directory @param {number} budget @returns {number} */
+  const walk = (directory, budget) => {
+    if (budget <= 0) return budget;
+    let entries;
+    try {
+      entries = readdirSync(join(cwd, directory), { withFileTypes: true });
+    } catch {
+      return budget;
+    }
+    for (const entry of entries) {
+      if (budget <= 0) break;
+      const relative = `${directory}/${entry.name}`;
+      if (isIgnoreSource(relative)) {
+        found.push(relative);
+        budget -= 1;
+        continue;
+      }
+      if (entry.isDirectory() && !UNSCANNED_WRITE_ROOT_DIRS.has(entry.name) && !(directory === literal && (entry.name === ".claude" || entry.name === ".codex"))) {
+        budget = walk(relative, budget - 1);
+      }
+    }
+    return budget;
+  };
+  walk(literal, 200);
+  return found;
+}
+/** @param {string} path @returns {string} */
+function normalizeDeclaredPath(path) {
+  return (process.platform === "win32" ? String(path).replaceAll("\\", "/") : String(path)).replace(/\/+$/u, "");
 }
 /**
  * @param {string|undefined} cwd

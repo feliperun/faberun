@@ -1,0 +1,1186 @@
+{
+  "id": "safe-to-hand-to-a-friend",
+  "goal": "A stranger installs, runs and uninstalls faberun without help and without exposing their credentials; every contract comes from faberun plan.",
+  "status": "closed",
+  "linkedRunIds": [
+    "safe-to-hand-to-a-friend-plan-phase-1-draft-1",
+    "safe-to-hand-to-a-friend-plan-phase-1-draft-2",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-3",
+    "safe-to-hand-to-a-friend-plan-phase-1-draft-3",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-4",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-5",
+    "safe-to-hand-to-a-friend-plan-phase-1-draft-4",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-6",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-7",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-8",
+    "safe-to-hand-to-a-friend-plan-phase-1-draft-5",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-7",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-8",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-9",
+    "safe-to-hand-to-a-friend-plan-phase-1-draft-6",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-9",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-10",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-11",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-12",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-13",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-14",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-15",
+    "safe-to-hand-to-a-friend-plan-phase-1-draft-7",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-10",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-11",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-12",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-13",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-14",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-15",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-16",
+    "safe-to-hand-to-a-friend-plan-phase-1-draft-8",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-17",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-18",
+    "safe-to-hand-to-a-friend-plan-phase-1-draft-9",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-18",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-19",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-20",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-21",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-22",
+    "safe-to-hand-to-a-friend-plan-phase-1-draft-10",
+    "safe-to-hand-to-a-friend-plan-phase-1-draft-11",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-16",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-17",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-19",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-21",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-23",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-24",
+    "safe-to-hand-to-a-friend-plan-phase-1-revise-25",
+    "safe-to-hand-to-a-friend-plan-phase-1-review-26",
+    "safe-to-hand-to-a-friend-phase-1",
+    "safe-to-hand-to-a-friend-phase-1b",
+    "safe-to-hand-to-a-friend-phase-1c",
+    "safe-to-hand-to-a-friend-plan-phase-2-draft-1",
+    "safe-to-hand-to-a-friend-plan-phase-2-review-2",
+    "safe-to-hand-to-a-friend-plan-phase-2-revise-3",
+    "safe-to-hand-to-a-friend-plan-phase-2-review-4",
+    "safe-to-hand-to-a-friend-phase-2",
+    "safe-to-hand-to-a-friend-plan-phase-2b-draft-1",
+    "safe-to-hand-to-a-friend-plan-phase-2b-review-2",
+    "safe-to-hand-to-a-friend-plan-phase-2b-revise-3",
+    "safe-to-hand-to-a-friend-plan-phase-2b-review-4",
+    "safe-to-hand-to-a-friend-phase-2b",
+    "safe-to-hand-to-a-friend-plan-phase-3-draft-1",
+    "safe-to-hand-to-a-friend-plan-phase-3-review-2",
+    "safe-to-hand-to-a-friend-plan-phase-3-revise-3",
+    "safe-to-hand-to-a-friend-plan-phase-3-review-4",
+    "safe-to-hand-to-a-friend-plan-phase-3-revise-5",
+    "safe-to-hand-to-a-friend-plan-phase-3-review-6",
+    "safe-to-hand-to-a-friend-plan-phase-3-revise-7",
+    "safe-to-hand-to-a-friend-plan-phase-3-review-8",
+    "safe-to-hand-to-a-friend-plan-phase-3-draft-2",
+    "safe-to-hand-to-a-friend-plan-phase-3-review-3",
+    "safe-to-hand-to-a-friend-plan-phase-3-revise-4",
+    "safe-to-hand-to-a-friend-plan-phase-3-revise-6",
+    "safe-to-hand-to-a-friend-plan-phase-3-review-7",
+    "safe-to-hand-to-a-friend-plan-phase-3-revise-8",
+    "safe-to-hand-to-a-friend-plan-phase-3-review-9",
+    "safe-to-hand-to-a-friend-phase-3",
+    "safe-to-hand-to-a-friend-plan-phase-4-draft-1",
+    "safe-to-hand-to-a-friend-plan-phase-4-review-2",
+    "safe-to-hand-to-a-friend-plan-phase-4-revise-3",
+    "safe-to-hand-to-a-friend-plan-phase-4-review-4",
+    "safe-to-hand-to-a-friend-phase-4",
+    "safe-to-hand-to-a-friend-plan-phase-5-draft-1",
+    "safe-to-hand-to-a-friend-plan-phase-5-review-2",
+    "safe-to-hand-to-a-friend-plan-phase-5-revise-3",
+    "safe-to-hand-to-a-friend-plan-phase-5-revise-4",
+    "safe-to-hand-to-a-friend-plan-phase-5-review-5",
+    "safe-to-hand-to-a-friend-phase-5",
+    "safe-to-hand-to-a-friend-plan-phase-3r8-draft-1",
+    "safe-to-hand-to-a-friend-plan-phase-3r8-review-2",
+    "safe-to-hand-to-a-friend-plan-phase-3r8-revise-3",
+    "safe-to-hand-to-a-friend-plan-phase-3r8-review-4",
+    "safe-to-hand-to-a-friend-phase-3r8",
+    "safe-to-hand-to-a-friend-plan-phase-3r11-draft-1",
+    "safe-to-hand-to-a-friend-plan-phase-3r11-review-2",
+    "safe-to-hand-to-a-friend-plan-phase-3r11-revise-3",
+    "safe-to-hand-to-a-friend-plan-phase-3r11-review-4",
+    "safe-to-hand-to-a-friend-plan-phase-3r11-revise-5",
+    "safe-to-hand-to-a-friend-plan-phase-3r11-revise-6",
+    "safe-to-hand-to-a-friend-plan-phase-3r11-review-7",
+    "safe-to-hand-to-a-friend-phase-3r11"
+  ],
+  "contracts": [
+    {
+      "path": "/Users/frb/dev/frb/faberun-leave/docs/campaigns/safe-to-hand-to-a-friend/contracts/phase-1c.contract.json",
+      "digest": "3a6bd54f44c8b500bd7aa324bac485043e1d897ef81fd5529f9ad2cbdf30590d"
+    }
+  ],
+  "replacements": [
+    {
+      "oldPath": "/Users/frb/dev/frb/faberun-leave/docs/campaigns/safe-to-hand-to-a-friend/contracts/phase-1b.contract.json",
+      "newPath": "/Users/frb/dev/frb/faberun-leave/docs/campaigns/safe-to-hand-to-a-friend/contracts/phase-1c.contract.json",
+      "runIds": [
+        "safe-to-hand-to-a-friend-phase-1b"
+      ],
+      "at": "2026-09-27T01:49:08.667Z"
+    }
+  ],
+  "landBranch": "campaign/safe-to-hand-to-a-friend",
+  "promotions": [
+    {
+      "runId": "safe-to-hand-to-a-friend-phase-1c",
+      "contractPath": "/Users/frb/dev/frb/faberun-leave/docs/campaigns/safe-to-hand-to-a-friend/contracts/phase-1c.contract.json",
+      "branch": "campaign/safe-to-hand-to-a-friend",
+      "sha": "1ee00ac250399c9f1191a0e9bbf0f154a40c216b",
+      "previousSha": "3caea22a8a1d628ccea778bbeb81e267f9dc500c",
+      "at": "2026-09-27T02:01:54.644Z"
+    }
+  ],
+  "createdAt": "2026-09-25T20:07:02.583Z",
+  "updatedAt": "2026-09-28T15:03:16.353Z",
+  "ledgerPreserved": true,
+  "closedAt": "2026-09-28T15:03:16.353Z",
+  "requirements": [
+    {
+      "requirementId": "R1",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1",
+          "node": "declare-env-adapters-a",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1",
+          "node": "declare-env-adapters-b",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1",
+          "node": "contract-env-passthrough",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1b",
+          "node": "declared-env-test",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1b",
+          "node": "allowed-env-core",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1b",
+          "node": "doctor-env",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1b",
+          "node": "env-probe-judgment",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1c",
+          "node": "env-docs",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R10",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3",
+          "node": "r13-operator-override",
+          "passed": true,
+          "verdict": "fail"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3",
+          "node": "r10-reauthor-engine",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3",
+          "node": "r10-reauthor-cli",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3",
+          "node": "r12-sandbox-cost",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R11",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3r11",
+          "node": "uninstall-roots",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3r11",
+          "node": "install-registry",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3r11",
+          "node": "ledger-preservation",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3r11",
+          "node": "uninstall-verb",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3r11",
+          "node": "uninstall-docs",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R12",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3",
+          "node": "r13-operator-override",
+          "passed": true,
+          "verdict": "fail"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3",
+          "node": "r10-reauthor-engine",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3",
+          "node": "r10-reauthor-cli",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3",
+          "node": "r12-sandbox-cost",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R13",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3",
+          "node": "r13-operator-override",
+          "passed": true,
+          "verdict": "fail"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3",
+          "node": "r10-reauthor-engine",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3",
+          "node": "r10-reauthor-cli",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3",
+          "node": "r12-sandbox-cost",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R2",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1",
+          "node": "declare-env-adapters-a",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1",
+          "node": "declare-env-adapters-b",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1",
+          "node": "contract-env-passthrough",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1b",
+          "node": "declared-env-test",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1b",
+          "node": "allowed-env-core",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1b",
+          "node": "doctor-env",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1b",
+          "node": "env-probe-judgment",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1c",
+          "node": "env-docs",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R22",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "repo-scope-and-commit",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "prompt-contracts",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "ephemeral-state",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "preflight-truth",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R23",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "repo-scope-and-commit",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "prompt-contracts",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "ephemeral-state",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "preflight-truth",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R24",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "repo-scope-and-commit",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "prompt-contracts",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "ephemeral-state",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "preflight-truth",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R25",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "repo-scope-and-commit",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "prompt-contracts",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "ephemeral-state",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "preflight-truth",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R26",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "repo-scope-and-commit",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "prompt-contracts",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "ephemeral-state",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "preflight-truth",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R27",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "repo-scope-and-commit",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "prompt-contracts",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "ephemeral-state",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "preflight-truth",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R28",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "repo-scope-and-commit",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "prompt-contracts",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "ephemeral-state",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "preflight-truth",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R29",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "repo-scope-and-commit",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "prompt-contracts",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "ephemeral-state",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-4",
+          "node": "preflight-truth",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R3",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1",
+          "node": "declare-env-adapters-a",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1",
+          "node": "declare-env-adapters-b",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1",
+          "node": "contract-env-passthrough",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1b",
+          "node": "declared-env-test",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1b",
+          "node": "allowed-env-core",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1b",
+          "node": "doctor-env",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1b",
+          "node": "env-probe-judgment",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1c",
+          "node": "env-docs",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R30",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r30-campaign-note-ids",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r31-status-retry-cost",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r32-detached-refusal",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r33-session-limit-reset",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r34-proof-parse-refusal",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r35-validate-runtime-assignment",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r36-machine-config-judge",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r36-readers-effective-mode",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R31",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r30-campaign-note-ids",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r31-status-retry-cost",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r32-detached-refusal",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r33-session-limit-reset",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r34-proof-parse-refusal",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r35-validate-runtime-assignment",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r36-machine-config-judge",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r36-readers-effective-mode",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R32",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r30-campaign-note-ids",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r31-status-retry-cost",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r32-detached-refusal",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r33-session-limit-reset",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r34-proof-parse-refusal",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r35-validate-runtime-assignment",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r36-machine-config-judge",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r36-readers-effective-mode",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R33",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r30-campaign-note-ids",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r31-status-retry-cost",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r32-detached-refusal",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r33-session-limit-reset",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r34-proof-parse-refusal",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r35-validate-runtime-assignment",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r36-machine-config-judge",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r36-readers-effective-mode",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R34",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r30-campaign-note-ids",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r31-status-retry-cost",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r32-detached-refusal",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r33-session-limit-reset",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r34-proof-parse-refusal",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r35-validate-runtime-assignment",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r36-machine-config-judge",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r36-readers-effective-mode",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R35",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r30-campaign-note-ids",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r31-status-retry-cost",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r32-detached-refusal",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r33-session-limit-reset",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r34-proof-parse-refusal",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r35-validate-runtime-assignment",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r36-machine-config-judge",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r36-readers-effective-mode",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R36",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r30-campaign-note-ids",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r31-status-retry-cost",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r32-detached-refusal",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r33-session-limit-reset",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r34-proof-parse-refusal",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r35-validate-runtime-assignment",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r36-machine-config-judge",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-5",
+          "node": "r36-readers-effective-mode",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R4",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1",
+          "node": "declare-env-adapters-a",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1",
+          "node": "declare-env-adapters-b",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1",
+          "node": "contract-env-passthrough",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1b",
+          "node": "declared-env-test",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1b",
+          "node": "allowed-env-core",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1b",
+          "node": "doctor-env",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1b",
+          "node": "env-probe-judgment",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-1c",
+          "node": "env-docs",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R5",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-2",
+          "node": "r5-walkthrough",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R6",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-2b",
+          "node": "r6-legacy-sweep",
+          "passed": true,
+          "verdict": "fail"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-2b",
+          "node": "r6-remaining-docs-sweep",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R7",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-2",
+          "node": "r7-repo-facts",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    },
+    {
+      "requirementId": "R8",
+      "status": "covered",
+      "nodes": [
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3",
+          "node": "r13-operator-override",
+          "passed": true,
+          "verdict": "fail"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3",
+          "node": "r10-reauthor-engine",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3",
+          "node": "r10-reauthor-cli",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3",
+          "node": "r12-sandbox-cost",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3r8",
+          "node": "r8-offline-fixture",
+          "passed": true,
+          "verdict": "pass"
+        },
+        {
+          "runId": "safe-to-hand-to-a-friend-phase-3r8",
+          "node": "r8-offline-first-campaign",
+          "passed": true,
+          "verdict": "pass"
+        }
+      ]
+    }
+  ]
+}

@@ -132,6 +132,7 @@ the mutator writes. The section grows by declaration.
 | field | writer(s) | written when |
 | --- | --- | --- |
 | `requirements` | `closeCampaign` | at close: one entry per requirement id the linked runs' contracts declared, correlated only by the identifiers the runs carried (a done node snapshot's stamped `requirementIds`, never requirement text), each covering node named with its run and its verification evidence; a requirement no done node carries is recorded with status `open` instead of being omitted |
+| `ledgerPreserved` | `markCampaignLedgerPreserved` | when the ledger is written to its durable, versioned location under the registered repository (`preserveCampaignLedger` with the default destination, or `reledgerCampaignLedger`): set `true` once, never back. A record that never carried the marker — a campaign written before the field existed, or one whose close kept the ledger only in the operator home — reads as `false`, so removal refuses on the default rather than deleting evidence it cannot prove is safe |
 
 ## The runtime catalogue record
 
@@ -311,7 +312,8 @@ behavior, and a node that declares must not also move the thing it declares.
     "campaignId": { "writers": ["renderCampaignHandoffSafely"] }
   },
   "campaign": {
-    "requirements": { "writers": ["closeCampaign"] }
+    "requirements": { "writers": ["closeCampaign"] },
+    "ledgerPreserved": { "writers": ["markCampaignLedgerPreserved"] }
   }
 }
 ```

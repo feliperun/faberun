@@ -1,7 +1,10 @@
 /**
  * Repo facts: a deterministic, bounded inventory of the target repository —
- * tracked paths, declared scripts, timed verification candidates, and which
- * test file covers which source module — collected without invoking a model.
+ * tracked paths, declared scripts, verification candidates across the Node,
+ * Python, Go, Rust, Zig and Makefile ecosystems, and which test file covers
+ * which source module — collected without invoking a model. Every candidate
+ * records the manifest it was read from; only the Node candidates are timed,
+ * and no candidate for another ecosystem is ever executed to be found.
  * A planning stage's draft is authored against exactly this JSON instead of
  * the session reading the repository by hand.
  *
@@ -23,9 +26,27 @@ import { runShellCapture } from "./proof-run.mjs";
 /** @typedef {import("./spec.mjs").SpecRequirement} SpecRequirement */
 /** @typedef {import("./proof-run.mjs").MeasureProbes} MeasureProbes */
 /** @typedef {{requirementId: string|null, command: string, output: string, exitCode: number|null, truncated: boolean}} RequirementMeasurement */
-/** @typedef {{argv: string[], measuredMs: number, eligible: boolean}} VerificationCandidate */
+/**
+ * A verification command repo facts measured: a timed Node candidate, the
+ * manifest file it was read from, and its eligibility. It keeps the shape
+ * `freeze.mjs`'s `MeasuredFacts` reads (`argv` plus a numeric `measuredMs`),
+ * so a repository's facts stay assignable there while carrying the manifest
+ * the planner needs.
+ *
+ * @typedef {{argv: string[], manifest: string, measuredMs: number, eligible: boolean}} VerificationCandidate
+ */
+/**
+ * A verification command repo facts detected in a non-Node manifest it never
+ * ran: `pyproject.toml`/`pytest.ini` (Python), `go.mod`, `Cargo.toml`,
+ * `build.zig`, or a `Makefile` with a `test` target. Detection is file
+ * inspection alone, so `measuredMs` is the null "no measurement" sentinel
+ * `freeze.mjs` reads and `eligible` is true — the manifest's own presence is
+ * the evidence. `manifest` names the file the command was read from.
+ *
+ * @typedef {{argv: string[], manifest: string, measuredMs: number|null, eligible: boolean}} DetectedVerificationCandidate
+ */
 /** @typedef {{path: string, covers: string|null}} TestFileEntry */
-/** @typedef {{formatVersion: number, gitHead: string|null, paths: string[], truncated: boolean, scripts: Record<string, string>, verificationCandidates: VerificationCandidate[], testFiles: TestFileEntry[], requirementMeasurements: RequirementMeasurement[]}} RepoFacts */
+/** @typedef {{formatVersion: number, gitHead: string|null, paths: string[], truncated: boolean, scripts: Record<string, string>, verificationCandidates: VerificationCandidate[], detectedVerificationCandidates?: DetectedVerificationCandidate[], testFiles: TestFileEntry[], requirementMeasurements: RequirementMeasurement[]}} RepoFacts */
 
 const FORMAT_VERSION = 1;
 const DEFAULT_MAX_PATHS = 2000;
@@ -87,16 +108,71 @@ function testFileEntries(paths, pathSet) {
     });
 }
 
+/** The manifest the Node candidates — the test directories and the scripts — are read from. */
+const PACKAGE_MANIFEST = "package.json";
+
 /**
+ * The Node candidates: one per first-level test directory, plus the `check`
+ * and `typecheck` scripts `package.json` declares. Every one is measured, so
+ * each is handed to the timed probe below; each names package.json as the
+ * manifest it came from.
+ *
  * @param {Record<string, string>} scripts
  * @param {string[]} paths
- * @returns {{argv: string[]}[]}
+ * @returns {{argv: string[], manifest: string}[]}
  */
-function candidateCommands(scripts, paths) {
-  const commands = testDirectories(paths).map((directory) => ({ argv: ["node", "--test", directory] }));
+function nodeCandidateCommands(scripts, paths) {
+  const commands = testDirectories(paths).map((directory) => ({ argv: ["node", "--test", directory], manifest: PACKAGE_MANIFEST }));
   for (const name of ["check", "typecheck"]) {
-    if (typeof scripts[name] === "string") commands.push({ argv: ["npm", "run", name] });
+    if (typeof scripts[name] === "string") commands.push({ argv: ["npm", "run", name], manifest: PACKAGE_MANIFEST });
   }
+  return commands;
+}
+
+/**
+ * The makefile that declares a `test` target, or null when none does. A rule
+ * line starts at column zero with the target name `test` followed by a colon;
+ * `test:=` is a variable assignment, `.PHONY: test` declares no rule, an
+ * indented recipe line never matches, and `test-all:` names another target.
+ * Pure text inspection of the first conventional makefile present, so a
+ * command is never run to discover the target.
+ *
+ * @param {string} cwd
+ * @returns {string|null}
+ */
+function makefileWithTestTarget(cwd) {
+  for (const name of ["Makefile", "makefile", "GNUmakefile"]) {
+    const path = join(cwd, name);
+    if (!existsSync(path)) continue;
+    if (/^test[ \t]*:(?!=)/mu.test(readFileSync(path, "utf8"))) return name;
+  }
+  return null;
+}
+
+/**
+ * The verification commands the non-Node ecosystems declare, in a fixed order,
+ * each naming the manifest file it was read from. Detection is file inspection
+ * alone — existence for the manifest files, one read for a Makefile target —
+ * so no discovered command is executed, the order never depends on a directory
+ * listing, and two calls at the same HEAD return identical candidates.
+ * `pyproject.toml` wins over `pytest.ini` when both exist because it is the
+ * file pytest itself reads first.
+ *
+ * @param {string} cwd
+ * @returns {{argv: string[], manifest: string}[]}
+ */
+function manifestCandidateCommands(cwd) {
+  /** @type {{argv: string[], manifest: string}[]} */
+  const commands = [];
+  /** @param {string} name @returns {boolean} */
+  const present = (name) => existsSync(join(cwd, name));
+  if (present("pyproject.toml")) commands.push({ argv: ["pytest"], manifest: "pyproject.toml" });
+  else if (present("pytest.ini")) commands.push({ argv: ["pytest"], manifest: "pytest.ini" });
+  if (present("go.mod")) commands.push({ argv: ["go", "test", "./..."], manifest: "go.mod" });
+  if (present("Cargo.toml")) commands.push({ argv: ["cargo", "test"], manifest: "Cargo.toml" });
+  if (present("build.zig")) commands.push({ argv: ["zig", "build", "test"], manifest: "build.zig" });
+  const makefile = makefileWithTestTarget(cwd);
+  if (makefile !== null) commands.push({ argv: ["make", "test"], manifest: makefile });
   return commands;
 }
 
@@ -111,7 +187,7 @@ function candidateCommands(scripts, paths) {
  * @param {string} cwd
  * @param {{argv: string[]}[]} commands
  * @param {MeasureProbes} probes
- * @returns {VerificationCandidate[]}
+ * @returns {{argv: string[], measuredMs: number, eligible: boolean}[]}
  */
 function measureCandidates(cwd, commands, probes) {
   if (commands.length === 0) return [];
@@ -179,7 +255,8 @@ export function collectRepoFacts(cwd, options = {}) {
   const allPaths = listTrackedPaths(cwd);
   const pathSet = new Set(allPaths);
   const scripts = readScripts(cwd);
-  const commands = candidateCommands(scripts, allPaths);
+  const measured = measureCandidates(cwd, nodeCandidateCommands(scripts, allPaths), options.measure ?? {});
+  const detected = manifestCandidateCommands(cwd);
   const truncated = allPaths.length > maxPaths;
   return {
     formatVersion: FORMAT_VERSION,
@@ -187,7 +264,14 @@ export function collectRepoFacts(cwd, options = {}) {
     paths: truncated ? allPaths.slice(0, maxPaths) : allPaths,
     truncated,
     scripts,
-    verificationCandidates: measureCandidates(cwd, commands, options.measure ?? {}),
+    // The measured Node candidates first, in their timed order, each naming
+    // package.json as the manifest it came from; then the manifest-only
+    // candidates in a fixed ecosystem order, each naming the manifest it was
+    // read from. Only the measured candidates carry a numeric `measuredMs`:
+    // a detected command is never run, so it lands in its own array with the
+    // null "no measurement" sentinel freeze.mjs reads and eligibility true.
+    verificationCandidates: measured.map((candidate) => ({ ...candidate, manifest: PACKAGE_MANIFEST })),
+    detectedVerificationCandidates: detected.map((candidate) => ({ ...candidate, measuredMs: null, eligible: true })),
     testFiles: testFileEntries(allPaths, pathSet),
     requirementMeasurements: measureRequirements(cwd, options.requirements ?? [], options.measure ?? {}),
   };

@@ -450,7 +450,10 @@ test("builds zcode commands pinned to the Z.ai endpoint", () => {
     }, "task");
     assert.equal(custom.env?.ZCODE_MODEL, "zai/glm-5.3");
     assert.equal(custom.env?.ZCODE_BASE_URL, "https://custom.example/api");
-    assert.equal("ZAI_API_KEY" in (custom.env ?? {}), false, "an unresolved token is omitted, not blanked");
+    // Since R1 the overlay also carries each declared name at its ambient
+    // value, so the adapter's own promise is narrower: it never blanks the
+    // credential when the configured key does not resolve.
+    assert.equal(custom.env?.ZAI_API_KEY ?? null, process.env.ZAI_API_KEY ?? null, "an unresolved token is left at its ambient value, not blanked");
 
     process.env.FABERUN_TEST_ZCODE_TOKEN = "custom-token";
     const resolved = providerCommand({

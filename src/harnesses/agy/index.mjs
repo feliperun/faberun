@@ -1,6 +1,17 @@
 import { normalizeAgyResult, parseVersion } from "../protocol.mjs";
 
 /**
+ * The environment names the agy adapter reads to authenticate and configure the
+ * CLI. agy signs in through its own CLI configuration, so the only name read
+ * here is the binary override `executable()` honours. Values never travel here.
+ *
+ * @type {readonly string[]}
+ */
+export const declaredEnvironment = Object.freeze([
+  "FABERUN_AGY_BIN",
+]);
+
+/**
  * @type {import("../index.mjs").HarnessAdapter}
  */
 export const agyHarness = {

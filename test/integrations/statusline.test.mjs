@@ -7,6 +7,7 @@ import { basename, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { RUNS_DIR_NAME, runsRoot } from "../../src/run/paths.mjs";
+import { knownInstallSites } from "../../src/host/install-registry.mjs";
 import { findExecutable, spawnInvocation } from "../../src/host/platform.mjs";
 
 const scriptPath = fileURLToPath(new URL("../../integrations/claude-code/statusline.sh", import.meta.url));
@@ -284,4 +285,15 @@ test("seat allowance warning", () => {
     assert.match(noJq, /seat switch --harness/u, "the no-jq fallback names the switch command");
     assert.equal(singleLine(render(directory, env, rate(84.9))), base, "the no-jq fallback stays quiet below the threshold");
   });
+});
+
+test("the known install-site manifest names the settings file a status line is wired into", () => {
+  const home = mkdtempSync(join(tmpdir(), "if-statusline-registry-"));
+  const sites = knownInstallSites(home);
+  assert.deepEqual(sites.settings, [{ harness: "claude", path: join(home, ".claude", "settings.json"), key: "statusLine" }]);
+  assert.equal(
+    sites.hooks.some((site) => site.path === join(home, ".claude", "settings.json") && site.key === "hooks"),
+    true,
+    "the same settings file is a known hook destination",
+  );
 });

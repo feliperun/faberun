@@ -1,6 +1,18 @@
 import { normalizeClaudeResult, parseVersion } from "../protocol.mjs";
 import { hookSettings } from "../../host/tool-policy-hook.mjs";
 
+/**
+ * The environment names the Claude adapter reads to authenticate and configure
+ * the CLI: the provider credential the CLI resolves for API-key sign-in and the
+ * binary override `executable()` honours. Values never travel here.
+ *
+ * @type {readonly string[]}
+ */
+export const declaredEnvironment = Object.freeze([
+  "ANTHROPIC_API_KEY",
+  "FABERUN_CLAUDE_BIN",
+]);
+
 /** Built-in tools a closed-packet worker needs; every other tool is preamble. */
 export const DEFAULT_CLAUDE_TOOLS = ["Read", "Edit", "Write", "Bash", "Glob", "Grep"];
 
@@ -24,6 +36,88 @@ function claudePreambleArgs(runtime) {
     "--tools",
     (runtime.tools ?? DEFAULT_CLAUDE_TOOLS).join(","),
   ];
+}
+
+/**
+ * The envelope this adapter returns: the shared provider envelope plus the
+ * top-level reset instant a session limit names. The field has to live here
+ * rather than in `error` so that `exhaustedUntilOf` keeps parsing the sentence
+ * against the caller's clock.
+ *
+ * @typedef {import("../index.mjs").ProviderEnvelope & {resetAt?: string}} ClaudeEnvelope
+ */
+
+/**
+ * The reset sentence a Claude quota stop writes into its error message, e.g.
+ * "You've hit your session limit · resets 6:40pm (America/Sao_Paulo)". The
+ * wall-clock form names a time and a zone but no date; an absolute form names
+ * the instant directly ("Your limit will reset at 2026-09-08 20:30:00").
+ */
+const SESSION_RESET_SENTENCE = /resets?(?:\s+at)?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*\(([A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)+|UTC|GMT)\)/iu;
+const ABSOLUTE_RESET_SENTENCE = /reset(?:s| at| on)?\s+(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:Z|[+-]\d{2}:?\d{2})?)/iu;
+
+/**
+ * The instant a Claude quota stop names, or null when its message names none.
+ *
+ * The generic availability classifier (`harnesses/index.mjs`'s
+ * `exhaustedUntilOf`) parses the same sentence for the durable refusal store,
+ * but the node's own wait decision (`engine/backoff.mjs`'s
+ * `quotaResetSchedule`) reads only a structured `resetAt`. This adapter is the
+ * protocol boundary and cannot import `harnesses/index.mjs` -- that module
+ * imports this one at load -- so the sentence is parsed here. A zone the
+ * runtime does not know names no instant, and the failover edge is taken as
+ * before.
+ *
+ * @param {string} message
+ * @param {number} [now] the instant a wall-clock sentence is read against
+ * @returns {string|null}
+ */
+function sessionResetAt(message, now = Date.now()) {
+  const absolute = ABSOLUTE_RESET_SENTENCE.exec(message);
+  if (absolute) {
+    const value = absolute[1];
+    const zoned = value.includes("T") || /(?:Z|[+-]\d{2}:?\d{2})$/u.test(value) ? value : `${value.replace(" ", "T")}Z`;
+    const parsed = Date.parse(zoned);
+    if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+  }
+  const match = SESSION_RESET_SENTENCE.exec(message);
+  if (!match) return null;
+  let hour = Number(match[1]);
+  const minute = Number(match[2] ?? "0");
+  const meridiem = match[3]?.toLowerCase();
+  if (meridiem === "pm" && hour < 12) hour += 12;
+  if (meridiem === "am" && hour === 12) hour = 0;
+  if (hour > 23 || minute > 59) return null;
+  /** @type {Intl.DateTimeFormatPart[]} */
+  let parts;
+  try {
+    parts = new Intl.DateTimeFormat("en-US", { timeZone: match[4], hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(new Date(now));
+  } catch {
+    // An unknown zone name is not a reset time; the caller falls back to failover.
+    return null;
+  }
+  const at = (/** @type {Intl.DateTimeFormatPartTypes} */ type) => Number(parts.find((part) => part.type === type)?.value);
+  const offset = Date.UTC(at("year"), at("month") - 1, at("day"), at("hour") % 24, at("minute"), at("second")) - Math.floor(now / 1000) * 1000;
+  let target = Date.UTC(at("year"), at("month") - 1, at("day"), hour, minute) - offset;
+  if (target <= now) target += 86_400_000;
+  return new Date(target).toISOString();
+}
+
+/**
+ * Thread a session-limit reset into the envelope so the node can wait for it.
+ * The instant rides the envelope's top-level `resetAt`, the field the node's
+ * wait decision (`engine/backoff.mjs`'s `quotaResetSchedule`) reads. It is not
+ * written into `error.resetAt`/`exhaustedUntil` on purpose: `exhaustedUntilOf`
+ * must keep parsing the sentence against the clock its caller passes, so a test
+ * or a replayed envelope can re-read the same message at a chosen instant.
+ *
+ * @param {ClaudeEnvelope} envelope
+ * @returns {ClaudeEnvelope}
+ */
+function withSessionReset(envelope) {
+  if (envelope.status !== "exhausted" || envelope.resetAt) return envelope;
+  const resetAt = sessionResetAt(String(envelope.error?.message ?? ""));
+  return resetAt ? { ...envelope, resetAt } : envelope;
 }
 
 /**
@@ -174,7 +268,10 @@ export const claudeHarness = {
     return declaredBaseUrl(runtime) === null;
   },
 
-  normalize: normalizeClaudeResult,
+  /** @param {string} stdout @param {number|null} exitCode @param {string|null} signal @param {import("../index.mjs").NormalizeOptions} [options] @returns {import("../index.mjs").ProviderEnvelope} */
+  normalize(stdout, exitCode, signal, options = {}) {
+    return withSessionReset(normalizeClaudeResult(stdout, exitCode, signal, options));
+  },
 };
 
 export const harness = claudeHarness;

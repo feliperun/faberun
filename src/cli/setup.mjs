@@ -31,6 +31,7 @@ import { boundedGitSync } from "../repo/worktree.mjs";
 import { colorLevel, renderBanner, statusToken } from "./brand.mjs";
 import { packageVersion } from "../host/package.mjs";
 import { configPath, faberunHome } from "../host/home.mjs";
+import { recordConfigInstall } from "../host/install-registry.mjs";
 import { readUserConfig, writeUserConfig } from "../host/config.mjs";
 import { discoverSkillTargets, registerSkills } from "./skills.mjs";
 
@@ -181,6 +182,10 @@ export async function setupCommand(options = {}) {
       updatedAt: new Date().toISOString(),
     };
     writeUserConfig(env, config);
+    // The config lives under FABERUN_HOME, which removal deletes wholesale, but
+    // it is still an out-of-repository write; recording it keeps the ledger a
+    // complete account of what setup left behind.
+    recordConfigInstall(env, configPath(faberunHome(env)));
     if (!json) stdout(`${statusToken("ok", level)} config · ${configPath(faberunHome(env))}\n`);
 
     // The offer comes after the config is durable, so a machine that answers

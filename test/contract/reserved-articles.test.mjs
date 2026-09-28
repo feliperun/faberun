@@ -9,7 +9,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { validateContract } from "../../src/contract/index.mjs";
-import { RESERVED_ARTICLES } from "../../src/contract/articles.mjs";
+import { RESERVED_ARTICLES, RESERVED_OWNER_DECISIONS, uncoveredReservedOwnerDecisions } from "../../src/contract/articles.mjs";
 import { packet, writeFixture } from "./helpers.mjs";
 
 /**
@@ -52,4 +52,25 @@ test("local articles are allowed", () => {
     contract.nodes[0].taskPacket.writeFiles,
     ["skills/faberun/references/local-boot.md", "output.txt"],
   );
+});
+
+/**
+ * The one owner-decision list both prompts read. A packet covers a decision by
+ * naming it in `decisions`; only the uncovered ones are refused by the worker
+ * and failed by the judge, so the two sides can never disagree about the list.
+ */
+test("reserved owner decisions", () => {
+  assert.deepEqual(RESERVED_OWNER_DECISIONS, [
+    "license",
+    "pricing",
+    "branding",
+    "publication",
+    "third-party data",
+  ]);
+  assert.deepEqual(uncoveredReservedOwnerDecisions([]), RESERVED_OWNER_DECISIONS);
+  assert.deepEqual(
+    uncoveredReservedOwnerDecisions(["license: MIT", "Pricing is free"]),
+    ["branding", "publication", "third-party data"],
+  );
+  assert.deepEqual(uncoveredReservedOwnerDecisions([...RESERVED_OWNER_DECISIONS]), []);
 });

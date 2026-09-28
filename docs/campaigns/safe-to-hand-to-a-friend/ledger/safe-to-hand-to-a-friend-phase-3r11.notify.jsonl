@@ -1,0 +1,6 @@
+{"at":"2026-09-27T22:20:34.028Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-3r11:uninstall-roots:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T22:37:22.451Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-3r11:install-registry:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T22:43:18.604Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-3r11:ledger-preservation:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T23:00:27.074Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-3r11:uninstall-verb:done:2:1","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T23:07:39.897Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-3r11:uninstall-docs:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T23:07:40.028Z","dedupeKey":"run.terminal:safe-to-hand-to-a-friend-phase-3r11:done","attempt":1,"status":"no_transport"}

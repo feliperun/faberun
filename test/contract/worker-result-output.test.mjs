@@ -1,7 +1,7 @@
 import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { discoveryOutput, parseWorkerResult, validateWorkerResult, WorkerResultSizeError } from "../../src/contract/worker-result.mjs";
+import { discoveryOutput, parseWorkerResult, SANDBOX_BLOCKED_WRITE, validateWorkerResult, WorkerResultSizeError } from "../../src/contract/worker-result.mjs";
 
 /** @param {Record<string, unknown>} [overrides] @returns {Record<string, unknown>} */
 function baseResult(overrides = {}) {
@@ -51,4 +51,8 @@ test("a result that breaks a byte ceiling throws a typed size error naming the f
       && error.limit === 16 * 1024
       && error.message === "worker result.artifacts[0] exceeds 16384 bytes",
   );
+});
+
+test("the sandbox-blocked write classification is declared once, in the contract layer", () => {
+  assert.equal(SANDBOX_BLOCKED_WRITE, "sandbox_blocked_write");
 });

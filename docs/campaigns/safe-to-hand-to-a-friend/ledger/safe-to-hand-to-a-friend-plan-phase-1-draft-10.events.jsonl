@@ -1,0 +1,2 @@
+{"at":"2026-09-26T14:13:24.779Z","node":"draft","to":"running","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-26T14:13:27.035Z","node":"draft","to":"failed","phase":"worker","runtime":"dsh-deepseek","error":"MISSING_CREDENTIAL"}

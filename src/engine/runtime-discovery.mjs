@@ -1,6 +1,6 @@
 import { normalizeProviderAvailability, probeRuntime } from "../harnesses/index.mjs";
 import { effectiveProvider } from "../contract/provider.mjs";
-import { SAME_VENDOR_REVIEW_MODE, sameVendorTierRefusal } from "../contract/judge-independence.mjs";
+import { SAME_VENDOR_REVIEW_MODE, effectiveJudgeIndependence, sameVendorTierRefusal } from "../contract/judge-independence.mjs";
 
 // Availability normalization belongs to the adapter registry, which is where
 // each provider's own exhaustion, balance, and authentication wording is
@@ -176,10 +176,12 @@ export function availableCandidates(runtimes, availability = {}) {
  * copied exactly; callers persist the returned pair in run state.
  *
  * An optional `options.config` narrows the candidate set to the harnesses the
- * operator enabled and prefers its named worker and judge. An empty narrowed
- * set falls back to the unrestricted candidates and is reported through
- * `options.onWarning`; config never overrides an explicit node, gate or
- * runtime-default declaration, and the cross-vendor judge rule still applies.
+ * operator enabled, prefers its named worker and judge, and -- when the
+ * contract declares none (R36) -- supplies the machine-wide
+ * `judgeIndependence` opt-in. An empty narrowed set falls back to the
+ * unrestricted candidates and is reported through `options.onWarning`; config
+ * never overrides an explicit node, gate or runtime-default declaration, and
+ * the cross-vendor judge rule still applies.
  *
  * `options.listJudge` (R18) is asked for an omitted judge before the single
  * `config.judge` preference and the strongest-candidate default: it is the
@@ -194,7 +196,7 @@ export function availableCandidates(runtimes, availability = {}) {
  * @param {RuntimeContract} contract
  * @param {Record<string, RuntimeAvailability>} availability
  * @param {ComposeOptions} [options]
- * @returns {Record<string, {worker: string, judge: string}>}
+ * @returns {Record<string, {worker: string, judge: string, judgeIndependence?: "same-vendor"}>}
  */
 export function composeAssignments(contract, availability = {}, options = {}) {
   const allCandidates = availableCandidates(contract.runtimes, availability);
@@ -206,7 +208,7 @@ export function composeAssignments(contract, availability = {}, options = {}) {
     if (restricted.length) candidates = restricted;
     else if (allCandidates.length) options.onWarning?.(`config harnesses · none of ${config.harnesses.join(", ")} is available · using all available runtimes`);
   }
-  /** @type {Record<string, {worker: string, judge: string}>} */
+  /** @type {Record<string, {worker: string, judge: string, judgeIndependence?: "same-vendor"}>} */
   const assignments = {};
   for (const node of contract.nodes ?? []) {
     const workerOmitted = node.runtime === undefined && contract.runtimeDefaults?.worker === undefined;
@@ -235,7 +237,11 @@ export function composeAssignments(contract, availability = {}, options = {}) {
     // R20: in same-vendor mode a judge of the worker's own provider is
     // admissible when it is another model at an equal or higher declared tier;
     // the strongest such candidate is the default only when no other vendor has one.
-    const sameVendorMode = contract.judgeIndependence === SAME_VENDOR_REVIEW_MODE;
+    // R36: a contract that declares no mode inherits the machine config's, and
+    // the effective mode is recorded on the assignment so the launch decision
+    // survives in the run snapshot.
+    const judgeIndependence = effectiveJudgeIndependence(contract, config);
+    const sameVendorMode = judgeIndependence === SAME_VENDOR_REVIEW_MODE;
     const judge = declaredJudge
       ?? judgeListPick?.chosen
       ?? (preferredJudge && effectiveProvider(preferredJudge.runtime) !== workerProvider ? preferredJudge.id : undefined)
@@ -251,7 +257,7 @@ export function composeAssignments(contract, availability = {}, options = {}) {
       const refusal = sameVendorTierRefusal(/** @type {{harness: string, model: string}} */ (workerRuntime), /** @type {{harness: string, model: string}} */ (judgeRuntime));
       if (refusal) throw new Error(`runtime_assignment_judge_unavailable: ${refusal.message} for node ${node.id}`);
     }
-    assignments[node.id] = { worker, judge: judge ?? worker };
+    assignments[node.id] = { worker, judge: judge ?? worker, ...(judgeIndependence === undefined ? {} : { judgeIndependence }) };
   }
   return assignments;
 }

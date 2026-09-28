@@ -9,6 +9,7 @@
 import { CAMPAIGN_FILE, basenameSafe } from "./layout.mjs";
 import { errorCode } from "../util.mjs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { assertObject, requireId, requirePacketHash, requireString, requireText, requireTimestamp } from "../contract/assert.mjs";
 
@@ -35,6 +36,11 @@ export function readCampaign(path) {
   record.contracts ??= [];
   record.landBranch ??= `campaign/${String(record.id)}`;
   record.promotions ??= [];
+  // The preservation state of the campaign's ledger. A record written before
+  // the marker existed, or written by a close that kept the ledger only in the
+  // operator home, reads as not preserved: removal refuses on the default
+  // rather than deleting evidence it cannot prove is safe.
+  record.ledgerPreserved ??= false;
   return /** @type {Campaign} */ (campaign);
 }
 /**
@@ -47,6 +53,28 @@ export function campaignIdOf(campaignPath) {
   } catch {
     return basenameSafe(campaignPath);
   }
+}
+/**
+ * A generated identifier for a note that arrives without one: the note text
+ * reduced to a lowercase ASCII slug, plus a short random suffix so two notes
+ * with identical text still get distinct ids. The slug is capped so a long
+ * note cannot produce an unusably long identifier, and an empty slug falls
+ * back to a bare `note-<suffix>`.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function generatedNoteId(text) {
+  const slug = text
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    .slice(0, 40)
+    .replace(/-+$/gu, "");
+  const suffix = randomUUID().replace(/-/gu, "").slice(0, 6);
+  return slug ? `${slug}-${suffix}` : `note-${suffix}`;
 }
 /**
  * The campaign record's schema, in one home. Exported so the repair verb in
@@ -94,6 +122,12 @@ export function validateCampaign(campaign) {
     }
   }
   if (record.landBranch !== undefined) requireText(record.landBranch, "campaign.landBranch");
+  // The ledger preservation marker is optional on read (a record written
+  // before it existed reads as not preserved), but once written it must be a
+  // boolean so removal can rely on the state it carries.
+  if (record.ledgerPreserved !== undefined && typeof record.ledgerPreserved !== "boolean") {
+    throw new TypeError("campaign.ledgerPreserved must be a boolean");
+  }
   // The chain's durable park: the campaign stays active but carries the reason
   // it stopped, naming the contract, the node and the status when they exist.
   if (record.attention !== undefined && record.attention !== null) {

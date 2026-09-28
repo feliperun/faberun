@@ -25,7 +25,10 @@ function makeRepo() {
   const repo = mkdtempSync(join(tmpdir(), "signal-repo-"));
   const runsDir = runsRoot(repo);
   const agentsPath = join(repo, "AGENTS.md");
-  writeFileSync(agentsPath, "# Rules\n\nline one\n");
+  // The operator opts in by pasting the start marker once; the tests below
+  // exercise a file that already carries it, so a block rewrite replaces the
+  // empty one rather than appending a block to a document that never asked.
+  writeFileSync(agentsPath, `# Rules\n\nline one\n\n${SIGNAL_START}\n${SIGNAL_END}\n`);
   return { repo, runsDir, agentsPath };
 }
 
@@ -95,6 +98,24 @@ test("does nothing when AGENTS.md is missing", () => {
   writeRunNodes(runsDir, "run-a", ["running"]);
   assert.equal(syncAgentSignal(runsDir), false);
   assert.ok(!existsSync(join(repo, "AGENTS.md")), "no file created");
+});
+
+// R27: the managed block is only rewritten in a file that already carries the
+// start marker. The operator opts in by pasting it once, so a repository the
+// runner does not own is never dirtied by a campaign operation that appends a
+// block there. Both a document with no marker at all and one carrying only the
+// end marker are left byte-identical.
+test("an AGENTS.md without the marker is never written", () => {
+  for (const original of ["# Rules\n\nline one\n", `# Rules\n\nline one\n\n${SIGNAL_END}\n`]) {
+    const repo = mkdtempSync(join(tmpdir(), "signal-no-marker-"));
+    const runsDir = runsRoot(repo);
+    const agentsPath = join(repo, "AGENTS.md");
+    writeFileSync(agentsPath, original);
+    writeRunNodes(runsDir, "run-a", ["running"]);
+    assert.equal(syncAgentSignal(runsDir), false, "a document without the start marker is never written");
+    assert.equal(readFileSync(agentsPath, "utf8"), original, "byte-identical");
+    assert.ok(!readFileSync(agentsPath, "utf8").includes(SIGNAL_START));
+  }
 });
 
 // A run linked to a campaign is classified by the same rule as a standalone

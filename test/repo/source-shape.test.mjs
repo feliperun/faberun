@@ -200,7 +200,10 @@ test("no name is exported from two src/ modules", () => {
   //
   // `harness` is exempt and is the interface, not a collision: every adapter
   // under `harnesses/*/` exports it, which is what makes the registry uniform.
-  const exempt = new Set(["harness", "driver", "default"]);
+  // `declaredEnvironment` is the same interface for the names each adapter
+  // reads (safe-to-hand-to-a-friend R2): every adapter exports one, and the
+  // catalogue keys them by harness.
+  const exempt = new Set(["harness", "declaredEnvironment", "driver", "default"]);
   /** @type {Map<string, Set<string>>} */
   const homes = new Map();
   for (const definition of DEFINITIONS) {

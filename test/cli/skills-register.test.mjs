@@ -7,6 +7,8 @@ import { tmpdir } from "node:os";
 import { delimiter, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { knownInstallSites, readInstallRegistry } from "../../src/host/install-registry.mjs";
+
 const BIN = fileURLToPath(new URL("../../bin/faberun.mjs", import.meta.url));
 const CHECKOUT_SKILL = fileURLToPath(new URL("../../skills/faberun", import.meta.url));
 
@@ -35,7 +37,7 @@ function fixture(options = {}) {
   const path = [bin, ...(process.platform === "win32" ? [] : ["/usr/bin", "/bin"])].join(delimiter);
   // Force color off: several tests below assert the literal `[ok]`/`[warn]`
   // tokens, and an ambient FORCE_COLOR would split them with escape codes.
-  return { home, env: { ...process.env, HOME: home, PATH: path, FORCE_COLOR: "0" } };
+  return { home, env: { ...process.env, HOME: home, FABERUN_HOME: home, PATH: path, FORCE_COLOR: "0" } };
 }
 
 /**
@@ -143,4 +145,45 @@ test("an unknown harness is a usage error", () => {
   const result = register(["--harness", "nope"], env);
   assert.equal(result.status, 2);
   assert.match(result.stderr, /no harness named "nope"/u);
+});
+
+test("register records each skill's absolute path and owning root in the home registry", () => {
+  const { home, env } = fixture();
+  const result = register(["--json"], env);
+  assert.equal(result.status, 0, result.stderr);
+  const entries = readInstallRegistry(env).entries.filter((entry) => entry.kind === "skill");
+  assert.deepEqual(
+    entries.map((entry) => [entry.path, entry.root]).sort(),
+    [
+      [join(home, ".agents", "skills", "faberun"), join(home, ".agents", "skills")],
+      [join(home, ".claude", "skills", "faberun"), join(home, ".claude", "skills")],
+      [join(home, ".codex", "skills", "faberun"), join(home, ".codex", "skills")],
+    ].sort(),
+  );
+});
+
+test("a real directory in the way is not recorded as written by faberun", () => {
+  const { home, env } = fixture();
+  const blocker = join(home, ".claude", "skills", "faberun");
+  mkdirSync(blocker);
+  writeFileSync(join(blocker, "SKILL.md"), "mine\n");
+  const result = register(["--harness", "claude", "--json"], env);
+  assert.equal(result.status, 0, result.stderr);
+  const recorded = readInstallRegistry(env).entries.filter((entry) => entry.kind === "skill");
+  assert.equal(recorded.some((entry) => entry.path === blocker), false, "a refused path is not faberun's to remove");
+});
+
+test("the known install-site manifest names every harness skills directory", () => {
+  const { home } = fixture();
+  const sites = knownInstallSites(home);
+  assert.deepEqual(
+    sites.skills.map((site) => [site.harness, site.path]).sort(),
+    [
+      ["agents", join(home, ".agents", "skills")],
+      ["agy", join(home, ".gemini", "config", "skills")],
+      ["claude", join(home, ".claude", "skills")],
+      ["codex", join(home, ".codex", "skills")],
+      ["zcode", join(home, ".agents", "skills")],
+    ].sort(),
+  );
 });

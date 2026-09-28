@@ -2,6 +2,7 @@ import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "nod
 import { Buffer } from "node:buffer";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { validateVerificationCommands } from "./verification.mjs";
+import { RESERVED_OWNER_DECISIONS, uncoveredReservedOwnerDecisions } from "./articles.mjs";
 import { errorCode } from "../util.mjs";
 import { requireString, requireStringArray } from "./assert.mjs";
 
@@ -102,6 +103,25 @@ export function loadTaskPacket(node, contractDir, cwd, index, options = {}) {
 }
 
 /**
+ * The `## Reserved owner decisions` section every worker prompt carries: the
+ * same list the judge reads, with the packet's own coverage spelled out, so an
+ * uncovered owner decision is refused with `blocked_context` instead of being
+ * chosen by a worker.
+ *
+ * @param {string[]} decisions
+ * @returns {string[]}
+ */
+function reservedOwnerDecisionsLines(decisions) {
+  const uncovered = uncoveredReservedOwnerDecisions(decisions);
+  return [
+    "## Reserved owner decisions",
+    `These decisions belong to the repository owner, never to this node: ${RESERVED_OWNER_DECISIONS.join(", ")}.`,
+    `Reserved decisions with no coverage in "Decisions already made": ${uncovered.length ? uncovered.join(", ") : "(none)"}.`,
+    "If the task requires taking an uncovered decision, do not choose it: return the blocked_context worker-result object naming the decision.",
+  ];
+}
+
+/**
  * @param {TaskPacket} packet
  * @param {string} nodeId
  * @returns {string}
@@ -132,6 +152,8 @@ export function renderWorkerPrompt(packet, nodeId) {
     "",
     "## Decisions already made",
     ...bulletOrNone(packet.decisions),
+    "",
+    ...reservedOwnerDecisionsLines(packet.decisions),
     "",
     "## Non-goals",
     ...bulletOrNone(packet.nonGoals),
@@ -264,6 +286,28 @@ export function validateTaskPacket(packet, index, cwd, options = {}) {
     nonGoals: [.../** @type {string[]} */ (record.nonGoals)],
     verification,
   };
+}
+
+/**
+ * The environment-variable names an operator allows through to a worker, the
+ * one validator both the runtime descriptor and the contract share. The list
+ * is names only -- never values -- so it selects from the controller's own
+ * environment without carrying a secret of its own. A name is the portable
+ * shell shape: a letter or underscore, then letters, digits, or underscores.
+ *
+ * @param {unknown} value
+ * @param {string} label
+ * @returns {string[]}
+ */
+export function validateEnvPassthrough(value, label) {
+  if (!Array.isArray(value)) throw new TypeError(`${label} must be an array of environment-variable names`);
+  const names = /** @type {unknown[]} */ (value);
+  names.forEach((name, index) => {
+    if (typeof name !== "string" || !/^[A-Za-z_][A-Za-z0-9_]*$/u.test(name)) {
+      throw new TypeError(`${label}[${index}] must be an environment-variable name`);
+    }
+  });
+  return /** @type {string[]} */ (names);
 }
 
 /**
@@ -456,6 +500,8 @@ function renderDiscoveryPrompt(packet, nodeId) {
     "## Decisions already made",
     ...bulletOrNone(packet.decisions),
     "",
+    ...reservedOwnerDecisionsLines(packet.decisions),
+    "",
     "## Non-goals",
     ...bulletOrNone(packet.nonGoals),
     "",
@@ -484,7 +530,7 @@ function renderAutonomousPrompt(packet, nodeId) {
     packet.objective,
     "",
     "## Closed context",
-    "This autonomous context may inspect the repository read-only as needed. Edit only files beneath the listed write roots, and do not write outside those directory boundaries. If required context is unavailable, return the blocked_context worker-result object below.",
+    "This autonomous context may inspect the repository read-only as needed. The write roots below are the expected boundary, not a hard wall: a write outside them is allowed when the task requires it, and the result must name the path and the reason. Return the blocked_context worker-result object below only for context that is genuinely missing.",
     "",
     "## Instructions",
     ...numbered(packet.instructions),
@@ -500,6 +546,8 @@ function renderAutonomousPrompt(packet, nodeId) {
     "",
     "## Decisions already made",
     ...bulletOrNone(packet.decisions),
+    "",
+    ...reservedOwnerDecisionsLines(packet.decisions),
     "",
     "## Non-goals",
     ...bulletOrNone(packet.nonGoals),

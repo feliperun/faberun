@@ -21,3 +21,29 @@ export function normalizeManagedSignalBlock(text) {
   const after = text.slice(end + SIGNAL_END.length).replace(/^\s+/u, "");
   return after ? `${before}\n\n${after}` : `${before}\n`;
 }
+
+/**
+ * Apply a freshly rendered managed block to `text`, but only when the start
+ * marker is already present. A document without the marker is the operator's
+ * file, not the runner's: it is returned byte-identical so no campaign
+ * operation can quietly append a managed block to an `AGENTS.md` that never
+ * opted in. The operator opts in by pasting the start marker once, and this
+ * repository already carries it.
+ *
+ * `block` is the renderer's output, or `""` to remove a block that is present
+ * once the run settled. The surrounding text is joined with the same blank
+ * line the writer always used, so a rewrite of an existing block and its
+ * removal both normalise to the file's committed shape.
+ *
+ * @param {string} text
+ * @param {string} block
+ * @returns {string}
+ */
+export function applyManagedSignalBlock(text, block) {
+  const start = text.indexOf(SIGNAL_START);
+  if (start < 0) return text;
+  const end = text.indexOf(SIGNAL_END, start + SIGNAL_START.length);
+  const before = text.slice(0, start).trimEnd();
+  const after = end < 0 ? "" : text.slice(end + SIGNAL_END.length);
+  return [before, block, after.trimStart()].filter((part) => part.length).join("\n\n") + "\n";
+}

@@ -66,9 +66,10 @@ it.
 | `--detach` | none | Spawn the controller detached and return once its bootstrap record exists. | off |
 | `--base-ref` | git ref | Cut every attempt worktree from this ref instead of the checkout's `HEAD`. | current `HEAD` |
 | `--fresh-preflight` | none | Ask every routed runtime the live preflight even when the verdict store under `FABERUN_HOME` (`availability.json`) holds an answer observed inside the freshness window (15 minutes); the fresh answers are recorded for later launches. | off |
-Reads `<contract.json>`. Writes `.runs/<contract.id>/` (frozen contract, run
-metadata, node snapshots, logs, `status.json`, `STATUS.md`), the attempt
-worktrees under `.runs/worktrees/<run-id>/`, and `refs/faberun/<run-id>/…`.
+Reads `<contract.json>`. Writes the run directory under the project's runs root
+in `$FABERUN_HOME` (`<home>/projects/<project>/runs/<contract.id>/`): the frozen
+contract, run metadata, node snapshots, logs, `status.json`, `STATUS.md`, the
+attempt worktrees under `worktrees/<run-id>/`, and `refs/faberun/<run-id>/…`.
 ```bash
 node src/cli.mjs run --detach contracts/feature-42.json
 ```
@@ -117,12 +118,14 @@ Related: `faberun doctor`, `faberun run`, `faberun validate`.
 
 ## faberun resume
 ```text
-faberun resume <run-dir> [--detach] [--node <value>] [--reconcile <value>] [--answer <value>] [--fresh-preflight]
+faberun resume <run-dir> [--detach] [--node <value>] [--reconcile <value>] [--answer <value>] [--reauthor <value>] [--approve-below <value>] [--fresh-preflight]
 ```
 Continue an interrupted run in place: the same run, node and frozen packet,
 attempt plus one. It adopts completed work first, then re-dispatches ordinary
-failures; it never re-authors. A run launched with `run --base-ref` resumes
-against that same ref, from any checkout.
+failures. `--reauthor <node-id>` re-widens one `context_missing` node's packet
+from its refusal before re-dispatching it; every other resume never re-authors.
+A run launched with `run --base-ref` resumes against that same ref, from any
+checkout.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
@@ -130,13 +133,19 @@ against that same ref, from any checkout.
 | `--node` | node id | Limit the retry to that node and its dependents. | every eligible node |
 | `--reconcile` | node id | Re-dispatch a node blocked with `unknown_effect_reconciled`; refuses without it. | none |
 | `--answer` | `<node-id>=<path>` | Record an operator answer for a node blocked on context, then re-dispatch it and its dependents. The file is refused above 8 KiB. | none |
+| `--reauthor` | node id | Re-widen that `context_missing` node's packet from a bounded discovery pass, validate it against the whole contract, and re-dispatch it only with approval or below `--approve-below`. | none |
+| `--approve-below` | `standard`, `high`, or `none` | The risk threshold below which an accepted reauthor widening is applied without an explicit operator yes. | `standard` |
 | `--fresh-preflight` | none | Ask every routed runtime the live preflight again, ignoring any stored verdict inside its freshness window; the fresh answers are recorded for later launches. | off |
-Reads and writes `.runs/<run-id>/` (node snapshots, integration ledger,
-operations, logs) and the attempt worktrees. `--answer` is text only and is
-never written into a worktree.
+Reads and writes the run directory under the project's runs root in
+`$FABERUN_HOME` (`<home>/projects/<project>/runs/<run-id>/`: node snapshots,
+integration ledger, operations, logs) and its attempt worktrees. `--answer` is
+text only and is never written into a worktree. `--reauthor` writes the accepted
+widening to the run's `contract.json` and its proposal and spent budget to
+`reauthor.jsonl`.
 ```bash
-node src/cli.mjs resume --detach .runs/feature-42
-node src/cli.mjs resume .runs/feature-42 --answer spec-missing=/tmp/answer.md
+node src/cli.mjs resume --detach /home/me/.faberun/projects/<project>/runs/feature-42
+node src/cli.mjs resume /home/me/.faberun/projects/<project>/runs/feature-42 --answer spec-missing=/tmp/answer.md
+node src/cli.mjs resume /home/me/.faberun/projects/<project>/runs/feature-42 --reauthor build --approve-below high
 ```
 Related: `faberun supervise`, `faberun status`, `faberun findings`.
 
@@ -151,10 +160,10 @@ a lock held by its own process.
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
 | — | — | No flags. | — |
-Reads and writes `.runs/<run-id>/` (lock, node snapshots, `cancel.request.json`,
-`status.json`).
+Reads and writes the run directory under the project's runs root (lock, node
+snapshots, `cancel.request.json`, `status.json`).
 ```bash
-node src/cli.mjs cancel /repo/.runs/feature-42
+node src/cli.mjs cancel /home/me/.faberun/projects/<project>/runs/feature-42
 ```
 Related: `faberun status`, `faberun resume`, `faberun supervise`.
 
@@ -174,7 +183,7 @@ launches.
 Reads the run's controller lock and node snapshots and starts detached resume
 children; writes nothing itself.
 ```bash
-node src/cli.mjs supervise --detach /repo/.runs/feature-42 --interval 30
+node src/cli.mjs supervise --detach /home/me/.faberun/projects/<project>/runs/feature-42 --interval 30
 ```
 Related: `faberun resume`, `faberun status`, `faberun supervise campaign`.
 ### faberun supervise campaign
@@ -188,10 +197,10 @@ second invocation against a fresh heartbeat writes nothing and exits `0`.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--allow-main` | none | Authorize promoting a run whose campaign `landBranch` is `main`. | off |
 | `--refresh-controller` | none | Adopt the current controller snapshot when a launch finds it changed, recorded as an operator command. | off |
-Reads `.runs/campaigns/<id>/` and each linked run directory; writes the
+Reads the campaign directory under the project's runs root and each linked run directory; writes the
 coordinator lock and heartbeat, and starts detached `run` children.
 ```bash
 node src/cli.mjs supervise campaign feature-42 --cwd /repo
@@ -210,10 +219,10 @@ writes nothing.
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
 | `--json` | none | Print the machine-readable status payload. | off |
-Reads `.runs/<run-id>/` and, for the handoff, `.runs/campaigns/<id>/`; writes
-`STATUS.md` and the campaign `HANDOFF.md`.
+Reads the run directory and, for the handoff, the campaign directory under the
+project's runs root; writes `STATUS.md` and the campaign `HANDOFF.md`.
 ```bash
-node src/cli.mjs status --json /repo/.runs/feature-42
+node src/cli.mjs status --json /home/me/.faberun/projects/<project>/runs/feature-42
 ```
 Related: `faberun report`, `faberun findings`, `faberun next`.
 
@@ -227,10 +236,10 @@ Report a run's attempts, tokens and cost, from the run's recorded evidence.
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
 | `--json` | none | Emit the report as one JSON object. | off |
-Reads `.runs/<run-id>/` (`run.json`, node snapshots, `usage.jsonl`); writes
-nothing.
+Reads the run directory under the project's runs root (`run.json`, node
+snapshots, `usage.jsonl`); writes nothing.
 ```bash
-node src/cli.mjs report /repo/.runs/feature-42
+node src/cli.mjs report /home/me/.faberun/projects/<project>/runs/feature-42
 ```
 Related: `faberun status`, `faberun metrics`, `faberun findings`.
 
@@ -245,25 +254,30 @@ or blocking questions to act on` when there is nothing.
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
 | — | — | No flags. | — |
-Reads `.runs/<run-id>/` node snapshots; writes nothing.
+Reads the run directory's node snapshots under the project's runs root; writes
+nothing.
 ```bash
-node src/cli.mjs findings /repo/.runs/feature-42
+node src/cli.mjs findings /home/me/.faberun/projects/<project>/runs/feature-42
 ```
 Related: `faberun status`, `faberun resume`, `faberun next`.
 
 ## faberun doctor
 ```text
-faberun doctor [<contract.json>] [--cwd <value>] [--json] [--discover]
+faberun doctor [<contract.json>] [--cwd <value>] [--json] [--discover] [--env]
 ```
-Check the machine for running a contract: git work tree, `.runs/` ignored,
-`node`/`npm` on `PATH`, the runner schema, and — with a contract — every routed
-harness and the host checks. `--discover` adds mutation-free runtime discovery.
+Check the machine for running a contract: git work tree, the legacy in-tree `.runs/`
+ignored, `node`/`npm` on `PATH`, the runner schema, and — with a
+contract — every routed harness and the host checks. `--discover` adds mutation-free runtime discovery.
+`--env` lists, per runtime, the controller environment variable names that
+would pass and the names that would be excluded, never the values; every
+excluded name shaped like a credential is marked retained.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
 | `--cwd` | directory | Repository to check. | current directory |
 | `--json` | none | Emit one machine-readable report. | off |
 | `--discover` | none | Probe each runtime and report availability and exhaustion. | off |
+| `--env` | none | List each runtime's allowed and excluded environment names, never values. | off |
 Reads the repository and, with a contract, `<contract.json>` and the routed
 runtimes; writes nothing. Exits `1` when a check fails.
 ```bash
@@ -304,8 +318,8 @@ Related: `faberun init`, `faberun doctor`, `faberun models`.
 faberun init [--cwd <value>] [--yes] [--no-skill] [--agentkit] [--greenfield] [--stable] [--json]
 ```
 Prepare a target repository for campaigns: confirm it is a git work tree, ensure
-`.runs/` is ignored, install the `faberun` skill into `.claude/skills/`, and
-optionally run the shipped agent-kit installer. The compatibility rule is asked
+the legacy in-tree `.runs/` is ignored, install the `faberun` skill into
+`.claude/skills/`, and optionally run the shipped agent-kit installer. The compatibility rule is asked
 or given, never defaulted silently.
 
 | Flag | Value | Effect | Default |
@@ -348,6 +362,36 @@ update available · run faberun update
 ```
 Related: `faberun --version`, `faberun doctor`.
 
+## faberun uninstall
+```text
+faberun uninstall [--dry-run] [--force] [--yes]
+```
+Remove everything faberun wrote outside a target repository: the skills it
+registered in a harness's skills directory, the status-line and hook entries it
+added to a harness's settings file, and `$FABERUN_HOME` itself. The list is the
+union of the install registry and the published known install sites, so an
+artifact an older faberun wrote before the registry existed is still found and
+removed. A campaign whose ledger was not preserved at its durable repository
+location refuses the whole command unless `--force`. Removal of `$FABERUN_HOME`
+is confirmed interactively; when the environment has no terminal, `--yes` (or
+`--force`, which is itself an explicit consent) is required. Nothing under the
+current working directory is ever a candidate, and
+`$FABERUN_HOME` is never deleted when it is the effective home, so a target
+repository's files cannot be touched.
+
+| Flag | Value | Effect | Default |
+| --- | --- | --- | --- |
+| `--dry-run` | none | List what would be removed; remove nothing. | off |
+| `--force` | none | Remove even when a campaign ledger is not preserved at its repository. | off |
+| `--yes` | none | Skip the interactive confirmation. | off |
+Reads the install registry, the known install sites and `$FABERUN_HOME`.
+Writes by removing those paths, and closes by naming the command that removes
+the published package.
+```bash
+node src/cli.mjs uninstall --dry-run
+```
+Related: `faberun setup`, `faberun init`, `faberun skills register`.
+
 ## faberun project
 ```text
 faberun project <new-path> [--from <value>]
@@ -389,9 +433,9 @@ lease, and only then removes the original -- an interrupted migration always
 leaves a complete original or a complete copy, never a partial in two places.
 Running it again after it has landed finds nothing to move and says so; until
 it has run, the reading side answers the legacy `.runs/` with a warning.
-Reads everything under `<repo>/.runs/` and the repository's git remotes;
-writes `$FABERUN_HOME/projects/` (registering the project if it is new) and
-the project's `runs/` directory, then removes `<repo>/.runs/`.
+Reads everything under the legacy `<repo>/.runs/` and the repository's git
+remotes; writes `$FABERUN_HOME/projects/` (registering the project if it is new)
+and the project's `runs/` directory, then removes the legacy `<repo>/.runs/`.
 ```bash
 node src/cli.mjs migrate
 [migrate] /repo/.runs -> /home/me/.faberun/projects/<id>/runs · 3 runs, 1 campaign
@@ -458,9 +502,9 @@ the operator. Prints `nothing needs anyone` when no campaign needs action.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--json` | none | Emit the items as one JSON object. | off |
-Reads `.runs/campaigns/` and each linked run's controller lock and node
+Reads the project's campaigns directory and each linked run's controller lock and node
 snapshots; writes nothing.
 ```bash
 node src/cli.mjs next --cwd /repo
@@ -483,8 +527,8 @@ delegation floor or one no declared context window holds.
 | `--json` | none | Emit the result as one JSON object. | off |
 Reads the named files and the runtime catalogue; writes a temp pack under the
 system temp directory (removed on exit) and, inside a controller invocation,
-appends to the owning run's `.runs/<run-id>/usage.jsonl`. Exits `1` on refusal
-or failure.
+appends to the owning run's `usage.jsonl` under the project's runs root. Exits
+`1` on refusal or failure.
 ```bash
 node src/cli.mjs bulk-read --question "Which symbols call runContract?" --paths src/engine/scheduler.mjs
 ```
@@ -621,15 +665,16 @@ no provider call.
 | `--answer` | `<finding-id>=accept` or `<finding-id>=reject:<reason>` | One decision per open critical finding; repeatable. Every critical finding on the contested plan needs one before it can resolve. | — |
 | `--json` | none | Emit the pipeline's result object as one JSON line. | off |
 Reads `<spec.md>` and the target campaign's record (or, with `--resolve`, the
-contested `plan.json` at that path and nothing else); writes
-`.runs/campaigns/<campaign-id>/plans/<phase>/` (`repo-facts.json`,
-`pipeline.jsonl`, the working plan and findings, and `plan.json` with either
-`contract.json` alongside it or `status: "contested"`), plus the campaign's
-`open-question` journal entries when a plan is contested or awaits approval,
-and, on `--resolve`, one `decision` entry per answered finding.
+contested `plan.json` at that path and nothing else); writes the campaign's
+`plans/<phase>/` directory under the project's runs root in `$FABERUN_HOME`
+(`<home>/projects/<project>/runs/campaigns/<campaign-id>/plans/<phase>/`:
+`repo-facts.json`, `pipeline.jsonl`, the working plan and findings, and
+`plan.json` with either `contract.json` alongside it or `status: "contested"`),
+plus the campaign's `open-question` journal entries when a plan is contested or
+awaits approval, and, on `--resolve`, one `decision` entry per answered finding.
 ```bash
 node src/cli.mjs plan docs/campaigns/feature-42/spec/SPEC.md --campaign feature-42 --phase build
-node src/cli.mjs plan --resolve .runs/campaigns/feature-42/plans/build --answer F1=accept --answer "F2=reject:already fixed upstream"
+node src/cli.mjs plan --resolve /home/me/.faberun/projects/<project>/runs/campaigns/feature-42/plans/build --answer F1=accept --answer "F2=reject:already fixed upstream"
 ```
 Related: `faberun spec validate`, `faberun campaign resolve`, `faberun run`.
 
@@ -642,10 +687,10 @@ recorded: node outcomes, events, usage and notifications.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--ledger` | directory | Read the versioned campaign ledger instead of the operator's run directories. | none |
 | `--json` | none | Emit the indicators as one JSON object. | off |
-Reads `.runs/campaigns/<id>/` and each linked run's events, usage and notify
+Reads the campaign directory under the project's runs root and each linked run's events, usage and notify
 logs; writes nothing. With `--ledger <dir>`, reads the versioned `campaign.json`
 and per-run projector sources from that ledger instead. A missing ledger source
 is reported by name and makes its dependent indicators `null`, never zero.
@@ -665,9 +710,10 @@ per operation.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
-Reads and writes `.runs/campaigns/<id>/` (`campaign.json`, `journal.jsonl`,
-`HANDOFF.md`) and mirrors active state into the target `AGENTS.md`.
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
+Reads and writes the campaign directory under the project's runs root
+(`campaign.json`, `journal.jsonl`, `HANDOFF.md`) and mirrors active state into
+the target `AGENTS.md`.
 ```bash
 node src/cli.mjs campaign init feature-42 --cwd /repo --goal "Deliver feature 42"
 ```
@@ -676,14 +722,14 @@ Related: `faberun next`, `faberun supervise campaign`, `faberun metrics`.
 ```text
 faberun campaign list [--cwd <value>]
 ```
-List every campaign under `.runs/campaigns/`, one line each, with status, linked
+List every campaign under the project's runs root, one line each, with status, linked
 run count, updated time and path; a corrupt campaign is listed as `corrupt`.
 Takes no campaign id. Prints `[campaign] none` when there are none.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
-Reads `.runs/campaigns/`; writes nothing.
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
+Reads the project's campaigns directory; writes nothing.
 ```bash
 node src/cli.mjs campaign list --cwd /repo
 ```
@@ -698,15 +744,15 @@ only at launch.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--goal` | text | The campaign goal. Required. | — |
 | `--contract` | path, repeatable | Register a contract and record its digest, in order. | none |
 | `--land-branch` | git ref | Branch each successful run is promoted onto. | `campaign/<campaign-id>` |
-Writes `.runs/campaigns/<id>/campaign.json`, `journal.jsonl` and `HANDOFF.md`;
-updates the managed signal block in `AGENTS.md`.
+Writes the campaign's `campaign.json`, `journal.jsonl` and `HANDOFF.md` under
+the project's runs root; updates the managed signal block in `AGENTS.md`.
 ```bash
 node src/cli.mjs campaign init feature-42 --cwd /repo --goal "Deliver feature 42" \
-  --contract /repo/.runs/contracts/phase-1.json
+  --contract /repo/contracts/phase-1.json
 ```
 Related: `faberun campaign attach`, `faberun supervise campaign`.
 ### faberun campaign watch
@@ -720,14 +766,14 @@ campaign is closed.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--wake` | none | Required; the watcher only runs with it. | off |
 | `--detach` | none | Spawn the loop detached and print its pid. | off |
 | `--interval` | positive seconds | Seconds between polls. | `30` |
 | `--once` | none | Run one poll and return. | off |
-Reads each linked run's `.runs/<run-id>/status.json` and lock. Writes each
-announced line to `.runs/inbox.jsonl` and the campaign's `notify.jsonl`, and
-holds `.runs/campaigns/<id>/watch.lock` while running.
+Reads each linked run's `status.json` and lock under the project's runs root.
+Writes each announced line to the runs root's `inbox.jsonl` and the campaign's
+`notify.jsonl`, and holds the campaign's `watch.lock` while running.
 ```bash
 node src/cli.mjs campaign watch feature-42 --wake --detach --cwd /repo
 ```
@@ -742,7 +788,7 @@ is available.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--tool` | name | The harness or tool the session uses. Required. | — |
 | `--session-id` | id | Letters, digits, dots, underscores or dashes. Required. | — |
 | `--transcript` | absolute path | Transcript location; required unless `--no-transcript`. | — |
@@ -750,8 +796,8 @@ is available.
 | `--format` | format | Transcript format, recorded with the attach. | none |
 | `--cursor` | cursor | Starting cursor for the session. | none |
 | `--event-id` | id | Event id for the journal entry. | a random UUID |
-Appends a `session.attached` event and rewrites `.runs/campaigns/<id>/journal.jsonl`
-and `HANDOFF.md`.
+Appends a `session.attached` event and rewrites the campaign's `journal.jsonl`
+and `HANDOFF.md` under the project's runs root.
 ```bash
 node src/cli.mjs campaign attach feature-42 --cwd /repo --tool codex \
   --session-id 1f3c --no-transcript
@@ -759,26 +805,27 @@ node src/cli.mjs campaign attach feature-42 --cwd /repo --tool codex \
 Related: `faberun campaign sync`, `faberun campaign ack`, `faberun seat start`.
 ### faberun campaign note
 ```text
-faberun campaign note <campaign-id> [--cwd <value>] [--session-id <value>] [--kind <value>] [--text <value>] [--event-id <value>] [--decision-id <value>] [--supersedes <value>] [--question-id <value>] [--run-id <value>]
+faberun campaign note <campaign-id> [--cwd <value>] [--session-id <value>] --kind <value> --text <value> [--event-id <value>] [--decision-id <value>] [--supersedes <value>] [--question-id <value>] [--run-id <value>]
 ```
 Append a narrative note to the campaign journal and refresh the handoff. The
 kinds are `intent`, `decision`, `supersede`, `constraint`, `outcome`, `next`,
 `open-question` and `retrospective`. A retrospective note is required before
-`campaign close` will work.
+`campaign close` will work. Without `--decision-id` or `--question-id` the
+command generates an id from the note text, with a short suffix, and prints it.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
-| `--session-id` | id | Authoring session. Required. | — |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
+| `--session-id` | id | Authoring session; defaults to the last session attached to the campaign. | last attached session |
 | `--kind` | kind | One of the eight note kinds. Required. | — |
 | `--text` | text or `-` | Note body; `-` reads it from stdin. Required. | — |
 | `--event-id` | id | Event id for the entry. | a random UUID |
-| `--decision-id` | id | Required for `--kind decision`. | — |
+| `--decision-id` | id | Generated from `--text` when omitted for `--kind decision`. | — |
 | `--supersedes` | id | Required for `--kind supersede`. | — |
-| `--question-id` | id | Required for `--kind open-question`. | — |
+| `--question-id` | id | Generated from `--text` when omitted for `--kind open-question`. | — |
 | `--run-id` | run id | Optional for `--kind outcome`. | none |
-A kind flag used with any other kind is rejected. Writes `.runs/campaigns/<id>/journal.jsonl`
-and `HANDOFF.md`.
+A kind flag used with any other kind is rejected. Writes the campaign's
+`journal.jsonl` and `HANDOFF.md` under the project's runs root.
 ```bash
 node src/cli.mjs campaign note feature-42 --cwd /repo --session-id 1f3c \
   --kind decision --decision-id use-worktrees --text "One attempt per worktree."
@@ -793,12 +840,13 @@ and refresh the handoff.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--session-id` | id | Authoring session. Required. | — |
 | `--question-id` | id | The question being answered. Required. | — |
 | `--text` | text or `-` | Answer body; `-` reads it from stdin. Required. | — |
 | `--event-id` | id | Event id for the entry. | a random UUID |
-Writes `.runs/campaigns/<id>/journal.jsonl` and `HANDOFF.md`.
+Writes the campaign's `journal.jsonl` and `HANDOFF.md` under the project's runs
+root.
 ```bash
 node src/cli.mjs campaign resolve feature-42 --cwd /repo --session-id 1f3c \
   --question-id schema-freeze --text "Freeze at 0.3.0."
@@ -806,21 +854,26 @@ node src/cli.mjs campaign resolve feature-42 --cwd /repo --session-id 1f3c \
 Related: `faberun campaign note`, `faberun campaign show`.
 ### faberun campaign close
 ```text
-faberun campaign close <campaign-id> [--cwd <value>] [--event-id <value>]
+faberun campaign close <campaign-id> [--cwd <value>] [--event-id <value>] [--ledger-in-repo]
 ```
 Close a campaign. It refuses until a `retrospective` note exists; a closed
 campaign stays inspectable but rejects further writes. Before sealing it,
-close copies the journal, the campaign record and every linked run's
-`usage.jsonl` into `docs/campaigns/<id>/ledger/`, since `.runs/` is gitignored
-and would otherwise take that history with it.
+close copies the journal, the campaign record and every linked run's projector
+sources into the campaign directory in the operator home, so a plain close
+leaves the target repository untouched. Pass `--ledger-in-repo` to write the
+versioned copy into `docs/campaigns/<id>/ledger/` instead, since the run state
+under the home is not versioned with the repository and would otherwise take
+that history with it.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--event-id` | id | Event id for the close entry. | a random UUID |
-Writes `.runs/campaigns/<id>/campaign.json`, `journal.jsonl` and `HANDOFF.md`;
-`docs/campaigns/<id>/ledger/`; updates the managed signal block in
-`AGENTS.md`.
+| `--ledger-in-repo` | none | Write the ledger under `docs/campaigns/<id>/ledger/` in the repository instead of the campaign directory in the home. | off |
+Writes the campaign's `campaign.json`, `journal.jsonl` and `HANDOFF.md` under
+the project's runs root; the ledger under the campaign directory in the home,
+or `docs/campaigns/<id>/ledger/` with `--ledger-in-repo`; updates the managed
+signal block in `AGENTS.md` when its start marker is present.
 ```bash
 node src/cli.mjs campaign close feature-42 --cwd /repo
 ```
@@ -836,10 +889,10 @@ same operation as `faberun supervise campaign`.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--allow-main` | none | Authorize promoting a run whose campaign `landBranch` is `main`. | off |
 | `--refresh-controller` | none | Adopt the current controller snapshot when a launch finds it changed, recorded as an operator command. | off |
-Reads `.runs/campaigns/<id>/` and each linked run; writes the coordinator lock
+Reads the campaign directory under the project's runs root and each linked run; writes the coordinator lock
 and heartbeat and starts detached `run` children.
 ```bash
 node src/cli.mjs campaign supervise feature-42 --cwd /repo
@@ -855,10 +908,11 @@ again.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--force` | none | Clear the attention even if the referenced run is still parked. | off |
 | `--event-id` | id | Event id for the unpark entry. | a random UUID |
-Writes `.runs/campaigns/<id>/campaign.json` and `journal.jsonl`.
+Writes the campaign's `campaign.json` and `journal.jsonl` under the project's
+runs root.
 ```bash
 node src/cli.mjs campaign unpark feature-42 --cwd /repo
 ```
@@ -872,8 +926,9 @@ constraints, outcomes, next action and open questions.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
-Reads and refreshes `.runs/campaigns/<id>/HANDOFF.md`; writes nothing.
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
+Reads and refreshes the campaign's `HANDOFF.md` under the project's runs root;
+writes nothing.
 ```bash
 node src/cli.mjs campaign show feature-42 --cwd /repo
 ```
@@ -889,10 +944,11 @@ for today is attached once daily.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--session-id` | id | Session whose cursor filters the events. Required. | — |
-Reads `.runs/campaigns/<id>/journal.jsonl` and the linked runs' `status.json`;
-the once-daily attach writes a `session.attached` event and `HANDOFF.md`.
+Reads the campaign's `journal.jsonl` under the project's runs root and the
+linked runs' `status.json`; the once-daily attach writes a `session.attached`
+event and `HANDOFF.md`.
 ```bash
 node src/cli.mjs campaign sync feature-42 --cwd /repo --session-id 1f3c
 ```
@@ -906,10 +962,11 @@ writer.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--session-id` | id | Session whose cursor moves. Required. | — |
 | `--event-id` | id | Journal event to acknowledge up to. Required. | — |
-Writes the session cursor under `.runs/campaigns/<id>/`.
+Writes the session cursor under the campaign directory in the project's runs
+root.
 ```bash
 node src/cli.mjs campaign ack feature-42 --cwd /repo --session-id 1f3c --event-id 7c21
 ```
@@ -926,12 +983,13 @@ already matches and writes nothing.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--path` | contract path | The contract file to add and digest. Required. | — |
-Writes `.runs/campaigns/<id>/campaign.json` and `HANDOFF.md`.
+Writes the campaign's `campaign.json` and `HANDOFF.md` under the project's runs
+root.
 ```bash
 node src/cli.mjs campaign add-contract feature-42 --cwd /repo \
-  --path /repo/.runs/contracts/phase-2.json
+  --path /repo/contracts/phase-2.json
 ```
 Related: `faberun campaign init`, `faberun campaign replace-contract`, `faberun campaign supervise`.
 ### faberun campaign replace-contract
@@ -945,14 +1003,15 @@ chain again without a separate `campaign unpark`.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--path` | contract path | The replacement contract to digest and record. Required. | — |
 | `--replace` | contract path | The manifest entry's current path to replace. Required. | — |
-Writes `.runs/campaigns/<id>/campaign.json` and `HANDOFF.md`.
+Writes the campaign's `campaign.json` and `HANDOFF.md` under the project's runs
+root.
 ```bash
 node src/cli.mjs campaign replace-contract feature-42 --cwd /repo \
-  --path /repo/.runs/contracts/phase-2-fixed.json \
-  --replace /repo/.runs/contracts/phase-2.json
+  --path /repo/contracts/phase-2-fixed.json \
+  --replace /repo/contracts/phase-2.json
 ```
 Related: `faberun campaign add-contract`, `faberun campaign unpark`, `faberun campaign supervise`.
 ### faberun campaign brief
@@ -978,10 +1037,11 @@ disk without the server.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--phase` | phase name | The frozen phase plan the brief is generated for or served from. Required. | — |
-Reads `.runs/campaigns/<id>/plans/<phase>/` (`plan.json`, its sidecar and
-`contract.json`), the pinned spec, the campaign journal and recorded usage; for
+Reads the campaign's `plans/<phase>/` directory under the project's runs root
+(`plan.json`, its sidecar and `contract.json`), the pinned spec, the campaign
+journal and recorded usage; for
 `serve`, also the phase's `campaign-brief.md.html` and nothing outside those
 bytes. `generate` writes only `campaign-brief.md` and, after a successful
 render, `campaign-brief.md.html` in that directory; `serve` binds a loopback
@@ -1002,7 +1062,7 @@ unless a source strictly extends them; missing sources are reported as gone.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 Writes only `docs/campaigns/<id>/ledger/`; it never updates the closed campaign
 record or journal.
 ```bash
@@ -1020,9 +1080,10 @@ returns an explicit unavailable result when it is absent.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
-Reads `.runs/campaigns/<id>/`; `switch` writes the operator brief under the
-campaign directory. No run lock, status or node snapshot is opened for writing.
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
+Reads the campaign directory under the project's runs root; `switch` writes the
+operator brief under the campaign directory. No run lock, status or node
+snapshot is opened for writing.
 ```bash
 node src/cli.mjs seat start feature-42 --cwd /repo --harness claude
 ```
@@ -1036,9 +1097,9 @@ no `--harness`, the harness is detected from the environment.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--harness` | harness id | `claude`, `codex`, `zcode`, `dsh` or `agy`. | detected |
-Creates the tmux window; writes nothing under `.runs/`.
+Creates the tmux window; writes no run state.
 ```bash
 node src/cli.mjs seat start feature-42 --cwd /repo --harness claude
 ```
@@ -1052,7 +1113,7 @@ Print the command that attaches to the seat, rather than running `tmux attach`
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--ssh` | host | Print the remote ssh-tmux attach line. | local attach line |
 Reads nothing durable; prints a command. Exits `1` when tmux is unavailable.
 ```bash
@@ -1068,7 +1129,7 @@ campaign id; `--json` emits the stable payload.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--json` | none | Emit the seat list as one JSON object. | off |
 Reads the tmux session; writes nothing. Prints that tmux is unavailable when it
 is.
@@ -1085,8 +1146,8 @@ is given.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
-Stops the tmux window or session; writes nothing under `.runs/`.
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
+Stops the tmux window or session; writes no run state.
 ```bash
 node src/cli.mjs seat stop feature-42
 ```
@@ -1101,10 +1162,10 @@ that brief as its opening instruction, and touches no run state.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
-| `--cwd` | directory | Repository holding `.runs/`. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--harness` | harness id | The new operator harness. Required. | — |
-Reads and writes `.runs/campaigns/<id>/` (the operator brief); never opens a
-run lock, status or node snapshot for writing.
+Reads and writes the campaign directory under the project's runs root (the
+operator brief); never opens a run lock, status or node snapshot for writing.
 ```bash
 node src/cli.mjs seat switch feature-42 --harness codex --cwd /repo
 ```
@@ -1209,7 +1270,7 @@ Related: `faberun setup`, `faberun skills install`, `faberun init`.
 ```text
 node src/web/server.mjs [--port <n>] [--cwd <repo>] [--host <addr>] [--token-file <path>]
 ```
-Serve the read-only dashboard over `.runs/`: the campaign picker, Now, Needs
+Serve the read-only dashboard over the project's runs root: the campaign picker, Now, Needs
 you, Runs, the run drawer with per-node log, verification, diff, findings and
 prompt tabs, and the handoff. The page polls `/api/snapshot` and refreshes on
 the SSE `/api/stream`; every request needs the bearer token in the
@@ -1219,20 +1280,20 @@ opens.
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
 | `--port` | port number | Port to listen on. | `4173` |
-| `--cwd` | directory | Repository whose `.runs/` is read. | current directory |
+| `--cwd` | directory | Repository whose project runs are read. | current directory |
 | `--host` | address | Private address to bind. | `127.0.0.1` |
 | `--token-file` | path | File holding the single space-free bearer token line. | `<runs-dir>/dashboard.token` |
-Reads `.runs/` (`status.json`, node JSON, `events.jsonl`, `usage.jsonl`,
+Reads the project's runs root (`status.json`, node JSON, `events.jsonl`, `usage.jsonl`,
 `notify.jsonl`, `HANDOFF.md`); writes nothing. The token file must exist and
 hold one non-empty, space-free line.
 ```bash
 node src/web/server.mjs --cwd /repo --port 4173
-faberun dashboard on http://127.0.0.1:4173 (runs: /repo/.runs)
+faberun dashboard on http://127.0.0.1:4173 (runs: /home/me/.faberun/projects/<project>/runs)
 ```
 
 ## Claude Code statusline
 `integrations/claude-code/statusline.sh` renders one ambient line for the Claude
-Code prompt from the repo's `.runs/status.json` pointer — a file the controller
+Code prompt from the runs root's `status.json` pointer — a file the controller
 rewrites every tick and caps at 1 KiB. It reads the session JSON on stdin for
 the working directory (and the five-hour allowance), uses `jq` when present and
 `sed`/`grep` otherwise, and prints an empty line, exit `0`, when there is no

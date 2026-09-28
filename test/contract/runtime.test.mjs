@@ -13,6 +13,7 @@ import {
 import * as helpers from "../helpers.mjs";
 import { ROUTING_STRATEGIES, routeRuntime, validateRuntimeAvailability } from "../../src/contract/runtime.mjs";
 import { validateNodeSnapshot, validateRunMetadata } from "../../src/contract/snapshot.mjs";
+import { harnessCapabilities } from "../../src/harnesses/index.mjs";
 import { packet, snapshot, writeFixture } from "./helpers.mjs";
 
 // The other half of contract.test.mjs: task packets, the prompts rendered from
@@ -341,8 +342,8 @@ test("a node snapshot accepts a bounded previousAttempt section and rejects an o
   assert.match(/** @type {string} */ (accepted.previousAttempt), /Attempt 1 failed/u);
 
   assert.throws(
-    () => validateNodeSnapshot(snapshot({ previousAttempt: "x".repeat(9 * 1024) })),
-    /previousAttempt exceeds 8192 bytes/u,
+    () => validateNodeSnapshot(snapshot({ previousAttempt: "x".repeat(17 * 1024) })),
+    /previousAttempt exceeds 16448 bytes/u,
   );
   assert.throws(
     () => validateNodeSnapshot(snapshot({ previousAttempt: "   " })),
@@ -457,5 +458,90 @@ test("the canonical contract example in the reference validates exactly as writt
     contract.runtimes[worker].vendor,
     contract.runtimes[judge].vendor,
     "the example's worker and judge must not share a vendor",
+  );
+});
+
+// envPassthrough: names only, declared on the runtime descriptor or on the
+// contract, so the worker allowlist can carry an operator-approved variable
+// through without carrying any value of its own.
+test("a runtime and a contract accept an optional envPassthrough list of names", () => {
+  const { path } = writeFixture({
+    envPassthrough: ["CI", "HTTPS_PROXY"],
+    runtimes: {
+      worker: {
+        harness: "codex",
+        model: "worker",
+        executable: "/nonexistent/codex",
+        envPassthrough: ["AWS_PROFILE"],
+      },
+    },
+  });
+  const contract = validateContract(JSON.parse(readFileSync(path, "utf8")), path);
+  assert.deepEqual(contract.envPassthrough, ["CI", "HTTPS_PROXY"]);
+  assert.deepEqual(contract.runtimes.worker.envPassthrough, ["AWS_PROFILE"]);
+
+  // An explicit empty list is how an author says "none"; it is not the same as
+  // omitting the field, and both remain valid.
+  const empty = writeFixture({ envPassthrough: [] });
+  assert.deepEqual(validateContract(JSON.parse(readFileSync(empty.path, "utf8")), empty.path).envPassthrough, []);
+});
+
+test("envPassthrough rejects malformed values on the contract and on a runtime", () => {
+  /** @type {[unknown, RegExp][]} */
+  const contractCases = [
+    ["not-an-array", /contract\.envPassthrough must be an array/u],
+    [[42], /contract\.envPassthrough\[0\] must be an environment-variable name/u],
+    [["1START"], /contract\.envPassthrough\[0\]/u],
+    [["HAS-DASH"], /contract\.envPassthrough\[0\]/u],
+    [["HAS SPACE"], /contract\.envPassthrough\[0\]/u],
+    [[""], /contract\.envPassthrough\[0\]/u],
+    [["OK", null], /contract\.envPassthrough\[1\]/u],
+  ];
+  for (const [value, expected] of contractCases) {
+    const { path } = writeFixture({ envPassthrough: value });
+    assert.throws(
+      () => validateContract(JSON.parse(readFileSync(path, "utf8")), path),
+      expected,
+      `expected contract envPassthrough ${JSON.stringify(value)} to be rejected`,
+    );
+  }
+
+  /** @type {[unknown, RegExp][]} */
+  const runtimeCases = [
+    ["not-an-array", /runtime worker\.envPassthrough must be an array/u],
+    [["BAD-NAME"], /runtime worker\.envPassthrough\[0\]/u],
+    [[true], /runtime worker\.envPassthrough\[0\]/u],
+  ];
+  for (const [value, expected] of runtimeCases) {
+    const { path } = writeFixture({
+      runtimes: { worker: { harness: "codex", model: "worker", executable: "/nonexistent/codex", envPassthrough: value } },
+    });
+    assert.throws(
+      () => validateContract(JSON.parse(readFileSync(path, "utf8")), path),
+      expected,
+      `expected runtime envPassthrough ${JSON.stringify(value)} to be rejected`,
+    );
+  }
+});
+
+test("a contract written before envPassthrough still validates unchanged", () => {
+  const { path } = writeFixture();
+  const contract = validateContract(JSON.parse(readFileSync(path, "utf8")), path);
+  assert.equal(contract.envPassthrough, undefined);
+  assert.equal(contract.runtimes.worker.envPassthrough, undefined);
+});
+
+test("a runtime snapshot carries envPassthrough and rejects a malformed list", () => {
+  const runtime = {
+    id: "worker",
+    harness: "codex",
+    model: "test-model",
+    capabilities: harnessCapabilities({ harness: "codex" }),
+    envPassthrough: ["CI"],
+  };
+  assert.deepEqual(validateNodeSnapshot(snapshot({ runtime })).runtime?.envPassthrough, ["CI"]);
+  assert.throws(
+    () => validateNodeSnapshot(snapshot({ runtime: { ...runtime, envPassthrough: [7] } })),
+    /node snapshot\.runtime\.envPassthrough\[0\]/u,
   );
 });

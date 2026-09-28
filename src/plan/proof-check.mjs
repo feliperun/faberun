@@ -13,6 +13,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { shellWords } from "../util.mjs";
+import { inlineScriptParseError } from "../contract/definition-of-done.mjs";
 import { NAME_PATTERN_FLAG } from "./proof-run.mjs";
 
 /** @typedef {import("./template.mjs").PlanOutput} PlanOutput */
@@ -135,6 +136,20 @@ export function checkPlanProofs(plan, repoFacts, cwd) {
     for (const item of node.definitionOfDone) {
       const commandText = proofCommandText(node, item.proof);
       if (commandText === null) continue;
+      // R34: a `node -e` body the parser rejects can never exit 0, so no
+      // revise of the work helps; the body has to change before the plan is
+      // frozen. Raises the finding the planner can act on, rather than
+      // spending a review round on a proof that is unsatisfiable by syntax.
+      const inlineScriptError = inlineScriptParseError(commandText);
+      if (inlineScriptError !== null) {
+        findings.push({
+          id: `proof-unparseable-${node.id}-${item.id}`,
+          severity: "critical",
+          nodeId: node.id,
+          text: `Node ${node.id}'s Definition of Done item "${item.id}" proves itself with an inline script that does not parse ("${inlineScriptError}"), so no delivery can make this proof exit 0. Fix the script body.`,
+        });
+        continue;
+      }
       const nameFlag = NAME_PATTERN_FLAG.exec(commandText);
       if (nameFlag) {
         const pattern = nameFlag[1] ?? nameFlag[2] ?? nameFlag[3];

@@ -16,9 +16,34 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { processStartToken } from "../run/lock.mjs";
 import { randomUUID } from "node:crypto";
 import { runMutation } from "./mutation.mjs";
+import { SANDBOX_BLOCKED_WRITE } from "../contract/worker-result.mjs";
+import { isAbsolute, resolve } from "node:path";
+import { isContained } from "../util.mjs";
 import { spawn } from "node:child_process";
 import { killTarget, spawnInvocation } from "../host/platform.mjs";
 /** @typedef {import("../contract/verification.mjs").VerificationOptions} VerificationOptions */
+
+/**
+ * The run-level options plus the sandbox mode the caller knows. The mode is not
+ * part of the shared verification contract: it is controller environment, read
+ * here only to name a refusal the command itself cannot.
+ *
+ * @typedef {VerificationOptions & {sandboxMode?: string|null}} RunVerificationOptions
+ */
+
+/**
+ * The named classification of a `workspace-write` refusal outside the worktree,
+ * carrying the mode that caused it and the path that was denied.
+ *
+ * @typedef {{classification: "sandbox_blocked_write", mode: string, path: string}} SandboxBlockedWrite
+ */
+
+/**
+ * A bounded attempt result plus the controller's sandbox classification, which
+ * rides beside the captured output only when a refusal was recognized.
+ *
+ * @typedef {VerificationAttemptResult & {attempt: number, sandboxBlockedWrite?: SandboxBlockedWrite}} SandboxAwareAttemptResult
+ */
 
 /** @typedef {import("node:child_process").ChildProcess} ChildProcess */
 /** @typedef {import("../contract/verification.mjs").VerificationAttempt} VerificationAttempt */
@@ -62,12 +87,51 @@ function verificationEnv(command) {
   }
   return env;
 }
+
+// `workspace-write` denies a toolchain's cache in `$HOME` and the tool reports
+// a read-only filesystem: observed 2026-09-22 with Zig under `dsh`,
+// `manifest_create ReadOnlyFileSystem` before its first source file. The
+// sandbox, not the command, is the cause, so the controller names it. `EROFS`
+// and the POSIX message cover the same refusal from other runners.
+const SANDBOX_READ_ONLY_PATTERN = /ReadOnlyFileSystem|EROFS|read-only file system/iu;
+// A denied path is usually quoted (`unable to load '/path': ReadOnlyFileSystem`)
+// or bare after the operation name; either way it is absolute, since only an
+// effect outside the worktree gets refused.
+const ABSOLUTE_PATH_PATTERNS = Object.freeze([/['"]((?:[A-Za-z]:[\\/]|\/)[^'"]+)['"]/gu, /((?:[A-Za-z]:[\\/]|\/)[^\s'",;:)\]]+)/gu]);
+
+/**
+ * Classify a failed command whose output names a read-only-filesystem refusal
+ * outside the worktree, under `workspace-write`. Returns null for any other
+ * mode, a refusal inside the worktree, or output with no path to name.
+ *
+ * @param {{text?: string, workspace: string, mode?: string|null}} args
+ * @returns {SandboxBlockedWrite|null}
+ */
+export function classifySandboxBlockedWrite({ text, workspace, mode }) {
+  if (mode !== "workspace-write" || typeof text !== "string") return null;
+  const lines = text.split(/\r?\n/u);
+  const markerLines = lines.filter((line) => SANDBOX_READ_ONLY_PATTERN.test(line));
+  if (markerLines.length === 0) return null;
+  // Prefer a path the refusal line itself names; fall back to any path in the
+  // output, since `manifest_create ReadOnlyFileSystem` can put the path on a
+  // neighbouring line.
+  for (const line of [...markerLines, ...lines]) {
+    for (const pattern of ABSOLUTE_PATH_PATTERNS) {
+      for (const match of line.matchAll(pattern)) {
+        const candidate = match[1];
+        const path = isAbsolute(candidate) ? candidate : resolve(workspace, candidate);
+        if (!isContained(workspace, path)) return { classification: SANDBOX_BLOCKED_WRITE, mode, path };
+      }
+    }
+  }
+  return null;
+}
 /**
  * Run every declared command `repeat` times inside the workspace.
  *
  * @param {unknown} commands
  * @param {string} baseCwd
- * @param {VerificationOptions} options
+ * @param {RunVerificationOptions} options
  * @returns {Promise<VerificationResult>}
  */
 export async function runVerification(commands, baseCwd, options = {}) {
@@ -92,7 +156,7 @@ export async function runVerification(commands, baseCwd, options = {}) {
  * @param {VerificationCommand} command
  * @param {string} baseCwd
  * @param {number} commandIndex
- * @param {VerificationOptions} options
+ * @param {RunVerificationOptions} options
  * @returns {Promise<VerificationCommandResult>}
  */
 async function runRepeatedCommand(command, baseCwd, commandIndex, options) {
@@ -132,7 +196,7 @@ function signalDeathRetry(result, signal) {
  * @param {VerificationCommand} command
  * @param {string} baseCwd
  * @param {number} commandIndex
- * @param {VerificationOptions} options
+ * @param {RunVerificationOptions} options
  * @returns {Promise<VerificationCommandResult>}
  */
 async function runMutationCommand(command, baseCwd, commandIndex, options) {
@@ -149,7 +213,7 @@ async function runMutationCommand(command, baseCwd, commandIndex, options) {
  * @param {string} commandCwd
  * @param {number} attempt
  * @param {AbortSignal|undefined} signal
- * @param {VerificationOptions} options
+ * @param {RunVerificationOptions} options
  * @param {number} commandIndex
  * @returns {Promise<VerificationAttemptResult>}
  */
@@ -181,6 +245,7 @@ function runCommand(command, baseCwd, commandCwd, attempt, signal, options, comm
       if (abortHandler) signal?.removeEventListener("abort", abortHandler);
       if (child?.pid && !error && !signalName && !timedOut) terminateGroup(child);
       const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
+      /** @type {SandboxAwareAttemptResult} */
       const result = {
         attempt,
         stdout: stdout.value(),
@@ -192,6 +257,17 @@ function runCommand(command, baseCwd, commandCwd, attempt, signal, options, comm
         error: error ? String(error.message ?? error) : null,
         passed: !error && !timedOut && exitCode === 0 && !signalName,
       };
+      // The controller's own sandbox mode bounds where a toolchain may write;
+      // a caller may name it, and a controller launched under `dsh` inherits it
+      // in `DSH_PERMISSION_MODE`. Only `workspace-write` classifies.
+      if (!result.passed) {
+        const sandboxBlockedWrite = classifySandboxBlockedWrite({
+          text: `${result.stdout}\n${result.stderr}`,
+          workspace: resolve(baseCwd, commandCwd),
+          mode: options?.sandboxMode ?? process.env.DSH_PERMISSION_MODE ?? null,
+        });
+        if (sandboxBlockedWrite) result.sandboxBlockedWrite = sandboxBlockedWrite;
+      }
       if (!completionReported && identity) {
         completionReported = true;
         try { options?.onAttemptComplete?.({ ...identity, status: result.passed ? "closed" : "failed", completedAt: new Date().toISOString(), result }); } catch {

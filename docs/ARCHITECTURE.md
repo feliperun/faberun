@@ -49,19 +49,23 @@ integrations; `docs/` holds the user-facing documentation.
 | `src/harnesses/` | one adapter per provider harness, plus what each one can run. |
 | `src/campaign/` | the durable layer above runs. |
 | `src/repo/` | anything that touches the target repository: git, worktrees, the workspace. |
-| `src/run/` | the `.runs/` directory: store, lock, ledgers, gc. |
+| `src/run/` | the runs directory under the home: store, lock, ledgers, gc. |
 | `src/report/`, `src/web/` | the two ways a human reads a run. Presentation only. |
 | `src/host/` | facts about the machine. |
 | `src/notify/` | notification transports. |
 | `src/util.mjs` | helpers with no domain. Nothing imports a layer from here. |
 
-## `.runs/` layout
+## Run state layout
 
-Everything the controller writes lives under the target repository's gitignored
-`.runs/`:
+Everything the controller writes lives under the project's runs root in
+`$FABERUN_HOME` (default `~/.faberun`), not inside the target repository:
+`<home>/projects/<project>/runs/`. `<project>` is the opaque id the project
+registry mints for the repository path. A repository whose state predates the
+move keeps being answered from its legacy in-tree runs directory until
+`faberun migrate` copies it under the home.
 
 ```text
-.runs/
+<home>/projects/<project>/runs/
   <run-id>/
     contract.json run.json status.json findings.json STATUS.md
     nodes/<node-id>.json
@@ -98,11 +102,12 @@ Everything the controller writes lives under the target repository's gitignored
 - **`campaigns/<campaign-id>/`** holds `campaign.json` (manifest),
   `journal.jsonl` (append-only, fsynced narrative), `HANDOFF.md` (a bounded
   projection) and `projection.json`.
-- **`.runs/status.json`** is the ≤1 KiB pointer an ambient statusline reads;
-  **`.runs/inbox.jsonl`** is the append-only campaign notification queue.
+- **`status.json`** at the runs root is the ≤1 KiB pointer an ambient
+  statusline reads; **`inbox.jsonl`** there is the append-only campaign
+  notification queue.
 
-The workspace snapshot skips `.runs`, `.git`, `node_modules`, `.claude` and
-`.codex` at the repository root.
+The workspace snapshot skips a repository's legacy in-tree runs directory,
+`.git`, `node_modules`, `.claude` and `.codex` at the repository root.
 
 ## Process model
 
@@ -121,8 +126,8 @@ terminates every invocation recorded for a `running` node — unless it is still
 inside its deadline, when it is adopted and its result read.
 
 **Heartbeat.** The controller writes `<run-dir>/status.json` and the
-`.runs/status.json` pointer atomically every tick and at run terminal.
-`integrations/claude-code/statusline.sh` reads the pointer; the target
+`status.json` pointer at the runs root atomically every tick and at run
+terminal. `integrations/claude-code/statusline.sh` reads the pointer; the target
 `AGENTS.md` managed block mirrors active state and names the command that
 resolves each parked node.
 
@@ -143,7 +148,8 @@ limits the retry, `--answer` supplies a missing read, and `--reconcile` handles
 an unknown-effect window.
 
 **Campaign chain and coordinator.** Campaign state lives at
-`.runs/campaigns/<id>/`. The manifest registers one contract per phase;
+`<home>/projects/<project>/runs/campaigns/<id>/`. The manifest registers one
+contract per phase;
 `supervise campaign` promotes each finished run onto the campaign's landing
 branch; the orchestrator lands that branch on `main` and closes the campaign
 after a `retrospective` note. A campaign refuses to close without one.
@@ -185,17 +191,23 @@ after a `retrospective` note. A campaign refuses to close without one.
   `config["api_key.env_key"]` and `config["auth_token.env_key"]` name the
   environment variable for preflight; `verification[].env` declares names only.
   Values stay in the shell and in the harness's own session.
+- **A worker sees the permitted environment.** Every worker and judge process
+  receives only the base set plus the names its harness adapter and runtime
+  declare, never the rest of the controller's environment, while this phase's
+  deterministic verification commands and `finalVerification` keep today's
+  environment.
 - **`bypassPermissions` only in a recoverable repository.** Headless
   `acceptEdits` denies execution, so a node that runs commands needs
   `bypassPermissions` (claude) or `yolo` (zcode); `dsh` and `fx` default to
   `workspace-write` and use `danger-full-access` only for effects outside the
   worktree. The target is a git work tree, so every attempt is recoverable from
   its worktree and the run ref.
-- **Snapshot and install.** The workspace snapshot skips `.runs`, `.git`,
-  `node_modules`, `.claude` and `.codex` at the repository root; `.runs/` is
-  git-ignored. An installed root `node_modules` is symlinked into every attempt
-  worktree, never copied. The shell scripts are idempotent: a re-run completes
-  what is missing instead of duplicating or destroying.
+- **Snapshot and install.** The workspace snapshot skips a repository's legacy
+  in-tree runs directory, `.git`, `node_modules`, `.claude` and `.codex` at the
+  repository root; that in-tree directory is git-ignored. An installed root
+  `node_modules` is symlinked into every attempt worktree, never copied. The
+  shell scripts are idempotent: a re-run completes what is missing instead of
+  duplicating or destroying.
 - **No secrets committed.** The `pre-commit` hook scans the staged diff;
   tokens and service accounts stay in a secret manager or a gitignored `.env`.
 

@@ -6,7 +6,8 @@ import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync,
 import { dirname, join, resolve } from "node:path";
 
 import { readMetricNodeSnapshots } from "./metrics-command.mjs";
-import { CAMPAIGN_FILE, JOURNAL_FILE, LEDGER_SOURCE_MANIFEST_FILE } from "./layout.mjs";
+import { writeJsonAtomic } from "../run/store.mjs";
+import { CAMPAIGN_FILE, JOURNAL_FILE, LEDGER_SOURCE_MANIFEST_FILE, campaignsDir } from "./layout.mjs";
 import { readCampaign } from "./record.mjs";
 
 /** @typedef {{runId: string, source: string}} LedgerSkip */
@@ -28,18 +29,73 @@ export const EVENT_PROJECTION_FIELDS = Object.freeze([
 export const NOTIFY_PROJECTION_FIELDS = Object.freeze(["at", "dedupeKey", "attempt", "status"]);
 
 /**
+ * Mark a campaign's record as having its ledger preserved at the durable,
+ * versioned location under its registered repository. A record that never
+ * carried the marker reads as not preserved (`readCampaign`), so removal
+ * refuses until this runs. Idempotent: an already marked record is returned
+ * untouched, which keeps a repeated reledger byte-stable.
+ *
+ * @param {string} campaignPath
+ * @returns {import("./index.mjs").Campaign}
+ */
+export function markCampaignLedgerPreserved(campaignPath) {
+  const campaign = readCampaign(campaignPath);
+  if (campaign.ledgerPreserved) return campaign;
+  const marked = { ...campaign, ledgerPreserved: true };
+  writeJsonAtomic(join(campaignPath, CAMPAIGN_FILE), marked);
+  return marked;
+}
+
+/**
+ * The ids of the campaigns under `runsDir` whose ledger is not preserved at
+ * its durable, versioned repository location, sorted. A record written before
+ * the marker existed and a record that cannot be read both report as
+ * unpreserved: a removal that keeps evidence must refuse on the default and
+ * cannot let an unreadable record prove its evidence safe.
+ *
+ * @param {string} runsDir
+ * @returns {string[]}
+ */
+export function unpreservedLedgerCampaigns(runsDir) {
+  const root = campaignsDir(runsDir);
+  if (!existsSync(root)) return [];
+  /** @type {string[]} */
+  const unpreserved = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const campaignPath = join(root, entry.name);
+    if (!existsSync(join(campaignPath, CAMPAIGN_FILE))) continue;
+    try {
+      if (readCampaign(campaignPath).ledgerPreserved !== true) unpreserved.push(entry.name);
+    } catch {
+      unpreserved.push(entry.name);
+    }
+  }
+  return unpreserved.sort();
+}
+
+/**
  * Copy a campaign's projector sources into its versioned ledger. Missing run
  * sources are reported so a pruned run cannot make the close fail or look
  * complete by accident. Repeated calls overwrite the same paths.
  *
+ * `ledgerDir` is the exact destination. It defaults to the versioned ledger
+ * under `repoRoot/docs/campaigns/<id>/ledger`; `closeCampaign` passes the
+ * campaign directory in the operator home instead when `--ledger-in-repo` was
+ * not given, so the target repository is not dirtied by a plain close. A
+ * versioned write marks the campaign record's `ledgerPreserved`; a home write
+ * does not, because it does not survive an uninstall.
+ *
  * @param {string} campaignPath
  * @param {string} repoRoot
+ * @param {string|undefined} [ledgerDir]
  * @returns {LedgerPreservation}
  */
-export function preserveCampaignLedger(campaignPath, repoRoot) {
+export function preserveCampaignLedger(campaignPath, repoRoot, ledgerDir = undefined) {
   const campaign = readCampaign(campaignPath);
   const runsDir = resolve(campaignPath, "..", "..");
-  const ledgerDir = join(repoRoot, "docs", "campaigns", campaign.id, "ledger");
+  const versioned = ledgerDir === undefined;
+  ledgerDir ??= join(repoRoot, "docs", "campaigns", campaign.id, "ledger");
   mkdirSync(ledgerDir, { recursive: true });
   /** @type {string[]} */
   const written = [];
@@ -96,6 +152,13 @@ export function preserveCampaignLedger(campaignPath, repoRoot) {
   const manifest = join(ledgerDir, LEDGER_SOURCE_MANIFEST_FILE);
   writeFileSync(manifest, `${JSON.stringify({ schemaVersion: 1, absent: [...absent].sort(), preserved: [...preserved].sort() })}\n`);
   written.push(manifest);
+  // The ledger exists, so a versioned preservation now marks the record. The
+  // already-copied campaign.json is refreshed afterwards so the durable copy
+  // carries the marker too; `written` keeps its original position and length.
+  if (versioned) {
+    markCampaignLedgerPreserved(campaignPath);
+    copyFileSync(join(campaignPath, CAMPAIGN_FILE), join(ledgerDir, CAMPAIGN_FILE));
+  }
   return { written, skipped };
 }
 
@@ -103,7 +166,9 @@ export function preserveCampaignLedger(campaignPath, repoRoot) {
  * Complete an already closed ledger from the run files still in the operator
  * home. A destination is replaced only when the source strictly extends its
  * bytes; this keeps a ledger's evidence stable when a run was rewritten or
- * truncated after close. Missing run sources are reported as gone.
+ * truncated after close. Missing run sources are reported as gone. The write
+ * is always versioned, so it marks the campaign record's `ledgerPreserved`
+ * and refreshes the ledger's copy of the record.
  *
  * @param {string} campaignPath
  * @param {string} repoRoot
@@ -164,6 +229,9 @@ export function reledgerCampaignLedger(campaignPath, repoRoot) {
       if (copyIfStrictExtension(source, destination)) copied.push({ runId: campaign.id, source: `proposals/${relative}` });
     }
   }
+  // The ledger is durable now, so mark the campaign record before refreshing
+  // the ledger's own copy of it when that copy is not already a closed record.
+  markCampaignLedgerPreserved(campaignPath);
   const ledgerCampaign = join(ledgerDir, CAMPAIGN_FILE);
   if (existsSync(ledgerCampaign)) {
     const existing = readJsonObject(ledgerCampaign);

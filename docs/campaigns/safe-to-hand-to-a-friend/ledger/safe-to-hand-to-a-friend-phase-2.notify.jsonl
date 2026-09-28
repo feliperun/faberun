@@ -1,0 +1,4 @@
+{"at":"2026-09-27T13:25:32.680Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-2:r5-walkthrough:done:2:1","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T13:32:14.534Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-2:r7-repo-facts:done:2:1","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T13:35:37.689Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-2:r6-legacy-sweep:failed:2:1","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T13:35:37.790Z","dedupeKey":"run.terminal:safe-to-hand-to-a-friend-phase-2:attention","attempt":1,"status":"no_transport"}
