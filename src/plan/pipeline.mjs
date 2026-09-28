@@ -30,6 +30,7 @@ import { validateJudgeIndependence } from "../contract/judge-independence.mjs";
 import { firstEligibleReviewer, reviewerProvenanceOf } from "./reviewer.mjs";
 import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
+import { clearPlanProgress, writePlanProgress } from "./progress.mjs";
 import { checkPlanProofs } from "./proof-check.mjs";
 import { collectHumanSteps } from "./human-step.mjs";
 import { RISK_TIERS, TASK_KIND_CATALOGUE_FILE, buildPlanningContract, renderTaskKindCatalogue, validatePlanOutput } from "./template.mjs";
@@ -106,6 +107,27 @@ const APPROVE_BELOW_VALUES = new Set(["standard", "high", "none"]);
  * @returns {Promise<FrozenPipelineResult|ContestedPipelineResult>}
  */
 export async function runPlanningPipeline(options) {
+  try {
+    return await runPlanningStages(options);
+  } finally {
+    // The record of a process that is working must not outlive the work. It is
+    // cleared here, in the one place every return and every throw passes
+    // through, rather than by a caller: `plan` already removed it, but a
+    // caller that forgot left a record that makes the next launch report a
+    // death that never happened, and the record is worth nothing if it can be
+    // wrong in that direction.
+    if (typeof options.campaignId === "string" && typeof options.phase === "string") clearPlanProgress(resolve(options.cwd ?? "."), options.campaignId, options.phase);
+  }
+}
+
+/**
+ * The stages themselves, separate from the exported entry point only so that
+ * the liveness record is removed on every path out of them.
+ *
+ * @param {Parameters<typeof runPlanningPipeline>[0]} options
+ * @returns {Promise<FrozenPipelineResult|ContestedPipelineResult>}
+ */
+async function runPlanningStages(options) {
   const {
     specPath, campaignId, phase, runtimes, launch, wait,
     reviewRounds = 2, runtimeDefaults = {}, reviewers = [], verification = {}, targetedFix = false, judgeIndependence,
@@ -154,10 +176,18 @@ export async function runPlanningPipeline(options) {
   const plansDir = join(campaignTree(cwd, campaignId), "plans", phase);
   mkdirSync(plansDir, { recursive: true });
   const pipelineLog = join(plansDir, "pipeline.jsonl");
+  // Every stage line is also the liveness record: the file is the answer to
+  // "is this plan still working", and a plan that dies mid-stage leaves the
+  // stage it died in as the last thing it ever said. Nothing removes it here;
+  // the caller clears it when the pipeline returns, so a record that survives
+  // a returned pipeline cannot happen and a record that survives anything
+  // else means exactly one thing.
   /** @param {string} stage @param {Record<string, unknown>} [extra] */
-  const logStage = (stage, extra = {}) => appendJsonl(pipelineLog, {
-    type: "plan.stage", at: new Date().toISOString(), campaignId, phase, stage, ...extra,
-  });
+  const logStage = (stage, extra = {}) => {
+    const at = new Date().toISOString();
+    appendJsonl(pipelineLog, { type: "plan.stage", at, campaignId, phase, stage, ...extra });
+    writePlanProgress(cwd, campaignId, phase, { campaignId, phase, at, stage, ...extra });
+  };
 
   // A discovery node's `readFiles` must resolve inside `cwd` (the task packet's
   // own containment rule), but `plansDir` lives under the home since R2 and no
@@ -172,7 +202,17 @@ export async function runPlanningPipeline(options) {
   // the draft stage reads what the planner measured instead of inferring it
   // from the spec's prose.
   const parsedSpec = parseSpec(specText);
-  const repoFacts = collectRepoFacts(cwd, { requirements: parsedSpec.requirements });
+  // This stage holds the terminal for minutes, which is why it says what it is
+  // about to do before it does it and one line per command as each finishes.
+  // Measured 2026-09-25/26 (AP3): five to eight minutes with nothing written
+  // anywhere, on six relaunches.
+  const repoFacts = collectRepoFacts(cwd, {
+    requirements: parsedSpec.requirements,
+    onProgress: (event) => {
+      if (event.kind === "commands") logStage("repo-facts:start", { commands: event.commands.map((argv) => argv.join(" ")) });
+      else logStage("repo-facts:measured", { argv: event.argv, measuredMs: event.measuredMs, index: event.index, total: event.total });
+    },
+  });
   // R16: an operator step a requirement's constraints declare, detected once
   // here so both the freeze below and a caller inspecting the pipeline agree
   // on the same list.

@@ -177,6 +177,19 @@ function manifestCandidateCommands(cwd) {
 }
 
 /**
+ * How a caller watches this stage work. `commands` arrives once, naming every
+ * command about to be timed; `measured` arrives once per command as it
+ * finishes. Neither reaches the returned facts: two calls at the same HEAD
+ * stay byte-identical because no event is written into them.
+ *
+ * Measured 2026-09-25/26 (AP3): this stage took five to eight minutes and said
+ * nothing while it did, so `faberun plan` was indistinguishable from a hang
+ * and the operator checked the process by hand on six relaunches.
+ *
+ * @typedef {(event: {kind: "commands", commands: string[][]} | {kind: "measured", argv: string[], measuredMs: number, index: number, total: number}) => void} RepoFactsProgress
+ */
+
+/**
  * Time every candidate through `timeVerificationCommands`'s own probe —
  * real `spawnSync` and `Date.now` by default, or the caller's fake — instead
  * of re-implementing the spawn, ceiling and ENOENT handling it already owns.
@@ -187,9 +200,10 @@ function manifestCandidateCommands(cwd) {
  * @param {string} cwd
  * @param {{argv: string[]}[]} commands
  * @param {MeasureProbes} probes
+ * @param {RepoFactsProgress} [onProgress]
  * @returns {{argv: string[], measuredMs: number, eligible: boolean}[]}
  */
-function measureCandidates(cwd, commands, probes) {
+function measureCandidates(cwd, commands, probes, onProgress) {
   if (commands.length === 0) return [];
   const now = probes.now ?? (() => Date.now());
   /** @type {number[]} */
@@ -201,7 +215,22 @@ function measureCandidates(cwd, commands, probes) {
       taskPacket: { verification: [{ argv: command.argv, timeoutSec: CANDIDATE_TIMEOUT_SEC }] },
     })),
   }));
-  timeVerificationCommands(contract, { ...probes, now: () => { const mark = now(); marks.push(mark); return mark; } });
+  timeVerificationCommands(contract, {
+    ...probes,
+    now: () => {
+      const mark = now();
+      marks.push(mark);
+      // Every command contributes exactly one start mark and one stop mark, in
+      // order, so an even mark count means the command at half that count just
+      // finished. That is the only progress signal this stage has while it
+      // holds the terminal for minutes.
+      const stopped = marks.length;
+      if (stopped % 2 === 0 && onProgress) {
+        onProgress({ kind: "measured", argv: commands[stopped / 2 - 1].argv, measuredMs: mark - marks[stopped - 2], index: stopped / 2, total: commands.length });
+      }
+      return mark;
+    },
+  });
   return commands.map((command, index) => {
     const measuredMs = marks[index * 2 + 1] - marks[index * 2];
     return { argv: command.argv, measuredMs, eligible: measuredMs <= ELIGIBLE_MS_CEILING };
@@ -247,7 +276,7 @@ export function measureRequirements(cwd, requirements, probes = {}) {
 
 /**
  * @param {string} cwd
- * @param {{measure?: MeasureProbes, maxPaths?: number, requirements?: SpecRequirement[]}} [options]
+ * @param {{measure?: MeasureProbes, maxPaths?: number, requirements?: SpecRequirement[], onProgress?: RepoFactsProgress}} [options]
  * @returns {RepoFacts}
  */
 export function collectRepoFacts(cwd, options = {}) {
@@ -255,7 +284,9 @@ export function collectRepoFacts(cwd, options = {}) {
   const allPaths = listTrackedPaths(cwd);
   const pathSet = new Set(allPaths);
   const scripts = readScripts(cwd);
-  const measured = measureCandidates(cwd, nodeCandidateCommands(scripts, allPaths), options.measure ?? {});
+  const candidates = nodeCandidateCommands(scripts, allPaths);
+  options.onProgress?.({ kind: "commands", commands: candidates.map((command) => command.argv) });
+  const measured = measureCandidates(cwd, candidates, options.measure ?? {}, options.onProgress);
   const detected = manifestCandidateCommands(cwd);
   const truncated = allPaths.length > maxPaths;
   return {

@@ -17,6 +17,7 @@ import { colorLevel, statusToken } from "./brand.mjs";
 import { delay } from "../util.mjs";
 import { runPlanningPipeline } from "../plan/pipeline.mjs";
 import { parseAnswerFlags, resolvePlanningPipeline } from "../plan/resolve.mjs";
+import { abandonedPlanProgress } from "../plan/progress.mjs";
 import { resolveReviewerList } from "../plan/reviewer.mjs";
 import { campaignTree, runDirectory } from "../run/paths.mjs";
 import { readCampaign } from "../campaign/record.mjs";
@@ -211,6 +212,15 @@ export async function planCli(target, values) {
   const judgeIndependence = values["judge-independence"] === undefined
     ? undefined
     : validateJudgeIndependence(values["judge-independence"], "--judge-independence");
+
+  // A record with no live process behind it is the only trace a planning run
+  // that died without a word leaves. Measured 2026-09-26 (AP4): `--detach` pid
+  // 64270 vanished during repo-facts and the phase directory stayed empty, so
+  // the next launch is the one place the operator can still be told.
+  const abandoned = abandonedPlanProgress(process.cwd(), campaignId, phase);
+  if (abandoned) {
+    process.stderr.write(`[plan] a previous planning process (pid ${String(abandoned.pid ?? "?")}) stopped during ${String(abandoned.stage ?? "?")} at ${String(abandoned.at ?? "?")} and never reached the end\n`);
+  }
 
   if (values.detach === true) {
     const argv = ["plan", specPath, "--campaign", campaignId, "--phase", phase, "--review-rounds", String(reviewRounds)];

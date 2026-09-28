@@ -160,6 +160,26 @@ test("collectRepoFacts emits a deterministic JSON inventory built with no model"
   );
 });
 
+test("repo facts say what they are about to measure and each command as it finishes", () => {
+  const directory = fixtureRepo();
+  /** @type {Parameters<import("../../src/plan/repo-facts.mjs").RepoFactsProgress>[0][]} */
+  const events = [];
+  collectRepoFacts(directory, { measure: fakeMeasure(DURATIONS), onProgress: (event) => events.push(event) });
+
+  // The list first, so a reader watching a stage that ran for minutes knows
+  // what is still outstanding, then one event per command as it lands.
+  assert.deepEqual(events[0], {
+    kind: "commands",
+    commands: [["node", "--test", "test/other"], ["node", "--test", "test/plan"], ["npm", "run", "check"], ["npm", "run", "typecheck"]],
+  });
+  assert.deepEqual(events.slice(1), [
+    { kind: "measured", argv: ["node", "--test", "test/other"], measuredMs: 1_000, index: 1, total: 4 },
+    { kind: "measured", argv: ["node", "--test", "test/plan"], measuredMs: 2_000, index: 2, total: 4 },
+    { kind: "measured", argv: ["npm", "run", "check"], measuredMs: 5_000, index: 3, total: 4 },
+    { kind: "measured", argv: ["npm", "run", "typecheck"], measuredMs: 3_000, index: 4, total: 4 },
+  ]);
+});
+
 test("a candidate above the 600000ms ceiling is eligible false", () => {
   const directory = fixtureRepo();
   const facts = collectRepoFacts(directory, {
