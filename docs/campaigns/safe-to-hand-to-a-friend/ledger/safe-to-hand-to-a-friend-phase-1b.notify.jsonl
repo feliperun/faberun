@@ -1,0 +1,6 @@
+{"at":"2026-09-26T17:55:57.619Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-1b:declared-env-test:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-26T18:00:09.827Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-1b:allowed-env-core:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-26T18:02:45.527Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-1b:doctor-env:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-26T18:08:32.759Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-1b:env-docs:failed:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-26T18:13:51.075Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-1b:env-probe-judgment:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-26T18:13:53.771Z","dedupeKey":"run.terminal:safe-to-hand-to-a-friend-phase-1b:attention","attempt":1,"status":"delivered"}
