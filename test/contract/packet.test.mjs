@@ -170,6 +170,34 @@ test("judge prompt advertises the envelope the parser enforces", () => {
   assert.match(prompt, /rejected unread/u);
 });
 
+test("the judge is told an enumerating item is covered class by class (AP20)", () => {
+  const node = /** @type {import("../../src/engine/prompts.mjs").JudgeNode} */ ({
+    id: "build",
+    type: "backend",
+    taskPacket: /** @type {import("../../src/contract/index.mjs").TaskPacket} */ (helpers.packet()),
+    definitionOfDone: [{ id: "guard", text: "The guard refuses .runs, except the legacy layout block a doc labels", judgment: true }],
+  });
+  const prompt = judgePrompt(node, "worker complete");
+  // The requirement matters only because it enumerates: a judge that checks
+  // the shape and not the exclusions approves a half delivery, which is what
+  // `guards-core` did before the operator intervened twice on the ref.
+  assert.match(prompt, /\[guard\] The guard refuses/u);
+  assert.match(prompt, /checked one by one against the diff/u);
+  assert.match(prompt, /the general shape holding is not coverage/u);
+
+  // The rule governs arbitration, so a node with nothing to arbitrate is not
+  // told about it: the checklist says there are no judgment items instead.
+  const proven = /** @type {import("../../src/engine/prompts.mjs").JudgeNode} */ ({
+    id: "build",
+    type: "backend",
+    taskPacket: /** @type {import("../../src/contract/index.mjs").TaskPacket} */ (helpers.packet()),
+    definitionOfDone: [{ id: "works", text: "It works", proof: { kind: "path", ref: "src/index.mjs" } }],
+  });
+  const provenPrompt = judgePrompt(proven, "worker complete");
+  assert.match(provenPrompt, /No judgment items require arbitration\./u);
+  assert.doesNotMatch(provenPrompt, /checked one by one against the diff/u);
+});
+
 test("judge prompt lists scope findings only when the node carries an advisory finding", () => {
   const node = /** @type {import("../../src/engine/prompts.mjs").JudgeNode} */ ({
     id: "build",

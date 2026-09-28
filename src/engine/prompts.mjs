@@ -268,6 +268,22 @@ export function judgePrompt(node, workerResult, context = {}) {
 }
 
 /**
+ * The one rule the judge has never been given, added after N5 of the
+ * `open-source-readiness` campaign (AP20). A requirement that reads "the
+ * guard refuses these paths, except the declared ones" enumerates its cases,
+ * and a delivery that holds the general shape without covering one of them
+ * passes a judge that only checks whether the shape holds. Measured
+ * 2026-09-27: the `guards-core` node shipped the guard without the default
+ * exclusions its requirement declared, the judge approved, and the operator
+ * had to intervene twice on the integration ref for the phase to close.
+ *
+ * The rule sits with the list it governs, so it is stated exactly when there
+ * are judgment items to arbitrate and never when there are none.
+ */
+const JUDGE_ENUMERATED_ITEM_RULE =
+  "When an item enumerates cases, classes or exclusions (\"A, B and C\", \"every X except Y\"), it is satisfied only when the delivery covers every one of them, checked one by one against the diff: the general shape holding is not coverage. A finding that names such an item must say which of them is missing, and an approval that checked none of them is a protocol failure.";
+
+/**
  * The Definition of Done checklist for the judge prompt: judgment items the
  * judge must arbitrate, plus each deterministic item with the controller-run
  * proof result when one is attached.
@@ -283,7 +299,7 @@ function judgeDoDChecklist(items, deterministic) {
   const parts = [];
   const judgmentItems = items.filter((item) => item.judgment === true);
   parts.push(judgmentItems.length
-    ? `Judgment items — arbitrate only these:\n${judgmentItems.map((item) => `- [${item.id}] ${item.text} (judgment)`).join("\n")}`
+    ? `Judgment items — arbitrate only these:\n${judgmentItems.map((item) => `- [${item.id}] ${item.text} (judgment)`).join("\n")}\n${JUDGE_ENUMERATED_ITEM_RULE}`
     : "No judgment items require arbitration.");
   const proofItems = items.filter((item) => item.proof !== undefined);
   if (proofItems.length) {
