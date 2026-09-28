@@ -27,7 +27,7 @@ const RUNTIME_FIELDS = new Set([
   "executable", "args", "versionArgs", "maxArgvPromptBytes", "requiredCapabilities", "costRank",
   "fallback", "vendor", "tier", "pricing", "stallTimeoutSec", "maxConcurrent",
 ]);
-const RUNTIME_HARNESSES = new Set(["claude", "codex", "agy", "dsh", "zcode", "exec-jsonl", "replay"]);
+const RUNTIME_HARNESSES = new Set(["claude", "codex", "agy", "dsh", "fx", "zcode", "exec-jsonl", "replay"]);
 
 /**
  * The strategies a routing rule may name: how a rule consumes its `prefer`

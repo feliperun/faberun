@@ -1,6 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { canonicalUsage, extractJson, failed, isQuotaText, isVerdictCandidate, parseJsonLines, parseVersion } from "../protocol.mjs";
+import { parseVersion } from "../protocol.mjs";
+import { normalizeRunnerTranscript, runnerEnvironmentOverlay, withSchema } from "../runner-transcript.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -103,7 +104,7 @@ export const dshHarness = {
       args,
       promptTransport: "stdin",
       input: withSchema(prompt, options.schema),
-      env: dshEnvironmentOverlay(process.env),
+      env: runnerEnvironmentOverlay(process.env),
     };
   },
 
@@ -115,122 +116,9 @@ export const dshHarness = {
    * @returns {import("../index.mjs").ProviderEnvelope}
    */
   normalize(stdout, exitCode, signal, options = {}) {
-    if (signal) return failed("canceled", `provider ended after ${signal}`, "canceled");
-    let events;
-    try {
-      events = parseJsonLines(stdout, "dsh");
-    } catch (error) {
-      return failed("invalid_protocol", error instanceof Error ? error.message : String(error));
-    }
-    const terminal = events.findLast((event) => event.type === "dsh.completed" || event.type === "dsh.failed");
-    if (!terminal) {
-      const detail = options.stderr?.trim();
-      return failed(
-        "incomplete_stream",
-        `dsh emitted no terminal event${detail ? `: ${detail.slice(-512)}` : ""}${exitCode === null ? "" : ` (exit ${exitCode})`}`,
-      );
-    }
-    const usage = canonicalUsage(terminal.usage);
-    if (terminal.type === "dsh.completed") {
-      const text = typeof terminal.result === "string" ? terminal.result : null;
-      const result = options.preferStructured ? extractJson(text) ?? text : text;
-      const verdicts = options.preferStructured ? countVerdicts(events) : null;
-      return {
-        status: result?.trim() ? "done" : "no-op",
-        result,
-        continuationId: null,
-        usage,
-        costUsd: null,
-        error: null,
-        ...(verdicts === null ? {} : { judgeCandidates: verdicts }),
-      };
-    }
-    const error = terminal.error && typeof terminal.error === "object" ? /** @type {Record<string, unknown>} */ (terminal.error) : {};
-    const kind = typeof terminal.kind === "string" ? terminal.kind : "error";
-    const code = typeof error.code === "string" && error.code ? error.code : kind;
-    const message = typeof error.message === "string" && error.message ? error.message : code;
-    const resetAt = resetTimestamp(error.retryAfterMs);
-    return {
-      status: statusFor(kind, `${code} ${message}`),
-      result: null,
-      continuationId: null,
-      usage,
-      costUsd: null,
-      error: { code, message, ...(resetAt ? { resetAt } : {}) },
-      ...(resetAt ? { exhaustedUntil: resetAt } : {}),
-    };
+    return normalizeRunnerTranscript("dsh", stdout, exitCode, signal, options);
   },
 };
-
-/**
- * The environment overlay every dsh turn spawns with. The Claude Code shell
- * exports `GIT_CONFIG_COUNT` with the VALUE half of each `GIT_CONFIG_{KEY,VALUE}_<n>`
- * pair but not the key half, so `git init` inside the worker fails with status
- * 128; the overlay removes the whole family. `GIT_TERMINAL_PROMPT=0` takes over
- * the prompting that family was for. A null value removes the ambient variable
- * when the gate merges the overlay over the runner environment.
- *
- * @param {NodeJS.ProcessEnv} env
- * @returns {Record<string, string|null>}
- */
-function dshEnvironmentOverlay(env) {
-  /** @type {Record<string, string|null>} */
-  const overlay = { GIT_TERMINAL_PROMPT: "0" };
-  for (const key of Object.keys(env)) {
-    if (key === "GIT_CONFIG_COUNT" || /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(key)) overlay[key] = null;
-  }
-  return overlay;
-}
-
-/**
- * Append the output schema the judge prompt refers to. Codex and Claude receive
- * it through a native flag; this harness has none, so it travels in the prompt.
- *
- * @param {string} prompt
- * @param {object|undefined} schema
- * @returns {string}
- */
-function withSchema(prompt, schema) {
-  if (!schema) return prompt;
-  return `${prompt}\n\nOutput schema (the JSON object must validate against it):\n${JSON.stringify(schema)}`;
-}
-
-/**
- * Count the verdict-shaped final messages, the way the codex adapter does: two
- * verdicts in one turn must be visible at the provider boundary, because the
- * last one alone is indistinguishable from a single clean answer.
- *
- * @param {Record<string, unknown>[]} events
- * @returns {number}
- */
-function countVerdicts(events) {
-  return events.filter((event) => event.type === "dsh.message" && isVerdictCandidate(event.text)).length;
-}
-
-/**
- * @param {string} kind
- * @param {string} text
- * @returns {"done"|"no-op"|"blocked"|"failed"|"exhausted"|"stalled"|"canceled"}
- */
-function statusFor(kind, text) {
-  if (kind === "aborted") return "canceled";
-  if (kind === "blocked") return "blocked";
-  if (isQuotaText(text) || /insufficient balance/iu.test(text)) return "exhausted";
-  if (/permission|approval|sandbox/iu.test(text)) return "blocked";
-  return "failed";
-}
-
-/**
- * Turn the harness's relative retry hint into the absolute instant the
- * controller needs; without one it takes the failover edge instead of waiting.
- *
- * @param {unknown} retryAfterMs
- * @returns {string|null}
- */
-function resetTimestamp(retryAfterMs) {
-  if (typeof retryAfterMs !== "number" || !Number.isFinite(retryAfterMs) || retryAfterMs <= 0) return null;
-  return new Date(Date.now() + retryAfterMs).toISOString();
-}
 
 export const harness = dshHarness;
 export default dshHarness;

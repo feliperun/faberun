@@ -12,3 +12,7 @@ node_modules/
 
 # Generated comparative-arm reports: derived from the campaign records, never versioned.
 evals/planner/*-arm.json
+
+# The native fx runner: zig build output and cache.
+src/harnesses/fx/native/zig-out/
+src/harnesses/fx/native/.zig-cache/

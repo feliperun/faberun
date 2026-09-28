@@ -26,7 +26,29 @@ import { finite } from "../util.mjs";
  */
 
 /** The harnesses whose streams carry usage per provider request; the others meter turns and tool calls only. */
-const PER_REQUEST_USAGE = new Set(["claude", "dsh", "agy", "exec-jsonl", "replay"]);
+const PER_REQUEST_USAGE = new Set(["claude", "dsh", "fx", "agy", "exec-jsonl", "replay"]);
+
+/**
+ * The transcripts Faberun's own harness clients write (`runner-transcript.mjs`).
+ * `usage` names the event that carries one provider request's usage: dsh
+ * attaches it to each assistant message, while fx's relay reports it per HTTP
+ * request, apart from the message text.
+ */
+const RUNNER_TRANSCRIPTS = Object.freeze({
+  dsh: Object.freeze({ usage: "dsh.message", tool: "dsh.tool", completed: "dsh.completed", failed: "dsh.failed" }),
+  fx: Object.freeze({ usage: "fx.request", tool: "fx.tool", completed: "fx.completed", failed: "fx.failed" }),
+});
+
+/** @param {string} harness */
+function runnerTranscript(harness) {
+  return Object.hasOwn(RUNNER_TRANSCRIPTS, harness) ? RUNNER_TRANSCRIPTS[/** @type {"dsh"|"fx"} */ (harness)] : null;
+}
+
+/** @param {string} harness @param {unknown} type */
+function isRunnerTerminal(harness, type) {
+  const transcript = runnerTranscript(harness);
+  return transcript !== null && (type === transcript.completed || type === transcript.failed);
+}
 
 /**
  * Best-effort input-token meter over a still-growing transcript. The
@@ -90,15 +112,16 @@ export function liveUsage(harness, stdout) {
       cacheReadInputTokens: null,
     };
   }
-  if (harness === "dsh") {
-    // The terminal event carries the harness's own session total; before it
-    // lands, sum the per-message usage the runner forwards.
-    const terminal = events.findLast((event) => event?.type === "dsh.completed" || event?.type === "dsh.failed");
+  const transcript = runnerTranscript(harness);
+  if (transcript) {
+    // The terminal event carries the session total; before it lands, sum the
+    // per-request usage the runner forwards.
+    const terminal = events.findLast((event) => event?.type === transcript.completed || event?.type === transcript.failed);
     const terminalUsage = terminal ? canonicalUsage(terminal.usage) : null;
     if (terminalUsage && terminalUsage.inputTokens !== null) {
       return { inputTokens: terminalUsage.inputTokens, cacheReadInputTokens: terminalUsage.cacheReadInputTokens };
     }
-    return sumRequestUsage(events.filter((event) => event?.type === "dsh.message").map((event) => event.usage));
+    return sumRequestUsage(events.filter((event) => event?.type === transcript.usage).map((event) => event.usage));
   }
   if (harness === "agy") {
     const resultRecord = events.map((event) => agyResult(event)).findLast((result) => result !== null);
@@ -394,7 +417,7 @@ export class SessionMetricsParser {
       }
     } else if (this.harness === "claude" && record.type === "result") {
       totals.completed = true;
-    } else if (this.harness === "dsh" && (record.type === "dsh.completed" || record.type === "dsh.failed")) {
+    } else if (isRunnerTerminal(this.harness, record.type)) {
       totals.completed = true;
     } else if (this.harness === "agy" && record.event === "result") {
       totals.completed = true;
@@ -453,20 +476,22 @@ function foldRecord(harness, totals, record) {
     }
     return;
   }
-  if (harness === "dsh") {
-    // The runner folds the sdk firehose to one `dsh.message` per assistant
-    // message (with that message's usage) and one `dsh.tool` per tool call.
+  const transcript = runnerTranscript(harness);
+  if (transcript) {
+    // The dsh runner folds the sdk firehose to one `dsh.message` per assistant
+    // message (with that message's usage) and one `dsh.tool` per tool call;
+    // the fx runner reports usage per relayed request as `fx.request`.
     // measured 2026-09-20: before this branch a dsh turn metered zero events,
     // so once progress became event-only (668f6c1) the stall detector cut
     // every dsh worker at the contract's stallTimeoutSec regardless of
     // activity -- three kills on 2026-09-16 at 903s against a 900s limit.
-    if (record.type === "dsh.message") {
+    if (record.type === transcript.usage) {
       totals.turns += 1;
       totals.cacheReadInputTokens += canonicalUsage(record.usage).cacheReadInputTokens ?? 0;
       foldRequestUsage(totals, canonicalUsage(record.usage));
-    } else if (record.type === "dsh.tool") {
+    } else if (record.type === transcript.tool) {
       totals.toolCalls += 1;
-    } else if (record.type === "dsh.completed" || record.type === "dsh.failed") {
+    } else if (record.type === transcript.completed || record.type === transcript.failed) {
       const sessionTotal = canonicalUsage(record.usage).cacheReadInputTokens;
       if (sessionTotal !== null) totals.cacheReadInputTokens = sessionTotal;
     }
