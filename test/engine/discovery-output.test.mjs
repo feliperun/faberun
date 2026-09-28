@@ -178,7 +178,8 @@ test("a planning-sized output copied into artifacts is re-asked with the broken 
   assert.equal(state.status, "done", state.error?.message);
   assert.deepEqual(/** @type {{output?: unknown}} */ (state.result).output, { plan });
   const repairPrompt = readFileSync(join(run.runDir, "logs", "plan.2.worker.prompt"), "utf8");
-  assert.match(repairPrompt, /worker result\.artifacts\[0\] exceeds 16384 bytes/);
+  // AP18: the repair names the measured size too, not only the ceiling.
+  assert.match(repairPrompt, /worker result\.artifacts\[0\] is \d+ bytes, over the 16384-byte ceiling/);
   assert.match(repairPrompt, /never copies `output` into `artifacts`/);
   assert.ok(!repairPrompt.includes("no markdown fences"), "the repair names the ceiling, not the formatting");
 });

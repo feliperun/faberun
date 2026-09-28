@@ -43,12 +43,24 @@ export const SANDBOX_BLOCKED_WRITE = "sandbox_blocked_write";
  * fences it never wrote, and repeated the copy.
  */
 export class WorkerResultSizeError extends TypeError {
-  /** @param {string} field @param {number} limit */
-  constructor(field, limit) {
-    super(`${field} exceeds ${limit} bytes`);
+  /**
+   * `actual` is the measured byte count, never optional: measured 2026-09-28
+   * (AP18 of safe-to-hand-to-friend), a GLM worker returned an `artifacts[0]`
+   * of 19,810 bytes against the 16,384-byte ceiling and the node failed with
+   * "worker result.artifacts[0] exceeds 16384 bytes" -- the operator could not
+   * tell a 20 KiB artifact from a 1 MiB one, and the ceiling reads the same
+   * whether the worker overshot by 3 KiB or by ten times.
+   *
+   * @param {string} field
+   * @param {number} limit
+   * @param {number} actual
+   */
+  constructor(field, limit, actual) {
+    super(`${field} is ${actual} bytes, over the ${limit}-byte ceiling`);
     this.name = "WorkerResultSizeError";
     this.field = field;
     this.limit = limit;
+    this.actual = actual;
   }
 }
 
@@ -73,7 +85,7 @@ export class WorkerResultSizeError extends TypeError {
  */
 export function invalidResultRepair(cause) {
   if (cause instanceof WorkerResultSizeError) {
-    return `the result breaks a size ceiling: ${cause.field} exceeds ${cause.limit} bytes. Keep every field within its ceiling; a node that delivers through \`output\` sends \`artifacts\` as [] and never copies \`output\` into \`artifacts\`.`;
+    return `the result breaks a size ceiling: ${cause.field} is ${cause.actual} bytes, over the ${cause.limit}-byte ceiling. Keep every field within its ceiling; a node that delivers through \`output\` sends \`artifacts\` as [] and never copies \`output\` into \`artifacts\`.`;
   }
   return "the entire final message must be exactly the required JSON object: no markdown fences, no prose before or after it. Return it as the only content of the final message.";
 }
@@ -85,8 +97,9 @@ export function invalidResultRepair(cause) {
 export function parseWorkerResult(value) {
   if (typeof value !== "string") throw new TypeError("worker result must be JSON text");
   const maxRawBytes = RESULT_LIMITS.bytes + RESULT_LIMITS.outputBytes;
-  if (Buffer.byteLength(value, "utf8") > maxRawBytes) {
-    throw new WorkerResultSizeError("worker result", maxRawBytes);
+  const rawBytes = Buffer.byteLength(value, "utf8");
+  if (rawBytes > maxRawBytes) {
+    throw new WorkerResultSizeError("worker result", maxRawBytes, rawBytes);
   }
   let parsed;
   try {
@@ -140,8 +153,9 @@ export function validateWorkerResult(value) {
   let output;
   if (Object.hasOwn(record, "output") && record.output !== undefined) {
     assertObject(record.output, "worker result.output");
-    if (Buffer.byteLength(JSON.stringify(record.output), "utf8") > RESULT_LIMITS.outputBytes) {
-      throw new WorkerResultSizeError("worker result.output", RESULT_LIMITS.outputBytes);
+    const outputBytes = Buffer.byteLength(JSON.stringify(record.output), "utf8");
+    if (outputBytes > RESULT_LIMITS.outputBytes) {
+      throw new WorkerResultSizeError("worker result.output", RESULT_LIMITS.outputBytes, outputBytes);
     }
     output = /** @type {Record<string, unknown>} */ (record.output);
   }
@@ -155,8 +169,9 @@ export function validateWorkerResult(value) {
   // `output` is bounded on its own above and kept outside this envelope cap:
   // it is a discovery node's deliverable, not incidental prose competing with
   // summary/verification for the same 32 KiB budget.
-  if (Buffer.byteLength(JSON.stringify(envelope), "utf8") > RESULT_LIMITS.bytes) {
-    throw new WorkerResultSizeError("worker result", RESULT_LIMITS.bytes);
+  const envelopeBytes = Buffer.byteLength(JSON.stringify(envelope), "utf8");
+  if (envelopeBytes > RESULT_LIMITS.bytes) {
+    throw new WorkerResultSizeError("worker result", RESULT_LIMITS.bytes, envelopeBytes);
   }
   return output === undefined ? envelope : { ...envelope, output };
 }
@@ -206,6 +221,7 @@ function requireList(value, label, maxItems, itemBytes) {
   if (!Array.isArray(value) || value.length > maxItems) throw new TypeError(`${label} must be an array with at most ${maxItems} items`);
   for (const [index, item] of value.entries()) {
     if (typeof item !== "string") throw new TypeError(`${label}[${index}] must be a string`);
-    if (Buffer.byteLength(item, "utf8") > itemBytes) throw new WorkerResultSizeError(`${label}[${index}]`, itemBytes);
+    const bytes = Buffer.byteLength(item, "utf8");
+    if (bytes > itemBytes) throw new WorkerResultSizeError(`${label}[${index}]`, itemBytes, bytes);
   }
 }

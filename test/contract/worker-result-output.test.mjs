@@ -32,7 +32,7 @@ test("output is bounded at 65536 bytes independent of the 32 KiB envelope cap", 
   const overOutputCap = { text: "x".repeat(70 * 1024) };
   assert.throws(
     () => validateWorkerResult(baseResult({ output: overOutputCap })),
-    /worker result\.output exceeds 65536 bytes/u,
+    /worker result\.output is \d+ bytes, over the 65536-byte ceiling/u,
   );
 });
 
@@ -42,14 +42,27 @@ test("parseWorkerResult round-trips a worker result carrying output", () => {
   assert.deepEqual(discoveryOutput(parsed), { key: "value" });
 });
 
-test("a result that breaks a byte ceiling throws a typed size error naming the field and the ceiling", () => {
+// AP18 of safe-to-hand-to-friend, measured 2026-09-28: a GLM worker returned a
+// 19,810-byte artifact against the 16,384-byte ceiling and the node failed with
+// "worker result.artifacts[0] exceeds 16384 bytes" -- the same message a 1 MiB
+// artifact would produce, so the operator could not tell how far over it was.
+test("a result that breaks a byte ceiling throws a typed size error naming the field, the size and the ceiling", () => {
   const plan = "x".repeat(16 * 1024 + 1);
   assert.throws(
     () => validateWorkerResult(baseResult({ artifacts: [plan], output: { plan } })),
     (error) => error instanceof WorkerResultSizeError
       && error.field === "worker result.artifacts[0]"
       && error.limit === 16 * 1024
-      && error.message === "worker result.artifacts[0] exceeds 16384 bytes",
+      && error.actual === 16 * 1024 + 1
+      && error.message === "worker result.artifacts[0] is 16385 bytes, over the 16384-byte ceiling",
+  );
+
+  const overshot = "y".repeat(19_810);
+  assert.throws(
+    () => validateWorkerResult(baseResult({ artifacts: [overshot] })),
+    (error) => error instanceof WorkerResultSizeError
+      && error.actual === 19_810
+      && /is 19810 bytes, over the 16384-byte ceiling$/u.test(error.message),
   );
 });
 
