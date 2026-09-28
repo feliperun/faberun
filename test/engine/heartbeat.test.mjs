@@ -2,7 +2,7 @@ import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -14,7 +14,9 @@ import {
 } from "../../src/engine/supervise.mjs";
 import { nodeBudgetBasisMs, verificationBudgetMs } from "../../src/engine/scheduler.mjs";
 import { controllerStatus } from "../../src/report/render.mjs";
+import { runContract } from "../../src/engine/scheduler.mjs";
 import { lockPath, processStartToken } from "../../src/run/lock.mjs";
+import { fixture, packet, withFakeCodex, writeContract } from "../helpers.mjs";
 
 /** @returns {string} */
 function makeRunDir() {
@@ -162,6 +164,24 @@ test("done-when 7: while recovering the supervisor judges against until + grace,
   assert.equal(heartbeatBreach(heartbeat, now), null, "inside until + grace an old lastProgressAt is the bounded recovery, not a breach");
   const beyond = Date.parse("2026-09-14T01:00:00Z");
   assert.equal(heartbeatBreach({ ...heartbeat, at: "2026-09-14T01:00:00.000Z" }, beyond)?.kind, "recovering", "past until + grace the recovery is dead even with a fresh at");
+});
+
+test("the status.json a finished run leaves behind does not call its controller active", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-heartbeat-terminal-"));
+  const path = writeContract(directory, fixture({
+    id: "terminal-controller-run",
+    pollIntervalMs: 10,
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
+  }));
+  const result = await withFakeCodex(directory, "pass", () => runContract(path));
+  // Measured 2026-09-27 (AP12): the terminal render change-detected against the
+  // last tick's own fingerprint and wrote nothing, so the stored file kept the
+  // `active` the last tick had written while the lock was still held.
+  const stored = JSON.parse(readFileSync(join(result.runDir, "status.json"), "utf8"));
+  assert.equal(stored.controller.state, "none", "the controller is gone by the time the run is terminal");
+  assert.equal(stored.controller.pid, null);
+  assert.equal(stored.summary, "1 done");
+  assert.equal(controllerStatus(result.runDir, []).status.state, "none", "the reader agrees with the record");
 });
 
 test("done-when 10: status reports a real lastTick from heartbeat.json, where 47 of 47 recorded files report null", () => {

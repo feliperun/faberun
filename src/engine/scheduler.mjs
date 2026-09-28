@@ -759,7 +759,14 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
     heartbeat.stop();
     lock.release();
   }
-  renderStatusIfChanged(false, null);
+  // Forced, and after the lock is released: the change-detected render here
+  // was a no-op whenever the last tick had already written the same node
+  // states, which is the usual case, so the stored status.json kept the
+  // `controller: active` the last tick wrote while the lock was still held.
+  // Measured 2026-09-27 (AP12): `safe-to-hand-to-a-friend-phase-2` finished
+  // with `state: "active"` and pid 43002, and a watcher waiting for the
+  // controller to leave spun for two hours on a pid that no longer existed.
+  renderStatusIfChanged(true, null);
   renderCampaignHandoffSafely(campaign, runsDir, runDir);
   writeFindingsArtifact(runDir, contract, states);
   const failed = [...states.values()].filter((state) => state.status !== "done");
