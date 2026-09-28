@@ -270,11 +270,9 @@ test('done-when 8: the notify docs match notify/index.mjs and SKILL.md arms the 
 // design. `docs/COMMANDS.md` is excluded because it is the generated command
 // manual: `src/cli/manual.mjs` regenerates its command surface, so a docs
 // sweep does not own its reads/writes prose. `docs/GETTING-STARTED.md` is
-// scanned, and its four remaining mentions are allowlisted because they
-// describe current behaviour (`init` still ignores a legacy in-tree runs
-// directory and prints so, the docs map describes the architecture page, and
-// the `AGENTS.md` signal block predates the move) and cannot be removed
-// without changing the CLI itself.
+// scanned; its one unlabelled mention is the line `init` prints when it
+// ignores a legacy in-tree runs directory, quoted verbatim, so it stays until
+// the CLI stops printing it.
 
 const rootDir = fileURLToPath(new URL('../..', import.meta.url));
 const docsDir = join(rootDir, 'docs');
@@ -288,16 +286,8 @@ const GENERATED_DOCS = new Set(['COMMANDS.md']);
  */
 const LEGACY_LABEL = /\b(?:legacy|pre-?migration|before the move|migrat(?:e|es|ed|ion)|historical)\b/iu;
 
-/**
- * Current-behaviour references in the executed walkthrough. Each is owned by
- * the CLI or by the signal block, not by the legacy run layout.
- */
-const ALLOWED_GETTING_STARTED = [
-  /adds `\.runs\/` to `\.gitignore`/u,
-  /\[ok\] \.runs ignored/u,
-  /the `\.runs\/` layout/u,
-  /Check `\.runs\/` and the managed signal block/u,
-];
+/** CLI output the executed walkthrough quotes verbatim. */
+const ALLOWED_GETTING_STARTED = [/\[ok\] \.runs ignored/u];
 
 /** @returns {string[]} absolute paths of README.md and the current top-level docs */
 function currentDocs() {
