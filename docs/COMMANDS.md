@@ -48,7 +48,7 @@ These are the variables `src/` reads that a user, not a test, would set.
 | `FABERUN_REQUIRE_CLEAN_WORKTREE` | `1` | Make any dirt in the launch base a fatal `git` check instead of an advisory. | unset (dirt is advisory) |
 | `FABERUN_MIN_FREE_DISK_BYTES` | non-negative integer | Free-disk threshold the `disk` check enforces. | `536870912` (512 MiB) |
 | `FABERUN_GIT_TIMEOUT_MS` | positive integer | Wall-clock ceiling for every synchronous git call. | `30000` |
-| `FABERUN_PREFLIGHT_TIMEOUT_SEC` | positive number | Per-runtime timeout of the live `preflight` generation. | `15` |
+| `FABERUN_PREFLIGHT_TIMEOUT_SEC` | positive number | Per-runtime timeout of the live `preflight` generation; when set, it applies to every runtime. | unset: follows the runtime's `reasoning` (`180` for `xhigh`/`max`, `60` for `high`, `15` otherwise) |
 
 ## faberun run
 ```text
@@ -627,7 +627,7 @@ Related: `faberun spec validate`.
 
 ## faberun plan
 ```text
-faberun plan <spec.md> [--campaign <value>] [--phase <value>] [--review-rounds <value>] [--approve-below <value>] [--runtime-defaults <value>] [--reviewers <value>] [--runtimes <value>] [--verification <value>] [--package <value>] [--targeted-fix] [--detach] [--resolve <value>] [--answer <a>...] [--json]
+faberun plan <spec.md> [--campaign <value>] [--phase <value>] [--review-rounds <value>] [--approve-below <value>] [--runtime-defaults <value>] [--reviewers <value>] [--runtimes <value>] [--verification <value>] [--package <value>] [--targeted-fix] [--judge-independence <value>] [--detach] [--resolve <value>] [--answer <a>...] [--json]
 ```
 Run the planning pipeline outside the control session: draft, then review, then
 revise up to `--review-rounds` (default 2) whenever the reviewer's findings
@@ -659,6 +659,7 @@ no provider call.
 | `--verification` | path to a JSON file | Verification suites in the contract's own shape — `sharedVerification`, `finalVerification`, either or both keys — validated the same way and carried verbatim into the frozen contract. A key that is not a contract suite is refused. | none — freezing with neither suite warns |
 | `--package` | `implementation` or `exploratory` | What kind of work this package is, which decides how nodes are sized. `implementation` sizes by the write set (4 to 6 files, merging what falls under it). `exploratory` — an audit, a review, a survey — sizes by what each node reads and by risk: a one-file write set is the normal shape of a finding, no node is merged for being underfilled, and a node whose read surface dwarfs its siblings' is reported. | `implementation` |
 | `--targeted-fix` | none | Accept a plan with a single node. Sizing refuses one by default, because a phase that decomposes into one node is usually a plan that was never decomposed; a targeted fix is the case where one node is the honest answer. | off |
+| `--judge-independence` | `same-vendor` | Admit a judge that shares the worker's vendor, under the contract's tier rule: the judge's tier is declared and at or above the worker's and each same-vendor fallback's. Applies to the pre-flight, per-node routing and the frozen contract, which carries `judgeIndependence`. Without it a shared vendor is refused before anything is spent. | off (cross-vendor judges only) |
 | `--detach` | none | Spawn the whole pipeline detached and return once it starts. | off |
 | `--resolve` | path to a plan's directory | Resume the contested plan at this path from `--answer` instead of running draft/review/revise; replaces the spec positional and `--campaign`/`--phase`. | — |
 | `--answer` | `<finding-id>=accept` or `<finding-id>=reject:<reason>` | One decision per open critical finding; repeatable. Every critical finding on the contested plan needs one before it can resolve. | — |

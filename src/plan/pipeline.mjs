@@ -26,6 +26,7 @@ import { campaignCli } from "../cli/campaign.mjs";
 import { appendJsonl } from "../run/store.mjs";
 import { allowanceDelta, allowanceEventFields, sampleAllowance } from "../seat/allowance.mjs";
 import { askPlanningRuntimes, refusePlanningSilence, refuseUnplannableRuntimes } from "./preflight.mjs";
+import { validateJudgeIndependence } from "../contract/judge-independence.mjs";
 import { firstEligibleReviewer, reviewerProvenanceOf } from "./reviewer.mjs";
 import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts } from "./repo-facts.mjs";
@@ -96,7 +97,7 @@ export const DEFAULT_NODE_BUDGET_MS = 600_000;
 const APPROVE_BELOW_VALUES = new Set(["standard", "high", "none"]);
 
 /**
- * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, reviewers?: string[], runtimes: Record<string, JsonObject>, verification?: VerificationSuites, packageMode?: import("./sizing.mjs").PackageMode, targetedFix?: boolean, launch: LaunchFn, wait: WaitFn, ask?: AskFn}} options
+ * @param {{specPath: string, campaignId: string, phase: string, cwd?: string, reviewRounds?: number, approveBelow?: ApproveBelow, runtimeDefaults?: {worker?: string, judge?: string}, reviewers?: string[], runtimes: Record<string, JsonObject>, verification?: VerificationSuites, packageMode?: import("./sizing.mjs").PackageMode, targetedFix?: boolean, judgeIndependence?: "same-vendor", launch: LaunchFn, wait: WaitFn, ask?: AskFn}} options
  *   `targetedFix` allows a plan with a single node. Sizing refuses one by
  *   default because a phase that decomposes into one node is usually a plan
  *   that was never decomposed; a targeted fix is the case where one node is
@@ -106,8 +107,9 @@ const APPROVE_BELOW_VALUES = new Set(["standard", "high", "none"]);
 export async function runPlanningPipeline(options) {
   const {
     specPath, campaignId, phase, runtimes, launch, wait,
-    reviewRounds = 2, runtimeDefaults = {}, reviewers = [], verification = {}, targetedFix = false,
+    reviewRounds = 2, runtimeDefaults = {}, reviewers = [], verification = {}, targetedFix = false, judgeIndependence,
   } = options;
+  if (judgeIndependence !== undefined) validateJudgeIndependence(judgeIndependence, "judgeIndependence");
   const ask = options.ask ?? askPlanningRuntimes;
   // Implementation work is sized by what it writes; exploratory work -- an
   // audit, a review, a survey -- by what it reads, because it writes one
@@ -123,7 +125,7 @@ export async function runPlanningPipeline(options) {
   const campaignPath = campaignTree(cwd, campaignId);
   const campaign = readCampaign(campaignPath);
   if (campaign.status !== "active") throw new Error(`campaign is closed: ${campaignId}`);
-  refuseUnplannableRuntimes(runtimes, runtimeDefaults, packageMode);
+  refuseUnplannableRuntimes(runtimes, runtimeDefaults, packageMode, judgeIndependence);
   refusePlanningSilence(await ask(runtimes, runtimeDefaults, cwd), cwd);
 
   const relativeSpecPath = repoRelativePath(cwd, specPath, "specPath");
@@ -275,6 +277,7 @@ export async function runPlanningPipeline(options) {
     resume: {
       campaignId, phase, specPath: relativeSpecPath, specDigest, reviewRounds,
       runtimeDefaults, reviewers, runtimes, verification, packageMode, targetedFix, approveBelow, repoFacts,
+      ...(judgeIndependence === undefined ? {} : { judgeIndependence }),
     },
   });
 
@@ -297,7 +300,7 @@ export async function runPlanningPipeline(options) {
    * @param {PlanOutput} currentPlan
    * @returns {AssembledPlan}
    */
-  const assembleFrozenNodes = (currentPlan) => assembleFrozenPlan(currentPlan, { repoFacts, packageMode, targetedFix, phase, cwd, runtimes, runtimeDefaults });
+  const assembleFrozenNodes = (currentPlan) => assembleFrozenPlan(currentPlan, { repoFacts, packageMode, targetedFix, phase, cwd, runtimes, runtimeDefaults, judgeIndependence });
 
   /**
    * The raw contract exactly as `freezePlan` will assemble and validate it.
@@ -307,7 +310,7 @@ export async function runPlanningPipeline(options) {
    * @param {AssembledPlan} assembly
    * @returns {JsonObject}
    */
-  const frozenContractRaw = (assembly) => frozenContractRawOf(assembly, { campaignId, phase, campaignGoal: campaign.goal, cwd, plansDir, runtimes, runtimeDefaults, verification });
+  const frozenContractRaw = (assembly) => frozenContractRawOf(assembly, { campaignId, phase, campaignGoal: campaign.goal, cwd, plansDir, runtimes, runtimeDefaults, verification, judgeIndependence });
 
   const roundsResult = await runReviewRounds({
     reviewRounds, plan, rejectedDraft: plan === null ? draft.output.plan : undefined, findings, cwd, plansDir, scratchDir, workingPlanPath, relativeWorkingPlanPath,
@@ -559,11 +562,11 @@ function taggedStageError(planStage, error) {
  * `plan.json`.
  *
  * @param {PlanOutput} currentPlan
- * @param {{repoFacts: import("./repo-facts.mjs").RepoFacts, packageMode: import("./sizing.mjs").PackageMode, targetedFix: boolean, phase: string, cwd: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}}} ctx
+ * @param {{repoFacts: import("./repo-facts.mjs").RepoFacts, packageMode: import("./sizing.mjs").PackageMode, targetedFix: boolean, phase: string, cwd: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, judgeIndependence?: "same-vendor"}} ctx
  * @returns {AssembledPlan}
  */
 export function assembleFrozenPlan(currentPlan, ctx) {
-  const { repoFacts, packageMode, targetedFix, phase, cwd, runtimes, runtimeDefaults } = ctx;
+  const { repoFacts, packageMode, targetedFix, phase, cwd, runtimes, runtimeDefaults, judgeIndependence } = ctx;
   let sizing;
   try {
     sizing = applySizingRules(
@@ -580,6 +583,7 @@ export function assembleFrozenPlan(currentPlan, ctx) {
       runtimes: /** @type {Record<string, import("./routing.mjs").RoutingRuntime>} */ (runtimes),
       availability: availabilityOf(runtimes),
       runtimeDefaults,
+      ...(judgeIndependence === undefined ? {} : { judgeIndependence }),
     });
   } catch (error) {
     throw taggedStageError("routing", error);
@@ -605,11 +609,11 @@ export function assembleFrozenPlan(currentPlan, ctx) {
  * for the same reason.
  *
  * @param {AssembledPlan} assembly
- * @param {{campaignId: string, phase: string, campaignGoal: string, cwd: string, plansDir: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, verification: VerificationSuites}} ctx
+ * @param {{campaignId: string, phase: string, campaignGoal: string, cwd: string, plansDir: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, verification: VerificationSuites, judgeIndependence?: "same-vendor"}} ctx
  * @returns {JsonObject}
  */
 export function frozenContractRawOf({ sizing, nodes }, ctx) {
-  const { campaignId, phase, campaignGoal, cwd, plansDir, runtimes, runtimeDefaults, verification } = ctx;
+  const { campaignId, phase, campaignGoal, cwd, plansDir, runtimes, runtimeDefaults, verification, judgeIndependence } = ctx;
   return {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
     contractVersion: CONTRACT_VERSION,
@@ -628,6 +632,9 @@ export function frozenContractRawOf({ sizing, nodes }, ctx) {
     maxParallel: provenParallelism(sizing.plan),
     runtimes,
     runtimeDefaults,
+    // The operator's opt-in, carried verbatim: the frozen contract is
+    // validated under the same judge-independence rule its routing used.
+    ...(judgeIndependence === undefined ? {} : { judgeIndependence }),
     // The operator's ratchets, carried verbatim: which suites a repository
     // runs on every node is the operator's policy, supplied through
     // `--verification`, never derived from repository facts. Validated at the

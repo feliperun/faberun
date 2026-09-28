@@ -130,6 +130,7 @@ export const COMMAND_OPTIONS = {
     verification: { type: "string" },
     package: { type: "string" },
     "targeted-fix": { type: "boolean" },
+    "judge-independence": { type: "string" },
     detach: { type: "boolean" },
     resolve: { type: "string" },
     answer: { type: "string", multiple: true },

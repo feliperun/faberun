@@ -38,13 +38,13 @@ const LIVE_PREFLIGHT_OUTPUT_LIMIT_BYTES = 512 * 1024;
 /** How much of a timed-out provider's tail reaches the detail. */
 const LIVE_PREFLIGHT_EXCERPT_BYTES = 512;
 /**
- * The one measured live-preflight budget, in seconds. Measured 2026-09-22: four
- * routed runtimes asked in parallel took about 18s, so 60s is the default for
- * every caller -- the dispatch gate, `doctor`, `faberun plan` and `faberun
- * preflight`. It lives here and only here; `run-identity.mjs` and
- * `host/preflight.mjs` used to carry their own copies, and the CLI's preflight
- * used to default to 15s. `FABERUN_PREFLIGHT_TIMEOUT_SEC` stays the operator
- * override.
+ * The measured live-preflight budget, in seconds, and the floor under every
+ * runtime's default. Measured 2026-09-22: four routed runtimes asked in
+ * parallel took about 18s, so 60s holds for every caller -- the dispatch gate,
+ * `doctor`, `faberun plan` and `faberun preflight`. It lives here and only
+ * here; `run-identity.mjs` and `host/preflight.mjs` used to carry their own
+ * copies, and the CLI's preflight used to default to 15s.
+ * `FABERUN_PREFLIGHT_TIMEOUT_SEC` stays the operator override.
  */
 export const LIVE_PREFLIGHT_TIMEOUT_SEC = 60;
 /**
@@ -125,7 +125,7 @@ export async function preflightRuntimes(entries, options = {}) {
   ));
   if (options.static === true) return staticChecks;
 
-  const timeoutSec = livePreflightTimeout(options.liveTimeoutSec);
+  const configuredTimeoutSec = configuredLivePreflightTimeout(options.liveTimeoutSec);
   let liveRepo;
   try {
     liveRepo = createLivePreflightRepo();
@@ -140,7 +140,7 @@ export async function preflightRuntimes(entries, options = {}) {
   }
   try {
     return await Promise.all(staticChecks.map(async (check, index) => {
-      const live = await livePreflight(runtimes[index], liveRepo, timeoutSec);
+      const live = await livePreflight(runtimes[index], liveRepo, configuredTimeoutSec ?? defaultLivePreflightTimeout(runtimes[index]));
       const liveDetail = live.status === "done"
         ? `live done · usage ${formatUsage(live.usage)} · cost ${formatCost(live.costUsd)}`
         : `live ${live.status} · ${live.error?.code ?? "provider_error"}: ${redactProviderText(live.error?.message ?? "generation failed")} · usage ${formatUsage(live.usage)} · cost ${formatCost(live.costUsd)}`;
@@ -161,15 +161,52 @@ export async function preflightRuntimes(entries, options = {}) {
     rmSync(liveRepo, { recursive: true, force: true });
   }
 }
-/** @param {number|undefined} configured */
-function livePreflightTimeout(configured) {
+/**
+ * An explicit budget (option, then environment) applies to every runtime.
+ *
+ * @param {number|undefined} configured
+ * @returns {number|null}
+ */
+function configuredLivePreflightTimeout(configured) {
   const raw = configured ?? (process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC === undefined
-    ? LIVE_PREFLIGHT_TIMEOUT_SEC
+    ? null
     : Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC));
+  if (raw === null) return null;
   if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) {
     throw new TypeError("preflight live timeout must be a positive number of seconds");
   }
   return raw;
+}
+/**
+ * Without an explicit budget, the wait follows the runtime's reasoning effort:
+ * a model at high effort thinks before answering even a one-word prompt.
+ * Measured 2026-09-26: Opus 5.5 at `xhigh` failed every `faberun plan`
+ * preflight at 15 s and passed once the budget was raised, so the planning
+ * pipeline was refusing a runtime that was healthy.
+ *
+ * @param {RuntimeSnapshot} runtime
+ * @returns {number}
+ */
+export function defaultLivePreflightTimeout(runtime) {
+  // Keep LIVE_PREFLIGHT_CEILING_SEC equal to the largest value returned here.
+  const reasoning = /** @type {{reasoning?: unknown}} */ (runtime).reasoning;
+  if (reasoning === "xhigh" || reasoning === "max") return 180;
+  return LIVE_PREFLIGHT_TIMEOUT_SEC;
+}
+/**
+ * The longest a live preflight can take without an explicit budget: what a
+ * detached launcher must be willing to wait before the controller it spawned
+ * can report ready, because the dispatch gate asks before it does.
+ */
+export const LIVE_PREFLIGHT_CEILING_SEC = 180;
+/**
+ * The longest one live preflight ask may take under the current environment.
+ *
+ * @returns {number}
+ */
+export function livePreflightCeilingSec() {
+  const override = Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC);
+  return process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC !== undefined && Number.isFinite(override) && override > 0 ? override : LIVE_PREFLIGHT_CEILING_SEC;
 }
 /** @returns {string} */
 function createLivePreflightRepo() {

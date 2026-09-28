@@ -526,7 +526,7 @@ export async function assertEnvironmentReady(contract, runDir, sourceIdentity) {
   // state reads done, this launch replays an accepted transaction, starts no
   // worker and no judge, and can spend no availability.
   if (blocking === null && launchMayDispatch(runDir)) {
-    // The live budget is `live-preflight.mjs`'s single measured default (60s,
+    // The live budget is `live-preflight.mjs`'s measured default (60s, 180s at xhigh;
     // `FABERUN_PREFLIGHT_TIMEOUT_SEC` the operator override). It is not
     // restated here: a second copy is a second default to keep honest.
     const probes = await livePreflightProbes(contract, runDir, sourceIdentity);
