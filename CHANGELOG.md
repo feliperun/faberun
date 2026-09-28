@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.28.0](https://github.com/feliperun/faberun/compare/v0.27.0...v0.28.0) (2026-09-28)
+
+
+### Features
+
+* campaign 3b safe-to-hand-to-a-friend lands, a stranger can install, run and leave ([#96](https://github.com/feliperun/faberun/issues/96)) ([5e65d9e](https://github.com/feliperun/faberun/commit/5e65d9ed77e6041844208a9e9356c2a28c19fcd0))
+
 ## [0.27.0](https://github.com/feliperun/faberun/compare/v0.26.3...v0.27.0) (2026-09-28)
 
 
