@@ -266,9 +266,13 @@ test("a worker sees only the environment it was allowed", async () => {
   const secretName = "FABERUN_TEST_ENV_SECRET";
   const workerEnvPath = join(runDir, "worker-env.json");
   const provider = join(runDir, "provider.mjs");
+  // Written aside and renamed into place: the test polls for the file, so it
+  // must never see it half-written. Measured 2026-09-28: read on existence,
+  // it failed once with "Unexpected end of JSON input" in a full-suite run.
   writeFileSync(provider, `#!${process.execPath}
-import { writeFileSync } from "node:fs";
-writeFileSync(${JSON.stringify(workerEnvPath)}, JSON.stringify(process.env));
+import { renameSync, writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(`${workerEnvPath}.partial`)}, JSON.stringify(process.env));
+renameSync(${JSON.stringify(`${workerEnvPath}.partial`)}, ${JSON.stringify(workerEnvPath)});
 `);
   chmodSync(provider, 0o755);
   const planted = { FABERUN_CODEX_BIN: provider, [allowedName]: "allowed-value", [secretName]: "must-not-leak" };
