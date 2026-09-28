@@ -2,6 +2,27 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.29.0](https://github.com/feliperun/faberun/compare/v0.28.0...v0.29.0) (2026-09-28)
+
+
+### Features
+
+* **cli:** a plan reads the campaign's own plan-inputs/runtimes.json ([9ed379d](https://github.com/feliperun/faberun/commit/9ed379df329179ae9a5d75deb2cee0d9c627842d))
+
+
+### Bug Fixes
+
+* **contract:** a broken worker-result ceiling names the size it measured ([b06824a](https://github.com/feliperun/faberun/commit/b06824a78dd2251efde745fd42d4784dc5f091cb))
+* **contract:** a persisted contract keeps a vendor label the rule refuses ([90c1345](https://github.com/feliperun/faberun/commit/90c1345bd49232df070b502d1ee43dae3e4ff672))
+* **contract:** a proof command the shell cannot parse is refused before a node is spent on it ([7e436b1](https://github.com/feliperun/faberun/commit/7e436b1fb7904f056c62892ec9b6328996fdaa65))
+* **engine:** the judge arbitrates an enumerating item class by class ([d2cedd6](https://github.com/feliperun/faberun/commit/d2cedd691601193cbf18854e45f18c5bd7785445))
+* **engine:** the run's last status.json stops calling a dead controller active ([7d20119](https://github.com/feliperun/faberun/commit/7d201195e4278a70e6525a256ef88c41c877bf11))
+* **plan:** a plan says which stage it is in, and a dead one leaves a record ([bcf36a4](https://github.com/feliperun/faberun/commit/bcf36a4128410758da173283335283fafa82606b))
+* **plan:** spec validation names the two shapes it was dropping ([5887dcb](https://github.com/feliperun/faberun/commit/5887dcb0ba03805c4d7e27c7f349d65ae29c68b1))
+* **plan:** the planner refuses a dirty tree before it spends, and a detached refusal is read ([7574c17](https://github.com/feliperun/faberun/commit/7574c177239c57aa6ae70b0f789da2c5ee646c94))
+* **plan:** the review stage compares each proof with the requirement it proves ([b00e2b6](https://github.com/feliperun/faberun/commit/b00e2b6fe2e2b8ba861492d7fd2fb538e13366fb))
+* **repo:** prune sweeps the attempt branches a released run left behind ([10f007e](https://github.com/feliperun/faberun/commit/10f007e14d6646c4e3c31883eecc64feaf3db00f))
+
 ## [0.28.0](https://github.com/feliperun/faberun/compare/v0.27.0...v0.28.0) (2026-09-28)
 
 
