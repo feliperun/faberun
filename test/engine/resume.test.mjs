@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { resumeRun } from "../../src/engine/resume.mjs";
+import { OPERATOR_ANSWER_MAX_BYTES } from "../../src/contract/snapshot.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 
 import { ensureAttemptWorktree, fixture, initializeGit, orphan, packet, withFakeCodex, writeContract } from "../helpers.mjs";
@@ -333,7 +334,24 @@ test("an operator override reaches any non-terminal node", async () => {
     writeFileSync(join(parkedNode.worktree.path, "carried.txt"), "sealed by the previous attempt\n");
     persistFailure(runDir, "build", parked);
 
-    const answerText = `operator answer for ${parked.status}`;
+    // The answer's byte ceiling, both sides, on the first state: one byte over
+    // is refused before anything is recorded, and exactly the ceiling is the
+    // answer that then goes through.
+    const atCeiling = parked === parkedStates[0];
+    if (atCeiling) {
+      const oversizedPath = join(directory, "oversized.txt");
+      writeFileSync(oversizedPath, "x".repeat(OPERATOR_ANSWER_MAX_BYTES + 1));
+      await withFakeCodex(directory, "pass", () => assert.rejects(
+        () => resumeRun(runDir, { answer: { node: "build", path: oversizedPath } }),
+        new RegExp(`answer file exceeds ${OPERATOR_ANSWER_MAX_BYTES} bytes`, "u"),
+      ));
+      const refused = JSON.parse(readFileSync(nodePath, "utf8"));
+      assert.equal(refused.status, parked.status, "an oversized answer leaves the node parked");
+      assert.ok(!(refused.executionOverrides ?? []).some((/** @type {{kind: string}} */ item) => item.kind === "operator-answer"), "an oversized answer records no override");
+    }
+    const answerBase = `operator answer for ${parked.status}`;
+    const answerText = atCeiling ? answerBase.padEnd(OPERATOR_ANSWER_MAX_BYTES, ".") : answerBase;
+    if (atCeiling) assert.equal(Buffer.byteLength(answerText, "utf8"), OPERATOR_ANSWER_MAX_BYTES);
     const answerPath = join(directory, "answer.txt");
     writeFileSync(answerPath, answerText);
 

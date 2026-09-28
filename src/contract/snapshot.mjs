@@ -27,11 +27,17 @@ import { validateWorkerResult } from "./worker-result.mjs";
 /** @typedef {import("./index.mjs").RunMetadata} RunMetadata */
 /** @typedef {import("./index.mjs").ValidatedNode} ValidatedNode */
 
-/**
- * Hard byte ceiling for an operator's answer text, matching the bounded
- * `Previous attempt` section a retry in place already enforces (retry.mjs).
- */
+/** Hard byte ceiling for an operator's answer text, enforced where it is accepted. */
 export const OPERATOR_ANSWER_MAX_BYTES = 8 * 1024;
+
+/** Hard ceiling for the failure evidence of a `Previous attempt` section, in bytes. */
+export const PREVIOUS_ATTEMPT_EVIDENCE_MAX_BYTES = 8 * 1024;
+
+/**
+ * The whole persisted `Previous attempt` section: the bounded evidence, then
+ * the operator's answer carried whole under its heading (engine/retry.mjs).
+ */
+const PREVIOUS_ATTEMPT_MAX_BYTES = PREVIOUS_ATTEMPT_EVIDENCE_MAX_BYTES + OPERATOR_ANSWER_MAX_BYTES + 64;
 
 const GATE_VERDICTS = new Set(["pass", "fail", "invalid_judge_output"]);
 const NODE_STATUSES = new Set(["pending", "running", "done", "no-op", "blocked", "failed", "exhausted", "stalled", "canceled"]);
@@ -204,7 +210,7 @@ export function validateNodeSnapshot(value, expectedNode = null) {
     if (typeof value.previousAttempt !== "string" || !value.previousAttempt.trim()) {
       throw new TypeError("node snapshot.previousAttempt must be a non-empty string");
     }
-    if (Buffer.byteLength(value.previousAttempt, "utf8") > 8 * 1024) throw new TypeError("node snapshot.previousAttempt exceeds 8192 bytes");
+    if (Buffer.byteLength(value.previousAttempt, "utf8") > PREVIOUS_ATTEMPT_MAX_BYTES) throw new TypeError(`node snapshot.previousAttempt exceeds ${PREVIOUS_ATTEMPT_MAX_BYTES} bytes`);
   }
   if (expectedNode) validateSnapshotBinding(value, expectedNode);
   if (Buffer.byteLength(JSON.stringify(value), "utf8") > 128 * 1024) throw new TypeError("node snapshot exceeds 131072 bytes");

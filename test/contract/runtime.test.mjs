@@ -342,8 +342,8 @@ test("a node snapshot accepts a bounded previousAttempt section and rejects an o
   assert.match(/** @type {string} */ (accepted.previousAttempt), /Attempt 1 failed/u);
 
   assert.throws(
-    () => validateNodeSnapshot(snapshot({ previousAttempt: "x".repeat(9 * 1024) })),
-    /previousAttempt exceeds 8192 bytes/u,
+    () => validateNodeSnapshot(snapshot({ previousAttempt: "x".repeat(17 * 1024) })),
+    /previousAttempt exceeds 16448 bytes/u,
   );
   assert.throws(
     () => validateNodeSnapshot(snapshot({ previousAttempt: "   " })),
