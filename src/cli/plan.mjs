@@ -5,8 +5,8 @@
  * sequencing and every decision the pipeline makes.
  */
 import { validateJudgeIndependence } from "../contract/judge-independence.mjs";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
 import { detachArgv, detachSelf, waitForBootstrap } from "./launch.mjs";
 import { classifyRunProgress } from "../campaign/chain.mjs";
 import { runProgress } from "../engine/supervise.mjs";
@@ -113,6 +113,46 @@ export function loadRuntimesCatalogue(path) {
 }
 
 /**
+ * The campaign's own checked-in planning inputs live beside the spec it
+ * already keeps in the repository: `docs/campaigns/<id>/plan-inputs/`. A file
+ * that exists there is used as if it had been passed on the command line,
+ * because that is what it is for; an absent one changes nothing.
+ *
+ * Measured 2026-09-27 (AP19): a campaign carried
+ * `plan-inputs/runtimes.json` with a raised output ceiling, `plan` fell back
+ * to the 8192 default without a word, and the operator found out only after
+ * burning rounds on a truncated draft.
+ *
+ * @param {string} cwd @param {string} campaignId @param {string} file
+ * @returns {string}
+ */
+function campaignInputPath(cwd, campaignId, file) {
+  return join(cwd, "docs", "campaigns", campaignId, "plan-inputs", file);
+}
+
+/**
+ * The catalogue a `plan` reads runtimes from, and the file it came from when
+ * that file is the campaign's own. `--runtimes` wins over the checked-in one:
+ * an operator passing a path is overriding, not asking.
+ *
+ * `source` is returned rather than printed here so a caller decides the
+ * wording; `planCli` says it out loud because silence is the whole defect. The
+ * path is resolved from the launch cwd, never from the plan's own target, so
+ * the same command from a subdirectory reads the same file the campaign does.
+ *
+ * @param {{cwd: string, campaignId: string, runtimes?: unknown}} options
+ * @returns {{runtimes: Record<string, import("../contract/index.mjs").ValidatedRuntime>, source: string|null}}
+ */
+export function resolvePlanRuntimes({ cwd, campaignId, runtimes }) {
+  if (typeof runtimes === "string" && runtimes) return { runtimes: loadRuntimesCatalogue(runtimes), source: null };
+  const campaignRuntimes = campaignInputPath(cwd, campaignId, "runtimes.json");
+  if (!existsSync(campaignRuntimes)) {
+    return { runtimes: /** @type {Record<string, import("../contract/index.mjs").ValidatedRuntime>} */ (DISCOVERY_RUNTIME_DEFINITIONS), source: null };
+  }
+  return { runtimes: loadRuntimesCatalogue(campaignRuntimes), source: campaignRuntimes };
+}
+
+/**
  * A `--verification <path>` catalogue: a JSON object carrying either or both
  * of the contract's own suite keys, `sharedVerification` and
  * `finalVerification`, each validated with the same validator
@@ -160,9 +200,10 @@ export async function planCli(target, values) {
   // R19: the planner's own reviewer list, never `runtimeDefaults.judge` --
   // `--reviewers` wins over the machine's own `config.reviewers` default.
   const reviewers = resolveReviewerList({ reviewers: parseReviewerList(values.reviewers) }, readUserConfig(process.env));
-  const runtimes = typeof values.runtimes === "string" && values.runtimes
-    ? loadRuntimesCatalogue(values.runtimes)
-    : DISCOVERY_RUNTIME_DEFINITIONS;
+  const { runtimes, source: runtimesSource } = resolvePlanRuntimes({ cwd: process.cwd(), campaignId, runtimes: values.runtimes });
+  // Said out loud because silence is the whole defect: the default and the
+  // campaign's own catalogue look identical from the outside.
+  if (runtimesSource) process.stdout.write(`[plan] runtimes · ${relative(process.cwd(), runtimesSource)}\n`);
   const verification = typeof values.verification === "string" && values.verification
     ? loadVerificationSuites(values.verification)
     : {};

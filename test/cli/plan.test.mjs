@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { initializeCampaign } from "../../src/campaign/index.mjs";
 import { readJournal } from "../../src/campaign/journal.mjs";
-import { loadRuntimesCatalogue, loadVerificationSuites } from "../../src/cli/plan.mjs";
+import { loadRuntimesCatalogue, loadVerificationSuites, resolvePlanRuntimes } from "../../src/cli/plan.mjs";
+import { DISCOVERY_RUNTIME_DEFINITIONS } from "../../src/engine/runtime-discovery.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { runProgress } from "../../src/engine/supervise.mjs";
 import { runPlanningPipeline } from "../../src/plan/pipeline.mjs";
@@ -383,6 +384,27 @@ test("--runtimes loads a catalogue file, which drives the pipeline end to end", 
   const contract = JSON.parse(readFileSync(result.contractPath, "utf8"));
   assert.deepEqual(Object.keys(contract.runtimes).sort(), Object.keys(runtimes).sort());
   assert.deepEqual(contract.runtimeDefaults, runtimeDefaults);
+});
+
+test("a plan reads the campaign's own plan-inputs/runtimes.json and names the file it read (AP19)", () => {
+  const cwd = mkdtempSync(join(tmpdir(), "plan-inputs-runtimes-"));
+  const catalogue = { "campaign-worker": { harness: "replay", model: "replay-worker-model", vendor: "vendor-worker", config: { "replay.recording": "/nonexistent/campaign.jsonl" } } };
+  writeFixtureFile(cwd, "docs/campaigns/inputs-demo/plan-inputs/runtimes.json", JSON.stringify(catalogue));
+
+  const carried = resolvePlanRuntimes({ cwd, campaignId: "inputs-demo", runtimes: undefined });
+  assert.deepEqual(Object.keys(carried.runtimes), ["campaign-worker"]);
+  assert.equal(carried.source, join(cwd, "docs/campaigns/inputs-demo/plan-inputs/runtimes.json"));
+
+  // An operator who passes a path is overriding, not asking.
+  const override = join(cwd, "elsewhere.json");
+  writeFileSync(override, JSON.stringify({ "flag-worker": { harness: "replay", model: "m", vendor: "v", config: { "replay.recording": "/nonexistent/flag.jsonl" } } }));
+  const overriding = resolvePlanRuntimes({ cwd, campaignId: "inputs-demo", runtimes: override });
+  assert.deepEqual(Object.keys(overriding.runtimes), ["flag-worker"]);
+  assert.equal(overriding.source, null, "a catalogue the operator named is already said on the command line");
+
+  const absent = resolvePlanRuntimes({ cwd, campaignId: "no-inputs", runtimes: undefined });
+  assert.equal(absent.source, null);
+  assert.deepEqual(Object.keys(absent.runtimes), Object.keys(DISCOVERY_RUNTIME_DEFINITIONS));
 });
 
 test("--runtimes rejects a catalogue file that is not valid JSON", () => {
