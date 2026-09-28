@@ -62,6 +62,21 @@ function fixtureRepo() {
 }
 
 /**
+ * The stranger's own commit before planning. `faberun init` edited `.gitignore`
+ * and installed the skill, and the spec is a new file, so the tree is dirty in
+ * exactly the way a launch refuses (GETTING-STARTED step 4: "commit them before
+ * running"). The launch seam below is stubbed, so the planning pipeline's own
+ * pre-flight is the only thing that can see it.
+ *
+ * @param {string} cwd @param {string} message
+ * @returns {void}
+ */
+function commitAll(cwd, message) {
+  execFileSync("git", ["-C", cwd, "add", "-A"]);
+  execFileSync("git", ["-C", cwd, "-c", "user.email=stranger@example.test", "-c", "user.name=stranger", "-c", "commit.gpgSign=false", "commit", "-qm", message]);
+}
+
+/**
  * Run one `faberun` verb through the shipped executable, the way a stranger
  * following the guide would.
  *
@@ -182,6 +197,7 @@ test("a first campaign by a stranger completes offline", { timeout: 120_000 }, a
   assert.equal(scaffold.status, 0, scaffold.stderr);
   assert.ok(existsSync(specPath), "spec scaffold writes the document");
   writeFileSync(specPath, specText());
+  commitAll(cwd, "chore: prepare the repository for faberun");
 
   // Repo facts detect the Python manifest, and no Node candidate is measured
   // because there is no package.json and no test/ directory.
