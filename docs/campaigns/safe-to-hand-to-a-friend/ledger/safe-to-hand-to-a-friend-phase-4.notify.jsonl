@@ -1,0 +1,5 @@
+{"at":"2026-09-27T19:25:01.980Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-4:repo-scope-and-commit:done:2:1","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T19:27:51.024Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-4:ephemeral-state:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T19:29:25.921Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-4:preflight-truth:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T19:36:49.241Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-4:prompt-contracts:done:2:1","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T19:36:49.391Z","dedupeKey":"run.terminal:safe-to-hand-to-a-friend-phase-4:done","attempt":1,"status":"no_transport"}

@@ -33,6 +33,7 @@ import { dirname } from "node:path";
 import { spawn } from "node:child_process";
 import { NOTIFY_ENV_NAMES } from "../notify/index.mjs";
 import { killTarget, spawnInvocation } from "../host/platform.mjs";
+import { baseEnvironment } from "./worker-env.mjs";
 
 /** @typedef {{executable: string, args: string[], cwd: string, promptTransport: "stdin"|"argv", harness: string, env: Record<string, string|null>|null, stdoutPath: string, stderrPath: string}} GateConfig */
 
@@ -164,10 +165,17 @@ function capLog(path, preservePrefix = false) {
 
 /** @returns {Record<string, string|undefined>} */
 function childEnv() {
-  const merged = { ...process.env };
+  // The worker/judge allowlist. The base operating-system names come from this
+  // process; the runtime-specific names (adapter-declared, `*.env_key`, and
+  // every explicit envPassthrough) travelled here in the gate config because
+  // only the controller knows the runtime. A controller variable nothing named
+  // is absent from `config.env`, so it never reaches the provider. Never start
+  // from `{ ...process.env }`: that was the leak (an exported `AWS_*` or
+  // `GITHUB_TOKEN` handed to a model that runs arbitrary commands).
+  const merged = baseEnvironment(process.env);
   for (const [key, value] of Object.entries(config.env ?? {})) {
     if (value === null) delete merged[key];
-    else merged[key] = value;
+    else if (value !== undefined) merged[key] = value;
   }
   // Worker providers are not a notification surface: strip every controller-only
   // transport after the harness overlay so no harness can reintroduce one. The

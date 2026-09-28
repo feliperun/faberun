@@ -177,18 +177,31 @@ function tapSelectedNothing(stdout) {
 }
 
 /**
- * The environment a filtered proof runs under: the ambient environment with
- * the TAP reporter selected through `NODE_OPTIONS`, minus `NODE_TEST_CONTEXT`.
- * That marker belongs to whichever test runner spawned this process; a nested
- * `node --test` that inherits it stays a runner child and emits no TAP at all
- * (measured 2026-09-21: with the marker the zero-plan line never appears,
- * without it exactly once) -- and a proof is judged as its own top-level run,
- * not as the suite's child.
+ * The full controller environment a Definition of Done verification proof runs
+ * under. A worker or judge receives the allowlist of `worker-env.mjs`; a
+ * verification command is the operator's own check and keeps today's
+ * environment (R1 constraint), secrets included. Exported so the gate test can
+ * assert that the verification spawn really carries the whole thing.
+ *
+ * @returns {NodeJS.ProcessEnv}
+ */
+export function verificationEnvironment() {
+  return { ...process.env };
+}
+
+/**
+ * The environment a filtered proof runs under: the full controller environment
+ * with the TAP reporter selected through `NODE_OPTIONS`, minus
+ * `NODE_TEST_CONTEXT`. That marker belongs to whichever test runner spawned
+ * this process; a nested `node --test` that inherits it stays a runner child
+ * and emits no TAP at all (measured 2026-09-21: with the marker the zero-plan
+ * line never appears, without it exactly once) -- and a proof is judged as its
+ * own top-level run, not as the suite's child.
  *
  * @returns {NodeJS.ProcessEnv}
  */
 function envForFilteredProof() {
-  const { NODE_TEST_CONTEXT: _outer, NODE_OPTIONS: existing, ...ambient } = process.env;
+  const { NODE_TEST_CONTEXT: _outer, NODE_OPTIONS: existing, ...ambient } = verificationEnvironment();
   return { ...ambient, NODE_OPTIONS: existing ? `${existing} --test-reporter=tap` : "--test-reporter=tap" };
 }
 
@@ -239,7 +252,9 @@ async function proveCommand(id, proof, cwd, timeoutMs) {
       shell: true,
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"],
-      ...(filters.length ? { env: envForFilteredProof() } : {}),
+      // A proof keeps the full controller environment, filtered or not; only
+      // the test-filter case swaps in the TAP reporter.
+      env: filters.length ? envForFilteredProof() : verificationEnvironment(),
     });
     let stdout = "";
     let stderr = "";

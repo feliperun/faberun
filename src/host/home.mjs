@@ -27,6 +27,33 @@ export function faberunHome(env = process.env) {
   return join(homedir(), ".faberun");
 }
 
+/**
+ * The home directory the *injected* environment names, or null when it names
+ * none. Unlike `faberunHome`, this never consults `os.homedir()`.
+ *
+ * The distinction matters for exactly one caller: `faberun uninstall` derives
+ * the roots it may delete from the environment it was handed, and
+ * `src/host/uninstall-roots.mjs` refuses every removal when that environment
+ * names neither root. A fallback to the operator's real home would aim a delete
+ * at it when the caller meant to scope the operation to a throwaway one, which
+ * is the accident the isolation requirement exists to stop. `HOME` is the POSIX
+ * name and `USERPROFILE` the Windows one; `HOMEDRIVE`+`HOMEPATH` is the last
+ * spelling `os.homedir()` itself accepts there.
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string|null}
+ */
+export function effectiveHome(env = process.env) {
+  for (const name of ["HOME", "USERPROFILE"]) {
+    const value = env[name];
+    if (typeof value === "string" && value) return value;
+  }
+  const drive = env.HOMEDRIVE;
+  const path = env.HOMEPATH;
+  if (typeof drive === "string" && drive && typeof path === "string" && path) return `${drive}${path}`;
+  return null;
+}
+
 /** @param {string} home @returns {string} */
 export function versionsDir(home) {
   return join(home, "versions");

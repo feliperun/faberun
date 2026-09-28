@@ -116,3 +116,172 @@ com a campanha de melhoria do faberun: cada item aqui vira requisito lá.
 - **Correção sugerida:** `cancel` (e `status`) leem o contrato persistido como registro, sem
   revalidá-lo pelas regras atuais; só `resume` precisa do contrato válido hoje.
 
+## AP7. A fase 1 integrou uma árvore vermelha, e nenhum portão viu
+
+- **Sintoma:** ao trazer a `main` (0.26.0) para a branch da campanha em 27/09, quatro testes
+  estruturais falharam, todos introduzidos pela fase 1: `src/host/preflight.mjs` com 840
+  linhas (teto de 800), `declaredEnvironment` exportado por sete módulos, três arquivos de
+  teste novos sem `scoped-home.mjs` como primeiro import, e uma asserção do zcode que a
+  mudança do R1 tornou falsa.
+- **Causa:** `plan-inputs/verification.json` só punha `npm run typecheck` em cada nó e
+  `npm run check` (sintaxe) e `docs:check` no fim. Nenhum comando rodava
+  `test/repo/source-shape.test.mjs`, e o juiz aprovou nós que só rodaram os próprios testes.
+- **Correção feita:** os quatro reparos em commits separados na branch da campanha
+  (`refactor(host)`, dois `test(harnesses)`, `test(repo)`), com a decisão de isentar
+  `declaredEnvironment` da regra de nome único pelo mesmo motivo que isenta `harness`, e
+  `node --test test/repo/source-shape.test.mjs` (0,36 s medido) entrou na verificação
+  compartilhada de todo nó a partir da fase 2.
+- **Correção sugerida no produto:** o planner lê as regras que a suíte do alvo impõe à forma
+  do código e propõe o teste delas como verificação compartilhada, em vez de depender do
+  operador lembrar.
+
+## AP8. A prova escrita na própria spec continua sem arquivo de teste
+
+- **Sintoma:** as provas de R1 a R7 na spec são `node --test --test-name-pattern="<título>"`
+  sem arquivo. O planner agora acrescenta o arquivo (AP1), mas `spec validate
+  --run-proofs` roda a prova como a spec a escreve, por `plan/proof-run.mjs`, que não passa
+  pelo congelamento.
+- **Decisão (27/09):** fica fora da fase 2, que cobre R5 a R7. Vira requisito candidato: a
+  checagem de `spec validate` recusa (ou avisa) prova filtrada sem arquivo, com a mesma regra
+  de `plan/proof-scope.mjs`.
+
+## AP9. O reparo do AP2 só vê arquivo criado
+
+- **Sintoma:** um nó que apaga ou renomeia um arquivo dentro de um diretório que algum teste
+  enumera também quebra esse teste, e `declareDirectoryGuards` só olha caminhos que ainda não
+  existem.
+- **Decisão (27/09):** fora do escopo da fase 2. O plano não declara remoções (`writeFiles`
+  não distingue criar de apagar), então fechar isso pede primeiro um jeito de o plano dizer
+  que um nó remove um arquivo.
+
+## AP10. Uma recusa de lançamento num estágio do planner vira "failed before readiness"
+
+- **Sintoma:** em 27/09 o primeiro `faberun plan` da fase 2 levou 16 min no `repo-facts` e
+  morreu no rascunho com *"detached bootstrap failed before readiness for pid 82057"*, sem
+  run dir e sem motivo. Rodando o mesmo contrato em primeiro plano, a causa apareceu:
+  *"refusing to launch against HEAD: the working tree has 2 uncommitted paths"* (os
+  contratos `phase-1b`/`phase-1c` fora do git).
+- **Causa:** o estágio lança a run destacada, e a recusa acontece antes de o controlador
+  escrever o registro de bootstrap; o stderr do filho é descartado. É o caso do R32.
+- **Correção sugerida:** o `plan` confere a árvore limpa antes do `repo-facts` (e não 16 min
+  depois), e a recusa do filho destacado é gravada no registro de bootstrap (R32).
+
+## AP11. O plano escreveu uma prova mais estrita que a spec
+
+- **Sintoma:** o nó `r6-legacy-sweep` da fase 2 falhou duas vezes na prova
+  `! grep -q "\.runs" README.md docs/*.md`, embora o R6 aceite menção dentro de trecho
+  rotulado como layout legado; o worker também tratou `docs/COMMANDS.md` inteiro como gerado,
+  quando só sinopses e tabelas de flags o são.
+- **Custo:** 2 tentativas do nó e a fase 2 fechando 2/3.
+- **Decisão (27/09, autorizada pelo dono):** R6 replanejado como fase 2b pelo `faberun plan`,
+  com a spec esclarecendo a prova e o escopo do `COMMANDS.md`, e o trabalho da tentativa 2
+  salvo em `salvage/r6-legacy-sweep.patch` como ponto de partida. Nenhum contrato editado à
+  mão.
+- **Correção sugerida no produto:** o revisor do plano compara cada prova de comando com a
+  frase da spec que ela prova e acusa a prova mais estrita que o requisito.
+
+## AP12. O `status.json` diz "controller active" com o pid já morto
+
+- **Sintoma:** depois que a run `safe-to-hand-to-a-friend-phase-2` terminou (27/09), o
+  `status.json` seguiu com `controller.state: "active"` e o pid 43002, que já não existia; um
+  watcher que esperava o controlador sair ficou em loop por duas horas.
+- **Correção sugerida:** o controlador grava o estado final ao sair, e o `status` confere a
+  vida do pid antes de dizer `active`.
+
+## AP13. Uma prova de comando que o shell nem lê passa pelo congelamento
+
+- **Sintoma:** na fase 3, o nó `r8-offline-first-campaign` passou no trabalho (teste de ponta
+  a ponta verde em 15 s) e esgotou as duas tentativas porque a prova congelada era
+  `… --test-name-pattern=a stranger's first campaign completes offline …`, sem aspas: o
+  `/bin/sh -c` falhou com *"unexpected EOF while looking for matching `'`"*.
+- **Decisão (27/09):** R8 replanejado como fase `phase-3r8` com o teste renomeado para um
+  título sem apóstrofo e o trabalho salvo em `salvage/r8-offline-first-campaign.patch`.
+- **Correção sugerida no produto:** o congelamento roda `sh -n -c` (ou o equivalente) em cada
+  prova de comando e recusa a que não parseia. É o terreno do R34, da fase 5.
+
+## AP14. Uma chave de bullet com espaço gruda em silêncio no bullet anterior da spec
+
+- **Sintoma:** em `phase-3r8.SPEC.md`, um `- **esclarecimento (27/09):**` logo depois do
+  `- **proof:**` fez o `spec validate` dizer que R8 não tinha prova: o parser só aceita chave
+  `[a-zA-Z-]+`, ignora a linha de bullet que não casa e cola as linhas seguintes na chave
+  anterior. Em `phase-2b.SPEC.md` o mesmo formato passou calado.
+- **Correção sugerida:** `spec validate` avisa de uma linha `- **…:**` cuja chave não casa, em
+  vez de tratá-la como nada.
+
+## AP15. Cada fase deixou regressões em testes vizinhos que nenhum nó rodou
+
+- **Sintoma:** com as fases 3, 4, 5 e 3r8 integradas, `npm test` deu 4 falhas em 1763:
+  um defeito real (`shellWords` partia um `node -e "…\"fs\"…"` na aspa escapada, e a checagem
+  do R34 recusou um script que parseia) e três expectativas que R1 e R22 tornaram velhas
+  (variável ambiente chegando ao worker, `withoutNotifyEnv` no probe, ignore declarado
+  falhando). Todos os nós tinham passado nos próprios testes.
+- **Causa:** a verificação compartilhada é typecheck mais o teste de forma; nenhum nó roda os
+  testes dos módulos que ele muda indiretamente, e a verificação final não roda `npm test`
+  (35 min medidos).
+- **Correção feita:** o defeito e as três expectativas corrigidos em dois commits na branch da
+  campanha.
+- **Correção sugerida no produto:** o planner acrescenta, por nó, os arquivos de teste que
+  importam os módulos que o nó escreve (o mesmo grafo que a checagem de fechamento de escopo
+  já percorre), e a campanha roda a suíte inteira uma vez antes de fechar.
+
+## Achados da campanha `open-source-readiness` (Fordita, frb-linux2), recebidos em 27/09
+
+Conferidos contra AP1 a AP15. N1 compartilha o sintoma com o AP10; os outros quatro são novos.
+
+## AP16. O teto de saída do harness fx estava cravado em 8192 nos dois clientes (N1)
+
+- **Sintoma:** o `draft` de um `faberun plan` morria com `{"code":-32603,"message":"OutputTruncated"}`,
+  e o operador via só *"detached bootstrap failed before readiness for pid N"*.
+- **Causa:** `MAX_OUTPUT_TOKENS = 8192` em `src/harnesses/fx/runner.mjs` e `max_output_tokens =
+  8192` em `src/harnesses/fx/native/main.zig`, sem configuração; o adapter prefere o cliente
+  nativo, então corrigir só o Node deixava o defeito no caminho preferido.
+- **Relação:** a mensagem opaca é o mesmo caso do AP10 (recusa de um estágio destacado que chega
+  ao operador sem a causa). O teto cravado é novo.
+- **Correção:** `config.max_output_tokens` do runtime vira `--max-output-tokens` nos dois
+  clientes, 8192 como default; o `deepseek-flash` aceita 65536 (medido pela Fordita).
+
+## AP17. O `revise` devolve o plano inteiro, e um plano de 9 nós não cabe em 65536 tokens (N2)
+
+- **Sintoma:** dois `revise` falharam em `prompt_failed` com 65.932 e 66.821 tokens de saída, no
+  teto de 65536; o `deepseek-flash` como worker produz 68k a 156k tokens por nó.
+- **Relação:** o commit que faz o `revise` ler o plano que revisa (27/09) resolveu a perda de
+  conteúdo, não o tamanho da resposta: o estágio ainda pede o plano completo de volta.
+- **Correção sugerida:** o `revise` devolve um patch sobre os nós afetados, ou o estágio é fatiado
+  por nó.
+
+## AP18. Um artefato acima de 16 KiB vira `protocol_failure` opaco (N3)
+
+- **Sintoma:** um worker GLM produziu `artifacts[0]` com 19.810 bytes contra o limite de 16.384, e
+  o nó falhou com `protocol_failure`, sem nomear tamanho nem limite.
+- **Correção sugerida:** o artefato grande transborda para arquivo com o caminho no lugar, ou o
+  erro nomeia o tamanho e o limite.
+
+## AP19. `plan` sem `--runtimes` ignora em silêncio o catálogo da campanha (N4)
+
+- **Sintoma:** a campanha tinha `plan-inputs/runtimes.json` com o teto maior, e o `plan` caiu no
+  catálogo padrão (8192) sem avisar; o operador descobriu depois de queimar rodadas.
+- **Correção sugerida:** o `plan` usa o `plan-inputs/runtimes.json` da campanha quando existe, ou
+  avisa na subida que ele existe e não foi passado.
+
+## AP20. O juiz aprovou um nó que entregou o requisito pela metade (N5)
+
+- **Sintoma:** o nó `guards-core` entregou a guarda sem as exclusões padrão que o R1 da campanha
+  declara, o juiz aprovou, e o operador interveio duas vezes na ref de integração (`6f47f4a`,
+  `4881faf`) para a fase fechar.
+- **Relação:** é o avesso do AP11 (prova mais estrita que a spec): aqui a entrega fica aquém do
+  statement e passa. O AP15 é vizinho (o portão não roda o que devia), mas o mecanismo é outro:
+  o juiz não conferiu o statement classe por classe.
+- **Correção sugerida:** o juiz confere cada classe do statement contra a entrega, ou o
+  fechamento da fase roda a guarda da spec sobre a árvore final e reprova enquanto houver
+  classe aberta.
+
+## AP21. O `prune` libera a worktree e deixa a branch de tentativa
+
+- **Sintoma:** em 28/09, depois de `faberun prune --parked` liberar 20 worktrees, restavam 133
+  branches locais `faberun/<run>/<nó>/<n>`, todas com o commit já alcançável por
+  `refs/faberun-archive/`, pela ref da run ou por uma branch normal.
+- **Causa:** `releaseRunWorktrees` (`src/repo/worktree.mjs`) só apaga a branch que a worktree
+  tem em checkout; as demais tentativas da mesma run ficam.
+- **Correção aceita pelo dono (28/09):** o `prune`, e o prune automático do `run`, apagam também a
+  branch de tentativa cujo commit já é alcançável por uma dessas refs, e nunca uma que não seja.
+

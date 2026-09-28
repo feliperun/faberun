@@ -425,7 +425,7 @@ function gitSetRef(repo, ref, sha) {
 
 /** @param {string} repo @param {string} tree @param {string} firstParent @param {string} secondParent @param {string} runId @param {string} nodeId @param {number} attempt @returns {string} */
 function gitCommitTree(repo, tree, firstParent, secondParent, runId, nodeId, attempt) {
-  const result = boundedGitSync(["-C", repo, "commit-tree", tree, "-p", firstParent, "-p", secondParent, "-m", `faberun candidate ${runId} ${nodeId} attempt ${attempt}`], {
+  const result = boundedGitSync(["-C", repo, "commit-tree", tree, "-p", firstParent, "-p", secondParent, "-m", `chore(faberun): integrate ${nodeId} attempt ${attempt}`, "-m", `faberun run ${runId}`], {
     encoding: "utf8",
     env: {
       ...process.env,

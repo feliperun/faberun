@@ -9,17 +9,11 @@ source `gitHead`. Every worker attempt gets a linked worktree at
 `faberun/<run-id>/<node-id>/<attempt>`, cut from that ref; the node snapshot records
 `worktree.path`, `.branch`, `.baseSha` and the sealed `.commit`. Provider,
 scope, verification and judge processes all use that path; `contract.cwd` stays
-the home of run/control artifacts. An installed root `node_modules` is
-symlinked into every attempt worktree, never copied.
+the home of run/control artifacts.
 
 A retried attempt never discards the previous one's edits: the controller seals
 the previous worktree first and, when that seal has a diff, cuts the next
-attempt from that sha (`worktree.previousAttempt`); an empty seal falls back to
-the run ref tip.
-
-`contract.maxParallel` bounds concurrent nodes; each tick dispatches every
-`pending` node whose dependencies are `done`, up to the free slots, each into
-its own worktree.
+attempt from that sha (`worktree.previousAttempt`).
 
 ## Integration transaction
 
@@ -36,9 +30,8 @@ untouched, and keeps the attempt worktree. A conflict marks the node `attention`
 with the conflicting paths and cleans the scratch worktree.
 
 Resume replays `integration.jsonl`, never ancestry, to identify the one
-unfinished transaction and complete it idempotently. A resume that re-dispatches
-a failed/stalled/exhausted/canceled node cuts the next attempt from the previous
-attempt's sealed sha, the same continuation rule as any other retry.
+unfinished transaction and complete it idempotently; a re-dispatch follows the
+same continuation rule as any other retry.
 
 ## Controller lock and takeover
 
@@ -50,17 +43,16 @@ otherwise it exits `controller_active`, untouched. Takeover renames the lock
 aside and re-checks it is stale before installing its own. Worker/judge/
 verification children run detached in their own process group, so before
 dispatching new work `resume`'s recovery pass terminates (`SIGTERM` then
-`SIGKILL`, same as `cancel`) every invocation recorded for a `running` node —
-unless it is still inside its deadline, when it is adopted and its result read.
+`SIGKILL`) every invocation recorded for a `running` node —
+unless still inside its deadline, when it is adopted and its result read.
 `cancel` signals a live controller first, so its takeover never waits.
+`resume --reauthor <node-id>` re-widens a refused packet under a hard round
+budget.
 
-`supervise <run-dir> [--detach] [--interval <sec>]` is the watchdog above that.
-It holds no lock and writes no state: every interval (default 30s) it launches
-`resume --detach` when a node is unfinished and no controller is live, exits 0
-once all are terminal, and stops after three failed launches. An empty run
-directory is never resumed. A detached controller outlives its launcher,
-not the session scope (cgroup) holding it: run long work under `tmux`,
-`systemd-run` or the seat.
+`supervise <run-dir> [--detach] [--interval <sec>]` is the watchdog;
+it holds no lock and writes no state. A detached controller outlives its
+launcher, not the session scope (cgroup) holding it: run long work under
+`tmux`, `systemd-run` or the seat.
 
 ## Runtime discovery
 
@@ -101,7 +93,7 @@ The same server exposes the phone surface under `/api/*`, behind the
 same token and bind. Reads: `GET /api/campaigns`, `/api/campaigns/<id>`,
 `…/brief`, `/api/seats`, and `…/events?after=<cursor>` (one bounded page, ≤32 KiB
 and ≤100 entries, so a client starting at zero never drags the whole journal).
-Writes shell out to the runner CLI and touch no state themselves:
+Writes shell out to the runner CLI:
 `POST …/decisions/<id>` → `campaign resolve`; `…/note` → `campaign note`;
 `…/pause` and `…/resume` → `cancel` / `resume --detach`; `/api/seats/<id>/switch`
 → `seat switch`. No replan, contract, routing or gate route exists on purpose:
@@ -110,7 +102,7 @@ the contract is frozen with a digest, and the phone's middle ground is a note.
 ## Notify
 
 On `node.terminal`, `run.terminal` and `attention` the controller renders one
-message from persisted state, in the operator's own language (detected from
+message from persisted state, in the operator's language (from
 the campaign goal, journal notes and node objectives, or `FABERUN_NOTIFY_LANG`;
 English otherwise). Only `run.terminal`, `attention` and `advisory` leave by
 default -- a phase settling and a person being needed -- while a node settling
@@ -118,31 +110,31 @@ gets a `filtered` receipt; `FABERUN_NOTIFY_EVENTS` widens or narrows the list:
 line one is the outcome (`✅ <node> · done in 8m · $0.09`, `🏁 run 15 · <name>
 · 2/2 done`, or `👀 <node> needs you · <error>`), then asked / done / proof
 for a node, what every node delivered for a run, or why / asked / do for
-attention, then a progress bar, a rule and the `🐦 faberun` signature with
-campaign percent, cost and elapsed; an `⬆️` line names a newer release when
+attention, then a progress bar, a rule and the `🐦 faberun` signature (campaign
+percent, cost, elapsed); an `⬆️` line names a newer release when
 the cached update check has one. ≤2 KiB. It delivers that
-same text to every bound transport at once, appending one receipt
-(`delivered`, `failed`, `no_transport`, one entry per transport) to
+text to every bound transport at once, appending one receipt
+(`delivered`, `failed`, `no_transport`, per transport) to
 `<run-dir>/notify.jsonl`. Delivery is lossy: **exactly one attempt**, no retry,
 no backoff. `FABERUN_NOTIFY_BIN` names an executable called with the event as
 JSON on stdin (`os-macos` selects the bundled `osascript` adapter); it pushes to
 a person, `canWake: false`. `FABERUN_NOTIFY_SESSION` wakes harness sessions,
 `canWake: true`: `auto` is the Claude Code inbox and Codex thread the
 environment names; `claude:<socket>` adds another session's inbox, so the
-operator's own interactive session hears a run a background session launched
-(`echo $CLAUDE_CODE_MESSAGING_SOCKET` in that session gives the path). A seat
-window sets `auto`; nothing else does, so a test suite never wakes a session.
+operator's own session hears a background run
+(`echo $CLAUDE_CODE_MESSAGING_SOCKET` in that session gives the path). Only a seat
+window sets `auto`, so a test suite never wakes a session.
 **On an inbound `🐦 faberun` message**: repeat it to the operator verbatim,
-then one line on what you do next -- the message exists to inform the person,
-not you, and it reaches them only through your reply; `👀`, act on the `do`
+then one line on what you do next -- it informs the person, not
+you, and reaches them only through your reply; `👀`, act on the `do`
 command it names. A
 resume never re-sends a notification already recorded for the same node, attempt
 and outcome. No transport is a default: `doctor`, `preflight` and the foreground
-launch warn when both variables are empty, and `--wake` names what will wake.
+launch warn when both are empty, and `--wake` names what will wake.
 Campaign-level lines are queued in `.runs/inbox.jsonl`, the managed block's
 append-only record — one object per line `{schemaVersion, eventId, at, type,
 campaignId, runId, nodeId, status, errorCode, dedupeKey, summary}`, deduped on
-`dedupeKey` (first write wins) with one `O_APPEND` write per line.
+`dedupeKey` with one `O_APPEND` write per line.
 `campaign watch --wake --detach` queues there and delivers through
 `<campaign-dir>/notify.jsonl`; a durable `watch.lock` plus the inbox dedupe keep
 two detached watchers from double-sending across a restart.
@@ -207,3 +199,4 @@ binary is absent, and only reattaching is lost.
 `faberun skills install [name]` installs the shipped skills.
 `faberun skills register [--harness a,b] [--copy] [--force]` links the faberun skill into each installed harness's skills directory.
 `faberun campaign unpark <id> [--force]` clears a parked campaign once its run is no longer parked so `supervise campaign` can continue.
+`faberun uninstall [--dry-run]` removes what faberun wrote outside a target repository and `$FABERUN_HOME`; an unpreserved ledger refuses unless `--force`.

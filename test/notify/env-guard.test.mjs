@@ -87,9 +87,13 @@ test("the gate and the availability probe both strip from the one list, and neit
   const gate = readFileSync(join(root, "src", "engine", "gate.mjs"), "utf8");
   assert.match(gate, /for \(const name of NOTIFY_ENV_NAMES\) delete merged\[name\];/u, "the gate strips the list, not a literal");
   assert.doesNotMatch(gate, /delete merged\.FABERUN_NOTIFY_/u, "a literal here is the shape of the defect: one name guarded, the next one through");
+  // Since safe-to-hand-to-a-friend R1 the probe spawns with the worker
+  // allowlist, which drops the notify names by the same list.
   const probe = readFileSync(join(root, "src", "harnesses", "index.mjs"), "utf8");
-  assert.match(probe, /env: withoutNotifyEnv\(process\.env\)/u);
+  assert.match(probe, /env: workerEnvironment\(runtime\)/u);
   assert.doesNotMatch(probe, /env: process\.env,/u);
+  const allowlist = readFileSync(join(root, "src", "engine", "worker-env.mjs"), "utf8");
+  assert.match(allowlist, /for \(const name of NOTIFY_ENV_NAMES\) names\.delete\(name\);/u, "the allowlist strips the list, not a literal");
 });
 
 test("a provider launched by the real gate sees no notify variable, even when the controller carries both: the path that flooded a live session", async () => {

@@ -10,6 +10,19 @@ import { fileURLToPath } from "node:url";
 import { parseVersion } from "../protocol.mjs";
 import { normalizeRunnerTranscript, runnerEnvironmentOverlay, withSchema } from "../runner-transcript.mjs";
 
+/**
+ * The environment names this adapter reads outside the base set and the
+ * runtime's own `*.env_key` names: the provider key the client falls back to
+ * when a runtime names none, and the binary override `executable()` honours.
+ * Values never travel here.
+ *
+ * @type {readonly string[]}
+ */
+export const declaredEnvironment = Object.freeze([
+  "DEEPSEEK_API_KEY",
+  "FABERUN_FX_BIN",
+]);
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 /**

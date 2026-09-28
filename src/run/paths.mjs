@@ -17,7 +17,7 @@
  * run, because answering the home side of a not-yet-migrated repository would
  * split its state across two layouts.
  */
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import { campaignDir, campaignsDir } from "../campaign/layout.mjs";
 import { faberunHome } from "../host/home.mjs";
@@ -132,6 +132,19 @@ export function repositoryForRunsDir(runsDir) {
  */
 export function runDirectory(cwd, runId) {
   return join(runsRoot(cwd), runId);
+}
+
+/**
+ * Remove one run's directory and everything under it. The caller owns the
+ * decision that the directory may go; keeping the erasure here means no other
+ * module re-derives `<runs>/<id>` to delete it and the layout stays in one
+ * place.
+ *
+ * @param {string} runDir
+ * @returns {void}
+ */
+export function removeRunDirectory(runDir) {
+  rmSync(runDir, { recursive: true, force: true });
 }
 
 /**

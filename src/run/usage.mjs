@@ -8,7 +8,7 @@
  */
 import { appendJsonl, writeJsonAtomic } from "./store.mjs";
 import { basename, join } from "node:path";
-import { errorMessage, stableJson } from "../util.mjs";
+import { errorMessage, finite, stableJson } from "../util.mjs";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { liveUsage } from "../harnesses/session-metrics.mjs";
 
@@ -128,6 +128,71 @@ export function invocationCost(state) {
     .map((invocation) => invocation.costUsd)
     .filter((cost) => typeof cost === "number" && Number.isFinite(cost)));
   return costs.length ? costs.reduce((total, cost) => total + cost, 0) : undefined;
+}
+/** @typedef {{attempt: number, costUsd: number|null}} AttemptCost */
+/**
+ * The cost of each attempt a node made, derived from the invocation ledger the
+ * snapshot already stores and nothing else: every invocation carrying the same
+ * `attempt` is one attempt, and its cost is the sum of the prices those
+ * invocations recorded. An attempt with any unpriced invocation reports `null`
+ * rather than a partial sum -- the same refusal `roleUsage` makes for a role,
+ * because dollars that are partly missing are not a total. An invocation that
+ * predates the `attempt` field is read as the first attempt rather than
+ * dropped.
+ *
+ * Attempts come back in the order they ran; a snapshot with no invocations
+ * yields an empty list, never a fabricated zero-attempt.
+ *
+ * @param {NodeSnapshot} state
+ * @returns {AttemptCost[]}
+ */
+export function attemptCosts(state) {
+  /** @type {Map<number, {costUsd: number, unpriced: number}>} */
+  const byAttempt = new Map();
+  for (const invocation of state.invocations ?? []) {
+    const attempt = typeof invocation.attempt === "number" && Number.isFinite(invocation.attempt) ? invocation.attempt : 1;
+    const bucket = byAttempt.get(attempt) ?? { costUsd: 0, unpriced: 0 };
+    const cost = finite(invocation.costUsd);
+    if (cost === null) bucket.unpriced += 1;
+    else bucket.costUsd += cost;
+    byAttempt.set(attempt, bucket);
+  }
+  return [...byAttempt.entries()]
+    .sort((left, right) => left[0] - right[0])
+    .map(([attempt, bucket]) => ({ attempt, costUsd: bucket.unpriced > 0 ? null : bucket.costUsd }));
+}
+/**
+ * The two sides of R31's comparison: the first attempt's cost and the sum of
+ * every attempt after it. `null` when they cannot be compared -- fewer than
+ * two attempts, or any attempt on either side is not fully priced -- so a
+ * caller never reads an invented number.
+ *
+ * @param {NodeSnapshot} state
+ * @returns {{firstCostUsd: number, retryCostUsd: number}|null}
+ */
+export function retryOutspend(state) {
+  const costs = attemptCosts(state);
+  if (costs.length < 2) return null;
+  const [first, ...retries] = costs;
+  if (first.costUsd === null || retries.some((entry) => entry.costUsd === null)) return null;
+  return {
+    firstCostUsd: first.costUsd,
+    retryCostUsd: retries.reduce((total, entry) => total + /** @type {number} */ (entry.costUsd), 0),
+  };
+}
+/**
+ * Whether the retries together out-spend the first attempt. The one predicate
+ * every surface shares -- the campaign payload and the notification's text
+ * line -- so a node that cost more to redo than to do is named the same way
+ * everywhere, against the first attempt's own recorded cost rather than a
+ * guessed threshold.
+ *
+ * @param {NodeSnapshot} state
+ * @returns {boolean}
+ */
+export function retriesOutspendFirst(state) {
+  const outspend = retryOutspend(state);
+  return outspend !== null && outspend.retryCostUsd > outspend.firstCostUsd;
 }
 /**
  * Invocation ids already present in the run's usage.jsonl. The append path

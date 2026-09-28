@@ -1,0 +1,9 @@
+{"at":"2026-09-27T20:23:08.142Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-5:r31-status-retry-cost:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T20:24:04.865Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-5:r32-detached-refusal:done:2:1","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T20:25:56.828Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-5:r30-campaign-note-ids:done:2:1","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T20:30:36.455Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-5:r34-proof-parse-refusal:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T20:30:53.886Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-5:r33-session-limit-reset:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T20:34:10.637Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-5:r35-validate-runtime-assignment:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T20:40:36.009Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-5:r36-machine-config-judge:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T20:49:32.156Z","dedupeKey":"node.terminal:safe-to-hand-to-a-friend-phase-5:r36-readers-effective-mode:done:1:0","attempt":1,"status":"filtered"}
+{"at":"2026-09-27T20:49:32.265Z","dedupeKey":"run.terminal:safe-to-hand-to-a-friend-phase-5:done","attempt":1,"status":"no_transport"}

@@ -26,6 +26,24 @@ export function validateJudgeIndependence(value, label) {
 }
 
 /**
+ * The `judgeIndependence` in force for a launch (R36): the contract's own
+ * declaration wins, and a contract that declares none inherits the machine
+ * config's opt-in. Both sources are already validated to the single accepted
+ * value before they reach here -- the contract by `validateJudgeIndependence`,
+ * the config by `isUserConfig` -- so this is a plain precedence read, not a
+ * second validation. A value neither source names (or a malformed raw config a
+ * test hands in) reads as no opt-in, exactly as an absent field would.
+ *
+ * @param {{judgeIndependence?: string}|null|undefined} contract
+ * @param {{judgeIndependence?: string}|null|undefined} config
+ * @returns {"same-vendor"|undefined}
+ */
+export function effectiveJudgeIndependence(contract, config) {
+  const mode = contract?.judgeIndependence ?? config?.judgeIndependence;
+  return mode === SAME_VENDOR_REVIEW_MODE ? SAME_VENDOR_REVIEW_MODE : undefined;
+}
+
+/**
  * Same-vendor mode's own admissibility rule for a worker/judge pair that
  * share a vendor: a judge model absent from the declared tier table can never
  * judge in this mode, and a judge tier below the worker's is refused, naming

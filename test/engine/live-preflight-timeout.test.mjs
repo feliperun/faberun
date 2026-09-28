@@ -9,8 +9,8 @@ test("the default live preflight budget follows the runtime's reasoning effort",
   assert.equal(defaultLivePreflightTimeout(runtime("xhigh")), 180);
   assert.equal(defaultLivePreflightTimeout(runtime("max")), 180);
   assert.equal(defaultLivePreflightTimeout(runtime("high")), 60);
-  assert.equal(defaultLivePreflightTimeout(runtime("medium")), 15);
-  assert.equal(defaultLivePreflightTimeout(runtime(undefined)), 15);
+  assert.equal(defaultLivePreflightTimeout(runtime("medium")), 60);
+  assert.equal(defaultLivePreflightTimeout(runtime(undefined)), 60);
 });
 
 test("a detached launcher waits for the longest live preflight the gate may run", async () => {

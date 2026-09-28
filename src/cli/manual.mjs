@@ -5,11 +5,16 @@
  * reads/writes prose, examples, Related lines, and the four fixed sections)
  * is copied through unchanged, so the manual's prose stays hand-authored
  * while its command surface cannot drift from the code silently.
+ *
+ * `--check` is the docs check the repository runs: it verifies COMMANDS.md and
+ * then runs the getting-started walkthrough against a throwaway repository, so
+ * the one document a newcomer follows literally cannot drift either.
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { COMMAND_OPTIONS } from "../cli.mjs";
+import { checkGettingStarted, renderWalkthroughFailure } from "./walkthrough.mjs";
 import { METRICS_MANUAL } from "../campaign/metrics-command.mjs";
 import CAMPAIGN_OPERATIONS from "./campaign.mjs";
 import SEAT_OPERATIONS from "./seat.mjs";
@@ -18,7 +23,7 @@ import SKILLS_OPERATIONS from "./skills.mjs";
 import SPEC_OPERATIONS from "./spec.mjs";
 
 /** @typedef {{value: string, effect: string, default: string}} ManualFlag */
-/** @typedef {{type: "string"|"boolean", multiple?: boolean, manual?: ManualFlag}} FlagSpec */
+/** @typedef {{type: "string"|"boolean", multiple?: boolean, required?: boolean, manual?: ManualFlag}} FlagSpec */
 /** @typedef {{flags?: Record<string, FlagSpec>, operations?: Record<string, Record<string, FlagSpec>>}} VerbSurface */
 /** @typedef {{verbs: Record<string, VerbSurface>}} Surface */
 
@@ -223,9 +228,12 @@ function renderSynopsis(prefix, positional, flags) {
   const parts = [prefix];
   if (positional) parts.push(positional);
   for (const [name, spec] of Object.entries(flags)) {
-    if (spec.type === "boolean") parts.push(`[--${name}]`);
-    else if (spec.multiple) parts.push(`[--${name} <a>...]`);
-    else parts.push(`[--${name} <value>]`);
+    const token = spec.type === "boolean"
+      ? `--${name}`
+      : spec.multiple
+        ? `--${name} <a>...`
+        : `--${name} <value>`;
+    parts.push(spec.required ? token : `[${token}]`);
   }
   return parts.join(" ");
 }
@@ -339,13 +347,21 @@ function main(argv) {
   }
   const current = readFileSync(MANUAL_PATH, "utf8");
   const next = renderManual(current, collectSurface());
-  if (next === current) return;
   if (mode === "--write") {
-    writeFileSync(MANUAL_PATH, next);
+    if (next !== current) writeFileSync(MANUAL_PATH, next);
     return;
   }
-  process.stderr.write(`docs/COMMANDS.md is out of date; run \`npm run docs\`.\n${diffSummary(current, next)}\n`);
-  process.exitCode = 1;
+  let failed = false;
+  if (next !== current) {
+    process.stderr.write(`docs/COMMANDS.md is out of date; run \`npm run docs\`.\n${diffSummary(current, next)}\n`);
+    failed = true;
+  }
+  const walkthrough = checkGettingStarted();
+  if (!walkthrough.ok) {
+    process.stderr.write(renderWalkthroughFailure(walkthrough));
+    failed = true;
+  }
+  if (failed) process.exitCode = 1;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) main(process.argv.slice(2));

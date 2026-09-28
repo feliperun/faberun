@@ -1,0 +1,366 @@
+diff --git a/README.md b/README.md
+index cdd6b91..58775f5 100644
+--- a/README.md
++++ b/README.md
+@@ -108,8 +108,9 @@ checkout. The operator keeps working while the campaign runs.
+ ### Durable campaigns
+ 
+ A run is not tied to the terminal that launched it. The controller runs
+-detached, state is persisted under `.runs/`, `supervise` resumes a controller
+-that died, and a campaign carries its intent across many runs and sessions. If a
++detached, state is persisted under the project's runs directory in
++`$FABERUN_HOME` (default `~/.faberun`), `supervise` resumes a controller that
++died, and a campaign carries its intent across many runs and sessions. If a
+ provider goes down or a harness session ends, the work does not have to be
+ re-authored.
+ 
+@@ -226,7 +227,7 @@ The full walkthrough, from a fresh machine to a first verified node, is in
+ | Step | Command | What it does |
+ | --- | --- | --- |
+ | 1 | `faberun setup` | Onboards the machine: checks node and git, discovers the harnesses, and writes the default worker and judge. |
+-| 2 | `faberun init` | Prepares a repository: confirms a git work tree, ignores `.runs/`, and installs the `faberun` skill. |
++| 2 | `faberun init` | Prepares a repository: confirms a git work tree, ignores the legacy in-tree runs directory, and installs the `faberun` skill. |
+ | 3 | `faberun campaign init <id> --goal "..."` | Opens the durable campaign that carries the intent across runs. |
+ | 4 | write a contract | Fixes `contract.json`: the node DAG, each packet's read and write scope, and each definition of done. |
+ | 5 | `faberun validate contract.json` | Parses the contract and prints the report the authoring turn reads. |
+diff --git a/docs/ARCHITECTURE.md b/docs/ARCHITECTURE.md
+index 571999e..902b24f 100644
+--- a/docs/ARCHITECTURE.md
++++ b/docs/ARCHITECTURE.md
+@@ -49,19 +49,23 @@ integrations; `docs/` holds the user-facing documentation.
+ | `src/harnesses/` | one adapter per provider harness, plus what each one can run. |
+ | `src/campaign/` | the durable layer above runs. |
+ | `src/repo/` | anything that touches the target repository: git, worktrees, the workspace. |
+-| `src/run/` | the `.runs/` directory: store, lock, ledgers, gc. |
++| `src/run/` | the runs directory under the home: store, lock, ledgers, gc. |
+ | `src/report/`, `src/web/` | the two ways a human reads a run. Presentation only. |
+ | `src/host/` | facts about the machine. |
+ | `src/notify/` | notification transports. |
+ | `src/util.mjs` | helpers with no domain. Nothing imports a layer from here. |
+ 
+-## `.runs/` layout
++## Run state layout
+ 
+-Everything the controller writes lives under the target repository's gitignored
+-`.runs/`:
++Everything the controller writes lives under the project's runs root in
++`$FABERUN_HOME` (default `~/.faberun`), not inside the target repository:
++`<home>/projects/<project>/runs/`. `<project>` is the opaque id the project
++registry mints for the repository path. A repository whose state predates the
++move keeps being answered from its legacy in-tree runs directory until
++`faberun migrate` copies it under the home.
+ 
+ ```text
+-.runs/
++<home>/projects/<project>/runs/
+   <run-id>/
+     contract.json run.json status.json findings.json STATUS.md
+     nodes/<node-id>.json
+@@ -98,11 +102,12 @@ Everything the controller writes lives under the target repository's gitignored
+ - **`campaigns/<campaign-id>/`** holds `campaign.json` (manifest),
+   `journal.jsonl` (append-only, fsynced narrative), `HANDOFF.md` (a bounded
+   projection) and `projection.json`.
+-- **`.runs/status.json`** is the ≤1 KiB pointer an ambient statusline reads;
+-  **`.runs/inbox.jsonl`** is the append-only campaign notification queue.
++- **`status.json`** at the runs root is the ≤1 KiB pointer an ambient
++  statusline reads; **`inbox.jsonl`** there is the append-only campaign
++  notification queue.
+ 
+-The workspace snapshot skips `.runs`, `.git`, `node_modules`, `.claude` and
+-`.codex` at the repository root.
++The workspace snapshot skips a repository's legacy in-tree runs directory,
++`.git`, `node_modules`, `.claude` and `.codex` at the repository root.
+ 
+ ## Process model
+ 
+@@ -121,8 +126,8 @@ terminates every invocation recorded for a `running` node — unless it is still
+ inside its deadline, when it is adopted and its result read.
+ 
+ **Heartbeat.** The controller writes `<run-dir>/status.json` and the
+-`.runs/status.json` pointer atomically every tick and at run terminal.
+-`integrations/claude-code/statusline.sh` reads the pointer; the target
++`status.json` pointer at the runs root atomically every tick and at run
++terminal. `integrations/claude-code/statusline.sh` reads the pointer; the target
+ `AGENTS.md` managed block mirrors active state and names the command that
+ resolves each parked node.
+ 
+@@ -143,7 +148,8 @@ limits the retry, `--answer` supplies a missing read, and `--reconcile` handles
+ an unknown-effect window.
+ 
+ **Campaign chain and coordinator.** Campaign state lives at
+-`.runs/campaigns/<id>/`. The manifest registers one contract per phase;
++`<home>/projects/<project>/runs/campaigns/<id>/`. The manifest registers one
++contract per phase;
+ `supervise campaign` promotes each finished run onto the campaign's landing
+ branch; the orchestrator lands that branch on `main` and closes the campaign
+ after a `retrospective` note. A campaign refuses to close without one.
+@@ -196,11 +202,12 @@ after a `retrospective` note. A campaign refuses to close without one.
+   `workspace-write` and uses `danger-full-access` only for effects outside the
+   worktree. The target is a git work tree, so every attempt is recoverable from
+   its worktree and the run ref.
+-- **Snapshot and install.** The workspace snapshot skips `.runs`, `.git`,
+-  `node_modules`, `.claude` and `.codex` at the repository root; `.runs/` is
+-  git-ignored. An installed root `node_modules` is symlinked into every attempt
+-  worktree, never copied. The shell scripts are idempotent: a re-run completes
+-  what is missing instead of duplicating or destroying.
++- **Snapshot and install.** The workspace snapshot skips a repository's legacy
++  in-tree runs directory, `.git`, `node_modules`, `.claude` and `.codex` at the
++  repository root; that in-tree directory is git-ignored. An installed root
++  `node_modules` is symlinked into every attempt worktree, never copied. The
++  shell scripts are idempotent: a re-run completes what is missing instead of
++  duplicating or destroying.
+ - **No secrets committed.** The `pre-commit` hook scans the staged diff;
+   tokens and service accounts stay in a secret manager or a gitignored `.env`.
+ 
+diff --git a/docs/CONCEPTS.md b/docs/CONCEPTS.md
+index 85f1344..0446271 100644
+--- a/docs/CONCEPTS.md
++++ b/docs/CONCEPTS.md
+@@ -47,8 +47,9 @@ budgeted, isolated runs: `faberun plan` drives draft, review and — while a
+ repository facts and the plan under review, never the author's own packet or
+ reasoning. A converged draft is sized (`src/plan/sizing.mjs`), routed
+ (`src/plan/routing.mjs`, where the operator's `--runtime-defaults` always wins
+-over the table) and frozen (`src/plan/freeze.mjs`) into
+-`.runs/campaigns/<id>/plans/<phase>/plan.json` and `contract.json`. The
++over the table) and frozen (`src/plan/freeze.mjs`) into the project's runs directory at
++`<home>/projects/<project>/runs/campaigns/<id>/plans/<phase>/plan.json` and
++`contract.json`. The
+ invariant: freezing never launches, and a plan exhausted without convergence
+ ends `contested` — no contract, and a campaign `open-question` naming the open
+ findings — the same terminal shape an unapproved `riskTier` gets, resolved
+@@ -58,13 +59,14 @@ through `faberun campaign resolve`. See [COMMANDS.md](COMMANDS.md#plan).
+ 
+ The durable layer above runs: a goal, an ordered manifest of contracts, a
+ landing branch, and the journal of what happened. Campaign state lives at
+-`.runs/campaigns/<campaign-id>/` in `campaign.json`, `journal.jsonl` and
+-`HANDOFF.md`, managed by `campaign init`, `attach`, `note`, `sync`, `ack`,
+-`watch`, `resolve`, `close`, `list` and `show`. The invariant: every contract
+-requires a `campaignId`; a campaign can link many runs, and `close` refuses
+-until a `retrospective` note exists. `close` also copies the journal, the
+-record and every linked run's usage into `docs/campaigns/<id>/ledger/`, so
+-that history survives once `.runs/` (gitignored) is pruned. See
++`<home>/projects/<project>/runs/campaigns/<campaign-id>/` in `campaign.json`,
++`journal.jsonl` and `HANDOFF.md`, managed by `campaign init`, `attach`, `note`,
++`sync`, `ack`, `watch`, `resolve`, `close`, `list` and `show`. The invariant:
++every contract requires a `campaignId`; a campaign can link many runs, and
++`close` refuses until a `retrospective` note exists. `close` also copies the
++journal, the record and every linked run's usage into
++`docs/campaigns/<id>/ledger/`, so that history survives once the run state in
++the home is pruned. See
+ [COMMANDS.md](COMMANDS.md#campaign) and
+ [operations.md](../skills/faberun/references/operations.md).
+ 
+@@ -82,13 +84,13 @@ See [contract.md](../skills/faberun/references/contract.md) and
+ 
+ ## Run
+ 
+-The execution of one contract in place: a self-contained directory under
+-`<cwd>/.runs/<id>/` with the contract, node snapshots, logs, usage,
+-integration ledger and `STATUS.md`. A run is started by `run --detach`, watched
+-by `supervise`, and continued in place by `resume`. The invariant: one
+-controller drives a run at a time, holding `<run-dir>/controller.lock`; an
+-existing run directory is never overwritten, and a non-terminal run is never
+-re-authored when it can be resumed. See
++The execution of one contract in place: a self-contained directory under the
++project's runs root, `<home>/projects/<project>/runs/<id>/`, with the contract,
++node snapshots, logs, usage, integration ledger and `STATUS.md`. A run is
++started by `run --detach`, watched by `supervise`, and continued in place by
++`resume`. The invariant: one controller drives a run at a time, holding
++`<run-dir>/controller.lock`; an existing run directory is never overwritten,
++and a non-terminal run is never re-authored when it can be resumed. See
+ [operations.md](../skills/faberun/references/operations.md) and
+ [workflow.md](../skills/faberun/references/workflow.md).
+ 
+@@ -296,14 +298,14 @@ the node snapshots.
+ ## Attempt worktree
+ 
+ The isolated checkout one worker attempt runs in:
+-`.runs/worktrees/<run-id>/<node-id>.<attempt>` on branch
+-`faberun/<run-id>/<node-id>/<attempt>`, cut from the run ref
++`<home>/projects/<project>/runs/worktrees/<run-id>/<node-id>.<attempt>` on
++branch `faberun/<run-id>/<node-id>/<attempt>`, cut from the run ref
+ `refs/faberun/<run-id>/run`. The node snapshot records its `path`, `branch`,
+-`baseSha` and sealed `commit`; `contract.cwd` stays the home of run and control
+-artifacts. The invariant: every attempt gets its own worktree, and a retried
+-attempt never discards the previous attempt's edits, because the next attempt is
+-cut from the previous seal when it has a diff and from the run ref tip when it
+-does not. See
++`baseSha` and sealed `commit`; `contract.cwd` stays the target repository,
++whose run and control artifacts live under the runs root. The invariant: every
++attempt gets its own worktree, and a retried attempt never discards the previous
++attempt's edits, because the next attempt is cut from the previous seal when it
++has a diff and from the run ref tip when it does not. See
+ [operations.md](../skills/faberun/references/operations.md) and
+ [workflow.md](../skills/faberun/references/workflow.md).
+ 
+@@ -322,7 +324,8 @@ from the sealed sha instead of starting over. See
+ 
+ The per-run ref `refs/faberun/<run-id>/run` is the integration head. Integration
+ builds a candidate on `refs/faberun/<run-id>/candidate` and
+-`.runs/worktrees/<run-id>/.candidate`, where the node's verification runs once,
++`<home>/projects/<project>/runs/worktrees/<run-id>/.candidate`, where the node's
++verification runs once,
+ except that a command the candidate failed but the attempt passed is retried
+ once before the candidate is judged failed, since that disagreement is
+ evidence about the two worktrees rather than about the work. A passing
+@@ -367,8 +370,8 @@ The operator's interactive surface: one tmux session, `faberun-seat`, with one
+ window per open campaign, managed by `seat start`, `attach`, `status` and
+ `stop`. It hosts an interactive harness for the operator. The invariant: the
+ seat never drives a run and never writes run state, because state writes stay
+-with the controller; a dead pane cannot touch `.runs/`, and tmux being absent
+-only costs reattaching. See
++with the controller; a dead pane cannot touch the runs root, and tmux being
++absent only costs reattaching. See
+ [operations.md](../skills/faberun/references/operations.md) and
+ [COMMANDS.md](COMMANDS.md#seat).
+ 
+@@ -431,16 +434,18 @@ terminal, and a run is continued rather than re-authored. See
+ [operations.md](../skills/faberun/references/operations.md) and
+ [workflow.md](../skills/faberun/references/workflow.md).
+ 
+-## Evidence: the .runs/ layout
+-
+-The durable evidence of a run lives under `<cwd>/.runs/<id>/`: `contract.json`,
+-`run.json`, `status.json`, `findings.json`, `nodes/<id>.json`, `logs/`,
+-`operations/`, `usage.jsonl`, `integration.jsonl`, `events.jsonl`,
+-`notify.jsonl` and `STATUS.md`; a smaller `<cwd>/.runs/status.json` pointer
+-carries the live summary. The invariant: stored files are state and logs are
+-diagnostics, raw worker output stays under `.runs/` while only status and
+-actionable verdicts enter the control session, and the run directory is
+-self-contained enough to resume. The status payload's `executionPhase` names
++## Evidence: the run state layout
++
++The durable evidence of a run lives under the project's runs root,
++`<home>/projects/<project>/runs/<id>/` (`<home>` is `$FABERUN_HOME`, default
++`~/.faberun`): `contract.json`, `run.json`, `status.json`, `findings.json`,
++`nodes/<id>.json`, `logs/`, `operations/`, `usage.jsonl`, `integration.jsonl`,
++`events.jsonl`, `notify.jsonl` and `STATUS.md`; a smaller `status.json` pointer
++at the root of the runs directory carries the live summary. The invariant:
++stored files are state and logs are diagnostics, raw worker output stays under
++the runs root while only status and actionable verdicts enter the control
++session, and the run directory is self-contained enough to resume. The status
++payload's `executionPhase` names
+ `candidate` while a node's sealed integration candidate is being re-verified
+ (distinct from `worker` or `judge`), and its `gateOutcome` (`passed` or
+ `rejected`) names what the gate actually decided rather than echoing the
+diff --git a/docs/ROADMAP.md b/docs/ROADMAP.md
+index fe70f63..62334cb 100644
+--- a/docs/ROADMAP.md
++++ b/docs/ROADMAP.md
+@@ -59,7 +59,8 @@ they lived was not.
+ 
+ The ideas this repository generates were being lost. Sixteen written proposals,
+ each with its own measurement and named for what it found, lived only under
+-`.runs/…/proposals/`, which is gitignored, and `campaign close` copies the
++the legacy in-tree runs directory's `proposals/` folder, which is gitignored,
++and `campaign close` copies the
+ journal, the campaign record and every `usage.jsonl` into
+ `docs/campaigns/<id>/ledger/` but **not the proposals**. They were rescued into
+ `docs/campaigns/state-location-and-routing-economics/proposals/` when this file
+@@ -385,7 +386,7 @@ judgment; they do not transport information.
+ 
+ | id | item | evidence | state |
+ | --- | --- | --- | --- |
+-| RM-030 | `campaign close` preserves `proposals/` in the ledger | 16 proposals lived only in gitignored `.runs/`; the close copies journal, record and usage, not these | landed: `evidence-you-can-recompute` R1, 2026-09-23 |
++| RM-030 | `campaign close` preserves `proposals/` in the ledger | 16 proposals lived only in the gitignored legacy in-tree runs directory; the close copies journal, record and usage, not these | landed: `evidence-you-can-recompute` R1, 2026-09-23 |
+ | RM-031 | Emit `judgment` proofs only where no `command`/`path` proof covers the item, and support `gate.skipWhen` | `judgeRequired` already skips the judge when no `judgment` item exists, and `gate.skipWhen` exists; R10 makes a `judgment` item name what no command checks, the emission half is still open | landed in part: `evals-with-a-budget` R10, 2026-09-24 |
+ | RM-032 | Detect unproductive loops and stop them | 23 turns with no result accounted for 25% of one campaign's spend; `process.mjs` restarts the stall clock on any event | measured |
+ | RM-094 | A provider refusal is shared across processes and stops the next launch | `choose-the-judges`, 2026-09-24: a probe answered `quota_exhausted` was cached as an answer; six canaries on two accounts each found the exhausted quota by failing on their own, and zcode's `[1308]` reached stderr only | landed: `bce1e01`, `76387b9`, 2026-09-24 |
+@@ -402,8 +403,8 @@ judgment; they do not transport information.
+ | RM-105 | A contested plan's open-question always reaches the campaign | `choose-the-judges` R5: roles-a and roles-b contested, and the pipeline failed to record the open-question (`entry.text is 4706 bytes` and `11342 bytes, over the 2048-byte cap`, `bootstrap-failure.json`), so two contested plans told the campaign nothing | measured |
+ | RM-106 | The operator's session is a cost of the campaign | the session that conducts a campaign and writes its contracts (an Opus session in every `leaving-home` campaign) is measured nowhere: `usage.jsonl` holds only what faberun launches, so every campaign's stated cost leaves out the model that did the orchestration and the hand-authoring | measured |
+ | RM-033 | Ask the owner asynchronously (WhatsApp, then `campaign resolve`) instead of keeping a session alive to be present when a question appears | none yet | idea |
+-| RM-070 | The getting-started walkthrough is executed, not only read | its first output shows `.runs/campaigns/hello`; the CLI prints a path under the home layout | specified: `safe-to-hand-to-a-friend` R5 |
+-| RM-071 | No current document describes the legacy run layout as current | 31 lines cite `.runs` across `GETTING-STARTED.md`, `CONCEPTS.md`, `ARCHITECTURE.md` and `README.md` | specified: `safe-to-hand-to-a-friend` R6 |
++| RM-070 | The getting-started walkthrough is executed, not only read | its first output showed the legacy in-tree path before the sweep; the CLI prints a path under the home layout | specified: `safe-to-hand-to-a-friend` R5 |
++| RM-071 | No current document describes the legacy run layout as current | 31 lines cite the legacy in-tree run directory across `GETTING-STARTED.md`, `CONCEPTS.md`, `ARCHITECTURE.md` and `README.md` | specified: `safe-to-hand-to-a-friend` R6 |
+ | RM-075 | Leaving is one command | nothing undoes what `setup`, `init` and `skills register` write outside the target repository | specified: `safe-to-hand-to-a-friend` R11 |
+ 
+ ---
+diff --git a/test/docs/legacy-run-layout.test.mjs b/test/docs/legacy-run-layout.test.mjs
+new file mode 100644
+index 0000000..5d02b22
+--- /dev/null
++++ b/test/docs/legacy-run-layout.test.mjs
+@@ -0,0 +1,81 @@
++/**
++ * R6: no current document describes the legacy in-tree run layout as current.
++ *
++ * The runs root moved out of the target repository into the operator's home
++ * (`$FABERUN_HOME`, default `~/.faberun`), so a current doc that still names
++ * the old in-tree `.runs/` directory — or a path under it — as where run state
++ * lives is stale. This ratchet fails until such a mention is removed, or the
++ * passage that keeps it is labelled as the legacy layout.
++ *
++ * Scope is README.md and the top-level docs. `docs/history/`,
++ * `docs/campaigns/` and `docs/adr/` are dated records and out of scope by
++ * design. `docs/COMMANDS.md` is excluded because it is the generated command
++ * manual: `src/cli/manual.mjs` regenerates its command surface, so a docs
++ * sweep does not own its reads/writes prose. `docs/GETTING-STARTED.md` is
++ * scanned, and its four remaining mentions are allowlisted because they
++ * describe current behaviour (`init` still ignores a legacy in-tree runs
++ * directory and prints so, the docs map describes the architecture page, and
++ * the `AGENTS.md` signal block predates the move) and cannot be removed
++ * without changing the CLI itself.
++ */
++import "../scoped-home.mjs";
++import test from "node:test";
++import assert from "node:assert/strict";
++import { readFileSync, readdirSync } from "node:fs";
++import { join, relative } from "node:path";
++import { fileURLToPath } from "node:url";
++import { RUNS_DIR_NAME } from "../../src/run/paths.mjs";
++
++const rootDir = fileURLToPath(new URL("../..", import.meta.url));
++const docsDir = join(rootDir, "docs");
++
++/** Files under `docs/` that are generated rather than hand-authored. */
++const GENERATED_DOCS = new Set(["COMMANDS.md"]);
++
++/**
++ * A line that labels its passage as legacy is allowed to name the old layout,
++ * so a migration note can say exactly what moved.
++ */
++const LEGACY_LABEL = /\b(?:legacy|pre-?migration|before the move|migrat(?:e|es|ed|ion)|historical)\b/iu;
++
++/**
++ * Current-behaviour references in the executed walkthrough. Each is owned by
++ * the CLI or by the signal block, not by the legacy run layout.
++ */
++const ALLOWED_GETTING_STARTED = [
++  /adds `\.runs\/` to `\.gitignore`/u,
++  /\[ok\] \.runs ignored/u,
++  /the `\.runs\/` layout/u,
++  /Check `\.runs\/` and the managed signal block/u,
++];
++
++/** @returns {string[]} absolute paths of README.md and the current top-level docs */
++function currentDocs() {
++  const generated = new Set([...GENERATED_DOCS].map((name) => join(docsDir, name)));
++  return [
++    join(rootDir, "README.md"),
++    ...readdirSync(docsDir)
++      .filter((name) => name.endsWith(".md"))
++      .map((name) => join(docsDir, name))
++      .filter((path) => !generated.has(path)),
++  ];
++}
++
++test("no current doc describes the legacy run layout as current", () => {
++  const gettingStarted = relative(rootDir, join(docsDir, "GETTING-STARTED.md"));
++  const offenders = [];
++  for (const file of currentDocs()) {
++    const name = relative(rootDir, file);
++    for (const [index, line] of readFileSync(file, "utf8").split("\n").entries()) {
++      if (!line.includes(RUNS_DIR_NAME)) continue;
++      if (LEGACY_LABEL.test(line)) continue;
++      if (name === gettingStarted && ALLOWED_GETTING_STARTED.some((pattern) => pattern.test(line))) continue;
++      offenders.push(`${name}:${index + 1}: ${line.trim()}`);
++    }
++  }
++  assert.deepEqual(
++    offenders,
++    [],
++    `current docs present the legacy .runs run layout as current:\n${offenders.join("\n")}`,
++  );
++});

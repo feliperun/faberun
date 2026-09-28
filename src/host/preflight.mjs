@@ -35,6 +35,7 @@ import { pricingSeedAge } from "../engine/pricing-seed.mjs";
 import { validateContract } from "../contract/index.mjs";
 import { sharedVerificationCommands } from "../contract/final-verification.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS, discoverRuntimes } from "../engine/runtime-discovery.mjs";
+import { environmentListings } from "./environment-report.mjs";
 import { errorMessage } from "../util.mjs";
 import { boundedGitSync } from "../repo/worktree.mjs";
 import { routeRuntime } from "../contract/runtime.mjs";
@@ -543,12 +544,10 @@ async function liveAvailabilityChecks(contractPath, runtimes) {
   // cycle the source gate bans. At call time both modules are fully
   // evaluated; this is a plain cache hit, not a cycle.
   const { preflightContract } = await import("../engine/live-preflight.mjs");
-  // measured 2026-09-22 (dispatch gate): four routed runtimes asked in
-  // parallel took about 18s, so 60s is the budget; FABERUN_PREFLIGHT_TIMEOUT_SEC
-  // is the same operator override the gate honours.
-  const override = Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC);
-  const timeoutSec = process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC !== undefined && Number.isFinite(override) && override > 0 ? override : 60;
-  const probes = await preflightContract(contractPath, { liveTimeoutSec: timeoutSec });
+  // The live budget is `live-preflight.mjs`'s single measured default (60s,
+  // `FABERUN_PREFLIGHT_TIMEOUT_SEC` the operator override); it is not restated
+  // here, where a second copy would be a second default to keep honest.
+  const probes = await preflightContract(contractPath);
   recordProbeVerdicts(probes.filter((probe) => liveVerdict(probe).recorded));
   return probes.map((probe) => {
     const verdict = liveVerdict(probe);
@@ -585,13 +584,15 @@ const HARNESS_BIN_OVERRIDES = Object.freeze({
  * not thereby a runtime the launch cannot run.
  *
  * @param {string|undefined} contractPath
- * @param {{cwd?: string, json?: boolean, discover?: boolean}} values
+ * @param {{cwd?: string, json?: boolean, discover?: boolean, env?: boolean}} values
  * @returns {Promise<boolean>}
  */
 export async function doctorCommand(contractPath, values) {
   const repoDir = resolve(values.cwd ?? ".");
   /** @type {{name: string, ok: boolean, advisory?: boolean, detail: string}[]} */
   const checks = [];
+  /** @type {ValidatedContract|undefined} */
+  let validatedContract;
   const gitRepo = isGitWorkTree(repoDir);
   checks.push({ name: "git repository", ok: gitRepo, detail: gitRepo ? repoDir : "not inside a git work tree" });
   const runsIgnored = isRunsIgnored(repoDir);
@@ -631,6 +632,7 @@ export async function doctorCommand(contractPath, values) {
     const absolute = resolve(contractPath);
     try {
       const contract = validateContract(JSON.parse(readFileSync(absolute, "utf8")), absolute);
+      validatedContract = contract;
       checks.push({ name: "contract", ok: true, detail: `${contract.id} · ${contract.nodes.length} node${contract.nodes.length === 1 ? "" : "s"}` });
       const runtimes = reachableRuntimes(contract);
       routedRuntimes = runtimes;
@@ -665,7 +667,11 @@ export async function doctorCommand(contractPath, values) {
     checks.push({
       name: "runtime discovery",
       ok: available > 0,
-      detail: Object.entries(discovered).map(([id, entry]) => `${id}: ${entry.available ? "available" : `unavailable (${entry.reason})`}${entry.exhaustedUntil ? ` until ${entry.exhaustedUntil}` : ""}`).join(" · ") || "no runtimes discovered",
+      // `discoverRuntimes` runs the static version probe, not the live hello:
+      // a binary that answers `--version` is present, not proven available.
+      // `doctor`'s `availability` lines are the only word on whether a
+      // provider answered.
+      detail: Object.entries(discovered).map(([id, entry]) => `${id}: ${entry.available ? "binary present" : `binary missing (${entry.reason})`}${entry.exhaustedUntil ? ` until ${entry.exhaustedUntil}` : ""}`).join(" · ") || "no runtimes discovered",
     });
   }
   // A PATH-only check must not fail a runtime whose binary is supplied through
@@ -688,6 +694,23 @@ export async function doctorCommand(contractPath, values) {
   for (const check of environmentPreflight({ cwd: dispatchCwd, runtimes: routedRuntimes, harnessVersions }).checks) {
     checks.push({ name: check.name, ok: check.ok || check.advisory, detail: check.ok ? check.detail : `${check.detail} (advisory)` });
   }
+  // `--env` is a listing, not a gate: every line names the variables a runtime
+  // would carry and the ones it would not, and never a value. The retained
+  // names are the excluded ones shaped like credentials, so the operator reads
+  // at a glance that the secret on the controller stays on the controller.
+  /** @type {ReturnType<typeof environmentListings>} */
+  let environment = [];
+  if (values.env === true) {
+    environment = environmentListings(routedRuntimes, validatedContract);
+    for (const listing of environment) {
+      const retained = listing.retained.length ? ` · retained: ${listing.retained.join(", ")}` : "";
+      checks.push({
+        name: `environment ${listing.runtime}`,
+        ok: true,
+        detail: `pass: ${listing.passed.join(", ") || "none"} · excluded: ${listing.excluded.join(", ") || "none"}${retained}`,
+      });
+    }
+  }
   // The live availability lines never gate the verdict: a no-answer is the
   // finding it is on its own line (ok false, cause named), and what still
   // fails doctor is every host fact and static probe — which is why the
@@ -697,7 +720,7 @@ export async function doctorCommand(contractPath, values) {
   const transportWarning = noTransportWarning(process.env);
   if (transportWarning) process.stderr.write(`${statusToken("warn", colorLevel(process.env, process.stderr.isTTY))} ${transportWarning}\n`);
   if (values.json === true) {
-    process.stdout.write(`${JSON.stringify({ schemaVersion: 1, repo: repoDir, ok, checks, ...(values.discover === true ? { runtimes: discovered } : {}) }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ schemaVersion: 1, repo: repoDir, ok, checks, ...(values.env === true ? { environment } : {}), ...(values.discover === true ? { runtimes: discovered } : {}) }, null, 2)}\n`);
   } else {
     const level = colorLevel(process.env, process.stdout.isTTY);
     for (const check of checks) process.stdout.write(`${statusToken(check.ok ? "ok" : "fail", level)} ${check.name} · ${check.detail}\n`);

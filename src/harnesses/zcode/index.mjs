@@ -3,6 +3,25 @@ import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { normalizeZcodeResult, parseVersion } from "../protocol.mjs";
 
+/**
+ * The environment names the zcode adapter reads to authenticate and configure
+ * the CLI: the credential the CLI resolves (`auth_token.env_key`, default
+ * `ZAI_API_KEY`, with `ANTHROPIC_AUTH_TOKEN` as its fallback), the app install
+ * directory `zcodeBundle()` reads, and the binary override `executable()`
+ * honours. The `ZCODE_MODEL`, `ZCODE_BASE_URL`, `ANTHROPIC_API_KEY` and
+ * `ZCODE_LOG_*` names this adapter writes into the child environment are
+ * configuration it supplies, not dependencies it reads. Values never travel
+ * here.
+ *
+ * @type {readonly string[]}
+ */
+export const declaredEnvironment = Object.freeze([
+  "ANTHROPIC_AUTH_TOKEN",
+  "FABERUN_ZCODE_APP_DIR",
+  "FABERUN_ZCODE_BIN",
+  "ZAI_API_KEY",
+]);
+
 /** Default Z.ai Anthropic-compatible endpoint serving GLM models. */
 const ZCODE_DEFAULT_BASE_URL = "https://api.z.ai/api/anthropic";
 

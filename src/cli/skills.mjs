@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { parseArgs as parseFlags } from "node:util";
 
 import { faberunHome, installedVersionDir } from "../host/home.mjs";
+import { recordSkillInstall, skillSiteDir } from "../host/install-registry.mjs";
 import { findExecutable, linkDirectory } from "../host/platform.mjs";
 import { colorLevel, statusToken } from "./brand.mjs";
 
@@ -71,15 +72,19 @@ const OPERATION_OPTIONS = {
  *   so it has no registration target. It is kept in the table to record the
  *   measurement, and reported as `no skill support`.
  *
- * @type {Record<string, {binary: string|null, optional: boolean, dir: ((home: string) => string)|null}>}
+ * The destination paths themselves live in `host/install-registry.mjs`'s
+ * `KNOWN_INSTALL_SITES` and are resolved through `skillSiteDir`, so this table
+ * and the manifest removal scans cannot drift apart.
+ *
+ * @type {Record<string, {binary: string|null, optional: boolean, dir: ((home: string) => string|null)|null}>}
  */
 const HARNESS_SKILL_DIRS = {
-  claude: { binary: "claude", optional: false, dir: (home) => join(home, ".claude", "skills") },
-  codex: { binary: "codex", optional: false, dir: (home) => join(home, ".codex", "skills") },
-  zcode: { binary: "zcode", optional: false, dir: (home) => join(home, ".agents", "skills") },
-  agy: { binary: "agy", optional: false, dir: (home) => join(home, ".gemini", "config", "skills") },
-  dsh: { binary: "dsh", optional: false, dir: null },
-  agents: { binary: null, optional: true, dir: (home) => join(home, ".agents", "skills") },
+  claude: { binary: "claude", optional: false, dir: (home) => skillSiteDir("claude", home) },
+  codex: { binary: "codex", optional: false, dir: (home) => skillSiteDir("codex", home) },
+  zcode: { binary: "zcode", optional: false, dir: (home) => skillSiteDir("zcode", home) },
+  agy: { binary: "agy", optional: false, dir: (home) => skillSiteDir("agy", home) },
+  dsh: { binary: "dsh", optional: false, dir: (home) => skillSiteDir("dsh", home) },
+  agents: { binary: null, optional: true, dir: (home) => skillSiteDir("agents", home) },
 };
 
 /** @typedef {(text: string) => void} Writer */
@@ -266,6 +271,12 @@ export function registerSkills(options = {}) {
     }
     mkdirSync(dir, { recursive: true });
     const action = options.copy === true ? copySkill(source, destination, force) : linkSkill(source, destination, force);
+    // `skipped` is a real directory faberun refused to displace, so it is not
+    // faberun's to remove. Every other action left (or confirmed) a faberun
+    // skill at `destination`, so it is recorded with the directory that owns it.
+    if (action !== "skipped") {
+      recordSkillInstall(env, { path: destination, root: dir, harness: target.harness });
+    }
     results.push({ harness: target.harness, dir: destination, action });
     const path = displayPath(destination, home);
     if (action === "skipped") {

@@ -2,10 +2,14 @@ import "../scoped-home.mjs";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { test } from "node:test";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 import { renderReport, renderReportJson, renderStatus, renderStatusJson } from "../../src/report/render.mjs";
+import { buildCampaignProgress } from "../../src/report/progress.mjs";
+import { renderRunProgress } from "../../src/report/message.mjs";
+import { registerRun } from "../../src/campaign/index.mjs";
+import { campaignDir } from "../../src/campaign/layout.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
 import { runDirectory } from "../../src/run/paths.mjs";
 
@@ -166,8 +170,58 @@ test("a run with no invocations reports both role costs as unavailable, not $0",
   }
 });
 
+test("status flags retries that out-spend the first attempt", () => {
+  const { runDir } = makeRun([
+    {
+      id: "outspent",
+      attempt: 2,
+      costUsd: 0.5,
+      invocations: [invocation("outspent-1", 0.1, "worker", undefined, 1), invocation("outspent-2", 0.4, "worker", undefined, 2)],
+    },
+    {
+      id: "contained",
+      attempt: 2,
+      costUsd: 0.6,
+      invocations: [invocation("contained-1", 0.5, "worker", undefined, 1), invocation("contained-2", 0.1, "worker", undefined, 2)],
+    },
+  ]);
+  try {
+    const runsDir = dirname(runDir);
+    const runId = basename(runDir);
+    registerRun(campaignDir(runsDir, "test-campaign"), runId);
+
+    // The campaign payload carries every node's per-attempt cost, derived from
+    // the snapshot's own invocations, and the flag the status text line uses.
+    const progress = /** @type {any} */ (buildCampaignProgress(runsDir, "test-campaign", Date.now()));
+    const phase = progress.phases.find((/** @type {any} */ entry) => entry.runId === runId);
+    assert.ok(phase, "the linked run is a phase in the payload");
+    const outspent = phase.nodes.find((/** @type {any} */ node) => node.id === "outspent");
+    const contained = phase.nodes.find((/** @type {any} */ node) => node.id === "contained");
+    assert.deepEqual(outspent.attemptCosts, [
+      { attempt: 1, costUsd: 0.1 },
+      { attempt: 2, costUsd: 0.4 },
+    ]);
+    assert.equal(outspent.retriesOutspendFirst, true, "the retries cost more than the first attempt");
+    assert.deepEqual(contained.attemptCosts, [
+      { attempt: 1, costUsd: 0.5 },
+      { attempt: 2, costUsd: 0.1 },
+    ]);
+    assert.equal(contained.retriesOutspendFirst, false, "a cheap retry is not flagged");
+
+    // The same rule on the one-screen text: the flagged node says so, with
+    // both sides quoted, and the node whose retries stayed under the first
+    // attempt is left unmarked.
+    const flagged = renderRunProgress(runDir, { type: "node.terminal", runId, nodeId: "outspent", status: "done", attempt: 2 });
+    assert.match(flagged, /retries out-spend the first attempt \(\$0\.40 vs \$0\.10\)/u);
+    const quiet = renderRunProgress(runDir, { type: "node.terminal", runId, nodeId: "contained", status: "done", attempt: 2 });
+    assert.doesNotMatch(quiet, /out-spend/u);
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
 /**
- * @param {Array<{id: string, costUsd?: number, invocations?: Array<{id: string, costUsd?: number}>}>} nodes
+ * @param {Array<{id: string, attempt?: number, costUsd?: number, invocations?: Array<{id: string, costUsd?: number, attempt?: number}>}>} nodes
  */
 function makeRun(nodes) {
   const directory = mkdtempSync(join(tmpdir(), "faberun-report-cost-"));
@@ -217,8 +271,9 @@ function makeRun(nodes) {
  * @param {number|undefined} costUsd
  * @param {"worker"|"judge"} [role]
  * @param {{inputTokens: number, outputTokens: number, cacheReadInputTokens: number}} [usage]
+ * @param {number} [attempt]
  */
-function invocation(id, costUsd, role = "worker", usage) {
+function invocation(id, costUsd, role = "worker", usage, attempt = 1) {
   return {
     id,
     pid: process.pid,
@@ -243,6 +298,7 @@ function invocation(id, costUsd, role = "worker", usage) {
     campaignId: "test-campaign",
     planPhase: "fixture-phase-0",
     role,
+    attempt,
     runtimeFingerprint: "fixture",
     model: "gpt-5.6-luna",
     reasoning: null,

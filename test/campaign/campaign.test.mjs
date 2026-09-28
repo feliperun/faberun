@@ -21,6 +21,7 @@ import {
   resolveCampaign,
 } from "../../src/campaign/index.mjs";
 import { readCampaign } from "../../src/campaign/record.mjs";
+import { campaignCli } from "../../src/cli/campaign.mjs";
 import { appendJournal, appendSeatAllowanceEvent, readJournal, validateJournalEntry } from "../../src/campaign/journal.mjs";
 import { CAMPAIGN_FILE, HANDOFF_BYTES, HANDOFF_FILE, JOURNAL_FILE, JOURNAL_TEXT_BYTES, PROJECTION_FILE } from "../../src/campaign/layout.mjs";
 import { allowanceEventFields } from "../../src/seat/allowance.mjs";
@@ -33,7 +34,6 @@ process.env.FABERUN_HOME = mkdtempSync(join(tmpdir(), "faberun-test-home-"));
 
 // Campaign lifecycle: init, discover, resolve, journal append, close.
 // Projection and handoff rendering are in projection.test.mjs.
-
 test("semantic budget keeps critical sections and evicts oldest low-priority history above 16 KiB", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-budget-"));
   const runsDir = runsRoot(directory);
@@ -75,7 +75,6 @@ test("semantic budget keeps critical sections and evicts oldest low-priority his
   assert.match(handoff, /outcome-009 /u);
   assert.match(handoff, /earlier attempts and outcomes omitted/u);
 });
-
 test("many linked runs cannot starve critical handoff sections", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-run-flood-"));
   const runsDir = runsRoot(directory);
@@ -115,7 +114,6 @@ test("many linked runs cannot starve critical handoff sections", () => {
   assert.doesNotMatch(handoff, /run-000:/u);
   assert.match(handoff, /earlier run summaries omitted/u);
 });
-
 test("attention-needed run states survive budget pressure with an omission note", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-attention-flood-"));
   const runsDir = runsRoot(directory);
@@ -136,7 +134,6 @@ test("attention-needed run states survive budget pressure with an omission note"
   assert.doesNotMatch(handoff, /node-000: failed/u);
   assert.match(handoff, /earlier attention-needed run states omitted/u);
 });
-
 test("active decisions and unresolved questions beyond twenty are preserved when they fit", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-beyond-cap-"));
   const runsDir = runsRoot(directory);
@@ -163,7 +160,6 @@ test("active decisions and unresolved questions beyond twenty are preserved when
   assert.doesNotMatch(handoff, /earlier active decisions omitted/u);
   assert.doesNotMatch(handoff, /earlier open questions omitted/u);
 });
-
 test("decisions evicted by the projection cap still produce an omission summary", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-evicted-decisions-"));
   const runsDir = runsRoot(directory);
@@ -182,7 +178,6 @@ test("decisions evicted by the projection cap still produce an omission summary"
   assert.doesNotMatch(handoff, /\[d-19\] decision-019/u);
   assert.match(handoff, /- 20 earlier active decisions omitted/u);
 });
-
 test("a critical section larger than the whole budget keeps its latest entries", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-critical-"));
   const runsDir = runsRoot(directory);
@@ -210,7 +205,6 @@ test("a critical section larger than the whole budget keeps its latest entries",
   assert.doesNotMatch(handoff, /\[d-0\] decision-000/u);
   assert.match(handoff, /earlier active decisions omitted/u);
 });
-
 test("fitHandoff shrinks entry text until every critical entry survives", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-shrink-"));
   const runsDir = runsRoot(directory);
@@ -238,7 +232,6 @@ test("fitHandoff shrinks entry text until every critical entry survives", () => 
   assert.match(handoff, /Is the handoff bounded\?/u);
   assert.doesNotMatch(handoff, /none fits the remaining budget/u);
 });
-
 test("oldest low-priority history is evicted first with a bounded omission summary", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-evict-"));
   const runsDir = runsRoot(directory);
@@ -256,7 +249,6 @@ test("oldest low-priority history is evicted first with a bounded omission summa
   assert.match(handoff, /outcome-024 /u);
   assert.match(handoff, /earlier attempts and outcomes omitted/u);
 });
-
 test("resolved questions leave the active handoff projection", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-question-"));
   const runsDir = runsRoot(directory);
@@ -270,7 +262,6 @@ test("resolved questions leave the active handoff projection", () => {
   assert.doesNotMatch(handoff, /What is the budget\?/u);
   assert.doesNotMatch(handoff, /16 KiB, semantically/u);
 });
-
 test("campaigns close and implicit discovery considers only active campaigns", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-close-"));
   const runsDir = runsRoot(directory);
@@ -298,7 +289,6 @@ test("campaigns close and implicit discovery considers only active campaigns", (
   assert.ok(last, "journal has a closing entry");
   assert.equal(last.type, "campaign.closed");
 });
-
 test("corrupt campaign entries are surfaced instead of silently dropped", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-corrupt-"));
   const runsDir = runsRoot(directory);
@@ -311,7 +301,6 @@ test("corrupt campaign entries are surfaced instead of silently dropped", () => 
   assert.deepEqual(corrupt.map((entry) => entry.id).sort(), ["bad", "nocamp"]);
   assert.throws(() => resolveCampaign(runsDir), /corrupt campaign entries: bad, nocamp/u);
 });
-
 test("journal appends are idempotent by event id", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-dedupe-"));
   const runsDir = runsRoot(directory);
@@ -326,7 +315,6 @@ test("journal appends are idempotent by event id", () => {
   const handoff = renderHandoff(created.path, runsDir);
   assert.equal(handoff.match(/Material intent/gu)?.length ?? 0, 1);
 });
-
 test("liveness journal entries validate, dedupe by event id and stay out of the projection and handoff", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-liveness-"));
   const runsDir = runsRoot(directory);
@@ -368,7 +356,6 @@ test("liveness journal entries validate, dedupe by event id and stay out of the 
   const handoffFile = readFileSync(join(created.path, HANDOFF_FILE), "utf8");
   assert.doesNotMatch(handoffFile, /live-1|node-1/u);
 });
-
 test("readJournal ignores the pre-diet weightedUsed and weightedCap fields on a historical liveness fact", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-legacy-liveness-"));
   const runsDir = runsRoot(directory);
@@ -397,7 +384,6 @@ test("readJournal ignores the pre-diet weightedUsed and weightedCap fields on a 
   assert.ok(entry, "the legacy liveness line is read, not rejected");
   assert.equal(/** @type {Record<string, unknown>} */ (entry).weightedUsed, undefined, "the legacy field is dropped, not carried forward");
 });
-
 test("handoff projection recovers from deletion and corruption", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-projection-"));
   const runsDir = runsRoot(directory);
@@ -416,7 +402,6 @@ test("handoff projection recovers from deletion and corruption", () => {
   writeFileSync(join(created.path, PROJECTION_FILE), "{ not json");
   assert.equal(renderHandoff(created.path, runsDir), second);
 });
-
 test("journal text is normalized and an oversized entry is refused so entries cannot inject headings", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-normalize-"));
   const runsDir = runsRoot(directory);
@@ -438,7 +423,6 @@ test("journal text is normalized and an oversized entry is refused so entries ca
   assert.match(handoff, /Fake heading line two/u);
   assert.ok(Buffer.byteLength(handoff, "utf8") <= HANDOFF_BYTES);
 });
-
 test("attention-needed linked-run states survive when critical sections exhaust the budget", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-attention-critical-"));
   const runsDir = runsRoot(directory);
@@ -468,7 +452,6 @@ test("attention-needed linked-run states survive when critical sections exhaust 
   assert.match(handoff, /a: failed · boom/u);
   assert.doesNotMatch(handoff, /none fits the remaining budget/u);
 });
-
 test("large valid identifiers cannot starve later critical sections", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-large-ids-"));
   const runsDir = runsRoot(directory);
@@ -503,7 +486,6 @@ test("large valid identifiers cannot starve later critical sections", () => {
 // The chain's campaign fields: an ordered contract manifest, a landing branch,
 // and a durable promotion record (phase 3, rule 1).
 // ---------------------------------------------------------------------------
-
 test("a campaign carries an ordered contract manifest and a landing branch", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-manifest-"));
   const runsDir = runsRoot(directory);
@@ -529,7 +511,6 @@ test("a campaign carries an ordered contract manifest and a landing branch", () 
   assert.equal(other.campaign.landBranch, "campaign/defaulted");
   assert.deepEqual(other.campaign.contracts, []);
 });
-
 test("a malformed contract manifest is refused", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-manifest-bad-"));
   const runsDir = runsRoot(directory);
@@ -542,7 +523,6 @@ test("a malformed contract manifest is refused", () => {
     /path must be a non-empty string/u,
   );
 });
-
 test("the manifest digest is the contract's authored bytes and refuses tampering", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-authored-"));
   const contractPath = join(directory, "contract.json");
@@ -555,7 +535,6 @@ test("the manifest digest is the contract's authored bytes and refuses tampering
     (/** @type {Error & {code?: string}} */ error) => error.code === "contract_authored_bytes_changed" && /changed after it was authored/u.test(error.message),
   );
 });
-
 test("recording a promotion is idempotent by run and sha", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-promotion-"));
   const runsDir = runsRoot(directory);
@@ -568,7 +547,6 @@ test("recording a promotion is idempotent by run and sha", () => {
   assert.equal(campaign.promotions.length, 1);
   assert.equal(campaign.promotions[0].sha, entry.sha);
 });
-
 test("promoting the same run twice through the campaign records one promotion", () => {
   const repo = mkdtempSync(join(tmpdir(), "runner-campaign-promote-repo-"));
   execFileSync("git", ["-C", repo, "init", "-q"], { stdio: "ignore" });
@@ -594,7 +572,6 @@ test("promoting the same run twice through the campaign records one promotion", 
   const promotions = readCampaign(campaignPath).promotions;
   assert.equal(promotions.length, 1, "a replayed promotion does not add a second record");
 });
-
 test("campaign init's seat.allowance start event carries the window field when a sample is available", () => {
   // `campaign init` (src/cli/campaign.mjs) builds this event through
   // `allowanceEventFields` exactly this way; this proves the window a sample
@@ -609,7 +586,6 @@ test("campaign init's seat.allowance start event carries the window field when a
   assert.ok(startEvent, "seat.allowance start event recorded");
   assert.equal(startEvent.window, "seven_day");
 });
-
 test("a parked campaign records attention and refuses a malformed one", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-attention-"));
   const runsDir = runsRoot(directory);
@@ -640,7 +616,6 @@ test("a parked campaign records attention and refuses a malformed one", () => {
 // A contract can join an active campaign, or replace one, without a hand
 // edit of campaign.json (state-location-and-routing-economics phase 1f).
 // ---------------------------------------------------------------------------
-
 test("adding a contract to an active campaign leaves the manifest intact", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-add-contract-"));
   const runsDir = runsRoot(directory);
@@ -657,7 +632,6 @@ test("adding a contract to an active campaign leaves the manifest intact", () =>
   const reread = readCampaign(path);
   assert.deepEqual(reread.contracts, campaign.contracts);
 });
-
 test("adding the same contract twice is not an error", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-add-contract-twice-"));
   const runsDir = runsRoot(directory);
@@ -671,7 +645,6 @@ test("adding the same contract twice is not an error", () => {
   assert.equal(second.added, false, "the same path with unchanged bytes writes nothing");
   assert.equal(readCampaign(path).contracts.length, 1, "the manifest is not duplicated");
 });
-
 test("adding a contract path that does not exist fails with a message naming the path", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-add-contract-missing-"));
   const runsDir = runsRoot(directory);
@@ -683,7 +656,6 @@ test("adding a contract path that does not exist fails with a message naming the
     (/** @type {Error} */ error) => !(error instanceof TypeError) && error.message === `contract not found: ${missing}`,
   );
 });
-
 test("replacing a contract swaps the entry and drops the attention that named it", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-replace-contract-"));
   const runsDir = runsRoot(directory);
@@ -720,7 +692,6 @@ test("replacing a contract swaps the entry and drops the attention that named it
   const reread = readCampaign(path);
   assert.equal(reread.attention, undefined, "the campaign is no longer parked");
 });
-
 test("replacing a contract excludes the old run only when the replacement id differs", () => {
   for (const [suffix, replacementId, expectedRunIds] of [
     ["same-id", "phase-1", []],
@@ -743,7 +714,6 @@ test("replacing a contract excludes the old run only when the replacement id dif
     assert.deepEqual(campaign.replacements?.at(-1)?.runIds, expectedRunIds);
   }
 });
-
 test("replacing a contract that does not match the parked attention leaves it in place", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-replace-contract-unrelated-attention-"));
   const runsDir = runsRoot(directory);
@@ -771,7 +741,6 @@ test("replacing a contract that does not match the parked attention leaves it in
   assert.equal(clearedAttention, null);
   assert.ok(readCampaign(path).attention, "an attention naming a different contract is left alone");
 });
-
 test("replacing a contract path that does not exist fails with a message naming the path", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-campaign-replace-contract-missing-"));
   const runsDir = runsRoot(directory);
@@ -789,3 +758,27 @@ test("replacing a contract path that does not exist fails with a message naming 
     (/** @type {Error} */ error) => !(error instanceof TypeError) && error.message === `contract not found: ${missing}`,
   );
 });
+
+// R30: `campaign note` generates the ids it can and falls back to the last attached session.
+test("a decision note without ids gets a generated id and the attached session", async () => {
+  const home = mkdtempSync(join(tmpdir(), "campaign-note-ids-"));
+  const { path } = initializeCampaign(runsRoot(home), { campaignId: "note-ids", goal: "Generate ids" });
+  appendJournal(path, { type: "session.attached", eventId: "s1", at: new Date().toISOString(), sessionId: "session-one", tool: "codex", transcript: null, transcriptUnavailable: true, format: null, cursor: null });
+  const output = await runCampaignCli(["note", "note-ids", "--cwd", home, "--kind", "decision", "--text", "Use semantic budgeting!"]);
+  const decision = readJournal(path).find((entry) => entry.type === "decision");
+  assert.equal(decision?.sessionId, "session-one", "the note falls back to the attached session");
+  assert.match(String(decision?.decisionId), /^use-semantic-budgeting-[0-9a-f]{6}$/u);
+  assert.ok(output.includes(`decision noted · ${decision?.decisionId}`), "the generated id is printed");
+  const bare = mkdtempSync(join(tmpdir(), "campaign-note-bare-"));
+  initializeCampaign(runsRoot(bare), { campaignId: "note-bare", goal: "Refuse a sessionless note" });
+  await assert.rejects(runCampaignCli(["note", "note-bare", "--cwd", bare, "--kind", "intent", "--text", "No session"]), /no session is attached/u);
+});
+
+/** @param {string[]} argv */
+async function runCampaignCli(argv) {
+  let output = "";
+  const write = process.stdout.write;
+  process.stdout.write = /** @type {any} */ ((/** @type {unknown} */ chunk) => { output += String(chunk); return true; });
+  try { await campaignCli(argv); } finally { process.stdout.write = write; }
+  return output;
+}

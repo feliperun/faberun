@@ -130,6 +130,8 @@ These fail `npm test`. `test/repo/source-shape.test.mjs` is where they live.
   hazard: this tree had two `stableJson`s (a comparator and a pretty-printer)
   and two `requireText`s, one of which read a file. `harness` is exempt by name:
   every adapter exports it, and that uniformity *is* the registry interface.
+  `declaredEnvironment` is exempt for the same reason: each adapter's list of
+  the environment names it reads, keyed by harness in the catalogue.
 - **No barrel modules.** A module that only re-exports gives every symbol two
   homes and makes "where does this come from" unanswerable. `lib.mjs` was one;
   it is gone.

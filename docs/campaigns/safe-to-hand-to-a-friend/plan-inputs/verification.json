@@ -7,6 +7,14 @@
     "typecheck"
    ],
    "timeoutSec": 120
+  },
+  {
+   "argv": [
+    "node",
+    "--test",
+    "test/repo/source-shape.test.mjs"
+   ],
+   "timeoutSec": 60
   }
  ],
  "finalVerification": [

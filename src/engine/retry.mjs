@@ -15,12 +15,11 @@
  * exhausted run budget needs `--max-input-tokens <n>`.
  */
 import { Buffer } from "node:buffer";
+import { PREVIOUS_ATTEMPT_EVIDENCE_MAX_BYTES } from "../contract/snapshot.mjs";
 
 /** Heading of the section appended to a retried attempt's worker and judge prompt. */
 const PREVIOUS_ATTEMPT_HEADING = "Previous attempt";
 
-/** Hard ceiling for the whole `Previous attempt` section, in bytes. */
-const PREVIOUS_ATTEMPT_MAX_BYTES = 8 * 1024;
 
 /** Heading under which an operator's answer is rendered inside the section. */
 const OPERATOR_ANSWER_HEADING = "Operator answer";
@@ -267,11 +266,6 @@ export function renderPreviousAttemptSection(state) {
   if (state.error?.code || state.error?.message) {
     parts.push(`Error: ${state.error?.code ?? "unknown"}${state.error?.message ? ` — ${bounded(state.error.message, 1024)}` : ""}`);
   }
-  const answer = mostRecentOperatorAnswer(state);
-  if (answer !== null) {
-    parts.push(`${OPERATOR_ANSWER_HEADING}:`);
-    parts.push(bounded(answer, 1024));
-  }
   const findings = state.gate?.findings ?? [];
   if (findings.length) {
     parts.push(`Judge findings (verdict ${state.gate?.verdict ?? "unknown"}, maxSeverity ${state.gate?.maxSeverity ?? "none"}):`);
@@ -293,8 +287,14 @@ export function renderPreviousAttemptSection(state) {
       if (typeof last?.exitCode === "number" && last.exitCode !== 0) parts.push(`  exit code: ${last.exitCode}`);
     }
   }
-  if (parts.length === 1) return null;
-  return boundSection([`## ${PREVIOUS_ATTEMPT_HEADING}`, "", ...parts].join("\n"));
+  const answer = mostRecentOperatorAnswer(state);
+  if (parts.length === 1 && answer === null) return null;
+  const evidence = boundSection([`## ${PREVIOUS_ATTEMPT_HEADING}`, "", ...parts].join("\n"));
+  // The answer was bounded where it was accepted (OPERATOR_ANSWER_MAX_BYTES),
+  // so it is carried whole, after the evidence and outside its budget.
+  // Measured 2026-09-28: bounded here at 1 KiB inside an 8 KiB section, an
+  // answer the engine had accepted and recorded reached the worker cut short.
+  return answer === null ? evidence : `${evidence}\n${OPERATOR_ANSWER_HEADING}:\n${answer}`;
 }
 
 /**
@@ -315,9 +315,9 @@ export function appendPreviousAttempt(prompt, section) {
  * @returns {string} the text bounded to the section ceiling, with a marker
  */
 function boundSection(text) {
-  if (Buffer.byteLength(text, "utf8") <= PREVIOUS_ATTEMPT_MAX_BYTES) return text;
+  if (Buffer.byteLength(text, "utf8") <= PREVIOUS_ATTEMPT_EVIDENCE_MAX_BYTES) return text;
   const marker = "\n… (previous attempt section truncated)";
-  const room = PREVIOUS_ATTEMPT_MAX_BYTES - Buffer.byteLength(marker, "utf8") - 1;
+  const room = PREVIOUS_ATTEMPT_EVIDENCE_MAX_BYTES - Buffer.byteLength(marker, "utf8") - 1;
   const cut = Buffer.from(text, "utf8").subarray(0, room).toString("utf8");
   return `${cut}${marker}`;
 }

@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { runReviewRounds } from "../../src/plan/rounds.mjs";
+import { runBoundedRounds, runReviewRounds } from "../../src/plan/rounds.mjs";
 import { fixture, packet } from "../helpers.mjs";
 
 /**
@@ -384,3 +384,29 @@ test("a node creating a file in a directory a test lists by name is given that t
   assert.equal(logged.length, 1);
   assert.match(logged[0], /lists every entry of skills\/faberun\/references\/ by name, and this node creates skills\/faberun\/references\/local-env\.md there/u);
 });
+
+test("the bounded round budget stops at the first accepted round and never exceeds its budget", async () => {
+  /** @type {number[]} */
+  const seen = [];
+  const accepted = await runBoundedRounds(3, async (round) => {
+    seen.push(round);
+    return { accepted: round === 2 };
+  });
+  assert.equal(accepted.accepted, true);
+  assert.equal(accepted.roundsUsed, 2);
+  assert.deepEqual(seen, [1, 2], "the round after the accepted one never runs");
+
+  /** @type {number[]} */
+  const attempts = [];
+  const exhausted = await runBoundedRounds(2, async (round) => {
+    attempts.push(round);
+    return { accepted: false, round };
+  });
+  assert.equal(exhausted.accepted, false);
+  assert.equal(exhausted.roundsUsed, 2);
+  assert.equal(exhausted.history.length, 2);
+  assert.deepEqual(attempts, [1, 2], "the hard budget is exactly two calls");
+
+  await assert.rejects(() => runBoundedRounds(0, async () => ({ accepted: true })), /positive integer/u);
+});
+

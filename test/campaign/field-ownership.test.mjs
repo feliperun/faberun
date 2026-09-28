@@ -458,6 +458,13 @@ test("single writer per field", () => {
     (DERIVED.campaign.get("requirements") ?? new Set()).size > 0,
     "no mutator's written campaign record sets requirements",
   );
+  // The preservation marker is how removal learns a campaign's ledger is
+  // durable; it must stay declared and keep a writer the derivation can find.
+  assert.ok(declaredCampaign.ledgerPreserved, "the campaign record does not declare the preservation field");
+  assert.ok(
+    (DERIVED.campaign.get("ledgerPreserved") ?? new Set()).size > 0,
+    "no mutator's written campaign record sets ledgerPreserved",
+  );
   for (const [field, declared] of Object.entries(declaredCampaign)) {
     assert.deepEqual(
       [...declared.writers].sort(),

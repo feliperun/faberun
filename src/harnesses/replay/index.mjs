@@ -2,6 +2,18 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseVersion } from "../protocol.mjs";
 
+/**
+ * The environment names the replay adapter reads to authenticate and configure
+ * the recording: only the binary override `executable()` honours. A recording
+ * carries no credential of its own, and `replay/bin.mjs` reads no environment
+ * name at all. Values never travel here.
+ *
+ * @type {readonly string[]}
+ */
+export const declaredEnvironment = Object.freeze([
+  "FABERUN_REPLAY_BIN",
+]);
+
 /** Envelope statuses a recording may carry. */
 const REPLAY_STATUSES = Object.freeze(new Set([
   "done",

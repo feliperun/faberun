@@ -3,7 +3,9 @@
  * enabled, which runtime is the default worker and judge, the machine's own
  * ordered `judges` list (R18) -- read only when a contract declares none --
  * and its ordered `reviewers` list (R19), `faberun plan`'s own machine
- * default, read only when `--reviewers` names none.
+ * default, read only when `--reviewers` names none. Its `judgeIndependence`
+ * (R36) is the machine-wide same-vendor opt-in, read only when a contract
+ * declares none.
  *
  * It is separate from `host/home.mjs`, which owns the path, because reading a
  * config is a validation problem and writing it is an atomic-write problem;
@@ -13,8 +15,9 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { configPath, faberunHome } from "./home.mjs";
+import { SAME_VENDOR_REVIEW_MODE } from "../contract/judge-independence.mjs";
 
-/** @typedef {{schemaVersion: 1, harnesses: string[], worker?: string, judge?: string, judges?: string[], reviewers?: string[], updatedAt: string}} UserConfig */
+/** @typedef {{schemaVersion: 1, harnesses: string[], worker?: string, judge?: string, judges?: string[], reviewers?: string[], judgeIndependence?: "same-vendor", updatedAt: string}} UserConfig */
 
 /** Paths already reported malformed, so a process that reads twice warns once. */
 const warned = new Set();
@@ -88,5 +91,8 @@ function isUserConfig(value) {
   if (record.judge !== undefined && typeof record.judge !== "string") return false;
   if (record.judges !== undefined && (!Array.isArray(record.judges) || !record.judges.every((id) => typeof id === "string"))) return false;
   if (record.reviewers !== undefined && (!Array.isArray(record.reviewers) || !record.reviewers.every((id) => typeof id === "string"))) return false;
+  // The machine's same-vendor opt-in shares the contract field's single
+  // accepted value; anything else is malformed, not silently ignored.
+  if (record.judgeIndependence !== undefined && record.judgeIndependence !== SAME_VENDOR_REVIEW_MODE) return false;
   return typeof record.updatedAt === "string";
 }

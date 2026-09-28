@@ -16,6 +16,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
+import { deterministicGate, verificationEnvironment } from "../../src/engine/judge-gate.mjs";
 import { invocationAlive, startProcess } from "../../src/engine/process.mjs";
 import { pidAlive } from "../../src/run/lock.mjs";
 import { validateNodeSnapshot } from "../../src/contract/snapshot.mjs";
@@ -250,5 +251,91 @@ test("a gate stops its provider when the run directory goes after the provider s
     if (previous === undefined) delete process.env.FABERUN_CODEX_BIN;
     else process.env.FABERUN_CODEX_BIN = previous;
     killGateGroup(job.invocation);
+  }
+});
+
+test("a worker sees only the environment it was allowed", async () => {
+  // A controller variable no adapter, `*.env_key`, or envPassthrough named is
+  // dropped before the provider starts. The base operating-system names and
+  // the named ones survive, and a verification command -- which is not a
+  // worker -- still receives the whole controller environment.
+  const runDir = mkdtempSync(join(tmpdir(), "lock-worker-env-"));
+  const logs = join(runDir, "logs");
+  mkdirSync(logs);
+  const allowedName = "FABERUN_TEST_ENV_ALLOWED";
+  const secretName = "FABERUN_TEST_ENV_SECRET";
+  const workerEnvPath = join(runDir, "worker-env.json");
+  const provider = join(runDir, "provider.mjs");
+  // Written aside and renamed into place: the test polls for the file, so it
+  // must never see it half-written. Measured 2026-09-28: read on existence,
+  // it failed once with "Unexpected end of JSON input" in a full-suite run.
+  writeFileSync(provider, `#!${process.execPath}
+import { renameSync, writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(`${workerEnvPath}.partial`)}, JSON.stringify(process.env));
+renameSync(${JSON.stringify(`${workerEnvPath}.partial`)}, ${JSON.stringify(workerEnvPath)});
+`);
+  chmodSync(provider, 0o755);
+  const planted = { FABERUN_CODEX_BIN: provider, [allowedName]: "allowed-value", [secretName]: "must-not-leak" };
+  const previous = new Map(Object.entries(planted).map(([key]) => [key, process.env[key]]));
+  for (const [key, value] of Object.entries(planted)) process.env[key] = value;
+  let job;
+  try {
+    const { contract, node } = validatedRun(runDir);
+    const state = nodeSnapshot(node);
+    job = startProcess({
+      contract,
+      node,
+      state,
+      // FABERUN_CODEX_BIN is declared by the codex adapter; the passthrough
+      // name is the one extra the operator allowed.
+      runtime: { id: "luna", harness: "codex", model: "test", envPassthrough: [allowedName] },
+      prompt: "task",
+      paths: {
+        prompt: join(logs, "worker.prompt"),
+        stdout: join(logs, "worker.jsonl"),
+        stderr: join(logs, "worker.err"),
+      },
+      phase: "worker",
+      onInvocation: () => {},
+    });
+    const spawned = Date.now() + 60_000;
+    while (!existsSync(workerEnvPath) && Date.now() < spawned) await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.equal(existsSync(workerEnvPath), true, "the gate released and the worker reported its environment");
+    const workerEnv = JSON.parse(readFileSync(workerEnvPath, "utf8"));
+    assert.equal(workerEnv[secretName], undefined, "a controller variable the allowlist does not name never reaches the worker");
+    assert.equal(workerEnv[allowedName], "allowed-value", "an envPassthrough name reaches the worker");
+    assert.equal(workerEnv.FABERUN_CODEX_BIN, provider, "a name the codex adapter declares reaches the worker");
+    assert.equal(typeof workerEnv.PATH, "string", "the base operating-system names reach the worker");
+    assert.equal(workerEnv.FABERUN_NOTIFY_BIN, undefined, "a notification transport never reaches the worker");
+
+    // The verification spawn is not a worker. A command proof writes down its
+    // own environment and must still see the secret the worker did not.
+    const proofEnvPath = join(runDir, "proof-env.json");
+    const proofScript = join(runDir, "proof-env.mjs");
+    writeFileSync(proofScript, `import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(proofEnvPath)}, JSON.stringify(process.env));
+`);
+    assert.equal(verificationEnvironment()[secretName], "must-not-leak", "the verification environment is the full controller environment");
+    const proofNode = /** @type {import("../../src/contract/index.mjs").ValidatedNode} */ (/** @type {unknown} */ ({
+      definitionOfDone: [{
+        id: "proof-env",
+        // Forward slashes keep the quoted argv valid under cmd.exe as well as
+        // POSIX shells; a raw Windows path doubles its backslashes in JSON.
+        proof: {
+          kind: "command",
+          ref: `${JSON.stringify(process.execPath.replace(/\\/gu, "/"))} ${JSON.stringify(proofScript.replace(/\\/gu, "/"))}`,
+        },
+      }],
+    }));
+    const { verdict } = await deterministicGate(proofNode, runDir, false, 30_000);
+    assert.equal(verdict.verdict, "pass", "the verification command proof passed");
+    const proofEnv = JSON.parse(readFileSync(proofEnvPath, "utf8"));
+    assert.equal(proofEnv[secretName], "must-not-leak", "the verification spawn keeps the full controller environment");
+  } finally {
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    killGateGroup(job?.invocation);
   }
 });

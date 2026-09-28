@@ -54,7 +54,7 @@ const UNKNOWN_COST_PROVENANCE = "unknown";
 /** @typedef {Indicator & {unknownCount: number}} JudgeCostShareIndicator */
 /** @typedef {{value: Record<string, number>|null, direction: Direction, count: number, numerator?: Record<string, number>, denominator?: Record<string, number>, excludedRunIds?: string[], missingSources?: string[]}} GroupedIndicator */
 /** @typedef {{atMs: number, index: number, event: JsonObject}} RunEvent */
-/** @typedef {{runId: string, id: string, status: string, attempt?: number|null, revisions?: number|null, review?: string|null}} RunNode */
+/** @typedef {{runId: string, id: string, status: string, attempt?: number|null, revisions?: number|null, review?: string|null, judgeIndependence?: string|null}} RunNode */
 
 /**
  * @typedef {{
@@ -148,7 +148,34 @@ export function projectMetrics({ events = [], usageRecords = [], notifications =
     intentToVerifiedSeconds: northStar,
     humanTouches: touches,
   };
-  return applyMissingSources(metrics, missingSources);
+  const projected = /** @type {CampaignMetrics & {effectiveJudgeIndependence: string|null}} */ (applyMissingSources(metrics, missingSources));
+  // R36: the effective judge-independence mode the launch recorded on the run
+  // snapshots, read back from the reduced node input rather than re-derived
+  // from the contract or the machine config. It is metadata about the sources,
+  // like the run count, not a section-6 indicator: non-enumerable so the
+  // indicator set -- and every renderer that walks it -- is unchanged.
+  Object.defineProperty(projected, "effectiveJudgeIndependence", {
+    value: recordedJudgeIndependenceOf(eligibleNodes),
+    enumerable: false,
+  });
+  return projected;
+}
+
+/**
+ * The effective judge-independence mode the launch recorded on the run
+ * snapshots, reduced to the `judgeIndependence` field of the node input. The
+ * launch composes one mode per contract, so the first node that recorded one
+ * answers for the campaign; a caller that re-derives it from the contract or
+ * the machine config would miss a machine-config opt-in the launch recorded.
+ *
+ * @param {RunNode[]} nodes
+ * @returns {string|null}
+ */
+export function recordedJudgeIndependenceOf(nodes) {
+  for (const node of nodes) {
+    if (typeof node.judgeIndependence === "string" && node.judgeIndependence) return node.judgeIndependence;
+  }
+  return null;
 }
 
 /**

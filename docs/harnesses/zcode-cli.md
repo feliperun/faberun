@@ -376,7 +376,7 @@ Our own observations, kept apart from the vendor text above. Where they disagree
 with it, this section is the current truth about the driver, not about the CLI.
 
 - **`edit` does not execute commands** (measured 2026-09-10,
-  `.runs/if-live-drivers-20260910`). Worker `live-zcode`, `driver: zcode`,
+  legacy in-tree `.runs/if-live-drivers-20260910`). Worker `live-zcode`, `driver: zcode`,
   `model: glm-5.3-flash`, `permissionMode: edit`: the worker wrote its file and
   then reported that its shell verification could not run —
   `No permission client configured for Bash`, 2 attempts

@@ -27,6 +27,8 @@ import { randomUUID } from "node:crypto";
 import { unlinkSync } from "node:fs";
 import { sameProcessStartToken, validBootstrapNonce } from "../run/lock.mjs";
 import { bootstrapAckPath, bootstrapAttemptPath, readJson } from "../run/store.mjs";
+import { removeRunDirectory } from "../run/paths.mjs";
+import { runNeverHeldNode } from "./run-identity.mjs";
 import { delay, errorCode } from "../util.mjs";
 
 /** How long a detached child waits for its launcher to acknowledge. */
@@ -97,5 +99,21 @@ export function cleanupBootstrapNonce(runDir, nonce) {
       if (errorCode(error) !== "ENOENT") throw error;
     }
   }
+}
+
+/**
+ * Remove a run directory that died before it could hold a node, so the next
+ * launch is not refused with `run already exists` because of evidence that
+ * never became a run. A directory that already holds a node is left exactly
+ * where it is: that evidence is what a resume reads. Returns whether the
+ * directory was removed.
+ *
+ * @param {string} runDir
+ * @returns {boolean}
+ */
+export function discardNodeLessRunDirectory(runDir) {
+  if (!runNeverHeldNode(runDir)) return false;
+  removeRunDirectory(runDir);
+  return true;
 }
 

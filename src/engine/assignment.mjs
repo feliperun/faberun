@@ -40,6 +40,37 @@ export async function runtimeAssignments(contract) {
     (node.runtime === undefined && contract.runtimeDefaults?.worker === undefined)
     || (node.gate.enabled && node.gate.runtime === undefined && contract.runtimeDefaults?.judge === undefined));
   const availability = needsComposition ? await discoverRuntimes(contract.runtimes, { cwd: contract.cwd }) : {};
+  return composeRuntimeAssignments(contract, availability);
+}
+
+/**
+ * Every declared runtime marked available, the catalogue a dry-run assignment
+ * reads. `validate` composes over this so a contract no live probe could
+ * rescue -- an omitted judge with no cross-vendor candidate, a same-vendor
+ * pair below the admitted tier, an exhausted judge list -- is refused at
+ * authoring time. Modeling unavailability here would make a contract's
+ * validity depend on the machine that happens to read it, when the point is
+ * to refuse what the launch would refuse whatever is up.
+ *
+ * @param {ValidatedContract} contract
+ * @returns {Record<string, RuntimeAvailability>}
+ */
+export function allRuntimesAvailable(contract) {
+  return Object.fromEntries(Object.keys(contract.runtimes).map((id) => [id, { available: true, exhaustedUntil: null, reason: "ready" }]));
+}
+
+/**
+ * The launch-time assignment minus discovery: the same machine-config
+ * narrowing, judge-list selection, and `composeAssignments` call
+ * `runtimeAssignments` runs once the availability catalogue is in hand. Kept
+ * synchronous so `validate` can ask what a launch would assign without
+ * probing a provider.
+ *
+ * @param {ValidatedContract} contract
+ * @param {Record<string, RuntimeAvailability>} availability
+ * @returns {{assignments: Record<string, {worker: string, judge: string, composedWorker: boolean, composedJudge: boolean}>, decisions: Record<string, {worker: {strategy: string|null, reason: string}, judge: {strategy: string|null, reason: string}}>, availability: Record<string, RuntimeAvailability>, judgeListStates: Record<string, JudgeListState|undefined>}}
+ */
+export function composeRuntimeAssignments(contract, availability) {
   const config = readUserConfig(process.env);
   const list = resolveJudgeList(contract, config);
   /** @type {Record<string, JudgeListState|undefined>} */
@@ -100,6 +131,20 @@ export async function runtimeAssignments(contract) {
     availability,
     judgeListStates,
   };
+}
+
+/**
+ * Throw the refusal a launch-time assignment would raise for this contract,
+ * with every runtime given as available. This is the check `faberun validate`
+ * runs (R35) so a contract the launch would refuse is refused at authoring
+ * time, before a run directory or a provider is touched. A persisted run's
+ * contract is never passed here: its assignment is already frozen.
+ *
+ * @param {ValidatedContract} contract
+ * @returns {void}
+ */
+export function assertRuntimeAssignment(contract) {
+  composeRuntimeAssignments(contract, allRuntimesAvailable(contract));
 }
 /**
  * @param {ValidatedContract} contract

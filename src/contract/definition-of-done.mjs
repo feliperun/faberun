@@ -1,4 +1,6 @@
 import { rejectUnknown, requireId, requireString } from "./assert.mjs";
+import { errorMessage, shellWords } from "../util.mjs";
+import { Script } from "node:vm";
 /**
  * Schema 2 Definition of Done items. Each item is an object that names an
  * observable outcome and declares how it is proven: mechanically through a
@@ -209,6 +211,113 @@ export function unquotedFilterValueWarnings(items, index) {
   });
   return warnings;
 }
+
+/**
+ * The body of an inline `node -e`/`node --eval` script named by a command
+ * proof's shell command, or null when the command carries none. The proof runs
+ * through a shell, so the body is the next shell word with its quotes removed:
+ * `shellWords` expands and escapes nothing, which is also how the shell hands
+ * the body to node. `-e` belongs to other commands too (`grep -e` the common
+ * one), so a scan only starts at a token that names the node binary.
+ *
+ * @param {string} commandText
+ * @returns {string|null}
+ */
+export function inlineScriptBody(commandText) {
+  const tokens = shellWords(commandText);
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (!isNodeExecutable(tokens[index])) continue;
+    for (let position = index + 1; position < tokens.length; position += 1) {
+      const token = tokens[position];
+      if (SHELL_SEPARATORS.has(token)) break;
+      if (token === "-e" || token === "--eval") {
+        const body = tokens[position + 1];
+        return body === undefined || SHELL_SEPARATORS.has(body) ? null : body;
+      }
+      if (token.startsWith("--eval=")) return token.slice("--eval=".length);
+      if (token.startsWith("-e=")) return token.slice("-e=".length);
+    }
+  }
+  return null;
+}
+
+/**
+ * The syntax error a `node -e`/`node --eval` body names, or null when the
+ * command is not an inline script or its body parses. `vm.Script` is node's
+ * own grammar for `-e`; the two shapes node's module wrapper accepts but a
+ * classic script does not -- top-level `await` and static ESM syntax -- are
+ * re-tried or allowed rather than refused, so a valid proof is never refused
+ * for a body this check cannot parse. A genuine error in the tail of an
+ * awaited body still surfaces through the async re-try.
+ *
+ * @param {string} commandText
+ * @returns {string|null}
+ */
+export function inlineScriptParseError(commandText) {
+  const body = inlineScriptBody(commandText);
+  return body === null ? null : scriptSyntaxError(body);
+}
+
+/**
+ * Refuse a contract whose command proof is an inline script that does not
+ * parse, naming the node and the Definition of Done item. The launch calls
+ * this before the first dispatch: a body the parser rejects can never exit 0,
+ * so every attempt would be spent on work no delivery could satisfy.
+ *
+ * @param {{id?: unknown, definitionOfDone?: {id?: unknown, proof?: {kind?: unknown, ref?: unknown}}[]}[]} nodes
+ * @returns {void}
+ */
+export function assertInlineScriptProofsParse(nodes) {
+  for (const node of nodes) {
+    for (const item of node.definitionOfDone ?? []) {
+      if (item.proof?.kind !== "command" || typeof item.proof.ref !== "string") continue;
+      const parseError = inlineScriptParseError(item.proof.ref);
+      if (parseError === null) continue;
+      const nodeName = node.id === undefined ? "a node" : `node ${node.id}`;
+      throw new TypeError(`${nodeName}, Definition of Done item "${item.id}": the proof command's inline script does not parse: ${parseError}`);
+    }
+  }
+}
+
+/** @param {string} token @returns {boolean} */
+function isNodeExecutable(token) {
+  const base = (token.split(/[\\/]/u).pop() ?? token).toLowerCase();
+  return base === "node" || base === "nodejs" || base === "node.exe";
+}
+
+/**
+ * @param {string} body
+ * @returns {string|null}
+ */
+function scriptSyntaxError(body) {
+  try {
+    void new Script(body);
+    return null;
+  } catch (error) {
+    const message = errorMessage(error);
+    if (AWAIT_OUTSIDE_ASYNC.test(message)) {
+      try {
+        // The rest of the body still has to parse, so an unparsable tail is
+        // refused even when the head needed the async wrapper to parse at all.
+        void new Script(`(async () => {\n${body}\n})`);
+        return null;
+      } catch (wrapped) {
+        const wrappedMessage = errorMessage(wrapped);
+        return MODULE_SYNTAX.test(wrappedMessage) ? null : wrappedMessage;
+      }
+    }
+    // node's `-e` accepts static imports, exports and `import.meta`; no stable
+    // API parses a module here, so a module-only diagnostic is not a syntax
+    // error this check can prove and the body is allowed.
+    return MODULE_SYNTAX.test(message) ? null : message;
+  }
+}
+
+/** vm.Script's diagnostics for syntax node's `-e` module wrapper accepts. */
+const AWAIT_OUTSIDE_ASYNC = /await is only valid in async functions|^Unexpected reserved word$/u;
+const MODULE_SYNTAX = /Cannot use import statement outside a module|Cannot use 'import\.meta' outside a module|Unexpected token 'export'/u;
+/** Shell tokens that end one command, so a later `-e` is not this node's. */
+const SHELL_SEPARATORS = new Set(["&&", "||", "|", ";", "&", ">", ">>", "<"]);
 
 /** The node:test filter flags a `kind: "command"` proof's shell can split on an unquoted value. */
 const TEST_FILTER_FLAGS = ["--test-name-pattern", "--test-skip-pattern"];

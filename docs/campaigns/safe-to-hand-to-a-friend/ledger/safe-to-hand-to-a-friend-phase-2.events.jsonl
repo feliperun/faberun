@@ -1,0 +1,14 @@
+{"at":"2026-09-27T13:02:29.172Z","node":"r5-walkthrough","to":"running","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-27T13:13:37.583Z","node":"r7-repo-facts","to":"running","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-27T13:14:36.717Z","node":"r5-walkthrough","to":"pending","phase":"worker","runtime":"dsh-deepseek","verdict":"fail","revisions":1}
+{"at":"2026-09-27T13:20:50.989Z","node":"r5-walkthrough","to":"running","phase":"worker","runtime":"dsh-deepseek","verdict":"fail","revisions":1}
+{"at":"2026-09-27T13:21:01.493Z","node":"r7-repo-facts","to":"pending","phase":"worker","runtime":"dsh-deepseek","verdict":"fail","revisions":1}
+{"at":"2026-09-27T13:21:53.017Z","node":"r7-repo-facts","to":"running","phase":"worker","runtime":"dsh-deepseek","verdict":"fail","revisions":1}
+{"at":"2026-09-27T13:22:53.607Z","node":"r5-walkthrough","to":"running","phase":"judge","runtime":"zcode-glm","verdict":"fail","revisions":1}
+{"at":"2026-09-27T13:25:32.006Z","node":"r5-walkthrough","to":"done","phase":"complete","runtime":"zcode-glm","verdict":"pass","revisions":1}
+{"at":"2026-09-27T13:26:50.640Z","node":"r6-legacy-sweep","to":"running","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-27T13:27:06.774Z","node":"r7-repo-facts","to":"running","phase":"judge","runtime":"zcode-glm","verdict":"fail","revisions":1}
+{"at":"2026-09-27T13:30:22.024Z","node":"r7-repo-facts","to":"running","phase":"judge","runtime":"zcode-glm","verdict":"fail","revisions":1}
+{"at":"2026-09-27T13:32:13.872Z","node":"r7-repo-facts","to":"done","phase":"complete","runtime":"zcode-glm","verdict":"pass","revisions":1}
+{"at":"2026-09-27T13:34:08.239Z","node":"r6-legacy-sweep","to":"running","phase":"worker","runtime":"dsh-deepseek","verdict":"fail","revisions":1}
+{"at":"2026-09-27T13:35:37.443Z","node":"r6-legacy-sweep","to":"failed","phase":"worker","runtime":"dsh-deepseek","verdict":"fail","error":"mechanical_gate_failed","revisions":1}

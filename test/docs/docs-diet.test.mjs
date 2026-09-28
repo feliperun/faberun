@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { RUNS_DIR_NAME } from '../../src/run/paths.mjs';
 
 // Raised from 1024 on 2026-09-17: SKILL.md gained one router row linking a
 // seventh reference, references/spec-format.md, documenting the spec format
@@ -95,8 +96,15 @@ const HANDOFFS_BYTE_CEILING = 2048;
 // other reserved articles' ceilings rather than the file's exact size, since
 // this one is expected to grow with the format itself across the campaign.
 const SPEC_FORMAT_BYTE_CEILING = 6144;
+// Set on 2026-09-25 when references/local-env.md was added for `doctor --env`:
+// a generous ratchet for the article documenting the environment a worker
+// receives, sized like the other reference ceilings rather than the file's
+// exact size.
+const LOCAL_ENV_BYTE_CEILING = 1024;
 // Measured 2026-09-23: SKILL.md plus every references/*.md is 46852 bytes.
 // The aggregate ceiling is fixed at the campaign baseline of 46855 bytes.
+// references/local-env.md and its router row were added 2026-09-25 and paid
+// for by trimming repetition from operations.md, so the balance is 46833.
 // Raising it requires a new ADR cited here as docs/adr/NNNN-*.md; the proof
 // below checks the cited concrete path and its number against ADR 0010.
 const TOTAL_BYTE_BUDGET = 46855;
@@ -158,6 +166,15 @@ test('references/spec-format.md stays within its byte ceiling', () => {
   );
 });
 
+test('references/local-env.md stays within its byte ceiling', () => {
+  const bytes = statSync(fileURLToPath(new URL('../../skills/faberun/references/local-env.md', import.meta.url))).size;
+  assert.ok(bytes > 0, 'references/local-env.md must not be empty');
+  assert.ok(
+    bytes <= LOCAL_ENV_BYTE_CEILING,
+    `references/local-env.md is ${bytes} bytes; the ceiling is ${LOCAL_ENV_BYTE_CEILING} bytes.`,
+  );
+});
+
 test("the skill and its references share one byte budget", () => {
   const referencePaths = readdirSync(referencesDir)
     .filter((name) => name.endsWith('.md'))
@@ -187,12 +204,12 @@ test("the skill and its references share one byte budget", () => {
   );
 });
 
-test('references/ holds the two foundation documents, the four reserved articles, and spec-format.md', () => {
+test('references/ holds the two foundation documents, the four reserved articles, spec-format.md and local-env.md', () => {
   const entries = readdirSync(referencesDir).sort();
   assert.deepEqual(
     entries,
-    ['contract.md', 'engineering.md', 'handoffs.md', 'operations.md', 'rules.md', 'spec-format.md', 'workflow.md'],
-    'references/ is contract.md, operations.md, spec-format.md, and the four reserved constitution articles',
+    ['contract.md', 'engineering.md', 'handoffs.md', 'local-env.md', 'operations.md', 'rules.md', 'spec-format.md', 'workflow.md'],
+    'references/ is contract.md, operations.md, spec-format.md, local-env.md, and the four reserved constitution articles',
   );
 });
 
@@ -238,4 +255,67 @@ test('done-when 8: the notify docs match notify/index.mjs and SKILL.md arms the 
   assert.match(skill, /launchd/u);
   assert.match(skill, /StartInterval 300/u);
   assert.match(skill, /launchctl load/u);
+});
+
+// R6: no current document describes the legacy in-tree run layout as current.
+//
+// The runs root moved out of the target repository into the operator's home
+// (`$FABERUN_HOME`, default `~/.faberun`), so a current doc that still names
+// the old in-tree `.runs/` directory — or a path under it — as where run state
+// lives is stale. This ratchet fails until such a mention is removed, or the
+// passage that keeps it is labelled as the legacy layout.
+//
+// Scope is README.md and the top-level docs. `docs/history/`,
+// `docs/campaigns/` and `docs/adr/` are dated records and out of scope by
+// design. `docs/COMMANDS.md` is excluded because it is the generated command
+// manual: `src/cli/manual.mjs` regenerates its command surface, so a docs
+// sweep does not own its reads/writes prose. `docs/GETTING-STARTED.md` is
+// scanned; its one unlabelled mention is the line `init` prints when it
+// ignores a legacy in-tree runs directory, quoted verbatim, so it stays until
+// the CLI stops printing it.
+
+const rootDir = fileURLToPath(new URL('../..', import.meta.url));
+const docsDir = join(rootDir, 'docs');
+
+/** Files under `docs/` that are generated rather than hand-authored. */
+const GENERATED_DOCS = new Set(['COMMANDS.md']);
+
+/**
+ * A line that labels its passage as legacy is allowed to name the old layout,
+ * so a migration note can say exactly what moved.
+ */
+const LEGACY_LABEL = /\b(?:legacy|pre-?migration|before the move|migrat(?:e|es|ed|ion)|historical)\b/iu;
+
+/** CLI output the executed walkthrough quotes verbatim. */
+const ALLOWED_GETTING_STARTED = [/\[ok\] \.runs ignored/u];
+
+/** @returns {string[]} absolute paths of README.md and the current top-level docs */
+function currentDocs() {
+  const generated = new Set([...GENERATED_DOCS].map((name) => join(docsDir, name)));
+  return [
+    join(rootDir, 'README.md'),
+    ...readdirSync(docsDir)
+      .filter((name) => name.endsWith('.md'))
+      .map((name) => join(docsDir, name))
+      .filter((path) => !generated.has(path)),
+  ];
+}
+
+test('no current doc describes the legacy run layout as current', () => {
+  const gettingStarted = relative(rootDir, join(docsDir, 'GETTING-STARTED.md'));
+  const offenders = [];
+  for (const file of currentDocs()) {
+    const name = relative(rootDir, file);
+    for (const [index, line] of readFileSync(file, 'utf8').split('\n').entries()) {
+      if (!line.includes(RUNS_DIR_NAME)) continue;
+      if (LEGACY_LABEL.test(line)) continue;
+      if (name === gettingStarted && ALLOWED_GETTING_STARTED.some((pattern) => pattern.test(line))) continue;
+      offenders.push(`${name}:${index + 1}: ${line.trim()}`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `current docs present the legacy .runs run layout as current:\n${offenders.join('\n')}`,
+  );
 });

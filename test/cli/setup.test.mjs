@@ -2,13 +2,19 @@ import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { readUserConfig, writeUserConfig } from "../../src/host/config.mjs";
 import { configPath, faberunHome } from "../../src/host/home.mjs";
+import {
+  installSettingsEntry,
+  knownInstallSites,
+  readInstallRegistry,
+  removeRecordedSettingsEntries,
+} from "../../src/host/install-registry.mjs";
 import { DISCOVERY_RUNTIME_DEFINITIONS } from "../../src/engine/runtime-discovery.mjs";
 import { mergeExistingConfig, setupCommand } from "../../src/cli/setup.mjs";
 import { homeEnv, withEmptyPath } from "../helpers.mjs";
@@ -227,7 +233,7 @@ function registerableHome() {
   for (const harness of ["claude", "codex"]) {
     writeExecutable(join(bin, harness), `console.log("fake ${harness} 1.0.0");\n`);
   }
-  return { home, env: { ...process.env, ...homeEnv(home), PATH: [bin, ...(process.env.PATH ?? "").split(delimiter)].join(delimiter) } };
+  return { home, env: { ...process.env, ...homeEnv(home), FABERUN_HOME: home, PATH: [bin, ...(process.env.PATH ?? "").split(delimiter)].join(delimiter) } };
 }
 
 test("mergeExistingConfig keeps only what discovery still reports available", () => {
@@ -338,5 +344,94 @@ test("setup --yes registers the skill and --no-skill skips it", () => {
   assert.equal(noSkill.status, 0, noSkill.stderr);
   assert.equal(existsSync(join(skipped.home, ".claude", "skills", "faberun")), false, "--no-skill registers nothing");
   assert.equal(existsSync(join(skipped.home, ".codex", "skills", "faberun")), false, "--no-skill registers nothing");
+});
+
+test("the known install-site manifest names the status-line settings file and the hook destinations", () => {
+  const directory = home();
+  const sites = knownInstallSites(directory);
+  assert.deepEqual(sites.settings, [{ harness: "claude", path: join(directory, ".claude", "settings.json"), key: "statusLine" }]);
+  assert.deepEqual(
+    sites.hooks.filter((site) => site.path === join(directory, ".claude", "settings.json")).map((site) => site.key),
+    ["hooks"],
+    "the settings file that carries hooks is a known hook destination",
+  );
+  assert.equal(sites.hooks.some((site) => site.path === join(directory, ".claude", "hooks")), true, "the hook script directory is a known hook destination");
+});
+
+test("installing a status-line entry records the exact settings file and only that entry", () => {
+  const directory = home();
+  const env = { FABERUN_HOME: directory, HOME: directory };
+  const settingsPath = join(directory, ".claude", "settings.json");
+  mkdirSync(join(directory, ".claude"), { recursive: true });
+  writeFileSync(settingsPath, `${JSON.stringify({ permissions: { allow: ["Bash(git status)"] } })}\n`);
+  const value = { type: "command", command: "sh ~/.faberun/current/integrations/claude-code/statusline.sh" };
+
+  installSettingsEntry(env, {
+    kind: "statusline",
+    path: settingsPath,
+    root: join(directory, ".claude"),
+    harness: "claude",
+    pointer: "/statusLine",
+    value,
+  });
+
+  const recorded = readInstallRegistry(env).entries.find((entry) => entry.kind === "statusline");
+  assert.ok(recorded, "the status-line install is recorded");
+  assert.equal(recorded.path, settingsPath, "the exact settings file is recorded");
+  assert.equal(recorded.root, join(directory, ".claude"));
+  assert.deepEqual(recorded.entries, [{ pointer: "/statusLine", value }]);
+  assert.deepEqual(JSON.parse(readFileSync(settingsPath, "utf8")).statusLine, value, "the entry was written into the settings file");
+
+  const cleaned = removeRecordedSettingsEntries(JSON.parse(readFileSync(settingsPath, "utf8")), recorded.entries);
+  assert.equal(Object.hasOwn(/** @type {Record<string, unknown>} */ (cleaned), "statusLine"), false, "the recorded entry is removed");
+  assert.deepEqual(
+    /** @type {Record<string, unknown>} */ (cleaned).permissions,
+    { allow: ["Bash(git status)"] },
+    "the neighbouring settings entry survives",
+  );
+});
+
+test("a recorded hook entry is removed without disturbing a neighbouring hook", () => {
+  const directory = home();
+  const env = { FABERUN_HOME: directory, HOME: directory };
+  const settingsPath = join(directory, ".claude", "settings.json");
+  mkdirSync(join(directory, ".claude"), { recursive: true });
+  const neighbour = { matcher: "Bash", hooks: [{ type: "command", command: "node .claude/hooks/neighbour.mjs" }] };
+  writeFileSync(settingsPath, `${JSON.stringify({ hooks: { PreToolUse: [neighbour] } })}\n`);
+  const added = { matcher: "Write", hooks: [{ type: "command", command: "node ~/.faberun/current/src/host/tool-policy-hook.mjs" }] };
+
+  installSettingsEntry(env, {
+    kind: "hook",
+    path: settingsPath,
+    root: join(directory, ".claude"),
+    harness: "claude",
+    pointer: "/hooks/PreToolUse/1",
+    value: added,
+  });
+
+  const recorded = readInstallRegistry(env).entries.find((entry) => entry.kind === "hook");
+  assert.ok(recorded, "the hook install is recorded");
+  assert.deepEqual(recorded.entries, [{ pointer: "/hooks/PreToolUse/1", value: added }]);
+  const cleaned = /** @type {{hooks: {PreToolUse: unknown[]}}} */ (removeRecordedSettingsEntries(JSON.parse(readFileSync(settingsPath, "utf8")), recorded.entries));
+  assert.deepEqual(cleaned.hooks.PreToolUse, [neighbour], "only faberun's hook is removed");
+});
+
+test("setup records the config and the skills it registers in the home registry", () => {
+  const { home: directory, env } = registerableHome();
+  const done = spawnSync(process.execPath, [BIN, "setup", "--yes", "--harnesses", "codex,claude", "--worker", "codex-gpt", "--judge", "claude-sonnet"], {
+    env,
+    encoding: "utf8",
+  });
+  assert.equal(done.status, 0, done.stderr);
+  const entries = readInstallRegistry(env).entries;
+  assert.ok(
+    entries.some((entry) => entry.kind === "config" && entry.path === configPath(directory)),
+    "the config setup wrote is recorded",
+  );
+  assert.deepEqual(
+    entries.filter((entry) => entry.kind === "skill").map((entry) => entry.path).sort(),
+    [join(directory, ".claude", "skills", "faberun"), join(directory, ".codex", "skills", "faberun")].sort(),
+    "both registered skills are recorded",
+  );
 });
 

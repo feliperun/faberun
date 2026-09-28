@@ -51,7 +51,7 @@ import { projectCampaignDecisions } from "./projection.mjs";
 /** @typedef {{risk: string, impact: string, mitigation: string}} BriefRisk */
 /** @typedef {{intent: string|null, expectedOutcome: string|null, successCriteria: BriefSuccessCriterion[], humanFacts: string[], calculatedFacts: string[], gaps: string[]}} BriefOpening */
 /** @typedef {{human: string[], delegated: string[], journal: ProjectedDecision[], risks: BriefRisk[], evals: string[], gaps: string[]}} BriefDecisions */
-/** @typedef {{campaign: string, specBaseline: string|null, specDigest: string, specPath: string, targetGitHead: string|null, planPath: string, planDigest: string, contractDigest: string, journalCursor: number, usageSampleCutoff: string|null}} BriefIdentity */
+/** @typedef {{campaign: string, specBaseline: string|null, specDigest: string, specPath: string, targetGitHead: string|null, planPath: string, planDigest: string, contractDigest: string, judgeIndependence?: string|null, journalCursor: number, usageSampleCutoff: string|null}} BriefIdentity */
 /** @typedef {{identity: BriefIdentity, opening: BriefOpening, coverage: BriefCoverage, graph: BriefGraph, decisions: BriefDecisions, estimate: BriefEstimate, decisionState: BriefDecisionState}} BriefModel */
 
 /**
@@ -71,6 +71,7 @@ import { projectCampaignDecisions } from "./projection.mjs";
  * @property {string|null} [usageSampleCutoff]
  * @property {Projection} [projection]
  * @property {BriefEstimateInput} [estimate]
+ * @property {string|null} [effectiveJudgeIndependence] the mode the launch recorded on the run snapshot; `undefined` falls back to the contract's own declaration.
  */
 
 const SAMPLE_FLOOR = 5;
@@ -152,7 +153,19 @@ export function buildBriefModel(options) {
   const contractNodes = asArray(contract.nodes);
   const declarations = normalizeDeclarations(plan.phases);
   const coverage = buildCoverage(parsedSpec, declarations, contractNodes, specPath, planPath);
-  const graph = buildGraph(contract, contractNodes);
+  // R36: the effective judge-independence mode the launch recorded on the run
+  // snapshot wins over the contract's own declaration, which never sees the
+  // machine config's opt-in. With no recorded value the contract remains the
+  // only source, exactly as before.
+  const judgeIndependence = options.effectiveJudgeIndependence === "same-vendor"
+    ? "same-vendor"
+    : options.effectiveJudgeIndependence !== undefined
+      ? null
+      : contract.judgeIndependence === "same-vendor" ? "same-vendor" : null;
+  const graphContract = { ...contract };
+  if (judgeIndependence === "same-vendor") graphContract.judgeIndependence = "same-vendor";
+  else delete graphContract.judgeIndependence;
+  const graph = buildGraph(graphContract, contractNodes);
   const journalDecisions = options.projection ? projectCampaignDecisions(options.projection) : [];
   // R16: an operator step the frozen plan carries as an explicit stop
   // (`plan.humanSteps`, `src/plan/human-step.mjs`) is a human decision the
@@ -170,6 +183,7 @@ export function buildBriefModel(options) {
     contractDigest: expectedContractDigest,
     specPath,
     specBaseline: typeof parsedSpec.frontMatter?.baseline === "string" ? parsedSpec.frontMatter.baseline : null,
+    judgeIndependence,
     journalCursor: options.journalCursor ?? 0,
     usageSampleCutoff: options.usageSampleCutoff ?? null,
   });
@@ -576,7 +590,7 @@ function buildOpening(parsedSpec, coverage, graph, estimate, decisions) {
 }
 
 /**
- * @param {{campaign: string, plan: AnyRecord, planPath: string, planDigest: string, contractDigest: string, specPath: string, specBaseline: string|null, journalCursor: number, usageSampleCutoff: string|null}} input
+ * @param {{campaign: string, plan: AnyRecord, planPath: string, planDigest: string, contractDigest: string, specPath: string, specBaseline: string|null, judgeIndependence: string|null, journalCursor: number, usageSampleCutoff: string|null}} input
  * @returns {BriefIdentity}
  */
 function buildIdentity(input) {
@@ -590,6 +604,7 @@ function buildIdentity(input) {
     planPath: input.planPath,
     planDigest: input.planDigest,
     contractDigest: input.contractDigest,
+    judgeIndependence: input.judgeIndependence,
     journalCursor: input.journalCursor,
     usageSampleCutoff: input.usageSampleCutoff,
   };

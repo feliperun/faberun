@@ -1,0 +1,12 @@
+{"at":"2026-09-26T17:53:48.760Z","node":"declared-env-test","to":"running","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-26T17:55:46.723Z","node":"allowed-env-core","to":"running","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-26T17:55:56.960Z","node":"declared-env-test","to":"done","phase":"complete","runtime":"dsh-deepseek","verdict":"pass"}
+{"at":"2026-09-26T18:00:07.646Z","node":"allowed-env-core","to":"done","phase":"complete","runtime":"dsh-deepseek","verdict":"pass"}
+{"at":"2026-09-26T18:00:09.628Z","node":"doctor-env","to":"running","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-26T18:02:43.350Z","node":"doctor-env","to":"done","phase":"complete","runtime":"dsh-deepseek","verdict":"pass"}
+{"at":"2026-09-26T18:02:45.296Z","node":"env-docs","to":"running","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-26T18:08:31.088Z","node":"env-probe-judgment","to":"running","phase":"worker","runtime":"dsh-deepseek"}
+{"at":"2026-09-26T18:08:31.560Z","node":"env-docs","to":"failed","phase":"worker","runtime":"dsh-deepseek","error":"unexpected_write"}
+{"at":"2026-09-26T18:08:31.560Z","node":"env-docs","to":"failed","phase":"worker","runtime":"dsh-deepseek","error":"unexpected_write"}
+{"at":"2026-09-26T18:12:29.436Z","node":"env-probe-judgment","to":"running","phase":"judge","runtime":"zcode-glm"}
+{"at":"2026-09-26T18:13:50.367Z","node":"env-probe-judgment","to":"done","phase":"complete","runtime":"zcode-glm","verdict":"pass"}

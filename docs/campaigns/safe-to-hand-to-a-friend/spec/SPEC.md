@@ -196,7 +196,7 @@ scaffold`, o pipeline de plano com seus estágios, `validateContract` com
   segundos. O teste confere que o candidato Python apareceu nos fatos de
   repositório, mas a verificação do contrato usa um comando presente em todo
   runner do CI (`git diff --check`), para não depender de Python instalado.
-- **proof:** `command: node --test --test-name-pattern="a stranger's first campaign completes offline"`
+- **proof:** `command: node --test --test-name-pattern="a first campaign by a stranger completes offline" test/integrations/first-campaign.test.mjs`
 
 ### R10. Um pacote recusado é reautorado, não abandonado
 

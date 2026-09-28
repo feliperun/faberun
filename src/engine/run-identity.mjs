@@ -21,7 +21,7 @@ import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { stableJson } from "../util.mjs";
+import { stableJson, errorCode } from "../util.mjs";
 import { validateRunMetadata } from "../contract/snapshot.mjs";
 import { contractDigest } from "../contract/index.mjs";
 import { RUNS_DIR_NAME, runDirectory } from "../run/paths.mjs";
@@ -95,6 +95,26 @@ export function createRunMetadata(lock, sourceIdentity, resume = {}, integration
 function runDirFor(sourceIdentity) {
   if (!sourceIdentity.cwd || !sourceIdentity.contractId) return null;
   return runDirectory(sourceIdentity.cwd, sourceIdentity.contractId);
+}
+
+/**
+ * Whether a run directory never materialized a node. The directory, its
+ * frozen contract and its empty `nodes/` folder are written before runtime
+ * assignment and identity capture; node states are written after. A launch
+ * refused in that window leaves a directory that never held a node, so
+ * nothing can resume it and it would refuse the next attempt as an existing
+ * run.
+ *
+ * @param {string} runDir
+ * @returns {boolean}
+ */
+export function runNeverHeldNode(runDir) {
+  try {
+    return readdirSync(join(runDir, "nodes")).every((name) => !name.endsWith(".json"));
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return true;
+    throw error;
+  }
 }
 
 /**
@@ -506,14 +526,10 @@ export async function assertEnvironmentReady(contract, runDir, sourceIdentity) {
   // state reads done, this launch replays an accepted transaction, starts no
   // worker and no judge, and can spend no availability.
   if (blocking === null && launchMayDispatch(runDir)) {
-    // measured 2026-09-22: asking four routed runtimes in parallel took about
-    // 18s, so no runtime is given less than 60s here; a runtime at high
-    // reasoning effort gets its longer default (defaultLivePreflightTimeout).
-    // FABERUN_PREFLIGHT_TIMEOUT_SEC stays the operator override for every
-    // runtime; preflightContract validates it, so only a valid number is lifted.
-    const override = Number(process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC);
-    const timeoutSec = process.env.FABERUN_PREFLIGHT_TIMEOUT_SEC !== undefined && Number.isFinite(override) && override > 0 ? override : undefined;
-    const probes = await livePreflightProbes(contract, runDir, sourceIdentity, timeoutSec);
+    // The live budget is `live-preflight.mjs`'s measured default (60s, 180s at xhigh;
+    // `FABERUN_PREFLIGHT_TIMEOUT_SEC` the operator override). It is not
+    // restated here: a second copy is a second default to keep honest.
+    const probes = await livePreflightProbes(contract, runDir, sourceIdentity);
     const silent = probes.filter((probe) => liveSilenceCause(probe) !== null);
     writeJsonAtomic(join(runDir, "env-preflight.json"), evidence(silent.length === 0, probes));
     if (silent.length > 0) {
@@ -537,8 +553,6 @@ export async function assertEnvironmentReady(contract, runDir, sourceIdentity) {
   throw Object.assign(new Error(`env_preflight_failed: ${blocking} · the run stays resumable: fix the environment and resume ${runDir}`), { code: "env_preflight_failed" });
 }
 
-/** No routed runtime is given less than this by the dispatch gate. */
-const GATE_MINIMUM_PREFLIGHT_SEC = 60;
 /**
  * The live half of the gate for one launch. Every routed runtime either holds
  * a verdict this machine recorded inside its freshness window -- reused, the
@@ -555,10 +569,9 @@ const GATE_MINIMUM_PREFLIGHT_SEC = 60;
  * @param {ValidatedContract} contract
  * @param {string} runDir
  * @param {SourceIdentity|undefined} sourceIdentity
- * @param {number|undefined} timeoutSec
  * @returns {Promise<ProbeResult[]>}
  */
-async function livePreflightProbes(contract, runDir, sourceIdentity, timeoutSec) {
+async function livePreflightProbes(contract, runDir, sourceIdentity) {
   const routed = reachableRuntimes(contract);
   /** @type {Map<string, RuntimeAvailability>} */
   const fresh = new Map();
@@ -631,7 +644,7 @@ async function livePreflightProbes(contract, runDir, sourceIdentity, timeoutSec)
       };
     });
   }
-  const probes = await preflightContract(join(runDir, "contract.json"), { ...(timeoutSec === undefined ? {} : { liveTimeoutSec: timeoutSec }), minimumTimeoutSec: GATE_MINIMUM_PREFLIGHT_SEC, persisted: true });
+  const probes = await preflightContract(join(runDir, "contract.json"), { persisted: true });
   // What this launch bought is durable from here on: every ask that reached a
   // provider -- a refusal included, an answer being an answer -- is recorded
   // under the provider's own identity. Silence and a command that never
