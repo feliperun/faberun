@@ -275,3 +275,13 @@ Conferidos contra AP1 a AP15. N1 compartilha o sintoma com o AP10; os outros qua
   fechamento da fase roda a guarda da spec sobre a árvore final e reprova enquanto houver
   classe aberta.
 
+## AP21. O `prune` libera a worktree e deixa a branch de tentativa
+
+- **Sintoma:** em 28/09, depois de `faberun prune --parked` liberar 20 worktrees, restavam 133
+  branches locais `faberun/<run>/<nó>/<n>`, todas com o commit já alcançável por
+  `refs/faberun-archive/`, pela ref da run ou por uma branch normal.
+- **Causa:** `releaseRunWorktrees` (`src/repo/worktree.mjs`) só apaga a branch que a worktree
+  tem em checkout; as demais tentativas da mesma run ficam.
+- **Correção aceita pelo dono (28/09):** o `prune`, e o prune automático do `run`, apagam também a
+  branch de tentativa cujo commit já é alcançável por uma dessas refs, e nunca uma que não seja.
+
