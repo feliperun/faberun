@@ -149,12 +149,15 @@ async function runRunner(runner, { path, status, sandbox }) {
 }
 
 test("the fx command runs Faberun's ACP client, never fx directly", () => {
-  const command = providerCommand(runtime({ sandbox: "read-only", config: { base_url: "https://api.example.test", "api_key.env_key": "EXAMPLE_KEY", context_window: 200000 } }), "hello", {});
+  // `max_output_tokens` is the ceiling AP16 of safe-to-hand-to-friend found
+  // hardcoded at 8192 in both clients: the config reaches whichever one runs.
+  const command = providerCommand(runtime({ sandbox: "read-only", config: { base_url: "https://api.example.test", "api_key.env_key": "EXAMPLE_KEY", context_window: 200000, max_output_tokens: 65536 } }), "hello", {});
   // The native client when this checkout has built it, the Node one otherwise.
   const launcher = existsSync(NATIVE_RUNNER) ? [NATIVE_RUNNER] : [process.execPath, RUNNER];
   assert.deepEqual([command.executable, ...command.args], [
     ...launcher, "--fx", "fx", "--model", "deepseek-flash", "--sandbox", "read-only",
     "--base-url", "https://api.example.test", "--key-env", "EXAMPLE_KEY", "--context-window", "200000",
+    "--max-output-tokens", "65536",
   ]);
   assert.equal(command.promptTransport, "stdin");
   assert.equal(command.input, "hello");
