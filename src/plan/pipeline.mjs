@@ -38,6 +38,7 @@ import { resolveRuntimes } from "./routing.mjs";
 import { contentDigest, freezePlan, writeFrozenPlanRecord } from "./freeze.mjs";
 import { availabilityOf, fileLineCount, highestOf, modelOf, toContractNode, toSizingNode } from "./pipeline-shape.mjs";
 import { campaignTree, runDirectory } from "../run/paths.mjs";
+import { assertLaunchBaseClean } from "../repo/source-identity.mjs";
 import { contestPlan } from "./contest.mjs";
 import { runReviewRounds } from "./rounds.mjs";
 
@@ -125,6 +126,17 @@ export async function runPlanningPipeline(options) {
   const campaignPath = campaignTree(cwd, campaignId);
   const campaign = readCampaign(campaignPath);
   if (campaign.status !== "active") throw new Error(`campaign is closed: ${campaignId}`);
+  // The run this pipeline launches is the last thing it does, and the run
+  // refuses a tree whose HEAD is dirty. Asking the same question here, before
+  // the first stage, is the difference between a refusal and sixteen minutes
+  // spent on repo facts first. Measured 2026-09-27 (AP10): a `plan` stage that
+  // died exactly that way reported "refusing to launch against HEAD: the
+  // working tree has 2 uncommitted paths" only when the operator re-ran it in
+  // the foreground. Nothing this pipeline writes touches the tree
+  // `dirtyTreePaths` reads: the plan artifacts live under the campaign tree in
+  // the home, and the scratch relay inside the repository is excluded by the
+  // same pathspec the launch uses.
+  assertLaunchBaseClean(cwd, undefined);
   refuseUnplannableRuntimes(runtimes, runtimeDefaults, packageMode, judgeIndependence);
   refusePlanningSilence(await ask(runtimes, runtimeDefaults, cwd), cwd);
 

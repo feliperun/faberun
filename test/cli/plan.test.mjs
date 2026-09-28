@@ -35,6 +35,20 @@ function initializeGit(cwd) {
 }
 
 /**
+ * Commit a file a fixture writes into the tree after `setup` has committed it.
+ * The pipeline refuses a dirty tree up front — the launch it ends with would
+ * refuse the same tree fifteen minutes later, so an input the plan reads is
+ * committed the way the campaign contracts it sits beside are (AP10).
+ *
+ * @param {string} cwd
+ * @param {string} relative
+ */
+function commitFixture(cwd, relative) {
+  execFileSync("git", ["-C", cwd, "add", "--", relative]);
+  execFileSync("git", ["-C", cwd, "-c", "user.email=plan-test@example.test", "-c", "user.name=plan-test", "-c", "commit.gpgSign=false", "commit", "-qm", `fixture ${relative}`]);
+}
+
+/**
  * A plan whose write set drags along a file it does not declare: the test
  * named after the entry point runs src/cli.mjs, which imports
  * src/plan/thing.mjs, so scope closure refuses the packet — the exact shape
@@ -215,6 +229,20 @@ test("the pipeline runs draft and review from recordings and freezes", async () 
   assert.equal(existsSync(runDirectory(cwd, contract.id)), false);
 });
 
+test("a plan refuses a dirty tree before it spends anything on the repository", async () => {
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("dirty-tree-demo");
+  writeFixtureFile(cwd, "uncommitted-note.txt", "work in progress\n");
+  // Measured 2026-09-27 (AP10): the launch is the pipeline's last act, so this
+  // refusal arrived after sixteen minutes of repo facts and read to the
+  // operator as "detached bootstrap failed before readiness for pid 82057",
+  // with no run directory and no reason.
+  await assert.rejects(
+    () => runPlanningPipeline({ specPath: join(cwd, "docs/spec.md"), campaignId, phase: "build", cwd, runtimes, runtimeDefaults, reviewers, launch, wait }),
+    /refusing to launch against HEAD: the working tree has 1 uncommitted path/u,
+  );
+  assert.equal(existsSync(join(campaignTree(cwd, campaignId), "plans", "build")), false, "no planning artifact is written");
+});
+
 test("re-planning a phase skips the stage run ids an earlier plan left", async () => {
   const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("replan-demo");
   // What an earlier `faberun plan` of this phase leaves behind: its draft run.
@@ -335,6 +363,7 @@ test("--runtimes loads a catalogue file, which drives the pipeline end to end", 
   const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("catalogue-demo");
   const runtimesPath = join(cwd, "runtimes.json");
   writeFileSync(runtimesPath, JSON.stringify(runtimes, null, 2));
+  commitFixture(cwd, "runtimes.json");
 
   const loaded = loadRuntimesCatalogue(runtimesPath);
   assert.deepEqual(Object.keys(loaded).sort(), Object.keys(runtimes).sort());
@@ -377,6 +406,7 @@ test("--verification loads a suites file, which the frozen contract carries end 
     sharedVerification: [{ argv: ["node", "--eval", "process.exit(0)"], timeoutSec: 10 }],
     finalVerification: [{ argv: ["git", "diff", "--quiet"] }],
   }, null, 2));
+  commitFixture(cwd, "verification.json");
 
   // The loader returns the normalized command shape validateContract applies,
   // so the suites land in the contract exactly as a hand-authored one carries

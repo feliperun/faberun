@@ -16,7 +16,7 @@ import { bootstrapAckPath, bootstrapAttemptPath, bootstrapPath, cleanupBootstrap
 import { bootstrapFailureMatchesChild, bootstrapMatchesChild, processStartToken, readLock, sameProcessStartToken, validBootstrapNonce } from "../run/lock.mjs";
 import { cleanupBootstrapNonce, discardNodeLessRunDirectory } from "../engine/detach.mjs";
 import { delay, errorCode } from "../util.mjs";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -232,16 +232,33 @@ export function bootstrapRunDir(command, target) {
  */
 export function writeBootstrapFailure(command, target, error) {
   const runDir = bootstrapRunDir(command, target);
-  if (!runDir || !existsSync(runDir)) return;
+  if (!runDir) return;
   const nonce = validBootstrapNonce(process.env.FABERUN_BOOTSTRAP_NONCE) ? process.env.FABERUN_BOOTSTRAP_NONCE : null;
   const failure = { status: "failed", pid: process.pid, processStartToken: processStartToken(process.pid), runDir, nonce, at: new Date().toISOString(), error: error.message };
+  const detachedChild = nonce !== null && !process.argv.includes("--detach");
+  if (!existsSync(runDir)) {
+    // A refusal that happens before the run directory exists — a dirty tree, a
+    // base ref that does not resolve — is the one the launcher cannot
+    // otherwise learn: the child's stdio is discarded, so all it could say was
+    // "failed before readiness for pid N". Measured 2026-09-27 (AP10): a whole
+    // `plan` stage died that way over two uncommitted paths. Only a detached
+    // child creates the directory, and only to carry this record;
+    // `waitForBootstrap` removes a node-less one as it reads it.
+    if (!detachedChild) return;
+    try {
+      mkdirSync(runDir, { recursive: true });
+    } catch {
+      // The refusal being reported matters more than the directory that would
+      // have carried it; without one the launcher falls back to its own message.
+      return;
+    }
+  }
   // A `run` that names an existing run directory is refused before it writes
   // anything, and its failure must not be stamped into that run's bootstrap
   // record. The detached child is the exception: it wrote contract.json and
   // then died before readiness, and the launcher has no other channel to
   // learn the controller's error, so it must record that error before it
   // exits.
-  const detachedChild = nonce !== null && !process.argv.includes("--detach");
   if (command === "run" && !detachedChild && existsSync(join(runDir, "contract.json"))) return;
   /** @type {BootstrapRecord|null} */
   let current = null;
