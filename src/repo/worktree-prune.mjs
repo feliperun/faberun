@@ -13,9 +13,9 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { SETTLED } from "../engine/prompts.mjs";
 import { describeRuns } from "../run/disk-gc.mjs";
 import { worktreeRoot } from "../run/paths.mjs";
-import { git, gitHead, releaseRunWorktrees, runRefName } from "./worktree.mjs";
+import { git, gitHead, releaseAttemptBranches, releaseRunWorktrees, runRefName } from "./worktree.mjs";
 
-/** @typedef {{runId: string, removed: number, archived: string[]}} PrunedRun */
+/** @typedef {{runId: string, removed: number, archived: string[], branches: string[]}} PrunedRun */
 
 /**
  * Is the run's integrated head already on a branch of the operator's? An
@@ -48,7 +48,9 @@ function allNodesSettled(runDir) {
  * nodes are all terminal, and whose run ref a local branch already contains.
  * `releaseRunWorktrees` keeps each attempt's HEAD and uncommitted delta under
  * `refs/faberun-archive/`, so a released attempt can still be recovered.
- * `parked` also takes a run with a blocked or exhausted node: only on the
+ * The attempt branches of the same run go with them (AP21): a released
+ * worktree deletes only the branch it had checked out, so a run that tried
+ * three times kept three. `parked` also takes a run with a blocked or exhausted node: only on the
  * operator's word, because a resume that re-judges an attempt reads its
  * worktree, and only the operator knows the run was superseded.
  *
@@ -64,9 +66,15 @@ export function pruneIntegratedRunWorktrees(repo, runsDir, options = {}) {
     if (run.hasActiveController) continue;
     if (!run.allNodesTerminal && !(options.parked === true && allNodesSettled(run.path))) continue;
     const runId = basename(run.path);
-    if (!existsSync(worktreeRoot(join(runsDir, runId), runId))) continue;
     if (!runRefLanded(repo, runId)) continue;
-    pruned.push({ runId, ...releaseRunWorktrees(repo, join(runsDir, runId), runId) });
+    // The branch sweep is not gated on the worktree root: the run whose
+    // worktrees an earlier prune already released is exactly the run whose
+    // attempt branches are still there (AP21).
+    const runDir = join(runsDir, runId);
+    const released = existsSync(worktreeRoot(runDir, runId)) ? releaseRunWorktrees(repo, runDir, runId) : { removed: 0, archived: [] };
+    const branches = releaseAttemptBranches(repo, runId);
+    if (released.removed === 0 && branches.length === 0) continue;
+    pruned.push({ runId, ...released, branches });
   }
   return pruned;
 }

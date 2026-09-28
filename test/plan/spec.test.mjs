@@ -219,7 +219,13 @@ test("spec validate rejects", async (t) => {
     const result = validateSpec(text, { cwd: dir });
     assert.equal(result.ok, true, "advisory by default");
     assert.ok(result.findings.some((finding) => finding.rule === "proof-filter-names-no-file"), JSON.stringify(result.findings));
-    assert.equal(validateSpec(text, { cwd: dir, strict: true }).ok, false);
+    // The one finding `strict` does not promote: 105 of the 237 name-filter
+    // proofs in `docs/campaigns/` name no file, and that record cannot be
+    // edited to satisfy a rule written afterwards. The freeze still refuses
+    // the shape (plan/proof-scope.mjs), which is the gate that costs a node.
+    const strict = validateSpec(text, { cwd: dir, strict: true });
+    assert.equal(strict.ok, true);
+    assert.equal(strict.findings.find((finding) => finding.rule === "proof-filter-names-no-file")?.severity, "advisory");
 
     const named = VALID_SPEC(head).replace(
       "`command: node --test test/feature.test.mjs`",

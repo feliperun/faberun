@@ -483,6 +483,60 @@ export function attemptWorkspace(state) {
 }
 
 /**
+ * Delete the attempt branches of `runId` whose commit another ref already
+ * holds: the run's own `refs/faberun/<run>/…`, an archive ref written when a
+ * worktree was released, or any branch of the operator's. Measured 2026-09-28
+ * (AP21 of safe-to-hand-to-friend): `prune --parked` released 20 worktrees and
+ * left 133 branches `faberun/<run>/<node>/<n>` behind, every one of them
+ * already reachable from one of those refs; releasing a worktree deletes only
+ * the branch it had checked out.
+ *
+ * A branch nothing else holds is never deleted: an attempt that exists only as
+ * its own branch is the only copy of that work. Attempt branches are not
+ * keepers for each other, so the rule is about the run, not about whichever
+ * attempt happens to be newest.
+ *
+ * @param {string} repo
+ * @param {string} runId
+ * @returns {string[]} the branch names deleted, without `refs/heads/`
+ */
+export function releaseAttemptBranches(repo, runId) {
+  const prefix = `refs/heads/faberun/${runId}/`;
+  /** @type {Array<{ref: string, commit: string}>} */
+  const attempts = git(repo, ["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads/faberun/"])
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [ref, commit] = line.split(" ");
+      return { ref: ref ?? "", commit: commit ?? "" };
+    })
+    .filter(({ ref }) => ref.startsWith(prefix));
+  if (attempts.length === 0) return [];
+  const keepers = git(repo, ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/faberun", "refs/faberun-archive"])
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("refs/heads/faberun/"));
+  /** @type {string[]} */
+  const deleted = [];
+  for (const { ref, commit } of attempts) {
+    const held = keepers.some((keeper) => {
+      try {
+        git(repo, ["merge-base", "--is-ancestor", commit, keeper]);
+        return true;
+      } catch {
+        // Not an ancestor of this keeper; the next one may still hold it.
+        return false;
+      }
+    });
+    if (!held) continue;
+    deleteRef(repo, ref);
+    deleted.push(ref.slice("refs/heads/".length));
+  }
+  return deleted;
+}
+
+/**
  * Release every attempt worktree a finished run left behind, keeping what it
  * held. Measured 2026-09-24: attempts that were never accepted (a failed or
  * blocked try, the first of two, a discovery node) kept their worktree and

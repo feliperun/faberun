@@ -579,7 +579,11 @@ function advisoryToken() {
 function prunedLine(pruned) {
   if (!pruned.length) return "[prune] no finished, integrated run holds a worktree";
   const removed = pruned.reduce((sum, run) => sum + run.removed, 0);
-  return `[prune] released ${removed} worktree${removed === 1 ? "" : "s"} of ${pruned.length} integrated run${pruned.length === 1 ? "" : "s"} · each kept under refs/faberun-archive/`;
+  const branches = pruned.reduce((sum, run) => sum + run.branches.length, 0);
+  const line = removed === 0
+    ? "[prune] an earlier prune already released every worktree of an integrated run"
+    : `[prune] released ${removed} worktree${removed === 1 ? "" : "s"} of ${pruned.length} integrated run${pruned.length === 1 ? "" : "s"} · each kept under refs/faberun-archive/`;
+  return branches === 0 ? line : `${line} · deleted ${branches} attempt branch${branches === 1 ? "" : "es"} already held by another ref`;
 }
 
 /**

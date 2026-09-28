@@ -15,6 +15,17 @@ function gitOut(repo, args) {
   return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
 }
 
+/** @param {string} repo @param {string} ref @returns {boolean} */
+function refExists(repo, ref) {
+  try {
+    execFileSync("git", ["-C", repo, "show-ref", "--verify", "--quiet", ref]);
+    return true;
+  } catch {
+    // `--quiet` with no match is the answer, not a failure.
+    return false;
+  }
+}
+
 /**
  * One finished-or-not run under `runsDir` with one attempt worktree, its run
  * ref at `runRef` (or at the attempt's own commit when `runRef` is null).
@@ -66,4 +77,32 @@ test("prune releases the worktrees of a finished run a branch already holds, and
   assert.deepEqual(pruneIntegratedRunWorktrees(repo, runsDir, { parked: true }).map((run) => run.runId), ["parked"], "--parked takes the landed parked run");
   assert.equal(existsSync(parked), false);
   assert.equal(existsSync(moving), true, "--parked still never touches a run that can move");
+});
+
+test("prune sweeps the attempt branches a released run left behind, and never one nothing holds", () => {
+  const repo = mkdtempSync(join(tmpdir(), "worktree-prune-branches-"));
+  writeFileSync(join(repo, "README.md"), "base\n");
+  initializeGit(repo);
+  const runsDir = mkdtempSync(join(tmpdir(), "worktree-prune-branches-runs-"));
+  const head = gitOut(repo, ["rev-parse", "HEAD"]);
+  seedRun(repo, runsDir, "landed", { status: "done", runRef: head });
+
+  // An attempt whose worktree an earlier prune already released, its commit
+  // held by the run ref and by `main`. Measured 2026-09-28 (AP21): 133 such
+  // branches survived `prune --parked`, every one of them already reachable.
+  gitOut(repo, ["branch", "faberun/landed/build/2", head]);
+  // An attempt nothing holds: work only that branch carries.
+  const loose = execFileSync(
+    "git",
+    ["-C", repo, "-c", "user.email=runner@example.test", "-c", "user.name=runner", "commit-tree", `${head}^{tree}`, "-p", head, "-m", "chore(faberun): an attempt nobody integrated"],
+    { encoding: "utf8" },
+  ).trim();
+  gitOut(repo, ["branch", "faberun/landed/build/3", loose]);
+
+  const pruned = pruneIntegratedRunWorktrees(repo, runsDir);
+
+  assert.deepEqual(pruned.map((run) => [run.runId, run.removed, run.branches]), [["landed", 1, ["faberun/landed/build/2"]]]);
+  assert.equal(refExists(repo, "refs/heads/faberun/landed/build/2"), false, "an attempt branch another ref holds goes with its worktree");
+  assert.equal(refExists(repo, "refs/heads/faberun/landed/build/3"), true, "an attempt branch nothing else holds is the only copy of that work");
+  assert.deepEqual(pruneIntegratedRunWorktrees(repo, runsDir), [], "a second prune finds nothing left to sweep");
 });

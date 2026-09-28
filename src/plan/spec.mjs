@@ -176,6 +176,25 @@ function proofWithoutNamedTestFile(proof) {
 }
 
 /**
+ * The one finding `strict` does not promote. Measured 2026-09-28: 105 of the
+ * 237 `--test-name-pattern` proofs in the 109 documents under
+ * `docs/campaigns/` name no test file, across 20 documents. Every one of them
+ * is the record of a run that already happened, and the repository forbids
+ * editing that record to satisfy a rule written later, so promoting this to
+ * blocking would retroactively refuse twenty specs that were accepted when
+ * they were written. The shape is refused where it costs something anyway:
+ * `assertFilteredProofsNameTheirTest` (plan/proof-scope.mjs) fails the freeze
+ * of any plan that carries it, so a plan cannot be built from a fresh spec
+ * with this proof whatever the spec validator says about it.
+ *
+ * @param {SpecFinding} finding
+ * @returns {boolean}
+ */
+function promotableUnderStrict(finding) {
+  return finding.rule !== "proof-filter-names-no-file";
+}
+
+/**
  * @param {SpecSection|undefined} section
  * @returns {SpecRequirement[]}
  */
@@ -397,6 +416,6 @@ export function validateSpec(text, options = {}) {
       });
     }
   }
-  const graded = findings.map((finding) => (strict ? { ...finding, severity: /** @type {const} */ ("blocking") } : finding));
+  const graded = findings.map((finding) => (strict && promotableUnderStrict(finding) ? { ...finding, severity: /** @type {const} */ ("blocking") } : finding));
   return { class: "structured", ok: !graded.some((finding) => finding.severity === "blocking"), findings: graded };
 }
