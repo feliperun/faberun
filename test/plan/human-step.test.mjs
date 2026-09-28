@@ -53,7 +53,7 @@ function provenance() {
  * @returns {import("../../src/plan/spec.mjs").SpecRequirement}
  */
 function requirement(constraints) {
-  return { id: "R99", title: "unrelated", statement: null, proof: null, measure: null, constraints, line: 1 };
+  return { id: "R99", title: "unrelated", statement: null, proof: null, measure: null, constraints, unknownBulletKeys: [], line: 1 };
 }
 
 test("a requirement's constraints declaring an operator step is detected with its command", () => {

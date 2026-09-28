@@ -6,11 +6,14 @@
  * schedules, or reaches a provider — this module invokes no model.
  */
 import { git } from "../repo/worktree.mjs";
+import { shellWords } from "../util.mjs";
+import { nodeTestShape } from "./proof-scope.mjs";
 import { proveRequirements } from "./proof-run.mjs";
 
 /** @typedef {"command"|"path"|"judgment"} ProofKind */
 /** @typedef {{kind: ProofKind, ref?: string}} SpecProof */
-/** @typedef {{id: string|null, title: string, statement: string|null, proof: SpecProof|null, measure: SpecProof|null, constraints: string|null, line: number}} SpecRequirement */
+/** @typedef {{key: string, line: number}} UnknownBulletKey */
+/** @typedef {{id: string|null, title: string, statement: string|null, proof: SpecProof|null, measure: SpecProof|null, constraints: string|null, unknownBulletKeys: UnknownBulletKey[], line: number}} SpecRequirement */
 /** @typedef {Record<string, string>} SpecFrontMatter */
 /** @typedef {{heading: string, body: string, line: number}} SpecSection */
 /** @typedef {{frontMatter: SpecFrontMatter|null, sections: Map<string, SpecSection>, requirements: SpecRequirement[]}} ParsedSpec */
@@ -98,25 +101,41 @@ function extractSections(lines, startIndex) {
  * A `- **key:** value` bullet, and any following non-blank, non-bullet line as
  * its wrapped continuation.
  *
+ * A bullet whose key does not match is *not* a continuation of the one above
+ * it: measured 2026-09-27 (AP14 of safe-to-hand-to-a-friend), a
+ * `- **esclarecimento (27/09):**` line right after `- **proof:**` was dropped
+ * and the lines under it were appended to the proof above, so R8 read as
+ * having no proof while the text said otherwise. The dropped key is returned
+ * so `validateSpec` can name it instead of letting it vanish.
+ *
  * @param {string[]} lines
- * @returns {Map<string, string>}
+ * @returns {{bullets: Map<string, string>, unknownKeys: Array<{key: string, offset: number}>}}
  */
 function parseBullets(lines) {
   /** @type {Map<string, string>} */
   const bullets = new Map();
+  /** @type {Array<{key: string, offset: number}>} */
+  const unknownKeys = [];
   let currentKey = null;
-  for (const line of lines) {
+  for (let offset = 0; offset < lines.length; offset += 1) {
+    const line = lines[offset];
     const match = /^-\s+\*\*([a-zA-Z-]+):\*\*\s?(.*)$/u.exec(line);
     if (match) {
       currentKey = match[1].toLowerCase();
       bullets.set(currentKey, match[2].trim());
       continue;
     }
+    const unrecognized = /^-\s+\*\*(.+?):\*\*\s?/u.exec(line);
+    if (unrecognized) {
+      unknownKeys.push({ key: unrecognized[1], offset });
+      currentKey = null;
+      continue;
+    }
     const trimmed = line.trim();
     if (!trimmed) { currentKey = null; continue; }
     if (currentKey && !trimmed.startsWith("-")) bullets.set(currentKey, `${bullets.get(currentKey)} ${trimmed}`.trim());
   }
-  return bullets;
+  return { bullets, unknownKeys };
 }
 
 /**
@@ -138,6 +157,25 @@ function parseProof(raw) {
 }
 
 /**
+ * A requirement proof that filters `node:test` by name without naming the file
+ * the test lives in, or null. The same shape the frozen contract refuses
+ * (`plan/proof-scope.mjs`, AP1 of safe-to-hand-to-a-friend); raised here so a
+ * spec author sees it when the spec is written, rather than a plan later.
+ * Measured 2026-09-27 (AP8): R1 to R7 of the `safe-to-hand-to-a-friend` spec
+ * each wrote `--test-name-pattern="<title>"` with no file, and only the
+ * planner's own nodes were refused for it.
+ *
+ * @param {SpecProof|null} proof
+ * @returns {string|null}
+ */
+function proofWithoutNamedTestFile(proof) {
+  if (proof?.kind !== "command" || typeof proof.ref !== "string") return null;
+  const shape = nodeTestShape(shellWords(proof.ref));
+  if (!shape || shape.nameFilters.length === 0 || shape.paths.length > 0) return null;
+  return proof.ref;
+}
+
+/**
  * @param {SpecSection|undefined} section
  * @returns {SpecRequirement[]}
  */
@@ -154,7 +192,8 @@ function extractRequirements(section) {
     const blockLine = section.line + i + 1;
     let end = i + 1;
     while (end < lines.length && !/^###\s+/u.test(lines[end])) end += 1;
-    const bullets = parseBullets(lines.slice(i + 1, end));
+    const body = lines.slice(i + 1, end);
+    const { bullets, unknownKeys } = parseBullets(body);
     const idMatch = /^(R\d+)\.\s*(.*)$/u.exec(heading);
     requirements.push({
       id: idMatch ? idMatch[1] : null,
@@ -163,6 +202,7 @@ function extractRequirements(section) {
       proof: parseProof(bullets.get("proof")),
       measure: parseProof(bullets.get("measure")),
       constraints: bullets.get("constraints") ?? null,
+      unknownBulletKeys: unknownKeys.map(({ key, offset }) => ({ key, line: blockLine + offset })),
       line: blockLine,
     });
     i = end;
@@ -317,6 +357,23 @@ export function validateSpec(text, options = {}) {
     }
     if (!requirement.proof) {
       findings.push({ rule: "requirement-missing-proof", severity: "advisory", message: `requirement ${requirement.id ?? requirement.title} has no proof`, line: requirement.line });
+    }
+    for (const { key, line } of requirement.unknownBulletKeys) {
+      findings.push({
+        rule: "requirement-unknown-bullet-key",
+        severity: "advisory",
+        message: `requirement ${requirement.id ?? requirement.title} has a bullet keyed "${key}", which the format does not read: a key is letters and hyphens (statement, proof, measure, constraints), so this bullet and the lines under it are dropped instead of reaching the requirement. Reword the bullet or use one of the four keys.`,
+        line,
+      });
+    }
+    const unbacked = proofWithoutNamedTestFile(requirement.proof);
+    if (unbacked !== null) {
+      findings.push({
+        rule: "proof-filter-names-no-file",
+        severity: "advisory",
+        message: `requirement ${requirement.id ?? requirement.title}'s proof "${unbacked}" filters node:test by name but names no test file: with no path node --test runs every test file in the tree, each file the filter selects nothing in prints a zero plan, and the plan's own freeze refuses the shape. Name the file that holds the test, as in node --test --test-name-pattern="<title>" test/<area>/<file>.test.mjs.`,
+        line: requirement.line,
+      });
     }
   }
   const successCriteria = parsed.sections.get("success criteria");

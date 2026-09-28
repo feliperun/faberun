@@ -195,6 +195,39 @@ test("spec validate rejects", async (t) => {
     assert.equal(strict.ok, false);
   });
 
+  await t.test("a bullet whose key the format does not read", () => {
+    const text = VALID_SPEC(head).replace(
+      "- **proof:** `command: node --test test/feature.test.mjs`",
+      "- **proof:** `command: node --test test/feature.test.mjs`\n- **esclarecimento (27/09):** the file list changed\n  and this is the wrapped tail of that bullet",
+    );
+    const result = validateSpec(text, { cwd: dir });
+    assert.equal(result.ok, true, "advisory by default");
+    const finding = result.findings.find((one) => one.rule === "requirement-unknown-bullet-key");
+    assert.ok(finding, JSON.stringify(result.findings));
+    assert.match(finding.message, /esclarecimento \(27\/09\)/u);
+    // The unread key ends the bullet above it: measured 2026-09-27 (AP14), the
+    // wrapped tail landed inside `proof` and the requirement read as proof-less.
+    assert.deepEqual(parseSpec(text).requirements[0].proof, { kind: "command", ref: "node --test test/feature.test.mjs" });
+    assert.equal(validateSpec(text, { cwd: dir, strict: true }).ok, false);
+  });
+
+  await t.test("a name-filtered proof that names no test file", () => {
+    const text = VALID_SPEC(head).replace(
+      "`command: node --test test/feature.test.mjs`",
+      '`command: node --test --test-name-pattern="feature 42 behaves"`',
+    );
+    const result = validateSpec(text, { cwd: dir });
+    assert.equal(result.ok, true, "advisory by default");
+    assert.ok(result.findings.some((finding) => finding.rule === "proof-filter-names-no-file"), JSON.stringify(result.findings));
+    assert.equal(validateSpec(text, { cwd: dir, strict: true }).ok, false);
+
+    const named = VALID_SPEC(head).replace(
+      "`command: node --test test/feature.test.mjs`",
+      '`command: node --test --test-name-pattern="feature 42 behaves" test/feature.test.mjs`',
+    );
+    assert.ok(!validateSpec(named, { cwd: dir }).findings.some((finding) => finding.rule === "proof-filter-names-no-file"));
+  });
+
   await t.test("target that does not match the origin remote", () => {
     const text = VALID_SPEC(head).replace("target: feliperun/faberun", "target: someone-else/unrelated");
     const result = validateSpec(text, { cwd: dir });

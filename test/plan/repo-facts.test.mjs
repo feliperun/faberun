@@ -110,7 +110,7 @@ function fakeMeasure(durationsMs, commandResults = {}) {
  * @returns {import("../../src/plan/spec.mjs").SpecRequirement}
  */
 function requirement(id, measure) {
-  return { id, title: id ?? "untitled", statement: null, proof: null, measure, constraints: null, line: 1 };
+  return { id, title: id ?? "untitled", statement: null, proof: null, measure, constraints: null, unknownBulletKeys: [], line: 1 };
 }
 
 /** @type {Record<string, number>} */

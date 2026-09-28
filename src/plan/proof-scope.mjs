@@ -30,7 +30,7 @@ const TEST_TITLE = /\b(?:test|it|describe)(?:\.\w+)?\(\s*(["'`])((?:\\.|(?!\1).)
  * @param {string[]} argv
  * @returns {{nameFilters: Array<{flag: string, value: string}>, paths: string[]}|null}
  */
-function nodeTestShape(argv) {
+export function nodeTestShape(argv) {
   if (argv[0] !== "node" || !argv.includes("--test")) return null;
   /** @type {Array<{flag: string, value: string}>} */
   const nameFilters = [];
