@@ -182,12 +182,12 @@ test("the update line appears only when the cached check names a release newer t
   ]);
   const checkPath = join(/** @type {string} */ (process.env.FABERUN_HOME), "update-check.json");
   try {
-    writeFileSync(checkPath, JSON.stringify({ checkedAt: "2026-09-21T00:00:00.000Z", current: "0.0.1", latest: "99.0.0" }));
+    writeFileSync(checkPath, JSON.stringify({ checkedAt: new Date().toISOString(), current: "0.0.1", latest: "99.0.0" }));
     const newer = renderRunProgress(runDir, { type: "node.terminal", runId: "report-progress", nodeId: "one", status: "done", attempt: 1 });
     assert.match(newer, /^⬆️ faberun 99\.0\.0 available · run faberun update$/mu);
     assert.ok(newer.trimEnd().endsWith("faberun update"), "the update line is the last line, after the signature");
 
-    writeFileSync(checkPath, JSON.stringify({ checkedAt: "2026-09-21T00:00:00.000Z", current: "0.0.1", latest: "0.0.1" }));
+    writeFileSync(checkPath, JSON.stringify({ checkedAt: new Date().toISOString(), current: "0.0.1", latest: "0.0.1" }));
     const current = renderRunProgress(runDir, { type: "node.terminal", runId: "report-progress", nodeId: "one", status: "done", attempt: 1 });
     assert.doesNotMatch(current, /⬆️/u);
   } finally {
