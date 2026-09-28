@@ -85,6 +85,12 @@ depende do anterior:
    vêm da retrospectiva da `agent-belt-security-quality-review`, a primeira
    campanha fora deste repositório. Todo contrato dela sai do `faberun plan`:
    ela é o teste do portão 3 para 4.
+   **Fechada em 28/09.** Os 27 requisitos estão integrados e todas as provas
+   da spec passam. O portão falhou em um item: as continuações 1b e 1c da fase
+   1 foram escritas à mão em 26/09 (decisão `gate-hand-written-continuations`);
+   as outras oito fases saíram do `faberun plan`. Gasto: US$ 36,90, dos quais
+   US$ 32,23 são o plano da fase 1 que serviu de portão da 3a. Retrospectiva em
+   `docs/campaigns/safe-to-hand-to-a-friend/RETROSPECTIVE.md`.
 4. **`friends-pilot`.** Três a cinco pessoas próximas rodam uma campanha real
    nos próprios repositórios, começando pelo Campaign Brief. O que elas vivem
    volta como pacote redigido e como atrito com id no roadmap. O programa
