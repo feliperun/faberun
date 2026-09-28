@@ -756,7 +756,10 @@ test("a claude runtime with a declared endpoint carries its own endpoint and tok
       config: { base_url: "https://api.z.ai/api/anthropic", "auth_token.env_key": "FABERUN_TEST_ZAI_TOKEN" },
     };
     const before = { ...process.env };
+    // The runtime's own `*.env_key` name travels too: the worker allowlist
+    // (safe-to-hand-to-a-friend R1) passes every name the runtime declares.
     assert.deepEqual(providerCommand(glm, "review").env, {
+      FABERUN_TEST_ZAI_TOKEN: "zai-token",
       ANTHROPIC_AUTH_TOKEN: "zai-token",
       ANTHROPIC_API_KEY: null,
       ANTHROPIC_BASE_URL: "https://api.z.ai/api/anthropic",
@@ -766,7 +769,9 @@ test("a claude runtime with a declared endpoint carries its own endpoint and tok
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
     });
     // A runtime without the config, beside it in the same controller, is untouched.
-    assert.equal(providerCommand({ harness: "claude", model: "claude-sonnet-5" }, "review").env, undefined);
+    const plain = providerCommand({ harness: "claude", model: "claude-sonnet-5" }, "review").env ?? {};
+    assert.equal(plain.ANTHROPIC_BASE_URL, undefined, "no endpoint reaches a runtime that declared none");
+    assert.equal(plain.ANTHROPIC_AUTH_TOKEN, undefined, "no endpoint token reaches a runtime that declared none");
     assert.deepEqual({ ...process.env }, before, "the controller's own environment is not written");
   } finally {
     if (previous === undefined) delete process.env.FABERUN_TEST_ZAI_TOKEN;
