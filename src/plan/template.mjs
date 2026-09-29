@@ -224,41 +224,34 @@ export const PATH_CUT_RULE = "repo-facts.json's paths is the byte-limited cut of
  */
 export const REVIEW_PATH_CUT_RULE = "repo-facts.json's paths is a byte-limited cut of the tracked tree, so a path absent from it is not evidence that the file is absent. pathOmission reports, per source kind (document, archived-log, manifest, code, other), how many paths and how many bytes the cut discarded, and those per-kind numbers sum to its own paths and bytes totals. A finding that a node misses a file the spec implies is only valid when the path is in paths or named by the requirement itself; the complete index is staged beside the artefact as repo-paths.txt for the plan to read if it needs it.";
 
+// R5 of the phase-2 reissue, reissued: this module used to export
+// PLAN_RULE_READ_FILES, the Faberun source and test paths a review packet
+// declared in `readFiles` so its reviewer could read the rules it judged by.
+// A planning packet's readFiles resolve against the repository being planned,
+// so a review contract naming them validated in this repository and nowhere
+// else: an ordinary target checkout could not receive the rules at all, and a
+// path name that matched was read as proof that the target's file held them.
+// The rules travel in the review packet's own `instructions`
+// (INSTRUCTIONS.review) instead, and its readFiles are the target's inputs.
+
 /**
- * The code and the tests behind the freeze and proof rules a plan is judged
- * against, declared in the review packet's `readFiles` (R5 of the phase-2
- * reissue).
- *
- * A worker reads only the paths its packet declares, so the rules have to be
- * declared where they are applied: the review stage is the one that judges a
- * plan against them — PROOF_NOT_STRICTER_THAN_REQUIREMENT_RULE above is a
- * reading of two sentences, and the freeze refuses shapes this module's own
- * validator never sees — and the list below is the surface the preflight
- * before the review round checks. The freeze's own checks (`freeze.mjs`,
- * `proof-scope.mjs`), the sizing rules a draft is authored to (`sizing.mjs`),
- * the validators that decide whether a planned node's verification and
- * Definition of Done are legal (`contract/index.mjs`,
- * `contract/verification.mjs`, `contract/definition-of-done.mjs`), and the
- * tests under `test/plan` and `test/contract` that measure them. A check added
- * to that surface belongs here in the same change, or the reviewer grades
- * against a rule no packet handed it.
+ * What a review packet says about where its own paths point. The rules it is
+ * held to are stated in it, never pointed at: no path name is a rule, and a
+ * name that matches a file in another repository is not evidence about this
+ * one.
  */
-export const PLAN_RULE_READ_FILES = Object.freeze([
-  "src/plan/freeze.mjs",
-  "src/plan/proof-scope.mjs",
-  "src/plan/sizing.mjs",
-  "src/contract/index.mjs",
-  "src/contract/verification.mjs",
-  "src/contract/definition-of-done.mjs",
-  "test/plan/template.test.mjs",
-  "test/plan/proof-ref.test.mjs",
-  "test/plan/reviewer-list.test.mjs",
-  "test/plan/freeze.test.mjs",
-  "test/plan/proof-scope.test.mjs",
-  "test/plan/sizing.test.mjs",
-  "test/contract/verification.test.mjs",
-  "test/contract/definition-of-done.test.mjs",
-  "test/contract/packet.test.mjs",
+const REVIEW_TARGET_PATHS_RULE = "The readFiles and writeFiles of every task packet in this plan resolve against the target repository being planned — the checkout the spec, the repository facts and the plan describe. A file outside that repository is not available to this review, and a path name that happens to match one there proves nothing: never read a matching path name as evidence that the target's file, or any file, holds a rule. Judge the plan against the rules this packet states.";
+
+/**
+ * The freeze-time refusals the rule strings above do not state (`freeze.mjs`,
+ * `proof-scope.mjs`, `sizing.mjs`, `definition-of-done.mjs`). The review is the
+ * only stage that sees the whole plan before it is frozen, so a refusal it
+ * cannot see is a refusal raised a round later, at freeze, with no reviewer
+ * left to repair it.
+ */
+const FREEZE_AND_CONTRACT_RULE = Object.freeze([
+  "A plan freezes only if its Definition of Done is provable: every item declares a proof or judgment: true; a judgment item says in `reason` what no command verifies; a `verification` proof's ref is the zero-based index, or the exact text, of one of that node's own verification commands, never a command the node does not carry; a command proof runs through a shell, not an argv array, so an unquoted value after --test-name-pattern is split into extra words, a proof command that leaves a quote open is refused before it runs, and an inline node -e script that does not parse can never exit 0.",
+  "A verification command fits its evidence and its limits: its timeoutSec is at least 1.5 times what repo-facts.json measured for the same argv, and at most 1800 s; a node's verification holds at most 32 commands. A phase declaration that assigns nodeIds must cover every planned node exactly once, and a single-node plan or a dependency chain deeper than 8 nodes needs plan.justification.",
 ]);
 
 // RM-107, measured 2026-09-27 on `safe-to-hand-to-a-friend` phase 1: the phase
@@ -322,10 +315,22 @@ const INSTRUCTIONS = Object.freeze({
     "Never name a runtime, harness, model, or vendor anywhere in output.plan.",
     SIZING_INSTRUCTION,
   ],
+  // The rules the plan is judged against, carried as rules. They are the same
+  // strings a draft authors to, because a reviewer that grades against other
+  // wording grades against a different rule; the reviewer adds the two rules
+  // only it can apply (the proof-vs-requirement reading and the path cut) and
+  // the freeze-time refusals no other stage can see before the freeze.
   review: [
-    "You are given only the spec, the repository facts, and the plan under review; you have not seen how the plan was produced or any reasoning behind it. Review the artefact alone.",
-    PROOF_NOT_STRICTER_THAN_REQUIREMENT_RULE,
+    "You are given only the spec, the repository facts, the plan under review, and the rules stated below; you have not seen how the plan was produced or any reasoning behind it. Review the artefact alone.",
+    REVIEW_TARGET_PATHS_RULE,
+    ...SCOPE_CLOSURE_RULE,
+    NAMED_TEST_FILE_RULE,
+    COVERING_TEST_RULE,
     REVIEW_PATH_CUT_RULE,
+    ...CONTRACT_VERIFICATION_RULE,
+    ...FREEZE_AND_CONTRACT_RULE,
+    SIZING_INSTRUCTION,
+    PROOF_NOT_STRICTER_THAN_REQUIREMENT_RULE,
     `Return exactly one worker-result JSON object. Put your findings in output.findings as ${FINDINGS_SHAPE} and nothing else in output.`,
     "severity must be one of critical, major, minor. Every finding's nodeId must name a node id that actually appears in the plan under review.",
   ],
@@ -359,7 +364,11 @@ function readFilesForKind(kind, inputs) {
   if (kind === "revise") {
     return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.cataloguePath), /** @type {string} */ (inputs.findingsPath), /** @type {string} */ (inputs.planPath)];
   }
-  if (kind === "review") return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.planPath), ...PLAN_RULE_READ_FILES];
+  // The review's readFiles are the target's own three inputs: the rules it
+  // judges by are in INSTRUCTIONS.review, because a path in this repository
+  // would resolve against the target repository being planned and refuse the
+  // contract in every ordinary checkout (R5, reissued).
+  if (kind === "review") return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.planPath)];
   if (kind === "spec-author") return [/** @type {string} */ (inputs.notesPath)];
   return [/** @type {string} */ (inputs.specPath)];
 }
