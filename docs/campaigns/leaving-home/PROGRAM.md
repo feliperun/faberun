@@ -129,7 +129,9 @@ Toda campanha fecha com `faberun spec validate <spec> --strict-traceability
   capacidade fora das cinco specs entra com ela. O critério volta a valer
   quando o livro dos 21 fechar com um desfecho para cada um, e o que não puder
   ser corrigido sem decisão do dono continua virando `RM-###` em vez de
-  correção.
+  correção. **Fechou em 2026-09-28, na 0.30.0:** vinte dos vinte e um estão
+  corrigidos e AP9 ficou aberto por decisão do dono (`RM-108`), então o critério
+  de entrada voltou a valer.
 - **Orçamento de docs.** Nenhum teto de `test/docs/docs-diet.test.mjs` sobe
   durante o programa. Na campanha zero, frase nova é paga com corte no mesmo
   arquivo; a partir da primeira, vale o teto de soma que ela cria.
