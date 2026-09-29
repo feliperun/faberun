@@ -1,17 +1,93 @@
 /**
- * The ask `faberun plan` makes before its first stage.
+ * What `faberun plan` decides before it spends anything: the refusals it
+ * returns before the first stage is dispatched -- which runtimes a planning run
+ * will spend, and what counts as one of them not answering -- and the
+ * deterministic checks a plan passes before any semantic review grades it.
  *
- * It lives beside the pipeline rather than inside it because asking is its own
- * concern -- which runtimes a planning run will spend, and what counts as one
- * of them not answering -- and because `pipeline.mjs` sits 45 lines from this
- * tree's 800-line ceiling.
+ * Both halves live beside the pipeline rather than inside it because asking
+ * and checking are their own concerns, and because `pipeline.mjs` sits close
+ * to this tree's 800-line ceiling.
  */
+import { join } from "node:path";
 import { preflightRuntimes } from "../engine/live-preflight.mjs";
 import { liveSilenceCause } from "../engine/live-silence.mjs";
 import { harnessCapabilities } from "../harnesses/index.mjs";
+import { validateContract } from "../contract/index.mjs";
 import { assertRuntimeExecutesCommands, validateRuntime } from "../contract/runtime.mjs";
 import { effectiveProvider } from "../contract/provider.mjs";
 import { SAME_VENDOR_REVIEW_MODE, sameVendorTierRefusal } from "../contract/judge-independence.mjs";
+import { assertTimeoutsCoverMeasured, raiseTimeoutsToMeasured } from "./freeze.mjs";
+import { assertFilteredProofsNameTheirTest, declareDirectoryGuards } from "./proof-scope.mjs";
+import { checkPlanProofs } from "./proof-check.mjs";
+
+/** @typedef {import("./template.mjs").PlanOutput} PlanOutput */
+/** @typedef {import("./template.mjs").PlanFindingOutput} PlanFindingOutput */
+/** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
+/** @typedef {import("./pipeline.mjs").AssembledPlan} AssembledPlan */
+
+/**
+ * What the deterministic checks need: the measured repository facts the freeze
+ * rules read, the cwd and plansDir the contract is assembled against, and the
+ * two closures that render the plan the way `freezePlan` will. They are
+ * supplied rather than imported because they are the pipeline's own assembly
+ * (`pipeline.mjs` imports this module), and taking them as data is what lets
+ * `rounds.mjs` — and a test — run the checks with fakes.
+ *
+ * @typedef {{repoFacts: import("./repo-facts.mjs").RepoFacts, cwd: string, plansDir: string, assembleFrozenNodes: (plan: PlanOutput) => AssembledPlan, frozenContractRaw: (assembly: AssembledPlan) => JsonObject}} PlanCheckContext
+ */
+
+/**
+ * The two mechanically repairable freeze rules, applied, then the freeze
+ * contract itself validated the way `freeze.mjs` and `proof-scope.mjs`
+ * validate it: the rules are imported, never restated, so this cannot drift
+ * from the freeze it stands in front of.
+ *
+ * It does not throw. A plan the checks refuse is a diagnostic for the repair
+ * loop, not a refusal: the refusal is the pre-dispatch half of this module,
+ * and a thrown plan check would spend a round's budget twice — once on the
+ * revise that answers a finding, and once on the error that killed it.
+ *
+ * The failure is returned beside the repaired plan rather than instead of it,
+ * so the caller can hand the plan on to a review (or to the freeze) while
+ * still recording what the freeze would have said.
+ *
+ * @param {PlanOutput} plan
+ * @param {PlanCheckContext} ctx
+ * @returns {{plan: PlanOutput, raised: string[], declared: string[], failure: unknown|null}}
+ */
+export function freezePreflight(plan, ctx) {
+  const timeouts = raiseTimeoutsToMeasured(plan, ctx.repoFacts);
+  const guards = declareDirectoryGuards(timeouts.plan, ctx.repoFacts, ctx.cwd);
+  const candidate = guards.plan;
+  const repaired = { plan: candidate, raised: timeouts.raised, declared: guards.declared };
+  try {
+    const contract = validateContract(ctx.frozenContractRaw(ctx.assembleFrozenNodes(candidate)), join(ctx.plansDir, "contract.json"));
+    assertFilteredProofsNameTheirTest(contract);
+    assertTimeoutsCoverMeasured(contract, ctx.repoFacts);
+    return { ...repaired, failure: null };
+  } catch (error) {
+    return { ...repaired, failure: error };
+  }
+}
+
+/**
+ * The complete deterministic check set a plan passes before any semantic
+ * review begins: `freezePreflight` plus the plan-wide proof scan, whose two
+ * shapes (a name filter that selects no test, a bare grep proving an absence)
+ * no reviewer decides better than a local read. The pipeline runs this once on
+ * the draft and forwards `findings` into the round loop's own repair budget —
+ * the rounds `--review-rounds` already pays for — while the loop runs
+ * `freezePreflight` on every candidate it grades, where the repair it drives
+ * is the answer to whatever the check refused.
+ *
+ * @param {PlanOutput} plan
+ * @param {PlanCheckContext} ctx
+ * @returns {{plan: PlanOutput, raised: string[], declared: string[], findings: PlanFindingOutput[], failure: unknown|null}}
+ */
+export function checkPlanBeforeReview(plan, ctx) {
+  const checks = freezePreflight(plan, ctx);
+  return { ...checks, findings: checkPlanProofs(checks.plan, ctx.repoFacts, ctx.cwd) };
+}
 
 /**
  * The runtimes a planning run will spend, asked once before its first stage.

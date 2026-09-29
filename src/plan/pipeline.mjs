@@ -25,13 +25,12 @@ import { readCampaign } from "../campaign/record.mjs";
 import { campaignCli } from "../cli/campaign.mjs";
 import { appendJsonl } from "../run/store.mjs";
 import { allowanceDelta, allowanceEventFields, sampleAllowance } from "../seat/allowance.mjs";
-import { askPlanningRuntimes, refusePlanningSilence, refuseUnplannableRuntimes } from "./preflight.mjs";
+import { askPlanningRuntimes, checkPlanBeforeReview, refusePlanningSilence, refuseUnplannableRuntimes } from "./preflight.mjs";
 import { validateJudgeIndependence } from "../contract/judge-independence.mjs";
 import { firstEligibleReviewer, reviewerProvenanceOf } from "./reviewer.mjs";
 import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts, persistRepoFacts } from "./repo-facts.mjs";
 import { clearPlanProgress, writePlanProgress } from "./progress.mjs";
-import { checkPlanProofs } from "./proof-check.mjs";
 import { collectHumanSteps } from "./human-step.mjs";
 import { RISK_TIERS, TASK_KIND_CATALOGUE_FILE, buildPlanningContract, renderTaskKindCatalogue, validatePlanOutput } from "./template.mjs";
 import { MIN_WRITE_FILES, applySizingRules, provenParallelism } from "./sizing.mjs";
@@ -159,6 +158,12 @@ async function runPlanningStages(options) {
   // the home, and the scratch relay inside the repository is excluded by the
   // same pathspec the launch uses.
   assertLaunchBaseClean(cwd, undefined);
+  // The refusal half of the pre-flight, decided from the catalogue and the
+  // machine alone and returned before anything is dispatched, so a runtime
+  // choice no frozen contract could carry costs no model call: it runs before
+  // the liveness ask below because that ask is itself a provider invocation,
+  // and everything a plan can still get wrong is a finding for the repair
+  // loop rather than a refusal.
   refuseUnplannableRuntimes(runtimes, runtimeDefaults, packageMode, judgeIndependence);
   refusePlanningSilence(await ask(runtimes, runtimeDefaults, cwd), cwd);
 
@@ -300,17 +305,6 @@ async function runPlanningStages(options) {
     ? { runId: draft.contract.id, invalid: findings[0].text }
     : { runId: draft.contract.id, nodeCount: plan.nodes.length });
 
-  // R15: a deterministic check for a DoD proof no node can satisfy, run once
-  // against the drafted plan before the first review round grades it — a
-  // finding this raises is exactly as actionable to a revise as a reviewer's
-  // own, and raising it before review means review never spends a round
-  // re-discovering what a mechanical check already knows for certain.
-  if (plan !== null) {
-    const proofFindings = checkPlanProofs(plan, repoFacts, cwd);
-    if (proofFindings.length > 0) findings = [...findings, ...proofFindings];
-    logStage("proof-check", { findingsCount: proofFindings.length });
-  }
-
   const workingPlanPath = join(scratchDir, "plan.working.json");
   const relativeWorkingPlanPath = relative(cwd, workingPlanPath);
 
@@ -367,6 +361,27 @@ async function runPlanningStages(options) {
    * @returns {JsonObject}
    */
   const frozenContractRaw = (assembly) => frozenContractRawOf(assembly, { campaignId, phase, campaignGoal: campaign.goal, cwd, plansDir, runtimes, runtimeDefaults, judgeIndependence });
+
+  // R5: the complete deterministic check set — the freeze rules `freeze.mjs`
+  // and `proof-scope.mjs` apply, plus the plan-wide proof scan (R15) — runs
+  // here, before the first semantic review is dispatched, and its diagnostics
+  // are forwarded into the round loop as findings: a mechanical objection is
+  // then answered by the same revise a reviewer's objection is, inside the
+  // rounds `--review-rounds` already pays for, never by a refusal path of its
+  // own. The plan it hands on is the repaired one, so the artefact the
+  // reviewer reads is the artefact that freezes. A failure the freeze itself
+  // would raise is logged here and raised as a finding by the round loop's own
+  // copy of this check, in the same round and under the round's own id: one
+  // objection, one finding, one repair.
+  if (plan !== null) {
+    const checks = checkPlanBeforeReview(plan, { repoFacts, cwd, plansDir, assembleFrozenNodes, frozenContractRaw });
+    plan = checks.plan;
+    if (checks.raised.length > 0) logStage("timeouts-raised", { raised: checks.raised });
+    if (checks.declared.length > 0) logStage("guards-declared", { declared: checks.declared });
+    findings = [...findings, ...checks.findings];
+    logStage("proof-check", { findingsCount: checks.findings.length });
+    logStage("preflight", { raised: checks.raised.length, declared: checks.declared.length, ...(checks.failure === null ? {} : { failed: checks.failure instanceof Error ? checks.failure.message : String(checks.failure) }) });
+  }
 
   const roundsResult = await runReviewRounds({
     reviewRounds, plan, rejectedDraft: plan === null ? draft.output.plan : undefined, findings, cwd, plansDir, scratchDir, workingPlanPath, relativeWorkingPlanPath,

@@ -9,7 +9,10 @@
  * pipeline.mjs was 742 of 800 lines) because this is the one place a round's
  * finding bookkeeping — merge what is still open, drop what a revise
  * silently shrank, resolve what a revise touched — happens together with the
- * in-round freeze pre-flight. `droppedWriteFindings` and `unresolvedFindings`
+ * in-round freeze pre-flight — whose own rules are `preflight.mjs`'s
+ * (`freezePreflight`), imported rather than restated, so the rules a round
+ * grades against are the rules the freeze applies. `droppedWriteFindings` and
+ * `unresolvedFindings`
  * live here rather than in `pipeline.mjs` because nothing outside this loop
  * ever calls them. `runStage`, `assembleFrozenNodes`, `frozenContractRaw`,
  * `contest`, `invalidPlanFinding` and `logStage` are supplied by the caller
@@ -22,11 +25,9 @@
  */
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
-import { validateContract } from "../contract/index.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
 import { stableJson } from "../util.mjs";
-import { assertTimeoutsCoverMeasured, raiseTimeoutsToMeasured } from "./freeze.mjs";
-import { assertFilteredProofsNameTheirTest, declareDirectoryGuards } from "./proof-scope.mjs";
+import { freezePreflight } from "./preflight.mjs";
 import { applyPlanPatch, validateFindings, validatePlanOutput } from "./template.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
@@ -248,22 +249,15 @@ export async function runReviewRounds(options) {
   let carriedCritical = 0;
 
   /**
-   * The freeze pre-flight: the contract this plan would freeze into, checked
-   * the way `freeze.mjs` checks it. Null when it would freeze.
+   * The deterministic checks and the two mechanical repairs, both read from
+   * `preflight.mjs` rather than restated here: the same set the pipeline ran on
+   * the draft runs again on every plan this loop grades, so a revise is held to
+   * the rules the freeze applies and this loop can never disagree with the
+   * freeze it stands in front of about what those rules are.
    *
-   * @param {PlanOutput} candidate
-   * @returns {unknown}
+   * @type {import("./preflight.mjs").PlanCheckContext}
    */
-  const freezePreflightError = (candidate) => {
-    try {
-      const contract = validateContract(frozenContractRaw(assembleFrozenNodes(declareDirectoryGuards(raiseTimeoutsToMeasured(candidate, repoFacts).plan, repoFacts, cwd).plan)), join(plansDir, "contract.json"));
-      assertFilteredProofsNameTheirTest(contract);
-      assertTimeoutsCoverMeasured(contract, repoFacts);
-      return null;
-    } catch (error) {
-      return error;
-    }
-  };
+  const preflightContext = { repoFacts, cwd, plansDir, assembleFrozenNodes, frozenContractRaw };
 
   /**
    * Run the revise stage once, validate its output and run the freeze
@@ -327,9 +321,9 @@ export async function runReviewRounds(options) {
     try {
       revision = /** @type {{nodes: PlanOutputNode[]} & Record<string, unknown>} */ (revisionFrom(base, revise.output));
       structurallyValid = validatePlanOutput(revision);
-      const preflightError = freezePreflightError(structurallyValid);
-      if (preflightError === null) return { plan: structurallyValid, runId: revise.contract.id, firstInvalid: null };
-      firstInvalid = invalidPlanFinding(`revise-r${round}-attempt1`, preflightError);
+      const failure = freezePreflight(structurallyValid, preflightContext).failure;
+      if (failure === null) return { plan: structurallyValid, runId: revise.contract.id, firstInvalid: null };
+      firstInvalid = invalidPlanFinding(`revise-r${round}-attempt1`, failure);
     } catch (error) {
       firstInvalid = invalidPlanFinding(`revise-r${round}-attempt1`, error);
     }
@@ -364,13 +358,14 @@ export async function runReviewRounds(options) {
     // scope-closure pre-flight), and R14 stopped the plan after 2 of 4 rounds.
     const reviewed = plan !== null;
     if (plan) {
-      // R14's mechanical repair with a single answer, applied before review so
-      // the reviewer grades, and freeze checks, the plan that would ship.
-      const timeouts = raiseTimeoutsToMeasured(plan, repoFacts);
-      if (timeouts.raised.length) logStage("timeouts-raised", { round, raised: timeouts.raised });
-      const guards = declareDirectoryGuards(timeouts.plan, repoFacts, cwd);
-      if (guards.declared.length) logStage("guards-declared", { round, declared: guards.declared });
-      plan = guards.plan;
+      // R14's mechanical repairs with a single answer, and the freeze rules
+      // they answer to, all measured before the review is dispatched: the
+      // reviewer grades — and freeze checks — the plan that would ship, and
+      // the failure below is measured against the bytes the reviewer read.
+      const checks = freezePreflight(plan, preflightContext);
+      if (checks.raised.length) logStage("timeouts-raised", { round, raised: checks.raised });
+      if (checks.declared.length) logStage("guards-declared", { round, declared: checks.declared });
+      plan = checks.plan;
       // The reviewer grades a structurally valid plan; an invalid one skips
       // review and reaches revise through the validator's finding instead.
       writeJsonAtomic(workingPlanPath, plan);
@@ -391,9 +386,9 @@ export async function runReviewRounds(options) {
         invalidFindings = invalidPlanFinding(`review-r${round}`, error);
         findings = [...findings, invalidFindings];
       }
-      // The contract this plan would freeze into is checked here, inside the
-      // round and after the review's findings merged into the open ones,
-      // because freeze runs after the last one: caught here, a plan that
+      // The contract this plan would freeze into was checked above, before the
+      // review ran, and its failure rides on this round's line and findings
+      // because freeze runs after the last round: caught here, a plan that
       // cannot freeze still has a revise left to fix it. The failure is a
       // critical finding, never an auto-filled acknowledgement — scope
       // closure exists to force the per-file decision (declare a write, or
@@ -401,9 +396,8 @@ export async function runReviewRounds(options) {
       // read the repository, makes it from the validator's own message.
       /** @type {PlanFindingOutput|null} */
       let freezeFailure = null;
-      const preflightError = freezePreflightError(plan);
-      if (preflightError !== null) {
-        freezeFailure = invalidPlanFinding(`freeze-r${round}`, preflightError);
+      if (checks.failure !== null) {
+        freezeFailure = invalidPlanFinding(`freeze-r${round}`, checks.failure);
         findings = [...findings, freezeFailure];
       }
       logStage("review", {
