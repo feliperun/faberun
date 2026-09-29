@@ -30,8 +30,8 @@ derivation disagrees with this document. The document is the declaration; the
 test is what keeps it from becoming fiction on the third change.
 
 **Measured 2026-09-20 against this tree:** 32 `events.jsonl` fields and 16
-`journal.jsonl` event types. Fifteen entries have more than one writer today.
-Those fifteen are the ratchet at the end of this file; they are declared, not
+`journal.jsonl` event types. Sixteen entries have more than one writer today.
+Those sixteen are the ratchet at the end of this file; they are declared, not
 fixed, because changing who writes a field is a behavior change and belongs to
 another node. The stale-group signal guard added the one new ratchet field,
 `invocationId`, on 2026-09-16. The seat-allowance-delta node added the one new
@@ -39,8 +39,10 @@ event type, `seat.allowance`, on 2026-09-17, behind a single writer function
 so it does not grow the ratchet. The requirement-ids node added the one new
 single-writer field, `requirementIds`, on 2026-09-20 — the engine stamps the
 node's inherited phase requirement ids onto the snapshot when its result is
-accepted, and `appendTransitionEvent` copies them — so the ratchet stays at
-fifteen.
+accepted, and `appendTransitionEvent` copies them — so the ratchet stayed at
+fifteen. Measured 2026-09-29: `pauseCampaign` (`src/campaign/unpark.mjs`) has
+been appending an `operator.command` line since the dashboard pause landed, so
+that event type has two emitters and the ratchet is sixteen.
 
 A type or field nothing writes is not declared here. This document is a
 declaration of owners, and a field with no writer has no owner to declare.
@@ -115,7 +117,7 @@ document and the schema cannot drift apart.
 | `next` | `note` | `at`, `type`, `eventId`, `sessionId`, `text` | when a note of that kind is recorded |
 | `open-question` | `note` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when a note of that kind is recorded |
 | `question.resolved` | `resolveQuestion` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when `campaign note --resolve` runs |
-| `operator.command` | `recordOperatorCommand` | `at`, `type`, `eventId`, `command`, `sessionId`, `runId` | when a campaign-changing operator command is recorded |
+| `operator.command` | `pauseCampaign`, `recordOperatorCommand` **(ratchet)** | `at`, `type`, `eventId`, `command`, `sessionId`, `runId` | when a campaign-changing operator command is recorded: `pauseCampaign` records the dashboard's pause, `recordOperatorCommand` records the command an operator ran |
 | `retrospective` | `note` | `at`, `type`, `eventId`, `sessionId`, `text` | when a note of that kind is recorded |
 | `seat.allowance` | `appendSeatAllowanceEvent` | `at`, `type`, `eventId`, `sample`, `harness`, `remaining`, `limit`, `resetsAt`, `delta`, `window` | when `campaign init` samples the operator's own seat allowance at campaign start (`sample: "start"`, `harness` from env-marker detection, `delta: null`), and when `plan freeze` re-samples that exact same harness (not the plan's worker runtime) at plan freeze (`sample: "freeze"`, `delta` against the start sample, or `null` with no start entry to compare against); `window` names the rate-limit window the sample measured (claude's `rateLimitType`, e.g. `"seven_day"`), so a delta across two differently-governed windows can be told apart from a real one |
 
@@ -229,8 +231,10 @@ contract's static one.
 
 ## The ratchet, measured
 
-Measured 2026-09-16: **15 entries have more than one writer.** They are a
-ratchet, not a target. The test asserts the number is exactly 15 and that every
+Measured 2026-09-16: **15 entries have more than one writer**; measured
+2026-09-29, after `pauseCampaign` turned out to append the same
+`operator.command` line `recordOperatorCommand` appends: **16**. They are a
+ratchet, not a target. The test asserts the number is exactly 16 and that every
 declared writer set matches the one derived from `src/`, so a *new* second
 writer fails immediately, and fixing one of these fails until the count and this
 list are lowered together.
@@ -239,9 +243,12 @@ list are lowered together.
 `invocationId`, `override`, `recovery`, `role`, `schemaVersion`, `summary`,
 `type`, `unexpectedPathCount`, `unexpectedPaths`, `verdict`.
 
-**`journal.jsonl` (1):** `session.attached` — written both by the explicit
-`attach` command and by the once-a-day implicit attach on sync. The two emitters
-must keep producing the same nine fields.
+**`journal.jsonl` (2):** `operator.command` — appended both by
+`recordOperatorCommand` and by the dashboard's pause (`pauseCampaign`), which
+writes the same six fields with `command: "campaign pause…"`; and
+`session.attached` — written both by the explicit `attach` command and by the
+once-a-day implicit attach on sync. The two emitters of each type must keep
+producing the same field set.
 
 `invocationId` joined the list when the phase-2 stale-group signal guard landed:
 `recordIdentityUnverifiable` (`src/engine/process.mjs`) appends an
@@ -273,7 +280,7 @@ behavior, and a node that declares must not also move the thing it declares.
     "next": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "text"] },
     "open-question": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "questionId", "text"] },
     "question.resolved": { "writers": ["resolveQuestion"], "fields": ["at", "type", "eventId", "sessionId", "questionId", "text"] },
-    "operator.command": { "writers": ["recordOperatorCommand"], "fields": ["at", "type", "eventId", "command", "sessionId", "runId"] },
+    "operator.command": { "writers": ["pauseCampaign", "recordOperatorCommand"], "fields": ["at", "type", "eventId", "command", "sessionId", "runId"] },
     "retrospective": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "text"] },
     "seat.allowance": { "writers": ["appendSeatAllowanceEvent"], "fields": ["at", "type", "eventId", "sample", "harness", "remaining", "limit", "resetsAt", "delta", "window"] }
   },

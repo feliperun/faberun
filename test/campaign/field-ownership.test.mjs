@@ -34,8 +34,8 @@ const SKILL_DIR = fileURLToPath(new URL("../..", import.meta.url));
 const SRC_DIR = join(SKILL_DIR, "src");
 const DOC_PATH = join(SKILL_DIR, "docs", "FIELD-OWNERSHIP.md");
 
-/** Measured 2026-09-16: 14 `events.jsonl` fields plus one `journal.jsonl` event type. */
-const DOUBLE_WRITER_CEILING = 15;
+/** Measured 2026-09-16: 14 `events.jsonl` fields plus two `journal.jsonl` event types. */
+const DOUBLE_WRITER_CEILING = 16;
 
 /** @typedef {{writers: string[], fields?: string[]}} DeclaredEntry */
 /** @typedef {{journal?: Record<string, DeclaredEntry>, events?: Record<string, DeclaredEntry>, campaign?: Record<string, DeclaredEntry>}} OwnershipDoc */
@@ -509,6 +509,7 @@ test("single writer per field", () => {
       "events.jsonl.unexpectedPathCount",
       "events.jsonl.unexpectedPaths",
       "events.jsonl.verdict",
+      "journal.jsonl.operator.command",
       "journal.jsonl.session.attached",
     ],
     "the measured multi-writer set changed; update docs/FIELD-OWNERSHIP.md and DOUBLE_WRITER_CEILING together",

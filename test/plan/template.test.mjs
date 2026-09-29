@@ -10,6 +10,7 @@ import { renderWorkerPrompt } from "../../src/contract/task-packet.mjs";
 import { droppedWriteFindings, unresolvedFindings } from "../../src/plan/pipeline.mjs";
 import {
   PATH_CUT_RULE,
+  PLAN_RULE_READ_FILES,
   REVIEW_PATH_CUT_RULE,
   RISK_TIERS,
   TASK_KINDS,
@@ -66,6 +67,10 @@ function checkout() {
   for (const relative of ["docs/spec.md", ".runs/repo-facts.json", ".runs/plan.json", ".runs/findings.json", "docs/notes.md"]) {
     writeInputFile(cwd, relative);
   }
+  // The review stage declares the code and the tests behind the freeze and
+  // proof rules in readFiles (R5 of the phase-2 reissue), and a declared read
+  // file that is absent refuses the contract, so the checkout holds them too.
+  for (const relative of PLAN_RULE_READ_FILES) writeInputFile(cwd, relative);
   return cwd;
 }
 
@@ -108,7 +113,29 @@ test("review packet is isolated", () => {
     assert.equal(serializedReview.includes(sentence), false, `review packet must not carry the draft sentence: ${sentence}`);
   }
   assert.equal(/\.runs\/[^"]*\/logs/u.test(serializedReview), false, "review packet must not carry a path under .runs/*/logs");
-  assert.equal(reviewPacket.readFiles.length, 3);
+  // The three inputs it is given, then the rules it judges the plan against:
+  // nothing else, and in that order.
+  assert.deepEqual(reviewPacket.readFiles, ["docs/spec.md", ".runs/repo-facts.json", ".runs/plan.json", ...PLAN_RULE_READ_FILES]);
+});
+
+// R5 of the phase-2 reissue: a worker reads only the paths its packet declares,
+// so the stage that grades a plan against the freeze and proof rules is handed
+// those rules. Pinned literally, so the declared list cannot drift from what
+// the preflight before the review round runs.
+test("the review packet declares the code and the tests behind the freeze and proof rules", () => {
+  const cwd = checkout();
+  const contractPath = join(cwd, "contract.json");
+  const packetOf = (/** @type {"draft"|"revise"|"review"} */ kind) => validateContract(buildPlanningContract(kind, baseInputs()), contractPath).nodes[0].taskPacket;
+  assert.deepEqual(packetOf("review").readFiles.slice(3), ["src/plan/freeze.mjs", "src/plan/proof-scope.mjs", "src/plan/sizing.mjs", "src/contract/index.mjs", "src/contract/verification.mjs", "src/contract/definition-of-done.mjs", "test/plan/template.test.mjs", "test/plan/proof-ref.test.mjs", "test/plan/reviewer-list.test.mjs", "test/plan/freeze.test.mjs", "test/plan/proof-scope.test.mjs", "test/plan/sizing.test.mjs", "test/contract/verification.test.mjs", "test/contract/definition-of-done.test.mjs", "test/contract/packet.test.mjs"]);
+
+  // The rules reach the stage that judges the plan: the draft and the revise
+  // author it, and their readFiles resolve against whichever repository is
+  // being planned, so they name no path inside this one.
+  for (const kind of /** @type {const} */ (["draft", "revise"])) {
+    for (const path of PLAN_RULE_READ_FILES) {
+      assert.equal(packetOf(kind).readFiles.includes(path), false, `${kind} must not read ${path}: it authors the plan, it does not grade it`);
+    }
+  }
 });
 
 // AP11 of safe-to-hand-to-friend, measured 2026-09-27: R6's node exhausted both

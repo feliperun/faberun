@@ -224,6 +224,43 @@ export const PATH_CUT_RULE = "repo-facts.json's paths is the byte-limited cut of
  */
 export const REVIEW_PATH_CUT_RULE = "repo-facts.json's paths is a byte-limited cut of the tracked tree, so a path absent from it is not evidence that the file is absent. pathOmission reports, per source kind (document, archived-log, manifest, code, other), how many paths and how many bytes the cut discarded, and those per-kind numbers sum to its own paths and bytes totals. A finding that a node misses a file the spec implies is only valid when the path is in paths or named by the requirement itself; the complete index is staged beside the artefact as repo-paths.txt for the plan to read if it needs it.";
 
+/**
+ * The code and the tests behind the freeze and proof rules a plan is judged
+ * against, declared in the review packet's `readFiles` (R5 of the phase-2
+ * reissue).
+ *
+ * A worker reads only the paths its packet declares, so the rules have to be
+ * declared where they are applied: the review stage is the one that judges a
+ * plan against them — PROOF_NOT_STRICTER_THAN_REQUIREMENT_RULE above is a
+ * reading of two sentences, and the freeze refuses shapes this module's own
+ * validator never sees — and the list below is the surface the preflight
+ * before the review round checks. The freeze's own checks (`freeze.mjs`,
+ * `proof-scope.mjs`), the sizing rules a draft is authored to (`sizing.mjs`),
+ * the validators that decide whether a planned node's verification and
+ * Definition of Done are legal (`contract/index.mjs`,
+ * `contract/verification.mjs`, `contract/definition-of-done.mjs`), and the
+ * tests under `test/plan` and `test/contract` that measure them. A check added
+ * to that surface belongs here in the same change, or the reviewer grades
+ * against a rule no packet handed it.
+ */
+export const PLAN_RULE_READ_FILES = Object.freeze([
+  "src/plan/freeze.mjs",
+  "src/plan/proof-scope.mjs",
+  "src/plan/sizing.mjs",
+  "src/contract/index.mjs",
+  "src/contract/verification.mjs",
+  "src/contract/definition-of-done.mjs",
+  "test/plan/template.test.mjs",
+  "test/plan/proof-ref.test.mjs",
+  "test/plan/reviewer-list.test.mjs",
+  "test/plan/freeze.test.mjs",
+  "test/plan/proof-scope.test.mjs",
+  "test/plan/sizing.test.mjs",
+  "test/contract/verification.test.mjs",
+  "test/contract/definition-of-done.test.mjs",
+  "test/contract/packet.test.mjs",
+]);
+
 // RM-107, measured 2026-09-27 on `safe-to-hand-to-a-friend` phase 1: the phase
 // integrated a red tree -- src/host/preflight.mjs at 840 lines against the 800
 // ceiling, declaredEnvironment exported by seven modules, three test files
@@ -322,7 +359,7 @@ function readFilesForKind(kind, inputs) {
   if (kind === "revise") {
     return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.cataloguePath), /** @type {string} */ (inputs.findingsPath), /** @type {string} */ (inputs.planPath)];
   }
-  if (kind === "review") return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.planPath)];
+  if (kind === "review") return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.planPath), ...PLAN_RULE_READ_FILES];
   if (kind === "spec-author") return [/** @type {string} */ (inputs.notesPath)];
   return [/** @type {string} */ (inputs.specPath)];
 }

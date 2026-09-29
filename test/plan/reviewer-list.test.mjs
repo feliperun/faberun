@@ -1,13 +1,13 @@
 import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { validateContract } from "../../src/contract/index.mjs";
 import { availabilityKey, recordRefusal } from "../../src/run/availability.mjs";
 import { getHarness } from "../../src/harnesses/index.mjs";
-import { buildPlanningContract } from "../../src/plan/template.mjs";
+import { PLAN_RULE_READ_FILES, buildPlanningContract } from "../../src/plan/template.mjs";
 import { firstEligibleReviewer, resolveReviewerList, reviewerProvenanceOf } from "../../src/plan/reviewer.mjs";
 import { resolveRuntimes } from "../../src/plan/routing.mjs";
 
@@ -35,6 +35,13 @@ function checkout() {
   writeFileSync(join(cwd, "spec.md"), "spec\n");
   writeFileSync(join(cwd, "repo-facts.json"), "{}\n");
   writeFileSync(join(cwd, "plan.json"), "{}\n");
+  // A review-stage contract declares the code and the tests behind the freeze
+  // and proof rules beside the plan (R5), and a declared read file that is
+  // absent refuses the contract, so this checkout holds those paths too.
+  for (const path of PLAN_RULE_READ_FILES) {
+    mkdirSync(dirname(join(cwd, path)), { recursive: true });
+    writeFileSync(join(cwd, path), "");
+  }
   return cwd;
 }
 
