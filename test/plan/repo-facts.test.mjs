@@ -9,8 +9,9 @@ import { collectRepoFacts, measureRequirements } from "../../src/plan/repo-facts
 
 /**
  * @returns {string} a temp git repository with a package.json, two src
- *   modules, and two test directories (one whose test file covers a src
- *   module, one whose test file covers nothing).
+ *   modules, and two test directories: one test file named after the module it
+ *   exercises, one that covers a module by importing it and is named after
+ *   nothing, and one that covers nothing at all.
  */
 function fixtureRepo() {
   const directory = mkdtempSync(join(tmpdir(), "repo-facts-fixture-"));
@@ -20,10 +21,12 @@ function fixtureRepo() {
   }, null, 2));
   mkdirSync(join(directory, "src", "plan"), { recursive: true });
   writeFileSync(join(directory, "src", "plan", "repo-facts.mjs"), "export const owner = true;\n");
+  writeFileSync(join(directory, "src", "other.mjs"), "export const other = true;\n");
   mkdirSync(join(directory, "test", "plan"), { recursive: true });
-  writeFileSync(join(directory, "test", "plan", "repo-facts.test.mjs"), "// covers src/plan/repo-facts.mjs\n");
+  writeFileSync(join(directory, "test", "plan", "repo-facts.test.mjs"), "import { owner } from \"../../src/plan/repo-facts.mjs\";\n");
   mkdirSync(join(directory, "test", "other"), { recursive: true });
-  writeFileSync(join(directory, "test", "other", "nope.test.mjs"), "// covers nothing\n");
+  writeFileSync(join(directory, "test", "other", "nope.test.mjs"), "import { other } from \"../../src/other.mjs\";\n");
+  writeFileSync(join(directory, "test", "other", "nothing.test.mjs"), "// covers nothing: no module is named after it and it references none\n");
   writeFileSync(join(directory, "test", "helpers.mjs"), "// not a *.test.mjs file, never a candidate or a test file entry\n");
   execFileSync("git", ["init", "-q", directory]);
   execFileSync("git", ["-C", directory, "add", "."]);
@@ -154,9 +157,11 @@ test("collectRepoFacts emits a deterministic JSON inventory built with no model"
   assert.deepEqual(
     facts.testFiles.sort((a, b) => a.path.localeCompare(b.path)),
     [
-      { path: "test/other/nope.test.mjs", covers: null },
-      { path: "test/plan/repo-facts.test.mjs", covers: "src/plan/repo-facts.mjs" },
+      { path: "test/other/nope.test.mjs", covers: ["src/other.mjs"] },
+      { path: "test/other/nothing.test.mjs", covers: [] },
+      { path: "test/plan/repo-facts.test.mjs", covers: ["src/plan/repo-facts.mjs"] },
     ],
+    "a test file covers the module it is named after and every module it imports; one that does neither covers nothing",
   );
 });
 

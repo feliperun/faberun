@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { crossNodeScopeFindings, scopeClosureFindings } from "../../src/repo/scope-closure.mjs";
+import { crossNodeScopeFindings, directReferenceGraph, runtimeImportGraph, scopeClosureFindings } from "../../src/repo/scope-closure.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 
 /**
@@ -278,4 +278,21 @@ test("scope closure catches the cross node trap", () => {
     assert.match(error.message, /cross-node/u);
     return true;
   });
+});
+
+test("the direct reference graph carries imports and executed programs, which the runtime graph deliberately omits", () => {
+  const root = repository({
+    "src/owner.mjs": "export const owner = true;\n",
+    "src/spawned.mjs": "export const spawned = true;\n",
+    "src/typed-only.mjs": "export const typed = true;\n",
+    "test/integration.test.mjs": [
+      'import { owner } from "../src/owner.mjs";',
+      'const child = new URL("../src/spawned.mjs", import.meta.url);',
+      '/** @typedef {import("../src/typed-only.mjs").Typed} Typed */',
+      "export { owner, child };",
+      "",
+    ].join("\n"),
+  });
+  assert.deepEqual(directReferenceGraph(root).get("test/integration.test.mjs"), ["src/owner.mjs", "src/spawned.mjs"]);
+  assert.deepEqual(runtimeImportGraph(root).get("test/integration.test.mjs"), ["src/owner.mjs"], "a JSDoc reference and a spawned URL are not load-time edges");
 });

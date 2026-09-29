@@ -170,6 +170,14 @@ const PROOF_NOT_STRICTER_THAN_REQUIREMENT_RULE = "For every node, compare each c
 
 const NAMED_TEST_FILE_RULE = 'A command that filters node:test by name (--test-name-pattern) names the test file it selects from, as in node --test --test-name-pattern="<exact test title>" test/<area>/<file>.test.mjs: with no path node --test runs every test file in the tree and the freeze refuses it. A requirement proof the spec writes without a file gains the file of the test that carries that title.';
 
+// RM-109, measured 2026-09-27 on `safe-to-hand-to-a-friend`: the naming
+// convention alone decided a node's test file, so a node whose module was
+// exercised by a test named after something else passed its own suite and
+// still left four failures for the integration branch (1763 tests, 4 failures,
+// phases 3/4/5/3r8). repo-facts.json's testFiles carries what each test file
+// references, so the planner names the files that can actually break.
+const COVERING_TEST_RULE = 'repo-facts.json\'s testFiles lists, per test file, the repo-relative modules it is named after and the ones it imports or runs. A node\'s verification names every test file whose covers intersects its writeFiles, not only the one named after the module: node --test <file>, one per covering file, and the enclosing test directory when that set is larger than one verification array holds. A test file that references nothing the node writes is not named there; those are the phase\'s finalVerification, which runs the whole suite once when the phase closes.';
+
 // RM-107, measured 2026-09-27 on `safe-to-hand-to-a-friend` phase 1: the phase
 // integrated a red tree -- src/host/preflight.mjs at 840 lines against the 800
 // ceiling, declaredEnvironment exported by seven modules, three test files
@@ -211,6 +219,7 @@ const INSTRUCTIONS = Object.freeze({
     "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies, the planned node ids it assigns, and the deliverable it produces in one sentence. Every planned node must appear in exactly one phase's nodeIds; a missing, duplicate, or unknown node assignment is refused.",
     ...SCOPE_CLOSURE_RULE,
     NAMED_TEST_FILE_RULE,
+    COVERING_TEST_RULE,
     ...CONTRACT_VERIFICATION_RULE,
     `Return exactly one worker-result JSON object. Put the plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan. taskKind and riskTier are the only classification a draft makes; a routing table assigns a runtime afterward, from those two fields alone.",
@@ -222,6 +231,7 @@ const INSTRUCTIONS = Object.freeze({
     "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies, the planned node ids it assigns, and the deliverable it produces in one sentence. Every planned node must appear in exactly one phase's nodeIds; a missing, duplicate, or unknown node assignment is refused.",
     ...SCOPE_CLOSURE_RULE,
     NAMED_TEST_FILE_RULE,
+    COVERING_TEST_RULE,
     ...CONTRACT_VERIFICATION_RULE,
     `Return exactly one worker-result JSON object. Put the revised plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan.",

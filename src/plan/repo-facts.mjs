@@ -1,8 +1,9 @@
 /**
  * Repo facts: a deterministic, bounded inventory of the target repository —
  * tracked paths, declared scripts, verification candidates across the Node,
- * Python, Go, Rust, Zig and Makefile ecosystems, and which test file covers
- * which source module — collected without invoking a model. Every candidate
+ * Python, Go, Rust, Zig and Makefile ecosystems, and which source modules each
+ * test file covers, by its name and by what it imports or runs — collected
+ * without invoking a model. Every candidate
  * records the manifest it was read from; only the Node candidates are timed,
  * and no candidate for another ecosystem is ever executed to be found.
  * A planning stage's draft is authored against exactly this JSON instead of
@@ -20,6 +21,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { timeVerificationCommands } from "../host/preflight.mjs";
+import { directReferenceGraph } from "../repo/scope-closure.mjs";
 import { boundedGitSync, gitHead } from "../repo/worktree.mjs";
 import { runShellCapture } from "./proof-run.mjs";
 
@@ -45,7 +47,7 @@ import { runShellCapture } from "./proof-run.mjs";
  *
  * @typedef {{argv: string[], manifest: string, measuredMs: number|null, eligible: boolean}} DetectedVerificationCandidate
  */
-/** @typedef {{path: string, covers: string|null}} TestFileEntry */
+/** @typedef {{path: string, covers: string[]}} TestFileEntry */
 /** @typedef {{formatVersion: number, gitHead: string|null, paths: string[], truncated: boolean, scripts: Record<string, string>, verificationCandidates: VerificationCandidate[], detectedVerificationCandidates?: DetectedVerificationCandidate[], testFiles: TestFileEntry[], requirementMeasurements: RequirementMeasurement[]}} RepoFacts */
 
 const FORMAT_VERSION = 1;
@@ -95,16 +97,36 @@ function testDirectories(paths) {
 }
 
 /**
+ * What each test file covers: the module it is named after, when that module
+ * exists, plus every tracked module it imports or runs (RM-109). The naming
+ * convention alone was the whole answer, so a test that exercises a module
+ * without being named for it — a cross-module integration test, a test that
+ * spawns the CLI by URL — was invisible to planning. Measured on
+ * `safe-to-hand-to-a-friend`: four failures in 1763 reached the integration
+ * branch while every node had passed its own suite.
+ *
+ * Only tracked paths count, so a stray file in the working tree cannot become
+ * part of a plan's verification, and only `test/**\/*.test.mjs` files are
+ * entries at all: a helper is covered by the tests that import it, never a
+ * verifier itself.
+ *
  * @param {string[]} paths
  * @param {Set<string>} pathSet
+ * @param {Map<string, string[]>} references repo-relative references per file
  * @returns {TestFileEntry[]}
  */
-function testFileEntries(paths, pathSet) {
+function testFileEntries(paths, pathSet, references) {
   return paths
     .filter((path) => path.startsWith("test/") && path.endsWith(".test.mjs"))
     .map((path) => {
-      const modulePath = `src/${path.slice("test/".length, -".test.mjs".length)}.mjs`;
-      return { path, covers: pathSet.has(modulePath) ? modulePath : null };
+      /** @type {Set<string>} */
+      const covers = new Set();
+      const namedAfter = `src/${path.slice("test/".length, -".test.mjs".length)}.mjs`;
+      if (pathSet.has(namedAfter)) covers.add(namedAfter);
+      for (const referenced of references.get(path) ?? []) {
+        if (pathSet.has(referenced)) covers.add(referenced);
+      }
+      return { path, covers: [...covers].sort() };
     });
 }
 
@@ -303,7 +325,7 @@ export function collectRepoFacts(cwd, options = {}) {
     // null "no measurement" sentinel freeze.mjs reads and eligibility true.
     verificationCandidates: measured.map((candidate) => ({ ...candidate, manifest: PACKAGE_MANIFEST })),
     detectedVerificationCandidates: detected.map((candidate) => ({ ...candidate, measuredMs: null, eligible: true })),
-    testFiles: testFileEntries(allPaths, pathSet),
+    testFiles: testFileEntries(allPaths, pathSet, directReferenceGraph(cwd)),
     requirementMeasurements: measureRequirements(cwd, options.requirements ?? [], options.measure ?? {}),
   };
 }

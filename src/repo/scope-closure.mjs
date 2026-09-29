@@ -104,6 +104,28 @@ export function runtimeImportGraph(root) {
 }
 
 /**
+ * The repo-relative paths each of the repository's own modules points at: the
+ * relative modules it imports and the ones it runs through
+ * `new URL(…, import.meta.url)`. Wider than `runtimeImportGraph`'s edges on
+ * purpose — that one answers "does this import cycle at load time", where a
+ * JSDoc reference and a spawned program are both absent; this one answers
+ * "which files does this file exercise", where a test that spawns a program
+ * counts exactly like one that imports it. RM-109: `plan/repo-facts.mjs` reads
+ * it to name the test files a planned write set touches.
+ *
+ * @param {string} root absolute directory to walk
+ * @returns {Map<string, string[]>} repo-relative path to its references, sorted
+ */
+export function directReferenceGraph(root) {
+  /** @type {Map<string, string[]>} */
+  const graph = new Map();
+  for (const [path, source] of repositorySources(root)) {
+    graph.set(path, [...referencePaths(source, root)].sort());
+  }
+  return graph;
+}
+
+/**
  * Files a node's declared writes drag into the same change, minus those the
  * packet already declares or dismisses.
  *
