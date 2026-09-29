@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.30.0](https://github.com/feliperun/faberun/compare/v0.29.0...v0.30.0) (2026-09-29)
+
+
+### Features
+
+* **plan:** the three open findings of safe-to-hand-to-a-friend land in 0.30.0 ([8f93878](https://github.com/feliperun/faberun/commit/8f9387807f91f97af4fc99a4897c5f002c3d415d))
+
 ## [0.29.0](https://github.com/feliperun/faberun/compare/v0.28.0...v0.29.0) (2026-09-28)
 
 
