@@ -136,6 +136,33 @@ export function assertTimeoutsCoverMeasured(contract, facts) {
 }
 
 /**
+ * Raise whichever of a command list's timeouts sit under
+ * `MEASURED_TIMEOUT_MARGIN` times their measured duration, recording each
+ * raise under `label`. Returns the list unchanged (by identity) when nothing
+ * needed raising, so the caller can tell whether to re-list.
+ *
+ * @param {import("../contract/index.mjs").VerificationCommand[]} commands
+ * @param {MeasuredFacts} facts
+ * @param {string} label
+ * @param {string[]} raised
+ * @returns {import("../contract/index.mjs").VerificationCommand[]}
+ */
+function raiseCommandTimeouts(commands, facts, label, raised) {
+  let changed = false;
+  const next = commands.map((command) => {
+    const measuredMs = measuredMsFor(command.argv, facts);
+    if (measuredMs === null) return command;
+    const requiredSec = Math.ceil((measuredMs * MEASURED_TIMEOUT_MARGIN) / 1_000);
+    const timeoutSec = command.timeoutSec ?? 120;
+    if (timeoutSec >= requiredSec || requiredSec > VERIFICATION_LIMITS.maxTimeoutSec) return command;
+    raised.push(`${label}: ${command.argv.join(" ")} ${timeoutSec}s -> ${requiredSec}s`);
+    changed = true;
+    return { ...command, timeoutSec: requiredSec };
+  });
+  return changed ? next : commands;
+}
+
+/**
  * Raise every plan node's verification timeout that sits under
  * `MEASURED_TIMEOUT_MARGIN` times its measured duration to exactly that
  * bound — the one repair `assertTimeoutsCoverMeasured` names, so it has a
@@ -145,6 +172,11 @@ export function assertTimeoutsCoverMeasured(contract, facts) {
  * plan with no critical from review, contested only because three nodes gave
  * `node --test test/harnesses` 120s against a measured 84.4s (bound 127s).
  *
+ * The plan's own contract-level suites (RM-107) are raised here too, over the
+ * same measurement: `assertTimeoutsCoverMeasured` reads them, so a repair that
+ * skipped them would leave the check naming a repair this function does not
+ * make. Its label is the suite key, since a contract suite belongs to no node.
+ *
  * @param {import("./template.mjs").PlanOutput} plan
  * @param {MeasuredFacts} facts
  * @returns {{plan: import("./template.mjs").PlanOutput, raised: string[]}}
@@ -152,19 +184,22 @@ export function assertTimeoutsCoverMeasured(contract, facts) {
 export function raiseTimeoutsToMeasured(plan, facts) {
   /** @type {string[]} */
   const raised = [];
-  const nodes = plan.nodes.map((node) => ({
-    ...node,
-    verification: (node.verification ?? []).map((command) => {
-      const measuredMs = measuredMsFor(command.argv, facts);
-      if (measuredMs === null) return command;
-      const requiredSec = Math.ceil((measuredMs * MEASURED_TIMEOUT_MARGIN) / 1_000);
-      const timeoutSec = command.timeoutSec ?? 120;
-      if (timeoutSec >= requiredSec || requiredSec > VERIFICATION_LIMITS.maxTimeoutSec) return command;
-      raised.push(`${node.id}: ${command.argv.join(" ")} ${timeoutSec}s -> ${requiredSec}s`);
-      return { ...command, timeoutSec: requiredSec };
-    }),
-  }));
-  return { plan: raised.length ? { ...plan, nodes } : plan, raised };
+  const nodes = plan.nodes.map((node) => {
+    const verification = raiseCommandTimeouts(node.verification ?? [], facts, node.id, raised);
+    return verification === node.verification ? node : { ...node, verification };
+  });
+  const sharedVerification = raiseCommandTimeouts(plan.sharedVerification ?? [], facts, "sharedVerification", raised);
+  const finalVerification = raiseCommandTimeouts(plan.finalVerification ?? [], facts, "finalVerification", raised);
+  if (raised.length === 0) return { plan, raised };
+  return {
+    plan: {
+      ...plan,
+      nodes,
+      ...(plan.sharedVerification === undefined ? {} : { sharedVerification }),
+      ...(plan.finalVerification === undefined ? {} : { finalVerification }),
+    },
+    raised,
+  };
 }
 
 /** @returns {string} the installed package's own version, read once per call so a freeze always names the toolchain that produced it */

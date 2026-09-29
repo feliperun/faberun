@@ -16,10 +16,16 @@
  * refusal. A legacy declaration that names no requirements and no nodes is
  * still reported as a finding, never a silent pass. freeze.mjs imports the
  * same phase check for the frozen plan record.
+ *
+ * It also validates the two contract-level suites a plan may author of its own
+ * (RM-107): `sharedVerification` and `finalVerification`, the same schema the
+ * contract carries, so the phase's repository-wide proof is planned rather
+ * than left to an operator remembering `--verification`.
  */
 import { assertObject, positiveInteger, rejectUnknown, requireId, requireString, requireStringArray } from "../contract/assert.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../contract/index.mjs";
 import { validateDefinitionOfDone } from "../contract/definition-of-done.mjs";
+import { validateFinalVerification, validateSharedVerification } from "../contract/final-verification.mjs";
 import { validateVerificationCommands } from "../contract/verification.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
@@ -27,7 +33,7 @@ import { validateVerificationCommands } from "../contract/verification.mjs";
 /** @typedef {"low"|"standard"|"high"} RiskTier */
 /** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, reviewerId?: string, specPath?: string, repoFactsPath?: string, cataloguePath?: string, packageMode?: import("./sizing.mjs").PackageMode, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
 /** @typedef {{id: string, objective: string, taskKind: string, riskTier: RiskTier, dependsOn: string[], readFiles: string[], writeFiles: string[], scopeAcknowledged: string[], definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], verification: import("../contract/verification.mjs").VerificationCommand[], expectedTurns?: number}} PlanOutputNode */
-/** @typedef {{nodes: PlanOutputNode[], phases?: PlanPhase[], findings?: PlanFindingOutput[], justification?: string}} PlanOutput */
+/** @typedef {{nodes: PlanOutputNode[], phases?: PlanPhase[], sharedVerification?: import("../contract/verification.mjs").VerificationCommand[], finalVerification?: import("../contract/verification.mjs").VerificationCommand[], findings?: PlanFindingOutput[], justification?: string}} PlanOutput */
 /** @typedef {{id: string, requirementIds: string[], nodeIds?: string[], deliverable: string}} PlanPhase */
 /** @typedef {{id: string, severity: "critical"|"major"|"minor", nodeId: string, text: string}} PlanFindingOutput */
 
@@ -115,7 +121,7 @@ const REQUIRED_INPUTS = Object.freeze({
 // run had already succeeded. The id charset is requireId's
 // (contract/assert.mjs) verbatim, because an id that is present but invalid
 // fails that same validator just as late.
-const PLAN_OUTPUT_SHAPE = '{nodes: [{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: [{id, text, proof?: {kind: "command"|"path"|"verification", ref}, judgment?: true, reason?: string}], verification: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}], expectedTurns?}], phases?: [{id, requirementIds: [string], nodeIds: [string], deliverable}], justification?}; every id in it (node, phase, node assignment, and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly "." or ".."';
+const PLAN_OUTPUT_SHAPE = '{nodes: [{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: [{id, text, proof?: {kind: "command"|"path"|"verification", ref}, judgment?: true, reason?: string}], verification: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}], expectedTurns?}], phases?: [{id, requirementIds: [string], nodeIds: [string], deliverable}], sharedVerification?: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}], finalVerification?: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}], justification?}; every id in it (node, phase, node assignment, and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly "." or ".."';
 /**
  * The size guidance every draft and revise carries. measured 2026-09-20 over
  * stored runs: median 49 provider requests per worker turn; cost per turn
@@ -164,6 +170,21 @@ const PROOF_NOT_STRICTER_THAN_REQUIREMENT_RULE = "For every node, compare each c
 
 const NAMED_TEST_FILE_RULE = 'A command that filters node:test by name (--test-name-pattern) names the test file it selects from, as in node --test --test-name-pattern="<exact test title>" test/<area>/<file>.test.mjs: with no path node --test runs every test file in the tree and the freeze refuses it. A requirement proof the spec writes without a file gains the file of the test that carries that title.';
 
+// RM-107, measured 2026-09-27 on `safe-to-hand-to-a-friend` phase 1: the phase
+// integrated a red tree -- src/host/preflight.mjs at 840 lines against the 800
+// ceiling, declaredEnvironment exported by seven modules, three test files
+// whose first import was not scoped-home.mjs, one zcode assertion falsified --
+// and no node had run test/repo/source-shape.test.mjs (0.36 s measured).
+// Contract-level verification was operator-only, so a phase whose whole point
+// was a repository-wide ratchet could freeze without one and look fully
+// verified. The planner reads the measured candidates, so it is the one that
+// proposes them here.
+const CONTRACT_VERIFICATION_RULE = Object.freeze([
+  "A plan may carry two suites of its own, over and above the per-node verification: output.plan.sharedVerification, whose commands run on every node of the phase, and output.plan.finalVerification, whose commands run once, when the phase closes. Both take exactly a node's verification-command shape. Use them for the proof no single node owns: a repository-wide conformance or structural suite, in sharedVerification, because any node can break one, and the target's whole suite, in finalVerification, because only the last node can run it.",
+  "Every command in either suite must be an argv repo-facts.json measured (verificationCandidates includes each measured argv with its measuredMs), copied verbatim, with a timeoutSec of at least twice that measuredMs. A command the facts did not measure is written from memory, not measurement, and is the shape this rule exists to stop. Omit a suite the facts measured nothing for; a plan for a repository with no ratchets carries neither.",
+  "A command that already runs in a suite is not repeated in a node's verification, and a node's own verification is never replaced by a suite.",
+]);
+
 // The rule every planned packet is held to at freeze time, worded from
 // AGENTS.md's Faberun protocol and src/repo/scope-closure.mjs ("reading it
 // cannot fix it"): a first draft that ignores it produces a plan that fails
@@ -190,16 +211,18 @@ const INSTRUCTIONS = Object.freeze({
     "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies, the planned node ids it assigns, and the deliverable it produces in one sentence. Every planned node must appear in exactly one phase's nodeIds; a missing, duplicate, or unknown node assignment is refused.",
     ...SCOPE_CLOSURE_RULE,
     NAMED_TEST_FILE_RULE,
+    ...CONTRACT_VERIFICATION_RULE,
     `Return exactly one worker-result JSON object. Put the plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan. taskKind and riskTier are the only classification a draft makes; a routing table assigns a runtime afterward, from those two fields alone.",
     SIZING_INSTRUCTION,
   ],
   revise: [
-    "Start from the plan JSON in readFiles, the plan the findings were raised against, and return it with only the changes the findings require. Keep every node id, write file and definitionOfDone item that no finding asks you to change: a revise that redrafts from the findings alone loses what the plan already got right.",
+    "Start from the plan JSON in readFiles, the plan the findings were raised against, and return it with only the changes the findings require. Keep every node id, write file, definitionOfDone item and contract-level suite that no finding asks you to change: a revise that redrafts from the findings alone loses what the plan already got right.",
     "Read the findings and resolve every one; do not leave a critical or major finding unaddressed.",
     "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies, the planned node ids it assigns, and the deliverable it produces in one sentence. Every planned node must appear in exactly one phase's nodeIds; a missing, duplicate, or unknown node assignment is refused.",
     ...SCOPE_CLOSURE_RULE,
     NAMED_TEST_FILE_RULE,
+    ...CONTRACT_VERIFICATION_RULE,
     `Return exactly one worker-result JSON object. Put the revised plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan.",
     SIZING_INSTRUCTION,
@@ -327,7 +350,7 @@ export function buildPlanningContract(kind, inputs) {
   };
 }
 
-const PLAN_FIELDS = new Set(["nodes", "phases", "justification"]);
+const PLAN_FIELDS = new Set(["nodes", "phases", "sharedVerification", "finalVerification", "justification"]);
 const PLAN_NODE_FIELDS = new Set(["id", "objective", "taskKind", "riskTier", "dependsOn", "readFiles", "writeFiles", "scopeAcknowledged", "definitionOfDone", "verification", "expectedTurns"]);
 
 /**
@@ -399,6 +422,12 @@ export function validatePlanOutput(plan) {
     });
   });
   if (record.justification !== undefined) requireString(record.justification, "plan.justification");
+  // The two contract-level suites, under the validators the contract itself
+  // applies, so a plan cannot author a suite the freeze would then refuse. An
+  // empty array stays legal here and means what absence means; the assembly
+  // (`effectiveVerificationSuites`) is what drops it before the contract.
+  const sharedVerification = validateSharedVerification(record.sharedVerification, "plan.sharedVerification");
+  const finalVerification = validateFinalVerification(record.finalVerification, "plan.finalVerification");
   const phases = validatePlanPhases(record.phases, nodes.map((node) => node.id));
   const findings = (phases ?? [])
     .filter((phase) => phase.requirementIds.length === 0)
@@ -414,6 +443,8 @@ export function validatePlanOutput(plan) {
   return {
     nodes,
     ...(phases === undefined ? {} : { phases }),
+    ...(sharedVerification === undefined ? {} : { sharedVerification }),
+    ...(finalVerification === undefined ? {} : { finalVerification }),
     ...(findings.length > 0 ? { findings } : {}),
     ...(record.justification === undefined ? {} : { justification: /** @type {string} */ (record.justification) }),
   };

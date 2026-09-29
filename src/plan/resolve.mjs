@@ -26,7 +26,7 @@ import { freezePlan } from "./freeze.mjs";
 import { collectHumanSteps } from "./human-step.mjs";
 import { highestOf, modelOf } from "./pipeline-shape.mjs";
 import { reviewerProvenanceOf } from "./reviewer.mjs";
-import { PLANNER_SESSION_ID, assembleFrozenPlan, frozenContractRawOf, invalidPlanFinding, writeFrozenPlan } from "./pipeline.mjs";
+import { PLANNER_SESSION_ID, assembleFrozenPlan, carriesSuites, effectiveVerificationSuites, frozenContractRawOf, invalidPlanFinding, writeFrozenPlan } from "./pipeline.mjs";
 import { contestPlan } from "./contest.mjs";
 import { parseSpec } from "./spec.mjs";
 import { RISK_TIERS } from "./template.mjs";
@@ -132,17 +132,19 @@ export async function resolvePlanningPipeline({ plansDir, cwd, answers }) {
   }
   logStage("resolve", { round, answered: criticalFindings.length });
 
-  const freezeWarnings = verification.sharedVerification || verification.finalVerification
+  // The plan resumed here may carry suites of its own (RM-107), so the
+  // warning is read off the same effective set the freeze below will carry.
+  const freezeWarnings = carriesSuites(effectiveVerificationSuites(verification ?? {}, plan))
     ? []
     : ["the frozen contract carries neither sharedVerification nor finalVerification, so no repository ratchet runs on its nodes and no final check closes the phase; pass --verification <file> if the target repository has ratchets every node must run"];
   let stage = "sizing";
   try {
-    const assembled = assembleFrozenPlan(plan, { repoFacts, packageMode, targetedFix, phase, cwd, runtimes, runtimeDefaults, judgeIndependence });
+    const assembled = assembleFrozenPlan(plan, { repoFacts, packageMode, targetedFix, phase, cwd, runtimes, runtimeDefaults, judgeIndependence, verification });
     stage = "freeze";
     logStage("sizing", { transformations: assembled.sizing.transformations.length, nodeCount: assembled.sizing.plan.nodes.length, overheadMinutes: assembled.sizing.estimate.overheadMinutes });
     logStage("routing", { assignments: Object.keys(assembled.routing.assignments).length });
     const highestRiskTier = highestOf(assembled.sizing.plan.nodes.map((node) => node.riskTier ?? RISK_TIERS[0]));
-    const frozen = freezePlan(frozenContractRawOf(assembled, { campaignId, phase, campaignGoal: campaign.goal, cwd, plansDir, runtimes, runtimeDefaults, verification, judgeIndependence }), {
+    const frozen = freezePlan(frozenContractRawOf(assembled, { campaignId, phase, campaignGoal: campaign.goal, cwd, plansDir, runtimes, runtimeDefaults, judgeIndependence }), {
       outDir: plansDir,
       phases: assembled.phases,
       spec: { path: specPath, digest: specDigest },

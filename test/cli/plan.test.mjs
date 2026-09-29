@@ -281,6 +281,34 @@ test("--verification loads a suites file, which the frozen contract carries end 
   assert.deepEqual(contract.finalVerification, loaded.finalVerification);
 });
 
+// RM-107, measured 2026-09-27 on `safe-to-hand-to-a-friend` phase 1: the phase
+// integrated a red tree — a file over the 800-line ceiling, a name exported by
+// seven modules — and no node had run the repository's own structural suite,
+// because contract-level verification was operator-only. The plan proposes it
+// from the measured candidates now, and the operator's flag still overrides.
+test("a plan that authors the contract's suites freezes ratcheted, with no warning", async () => {
+  const plan = twoNodePlan();
+  // `node --test test/cli` is the one candidate this fixture's repository
+  // measures (the setup writes test/cli/cli.test.mjs), so both suites name a
+  // measured command — the shape the draft is told to emit.
+  const suite = [{ argv: ["node", "--test", "test/cli"], timeoutSec: 300 }];
+  plan.sharedVerification = suite;
+  plan.finalVerification = suite;
+  const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("authored-suites-demo", { plans: Array(4).fill(plan) });
+
+  const result = await runPlanningPipeline({
+    specPath: join(cwd, "docs/spec.md"), campaignId, phase: "build", cwd,
+    runtimes, runtimeDefaults, reviewers,
+    launch, wait,
+  });
+  assert.equal(result.status, "frozen");
+  assert.deepEqual(result.warnings, [], "the contract a plan ratcheted itself draws no warning");
+  const normalized = [{ argv: ["node", "--test", "test/cli"], timeoutSec: 300, repeat: 1, env: [] }];
+  const contract = JSON.parse(readFileSync(result.contractPath, "utf8"));
+  assert.deepEqual(contract.sharedVerification, normalized);
+  assert.deepEqual(contract.finalVerification, normalized);
+});
+
 test("freezing without either verification suite warns, and the contract carries no ratchet", async () => {
   const { cwd, campaignId, runtimes, runtimeDefaults, reviewers } = setup("unratcheted-demo");
   const result = await runPlanningPipeline({

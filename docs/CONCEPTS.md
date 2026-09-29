@@ -188,11 +188,13 @@ The list of conditions a node must satisfy, one item per claim, each declaring
 `id`, `text` and how it is proven. A proof is a verification `command`, a
 workspace `path`, the `judgment` of a judge, or `verification` by reference to
 an already recorded command result by position. `command` proofs run before any
-judge, capped at `min(timeoutSec, 120s)`, and a contract-level
+judge, with the node's own `timeoutSec` as their budget, and a contract-level
 `finalVerification` adds the phase-wide proof. A contract-level
 `sharedVerification` adds the fast repository ratchets to every node's
 verification, so a node whose write set breaks one fails on its own attempt
-rather than on the phase-terminal node's full suite. The invariant: every item
+rather than on the phase-terminal node's full suite. Both are chosen in one
+place: the operator's `--verification` when it is passed, otherwise the suites
+the plan itself proposed from the repository facts. The invariant: every item
 declares its own proof; proofs gate before any judge runs, so a fully mechanical
 node costs no judge, and a schema-1 string item is rejected. An attempt killed
 by a signal the controller did not itself send is retried once, with both

@@ -287,6 +287,40 @@ test("a plan can acknowledge an importer it will not change, which is the only a
   );
 });
 
+// RM-107: the plan authors the phase's contract-level suites, under the same
+// validator the contract applies, so what a draft emits is what freeze carries.
+test("a plan carries the contract-level suites, normalized the way the contract normalizes them", () => {
+  const validated = validatePlanOutput({
+    nodes: [planNode()],
+    sharedVerification: [{ argv: ["node", "--test", "test/repo/source-shape.test.mjs"] }],
+    finalVerification: [{ argv: ["npm", "test"], timeoutSec: 1_800 }],
+  });
+  assert.deepEqual(validated.sharedVerification, [{ argv: ["node", "--test", "test/repo/source-shape.test.mjs"], timeoutSec: 120, repeat: 1, env: [] }]);
+  assert.deepEqual(validated.finalVerification, [{ argv: ["npm", "test"], timeoutSec: 1_800, repeat: 1, env: [] }]);
+
+  // Absent is the common case for a repository with no ratchets, and the field
+  // is absent rather than empty: the contract reads both the same way, and the
+  // freeze warning keys on absence.
+  const bare = validatePlanOutput({ nodes: [planNode()] });
+  assert.equal("sharedVerification" in bare, false);
+  assert.equal("finalVerification" in bare, false);
+
+  assert.throws(
+    () => validatePlanOutput({ nodes: [planNode()], sharedVerification: [{ argv: [] }] }),
+    /plan\.sharedVerification\[0\]/u,
+  );
+  assert.throws(
+    () => validatePlanOutput({ nodes: [planNode()], finalVerification: { argv: ["npm", "test"] } }),
+    /plan\.finalVerification/u,
+  );
+  // A suite under a name the contract does not carry is a refused field, not a
+  // suite that silently runs nothing.
+  assert.throws(
+    () => validatePlanOutput({ nodes: [planNode()], sharedRatchets: [] }),
+    /unexpected field sharedRatchets/u,
+  );
+});
+
 test("the shapes a worker plausibly guesses are rejected, with the plan path named", () => {
   const node = {
     id: "build",
