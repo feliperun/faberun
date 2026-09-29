@@ -11,6 +11,15 @@
  * measured 2026-09-20: `maxParallel` was the one concurrency knob, global to
  * the run; nothing reduced dispatch to a provider that had just refused a
  * sibling on quota, and 14 of 58 stored contracts ran with maxParallel 2.
+ *
+ * measured 2026-09-29: this gate is consulted by the scheduler's own
+ * dispatches only (`scheduler.mjs`, one `runtimeHasCapacity` call per node per
+ * tick). A node's settlement starts its judge itself, through `startJudge`,
+ * with no call here, so a run declaring `maxParallel: 1` and `maxConcurrent: 1`
+ * on each role's runtime was measured with a judge and a sibling's worker
+ * alive at once -- peak 2, one process per role, two on the single runtime
+ * (`test/engine/max-parallel.test.mjs`). The counts confirm the excess; the
+ * admission ahead of every spawn is F5's, not this phase's.
  */
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
