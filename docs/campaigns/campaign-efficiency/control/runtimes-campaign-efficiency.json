@@ -1,0 +1,54 @@
+{
+  "fx-deepseek": {
+    "harness": "fx",
+    "model": "deepseek-flash",
+    "vendor": "deepseek",
+    "tier": 1,
+    "costRank": 1,
+    "sandbox": "danger-full-access",
+    "permissionMode": "bypassPermissions",
+    "maxConcurrent": 6,
+    "config": {
+      "api_key.env_key": "DEEPSEEK_API_KEY",
+      "context_window": 1048576,
+      "max_output_tokens": 131072
+    }
+  },
+  "fx-deepseek-pro": {
+    "harness": "fx",
+    "model": "deepseek-v4-pro",
+    "vendor": "deepseek",
+    "tier": 2,
+    "costRank": 2,
+    "sandbox": "danger-full-access",
+    "permissionMode": "bypassPermissions",
+    "maxConcurrent": 2,
+    "config": {
+      "api_key.env_key": "DEEPSEEK_API_KEY",
+      "context_window": 1048576,
+      "max_output_tokens": 131072
+    }
+  },
+  "codex-sol": {
+    "harness": "codex",
+    "model": "gpt-6-sol",
+    "reasoning": "high",
+    "vendor": "openai",
+    "tier": 2,
+    "costRank": 2,
+    "sandbox": "read-only",
+    "permissionMode": "plan",
+    "maxConcurrent": 2
+  },
+  "codex-astra": {
+    "harness": "codex",
+    "model": "gpt-6-astra",
+    "reasoning": "high",
+    "vendor": "openai",
+    "tier": 3,
+    "costRank": 3,
+    "sandbox": "read-only",
+    "permissionMode": "plan",
+    "maxConcurrent": 1
+  }
+}
