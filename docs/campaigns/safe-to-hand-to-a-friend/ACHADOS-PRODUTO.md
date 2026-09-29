@@ -291,6 +291,10 @@ Conferidos contra AP1 a AP15. N1 compartilha o sintoma com o AP10; os outros qua
 
 ## Desfecho dos 21 (28/09)
 
+A tabela abaixo é o estado de cada achado hoje. As seções acima são o achado como
+ele foi encontrado, com a correção que se propôs na ocasião: uma "correção
+sugerida" lá só continua pendente se a tabela disser ABERTO.
+
 - **estado:** CORRIGIDO ou ABERTO. Vinte fechados, um aberto.
 - **entrou em:** a versão que carrega a correção, com o commit entre parênteses. A
   0.29.0 é a leva da triagem deste mesmo dia e a 0.30.0 a dos três que viraram
@@ -333,9 +337,11 @@ Duas notas de escopo que a tabela não cabe:
   mesmo diretório continua sem ser lido: o contrato congelado já fixa as suítes
   que o operador escolheu, e uma segunda fonte silenciosa é o defeito que o AP19
   fecha, não a correção dele.
-- **AP7, AP9, AP15 e AP17** foram corrigidos onde a campanha podia (a árvore
-  vermelha, a suíte vizinha) e o que sobra é decisão de produto. A ordem do dono
-  em 28/09 suspendeu o critério de entrada da regra de congelamento para que os
-  vinte e um fossem triados nesta leva, e a suspensão está registrada em
+- **AP7, AP15 e AP17** foram corrigidos onde a campanha podia (a árvore vermelha,
+  a suíte vizinha) e o que sobrava era decisão de produto: os três entraram na
+  0.30.0, em 28/09. **AP9** continua sendo decisão de produto e o dono a adiou
+  no mesmo dia. A ordem dele em 28/09 suspendeu o critério de entrada da regra
+  de congelamento para que os vinte e um fossem triados nesta leva; a suspensão
+  e o fim dela estão registrados em
   `docs/campaigns/leaving-home/PROGRAM.md`.
 
