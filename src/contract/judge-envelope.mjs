@@ -1,6 +1,6 @@
 /**
- * The judge verdict envelope: the limits `parseJudge` enforces and the reasons
- * it rejects by.
+ * The judge envelope: the limits `parseJudge` enforces, the reasons it rejects
+ * by, and the byte budget a judge prompt itself must fit.
  *
  * They live apart from the parser because the judge prompt must render the same
  * numbers. A judge that is never told the limit can only be discarded by it: a
@@ -23,3 +23,18 @@ export const JUDGE_ENVELOPE_REASON = "judge result exceeds limits";
 
 /** The reason `parseJudge` throws when a single finding overshoots the envelope. */
 export const JUDGE_FINDING_ENVELOPE_REASON = "judge finding exceeds limits";
+
+/**
+ * The byte budget a judge prompt must fit.
+ *
+ * The prompt carries the Definition of Done, the evidence and the re-ask
+ * instruction, so it is the one judge artefact that must never be cut to fit.
+ * `dispatch.mjs` enforces this budget on the prompt it assembles, and the
+ * rotation in `engine/phase-session.mjs` refuses with it rather than bounding
+ * the caller's prompt down, which would send a judge to arbitrate less than the
+ * node declared. One number, two call sites.
+ */
+export const JUDGE_PROMPT_BYTES = 64 * 1024;
+
+/** The reason an oversized judge prompt is refused, byte-for-byte in both call sites. */
+export const JUDGE_PROMPT_REASON = `judge prompt exceeds ${JUDGE_PROMPT_BYTES} bytes`;

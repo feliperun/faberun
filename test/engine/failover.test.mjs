@@ -513,6 +513,115 @@ else { let input = ""; process.stdin.on("data", (chunk) => { input += chunk; });
   assert.match(String(requests[1].prompt), /first: phase complete/u, "the prior node's structured summary travels in the prompt, not its transcript");
 });
 
+/**
+ * A codex-shaped provider for the judge-rotation cases: it answers the dispatch
+ * gate's liveness hello, writes the canonical result file for a worker turn, and
+ * answers a judge turn with a clean pass verdict. `defectNodeId` makes that
+ * node's first judged turn end without a verdict, so exactly one bounded re-ask
+ * follows and the re-ask is asserted too.
+ *
+ * @param {string} directory
+ * @param {string} requestLog
+ * @param {string|null} [defectNodeId]
+ * @returns {string}
+ */
+function judgeRotationCodex(directory, requestLog, defectNodeId = null) {
+  const executable = join(directory, "judge-rotation-wrapper.mjs");
+  const defectMarker = join(runsRoot(directory), "judge-rotation-defect-spent");
+  writeFileSync(executable, `#!${process.execPath}
+import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+if (process.argv.includes("--version")) {
+  console.log("judge-rotation 1.0.0");
+} else {
+  let input = "";
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (chunk) => { input += chunk; });
+  process.stdin.on("end", () => {
+    const prompt = input || process.argv.at(-1) || "";
+    const resultPath = /(?:file|to): (\\S+\\.json)/.exec(prompt)?.[1];
+    const workerResult = JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
+    appendFileSync(${JSON.stringify(requestLog)}, JSON.stringify({ prompt }) + "\\n");
+    console.log(JSON.stringify({ type: "thread.started", thread_id: "judge-rotation-thread" }));
+    if (!prompt.startsWith("Review node")) {
+      if (resultPath) writeFileSync(resultPath, workerResult);
+      console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: workerResult } }));
+      console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, output_tokens: 2 } }));
+      return;
+    }
+    if (${JSON.stringify(defectNodeId)} && !existsSync(${JSON.stringify(defectMarker)}) && prompt.startsWith("Review node " + ${JSON.stringify(defectNodeId)} + " ")) {
+      writeFileSync(${JSON.stringify(defectMarker)}, "spent\\n");
+      console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 4, output_tokens: 1 } }));
+      return;
+    }
+    const verdict = JSON.stringify({ verdict: "pass", maxSeverity: "none", summary: "clean", findings: [] });
+    console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: verdict } }));
+    console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 4, output_tokens: 1 } }));
+  });
+}
+`);
+  chmodSync(executable, 0o755);
+  return executable;
+}
+
+// R1: a judge that rotates onto a phase sibling's session keeps the prompt its
+// caller built -- definition of done, evidence, role and re-ask -- and takes
+// none of the author's context. A proof the byte budget cannot hold refuses
+// instead of being cut down to fit.
+test("a rotating judge keeps its own prompt and refuses one the budget cannot hold", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-judge-rotation-"));
+  const requestLog = join(runsRoot(directory), "judge-rotation-requests.jsonl");
+  const adapter = getHarness("codex");
+  const continuation = adapter.capabilities.continuation;
+  // A runtime with no native continuity rotates on every judge turn, the
+  // bounded re-ask included, so the fresh-session path is the one under test.
+  adapter.capabilities.continuation = false;
+  try {
+    const executable = judgeRotationCodex(directory, requestLog, "second");
+    /** @param {string} id @param {Record<string, unknown>} taskPacket @param {Record<string, unknown>[]} definitionOfDone */
+    const judged = (id, taskPacket, definitionOfDone) => ({ id, type: "backend", phase: "implementation", taskPacket, definitionOfDone, gate: { review: "blocking", failOn: ["major", "critical"] } });
+    const path = writeContract(directory, fixture({
+      id: "judge-rotation-run",
+      pollIntervalMs: 10,
+      runtimeDefaults: { worker: "writer", judge: "reviewer" },
+      runtimes: {
+        writer: { harness: "codex", model: "writer", executable },
+        reviewer: { harness: "codex", model: "reviewer", executable, config: { model_provider: "deepseek" } },
+      },
+      nodes: [
+        judged("first", packet(), [{ id: "works", text: "It works", judgment: true }]),
+        { ...judged("second", packet({ objective: "Continue it", nonGoals: ["NONGOAL MARKER"] }), [{ id: "works", text: "It works too", judgment: true }]), dependsOn: ["first"] },
+        // 35 judgment items of 2 KiB each: this node's judge prompt cannot fit
+        // the byte budget, so the rotation must refuse it rather than cut the
+        // checklist down to size.
+        { ...judged("third", packet({ objective: "Last" }), Array.from({ length: 35 }, (_, index) => ({ id: `works-${index}`, text: "x".repeat(2 * 1024), judgment: true }))), dependsOn: ["second"] },
+      ],
+    }));
+    const result = await runContract(path);
+    assert.equal(nodeState(result, "second").status, "done");
+    assert.deepEqual(
+      result.states.get("second")?.invocations?.filter((invocation) => invocation.phase === "judge").map((invocation) => invocation.continuationMode),
+      ["rotate", "rotate"],
+      "the sibling's session is rotated for the turn and for its bounded re-ask",
+    );
+    const judgeRequests = dispatchedRequests(requestLog).filter((request) => String(request.prompt).startsWith("Review node second"));
+    assert.equal(judgeRequests.length, 2, "the judged turn and its bounded re-ask");
+    for (const request of judgeRequests) {
+      const prompt = String(request.prompt);
+      assert.match(prompt, /Definition of Done:/u);
+      assert.match(prompt, /- \[works\] It works too \(judgment\)/u, "the criteria survive the rotation");
+      assert.match(prompt, /Worker result \(structured\):[\s\S]*worker complete/u, "the evidence survives the rotation");
+      assert.doesNotMatch(prompt, /NONGOAL MARKER|as the judge agent|Prior structured node summaries/u, "the author's packet and summary stay out of the judge prompt");
+    }
+    assert.match(String(judgeRequests[1].prompt), /did not carry exactly one usable verdict/u, "the re-ask instruction survives the rotation");
+    const refused = nodeState(result, "third");
+    assert.equal(refused.status, "failed");
+    assert.equal(refused.error?.code, "judge_prompt_too_large");
+    assert.equal((refused.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 0, "no judge session carried a truncated proof");
+  } finally {
+    adapter.capabilities.continuation = continuation;
+  }
+});
+
 // R14: successive attempts and revisions of the same node prefer the previous
 // attempt's runtime while it stays healthy, and yield to the remaining rules
 // when it does not.
