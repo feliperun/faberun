@@ -45,7 +45,11 @@ budgeted, isolated runs: `faberun plan` drives draft, review and — while a
 `mode: "discovery"` run built by `src/plan/template.mjs`, sequenced by
 `src/plan/pipeline.mjs`. The reviewer's packet carries only the spec, the
 repository facts and the plan under review, never the author's own packet or
-reasoning. A converged draft is sized (`src/plan/sizing.mjs`), routed
+reasoning. A revise answers with a patch over the nodes it changes rather than
+with the whole plan back, unless the plan it repairs never validated — the
+pipeline, never the model, decides which of the two shapes the stage asks for.
+Each node names the test files that cover what it writes, so sizing can spend
+its command budget on them. A converged draft is sized (`src/plan/sizing.mjs`), routed
 (`src/plan/routing.mjs`, where the operator's `--runtime-defaults` always wins
 over the table) and frozen (`src/plan/freeze.mjs`) into the project's runs directory at
 `<home>/projects/<project>/runs/campaigns/<id>/plans/<phase>/plan.json` and
@@ -188,11 +192,13 @@ The list of conditions a node must satisfy, one item per claim, each declaring
 `id`, `text` and how it is proven. A proof is a verification `command`, a
 workspace `path`, the `judgment` of a judge, or `verification` by reference to
 an already recorded command result by position. `command` proofs run before any
-judge, capped at `min(timeoutSec, 120s)`, and a contract-level
+judge, with the node's own `timeoutSec` as their budget, and a contract-level
 `finalVerification` adds the phase-wide proof. A contract-level
 `sharedVerification` adds the fast repository ratchets to every node's
 verification, so a node whose write set breaks one fails on its own attempt
-rather than on the phase-terminal node's full suite. The invariant: every item
+rather than on the phase-terminal node's full suite. Both are chosen in one
+place: the operator's `--verification` when it is passed, otherwise the suites
+the plan itself proposed from the repository facts. The invariant: every item
 declares its own proof; proofs gate before any judge runs, so a fully mechanical
 node costs no judge, and a schema-1 string item is rejected. An attempt killed
 by a signal the controller did not itself send is retried once, with both

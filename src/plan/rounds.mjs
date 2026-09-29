@@ -27,11 +27,12 @@ import { writeJsonAtomic } from "../run/store.mjs";
 import { stableJson } from "../util.mjs";
 import { assertTimeoutsCoverMeasured, raiseTimeoutsToMeasured } from "./freeze.mjs";
 import { assertFilteredProofsNameTheirTest, declareDirectoryGuards } from "./proof-scope.mjs";
-import { validateFindings, validatePlanOutput } from "./template.mjs";
+import { applyPlanPatch, validateFindings, validatePlanOutput } from "./template.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
 /** @typedef {import("./template.mjs").PlanOutput} PlanOutput */
+/** @typedef {import("./template.mjs").PlanOutputNode} PlanOutputNode */
 /** @typedef {import("./template.mjs").PlanFindingOutput} PlanFindingOutput */
 /** @typedef {import("./template.mjs").PlanningKind} PlanningKind */
 /** @typedef {import("./contest.mjs").ContestedPipelineResult} ContestedPipelineResult */
@@ -288,21 +289,44 @@ export async function runReviewRounds(options) {
     // the findings redrafted the plan from scratch, renamed files and dropped
     // six writes, and its retry fixed one validator error while introducing
     // another.
-    const revise = await runStage("revise", {
-      specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, path), planPath: relativeWorkingPlanPath, packageMode,
-    });
+    //
+    // RM-110: a revise returns a patch over the nodes it changes rather than
+    // the whole plan, so answering one finding costs the size of that
+    // finding's nodes instead of the phase's. Two calls died on the full-plan
+    // shape at 65,932 and 66,821 output tokens against the 65,536 ceiling.
+    // The patch is only asked for when there is a validated plan to apply it
+    // to: a first round whose draft never validated has no node list to patch,
+    // and that round's revise returns a whole plan.
+    const base = plan;
+    const patchMode = base !== null;
+    const stageInputs = { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, packageMode, ...(patchMode ? { revisePatch: true } : {}) };
+    const revise = await runStage("revise", { ...stageInputs, findingsPath: relative(cwd, path), planPath: relativeWorkingPlanPath });
+    /**
+     * The plan a revise's output produced, before any validation: the merged
+     * patch when the reviser patched a plan, its own `output.plan` when there
+     * was no plan to patch. Null only when the merge itself was refused, so
+     * the retry falls back to the plan the first attempt read.
+     *
+     * @param {unknown} onto
+     * @param {Record<string, unknown>} output
+     * @returns {unknown}
+     */
+    const revisionFrom = (onto, output) => (patchMode ? applyPlanPatch(/** @type {{nodes: PlanOutputNode[]} & Record<string, unknown>} */ (onto), output.patch) : output.plan);
     // The whole deterministic check R14 names runs on the revise's output:
     // the shape validator, and the freeze pre-flight a review round would
     // otherwise only reach a round later. Measured 2026-09-26 on the 3a gate:
     // four rounds with no critical from review each contested on a
     // scope-closure gap the same revise had just opened, because the revise
     // learned of it only after the next review had spent its round.
+    /** @type {{nodes: PlanOutputNode[]} & Record<string, unknown>|null} */
+    let revision = null;
     /** @type {PlanOutput|null} */
     let structurallyValid = null;
     /** @type {PlanFindingOutput} */
     let firstInvalid;
     try {
-      structurallyValid = validatePlanOutput(revise.output.plan);
+      revision = /** @type {{nodes: PlanOutputNode[]} & Record<string, unknown>} */ (revisionFrom(base, revise.output));
+      structurallyValid = validatePlanOutput(revision);
       const preflightError = freezePreflightError(structurallyValid);
       if (preflightError === null) return { plan: structurallyValid, runId: revise.contract.id, firstInvalid: null };
       firstInvalid = invalidPlanFinding(`revise-r${round}-attempt1`, preflightError);
@@ -311,18 +335,18 @@ export async function runReviewRounds(options) {
     }
     const retryPath = join(scratchDir, `findings-round-${round}-retry.json`);
     writeJsonAtomic(retryPath, [...findingsForRevise, firstInvalid]);
-    // The retry repairs the output the check refused, not the plan before
-    // it: that output already carries this round's resolutions, and only the
+    // The retry repairs the revision the check refused, not the plan before
+    // it: that revision already carries this round's resolutions, and only the
     // check's message is left to answer.
     const retryPlanPath = join(scratchDir, `plan-round-${round}-rejected.json`);
-    writeJsonAtomic(retryPlanPath, revise.output.plan ?? null);
-    const retry = await runStage("revise", {
-      specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, findingsPath: relative(cwd, retryPath), planPath: relative(cwd, retryPlanPath), packageMode,
-    });
+    writeJsonAtomic(retryPlanPath, revision ?? base);
+    const retry = await runStage("revise", { ...stageInputs, findingsPath: relative(cwd, retryPath), planPath: relative(cwd, retryPlanPath) });
     try {
       // A retry that validates goes to review even if the freeze pre-flight
-      // still refuses it: that round's own pre-flight raises it again.
-      return { plan: validatePlanOutput(retry.output.plan), runId: retry.contract.id, firstInvalid };
+      // still refuses it: that round's own pre-flight raises it again. Its
+      // patch applies to the revision the first attempt produced, which is
+      // the plan the retry was handed.
+      return { plan: validatePlanOutput(revisionFrom(revision ?? base, retry.output)), runId: retry.contract.id, firstInvalid };
     } catch (secondError) {
       // The first attempt still validated: it goes to review rather than
       // contesting a round over a retry that made things worse.

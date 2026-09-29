@@ -11,6 +11,7 @@
  */
 
 import { dirname } from "node:path";
+import { VERIFICATION_LIMITS } from "../contract/verification.mjs";
 
 /** @typedef {import("../contract/definition-of-done.mjs").DefinitionOfDoneItem} DefinitionOfDoneItem */
 
@@ -18,7 +19,7 @@ import { dirname } from "node:path";
 /** @typedef {{writeFiles?: string[], writeRoots?: string[], verification: SizingVerificationCommand[], [key: string]: unknown}} SizingTaskPacket */
 /** @typedef {{id: string, dependsOn?: string[], taskKind?: string, riskTier?: string, taskPacket: SizingTaskPacket, definitionOfDone?: DefinitionOfDoneItem[], parallel?: boolean, [key: string]: unknown}} PlanNode */
 /** @typedef {{nodes: PlanNode[], justification?: string, [key: string]: unknown}} Plan */
-/** @typedef {{path: string, covers: string|null}} SizingTestFileEntry */
+/** @typedef {{path: string, covers: string[]}} SizingTestFileEntry */
 /** @typedef {{testFiles?: SizingTestFileEntry[]}} SizingFacts */
 /** @typedef {"implementation"|"exploratory"} PackageMode */
 /** @typedef {{nodeBudgetMs: number, targetedFix?: boolean, facts?: SizingFacts, minWriteFiles?: number, maxMergedWriteFiles?: number, turnCeiling?: number, packageMode?: PackageMode, readVolume?: (path: string) => number|null}} SizingOptions */
@@ -374,6 +375,13 @@ function flagOverTurnCeiling(nodes, ceiling, transformations) {
  * place instead (a repeat pass never re-flags an already-flagged command, nor
  * re-splits a command that no longer carries a measured duration).
  *
+ * A covering set larger than the contract's own command budget (RM-109) is
+ * flagged, not split: a module almost every test references has that many
+ * covering files because the change is genuinely wide, and replacing one
+ * command with more than `maxCommands` of them freezes a contract that cannot
+ * validate. The flag names the count, and the answer for that shape is the
+ * phase-terminal suite (`finalVerification`), which runs the whole tree once.
+ *
  * @param {PlanNode[]} nodes
  * @param {number} nodeBudgetMs
  * @param {SizingFacts} facts
@@ -393,8 +401,9 @@ function splitOverBudgetVerification(nodes, nodeBudgetMs, facts, transformations
         verification.push(command);
         continue;
       }
-      const candidates = dedupe(testFiles.filter((file) => file.covers !== null && writeFiles.includes(file.covers)).map((file) => file.path));
-      if (candidates.length > 0) {
+      const candidates = dedupe(testFiles.filter((file) => coversSomething(file, writeFiles)).map((file) => file.path));
+      const overflow = candidates.length > VERIFICATION_LIMITS.maxCommands;
+      if (candidates.length > 0 && !overflow) {
         transformations.push({
           rule: "over-budget-verification-split",
           nodes: [node.id],
@@ -406,7 +415,9 @@ function splitOverBudgetVerification(nodes, nodeBudgetMs, facts, transformations
         transformations.push({
           rule: "over-budget-verification-flagged",
           nodes: [node.id],
-          detail: `${command.argv.join(" ")} measured ${command.measuredMs}ms over the ${nodeBudgetMs}ms budget; no repo-facts test file covers this node's writeFiles`,
+          detail: overflow
+            ? `${command.argv.join(" ")} measured ${command.measuredMs}ms over the ${nodeBudgetMs}ms budget; ${candidates.length} test files reference this node's writeFiles, above the contract's ${VERIFICATION_LIMITS.maxCommands}-command budget: prove them once on the phase-terminal node instead of naming each here`
+            : `${command.argv.join(" ")} measured ${command.measuredMs}ms over the ${nodeBudgetMs}ms budget; no repo-facts test file covers this node's writeFiles`,
         });
         changed = true;
         verification.push({ ...command, flaggedOverBudget: true });
@@ -414,6 +425,11 @@ function splitOverBudgetVerification(nodes, nodeBudgetMs, facts, transformations
     }
     return changed ? { ...node, taskPacket: { ...node.taskPacket, verification } } : node;
   });
+}
+
+/** @param {SizingTestFileEntry} file @param {string[]} writeFiles @returns {boolean} */
+function coversSomething(file, writeFiles) {
+  return file.covers.some((module) => writeFiles.includes(module));
 }
 
 /**

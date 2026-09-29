@@ -6,7 +6,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fixture, packet } from "../helpers.mjs";
-import { contentDigest, fileDigest, freezePlan, verifyFrozenPlan, writeFrozenPlanRecord } from "../../src/plan/freeze.mjs";
+import { contentDigest, fileDigest, freezePlan, raiseTimeoutsToMeasured, verifyFrozenPlan, writeFrozenPlanRecord } from "../../src/plan/freeze.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, validateContract } from "../../src/contract/index.mjs";
 
 const PACKAGE_VERSION = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version;
@@ -364,4 +364,44 @@ test("a frozen verification timeout covers its measured duration", () => {
     /node --test test\/huge measured 1900\.0s.*1800s.*split it/u,
     "a command no legal timeout can cover is named with the advice to split it",
   );
+});
+
+// RM-107: the deterministic repair and the check that names it must read the
+// same commands. `assertTimeoutsCoverMeasured` reads the contract's own suites
+// too, so a repair that only walked the nodes would leave the check naming a
+// repair this function does not make — the phase would contest with an answer
+// nobody applies.
+test("the timeout repair covers the plan's own contract-level suites, not only its nodes", () => {
+  const facts = {
+    scripts: { test: "node --test" },
+    verificationCandidates: [
+      { argv: ["node", "--test", "test/engine"], measuredMs: 178_904, eligible: true },
+      { argv: ["node", "--test", "test/plan"], measuredMs: 246_955, eligible: true },
+      { argv: ["npm", "run", "check"], measuredMs: 2_000, eligible: true },
+    ],
+  };
+  const plan = /** @type {any} */ ({
+    nodes: [{ id: "build", verification: [{ argv: ["node", "--test", "test/engine"], timeoutSec: 60 }] }],
+    sharedVerification: [{ argv: ["node", "--test", "test/plan"], timeoutSec: 120 }],
+    finalVerification: [{ argv: ["npm", "run", "check"], timeoutSec: 1 }],
+  });
+
+  const repaired = raiseTimeoutsToMeasured(plan, facts);
+  assert.deepEqual(repaired.raised, [
+    "build: node --test test/engine 60s -> 269s",
+    "sharedVerification: node --test test/plan 120s -> 371s",
+    "finalVerification: npm run check 1s -> 3s",
+  ]);
+  assert.equal(repaired.plan.nodes[0].verification[0].timeoutSec, 269);
+  assert.deepEqual(repaired.plan.sharedVerification, [{ argv: ["node", "--test", "test/plan"], timeoutSec: 371 }]);
+  assert.deepEqual(repaired.plan.finalVerification, [{ argv: ["npm", "run", "check"], timeoutSec: 3 }]);
+
+  // Nothing under its bound: the plan comes back as the same object, so a
+  // caller can tell a repair happened without comparing deep shapes.
+  const covered = /** @type {any} */ ({
+    nodes: [{ id: "build", verification: [{ argv: ["node", "--test", "test/engine"], timeoutSec: 400 }] }],
+    sharedVerification: [{ argv: ["node", "--test", "test/plan"], timeoutSec: 371 }],
+  });
+  assert.equal(raiseTimeoutsToMeasured(covered, facts).plan, covered);
+  assert.deepEqual(raiseTimeoutsToMeasured(covered, facts).raised, []);
 });

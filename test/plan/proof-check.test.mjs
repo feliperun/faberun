@@ -25,7 +25,7 @@ function tempCwd() {
 }
 
 /**
- * @param {{path: string, covers: string|null}[]} testFiles
+ * @param {{path: string, covers: string[]}[]} testFiles
  * @returns {import("../../src/plan/repo-facts.mjs").RepoFacts}
  */
 function repoFacts(testFiles = []) {
@@ -102,7 +102,7 @@ test("a --test-name-pattern that matches a test already in the tree is not flagg
       }],
     })],
   };
-  assert.deepEqual(checkPlanProofs(plan, repoFacts([{ path: "test/cli/flag.test.mjs", covers: null }]), cwd), []);
+  assert.deepEqual(checkPlanProofs(plan, repoFacts([{ path: "test/cli/flag.test.mjs", covers: [] }]), cwd), []);
 });
 
 test("a --test-name-pattern absent from the tree is not flagged when some node's writeFiles promises a test file", () => {

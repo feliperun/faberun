@@ -57,7 +57,7 @@ export { droppedWriteFindings, unresolvedFindings } from "./rounds.mjs";
 /** @typedef {import("./template.mjs").PlanFindingOutput} PlanFindingOutput */
 /** @typedef {import("./template.mjs").PlanPhase} PlanPhase */
 /** @typedef {import("./sizing.mjs").PlanNode & {objective: string}} SizedPlanNode */
-/** @typedef {{sizing: import("./sizing.mjs").SizingResult, routing: import("./routing.mjs").RoutingResult, nodes: JsonObject[], phases?: PlanPhase[]}} AssembledPlan */
+/** @typedef {{sizing: import("./sizing.mjs").SizingResult, routing: import("./routing.mjs").RoutingResult, nodes: JsonObject[], phases?: PlanPhase[], suites: VerificationSuites}} AssembledPlan */
 /** @typedef {"standard"|"high"|"none"} ApproveBelow */
 /** @typedef {(contractPath: string, contract: ValidatedContract) => Promise<void>|void} LaunchFn */
 /** @typedef {(runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, cwd: string) => Promise<import("../harnesses/index.mjs").ProbeResult[]>} AskFn */
@@ -352,7 +352,7 @@ async function runPlanningStages(options) {
    * @param {PlanOutput} currentPlan
    * @returns {AssembledPlan}
    */
-  const assembleFrozenNodes = (currentPlan) => assembleFrozenPlan(currentPlan, { repoFacts, packageMode, targetedFix, phase, cwd, runtimes, runtimeDefaults, judgeIndependence });
+  const assembleFrozenNodes = (currentPlan) => assembleFrozenPlan(currentPlan, { repoFacts, packageMode, targetedFix, phase, cwd, runtimes, runtimeDefaults, judgeIndependence, verification });
 
   /**
    * The raw contract exactly as `freezePlan` will assemble and validate it.
@@ -362,7 +362,7 @@ async function runPlanningStages(options) {
    * @param {AssembledPlan} assembly
    * @returns {JsonObject}
    */
-  const frozenContractRaw = (assembly) => frozenContractRawOf(assembly, { campaignId, phase, campaignGoal: campaign.goal, cwd, plansDir, runtimes, runtimeDefaults, verification, judgeIndependence });
+  const frozenContractRaw = (assembly) => frozenContractRawOf(assembly, { campaignId, phase, campaignGoal: campaign.goal, cwd, plansDir, runtimes, runtimeDefaults, judgeIndependence });
 
   const roundsResult = await runReviewRounds({
     reviewRounds, plan, rejectedDraft: plan === null ? draft.output.plan : undefined, findings, cwd, plansDir, scratchDir, workingPlanPath, relativeWorkingPlanPath,
@@ -394,8 +394,10 @@ async function runPlanningStages(options) {
   // is legitimate, an unnoticed one is not. Observed 2026-09-20 on the first
   // contract this planner ever froze: it carried neither suite while the same
   // ratchets, on hand-authored contracts, were catching copied helpers
-  // mid-run — and nothing said so.
-  const freezeWarnings = verification.sharedVerification || verification.finalVerification
+  // mid-run — and nothing said so. Read off the effective suites, so a plan
+  // that authored its own ratchets (RM-107) is not warned about a contract
+  // that carries them.
+  const freezeWarnings = carriesSuites(effectiveVerificationSuites(verification, plan))
     ? []
     : ["the frozen contract carries neither sharedVerification nor finalVerification, so no repository ratchet runs on its nodes and no final check closes the phase; pass --verification <file> if the target repository has ratchets every node must run"];
   try {
@@ -605,6 +607,46 @@ function taggedStageError(planStage, error) {
 }
 
 /**
+ * Which contract-level suites the frozen contract will carry: the operator's
+ * `--verification`, when it was passed, otherwise the plan's own authored
+ * suites (RM-107). The operator wins because the flag is the one place an
+ * operator can still override a plan they did not trust; the plan's suites are
+ * the fallback because a phase whose whole point is a repository-wide ratchet
+ * must not freeze unratcheted just because nobody remembered the flag —
+ * measured 2026-09-27, `safe-to-hand-to-a-friend` phase 1 integrated a red
+ * tree no node had a command to catch.
+ *
+ * An empty array is dropped rather than carried: it runs nothing, and the
+ * contract reads its absence identically. One home, read by `assembleFrozenPlan`
+ * below and by both freeze-warning sites, so the warning cannot disagree with
+ * the contract about whether a ratchet runs.
+ *
+ * @param {VerificationSuites} operator
+ * @param {PlanOutput} plan
+ * @returns {VerificationSuites}
+ */
+export function effectiveVerificationSuites(operator, plan) {
+  const suites = operator.sharedVerification || operator.finalVerification ? operator : plan;
+  return {
+    ...(suites.sharedVerification?.length ? { sharedVerification: suites.sharedVerification } : {}),
+    ...(suites.finalVerification?.length ? { finalVerification: suites.finalVerification } : {}),
+  };
+}
+
+/**
+ * Whether a suite set carries anything at all. Exported beside
+ * `effectiveVerificationSuites` because the freeze warning in two modules asks
+ * this of its result, and a truthiness test written twice is how the warning
+ * and the contract drift apart.
+ *
+ * @param {VerificationSuites} suites
+ * @returns {boolean}
+ */
+export function carriesSuites(suites) {
+  return Boolean(suites.sharedVerification || suites.finalVerification);
+}
+
+/**
  * The one assembly a plan freezes through: sizing reshapes the drafted
  * nodes, routing assigns worker and judge, and `toContractNode` renders the
  * contract shape. Exported (rather than kept a `runPlanningPipeline`
@@ -613,12 +655,16 @@ function taggedStageError(planStage, error) {
  * plan came from — a fresh draft/revise or one read back off a contested
  * `plan.json`.
  *
+ * `ctx.verification` takes part here, not in `frozenContractRawOf`, because
+ * which suites the contract carries is a decision the assembly makes once for
+ * every caller; the raw contract is then only the assembly rendered.
+ *
  * @param {PlanOutput} currentPlan
- * @param {{repoFacts: import("./repo-facts.mjs").RepoFacts, packageMode: import("./sizing.mjs").PackageMode, targetedFix: boolean, phase: string, cwd: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, judgeIndependence?: "same-vendor"}} ctx
+ * @param {{repoFacts: import("./repo-facts.mjs").RepoFacts, packageMode: import("./sizing.mjs").PackageMode, targetedFix: boolean, phase: string, cwd: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, judgeIndependence?: "same-vendor", verification?: VerificationSuites}} ctx
  * @returns {AssembledPlan}
  */
 export function assembleFrozenPlan(currentPlan, ctx) {
-  const { repoFacts, packageMode, targetedFix, phase, cwd, runtimes, runtimeDefaults, judgeIndependence } = ctx;
+  const { repoFacts, packageMode, targetedFix, phase, cwd, runtimes, runtimeDefaults, judgeIndependence, verification } = ctx;
   let sizing;
   try {
     sizing = applySizingRules(
@@ -649,6 +695,9 @@ export function assembleFrozenPlan(currentPlan, ctx) {
     // named it must now name the node that absorbed it or freeze would see
     // an unknown assignment.
     phases: carryPhaseDeclarations(currentPlan.phases, sizing.transformations),
+    // The plan's own suites survive sizing untouched: they are contract-level
+    // proof, so no node merge can absorb or invalidate one.
+    suites: effectiveVerificationSuites(verification ?? {}, currentPlan),
   };
 }
 
@@ -661,11 +710,11 @@ export function assembleFrozenPlan(currentPlan, ctx) {
  * for the same reason.
  *
  * @param {AssembledPlan} assembly
- * @param {{campaignId: string, phase: string, campaignGoal: string, cwd: string, plansDir: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, verification: VerificationSuites, judgeIndependence?: "same-vendor"}} ctx
+ * @param {{campaignId: string, phase: string, campaignGoal: string, cwd: string, plansDir: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, judgeIndependence?: "same-vendor"}} ctx
  * @returns {JsonObject}
  */
-export function frozenContractRawOf({ sizing, nodes }, ctx) {
-  const { campaignId, phase, campaignGoal, cwd, plansDir, runtimes, runtimeDefaults, verification, judgeIndependence } = ctx;
+export function frozenContractRawOf({ sizing, nodes, suites }, ctx) {
+  const { campaignId, phase, campaignGoal, cwd, plansDir, runtimes, runtimeDefaults, judgeIndependence } = ctx;
   return {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
     contractVersion: CONTRACT_VERSION,
@@ -687,12 +736,14 @@ export function frozenContractRawOf({ sizing, nodes }, ctx) {
     // The operator's opt-in, carried verbatim: the frozen contract is
     // validated under the same judge-independence rule its routing used.
     ...(judgeIndependence === undefined ? {} : { judgeIndependence }),
-    // The operator's ratchets, carried verbatim: which suites a repository
-    // runs on every node is the operator's policy, supplied through
-    // `--verification`, never derived from repository facts. Validated at the
-    // flag boundary, so freeze neither re-derives nor edits them.
-    ...(verification.sharedVerification ? { sharedVerification: verification.sharedVerification } : {}),
-    ...(verification.finalVerification ? { finalVerification: verification.finalVerification } : {}),
+    // The ratchets this phase carries, chosen once by the assembly and carried
+    // verbatim here: the operator's `--verification` when it was passed,
+    // otherwise the suites the plan authored from the repository facts
+    // (RM-107). Validated at both boundaries — the flag loader for one, the
+    // plan validator for the other — so freeze neither re-derives nor edits
+    // them.
+    ...(suites?.sharedVerification ? { sharedVerification: suites.sharedVerification } : {}),
+    ...(suites?.finalVerification ? { finalVerification: suites.finalVerification } : {}),
     nodes,
   };
 }

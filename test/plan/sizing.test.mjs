@@ -1,6 +1,7 @@
 import "../scoped-home.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { VERIFICATION_LIMITS } from "../../src/contract/verification.mjs";
 import { applySizingRules, provenParallelism } from "../../src/plan/sizing.mjs";
 
 const BUDGET = 600_000;
@@ -104,7 +105,7 @@ test("over-budget verification split: a command past the node budget is replaced
       },
     ],
   };
-  const facts = { testFiles: [{ path: "test/big.test.mjs", covers: "src/big.mjs" }, { path: "test/unrelated.test.mjs", covers: "src/unrelated.mjs" }] };
+  const facts = { testFiles: [{ path: "test/big.test.mjs", covers: ["src/big.mjs"] }, { path: "test/unrelated.test.mjs", covers: ["src/unrelated.mjs"] }] };
   const { plan: sized, transformations } = applySizingRules(plan, { nodeBudgetMs: BUDGET, facts });
   const big = /** @type {import("../../src/plan/sizing.mjs").PlanNode} */ (sized.nodes.find((node) => node.id === "big"));
   assert.deepEqual(big.taskPacket.verification, [{ argv: ["node", "--test", "test/big.test.mjs"] }]);
@@ -131,6 +132,58 @@ test("over-budget verification flagged: a command with no covering test file is 
   const big = /** @type {import("../../src/plan/sizing.mjs").PlanNode} */ (sized.nodes.find((node) => node.id === "big"));
   assert.equal(big.taskPacket.verification[0].flaggedOverBudget, true);
   assert.ok(transformations.some((entry) => entry.rule === "over-budget-verification-flagged" && entry.nodes[0] === "big"));
+});
+
+test("over-budget verification split: a test file that references the node's module without being named after it is a candidate", () => {
+  /** @type {import("../../src/plan/sizing.mjs").Plan} */
+  const plan = {
+    nodes: [
+      {
+        id: "big",
+        taskPacket: { writeFiles: ["src/big.mjs"], verification: [{ argv: ["node", "--test", "test/"], measuredMs: 700_000 }] },
+        definitionOfDone: [{ id: "bd", text: "implements big", proof: { kind: "command", ref: "0" } }],
+      },
+      {
+        id: "other",
+        taskPacket: { writeFiles: ["src/other.mjs"], verification: [{ argv: ["node", "--test", "test/other.test.mjs"], measuredMs: 1_000 }] },
+        definitionOfDone: [{ id: "od", text: "implements other", proof: { kind: "command", ref: "0" } }],
+      },
+    ],
+  };
+  // Measured 2026-09-27 on `safe-to-hand-to-a-friend`: every node passed its own
+  // suite and four failures still reached the integration branch, because a
+  // cross-module test that exercises `big` is invisible to the naming rule.
+  const facts = { testFiles: [{ path: "test/integration.test.mjs", covers: ["src/big.mjs", "src/other.mjs"] }] };
+  const { plan: sized, transformations } = applySizingRules(plan, { nodeBudgetMs: BUDGET, facts });
+  const big = /** @type {import("../../src/plan/sizing.mjs").PlanNode} */ (sized.nodes.find((node) => node.id === "big"));
+  assert.deepEqual(big.taskPacket.verification, [{ argv: ["node", "--test", "test/integration.test.mjs"] }]);
+  assert.ok(transformations.some((entry) => entry.rule === "over-budget-verification-split" && entry.nodes[0] === "big"));
+});
+
+test("over-budget verification flagged: a covering set past the contract's command budget is flagged, not split", () => {
+  /** @type {import("../../src/plan/sizing.mjs").Plan} */
+  const plan = {
+    nodes: [
+      {
+        id: "big",
+        taskPacket: { writeFiles: ["test/scoped-home.mjs"], verification: [{ argv: ["node", "--test", "test/"], measuredMs: 700_000 }] },
+        definitionOfDone: [{ id: "bd", text: "implements the helper", proof: { kind: "command", ref: "0" } }],
+      },
+      {
+        id: "other",
+        taskPacket: { writeFiles: ["src/other.mjs"], verification: [{ argv: ["node", "--test", "test/other.test.mjs"], measuredMs: 1_000 }] },
+        definitionOfDone: [{ id: "od", text: "implements other", proof: { kind: "command", ref: "0" } }],
+      },
+    ],
+  };
+  // A node writing a helper every test imports has that many covering files,
+  // and splitting one command into 33 freezes a contract that cannot validate.
+  const covering = Array.from({ length: VERIFICATION_LIMITS.maxCommands + 1 }, (_, index) => ({ path: `test/c${index}.test.mjs`, covers: ["test/scoped-home.mjs"] }));
+  const { plan: sized, transformations } = applySizingRules(plan, { nodeBudgetMs: BUDGET, facts: { testFiles: covering } });
+  const big = /** @type {import("../../src/plan/sizing.mjs").PlanNode} */ (sized.nodes.find((node) => node.id === "big"));
+  assert.deepEqual(big.taskPacket.verification, [{ argv: ["node", "--test", "test/"], measuredMs: 700_000, flaggedOverBudget: true }]);
+  const flag = transformations.find((entry) => entry.rule === "over-budget-verification-flagged");
+  assert.match(flag?.detail ?? "", /33 test files reference this node's writeFiles, above the contract's 32-command budget/);
 });
 
 test("parallelisable marking: dependency-free nodes with disjoint writeFiles are marked parallel", () => {
@@ -305,7 +358,7 @@ test("sizing is idempotent: applying it to its own output yields the same plan a
       },
     ],
   };
-  const facts = { testFiles: [{ path: "test/x.test.mjs", covers: "src/x.mjs" }] };
+  const facts = { testFiles: [{ path: "test/x.test.mjs", covers: ["src/x.mjs"] }] };
   const first = applySizingRules(plan, { nodeBudgetMs: BUDGET, facts });
   const second = applySizingRules(first.plan, { nodeBudgetMs: BUDGET, facts });
   assert.deepEqual(second.transformations, []);

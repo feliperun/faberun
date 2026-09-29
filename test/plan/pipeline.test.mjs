@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { carryPhaseDeclarations, writeFrozenPlan } from "../../src/plan/pipeline.mjs";
+import { carryPhaseDeclarations, effectiveVerificationSuites, frozenContractRawOf, writeFrozenPlan } from "../../src/plan/pipeline.mjs";
 import { freezePlan } from "../../src/plan/freeze.mjs";
 import { fixture } from "../helpers.mjs";
 
@@ -66,4 +66,36 @@ test("writeFrozenPlan writes the final status and approval before the sidecar ov
 
   const sidecar = readFileSync(join(dir, "plan.json.sha256"), "utf8").trim();
   assert.equal(sidecar, createHash("sha256").update(bytes).digest("hex"), "the sidecar covers the exact final bytes");
+});
+
+// RM-107, measured 2026-09-27 on `safe-to-hand-to-a-friend` phase 1: the phase
+// integrated a red tree with no node running test/repo/source-shape.test.mjs,
+// because contract-level verification was operator-only. The plan authors the
+// suites from the repository facts now, and the operator's flag still wins.
+test("the contract carries the plan's own suites, and the operator's --verification wins over them", () => {
+  const shared = { argv: ["node", "--test", "test/repo"], timeoutSec: 60, repeat: 1, env: [] };
+  const final = { argv: ["npm", "test"], timeoutSec: 1_800, repeat: 1, env: [] };
+  const operatorShared = { argv: ["npm", "run", "typecheck"], timeoutSec: 600, repeat: 1, env: [] };
+  const ctx = { campaignId: "c", phase: "p", campaignGoal: "g", cwd: ".", plansDir: ".", runtimes: {}, runtimeDefaults: {} };
+  /** @param {Record<string, unknown>} suites */
+  const planWith = (suites) => /** @type {any} */ ({ nodes: [], ...suites });
+  /** @param {Record<string, unknown>} suites */
+  const rawOf = (suites) => frozenContractRawOf(/** @type {any} */ ({ sizing: { plan: { nodes: [] } }, nodes: [], suites }), ctx);
+
+  const both = planWith({ sharedVerification: [shared], finalVerification: [final] });
+  assert.deepEqual(effectiveVerificationSuites({}, both), { sharedVerification: [shared], finalVerification: [final] });
+  const authored = rawOf(effectiveVerificationSuites({}, both));
+  assert.deepEqual(authored.sharedVerification, [shared]);
+  assert.deepEqual(authored.finalVerification, [final]);
+
+  const overridden = rawOf(effectiveVerificationSuites({ sharedVerification: [operatorShared] }, both));
+  assert.deepEqual(overridden.sharedVerification, [operatorShared], "the flag is the one place an operator overrides a plan they did not trust");
+  assert.equal(overridden.finalVerification, undefined, "an operator suite replaces the plan's set, it does not merge with it");
+
+  // Neither side declares one: the contract carries neither key, which is what
+  // both freeze warnings read.
+  assert.deepEqual(effectiveVerificationSuites({}, planWith({})), {});
+  assert.equal("sharedVerification" in rawOf(effectiveVerificationSuites({}, planWith({}))), false);
+  // An empty array runs nothing and reads the same way.
+  assert.deepEqual(effectiveVerificationSuites({}, planWith({ sharedVerification: [] })), {});
 });

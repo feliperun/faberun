@@ -75,9 +75,9 @@ test("routing honours same-vendor mode the way contract validation does", () => 
 test("the frozen contract carries the operator's judge-independence opt-in", () => {
   const ctx = {
     campaignId: "c", phase: "p", campaignGoal: "g", cwd: ".", plansDir: ".", runtimes: RUNTIMES,
-    runtimeDefaults: { worker: "claude-sonnet", judge: "claude-opus" }, verification: {},
+    runtimeDefaults: { worker: "claude-sonnet", judge: "claude-opus" },
   };
-  const assembly = /** @type {any} */ ({ sizing: { plan: { nodes: [] } }, nodes: [] });
+  const assembly = /** @type {any} */ ({ sizing: { plan: { nodes: [] } }, nodes: [], suites: {} });
   assert.equal(frozenContractRawOf(assembly, { ...ctx, judgeIndependence: "same-vendor" }).judgeIndependence, "same-vendor");
   assert.equal("judgeIndependence" in frozenContractRawOf(assembly, ctx), false, "absent unless the operator opts in");
 });

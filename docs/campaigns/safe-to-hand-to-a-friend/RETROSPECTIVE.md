@@ -72,3 +72,9 @@ AP3 to AP21 feed the next faberun-improvement campaign, in this order: AP15
 refusal names its cause), AP13 (refuse at freeze a proof `/bin/sh` cannot parse; R34
 covers only the body of a `node -e`), AP17
 (the revise returns a patch, not the whole plan).
+
+Written at the close, on 2026-09-28. Every finding this order names was
+corrected the same day: AP10 and AP4 in 0.29.0, AP13 with the rest of that
+leva, and AP15 and AP17 in 0.30.0. Of the twenty-one, only AP9 (RM-108) is
+open, deferred by the owner. The verdict table in `ACHADOS-PRODUTO.md` is the
+reader that stays current.

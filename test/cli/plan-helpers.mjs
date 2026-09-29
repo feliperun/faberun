@@ -139,12 +139,62 @@ export function twoNodePlan({ highRisk = false } = {}) {
 }
 
 /**
+ * A patch that turns `previous` into `next`: every node of `next`, plus the ids
+ * of the nodes `previous` carries that `next` does not.
+ *
+ * @param {Record<string, any>} previous
+ * @param {Record<string, any>} next
+ * @returns {Record<string, unknown>}
+ */
+function patchOver(previous, next) {
+  const nodes = next.nodes ?? [];
+  const nextIds = new Set(nodes.map((/** @type {any} */ node) => node.id));
+  /** @type {Record<string, unknown>} */
+  const patch = {
+    nodes,
+    removedNodeIds: (previous.nodes ?? []).map((/** @type {any} */ node) => node.id).filter((/** @type {string} */ id) => !nextIds.has(id)),
+  };
+  for (const field of ["phases", "sharedVerification", "finalVerification", "justification"]) {
+    if (next[field] !== undefined) patch[field] = next[field];
+  }
+  return patch;
+}
+
+/**
+ * The `output` object each recorded worker invocation carries. One recording
+ * serves two stages — the same worker runtime drafts the plan and revises it —
+ * and the replay runtime hands out its lines in order without seeing what the
+ * invocation asked for, so a line has to answer whichever of the two shapes it
+ * lands on: a draft is always `output.plan`, and RM-110 gives a revise two
+ * shapes, a patch over the plan the pipeline holds when that plan validated
+ * and the whole plan again when the draft it repairs never did, chosen by the
+ * pipeline and never by the model. So every line carries both: `plan` is what
+ * the line's plan says, `patch` is that same plan written as the change from
+ * the line before it, and each key is read only by the stage that asked for it.
+ *
+ * @param {unknown[]} plans
+ * @returns {Array<Record<string, unknown>>}
+ */
+function workerOutputs(plans) {
+  /** @type {Record<string, any>} */
+  let previous = /** @type {Record<string, any>} */ (plans[0]);
+  return plans.map((plan) => {
+    const next = /** @type {Record<string, any>} */ (plan);
+    const output = { plan, patch: patchOver(previous, next) };
+    previous = next;
+    return output;
+  });
+}
+
+/**
  * A temp checkout with everything a planning contract's readFiles may name,
  * two replay runtimes (distinct vendors, one per role) and an active
  * campaign. `reviewMode` picks the review recording: "clean" never finds a
  * critical, "critical" always does. `plans` lists the plan each worker
- * invocation emits, in order (the draft, then one revise output per later
- * invocation); the default repeats the same valid two-node plan. `reviews`
+ * invocation produces, in order (the draft, then one revise output per later
+ * invocation), each recorded as both the plan and the patch a revise would
+ * answer with (see `workerOutputs`); the default repeats the same valid
+ * two-node plan. `reviews`
  * does the same for the reviewer, one findings array per round, for a test
  * about what one round remembers of another. `files` adds repository files
  * beyond the fixed set, path to text.
@@ -180,9 +230,9 @@ export function setup(campaignId, { reviewMode = "clean", highRisk = false, plan
     : [];
   const reviewRounds = reviews ?? Array(invocationBudget).fill(reviewFindings);
   const recordingDir = mkdtempSync(join(tmpdir(), "plan-pipeline-rec-"));
-  const draftRecording = writeRecording(recordingDir, workerPlans.map((plan) => ({ envelope: envelope({ result: JSON.stringify({
+  const draftRecording = writeRecording(recordingDir, workerOutputs(workerPlans).map((output) => ({ envelope: envelope({ result: JSON.stringify({
     status: "done", summary: "drafted", verification: [], artifacts: [], missingContext: [],
-    output: { plan },
+    output,
   }) }) })), "draft.jsonl");
   const reviewRecording = writeRecording(recordingDir, reviewRounds.map((findings) => ({ envelope: envelope({ result: JSON.stringify({
     status: "done", summary: "reviewed", verification: [], artifacts: [], missingContext: [],
