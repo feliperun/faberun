@@ -1,11 +1,11 @@
 import "../scoped-home.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { execFileSync } from "node:child_process";
-import { collectRepoFacts, measureRequirements } from "../../src/plan/repo-facts.mjs";
+import { PATH_INDEX_FILE, PATH_KINDS, collectRepoFacts, measureRequirements, pathBytes, pathKindOf, writePathIndex } from "../../src/plan/repo-facts.mjs";
 
 /**
  * @returns {string} a temp git repository with a package.json, two src
@@ -132,7 +132,8 @@ test("collectRepoFacts emits a deterministic JSON inventory built with no model"
 
   assert.equal(facts.formatVersion, 1);
   assert.equal(facts.gitHead, head);
-  assert.equal(facts.truncated, false);
+  assert.equal(facts.pathOmission.paths, 0, "a repository under the ceiling omits nothing");
+  assert.equal(facts.pathOmission.bytes, 0);
   assert.deepEqual(facts.paths, [...facts.paths].sort(), "paths are sorted");
   assert.ok(facts.paths.includes("package.json"));
   assert.ok(facts.paths.includes("test/plan/repo-facts.test.mjs"));
@@ -204,11 +205,74 @@ test("two calls at the same HEAD are deep-equal", () => {
   assert.deepEqual(first, second);
 });
 
-test("the paths cap sets truncated and bounds the returned paths array", () => {
-  const directory = fixtureRepo();
-  const facts = collectRepoFacts(directory, { measure: fakeMeasure(DURATIONS), maxPaths: 2 });
-  assert.equal(facts.truncated, true);
-  assert.equal(facts.paths.length, 2);
+test("a path's source kind names the known categories and leaves only unnamed paths as other", () => {
+  assert.equal(pathKindOf("docs/guide.md"), "document");
+  assert.equal(pathKindOf(".runs/demo/ledger.jsonl"), "archived-log");
+  assert.equal(pathKindOf("docs/history/superseded.md"), "archived-log", "record under a history prefix is record, not live prose");
+  assert.equal(pathKindOf("Makefile"), "manifest");
+  assert.equal(pathKindOf("pyproject.toml"), "manifest");
+  assert.equal(pathKindOf("src/plan/repo-facts.mjs"), "code");
+  assert.equal(pathKindOf("LICENSE"), "other");
+  assert.equal(pathKindOf(".gitignore"), "other");
+  assert.deepEqual([...PATH_KINDS].sort(), ["archived-log", "code", "document", "manifest", "other"]);
+  assert.equal(pathBytes("src/plan/repo-facts.mjs"), Buffer.byteLength("src/plan/repo-facts.mjs", "utf8"));
+});
+
+test("the byte-limited cut keeps every required path and reports each discarded kind against the omitted total", () => {
+  const directory = manifestRepo({
+    "aaa/data.bin": "unnamed kind\n",
+    "bbb/data.bin": "unnamed kind\n",
+    "test/plan/one.test.mjs": "// a test file: required, whatever the ceiling\n",
+    "zzz/Makefile": "test:\n\tnode --test\n",
+    "zzz/guide.md": "# guide\n",
+    "zzz/ledger.jsonl": "{}\n",
+    "zzz/run.mjs": "export const run = true;\n",
+  });
+  // 24 bytes is exactly the two aaa/bbb paths (12 each): the sorted optional
+  // order fills them, then discards one path of each known kind at the tail.
+  const facts = collectRepoFacts(directory, { measure: fakeMeasure(DURATIONS), maxPathBytes: 24 });
+  const byKind = facts.pathOmission.byKind;
+
+  assert.deepEqual(
+    facts.paths,
+    ["aaa/data.bin", "bbb/data.bin", "test/plan/one.test.mjs"],
+    "the cut keeps the optional paths that fit and the test file the ceiling would not have paid for",
+  );
+  assert.deepEqual(byKind.document, { paths: 1, bytes: 12 });
+  assert.deepEqual(byKind["archived-log"], { paths: 1, bytes: 16 });
+  assert.deepEqual(byKind.manifest, { paths: 1, bytes: 12 });
+  assert.deepEqual(byKind.code, { paths: 1, bytes: 11 });
+  assert.deepEqual(byKind.other, { paths: 0, bytes: 0 }, "no known category is reported as a generic other");
+
+  // The report is the arithmetic: every discarded path is counted once, under
+  // the one kind it belongs to, so the per-kind rows are the omitted total.
+  const rows = PATH_KINDS.map((kind) => byKind[kind]);
+  assert.equal(rows.reduce((sum, row) => sum + row.paths, 0), facts.pathOmission.paths);
+  assert.equal(rows.reduce((sum, row) => sum + row.bytes, 0), facts.pathOmission.bytes);
+  assert.equal(facts.pathOmission.paths, 4);
+  assert.equal(facts.pathOmission.bytes, 12 + 16 + 12 + 11);
+  assert.equal(rows.filter((row) => row.paths > 0).length, 4, "documents, archived logs, manifests and code each carry their own count");
+
+  const spent = collectRepoFacts(directory, { measure: fakeMeasure(DURATIONS), maxPathBytes: 0 });
+  assert.deepEqual(spent.paths, ["test/plan/one.test.mjs"], "a required path survives a ceiling already spent");
+  assert.deepEqual(spent.pathOmission.byKind.other, { paths: 2, bytes: 24 });
+  assert.equal(spent.pathOmission.paths, 6);
+  assert.equal(
+    PATH_KINDS.reduce((sum, kind) => sum + spent.pathOmission.byKind[kind].paths, 0),
+    spent.pathOmission.paths,
+    "with every path discarded, the per-kind rows still sum to the total",
+  );
+});
+
+test("the complete path index is written outside the cut, one path per line", () => {
+  const directory = manifestRepo({ "docs/guide.md": "# guide\n", "src/one.mjs": "export const one = true;\n" });
+  const facts = collectRepoFacts(directory, { measure: neverMeasure(), maxPathBytes: 0 });
+  assert.deepEqual(facts.paths, [], "the cut discards every path nothing requires");
+
+  const indexPath = join(directory, PATH_INDEX_FILE);
+  const indexed = writePathIndex(directory, indexPath);
+  assert.deepEqual(indexed, ["docs/guide.md", "src/one.mjs"], "the index is the whole tracked tree, in git's sorted order");
+  assert.equal(readFileSync(indexPath, "utf8"), "docs/guide.md\nsrc/one.mjs\n");
 });
 
 test("collectRepoFacts records a command measure and skips requirements without one", () => {

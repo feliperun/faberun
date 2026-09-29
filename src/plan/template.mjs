@@ -203,6 +203,27 @@ const NAMED_TEST_FILE_RULE = 'A command that filters node:test by name (--test-n
 // references, so the planner names the files that can actually break.
 const COVERING_TEST_RULE = 'repo-facts.json\'s testFiles lists, per test file, the repo-relative modules it is named after and the ones it imports or runs. A node\'s verification names every test file whose covers intersects its writeFiles, not only the one named after the module: node --test <file>, one per covering file, and the enclosing test directory when that set is larger than one verification array holds. A test file that references nothing the node writes is not named there; those are the phase\'s finalVerification, which runs the whole suite once when the phase closes.';
 
+// R4 of the phase-2 reissue: repo-facts.json's `paths` is a byte-limited cut
+// (DEFAULT_MAX_PATH_BYTES in src/plan/repo-facts.mjs), and the finding it
+// answers (judge Sol's `r4-omission-text-legible`) was that a single
+// `truncated` flag described nothing: a dropped manifest and a dropped
+// historical log read the same. The artefact now reports paths and bytes per
+// source kind, so both stages that read it are told to read that report rather
+// than to read an absent path as an absent file.
+/**
+ * What a draft or revise is told about the cut it authors from. The plan is
+ * written against the cut, so a node that needs a file the cut discarded has
+ * to know the path may exist and be absent from `paths` — otherwise the honest
+ * plan it produces is "this repository holds no such file".
+ */
+export const PATH_CUT_RULE = "repo-facts.json's paths is the byte-limited cut of the tracked tree, never the whole index: it keeps every path a requirement's proof or measure names, every test file, and every module the tree references, and reports what the ceiling discarded in pathOmission — paths and bytes in total, and the same two numbers per source kind (document, archived-log, manifest, code, other). Read pathOmission before concluding the tree holds no file of a kind, and never read a path's absence from paths as proof of absence: it may be one the ceiling discarded. The complete index is staged beside the artefact as repo-paths.txt, for a discovery node the plan explicitly authorises to enumerate the tree; a node's readFiles never names it otherwise.";
+/**
+ * The reviewer's half of the same rule. A reviewer only ever sees the
+ * artefact, so the cut is exactly what could make it raise a finding against
+ * the tree rather than against the plan.
+ */
+export const REVIEW_PATH_CUT_RULE = "repo-facts.json's paths is a byte-limited cut of the tracked tree, so a path absent from it is not evidence that the file is absent. pathOmission reports, per source kind (document, archived-log, manifest, code, other), how many paths and how many bytes the cut discarded, and those per-kind numbers sum to its own paths and bytes totals. A finding that a node misses a file the spec implies is only valid when the path is in paths or named by the requirement itself; the complete index is staged beside the artefact as repo-paths.txt for the plan to read if it needs it.";
+
 // RM-107, measured 2026-09-27 on `safe-to-hand-to-a-friend` phase 1: the phase
 // integrated a red tree -- src/host/preflight.mjs at 840 lines against the 800
 // ceiling, declaredEnvironment exported by seven modules, three test files
@@ -245,6 +266,7 @@ const INSTRUCTIONS = Object.freeze({
     ...SCOPE_CLOSURE_RULE,
     NAMED_TEST_FILE_RULE,
     COVERING_TEST_RULE,
+    PATH_CUT_RULE,
     ...CONTRACT_VERIFICATION_RULE,
     `Return exactly one worker-result JSON object. Put the plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan. taskKind and riskTier are the only classification a draft makes; a routing table assigns a runtime afterward, from those two fields alone.",
@@ -257,6 +279,7 @@ const INSTRUCTIONS = Object.freeze({
     ...SCOPE_CLOSURE_RULE,
     NAMED_TEST_FILE_RULE,
     COVERING_TEST_RULE,
+    PATH_CUT_RULE,
     ...CONTRACT_VERIFICATION_RULE,
     REVISE_PLAN_INSTRUCTION,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan.",
@@ -265,6 +288,7 @@ const INSTRUCTIONS = Object.freeze({
   review: [
     "You are given only the spec, the repository facts, and the plan under review; you have not seen how the plan was produced or any reasoning behind it. Review the artefact alone.",
     PROOF_NOT_STRICTER_THAN_REQUIREMENT_RULE,
+    REVIEW_PATH_CUT_RULE,
     `Return exactly one worker-result JSON object. Put your findings in output.findings as ${FINDINGS_SHAPE} and nothing else in output.`,
     "severity must be one of critical, major, minor. Every finding's nodeId must name a node id that actually appears in the plan under review.",
   ],

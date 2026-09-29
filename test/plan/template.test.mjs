@@ -9,6 +9,8 @@ import { validateContract } from "../../src/contract/index.mjs";
 import { renderWorkerPrompt } from "../../src/contract/task-packet.mjs";
 import { droppedWriteFindings, unresolvedFindings } from "../../src/plan/pipeline.mjs";
 import {
+  PATH_CUT_RULE,
+  REVIEW_PATH_CUT_RULE,
   RISK_TIERS,
   TASK_KINDS,
   TASK_KIND_CATALOGUE_FILE,
@@ -123,6 +125,31 @@ test("the review stage is told to compare each proof with the requirement it pro
 
   const draftPacket = validateContract(buildPlanningContract("draft", baseInputs()), join(cwd, "contract.json")).nodes[0].taskPacket;
   assert.ok(!draftPacket.instructions.some((instruction) => instruction.startsWith("For every node, compare")), "the rule belongs to the reviewer, not the draft");
+});
+
+// R4 of the phase-2 reissue: the artefact's `paths` is a byte-limited cut whose
+// per-kind omission report is the only thing that says what was discarded, so
+// the stage that authors from the cut and the stage that grades the plan
+// against it are both told to read that report.
+test("draft and review are told the path list is a byte-limited cut that reports its own omissions", () => {
+  const cwd = checkout();
+  const contractPath = join(cwd, "contract.json");
+  const draftInstructions = validateContract(buildPlanningContract("draft", baseInputs()), contractPath).nodes[0].taskPacket.instructions;
+  const draftRule = draftInstructions.find((instruction) => instruction === PATH_CUT_RULE);
+  assert.ok(draftRule, JSON.stringify(draftInstructions));
+  assert.match(draftRule, /byte-limited cut of the tracked tree/u);
+  assert.match(draftRule, /pathOmission/u);
+  assert.match(draftRule, /document, archived-log, manifest, code, other/u);
+  assert.match(draftRule, /repo-paths\.txt/u);
+  const reviseInstructions = validateContract(buildPlanningContract("revise", baseInputs()), contractPath).nodes[0].taskPacket.instructions;
+  assert.ok(reviseInstructions.includes(PATH_CUT_RULE), "a revise reads the same cut the draft wrote against");
+
+  const reviewInstructions = validateContract(buildPlanningContract("review", baseInputs()), contractPath).nodes[0].taskPacket.instructions;
+  const reviewRule = reviewInstructions.find((instruction) => instruction === REVIEW_PATH_CUT_RULE);
+  assert.ok(reviewRule, JSON.stringify(reviewInstructions));
+  assert.match(reviewRule, /absent from it is not evidence that the file is absent/u);
+  assert.match(reviewRule, /sum to its own paths and bytes totals/u);
+  assert.ok(!reviewInstructions.includes(PATH_CUT_RULE), "the reviewer's rule is its own wording, not the draft's");
 });
 
 test("planner vendors distinct", () => {

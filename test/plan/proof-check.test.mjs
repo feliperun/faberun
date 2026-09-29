@@ -29,7 +29,26 @@ function tempCwd() {
  * @returns {import("../../src/plan/repo-facts.mjs").RepoFacts}
  */
 function repoFacts(testFiles = []) {
-  return { formatVersion: 1, gitHead: null, paths: [], truncated: false, scripts: {}, verificationCandidates: [], testFiles, requirementMeasurements: [] };
+  return {
+    formatVersion: 1,
+    gitHead: null,
+    paths: [],
+    pathOmission: {
+      paths: 0,
+      bytes: 0,
+      byKind: {
+        document: { paths: 0, bytes: 0 },
+        "archived-log": { paths: 0, bytes: 0 },
+        manifest: { paths: 0, bytes: 0 },
+        code: { paths: 0, bytes: 0 },
+        other: { paths: 0, bytes: 0 },
+      },
+    },
+    scripts: {},
+    verificationCandidates: [],
+    testFiles,
+    requirementMeasurements: [],
+  };
 }
 
 /**

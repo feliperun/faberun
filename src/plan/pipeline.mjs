@@ -29,7 +29,7 @@ import { askPlanningRuntimes, refusePlanningSilence, refuseUnplannableRuntimes }
 import { validateJudgeIndependence } from "../contract/judge-independence.mjs";
 import { firstEligibleReviewer, reviewerProvenanceOf } from "./reviewer.mjs";
 import { parseSpec, validateSpec } from "./spec.mjs";
-import { collectRepoFacts } from "./repo-facts.mjs";
+import { collectRepoFacts, persistRepoFacts } from "./repo-facts.mjs";
 import { clearPlanProgress, writePlanProgress } from "./progress.mjs";
 import { checkPlanProofs } from "./proof-check.mjs";
 import { collectHumanSteps } from "./human-step.mjs";
@@ -217,8 +217,12 @@ async function runPlanningStages(options) {
   // here so both the freeze below and a caller inspecting the pipeline agree
   // on the same list.
   const humanSteps = collectHumanSteps(parsedSpec.requirements);
-  const repoFactsPath = join(scratchDir, "repo-facts.json");
-  writeFileSync(repoFactsPath, `${JSON.stringify(repoFacts, null, 2)}\n`);
+  // The draft and review stages read the cut through `readFiles`, and the
+  // complete path index is staged beside it rather than inside it: the
+  // artefact stays byte-bounded, and a discovery node explicitly authorised to
+  // enumerate the tree is handed `repo-paths.txt` instead of a cut that lies
+  // about what the tree holds (R4).
+  const repoFactsPath = persistRepoFacts(scratchDir, repoFacts, cwd);
   const relativeRepoFactsPath = relative(cwd, repoFactsPath);
   // The taskKind catalogue is staged like every other planning input. It used
   // to be handed over as faberun's own `src/plan/template.mjs`, which resolves

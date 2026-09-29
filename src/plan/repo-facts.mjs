@@ -17,8 +17,17 @@
  * Sorting and the absence of any clock in the output itself (only inside an
  * injected measurer's own numbers) is what makes two calls at the same HEAD
  * byte-identical.
+ *
+ * The `paths` array is a byte-limited cut, never the tree. A path a
+ * requirement's proof or measure names, a test file, and a module the tree
+ * references are always kept; the ceiling bounds only what nothing asks for.
+ * What the cut discarded is reported per source kind in `pathOmission`, so a
+ * reader can tell a dropped manifest from a dropped historical log instead of
+ * reading one `truncated` flag, and the complete index every path was listed
+ * from is written beside the artefact (`writePathIndex`) for a discovery node
+ * explicitly authorised to enumerate the tree.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { timeVerificationCommands } from "../host/preflight.mjs";
 import { directReferenceGraph } from "../repo/scope-closure.mjs";
@@ -48,12 +57,62 @@ import { runShellCapture } from "./proof-run.mjs";
  * @typedef {{argv: string[], manifest: string, measuredMs: number|null, eligible: boolean}} DetectedVerificationCandidate
  */
 /** @typedef {{path: string, covers: string[]}} TestFileEntry */
-/** @typedef {{formatVersion: number, gitHead: string|null, paths: string[], truncated: boolean, scripts: Record<string, string>, verificationCandidates: VerificationCandidate[], detectedVerificationCandidates?: DetectedVerificationCandidate[], testFiles: TestFileEntry[], requirementMeasurements: RequirementMeasurement[]}} RepoFacts */
+/**
+ * The source kind a discarded path is reported under. `other` is reserved for
+ * a path this module cannot name — no manifest basename, no document, log or
+ * source suffix — so a known category is never pooled into it.
+ *
+ * @typedef {"document"|"archived-log"|"manifest"|"code"|"other"} PathKind
+ */
+/** @typedef {{paths: number, bytes: number}} PathKindOmission */
+/** @typedef {{paths: number, bytes: number, byKind: Record<PathKind, PathKindOmission>}} PathOmission */
+/** @typedef {{formatVersion: number, gitHead: string|null, paths: string[], pathOmission: PathOmission, scripts: Record<string, string>, verificationCandidates: VerificationCandidate[], detectedVerificationCandidates?: DetectedVerificationCandidate[], testFiles: TestFileEntry[], requirementMeasurements: RequirementMeasurement[]}} RepoFacts */
 
 const FORMAT_VERSION = 1;
-const DEFAULT_MAX_PATHS = 2000;
+/**
+ * The byte ceiling on the artefact's `paths` array. Measured 2026-09-21
+ * (AGENTS.md, Faberun protocol): a node whose serialized packet passed 64 KiB
+ * was killed by the guard that serializes it, and this inventory rides in that
+ * same packet — so the cut is held under 48 KiB and the rest of the artefact
+ * has the remainder. A count cap (the 2000 paths this replaces) says nothing
+ * about size: the same count is a different artefact in every repository.
+ */
+export const DEFAULT_MAX_PATH_BYTES = 48 * 1024;
 const ELIGIBLE_MS_CEILING = 600_000;
 const CANDIDATE_TIMEOUT_SEC = ELIGIBLE_MS_CEILING / 1_000;
+
+/** Every kind a discarded path can be reported under, so the omission report
+ * carries a full row per kind even when it discarded nothing there. */
+export const PATH_KINDS = Object.freeze(/** @type {PathKind[]} */ (["document", "archived-log", "manifest", "code", "other"]));
+
+/** The files commands are declared in: this module reads its own candidates
+ * out of the first two, and the rest are the other ecosystems' manifests. */
+export const MANIFEST_BASENAMES = Object.freeze([
+  "package.json", "package-lock.json", "tsconfig.json",
+  "pyproject.toml", "pytest.ini", "go.mod", "go.sum",
+  "Cargo.toml", "Cargo.lock", "build.zig", "build.zig.zon",
+  "Makefile", "makefile", "GNUmakefile",
+]);
+
+/** Every TOML file is a manifest, declared name or not (`netlify.toml`). */
+export const MANIFEST_SUFFIX = ".toml";
+
+/** Prose a human wrote for a human: a document is never a build input. */
+export const DOCUMENT_SUFFIX = ".md";
+
+/** Directories holding historical record: ledgers and superseded runs. */
+export const ARCHIVED_LOG_PREFIXES = Object.freeze([".runs/", "docs/history/"]);
+
+/** A machine-written ledger, wherever it lives. */
+export const ARCHIVED_LOG_SUFFIX = ".jsonl";
+
+/**
+ * The extensions of the ecosystems this module already reasons about (Node,
+ * Python, Go, Rust, Zig, shell). A path whose extension is not here is not
+ * promoted to `code`: calling a PNG source would be the same lie in the other
+ * direction as calling it `other`.
+ */
+const CODE_SUFFIXES = Object.freeze([".mjs", ".cjs", ".js", ".jsx", ".ts", ".tsx", ".py", ".go", ".rs", ".zig", ".sh", ".mk", ".c", ".h"]);
 
 /**
  * Every path git tracks at HEAD, sorted. The bounded spawn is the same
@@ -68,6 +127,121 @@ function listTrackedPaths(cwd) {
   const result = boundedGitSync(["-C", cwd, "ls-files"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
   if (result.error || result.status !== 0) throw result.error ?? new Error(`git ls-files exited ${result.status}`);
   return String(result.stdout).split("\n").filter(Boolean).sort();
+}
+
+/**
+ * The bytes one path costs the artefact: its own UTF-8 length. That is what
+ * the ceiling counts and what the omission report sums, so the number a reader
+ * sees for a discarded kind is the number that kind was worth to the budget.
+ *
+ * @param {string} path
+ * @returns {number}
+ */
+export function pathBytes(path) {
+  return Buffer.byteLength(path, "utf8");
+}
+
+/**
+ * Which source kind one path belongs to. Total by construction — every path
+ * lands in exactly one of `PATH_KINDS` — which is what lets the per-kind
+ * counts of a cut sum to the discarded total with no path uncounted.
+ *
+ * Order matters: a `docs/history/*.md` is record, not live prose, and a
+ * `package.json` is a manifest, not a document that happens to be JSON.
+ *
+ * @param {string} path
+ * @returns {PathKind}
+ */
+export function pathKindOf(path) {
+  const basename = path.slice(path.lastIndexOf("/") + 1);
+  if (MANIFEST_BASENAMES.includes(basename) || basename.endsWith(MANIFEST_SUFFIX)) return "manifest";
+  if (ARCHIVED_LOG_PREFIXES.some((prefix) => path.startsWith(prefix)) || basename.endsWith(ARCHIVED_LOG_SUFFIX)) return "archived-log";
+  if (basename.endsWith(DOCUMENT_SUFFIX)) return "document";
+  if (CODE_SUFFIXES.some((suffix) => basename.endsWith(suffix))) return "code";
+  return "other";
+}
+
+/**
+ * The tracked paths the cut may not discard, whatever the byte ceiling: every
+ * path a requirement's own proof or measure names, every test file, and every
+ * module the tree references. A path a requirement names is the one piece of
+ * the tree the plan is already contracted to reason about; dropping it to save
+ * bytes would make the artefact cheap and the plan blind. References matter
+ * for the same reason: a module nothing names is a leaf, a module something
+ * reads is where a change lands.
+ *
+ * @param {string[]} allPaths every tracked path
+ * @param {SpecRequirement[]} requirements
+ * @param {Map<string, string[]>} references repo-relative references per file
+ * @returns {Set<string>}
+ */
+export function requiredPaths(allPaths, requirements, references) {
+  const tracked = new Set(allPaths);
+  /** @type {Set<string>} */
+  const required = new Set();
+  for (const requirement of requirements) {
+    for (const proof of [requirement.proof, requirement.measure]) {
+      if (proof?.kind !== "path" || typeof proof.ref !== "string") continue;
+      if (tracked.has(proof.ref)) required.add(proof.ref);
+    }
+  }
+  for (const path of allPaths) {
+    if (path.startsWith("test/") && path.endsWith(".test.mjs")) required.add(path);
+  }
+  for (const referenced of references.values()) {
+    for (const path of referenced) if (tracked.has(path)) required.add(path);
+  }
+  return required;
+}
+
+/**
+ * The byte-limited cut over the tracked paths. Every required path is kept
+ * whatever the ceiling; the rest are kept in sorted order while the path bytes
+ * fit. Each discarded path is counted once under the one kind `pathKindOf`
+ * gives it, so the per-kind counts and bytes sum to the omitted total by
+ * construction — no path counted twice, none uncounted, and a known category
+ * never reported as a generic `other`.
+ *
+ * The ceiling bounds only what nothing requires, so the kept list can exceed
+ * `maxPathBytes` on a repository whose requirements name more than the budget
+ * holds. That is the intended direction: an artefact cheap and blind is the
+ * outcome this rule exists to prevent, and `omitted` says by how much the rest
+ * lost.
+ *
+ * @param {string[]} allPaths every tracked path, sorted
+ * @param {Set<string>} required the paths `requiredPaths` selected
+ * @param {number} maxPathBytes
+ * @returns {{paths: string[], omitted: PathOmission}}
+ */
+export function cutPaths(allPaths, required, maxPathBytes) {
+  const byKind = /** @type {Record<PathKind, PathKindOmission>} */ (Object.fromEntries(PATH_KINDS.map((kind) => [kind, { paths: 0, bytes: 0 }])));
+  /** @type {string[]} */
+  const kept = [];
+  let optionalBytes = 0;
+  for (const path of allPaths) {
+    if (required.has(path)) {
+      kept.push(path);
+      continue;
+    }
+    const bytes = pathBytes(path);
+    if (optionalBytes + bytes > maxPathBytes) {
+      const kind = pathKindOf(path);
+      byKind[kind].paths += 1;
+      byKind[kind].bytes += bytes;
+      continue;
+    }
+    optionalBytes += bytes;
+    kept.push(path);
+  }
+  const kinds = PATH_KINDS.map((kind) => byKind[kind]);
+  return {
+    paths: [...kept].sort(),
+    omitted: {
+      paths: kinds.reduce((sum, entry) => sum + entry.paths, 0),
+      bytes: kinds.reduce((sum, entry) => sum + entry.bytes, 0),
+      byKind,
+    },
+  };
 }
 
 /** @param {string} cwd @returns {Record<string, string>} */
@@ -298,24 +472,28 @@ export function measureRequirements(cwd, requirements, probes = {}) {
 
 /**
  * @param {string} cwd
- * @param {{measure?: MeasureProbes, maxPaths?: number, requirements?: SpecRequirement[], onProgress?: RepoFactsProgress}} [options]
+ * @param {{measure?: MeasureProbes, maxPathBytes?: number, requirements?: SpecRequirement[], onProgress?: RepoFactsProgress}} [options]
  * @returns {RepoFacts}
  */
 export function collectRepoFacts(cwd, options = {}) {
-  const maxPaths = options.maxPaths ?? DEFAULT_MAX_PATHS;
+  const maxPathBytes = options.maxPathBytes ?? DEFAULT_MAX_PATH_BYTES;
   const allPaths = listTrackedPaths(cwd);
   const pathSet = new Set(allPaths);
+  // One graph for both readers: the cut needs it to know what the tree
+  // references, `testFileEntries` to know what each test file covers.
+  const references = directReferenceGraph(cwd);
   const scripts = readScripts(cwd);
   const candidates = nodeCandidateCommands(scripts, allPaths);
   options.onProgress?.({ kind: "commands", commands: candidates.map((command) => command.argv) });
   const measured = measureCandidates(cwd, candidates, options.measure ?? {}, options.onProgress);
   const detected = manifestCandidateCommands(cwd);
-  const truncated = allPaths.length > maxPaths;
+  const requirements = options.requirements ?? [];
+  const cut = cutPaths(allPaths, requiredPaths(allPaths, requirements, references), maxPathBytes);
   return {
     formatVersion: FORMAT_VERSION,
     gitHead: gitHead(cwd),
-    paths: truncated ? allPaths.slice(0, maxPaths) : allPaths,
-    truncated,
+    paths: cut.paths,
+    pathOmission: cut.omitted,
     scripts,
     // The measured Node candidates first, in their timed order, each naming
     // package.json as the manifest it came from; then the manifest-only
@@ -325,7 +503,51 @@ export function collectRepoFacts(cwd, options = {}) {
     // null "no measurement" sentinel freeze.mjs reads and eligibility true.
     verificationCandidates: measured.map((candidate) => ({ ...candidate, manifest: PACKAGE_MANIFEST })),
     detectedVerificationCandidates: detected.map((candidate) => ({ ...candidate, measuredMs: null, eligible: true })),
-    testFiles: testFileEntries(allPaths, pathSet, directReferenceGraph(cwd)),
-    requirementMeasurements: measureRequirements(cwd, options.requirements ?? [], options.measure ?? {}),
+    testFiles: testFileEntries(allPaths, pathSet, references),
+    requirementMeasurements: measureRequirements(cwd, requirements, options.measure ?? {}),
   };
+}
+
+/** The file name the cut artefact is persisted under, both beside the staged
+ * planning inputs and durably beside a frozen plan. */
+export const REPO_FACTS_FILE = "repo-facts.json";
+/** The file name the complete path index is staged under, beside that artefact. */
+export const PATH_INDEX_FILE = "repo-paths.txt";
+
+/**
+ * Write the complete tracked-path index — every path `git ls-files` reports,
+ * one per line — beside the cut artefact. The cut is what a planning stage
+ * reads; this file is what an authorised discovery packet reads when it must
+ * reach a path the cut discarded, which is why it is a separate file and never
+ * a field of the artefact itself: the artefact stays byte-bounded, and the
+ * whole tree stays reachable.
+ *
+ * @param {string} cwd
+ * @param {string} indexPath
+ * @returns {string[]} the indexed paths, in the order written
+ */
+export function writePathIndex(cwd, indexPath) {
+  const paths = listTrackedPaths(cwd);
+  writeFileSync(indexPath, paths.map((path) => `${path}\n`).join(""));
+  return paths;
+}
+
+/**
+ * Persist the two files a later reader needs: the changed artefact — repo
+ * facts carrying the byte cut and its per-kind omission report — and the
+ * complete path index beside it. `pipeline.mjs` calls this into the scratch
+ * relay the draft and review stages read; `resolve.mjs` calls it into the
+ * plans directory, so a contested plan resumed without redrafting still leaves
+ * the facts it froze with on disk.
+ *
+ * @param {string} outDir
+ * @param {RepoFacts} facts
+ * @param {string} cwd the checkout the index is listed from
+ * @returns {string} the artefact path
+ */
+export function persistRepoFacts(outDir, facts, cwd) {
+  const factsPath = join(outDir, REPO_FACTS_FILE);
+  writeFileSync(factsPath, `${JSON.stringify(facts, null, 2)}\n`);
+  writePathIndex(cwd, join(outDir, PATH_INDEX_FILE));
+  return factsPath;
 }
