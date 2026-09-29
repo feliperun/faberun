@@ -8,10 +8,16 @@
  * supervisor with a poll interval, an idle policy, a durable dedupe through
  * the inbox, and a lock with its own staleness rule. `cli/campaign.mjs` keeps
  * the thin `watch` operation that reads the flags and calls in here.
+ *
+ * The idle episode is durable too, in `watch-idle.json` beside the lock: the
+ * idle alert's key carries the episode, and an episode kept only in memory
+ * re-anchors on every restart, which either re-sends a window the operator
+ * already saw or stays silent through the next one.
  */
 import { closeSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { lockStale, pidAlive, processStartToken, readLock } from "../run/lock.mjs";
+import { writeJsonAtomic } from "../run/store.mjs";
 import { readCampaign } from "./record.mjs";
 import { notifyQueueFor } from "../engine/notify-queue.mjs";
 import { appendInbox, readInbox, wakeCapabilityNotice } from "../notify/index.mjs";
@@ -23,6 +29,14 @@ export const DEFAULT_WAKE_POLL_MS = 30_000;
 /** How long without a material event before the watcher reports the campaign idle. */
 const WAKE_IDLE_AFTER_MS = 20 * 60_000;
 
+/**
+ * Where the watcher records the idle episode it is in. The idle alert's dedupe
+ * key embeds the instant the episode began, so that anchor has to outlive the
+ * process; the file lives beside `watch.lock` because the one campaign watcher
+ * owns both.
+ */
+const WATCH_IDLE_FILE = "watch-idle.json";
+
 const TERMINAL_NODE_STATUSES = new Set(["done", "no-op", "blocked", "failed", "exhausted", "stalled", "canceled", "cancelled"]);
 const ATTENTION_NODE_STATUSES = new Set(["failed", "exhausted", "stalled", "canceled", "cancelled"]);
 
@@ -30,8 +44,9 @@ const ATTENTION_NODE_STATUSES = new Set(["failed", "exhausted", "stalled", "canc
  * The watcher loop. Each line is announced through `notify`, which by default
  * records it in `<runs-dir>/inbox.jsonl` and delivers it to the campaign's
  * `notify.jsonl`; the inbox is both the durable record and the dedupe, so a
- * line already recorded is never re-sent. The injectable seams exist so a
- * test can drive the loop deterministically.
+ * line already recorded is never re-sent. The idle line is keyed by campaign,
+ * by the durable idle episode and by the twenty-minute window inside it. The
+ * injectable seams exist so a test can drive the loop deterministically.
  *
  * @param {string} campaignPath
  * @param {string} runsDir
@@ -59,6 +74,8 @@ export async function watchCampaignWake(campaignPath, runsDir, options = {}) {
   /** @type {Map<string, string>} */
   const runSignatures = new Map();
   let lastActiveAt = now();
+  /** @type {number|null} */
+  let idleSince = null;
   let first = true;
   try {
     for (;;) {
@@ -82,6 +99,13 @@ export async function watchCampaignWake(campaignPath, runsDir, options = {}) {
         emit(summary);
         await notify({ type: "attention", campaignId: campaign.id, dedupeKey, summary, ...extra });
       };
+      // A restart resumes the episode this campaign was already in. The key
+      // carries the episode's anchor, so resuming it is what keeps a window
+      // already announced quiet and the next window audible.
+      if (first) {
+        const storedSince = readIdleEpisode(campaignPath, campaign.id);
+        if (storedSince !== null) idleSince = storedSince;
+      }
       let anyActive = false;
       for (const runId of campaign.linkedRunIds) {
         const status = /** @type {Record<string, any>|null} */ (readJsonTolerant(join(runsDir, runId, "status.json")));
@@ -117,10 +141,19 @@ export async function watchCampaignWake(campaignPath, runsDir, options = {}) {
         }
       }
       const nowMs = now();
-      if (anyActive) lastActiveAt = nowMs;
-      else if (!first && nowMs - lastActiveAt >= WAKE_IDLE_AFTER_MS) {
-        const key = `idle:${Math.floor((nowMs - lastActiveAt) / WAKE_IDLE_AFTER_MS)}`;
-        await announce(key, `campaign-watch: ${campaign.id} active but no run has been active for ${Math.round((nowMs - lastActiveAt) / 60_000)} min; dispatch the next step`);
+      if (anyActive) {
+        lastActiveAt = nowMs;
+        if (idleSince !== null) {
+          idleSince = null;
+          clearIdleEpisode(campaignPath);
+        }
+      } else if (idleSince === null) {
+        idleSince = lastActiveAt;
+        writeIdleEpisode(campaignPath, campaign.id, idleSince);
+      }
+      if (idleSince !== null && nowMs - idleSince >= WAKE_IDLE_AFTER_MS) {
+        const key = `idle:${campaign.id}:${new Date(idleSince).toISOString()}:${Math.floor((nowMs - idleSince) / WAKE_IDLE_AFTER_MS)}`;
+        await announce(key, `campaign-watch: ${campaign.id} active but no run has been active for ${Math.round((nowMs - idleSince) / 60_000)} min; dispatch the next step`);
       }
       first = false;
       if (options.once === true) return;
@@ -128,6 +161,43 @@ export async function watchCampaignWake(campaignPath, runsDir, options = {}) {
     }
   } finally {
     lock.release();
+  }
+}
+
+/**
+ * The idle anchor a restart resumes, or null when no episode is in progress. A
+ * record naming another campaign, or whose instant does not parse, is no
+ * anchor: a campaign directory is just a path, and a stale file must never seed
+ * the key with an identity nothing can check.
+ *
+ * @param {string} campaignPath
+ * @param {string} campaignId
+ * @returns {number|null} epoch milliseconds the episode began
+ */
+function readIdleEpisode(campaignPath, campaignId) {
+  const record = /** @type {{campaignId?: unknown, idleSince?: unknown}|null} */ (readJsonTolerant(join(campaignPath, WATCH_IDLE_FILE)));
+  if (!record || record.campaignId !== campaignId || typeof record.idleSince !== "string") return null;
+  const started = Date.parse(record.idleSince);
+  return Number.isFinite(started) ? started : null;
+}
+
+/**
+ * @param {string} campaignPath
+ * @param {string} campaignId
+ * @param {number} idleSince epoch milliseconds
+ */
+function writeIdleEpisode(campaignPath, campaignId, idleSince) {
+  writeJsonAtomic(join(campaignPath, WATCH_IDLE_FILE), { campaignId, idleSince: new Date(idleSince).toISOString() });
+}
+
+/**
+ * @param {string} campaignPath
+ */
+function clearIdleEpisode(campaignPath) {
+  try {
+    unlinkSync(join(campaignPath, WATCH_IDLE_FILE));
+  } catch (error) {
+    if (errorCode(error) !== "ENOENT") throw error;
   }
 }
 
