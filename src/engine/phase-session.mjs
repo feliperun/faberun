@@ -2,7 +2,8 @@
  * Which provider session a node's next invocation runs in: fresh, a
  * continuation of a compatible earlier session in the same plan phase, or a
  * rotation -- a fresh session that carries the prior nodes' structured
- * summaries. Separate from dispatch.mjs, which spawns whatever this decides,
+ * summaries for a worker, and the role's own prompt, whole, for a judge.
+ * Separate from dispatch.mjs, which spawns whatever this decides,
  * because the decision reads only persisted node snapshots and the routing
  * table, and because dispatch.mjs crossed the 800-line ceiling carrying it.
  */
@@ -12,6 +13,7 @@ import { boundedUtf8, stableJson } from "../util.mjs";
 import { providerCommand } from "../harnesses/index.mjs";
 import { readJson } from "../run/store.mjs";
 import { routeRuntimeForState } from "./failover.mjs";
+import { JUDGE_PROMPT_BYTES, JUDGE_PROMPT_REASON } from "../contract/judge-envelope.mjs";
 import { validateNodeSnapshot } from "../contract/snapshot.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -57,6 +59,13 @@ export function forceFreshSession(state, explicit = {}) {
  * the call site is not enough, because this function rediscovers the prior
  * continuation from the persisted ledger.
  *
+ * A rotation never substitutes a synthesized text for the prompt the role was
+ * dispatched with. A worker gets the phase's prior summaries in front of its
+ * own prompt; a judge gets its own prompt, whole, because the definition of
+ * done, the evidence and the re-ask instruction it carries are the review, and
+ * the author's packet and reasoning summary are what the review is independent
+ * of.
+ *
  * @param {ValidatedContract} contract
  * @param {ValidatedNode} node
  * @param {NodeSnapshot} state
@@ -99,13 +108,11 @@ export function phaseInvocationPlan(contract, node, state, runDir, role, prompt,
   // A harness that cannot continue at all, or a session picked up from a
   // different phase-sibling node whose identity does not match this one, has
   // no native continuity: the fresh attempt carries the prior nodes'
-  // structured summaries forward instead of starting blind.
+  // structured summaries forward instead of starting blind. The judge is the
+  // exception -- it rotates onto its own prompt, never the author's.
   if (session && (!canContinue || session.nodeId !== node.id)) {
-    return {
-      prompt: phaseHandoffPrompt(contract, node, state, runDir, role),
-      continuationId: null,
-      mode: "rotate",
-    };
+    const rotated = role === "judge" ? preservedJudgePrompt(prompt) : phaseHandoffPrompt(contract, node, state, runDir, role, prompt);
+    return { prompt: rotated, continuationId: null, mode: "rotate" };
   }
   // A capable harness continuing its own node whose identity merely drifted
   // (the run directory moved, or a runtime edge) still gets the caller's own
@@ -188,8 +195,22 @@ export function fingerprintRuntime(runtime) {
   return createHash("sha256").update(stableJson({ runtime, executable })).digest("hex");
 }
 
-/** @param {ValidatedContract} contract @param {ValidatedNode} node @param {NodeSnapshot} state @param {string} runDir @param {"worker"|"judge"} role @returns {string} */
-function phaseHandoffPrompt(contract, node, state, runDir, role) {
+/**
+ * The worker's rotation prompt: the phase's prior structured summaries in front
+ * of the prompt the caller built for this attempt — the node's own packet, or
+ * the retry prompt carrying the gate's findings. Reading `node.prompt` here
+ * instead discarded whatever the caller had added to the role's effective
+ * prompt, which is the defect this rotation exists to avoid.
+ *
+ * @param {ValidatedContract} contract
+ * @param {ValidatedNode} node
+ * @param {NodeSnapshot} state
+ * @param {string} runDir
+ * @param {"worker"|"judge"} role
+ * @param {string} prompt
+ * @returns {string}
+ */
+function phaseHandoffPrompt(contract, node, state, runDir, role, prompt) {
   const summaries = phaseSessionCandidates(contract, node, state, runDir, role)
     .map(({ nodeId }) => {
       const candidate = contract.nodes.find((item) => item.id === nodeId);
@@ -211,7 +232,32 @@ function phaseHandoffPrompt(contract, node, state, runDir, role) {
     "Prior structured node summaries:",
     summaries.length ? summaries.map((summary) => `- ${summary}`).join("\n") : "- (none)",
     "Current closed task packet:",
-    boundedUtf8(node.prompt, 48 * 1024),
+    boundedUtf8(prompt, 48 * 1024),
   ].join("\n\n");
   return boundedUtf8(handoff, 60 * 1024);
+}
+
+/**
+ * The judge's effective prompt, carried whole into a fresh session, or refused.
+ *
+ * measured 2026-09-29 (review R1): the rotation used to rebuild the text from
+ * `node.prompt`, so a judge picking up a phase sibling's session was handed the
+ * author's closed packet under a "continue as the judge agent" preamble and
+ * lost the criteria, the evidence and the re-ask instruction — a judge that
+ * never sees the checklist can only be discarded by it. The judge takes none of
+ * the author's context: it is not worker continuity, it is an independent
+ * review of work the prompt already describes.
+ *
+ * The prompt is returned unmodified or not at all. Bounding it to fit would cut
+ * exactly the mandatory content, so one over `JUDGE_PROMPT_BYTES` fails before
+ * any provider is spawned, with the code every oversized judge prompt carries.
+ *
+ * @param {string} prompt
+ * @returns {string}
+ */
+function preservedJudgePrompt(prompt) {
+  if (Buffer.byteLength(prompt, "utf8") <= JUDGE_PROMPT_BYTES) return prompt;
+  const error = /** @type {Error & {code: string}} */ (new Error(JUDGE_PROMPT_REASON));
+  error.code = "judge_prompt_too_large";
+  throw error;
 }
