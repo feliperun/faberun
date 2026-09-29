@@ -13,6 +13,7 @@ import {
   TASK_KINDS,
   TASK_KIND_CATALOGUE_FILE,
   renderTaskKindCatalogue,
+  applyPlanPatch,
   buildPlanningContract,
   validateFindings,
   validatePlanOutput,
@@ -674,4 +675,65 @@ test("the draft and the revise are told to name the test file a name-filtered pr
     const instructions = /** @type {any} */ (buildPlanningContract(kind, baseInputs())).nodes[0].taskPacket.instructions.join("\n");
     assert.match(instructions, /--test-name-pattern\) names the test file it selects from/u, kind);
   }
+});
+
+/** @returns {import("../../src/plan/template.mjs").PlanOutput} a validated one-node plan, the base every patch below applies to */
+function validatedPlan() {
+  return validatePlanOutput({ nodes: [planNode(), { ...planNode(), id: "second" }, { ...planNode(), id: "third" }], justification: "the draft's own reason" });
+}
+
+test("a revise contract asks for a patch when there is a plan to patch, and for the whole plan when there is not", () => {
+  const cwd = checkout();
+  const contractPath = join(cwd, "contract.json");
+  const instructionsOf = (/** @type {Record<string, unknown>} */ overrides) =>
+    validateContract(buildPlanningContract("revise", baseInputs(overrides)), contractPath).nodes[0].taskPacket.instructions.join("\n");
+
+  const patch = instructionsOf({ revisePatch: true });
+  assert.match(patch, /Put the revision in output\.patch as \{nodes\?: \[/);
+  assert.match(patch, /removedNodeIds\?: \[string\]/);
+  // The patch spells the node shape the same way the plan does, one constant
+  // for both, so a worker cannot be told two shapes for one node.
+  assert.match(patch, /nodes\?: \[\{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: \[\{id, text, proof\?: \{kind: "command"\|"path"\|"verification", ref\}, judgment\?: true, reason\?: string\}\]/);
+  assert.match(patch, /a node whose id that plan already has replaces it, a new id adds a node, removedNodeIds names each node the plan must no longer have/);
+  assert.doesNotMatch(patch, /Put the revised plan in output\.plan/);
+
+  // Measured 2026-09-27 on the 3a gate: a first round whose draft never
+  // validated has no node list to patch, and its plan file holds the rejected
+  // draft, so that round's revise is asked for the whole plan instead.
+  const whole = instructionsOf({});
+  assert.match(whole, /Put the revised plan in output\.plan as \{nodes: \[/);
+  assert.doesNotMatch(whole, /output\.patch/);
+});
+
+test("a patch replaces a node in place, appends a new one, removes by id, and leaves the rest of the plan alone", () => {
+  const plan = validatedPlan();
+  const merged = validatePlanOutput(applyPlanPatch(plan, {
+    nodes: [{ ...planNode(), id: "second", objective: "Revised second" }, { ...planNode(), id: "fourth" }],
+    removedNodeIds: ["third"],
+  }));
+  assert.deepEqual(merged.nodes.map((node) => node.id), ["build", "second", "fourth"], "the replaced node keeps its position, the new one appends");
+  assert.equal(merged.nodes[1].objective, "Revised second");
+  assert.equal(merged.nodes[0].objective, "Implement it", "a node the patch does not name is untouched");
+  assert.equal(merged.justification, "the draft's own reason", "a plan-level field the patch omits keeps the plan's own value");
+});
+
+test("an empty patch yields the plan it patches, and a patch that removes every node is the plan validator's own refusal", () => {
+  const plan = validatedPlan();
+  assert.deepEqual(validatePlanOutput(applyPlanPatch(plan, {})), plan, "a plan re-validates to itself, so the merge is not a weaker check than the draft's");
+  assert.throws(
+    () => validatePlanOutput(applyPlanPatch(plan, { removedNodeIds: ["build", "second", "third"] })),
+    /plan\.nodes must be a non-empty array/,
+  );
+});
+
+test("a patch whose own shape is wrong is refused by name", () => {
+  const plan = validatedPlan();
+  assert.throws(() => applyPlanPatch(plan, { nodes: [], ratchets: [] }), /patch has unexpected field ratchets/);
+  assert.throws(() => applyPlanPatch(plan, { nodes: [planNode(), planNode()] }), /patch\.nodes names the same node id twice/);
+  assert.throws(() => applyPlanPatch(plan, { removedNodeIds: ["ghost"] }), /patch\.removedNodeIds names ghost, which the plan it revises does not have/);
+  assert.throws(() => applyPlanPatch(plan, { nodes: [planNode()], removedNodeIds: ["build"] }), /patch names build in both nodes and removedNodeIds/);
+  // A patch node is a plan node: it is refused for exactly what one is, under
+  // the field the worker actually wrote.
+  assert.throws(() => applyPlanPatch(plan, { nodes: [{ ...planNode(), riskTier: "extreme" }] }), /patch\.nodes\[0\]\.riskTier must be one of/);
+  assert.throws(() => applyPlanPatch(plan, { nodes: [{ ...planNode(), command: "node --test" }] }), /patch\.nodes\[0\] has unexpected field command/);
 });

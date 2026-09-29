@@ -126,9 +126,9 @@ test("a revise that does not reduce critical findings stops the pipeline", async
     }
     if (kind === "revise") {
       reviseCalls += 1;
-      // The same plan every time: the revise never touches "build", so the
+      // An empty patch every time: the revise never touches "build", so the
       // finding against it is never resolved.
-      return { contract: { id: `revise-${reviseCalls}` }, output: { plan: planOutput() } };
+      return { contract: { id: `revise-${reviseCalls}` }, output: { patch: { nodes: [] } } };
     }
     throw new Error(`unexpected stage ${kind}`);
   };
@@ -160,9 +160,9 @@ test("an invalid revise output is retried once without spending a round, and a s
     }
     if (kind === "revise") {
       reviseCalls += 1;
-      // Every revise attempt -- the first and its one retry -- comes back
-      // structurally invalid: riskTier is not one of the catalogue.
-      return { contract: { id: `revise-${reviseCalls}` }, output: { plan: { nodes: [{ ...planOutput().nodes[0], riskTier: "extreme" }] } } };
+      // Every revise attempt -- the first and its one retry -- patches in a
+      // node the validator refuses: riskTier is not one of the catalogue.
+      return { contract: { id: `revise-${reviseCalls}` }, output: { patch: { nodes: [{ ...planOutput().nodes[0], riskTier: "extreme" }] } } };
     }
     throw new Error(`unexpected stage ${kind}`);
   };
@@ -194,7 +194,7 @@ test("a round whose draft never validated sets no baseline for R14", async () =>
   ];
   let reviewCalls = 0;
   let reviseCalls = 0;
-  const runStage = async (/** @type {string} */ kind) => {
+  const runStage = async (/** @type {string} */ kind, /** @type {any} */ inputs) => {
     if (kind === "review") {
       const findings = reviewFindings[reviewCalls];
       reviewCalls += 1;
@@ -202,7 +202,11 @@ test("a round whose draft never validated sets no baseline for R14", async () =>
     }
     if (kind === "revise") {
       reviseCalls += 1;
-      return { contract: { id: `revise-${reviseCalls}` }, output: { plan: planOutput({ objective: `Implement the feature, revision ${reviseCalls}` }) } };
+      // The first round's draft never validated, so there is no plan to patch
+      // and its revise returns a whole plan; every round after that one
+      // patches the plan it read.
+      const node = { ...planOutput({ objective: `Implement the feature, revision ${reviseCalls}` }).nodes[0] };
+      return { contract: { id: `revise-${reviseCalls}` }, output: inputs?.revisePatch === true ? { patch: { nodes: [node] } } : { plan: { nodes: [node] } } };
     }
     throw new Error(`unexpected stage ${kind}`);
   };
@@ -237,7 +241,9 @@ test("a revise that answers every critical is not stopped by a fresh review that
     }
     if (kind === "revise") {
       reviseCalls += 1;
-      return { contract: { id: `revise-${reviseCalls}` }, output: { plan: planOutput({ objective: `Implement the feature, revision ${reviseCalls}` }) } };
+      // Each revise changes the node both of the round's criticals name, which
+      // is what answers them: the patch carries that node and nothing else.
+      return { contract: { id: `revise-${reviseCalls}` }, output: { patch: { nodes: [{ ...planOutput().nodes[0], objective: `Implement the feature, revision ${reviseCalls}` }] } } };
     }
     throw new Error(`unexpected stage ${kind}`);
   };
@@ -251,13 +257,20 @@ test("a revise that answers every critical is not stopped by a fresh review that
   assert.equal(reviseCalls, 2);
 });
 
-test("the revise is handed the plan it revises, and its retry the output the validator refused", async () => {
+test("the revise is handed the plan it revises, and its retry the revision the validator refused", async () => {
   // Measured 2026-09-25 on the 3a gate: the revise read only the spec, repo
   // facts, catalogue and findings, so every revise redrafted the plan from
   // the findings alone, and its retry fixed one validator error while
   // introducing another.
+  //
+  // RM-110 moves what the retry is handed from "the plan the validator
+  // refused" to "the merged plan the validator refused": the first attempt's
+  // node change is a cross-field refusal here (its phase names a node the plan
+  // does not have), so the merge survives it and the retry patches a plan that
+  // already carries that change, which is what keeps the retry to one answer.
   const rollback = { id: "F1", severity: "critical", nodeId: "build", text: "the plan is missing a rollback path" };
-  const rejected = { nodes: [{ ...planOutput().nodes[0], riskTier: "extreme" }] };
+  const revisedNode = { ...planOutput().nodes[0], objective: "The drafted plan, with a rollback path" };
+  const ghostPhase = { id: "p1", requirementIds: ["R1"], nodeIds: ["build", "ghost"], deliverable: "The feature" };
   /** @type {unknown[]} */
   const handed = [];
   let reviewCalls = 0;
@@ -272,8 +285,10 @@ test("the revise is handed the plan it revises, and its retry the output the val
       }
       reviseCalls += 1;
       handed.push(JSON.parse(readFileSync(join(/** @type {string} */ (options.cwd), inputs.planPath), "utf8")));
-      const plan = reviseCalls === 1 ? rejected : planOutput({ objective: "The drafted plan, with a rollback path" });
-      return { contract: { id: `revise-${reviseCalls}` }, output: { plan } };
+      const patch = reviseCalls === 1
+        ? { nodes: [revisedNode], phases: [ghostPhase] }
+        : { phases: [{ ...ghostPhase, nodeIds: ["build"] }] };
+      return { contract: { id: `revise-${reviseCalls}` }, output: { patch } };
     },
   });
 
@@ -281,7 +296,10 @@ test("the revise is handed the plan it revises, and its retry the output the val
 
   assert.equal(result.resolved, true);
   assert.equal(/** @type {any} */ (handed[0]).nodes[0].objective, "The drafted plan", "the first revise starts from the plan review graded");
-  assert.deepEqual(handed[1], rejected, "the retry starts from the output the validator refused");
+  assert.equal(/** @type {any} */ (handed[1]).nodes[0].objective, "The drafted plan, with a rollback path", "the retry starts from the revision the validator refused, not from the plan before it");
+  assert.deepEqual(/** @type {any} */ (handed[1]).phases, [ghostPhase], "including the part of it the validator refused");
+  assert.deepEqual(/** @type {any} */ (result.plan).phases, [{ ...ghostPhase, nodeIds: ["build"] }]);
+  assert.equal(/** @type {any} */ (result.plan).nodes[0].objective, "The drafted plan, with a rollback path");
 });
 
 test("a verification timeout under its measured bound is raised before review, not contested", async () => {
@@ -333,7 +351,10 @@ test("a revise whose output would not freeze is sent back once before review spe
       }
       reviseCalls += 1;
       reviseFindings.push(JSON.parse(readFileSync(join(/** @type {string} */ (options.cwd), inputs.findingsPath), "utf8")));
-      return { contract: { id: `revise-${reviseCalls}` }, output: { plan: planOutput({ objective: reviseCalls === 1 ? "opens a scope gap" : "closes it" }) } };
+      // The first patch opens the gap the pre-flight refuses, and the retry
+      // patches the same node again to close it: the merged plan is what both
+      // the pre-flight and the retry's own base read.
+      return { contract: { id: `revise-${reviseCalls}` }, output: { patch: { nodes: [{ ...planOutput().nodes[0], objective: reviseCalls === 1 ? "opens a scope gap" : "closes it" }] } } };
     },
   });
   const frozen = /** @type {() => unknown} */ (options.frozenContractRaw)();

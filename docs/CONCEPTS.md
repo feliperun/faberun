@@ -45,7 +45,11 @@ budgeted, isolated runs: `faberun plan` drives draft, review and — while a
 `mode: "discovery"` run built by `src/plan/template.mjs`, sequenced by
 `src/plan/pipeline.mjs`. The reviewer's packet carries only the spec, the
 repository facts and the plan under review, never the author's own packet or
-reasoning. A converged draft is sized (`src/plan/sizing.mjs`), routed
+reasoning. A revise answers with a patch over the nodes it changes rather than
+with the whole plan back, unless the plan it repairs never validated — the
+pipeline, never the model, decides which of the two shapes the stage asks for.
+Each node names the test files that cover what it writes, so sizing can spend
+its command budget on them. A converged draft is sized (`src/plan/sizing.mjs`), routed
 (`src/plan/routing.mjs`, where the operator's `--runtime-defaults` always wins
 over the table) and frozen (`src/plan/freeze.mjs`) into the project's runs directory at
 `<home>/projects/<project>/runs/campaigns/<id>/plans/<phase>/plan.json` and

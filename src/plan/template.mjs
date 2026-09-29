@@ -31,7 +31,7 @@ import { validateVerificationCommands } from "../contract/verification.mjs";
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
 /** @typedef {"draft"|"review"|"revise"|"spec-author"|"spec-review"} PlanningKind */
 /** @typedef {"low"|"standard"|"high"} RiskTier */
-/** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, reviewerId?: string, specPath?: string, repoFactsPath?: string, cataloguePath?: string, packageMode?: import("./sizing.mjs").PackageMode, planPath?: string, findingsPath?: string, notesPath?: string}} PlanningContractInputs */
+/** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, reviewerId?: string, specPath?: string, repoFactsPath?: string, cataloguePath?: string, packageMode?: import("./sizing.mjs").PackageMode, planPath?: string, findingsPath?: string, notesPath?: string, revisePatch?: boolean}} PlanningContractInputs */
 /** @typedef {{id: string, objective: string, taskKind: string, riskTier: RiskTier, dependsOn: string[], readFiles: string[], writeFiles: string[], scopeAcknowledged: string[], definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], verification: import("../contract/verification.mjs").VerificationCommand[], expectedTurns?: number}} PlanOutputNode */
 /** @typedef {{nodes: PlanOutputNode[], phases?: PlanPhase[], sharedVerification?: import("../contract/verification.mjs").VerificationCommand[], finalVerification?: import("../contract/verification.mjs").VerificationCommand[], findings?: PlanFindingOutput[], justification?: string}} PlanOutput */
 /** @typedef {{id: string, requirementIds: string[], nodeIds?: string[], deliverable: string}} PlanPhase */
@@ -121,7 +121,18 @@ const REQUIRED_INPUTS = Object.freeze({
 // run had already succeeded. The id charset is requireId's
 // (contract/assert.mjs) verbatim, because an id that is present but invalid
 // fails that same validator just as late.
-const PLAN_OUTPUT_SHAPE = '{nodes: [{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: [{id, text, proof?: {kind: "command"|"path"|"verification", ref}, judgment?: true, reason?: string}], verification: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}], expectedTurns?}], phases?: [{id, requirementIds: [string], nodeIds: [string], deliverable}], sharedVerification?: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}], finalVerification?: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}], justification?}; every id in it (node, phase, node assignment, and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly "." or ".."';
+const PLAN_NODE_SHAPE = '{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: [{id, text, proof?: {kind: "command"|"path"|"verification", ref}, judgment?: true, reason?: string}], verification: [{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}], expectedTurns?}';
+const PLAN_PHASE_SHAPE = '[{id, requirementIds: [string], nodeIds: [string], deliverable}]';
+const PLAN_SUITE_SHAPE = '[{argv: [string], cwd?, timeoutSec?, repeat?, env?, mutation?: {threshold}}]';
+const ID_CHARSET_RULE = 'every id in it (node, phase, node assignment, and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly "." or ".."';
+const PLAN_OUTPUT_SHAPE = `{nodes: [${PLAN_NODE_SHAPE}], phases?: ${PLAN_PHASE_SHAPE}, sharedVerification?: ${PLAN_SUITE_SHAPE}, finalVerification?: ${PLAN_SUITE_SHAPE}, justification?}; ${ID_CHARSET_RULE}`;
+/**
+ * What a revise writes instead of the plan again (RM-110). Every node this
+ * names is a complete node, because the plan it patches is in the reviser's
+ * readFiles and the patch says only what changes: the node shape is
+ * `PLAN_NODE_SHAPE`, one home for both strings so they cannot drift.
+ */
+const REVISE_PATCH_SHAPE = `{nodes?: [${PLAN_NODE_SHAPE}], removedNodeIds?: [string], phases?: ${PLAN_PHASE_SHAPE}, sharedVerification?: ${PLAN_SUITE_SHAPE}, finalVerification?: ${PLAN_SUITE_SHAPE}, justification?}; ${ID_CHARSET_RULE}`;
 /**
  * The size guidance every draft and revise carries. measured 2026-09-20 over
  * stored runs: median 49 provider requests per worker turn; cost per turn
@@ -142,6 +153,17 @@ const EXPLORATORY_SIZING_INSTRUCTION = "Size nodes by what each must read and by
 const FINDINGS_SHAPE = "[{id, severity, nodeId, text}]";
 
 /**
+ * The two shapes a revise can be asked for, swapped by `instructionsFor`.
+ * Which one is in force is decided by `inputs.revisePatch`, never by the
+ * worker: the plan in readFiles is a validated plan to patch only when the
+ * pipeline has one, and a draft that never validated is the case where it does
+ * not (`rounds.mjs` starts a round with `plan: null` and the draft's own
+ * rejected output).
+ */
+const REVISE_PLAN_INSTRUCTION = `Return exactly one worker-result JSON object. Put the revised plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`;
+const REVISE_PATCH_INSTRUCTION = `Return exactly one worker-result JSON object. Put the revision in output.patch as ${REVISE_PATCH_SHAPE} and nothing else in output. The patch applies to the plan JSON in readFiles: a node whose id that plan already has replaces it, a new id adds a node, removedNodeIds names each node the plan must no longer have, and a field you omit keeps the value the plan already has. Carry only the nodes and fields a finding requires — a revise that omits what a finding names has not answered it.`;
+
+/**
  * The instruction list is a frozen table because it is the same for every
  * campaign; only the sizing sentence depends on what kind of package this is.
  *
@@ -150,8 +172,11 @@ const FINDINGS_SHAPE = "[{id, severity, nodeId, text}]";
  * @returns {string[]}
  */
 function instructionsFor(kind, inputs) {
-  if (inputs.packageMode !== "exploratory") return INSTRUCTIONS[kind];
-  return INSTRUCTIONS[kind].map((line) => (line === SIZING_INSTRUCTION ? EXPLORATORY_SIZING_INSTRUCTION : line));
+  const lines = kind !== "revise" || inputs.revisePatch !== true
+    ? INSTRUCTIONS[kind]
+    : INSTRUCTIONS[kind].map((line) => (line === REVISE_PLAN_INSTRUCTION ? REVISE_PATCH_INSTRUCTION : line));
+  if (inputs.packageMode !== "exploratory") return lines;
+  return lines.map((line) => (line === SIZING_INSTRUCTION ? EXPLORATORY_SIZING_INSTRUCTION : line));
 }
 
 // AP1 of safe-to-hand-to-a-friend, measured 2026-09-26: a draft copied the
@@ -233,7 +258,7 @@ const INSTRUCTIONS = Object.freeze({
     NAMED_TEST_FILE_RULE,
     COVERING_TEST_RULE,
     ...CONTRACT_VERIFICATION_RULE,
-    `Return exactly one worker-result JSON object. Put the revised plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
+    REVISE_PLAN_INSTRUCTION,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan.",
     SIZING_INSTRUCTION,
   ],
@@ -361,10 +386,77 @@ export function buildPlanningContract(kind, inputs) {
 }
 
 const PLAN_FIELDS = new Set(["nodes", "phases", "sharedVerification", "finalVerification", "justification"]);
+/** A patch's fields: the plan's own, minus `nodes`, plus the ids it removes. */
+const PATCH_FIELDS = new Set(["nodes", "removedNodeIds", "phases", "sharedVerification", "finalVerification", "justification"]);
 const PLAN_NODE_FIELDS = new Set(["id", "objective", "taskKind", "riskTier", "dependsOn", "readFiles", "writeFiles", "scopeAcknowledged", "definitionOfDone", "verification", "expectedTurns"]);
 
 /**
- * Validate a draft or revise worker's `output.plan`. Rejects a node naming a
+ * The node list of a plan, or of a revise's `output.patch`, under one
+ * validator: a node's shape is the same in both, so a patch node is refused
+ * for exactly what a plan node is. `label` is the caller's own field path, so
+ * the message a worker reads names the field it actually wrote.
+ *
+ * @param {unknown} value
+ * @param {string} label
+ * @returns {PlanOutputNode[]}
+ */
+function validatePlanNodes(value, label) {
+  if (!Array.isArray(value)) throw new TypeError(`${label} must be an array`);
+  return value.map((node, index) => {
+    const nodeLabel = `${label}[${index}]`;
+    assertObject(node, nodeLabel);
+    const nodeRecord = /** @type {Record<string, unknown>} */ (node);
+    rejectUnknown(nodeRecord, PLAN_NODE_FIELDS, nodeLabel);
+    requireId(nodeRecord.id, `${nodeLabel}.id`);
+    requireString(nodeRecord.objective, `${nodeLabel}.objective`);
+    if (typeof nodeRecord.taskKind !== "string" || !TASK_KINDS.includes(nodeRecord.taskKind)) {
+      throw new TypeError(`${nodeLabel}.taskKind must be one of ${TASK_KINDS.join(", ")}`);
+    }
+    if (typeof nodeRecord.riskTier !== "string" || !RISK_TIERS.includes(nodeRecord.riskTier)) {
+      throw new TypeError(`${nodeLabel}.riskTier must be one of ${RISK_TIERS.join(", ")}`);
+    }
+    const dependsOn = nodeRecord.dependsOn ?? [];
+    requireStringArray(dependsOn, `${nodeLabel}.dependsOn`);
+    const readFiles = nodeRecord.readFiles ?? [];
+    requireStringArray(readFiles, `${nodeLabel}.readFiles`);
+    const writeFiles = nodeRecord.writeFiles ?? [];
+    requireStringArray(writeFiles, `${nodeLabel}.writeFiles`);
+    // A node that reaches an importer it must not change says so here. Without
+    // this field the drafter is told (INSTRUCTIONS, draft/revise) to answer a
+    // scope-closure finding with `writeFiles or scopeAcknowledged` and has no
+    // way to say the second, so the only expressible answer is the wrong one:
+    // declaring a read-only importer writable. Measured 2026-09-20 -- a revise
+    // round could not resolve the finding the preflight had just raised.
+    const scopeAcknowledged = nodeRecord.scopeAcknowledged ?? [];
+    requireStringArray(scopeAcknowledged, `${nodeLabel}.scopeAcknowledged`);
+    // Verification is validated first so a DoD proof that names a verification
+    // command by its exact text (R21) can be checked and normalized to that
+    // command's index against this node's own commands, in hand here.
+    const verification = validateVerificationCommands(nodeRecord.verification ?? [], `${nodeLabel}.verification`);
+    const definitionOfDone = validateDefinitionOfDone(
+      nodeRecord.definitionOfDone ?? [],
+      `${nodeLabel}.definitionOfDone`,
+      { commands: verification, nodeId: /** @type {string} */ (nodeRecord.id) },
+    );
+    const expectedTurns = nodeRecord.expectedTurns === undefined ? undefined : positiveInteger(nodeRecord.expectedTurns, `${nodeLabel}.expectedTurns`);
+    return /** @type {PlanOutputNode} */ ({
+      id: /** @type {string} */ (nodeRecord.id),
+      objective: /** @type {string} */ (nodeRecord.objective),
+      taskKind: /** @type {string} */ (nodeRecord.taskKind),
+      riskTier: /** @type {RiskTier} */ (nodeRecord.riskTier),
+      dependsOn: /** @type {string[]} */ (dependsOn),
+      readFiles: /** @type {string[]} */ (readFiles),
+      writeFiles: /** @type {string[]} */ (writeFiles),
+      scopeAcknowledged: /** @type {string[]} */ (scopeAcknowledged),
+      definitionOfDone,
+      verification,
+      ...(expectedTurns === undefined ? {} : { expectedTurns }),
+    });
+  });
+}
+
+/**
+ * Validate a draft's `output.plan`. Rejects a node naming a
  * runtime, harness, model, or vendor (an unknown field, since a plan node's
  * shape never includes one) and a node missing taskKind or riskTier. A
  * declared phase associated with no requirement is reported as a finding on
@@ -380,57 +472,7 @@ export function validatePlanOutput(plan) {
   if (!Array.isArray(record.nodes) || record.nodes.length === 0) {
     throw new TypeError("plan.nodes must be a non-empty array");
   }
-  const nodes = record.nodes.map((node, index) => {
-    const label = `plan.nodes[${index}]`;
-    assertObject(node, label);
-    const nodeRecord = /** @type {Record<string, unknown>} */ (node);
-    rejectUnknown(nodeRecord, PLAN_NODE_FIELDS, label);
-    requireId(nodeRecord.id, `${label}.id`);
-    requireString(nodeRecord.objective, `${label}.objective`);
-    if (typeof nodeRecord.taskKind !== "string" || !TASK_KINDS.includes(nodeRecord.taskKind)) {
-      throw new TypeError(`${label}.taskKind must be one of ${TASK_KINDS.join(", ")}`);
-    }
-    if (typeof nodeRecord.riskTier !== "string" || !RISK_TIERS.includes(nodeRecord.riskTier)) {
-      throw new TypeError(`${label}.riskTier must be one of ${RISK_TIERS.join(", ")}`);
-    }
-    const dependsOn = nodeRecord.dependsOn ?? [];
-    requireStringArray(dependsOn, `${label}.dependsOn`);
-    const readFiles = nodeRecord.readFiles ?? [];
-    requireStringArray(readFiles, `${label}.readFiles`);
-    const writeFiles = nodeRecord.writeFiles ?? [];
-    requireStringArray(writeFiles, `${label}.writeFiles`);
-    // A node that reaches an importer it must not change says so here. Without
-    // this field the drafter is told (INSTRUCTIONS, draft/revise) to answer a
-    // scope-closure finding with `writeFiles or scopeAcknowledged` and has no
-    // way to say the second, so the only expressible answer is the wrong one:
-    // declaring a read-only importer writable. Measured 2026-09-20 -- a revise
-    // round could not resolve the finding the preflight had just raised.
-    const scopeAcknowledged = nodeRecord.scopeAcknowledged ?? [];
-    requireStringArray(scopeAcknowledged, `${label}.scopeAcknowledged`);
-    // Verification is validated first so a DoD proof that names a verification
-    // command by its exact text (R21) can be checked and normalized to that
-    // command's index against this node's own commands, in hand here.
-    const verification = validateVerificationCommands(nodeRecord.verification ?? [], `${label}.verification`);
-    const definitionOfDone = validateDefinitionOfDone(
-      nodeRecord.definitionOfDone ?? [],
-      `${label}.definitionOfDone`,
-      { commands: verification, nodeId: /** @type {string} */ (nodeRecord.id) },
-    );
-    const expectedTurns = nodeRecord.expectedTurns === undefined ? undefined : positiveInteger(nodeRecord.expectedTurns, `${label}.expectedTurns`);
-    return /** @type {PlanOutputNode} */ ({
-      id: /** @type {string} */ (nodeRecord.id),
-      objective: /** @type {string} */ (nodeRecord.objective),
-      taskKind: /** @type {string} */ (nodeRecord.taskKind),
-      riskTier: /** @type {RiskTier} */ (nodeRecord.riskTier),
-      dependsOn: /** @type {string[]} */ (dependsOn),
-      readFiles: /** @type {string[]} */ (readFiles),
-      writeFiles: /** @type {string[]} */ (writeFiles),
-      scopeAcknowledged: /** @type {string[]} */ (scopeAcknowledged),
-      definitionOfDone,
-      verification,
-      ...(expectedTurns === undefined ? {} : { expectedTurns }),
-    });
-  });
+  const nodes = validatePlanNodes(record.nodes, "plan.nodes");
   if (record.justification !== undefined) requireString(record.justification, "plan.justification");
   // The two contract-level suites, under the validators the contract itself
   // applies, so a plan cannot author a suite the freeze would then refuse. An
@@ -458,6 +500,59 @@ export function validatePlanOutput(plan) {
     ...(findings.length > 0 ? { findings } : {}),
     ...(record.justification === undefined ? {} : { justification: /** @type {string} */ (record.justification) }),
   };
+}
+
+/**
+ * The plan a revise's `output.patch` produces, from the plan the reviser read
+ * (RM-110). Measured 2026-09-27 on `safe-to-hand-to-a-friend`: two revise
+ * calls died as `prompt_failed` at 65,932 and 66,821 output tokens against the
+ * 65,536 ceiling — a revise that must reproduce every node it is not changing
+ * pays the whole plan's size for a change to one of them, after the draft and
+ * a review round have already been paid for.
+ *
+ * The merge is deterministic and total: a patch node whose id the plan has
+ * replaces it in place (so the plan's node order, which its phases and its
+ * working file both read, survives a revise that changes nothing), a new id
+ * appends, `removedNodeIds` deletes by name, and a plan-level field the patch
+ * omits keeps the plan's own value. Every node in the result is one the
+ * validator has seen once already, so the caller's `validatePlanOutput` on the
+ * returned record is the same check a draft's output gets, not a weaker one.
+ *
+ * Three shapes are refused here rather than merged: a node id named twice in
+ * the patch, an id removed that the plan does not have (a typo the reviser
+ * would otherwise never hear about), and an id in both lists.
+ *
+ * @param {{nodes: PlanOutputNode[]} & Record<string, unknown>} previous the plan the reviser was handed
+ * @param {unknown} patch a revise worker's `output.patch`
+ * @returns {{nodes: PlanOutputNode[]} & Record<string, unknown>} the merged plan record, for `validatePlanOutput`
+ */
+export function applyPlanPatch(previous, patch) {
+  assertObject(patch, "patch");
+  const record = /** @type {Record<string, unknown>} */ (patch);
+  rejectUnknown(record, PATCH_FIELDS, "patch");
+  const nodes = record.nodes === undefined ? [] : validatePlanNodes(record.nodes, "patch.nodes");
+  const removedNodeIds = /** @type {string[]} */ (record.removedNodeIds ?? []);
+  requireStringArray(removedNodeIds, "patch.removedNodeIds");
+  const previousIds = new Set(previous.nodes.map((node) => node.id));
+  const replacements = new Map(nodes.map((node) => [node.id, node]));
+  if (replacements.size !== nodes.length) throw new TypeError("patch.nodes names the same node id twice");
+  for (const id of removedNodeIds) {
+    if (!previousIds.has(id)) throw new TypeError(`patch.removedNodeIds names ${id}, which the plan it revises does not have`);
+    if (replacements.has(id)) throw new TypeError(`patch names ${id} in both nodes and removedNodeIds: a node is replaced or removed, never both`);
+  }
+  const removed = new Set(removedNodeIds);
+  /** @type {{nodes: PlanOutputNode[]} & Record<string, unknown>} */
+  const merged = {
+    nodes: [
+      ...previous.nodes.filter((node) => !removed.has(node.id)).map((node) => replacements.get(node.id) ?? node),
+      ...nodes.filter((node) => !previousIds.has(node.id)),
+    ],
+  };
+  for (const field of ["phases", "sharedVerification", "finalVerification", "justification"]) {
+    const value = record[field] ?? previous[field];
+    if (value !== undefined) merged[field] = value;
+  }
+  return merged;
 }
 
 // The fields a phase declaration carries beyond its id: requirementIds|nodeIds|deliverable —
