@@ -12,16 +12,16 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
 
 ---
 
-## 1. O harness `fx` limita a saída de `draft` a 8.192 tokens sem nomear esse teto
+## 1. O teto de saída de 8.192 tokens do harness `fx` mata o `draft` e não diz que era teto
 
-- **Sintoma:** `draft: failed {"code":-32603,"message":"OutputTruncated"}`. A mensagem não menciona um limite em
-  lugar nenhum.
+- **Sintoma:** `draft: failed {"code":-32603,"message":"OutputTruncated"}`. A mensagem não cita
+  nenhum limite.
 - **Causa medida:** o adaptador `fx` crava **8.192** tokens de saída. F2 `plan-phase-2-draft-1`
   (29/09 17:18Z): 15 chamadas de ferramenta locais e o worker morreu quando uma resposta de
   ferramenta bateu no teto. Repetiu em F3: `plan-phase-3-draft-2` e `draft-3` morreram do mesmo jeito,
   e a transcrição isola o caso: uma consulta ampla de cobertura emitiu **exatamente 8.192** tokens de
   saída. As 14 respostas FX observadas foram **HTTP 200**; o maior resultado seguro anterior tinha
-  6.658 tokens. A causa medida foi o teto de saída do adaptador.
+  6.658 tokens. Não é cota, não é credencial: é teto de saída.
 - **Custo:** 3 runs de planejamento falhadas (US$ 0,0147 + 0,0166 + 0,0654 ≈ **US$ 0,10**), mais o
   desvio de um contrato inteiro (`phase-3-bounded-draft-output`, US$ 0,0125) para limitar consulta,
   além do atraso de ~2 h no cronograma da F3.
@@ -43,8 +43,9 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
 - **Custo:** é a origem do nó `r7-judge-concurrency-measured` (still `advisory`) e da F5 existente;
   contabilizado aqui como risco de contenção, com as duas reproduções como prova. O R7 do review
   deixa de ser "potencial": está confirmado por medição.
-- **Correção sugerida:** a admissão deve respeitar o `maxParallel` do contrato congelado, mesmo quando
-  `maxConcurrent` do runtime é maior ou outro nó ainda está no gate. Registre o número
+- **Correção sugerida:** um único portão de admissão deve aplicar o `maxParallel` congelado em todas
+  as etapas, inclusive quando `maxConcurrent` do runtime é maior ou outro nó está no gate de
+  verificação. Registre o número
   efetivo de nós concorrentes no `status.json` para a prova ficar barata.
 - **Por que é achado de produto:** o contrato é a promessa que o operador lê para decidir custo e
   contenção; um limite de plano que o motor ignora em silêncio invalida todo o diagnóstico de
@@ -64,8 +65,8 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
   (`documents: N`, `archived logs: N`, ...), com o corte declarando também o critério aplicado.
   Fechada em `ace6e062` (`r4-omission-kinds`).
 - **Por que é achado de produto:** o artefato de fatos do repositório é a entrada de todo plano; uma
-  omissão ilegível deixa o planejador sem saber quais fontes ficaram de fora. O defeito reaparece
-  em qualquer campanha com repositório grande.
+  omissão ilegível deixa o planejador sem saber o que ficou de fora. O defeito
+  reaparece em qualquer campanha com repositório grande.
 
 ## 4. O pacote declara menos escopo do que o worker de fato consulta
 
@@ -75,12 +76,11 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
   a `src/plan/freeze.mjs`, `src/contract/index.mjs`, `src/contract/definition-of-done.mjs` e
   `test/integrations/first-campaign.test.mjs`, **ausentes** de `readFiles` e `scopeAcknowledged` do
   pacote. (b) Em `r4`, o `npm run typecheck` reprovou porque `test/plan/proof-check.test.mjs`
-  constrói `RepoFacts` sem os novos `pathCut` e `pathIndex`, arquivo **forçado pela mudança** e fora
-  de `readFiles`/`writeFiles`.
+  constrói `RepoFacts` sem os novos `pathCut` e `pathIndex`. A mudança também forçava editar esse
+  teste, que estava fora de `readFiles`/`writeFiles`.
 - **Custo:** 1 run cancelada antes de qualquer diff, 1 run reprovada no portão global e a derivação de
   dois contratos corretivos (`packet-closed` US$ 0,0918, `read-closed` US$ 0,3142), cerca de
-  **US$ 0,41**
-  para consertar escopo, sem contar o relógio.
+  **US$ 0,41** para consertar escopo, sem contar o relógio.
 - **Correção sugerida:** o `freeze` deve cruzar a mudança com os testes de guarda que enumeram
   artefatos (o caso `proof-check.test.mjs` é detectável por `repoFacts`) e **exigir** que o arquivo
   entre em `writeFiles`, com o motivo no `taskPacket`. Para leitura, o `proof`/`readFiles` do nó deve
@@ -124,8 +124,8 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
 
 - **Sintoma:** 29/09 19:11Z: *"o CLI rejeita `plan --resolve` antes do despacho: `parseArgs` aceita a
   forma documentada, mas `main` ainda exige um target de spec em `if (!target)`"*.
-- **Causa medida:** a forma documentada e a implementação divergiram: validação de argumentos e
-  despacho não falam sobre o mesmo contrato. O fluxo equivalente **existe** em
+- **Causa medida:** a forma documentada e a implementação divergiram: a validação de argumentos e o
+  despacho não aceitam o mesmo contrato. O fluxo equivalente **existe** em
   `src/plan/resolve.mjs`, mas não é alcançável pela CLI.
 - **Custo:** o operador teve de contornar pela API interna do módulo; interface e biblioteca passam a
   ter comportamentos diferentes, e todo comando documentado no brief fica não confiável.
@@ -172,8 +172,8 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
   `docs/campaigns/safe-to-hand-to-a-friend/ACHADOS-PRODUTO.md`) mas não é criada pelo `freeze` nem
   exigida pelo fechamento de fase, então depende de alguém lembrar. O journal guarda tudo e não é
   triagem: mistura decisão, desfecho de nó e defeito de ferramenta na mesma linha do tempo.
-- **Custo:** nenhum dólar; o custo é o dono reabrir trabalho pago por não conseguir ver o que já foi
-  encontrado, justamente o que a triagem existe para evitar.
+- **Custo:** nenhum dólar. O dono pode reabrir trabalho pago por não conseguir ver o que já foi
+  encontrado, justamente o que a triagem deveria evitar.
 - **Correção sugerida:** o `freeze`/`add-contract` cria o livro com cabeçalho e o fechamento de fase
   **falha** (ou emite warning no relatório) se houver achado de ferramenta no journal sem entrada no
   livro. Cada linha termina com desfecho: corrigido em `<versão>` com a prova, ou `RM-###` aberto com
@@ -186,7 +186,7 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
 ## Desfecho deste livro
 
 Nenhum dos dez itens foi triado contra o código da branch padrão no momento da escrita. Este arquivo
-registra **o que foi pago**, com número e evidência. A triagem (aberto/corrigido/não-objetivo) e
+registra o que foi pago, com número e evidência. A triagem (aberto/corrigido/não-objetivo) e
 a decisão de quais viram requisito de qual campanha são passo seguinte, do operador com o dono.
 
 Os itens 1 a 5 têm correção **já aplicada nesta campanha** por outro caminho (nós `r4-*`, `r5-*` e o
