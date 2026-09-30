@@ -79,22 +79,21 @@ test("an armed reserve refuses only the new call it cannot cover; the call alrea
   // retry estimated at 12 again.
   configureCampaignReserve(campaignPath, 15);
 
-  let outcome;
-  await withFakeCodex(directory, "wait-for-release", async () => {
+  const outcome = await withFakeCodex(directory, "wait-for-release", async () => {
     const run = runContract(path);
     try {
       // Both calls admitted while both were in flight: unknown costs, nothing held.
-      const overlapping = await waitForValue(() => {
+      const overlapping = /** @type {import("../../src/campaign/reserve.mjs").ReserveStatus} */ (await waitForValue(() => {
         const status = readCampaignReserve(campaignPath);
         return status.reservations.length === 2 && status.reservations.every((entry) => entry.status === "held") ? status : null;
-      }, 30_000 * SPAWN_WAIT_FACTOR);
+      }, 30_000 * SPAWN_WAIT_FACTOR));
       assert.ok(overlapping.reservations.every((entry) => entry.costUsd === null), "an in-flight call with no measured cost keeps unknown exposure");
     } finally {
       // The fake providers poll for this file; whatever the assertions above
       // found, the run must never be left waiting on it.
       writeFileSync(join(runsRoot(directory), "provider-release"), "go");
     }
-    outcome = await run;
+    return run;
   });
 
   const build = nodeState(outcome, "build");

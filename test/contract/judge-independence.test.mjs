@@ -239,6 +239,7 @@ test("startJudge refuses a judge dispatch the armed reserve cannot cover and par
   const { path: campaignPath } = initializeCampaign(runsRoot(directory), { campaignId: "reserve-judge-refusal", goal: "Gate the judge" });
   configureCampaignReserve(campaignPath, 100);
   const hold = reserveCampaignCost(campaignPath, { costUsd: 60 });
+  assert.ok(hold.reservation, "the seeded hold was admitted with a reservation");
   reconcileCampaignReservation(campaignPath, hold.reservation.id, 60);
 
   /** @type {any} */
@@ -313,6 +314,7 @@ test("startJudge refuses a judge dispatch the armed reserve cannot cover and par
       costUsd: 50,
     }],
   };
+  /** @type {any} */
   const lock = { assert() {} };
   const round = await startJudge(contract, node, state, mkdtempSync(join(tmpdir(), "judge-reserve-rundir-")), new Map(), {}, lock, new Map(), campaignPath);
 

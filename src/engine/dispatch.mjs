@@ -164,22 +164,26 @@ function reserveArmed(campaignPath) {
  * what the call will cost is what this node's most recent invocation actually
  * charged; a first dispatch has no measurement, so it is reserved as unknown
  * exposure and holds nothing -- the reserve never invents a number to gate
- * with. A refusal takes no hold and names what the balance could not cover;
- * the caller parks the node blocked. Calls already running are never
- * touched: the reserve gates only the admission of a new one.
+ * with. A refusal takes no hold and carries the error the caller parks the
+ * node blocked with. Calls already running are never touched: the reserve
+ * gates only the admission of a new one.
  *
  * @param {string} campaignPath
  * @param {NodeSnapshot} state
  * @param {string} runId
  * @param {string} nodeId
- * @returns {{refused: false, reservation: import("../campaign/reserve.mjs").Reservation|null}|{refused: true, estimateUsd: number|null, availableUsd: number}}
+ * @param {"worker"|"judge"} role
+ * @returns {{refused: false, reservation: import("../campaign/reserve.mjs").Reservation|null}|{refused: true, error: {code: string, message: string}}}
  */
-function reserveAdmission(campaignPath, state, runId, nodeId) {
+function reserveAdmission(campaignPath, state, runId, nodeId, role) {
   if (!reserveArmed(campaignPath)) return { refused: false, reservation: null };
   const last = state.invocations?.at(-1);
   const estimateUsd = typeof last?.costUsd === "number" && Number.isFinite(last.costUsd) ? last.costUsd : null;
   const decision = reserveCampaignCost(campaignPath, { runId, node: nodeId, costUsd: estimateUsd });
-  if (!decision.admitted) return { refused: true, estimateUsd, availableUsd: decision.availableUsd ?? 0 };
+  if (!decision.admitted) return { refused: true, error: {
+    code: RESERVE_INSUFFICIENT_CODE,
+    message: `reserve refused the new ${role} dispatch: estimated ${estimateUsd} USD cannot be held against ${decision.availableUsd ?? 0} USD available`,
+  } };
   return { refused: false, reservation: decision.reservation };
 }
 
@@ -410,15 +414,9 @@ export function startWorker(contract, node, state, runDir, running, prompt, lock
   state.error = null;
   state.scope = emptyScope(boundary);
   writeNode(runDir, state, lock);
-  const admission = reserveAdmission(campaignPath, state, basename(runDir), node.id);
+  const admission = reserveAdmission(campaignPath, state, basename(runDir), node.id, "worker");
   if (admission.refused) {
-    transition(runDir, state, "blocked", {
-      phase: "worker",
-      error: {
-        code: RESERVE_INSUFFICIENT_CODE,
-        message: `reserve refused the new worker dispatch: estimated ${admission.estimateUsd} USD cannot be held against ${admission.availableUsd} USD available`,
-      },
-    }, lock);
+    transition(runDir, state, "blocked", { phase: "worker", error: admission.error }, lock);
     return;
   }
   try {
@@ -626,15 +624,9 @@ export async function startJudge(contract, node, state, runDir, running, workerR
   if (previousInvocation && hasOperationSettlement(runDir, previousInvocation.id)) {
     settleInvocation(runDir, previousInvocation, { nextState: operationNextState(state) });
   }
-  const admission = reserveAdmission(campaignPath, state, basename(runDir), node.id);
+  const admission = reserveAdmission(campaignPath, state, basename(runDir), node.id, "judge");
   if (admission.refused) {
-    transition(runDir, state, "blocked", {
-      phase: "judge",
-      error: {
-        code: RESERVE_INSUFFICIENT_CODE,
-        message: `reserve refused the new judge dispatch: estimated ${admission.estimateUsd} USD cannot be held against ${admission.availableUsd} USD available`,
-      },
-    }, lock);
+    transition(runDir, state, "blocked", { phase: "judge", error: admission.error }, lock);
     return { kind: "refused" };
   }
   try {
@@ -715,8 +707,8 @@ export async function startJudge(contract, node, state, runDir, running, workerR
  * @param {Invocation} invocation
  * @param {Job} job
  * @param {LockHandle} lock
- * @param {string} campaignPath
- * @param {import("../campaign/reserve.mjs").Reservation|null} reservation the
+ * @param {string} [campaignPath] absent when the call took no admission
+ * @param {import("../campaign/reserve.mjs").Reservation|null} [reservation] the
  *   hold this dispatch was admitted under (ADR 0011); reconciled with the
  *   charge that actually arrived, or released when the call ended with none
  */
