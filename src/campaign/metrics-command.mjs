@@ -2,6 +2,11 @@
  * Filesystem and command layer for `faberun metrics`. This module owns the
  * command's flags and reads the campaign's run or ledger artefacts, while
  * `metrics.mjs` stays a pure function over parsed records.
+ *
+ * It also answers which of those runs were planning runs, because only a
+ * filesystem read can: a run directory still carries the contract that proves
+ * it, and a versioned ledger carries the classification `preserveCampaignLedger`
+ * recorded, since it preserves no contracts.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -50,6 +55,7 @@ const NOTIFY_LOG_FILE = "notify.jsonl";
  *   journal: unknown[],
  *   campaign: JsonObject,
  *   excludedRunIds: string[],
+ *   planningRunIds?: string[],
  *   missingSources: string[],
  * }} MetricsSources
  */
@@ -78,19 +84,25 @@ export function readMetricsSources(campaignPath, { runsDir = join(campaignPath, 
   /** @type {unknown[]} */
   const journal = [];
   /** @type {string[]} */
+  const planningRunIds = [];
+  /** @type {string[]} */
   const missingSources = [];
-  const absentAtOrigin = ledgerDir === undefined ? new Set() : readLedgerAbsentSources(ledgerDir);
+  const ledgerManifest = ledgerDir === undefined
+    ? { absent: /** @type {Set<string>} */ (new Set()), planning: /** @type {Set<string>} */ (new Set()) }
+    : readLedgerManifest(ledgerDir);
   const journalPath = join(ledgerDir ?? campaignPath, "journal.jsonl");
   if (existsSync(journalPath)) journal.push(...readJsonlRecords(journalPath));
   else missingSources.push("journal.jsonl");
   for (const runId of campaign.linkedRunIds) {
     if (ledgerDir === undefined) {
+      if (isPlanningRun(join(runsDir, runId))) planningRunIds.push(runId);
       for (const record of readJsonlRecords(join(runsDir, runId, RUN_EVENTS_FILE))) events.push({ ...jsonObjectOf(record), runId });
       for (const record of readJsonlRecords(join(runsDir, runId, USAGE_LOG_FILE))) usageRecords.push({ ...jsonObjectOf(record), runId });
       for (const record of readJsonlRecords(join(runsDir, runId, NOTIFY_LOG_FILE))) notifications.push({ ...jsonObjectOf(record), runId });
       for (const node of readMetricNodeSnapshots(join(runsDir, runId))) nodes.push({ ...node, runId });
       continue;
     }
+    if (ledgerManifest.planning.has(runId)) planningRunIds.push(runId);
     /** @type {[string, unknown[]][]} */
     const sources = [
       [RUN_EVENTS_FILE, events],
@@ -100,14 +112,14 @@ export function readMetricsSources(campaignPath, { runsDir = join(campaignPath, 
     for (const [suffix, target] of sources) {
       const path = join(ledgerDir, `${runId}.${suffix}`);
       if (!existsSync(path)) {
-        if (!absentAtOrigin.has(`${runId}.${suffix}`)) missingSources.push(`${runId}.${suffix}`);
+        if (!ledgerManifest.absent.has(`${runId}.${suffix}`)) missingSources.push(`${runId}.${suffix}`);
         continue;
       }
       for (const record of readJsonlRecords(path)) target.push({ ...jsonObjectOf(record), runId });
     }
     const nodesPath = join(ledgerDir, `${runId}.nodes.json`);
     if (!existsSync(nodesPath)) {
-      if (!absentAtOrigin.has(`${runId}.nodes.json`)) missingSources.push(`${runId}.nodes.json`);
+      if (!ledgerManifest.absent.has(`${runId}.nodes.json`)) missingSources.push(`${runId}.nodes.json`);
       continue;
     }
     for (const node of readLedgerNodeSnapshots(nodesPath)) nodes.push({ ...node, runId });
@@ -123,20 +135,67 @@ export function readMetricsSources(campaignPath, { runsDir = join(campaignPath, 
     journal,
     campaign: campaignObject,
     excludedRunIds: excludedRunIdsFor(campaignObject, []),
+    planningRunIds,
     missingSources,
   };
 }
 
-/** @param {string} ledgerDir @returns {Set<string>} */
-function readLedgerAbsentSources(ledgerDir) {
+/**
+ * Whether a run is a planning run: every node of its contract is a discovery
+ * packet, the rule the expense pool already uses to keep planning out of an
+ * execution estimate (`collectCompletedExecutionNodes`). A contract that is
+ * gone, torn, or carries no nodes proves nothing about how the run was
+ * launched, so the run is not classified as planning on that evidence alone.
+ *
+ * @param {string} runDir
+ * @returns {boolean}
+ */
+export function isPlanningRun(runDir) {
+  let contract;
+  try {
+    contract = JSON.parse(readFileSync(join(runDir, "contract.json"), "utf8"));
+  } catch {
+    return false;
+  }
+  const contractNodes = /** @type {unknown[]} */ (Array.isArray(contract?.nodes) ? contract.nodes : []);
+  return contractNodes.length > 0 && contractNodes.every((node) => taskPacketModeOf(node) === "discovery");
+}
+
+/** @param {unknown} node @returns {unknown} */
+function taskPacketModeOf(node) {
+  return jsonObjectOf(jsonObjectOf(node)?.taskPacket)?.mode;
+}
+
+/**
+ * @param {string} ledgerDir
+ * @returns {{absent: Set<string>, planning: Set<string>}}
+ */
+function readLedgerManifest(ledgerDir) {
   try {
     const manifest = JSON.parse(readFileSync(join(ledgerDir, LEDGER_SOURCE_MANIFEST_FILE), "utf8"));
-    const preserved = /** @type {Set<string>} */ (new Set(Array.isArray(manifest?.preserved) ? /** @type {unknown[]} */ (manifest.preserved).filter((source) => typeof source === "string") : []));
-    return /** @type {Set<string>} */ (new Set(Array.isArray(manifest?.absent) ? /** @type {unknown[]} */ (manifest.absent).filter((source) => typeof source === "string" && !preserved.has(source)) : []));
+    const preserved = new Set(stringEntriesOf(manifest?.preserved));
+    return {
+      absent: new Set(stringEntriesOf(manifest?.absent).filter((source) => !preserved.has(source))),
+      planning: new Set(stringEntriesOf(manifest?.planning)),
+    };
   } catch {
-    // An old ledger has no origin manifest, so an absent file remains incomplete evidence.
-    return new Set();
+    // An old ledger has no origin manifest, so an absent file remains
+    // incomplete evidence and no run can be proven a planning run.
+    return { absent: new Set(), planning: new Set() };
   }
+}
+
+/**
+ * The string entries of one `sources.json` list field, and an empty list for
+ * anything else. The ledger's writer merges and sorts these lists and the
+ * reader above subtracts preserved names from absent ones, so both need the
+ * same tolerant read of the file's shape; it has one home here.
+ *
+ * @param {unknown} value
+ * @returns {string[]}
+ */
+export function stringEntriesOf(value) {
+  return Array.isArray(value) ? value.filter((entry) => typeof entry === "string") : [];
 }
 
 /** @param {string} path @returns {Omit<RunNode, "runId">[]} */

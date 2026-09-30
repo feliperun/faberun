@@ -1,13 +1,14 @@
 import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeCampaign, initializeCampaign, markCampaignLedgerPreserved, preserveCampaignLedger, registerRun, reledgerCampaign, unpreservedLedgerCampaigns } from "../../src/campaign/index.mjs";
 import { readCampaign, validateCampaign } from "../../src/campaign/record.mjs";
 import { campaignCli } from "../../src/cli/campaign.mjs";
-import { readMetricNodeSnapshots } from "../../src/campaign/metrics-command.mjs";
+import { projectMetrics } from "../../src/campaign/metrics.mjs";
+import { readMetricNodeSnapshots, readMetricsSources } from "../../src/campaign/metrics-command.mjs";
 import { appendJournal } from "../../src/campaign/journal.mjs";
 import { reassociateProject } from "../../src/cli/project.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
@@ -329,4 +330,41 @@ test("an unreadable campaign record reports as unpreserved", () => {
   const created = initializeCampaign(runsDir, { campaignId: "unreadable", goal: "Refuse on the default" });
   writeFileSync(join(created.path, "campaign.json"), "{ not json\n");
   assert.deepEqual(unpreservedLedgerCampaigns(runsDir), ["unreadable"], "an unreadable record cannot prove its evidence safe");
+});
+
+// R5: a versioned ledger preserves no contracts, so it records which linked
+// runs were planning runs; the projection reads that list back to separate
+// planning spend from worker and judge spend.
+test("the ledger records which linked runs planned so metrics can separate planning spend", () => {
+  const repo = mkdtempSync(join(tmpdir(), "runner-campaign-ledger-planning-"));
+  const runsDir = runsRoot(repo);
+  const created = initializeCampaign(runsDir, { campaignId: "planning-spend", goal: "Separate planning spend" });
+  registerRun(created.path, "planning-spend-plan-1-draft-1");
+  registerRun(created.path, "run-exec");
+  const planDir = join(runsDir, "planning-spend-plan-1-draft-1");
+  const execDir = join(runsDir, "run-exec");
+  mkdirSync(planDir, { recursive: true });
+  mkdirSync(execDir, { recursive: true });
+  writeFileSync(join(planDir, "contract.json"), JSON.stringify({ nodes: [{ id: "draft", taskPacket: { mode: "discovery" } }] }));
+  writeFileSync(join(execDir, "contract.json"), JSON.stringify({ nodes: [{ id: "build", taskPacket: { mode: "execution" } }] }));
+  writeFileSync(join(planDir, "usage.jsonl"), `${JSON.stringify({ runId: "planning-spend-plan-1-draft-1", role: "worker", costUsd: 2, costProvenance: "provider" })}\n`);
+  writeFileSync(join(execDir, "usage.jsonl"), `${JSON.stringify({ runId: "run-exec", role: "worker", costUsd: 3, costProvenance: "provider" })}\n`);
+  recordRetrospective(created.path, "retro-planning-spend");
+
+  closeCampaign(created.path);
+  const ledgerDir = join(repo, "docs", "campaigns", "planning-spend", "ledger");
+  assert.deepEqual(JSON.parse(readFileSync(join(ledgerDir, "sources.json"), "utf8")).planning, ["planning-spend-plan-1-draft-1"]);
+
+  const ledgerSources = readMetricsSources(created.path, { ledgerDir });
+  const runSources = readMetricsSources(created.path, { runsDir });
+  assert.deepEqual(ledgerSources.planningRunIds, runSources.planningRunIds, "the classification survives the ledger");
+  assert.deepEqual(projectMetrics(ledgerSources), projectMetrics(runSources), "a ledger read projects the same ratios as the live runs");
+  assert.deepEqual(projectMetrics(ledgerSources).usageCostUsdByClass.value, { planning: 2, worker: 3 });
+
+  // Reledgering must not reclassify usage it already preserved, even when the
+  // planning run's directory is gone by then.
+  rmSync(planDir, { recursive: true, force: true });
+  reledgerCampaign(created.path);
+  assert.deepEqual(JSON.parse(readFileSync(join(ledgerDir, "sources.json"), "utf8")).planning, ["planning-spend-plan-1-draft-1"]);
+  assert.deepEqual(projectMetrics(readMetricsSources(created.path, { ledgerDir })).usageCostUsdByClass.value, { planning: 2, worker: 3 });
 });

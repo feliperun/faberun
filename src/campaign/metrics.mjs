@@ -22,14 +22,30 @@
  * 1 only when a whole run had to be re-authored after a failure that
  * `resume` could not repair.
  *
+ * Costs are split the way the ledger separates them: the stages of a planning
+ * run, a judge's calls, and the worker calls that remain, with the retries the
+ * attempt counter records reported beside the split. Unmeasured spend stays
+ * unknown at every level — a class with no priced record is absent from the
+ * map and named in `unknownCountByClass` instead, never folded into a measured
+ * zero.
+ *
+ * The optional reserve a campaign configures (ADR 0011) is projected beside
+ * the spend: what is still held, what was released when the real charge
+ * arrived, and the part of a late charge that went past its reservation. A
+ * reservation blocks a new dispatch; it is not an absolute cap, and the
+ * projection says so rather than implying provider-side enforcement. All of
+ * that arithmetic is `spend.mjs`; this module projects the indicators.
+ *
  * Filesystem reads and the `faberun metrics` command's flags live in
  * `metrics-command.mjs`; keeping them separate leaves this module a pure
  * function over parsed records.
  */
 
 import { jsonObjectOf, round4, timestampMs } from "./metrics-evals.mjs";
-import { UNKNOWN_COST_REASONS } from "../run/usage.mjs";
 import { MAX_ATTEMPTS as NOTIFY_MAX_ATTEMPTS } from "../notify/index.mjs";
+import { costByClassOf, costTotalsOf, pricedCostOf, reserveOf, retryRecordsOf } from "./spend.mjs";
+
+/** @typedef {import("./spend.mjs").ReserveProjection} ReserveProjection */
 
 /** Node statuses that are not terminal: everything else settles a logical node. */
 const OPEN_STATUSES = new Set(["pending", "running"]);
@@ -44,8 +60,6 @@ const SETTLED_NOTIFY_STATUSES = new Set(["delivered", "no_transport", "filtered"
 /** Target latency for a terminal/attention event to carry a settled receipt (TECH-SPEC section 6). */
 const NOTIFY_TARGET_SEC = 60;
 const SECONDS_PER_HOUR = 3600;
-/** A usage record with no provider-reported cost is `unknown` provenance (`appendUsageRecord`). */
-const UNKNOWN_COST_PROVENANCE = "unknown";
 
 /** @typedef {Record<string, unknown>} JsonObject */
 /** @typedef {"down"|"up"|"informative"} Direction */
@@ -53,6 +67,7 @@ const UNKNOWN_COST_PROVENANCE = "unknown";
 /** @typedef {Indicator & {unknownCount: number, unknownCountByReason: Record<string, number>, unknownFractionByReason: Record<string, number>}} CostIndicator */
 /** @typedef {Indicator & {unknownCount: number}} JudgeCostShareIndicator */
 /** @typedef {{value: Record<string, number>|null, direction: Direction, count: number, numerator?: Record<string, number>, denominator?: Record<string, number>, excludedRunIds?: string[], missingSources?: string[]}} GroupedIndicator */
+/** @typedef {GroupedIndicator & {unknownCount: number, unknownCountByClass: Record<string, number>}} ClassCostIndicator */
 /** @typedef {{atMs: number, index: number, event: JsonObject}} RunEvent */
 /** @typedef {{runId: string, id: string, status: string, attempt?: number|null, revisions?: number|null, review?: string|null, judgeIndependence?: string|null}} RunNode */
 
@@ -66,6 +81,7 @@ const UNKNOWN_COST_PROVENANCE = "unknown";
  *   campaign?: JsonObject,
  *   requirements?: unknown[],
  *   excludedRunIds?: string[],
+ *   planningRunIds?: string[],
  *   missingSources?: string[],
  *   now?: number,
  * }} MetricsInput
@@ -80,6 +96,8 @@ const UNKNOWN_COST_PROVENANCE = "unknown";
  *   usageTokensByKind: GroupedIndicator,
  *   usageTokensByKindByRuntime: GroupedIndicator,
  *   usageCostUsd: CostIndicator,
+ *   usageCostUsdByClass: ClassCostIndicator,
+ *   retryCostUsd: CostIndicator,
  *   judgeFindingRate: Indicator,
  *   judgeCostShare: JudgeCostShareIndicator,
  *   blockingJudgeFirstPassRate: GroupedIndicator,
@@ -98,16 +116,14 @@ const UNKNOWN_COST_PROVENANCE = "unknown";
  * @param {MetricsInput} [input]
  * @returns {CampaignMetrics}
  */
-export function projectMetrics({ events = [], usageRecords = [], notifications = [], nodes = [], journal = [], campaign = undefined, requirements = undefined, excludedRunIds = [], missingSources = [], now = Date.now() } = {}) {
+export function projectMetrics({ events = [], usageRecords = [], notifications = [], nodes = [], journal = [], campaign = undefined, requirements = undefined, excludedRunIds = [], planningRunIds = [], missingSources = [], now = Date.now() } = {}) {
   void now;
   const eventList = events.map(jsonObjectOf).filter((event) => event !== null);
   const excluded = excludedRunIdsFor(campaign, excludedRunIds);
   const eligibleNodes = nodes.filter((node) => !excluded.includes(node.runId));
   const eligibleEvents = eventList.filter((event) => typeof event.runId !== "string" || !excluded.includes(event.runId));
-  const eligibleUsageRecords = usageRecords.filter((record) => {
-    const object = jsonObjectOf(record);
-    return object === null || typeof object.runId !== "string" || !excluded.includes(object.runId);
-  });
+  const usageRecordList = usageRecords.map(jsonObjectOf).filter((record) => record !== null);
+  const eligibleUsageRecords = usageRecordList.filter((record) => typeof record.runId !== "string" || !excluded.includes(record.runId));
   const eligibleNotifications = notifications.filter((record) => {
     const object = jsonObjectOf(record);
     return object === null || typeof object.runId !== "string" || !excluded.includes(object.runId);
@@ -116,7 +132,11 @@ export function projectMetrics({ events = [], usageRecords = [], notifications =
   const runs = runsPerCampaignOf(nodes, eventList);
   const closedCheckpoints = closedCheckpointsOf(nodes);
   const span = eventSpanOf(eventList);
-  const usage = usageTotalsOf(usageRecords);
+  // Spend is campaign-wide, exactly like `usageCostUsd`: a run a replacement
+  // took out of the rates still spent what it spent.
+  const usage = usageTotalsOf(usageRecordList);
+  const usageByClass = costByClassOf(usageRecordList, planningRunIds);
+  const retries = costTotalsOf(retryRecordsOf(usageRecordList));
   const judgeYield = judgeYieldOf(eligibleEvents, eligibleUsageRecords);
   const gates = blockingJudgeFirstPassRateOf(eligibleNodes, eligibleEvents);
   const notify = notifyReceiptRateOf(eligibleNotifications);
@@ -137,6 +157,17 @@ export function projectMetrics({ events = [], usageRecords = [], notifications =
       unknownCountByReason: usage.unknownCountByReason,
       unknownFractionByReason: usage.unknownFractionByReason,
     },
+    usageCostUsdByClass: {
+      ...grouped("down", usageByClass.count, usageByClass.value),
+      unknownCount: usageByClass.unknownCount,
+      unknownCountByClass: usageByClass.unknownCountByClass,
+    },
+    retryCostUsd: {
+      ...measured("down", retries.costCount, retries.costUsd),
+      unknownCount: retries.unknownCount,
+      unknownCountByReason: retries.unknownCountByReason,
+      unknownFractionByReason: retries.unknownFractionByReason,
+    },
     judgeFindingRate: rate("up", judgeYield.findings, judgeYield.judged, excluded),
     judgeCostShare: {
       ...measured("down", usage.costCount, usage.costUsd === null ? null : usage.judgeCostUsd / usage.costUsd),
@@ -148,7 +179,7 @@ export function projectMetrics({ events = [], usageRecords = [], notifications =
     intentToVerifiedSeconds: northStar,
     humanTouches: touches,
   };
-  const projected = /** @type {CampaignMetrics & {effectiveJudgeIndependence: string|null}} */ (applyMissingSources(metrics, missingSources));
+  const projected = /** @type {CampaignMetrics & {effectiveJudgeIndependence: string|null, reserve: ReserveProjection}} */ (applyMissingSources(metrics, missingSources));
   // R36: the effective judge-independence mode the launch recorded on the run
   // snapshots, read back from the reduced node input rather than re-derived
   // from the contract or the machine config. It is metadata about the sources,
@@ -158,7 +189,19 @@ export function projectMetrics({ events = [], usageRecords = [], notifications =
     value: recordedJudgeIndependenceOf(eligibleNodes),
     enumerable: false,
   });
+  // The optional reserve is policy state derived from the same records, not a
+  // section-6 indicator: non-enumerable for the same reason, and nulled out
+  // when the usage source it reads was not preserved.
+  Object.defineProperty(projected, "reserve", {
+    value: reserveOf(usageRecordList, campaign, missingUsageSources(projected)),
+    enumerable: false,
+  });
   return projected;
+}
+
+/** @param {CampaignMetrics} metrics @returns {string[]} */
+function missingUsageSources(metrics) {
+  return Array.isArray(metrics.usageCostUsd.missingSources) ? metrics.usageCostUsd.missingSources : [];
 }
 
 /**
@@ -202,6 +245,8 @@ function applyMissingSources(metrics, missingSources) {
     usageTokensByKind: withMissing(metrics.usageTokensByKind, ["usage.jsonl"]),
     usageTokensByKindByRuntime: withMissing(metrics.usageTokensByKindByRuntime, ["usage.jsonl"]),
     usageCostUsd: withMissing(metrics.usageCostUsd, ["usage.jsonl"]),
+    usageCostUsdByClass: withMissing(metrics.usageCostUsdByClass, ["usage.jsonl"]),
+    retryCostUsd: withMissing(metrics.retryCostUsd, ["usage.jsonl"]),
     judgeFindingRate: withMissing(metrics.judgeFindingRate, ["events.jsonl", "usage.jsonl"]),
     judgeCostShare: withMissing(metrics.judgeCostShare, ["usage.jsonl"]),
     blockingJudgeFirstPassRate: withMissing(metrics.blockingJudgeFirstPassRate, ["nodes.json", "events.jsonl"]),
@@ -433,30 +478,24 @@ function eventSpanOf(events) {
  * Tokens by kind and total cost across every linked run's usage records, both
  * as a campaign total and broken out per runtime (TECH-SPEC section 6). A
  * record contributes exactly what it recorded: uncached input, cache-read
- * input and output tokens are independent totals. Cost sums only records
- * whose provenance is not `unknown` (`appendUsageRecord` sets `unknown`
- * exactly when the provider reported no cost); every other record's
- * invocation is counted separately rather than folded into a measured zero.
+ * input and output tokens are independent totals. The cost half is
+ * `costTotalsOf`: it sums only records whose provenance is not `unknown`
+ * (`appendUsageRecord` sets `unknown` exactly when the provider reported no
+ * cost) and counts every other record separately rather than folding it into a
+ * measured zero.
  *
- * @param {unknown[]} usageRecords
+ * @param {JsonObject[]} records
  * @returns {{tokensByKind: Record<string, number>, tokensByKindByRuntime: Record<string, number>, tokenCount: number, costUsd: number|null, judgeCostUsd: number, costCount: number, unknownCount: number, unknownJudgeCount: number, unknownCountByReason: Record<string, number>, unknownFractionByReason: Record<string, number>}}
  */
-function usageTotalsOf(usageRecords) {
+function usageTotalsOf(records) {
   const tokensByKind = { inputTokens: 0, cacheReadInputTokens: 0, outputTokens: 0 };
   /** @type {Record<string, number>} */
   const tokensByKindByRuntime = {};
   let tokenCount = 0;
-  let costUsd = 0;
   let judgeCostUsd = 0;
-  let costCount = 0;
-  let unknownCount = 0;
   let unknownJudgeCount = 0;
-  /** @type {Record<string, number>} */
-  const unknownCountByReason = {};
   const kinds = /** @type {("inputTokens"|"cacheReadInputTokens"|"outputTokens")[]} */ (["inputTokens", "cacheReadInputTokens", "outputTokens"]);
-  for (const raw of usageRecords) {
-    const record = jsonObjectOf(raw);
-    if (record === null) continue;
+  for (const record of records) {
     let measuredAny = false;
     const runtime = typeof record.runtimeId === "string" && record.runtimeId !== "" ? record.runtimeId : null;
     for (const kind of kinds) {
@@ -467,34 +506,25 @@ function usageTotalsOf(usageRecords) {
       measuredAny = true;
     }
     if (measuredAny) tokenCount += 1;
-    if (typeof record.costUsd === "number" && Number.isFinite(record.costUsd) && record.costProvenance !== UNKNOWN_COST_PROVENANCE) {
-      costUsd += record.costUsd;
-      if (record.role === "judge") judgeCostUsd += record.costUsd;
-      costCount += 1;
-    } else {
-      unknownCount += 1;
-      if (record.role === "judge") unknownJudgeCount += 1;
-      const reason = typeof record.unknownReason === "string" && UNKNOWN_COST_REASONS.includes(record.unknownReason)
-        ? record.unknownReason
-        : "legacy";
-      unknownCountByReason[reason] = (unknownCountByReason[reason] ?? 0) + 1;
-    }
+    if (record.role !== "judge") continue;
+    // The judge share divides the same priced dollars this class split reports,
+    // so a judge retry stays judge cost here and counts as a retry too.
+    const judgeCost = pricedCostOf(record);
+    if (judgeCost === null) unknownJudgeCount += 1;
+    else judgeCostUsd += judgeCost;
   }
-  const totalCount = costCount + unknownCount;
-  const unknownFractionByReason = Object.fromEntries(
-    Object.entries(unknownCountByReason).map(([reason, count]) => [reason, round4(count / totalCount)]),
-  );
+  const cost = costTotalsOf(records);
   return {
     tokensByKind,
     tokensByKindByRuntime,
     tokenCount,
-    costUsd: costCount === 0 ? null : costUsd,
+    costUsd: cost.costUsd,
     judgeCostUsd,
-    costCount,
-    unknownCount,
+    costCount: cost.costCount,
+    unknownCount: cost.unknownCount,
     unknownJudgeCount,
-    unknownCountByReason,
-    unknownFractionByReason,
+    unknownCountByReason: cost.unknownCountByReason,
+    unknownFractionByReason: cost.unknownFractionByReason,
   };
 }
 
