@@ -93,7 +93,27 @@ test("an armed reserve refuses only the new call it cannot cover; the call alrea
       // found, the run must never be left waiting on it.
       writeFileSync(join(runsRoot(directory), "provider-release"), "go");
     }
-    return run;
+    // The one await in this file with no internal bound: every provider here
+    // parks on the release file, so a host that stalls the controller
+    // mid-settlement would otherwise hold the whole file open until the
+    // runner is killed from outside, with no verdict naming this test
+    // (measured 2026-09-30: a gate run froze after integration's "prepared"
+    // record and the file died to an external timeout). The cap is ~37x the
+    // 8s this run takes on an idle machine, so only a genuine stall trips it.
+    let stallTimer = null;
+    try {
+      return await Promise.race([
+        run,
+        new Promise((resolve, reject) => {
+          stallTimer = setTimeout(() => reject(new Error("the run never settled: the host stalled or a dispatch is wedged")), 300_000 * SPAWN_WAIT_FACTOR);
+        }),
+      ]);
+    } finally {
+      if (stallTimer !== null) clearTimeout(stallTimer);
+      // A stalled run outlives this test; mark it handled so its eventual
+      // settlement cannot surface as an unhandled rejection in a later test.
+      run.catch(() => {});
+    }
   });
 
   const build = nodeState(outcome, "build");
