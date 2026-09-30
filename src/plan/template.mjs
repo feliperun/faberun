@@ -224,6 +224,13 @@ export const PATH_CUT_RULE = "repo-facts.json's paths is the byte-limited cut of
  */
 export const REVIEW_PATH_CUT_RULE = "repo-facts.json's paths is a byte-limited cut of the tracked tree, so a path absent from it is not evidence that the file is absent. pathOmission reports, per source kind (document, archived-log, manifest, code, other), how many paths and how many bytes the cut discarded, and those per-kind numbers sum to its own paths and bytes totals. A finding that a node misses a file the spec implies is only valid when the path is in paths or named by the requirement itself; the complete index is staged beside the artefact as repo-paths.txt for the plan to read if it needs it.";
 
+// measured 2026-09-30: the FX runner truncates a tool result at 8,192 output
+// tokens, and a draft that asked for repo-facts.json's whole paths, testFiles
+// or coverage mapping in one call read the partial it got back as though it
+// were the whole tree. The ceiling is per response, so the rule is scoped to
+// one requirement's decision instead of the artefact at large.
+const REPO_FACTS_QUERY_BOUND_RULE = "Bound every repository-facts query by the current requirement and below the measured 8,192-output-token FX response ceiling: query repo-facts.json one requirement at a time, and read only the exact source and test entries that requirement's decision names, so each individual tool result stays strictly below the ceiling. Never dump all of paths, testFiles, or the testFiles[].covers coverage mapping in one result; split a broad selection into requirement-scoped queries, or answer it with a focused summary or count. A tool result that truncated is not evidence: narrow the query and read again before continuing, because a partial result cannot show what it dropped.";
+
 // R5 of the phase-2 reissue, reissued: this module used to export
 // PLAN_RULE_READ_FILES, the Faberun source and test paths a review packet
 // declared in `readFiles` so its reviewer could read the rules it judged by.
@@ -297,6 +304,7 @@ const INSTRUCTIONS = Object.freeze({
     NAMED_TEST_FILE_RULE,
     COVERING_TEST_RULE,
     PATH_CUT_RULE,
+    REPO_FACTS_QUERY_BOUND_RULE,
     ...CONTRACT_VERIFICATION_RULE,
     `Return exactly one worker-result JSON object. Put the plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan. taskKind and riskTier are the only classification a draft makes; a routing table assigns a runtime afterward, from those two fields alone.",
