@@ -1,8 +1,8 @@
 # ACHADOS-PRODUTO: campanha `campaign-efficiency`
 
-Livro de achados de ferramenta desta campanha. Cada seção diz o **sintoma** (a mensagem exata do
-portão, do nó ou do runner), a **causa medida**, o **custo** e a **correção sugerida**. Cada seção termina
-dizendo por que isto é achado de produto e não erro de um nó.
+Este livro reúne os achados de ferramenta da campanha. Cada seção apresenta o **sintoma** (a mensagem
+exata do portão, do nó ou do runner), a **causa medida**, o **custo**, a **correção sugerida** e o
+motivo para classificar o caso como achado de produto, não como erro de um nó.
 
 Escopo: rodadas entre 29/09 13:47Z e 30/09 01:15Z (F1, F2, F2-reemissão e F3 em andamento), com as
 evidências no journal da campanha (`journal.jsonl`) e nos `results/` das runs citadas. Custo total
@@ -37,7 +37,7 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
 - **Sintoma:** dois nós do mesmo contrato rodando juntos com `maxParallel: 1`.
 - **Causa medida:** reproduzido **duas vezes** com evidência de heartbeat. Em 29/09 18:03Z,
   `r4-inventory` e `r5-checks` aparecem simultaneamente `running`/`executionPhase=worker`, ambos em
-  `fx-deepseek`, embora o contrato `phase-2` declare `maxParallel=1`; o cap `maxConcurrent=6` do
+  `fx-deepseek`, embora o contrato `phase-2` declare `maxParallel=1`. O cap `maxConcurrent=6` do
   runtime venceu o contrato. Em 19:52Z de novo: `r5-preflight-before-review` começou às 19:52:09Z
   enquanto `r4-omission-kinds` ainda estava no **gate de verificação**.
 - **Custo:** é a origem do nó `r7-judge-concurrency-measured` (still `advisory`) e da F5 existente;
@@ -45,8 +45,8 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
   deixa de ser "potencial": está confirmado por medição.
 - **Correção sugerida:** um único portão de admissão deve aplicar o `maxParallel` congelado em todas
   as etapas, inclusive quando `maxConcurrent` do runtime é maior ou outro nó está no gate de
-  verificação. Registre o número
-  efetivo de nós concorrentes no `status.json` para a prova ficar barata.
+  verificação. Registre o número efetivo de nós concorrentes no `status.json` para a prova ficar
+  barata.
 - **Por que é achado de produto:** o contrato é a promessa que o operador lê para decidir custo e
   contenção; um limite de plano que o motor ignora em silêncio invalida todo o diagnóstico de
   paralelismo que a ferramenta se propõe a fazer.
@@ -65,8 +65,8 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
   (`documents: N`, `archived logs: N`, ...), com o corte declarando também o critério aplicado.
   Fechada em `ace6e062` (`r4-omission-kinds`).
 - **Por que é achado de produto:** o artefato de fatos do repositório é a entrada de todo plano; uma
-  omissão ilegível deixa o planejador sem saber o que ficou de fora. O defeito
-  reaparece em qualquer campanha com repositório grande.
+  omissão ilegível impede o planejador de saber o que ficou de fora. O defeito reaparece em qualquer
+  campanha com repositório grande.
 
 ## 4. O pacote declara menos escopo do que o worker de fato consulta
 
@@ -124,8 +124,8 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
 
 - **Sintoma:** 29/09 19:11Z: *"o CLI rejeita `plan --resolve` antes do despacho: `parseArgs` aceita a
   forma documentada, mas `main` ainda exige um target de spec em `if (!target)`"*.
-- **Causa medida:** a forma documentada e a implementação divergiram: a validação de argumentos e o
-  despacho não aceitam o mesmo contrato. O fluxo equivalente **existe** em
+- **Causa medida:** a forma documentada e a implementação divergiam. A validação de argumentos e o
+  despacho não aceitavam o mesmo contrato. O fluxo equivalente **existe** em
   `src/plan/resolve.mjs`, mas não é alcançável pela CLI.
 - **Custo:** o operador teve de contornar pela API interna do módulo; interface e biblioteca passam a
   ter comportamentos diferentes, e todo comando documentado no brief fica não confiável.
