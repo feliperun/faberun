@@ -42,7 +42,11 @@ node's inherited phase requirement ids onto the snapshot when its result is
 accepted, and `appendTransitionEvent` copies them — so the ratchet stayed at
 fifteen. Measured 2026-09-29: `pauseCampaign` (`src/campaign/unpark.mjs`) has
 been appending an `operator.command` line since the dashboard pause landed, so
-that event type has two emitters and the ratchet is sixteen.
+that event type has two emitters and the ratchet is sixteen. Measured
+2026-09-30: the reserve-gate node added the one new single-writer campaign
+field, `reserveUsd`, armed by `configureCampaignReserve`
+(`src/campaign/reserve.mjs`) — a `campaign.json` declaration, so the
+events-and-journal ratchet below stayed at sixteen.
 
 A type or field nothing writes is not declared here. This document is a
 declaration of owners, and a field with no writer has no owner to declare.
@@ -135,6 +139,7 @@ the mutator writes. The section grows by declaration.
 | --- | --- | --- |
 | `requirements` | `closeCampaign` | at close: one entry per requirement id the linked runs' contracts declared, correlated only by the identifiers the runs carried (a done node snapshot's stamped `requirementIds`, never requirement text), each covering node named with its run and its verification evidence; a requirement no done node carries is recorded with status `open` instead of being omitted |
 | `ledgerPreserved` | `markCampaignLedgerPreserved` | when the ledger is written to its durable, versioned location under the registered repository (`preserveCampaignLedger` with the default destination, or `reledgerCampaignLedger`): set `true` once, never back. A record that never carried the marker — a campaign written before the field existed, or one whose close kept the ledger only in the operator home — reads as `false`, so removal refuses on the default rather than deleting evidence it cannot prove is safe |
+| `reserveUsd` | `configureCampaignReserve` | when the operator arms the optional balance (ADR 0011) the reserve gate gates new known-cost dispatches against. Absent means no reserve policy and is never defaulted on read — distinct from `0`, which gates every known-cost dispatch — and the schema (`validateCampaign`) refuses anything that is not a finite non-negative number. The reservations the balance holds are not record fields: they live in the reserve store under the campaign directory (`src/campaign/reserve.mjs`), outside this declaration |
 
 ## The runtime catalogue record
 
@@ -320,7 +325,8 @@ behavior, and a node that declares must not also move the thing it declares.
   },
   "campaign": {
     "requirements": { "writers": ["closeCampaign"] },
-    "ledgerPreserved": { "writers": ["markCampaignLedgerPreserved"] }
+    "ledgerPreserved": { "writers": ["markCampaignLedgerPreserved"] },
+    "reserveUsd": { "writers": ["configureCampaignReserve"] }
   }
 }
 ```
