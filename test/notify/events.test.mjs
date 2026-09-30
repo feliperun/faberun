@@ -10,6 +10,7 @@ import {
   NOTIFY_EVENTS_ENV,
   NOTIFY_EVENT_TYPES,
   NOTIFY_LANG_ENV,
+  NOTIFY_SHAPE_ENV,
   NotifyQueue,
   deliverableEventTypes,
   notifySettingProblems,
@@ -51,11 +52,12 @@ test("by default a phase settling, a person being needed and an advisory leave; 
   for (const type of NOTIFY_EVENT_TYPES) assert.ok(deliverableEventTypes({ [NOTIFY_EVENTS_ENV]: NOTIFY_EVENT_TYPES.join(",") }).has(type));
 });
 
-test("notifySettingProblems names an unknown event type and an unknown language, and is empty otherwise", () => {
+test("notifySettingProblems names an unknown event type, language and shape, and is empty otherwise", () => {
   assert.deepEqual(notifySettingProblems({}), []);
-  assert.deepEqual(notifySettingProblems({ [NOTIFY_EVENTS_ENV]: "run.terminal,attention", [NOTIFY_LANG_ENV]: "pt" }), []);
+  assert.deepEqual(notifySettingProblems({ [NOTIFY_EVENTS_ENV]: "run.terminal,attention", [NOTIFY_LANG_ENV]: "pt", [NOTIFY_SHAPE_ENV]: "mobile" }), []);
   assert.match(notifySettingProblems({ [NOTIFY_EVENTS_ENV]: "run.terminal,bogus" })[0], /item "bogus" is not one of node\.terminal, run\.terminal, attention, advisory/u);
   assert.match(notifySettingProblems({ [NOTIFY_LANG_ENV]: "fr" })[0], /FABERUN_NOTIFY_LANG=fr is not one of en, pt/u);
+  assert.match(notifySettingProblems({ [NOTIFY_SHAPE_ENV]: "compact" })[0], /FABERUN_NOTIFY_SHAPE=compact is not one of full, mobile/u);
   const check = notifyTransportCheck({ [NOTIFY_EVENTS_ENV]: "bogus" });
   assert.equal(check.advisory, true);
   assert.match(check.detail, /item "bogus"/u);

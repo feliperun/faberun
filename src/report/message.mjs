@@ -26,6 +26,7 @@ import { renderStatusJson } from "./render.mjs";
 import { buildCampaignProgress, remainingEstimateMs } from "./progress.mjs";
 import { attemptCosts, retriesOutspendFirst } from "../run/usage.mjs";
 import { chooseLanguage, labelsFor } from "./locale.mjs";
+import { NOTIFY_SHAPE_ENV, NOTIFY_SHAPES } from "../notify/index.mjs";
 import { readNodeSnapshot } from "../run/node-store.mjs";
 import { campaignDir } from "../campaign/layout.mjs";
 import { readJournal } from "../campaign/journal.mjs";
@@ -104,6 +105,57 @@ const QUIET_STATES = new Set(["pending", "running", "done", "no-op"]);
  * @returns {string}
  */
 export function renderRunProgress(runDir, event) {
+  return renderShape(buildView(runDir, event), event.type, chooseShape(process.env));
+}
+
+/**
+ * The message a transport should carry, in both shapes, from one read of the
+ * run: `summary` is the one `FABERUN_NOTIFY_SHAPE` names, and `mobile` is
+ * always the short one.
+ *
+ * The controller cannot know who is going to read the message: a transport
+ * that puts it in front of a person on a phone wants `mobile`, and one that
+ * puts it in front of a session that has to act wants the full message,
+ * because that is the one carrying the command that unblocks the node. One
+ * shape cannot serve both audiences, and the controller is the only place that
+ * reads the run once and can hand out both -- so it hands out both, and a
+ * transport takes the one it has an audience for (`mobile ?? summary`). The
+ * variable stays the global override it reads like: an operator whose every
+ * audience is a phone sets it to `mobile` and `summary` follows.
+ *
+ * The read is shared: this is one pass over the run's state, not two.
+ *
+ * @param {string} runDir
+ * @param {NotifyEvent} event
+ * @returns {{summary: string, mobile: string}}
+ */
+export function renderRunProgressShapes(runDir, event) {
+  const view = buildView(runDir, event);
+  const summary = renderShape(view, event.type, chooseShape(process.env));
+  return { summary, mobile: renderShape(view, event.type, "mobile") };
+}
+
+/**
+ * @param {View} view
+ * @param {string} eventType
+ * @param {"full"|"mobile"} shape
+ * @returns {string}
+ */
+function renderShape(view, eventType, shape) {
+  if (shape === "mobile") return mobileMessage(view, eventType).join("\n");
+  const body = eventType === "run.terminal" ? runTerminal(view) : eventType === "attention" ? attention(view) : nodeTerminal(view);
+  return boundToCeiling([...body, RULE, footer(view, eventType), ...updateLine(view.label)]);
+}
+
+/**
+ * Everything both shapes need, read once: the run's status payload, its node
+ * objectives and snapshots, its campaign roll-up and its wording.
+ *
+ * @param {string} runDir
+ * @param {NotifyEvent} event
+ * @returns {View}
+ */
+function buildView(runDir, event) {
   const payload = /** @type {Payload} */ (JSON.parse(renderStatusJson(runDir)));
   const runsDir = dirname(runDir);
   const objectives = readObjectives(runDir);
@@ -120,12 +172,107 @@ export function renderRunProgress(runDir, event) {
   const campaign = campaignSummary(runsDir, payload.campaignId);
   const label = labelsFor(chooseLanguage(process.env, [campaign?.goal], journalTexts(runsDir, payload.campaignId), [...objectives.values()]));
   const subject = subjectNode(payload.nodes, event.nodeId ?? null);
-  /** @type {View} */
-  const view = { runDir, runId: event.runId ?? basename(runDir), payload, objectives, snapshots, campaign, label, subject };
+  return { runDir, runId: event.runId ?? basename(runDir), payload, objectives, snapshots, campaign, label, subject };
+}
 
-  const body = event.type === "run.terminal" ? runTerminal(view) : event.type === "attention" ? attention(view) : nodeTerminal(view);
-  const lines = [...body, RULE, footer(view, event.type), ...updateLine(label)];
-  return boundToCeiling(lines);
+/**
+ * The shape the message renders in: `FABERUN_NOTIFY_SHAPE` when it names one,
+ * `full` otherwise.
+ *
+ * An unknown value falls back to `full` instead of throwing: this runs where a
+ * notification is being built, and losing the message over a typo in an
+ * environment variable is worse than rendering the shape that always worked.
+ * `notifySettingProblems` reports the typo where a person can read it.
+ *
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {"full"|"mobile"}
+ */
+export function chooseShape(env) {
+  const forced = (env[NOTIFY_SHAPE_ENV] ?? "").trim();
+  return /** @type {"full"|"mobile"} */ (NOTIFY_SHAPES.includes(forced) ? forced : "full");
+}
+
+/**
+ * The mobile shape: at most three lines, emoji first, and no quoted text at
+ * all.
+ *
+ * It exists because the person reading it is walking: the operator's own
+ * words, 2026-09-30 -- *"eu tô com as crianças, eu tô correndo, eu tô lendo
+ * com o celular andando na rua. Não tem que bater o olho na frase, tem que ter
+ * emoji, bastante emoji para dizer o que está falando"*. The full shape is
+ * written to be read; this one is written to be glanced at.
+ *
+ * Three properties make it glanceable, and each is a deliberate loss:
+ *
+ * - **The campaign's progress is the first line, always**, when the run
+ *   belongs to one: `N/N fases` and the percent of the whole campaign, which
+ *   is the number that answers "how far along is this" without reading. A node
+ *   count would answer a question nobody asked.
+ * - **Nothing quoted.** No objective, no worker summary, no evidence excerpt.
+ *   Those are what made the full message long, and they are the part a person
+ *   cannot scan -- they live in the campaign group and in `faberun status`.
+ * - **The command that unblocks is not here either.** It is a path, and a
+ *   truncated path is a wrong command. The `attention` shape says who waits
+ *   and why; the exact command stays in the full shape, which is what the
+ *   session that can run it reads.
+ *
+ * @param {View} view
+ * @param {string} eventType
+ * @returns {string[]}
+ */
+function mobileMessage(view, eventType) {
+  const { payload, label, subject } = view;
+  const lines = [];
+  const progress = mobileCampaignLine(view);
+  if (progress) lines.push(progress);
+
+  if (eventType === "run.terminal") {
+    const nodes = payload.nodes;
+    const done = nodes.filter((node) => SUCCESS.has(node.status)).length;
+    const waiting = nodes.filter((node) => !QUIET_STATES.has(node.status)).length;
+    const span = shortDuration(runSpanMs(nodes));
+    lines.push(`🏁 ${runLabel(view)} · ${done}/${nodes.length} ✅ · ⏱️ ${span} · ${formatUsd(payload.usage.costUsd)}`);
+    if (waiting) lines.push(`👉 ${waiting} ${label("needsYou")}`);
+    return lines;
+  }
+
+  if (eventType === "attention") {
+    const reason = subject.errorCode ?? subject.status;
+    lines.push(`👀 ${subject.id} · ${label("needsYou")} · ${reason}`);
+    lines.push(`⏱️ ${label("attempt")} ${subject.attempt} · ${shortSpan(subject)} · ${formatUsd(subject.costUsd)}${retryOutspendMark(subject)}`);
+    return lines;
+  }
+
+  const model = subject.workerRuntime ? ` · ${modelName(subject.workerRuntime)}` : "";
+  const error = subject.errorCode && !SUCCESS.has(subject.status) ? ` · ${subject.errorCode}` : "";
+  const ending = QUIET_STATES.has(subject.status) && !SUCCESS.has(subject.status)
+    ? label(subject.status === "running" ? "running" : "pending")
+    : `${label(OUTCOME_LABEL[subject.status] ?? "doneIn")} ${shortSpan(subject)}`;
+  lines.push(`${OUTCOME[subject.status] ?? "❔"} ${subject.id} · ${ending} · ${formatUsd(subject.costUsd)}${model}${error}`);
+  // The full shape carries a phase line for every event; here the campaign line
+  // above already names the campaign, so the phase is only worth a line on a
+  // run that stands alone -- and only when the phase has a sibling to compare
+  // against.
+  if (!progress) {
+    const siblings = payload.nodes.filter((node) => node.phase === subject.phase);
+    const done = siblings.filter((node) => SUCCESS.has(node.status)).length;
+    if (siblings.length > 1) lines.push(`📦 ${done}/${siblings.length} ${label("nodes")}`);
+  }
+  return lines;
+}
+
+/**
+ * `📊 <id> · 8/9 fases · 92%` -- the whole campaign's progress, which is the
+ * number the operator asked for by name, or null when the run belongs to no
+ * readable campaign.
+ *
+ * @param {View} view
+ * @returns {string|null}
+ */
+function mobileCampaignLine(view) {
+  const { campaign, label } = view;
+  if (!campaign) return null;
+  return `📊 ${campaign.id} · ${campaign.phasesDone}/${campaign.phasesTotal} ${label("phases")} · ${campaign.percentDone}%`;
 }
 
 /**

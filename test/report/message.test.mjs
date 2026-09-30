@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { registerRun } from "../../src/campaign/index.mjs";
 import { campaignDir, CAMPAIGN_FILE } from "../../src/campaign/layout.mjs";
-import { PROGRESS_MESSAGE_MAX_BYTES, renderRunProgress } from "../../src/report/message.mjs";
+import { PROGRESS_MESSAGE_MAX_BYTES, chooseShape, renderRunProgress, renderRunProgressShapes } from "../../src/report/message.mjs";
 import { doneResult, makeRun } from "./run-fixture.mjs";
 
 // runsRoot registers every resolved path under $FABERUN_HOME; these fixtures
@@ -266,6 +266,131 @@ test("a run that delivered nothing says so, meters no tokens, and a node still r
 
     const forced = renderRunProgress(runDir, { type: "node.terminal", runId: "report-progress", nodeId: "two", status: "running" });
     assert.match(forced, /^▶️ two · running · \$-$/mu, "an event forced on a running node never claims it is done");
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+// --- The mobile shape -------------------------------------------------------
+//
+// The operator reads these walking, with the phone in one hand (his words,
+// 2026-09-30): the shape is asserted by what it drops as much as by what it
+// keeps, because every one of those drops is what makes it scannable.
+
+/**
+ * @param {string} shape
+ * @param {() => void} body
+ */
+function withShape(shape, body) {
+  const saved = process.env.FABERUN_NOTIFY_SHAPE;
+  process.env.FABERUN_NOTIFY_SHAPE = shape;
+  try {
+    return body();
+  } finally {
+    if (saved === undefined) delete process.env.FABERUN_NOTIFY_SHAPE;
+    else process.env.FABERUN_NOTIFY_SHAPE = saved;
+  }
+}
+
+test("the mobile shape puts the campaign's phases and percent first, and quotes nothing", () => {
+  const { runDir } = makeRun([
+    { id: "one", phase: "p", status: "done", startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", result: doneResult("First node shipped the schema. Then a sentence nobody needs.") },
+    { id: "two", phase: "p", status: "done", startedAt: "2026-01-01T00:01:00.000Z", updatedAt: "2026-01-01T00:03:00.000Z", result: doneResult("Second node shipped the migration.") },
+  ]);
+  const runsDir = dirname(runDir);
+  registerRun(campaignDir(runsDir, "test-campaign"), "report-progress");
+  try {
+    withShape("mobile", () => {
+      const message = renderRunProgress(runDir, { type: "run.terminal", runId: "report-progress" });
+      const lines = message.split("\n");
+      assert.match(lines[0], /^📊 test-campaign · 1\/1 phases · 100%$/u, "the campaign's own phases and percent lead: the number that answers 'how far along is this' without reading");
+      assert.match(lines[1], /^🏁 run report-progress · 2\/2 ✅ · ⏱️ 3m · \$-/u);
+      assert.equal(lines.length, 2, "no line survives that is not one of: progress, the event, who waits");
+      assert.doesNotMatch(message, /▰/u, "the bar belongs to the full shape; a bar is measured, not glanced");
+      assert.doesNotMatch(message, /─/u, "no rule");
+      assert.doesNotMatch(message, /shipped the schema/u, "no worker summary is quoted");
+      assert.doesNotMatch(message, /^📦 delivered$/mu, "no delivered list");
+      assert.doesNotMatch(message, /^🐦 /mu, "no signature line: the full shape's footer is a paragraph's tail, not a glance");
+    });
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("the mobile shape reports who waits on a person on the last line, and writes the command nowhere", () => {
+  const { runDir } = makeRun([
+    { id: "build", phase: "p", status: "blocked", startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", error: { code: "context_missing", message: "the worker asked for schema.sql" }, result: { status: "blocked_context", summary: "need the schema", verification: [], artifacts: [], missingContext: ["schema.sql"] } },
+    { id: "two", phase: "p", status: "done", startedAt: "2026-01-01T00:01:00.000Z", updatedAt: "2026-01-01T00:02:00.000Z", result: doneResult("Shipped.") },
+  ]);
+  try {
+    withShape("mobile", () => {
+      const run = renderRunProgress(runDir, { type: "run.terminal", runId: "report-progress" });
+      assert.match(run.split("\n").pop() ?? "", /^👉 1 needs you$/u, "the ask is the last line, so it is the one line a person has to read");
+
+      const attention = renderRunProgress(runDir, { type: "attention", runId: "report-progress", nodeId: "build", status: "blocked" });
+      const lines = attention.split("\n");
+      assert.match(lines[0], /^👀 build · needs you · context_missing$/u);
+      assert.match(lines[1], /^⏱️ attempt 1 · 1m · \$-/u);
+      assert.equal(lines.length, 2);
+      assert.doesNotMatch(attention, /faberun resume/u, "a path that would be truncated is a wrong command; it stays in the full shape, which is what the session that can run it reads");
+    });
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("the mobile shape names the phase only on a run that belongs to no campaign", () => {
+  const { runDir } = makeRun([
+    { id: "one", phase: "p", status: "done", startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", result: doneResult("Shipped.") },
+    { id: "two", phase: "p", status: "pending" },
+  ]);
+  try {
+    withShape("mobile", () => {
+      const node = renderRunProgress(runDir, { type: "node.terminal", runId: "report-progress", nodeId: "one", status: "done" });
+      const lines = node.split("\n");
+      assert.match(lines[0], /^✅ one · done in 1m · \$-/u);
+      assert.match(lines[1], /^📦 1\/2 nodes$/u);
+      assert.equal(lines.length, 2);
+    });
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+
+test("an unknown shape falls back to the full one instead of losing the message", () => {
+  const { runDir } = makeRun([
+    { id: "one", phase: "p", status: "done", startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", result: doneResult("Shipped.") },
+  ]);
+  try {
+    assert.equal(chooseShape({}), "full", "the shape nobody asked for is the one that always worked");
+    assert.equal(chooseShape({ FABERUN_NOTIFY_SHAPE: "  mobile  " }), "mobile", "the value is the operator's, trimmed");
+    assert.equal(chooseShape({ FABERUN_NOTIFY_SHAPE: "compact" }), "full");
+    withShape("compact", () => {
+      const message = renderRunProgress(runDir, { type: "run.terminal", runId: "report-progress" });
+      assert.match(message, /^🏁 run report-progress · 1\/1 done/u, "a typo in the shell renders the full shape, it does not throw where a notification is being built");
+      assert.match(message, /^🐦 faberun · /mu);
+    });
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});
+test("both shapes come out of one call, and the variable still decides which one the summary is", () => {
+  const { runDir } = makeRun([
+    { id: "one", phase: "p", status: "done", startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", result: doneResult("Shipped.") },
+    { id: "two", phase: "p", status: "pending" },
+  ]);
+  const event = { type: /** @type {const} */ ("run.terminal"), runId: "report-progress" };
+  try {
+    withShape("full", () => {
+      const shapes = renderRunProgressShapes(runDir, event);
+      assert.match(shapes.summary, /^🏁 run report-progress · 1\/2 done · /mu);
+      assert.match(shapes.summary, /^🐦 faberun · /mu, "the summary is what the operator asked for: full");
+      assert.match(shapes.mobile, /^🏁 run report-progress · 1\/2 ✅ · /mu, "the short one is handed beside it, whatever the operator asked for");
+      assert.equal(shapes.mobile, withShape("mobile", () => renderRunProgress(runDir, event)), "the short shape handed to a transport is the same renderer the variable selects, reached by name instead of by environment");
+    });
+    withShape("mobile", () => {
+      const shapes = renderRunProgressShapes(runDir, event);
+      assert.equal(shapes.summary, shapes.mobile, "an operator whose every audience is a phone sets the variable and the summary follows");
+    });
   } finally {
     rmSync(runDir, { recursive: true, force: true });
   }

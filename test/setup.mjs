@@ -21,10 +21,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 delete process.env.FABERUN_NOTIFY_SESSION;
-// The event filter and the language override shape what a receipt records
-// and how a message reads; a test asserts both from the defaults.
+// The event filter, the language override and the shape override decide what a
+// receipt records and how a message reads; a test asserts all three from the
+// defaults. The shape matters here for the same reason the transport does: a
+// test asserting the full shape's wording must not inherit a `mobile` left in
+// the shell.
 delete process.env.FABERUN_NOTIFY_EVENTS;
 delete process.env.FABERUN_NOTIFY_LANG;
+delete process.env.FABERUN_NOTIFY_SHAPE;
 
 // A no-op transport rather than none: with the variable unset the outbox
 // records `no_transport`, and tests that assert a `delivered` receipt need a

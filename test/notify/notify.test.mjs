@@ -313,4 +313,52 @@ process.stdin.on("end", () => {
     "the recording fixture bound in place of the poisoned transport captured the run's settling (a node settling is filtered by default)",
   );
 });
+test("a delivered event carries the phone's copy beside the full one, from the same read", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "notify-tri-shape-"));
+  const path = writeContract(directory, fixture({
+    id: "tri-shape-run",
+    pollIntervalMs: 10,
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
+  }));
+  const result = await withResultFileCodex(directory, "file-first", path);
+  assert.equal(nodeState(result).status, "done");
 
+  // A node settling is filtered by default and this test is about what a
+  // transport is handed, so it lets the phase-settling event out for its own
+  // duration.
+  const previousEvents = process.env.FABERUN_NOTIFY_EVENTS;
+  process.env.FABERUN_NOTIFY_EVENTS = "run.terminal";
+  /** @type {unknown[]} */
+  const delivered = [];
+  const queue = new NotifyQueue({ runDir: result.runDir, deliver: async (event) => { delivered.push(event); return { ok: true }; } });
+  try {
+    await queue.enqueue({ type: "run.terminal", runId: "tri-shape-run", done: 1, total: 1 });
+  } finally {
+    if (previousEvents === undefined) delete process.env.FABERUN_NOTIFY_EVENTS;
+    else process.env.FABERUN_NOTIFY_EVENTS = previousEvents;
+  }
+
+  const handed = /** @type {{summary: string, mobile: string}} */ (delivered[0]);
+  assert.match(handed.summary, /^🏁 run tri-shape-run · 1\/1 done · /mu, "a session waiting to act keeps the full message, which carries the command that unblocks it");
+  assert.match(handed.mobile, /^🏁 run tri-shape-run · 1\/1 ✅ · /mu, "a transport with a phone audience gets the three lines without asking for them");
+  assert.doesNotMatch(handed.mobile, /▰|🐦/u, "the short copy is short by construction, not by truncation");
+  assert.ok(handed.mobile.length < handed.summary.length);
+  assert.match(readFileSync(join(result.runDir, "notify.jsonl"), "utf8"), /"summary":"🏁 /u, "the receipt keeps the full one: the log is read later, on a screen with room");
+});
+
+test("an event no transport will see is rendered once, in the shape the receipt records", async () => {
+  const runDir = mkdtempSync(join(tmpdir(), "notify-filtered-shapes-"));
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(join(runDir, "status.json"), JSON.stringify({ usage: { costUsd: 0.5 } }));
+  /** @type {unknown[]} */
+  const delivered = [];
+  const queue = new NotifyQueue({ runDir, deliver: async (event) => { delivered.push(event); return { ok: true }; } });
+  // Default filter: a node settling stays in the log.
+  await queue.enqueue({ type: "node.terminal", runId: "run-a", nodeId: "build", status: "done", attempt: 1 });
+
+  assert.equal(delivered.length, 0);
+  const receipt = JSON.parse(readFileSync(join(runDir, "notify.jsonl"), "utf8").trim());
+  assert.equal(receipt.status, "filtered");
+  assert.ok(receipt.summary.length > 0, "the receipt still says what was rendered, or the log would not say what happened to the event");
+  assert.equal(receipt.mobile, undefined, "nothing will read the phone's copy, so nothing rendered it");
+});

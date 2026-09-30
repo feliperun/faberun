@@ -89,7 +89,20 @@ const MACOS_TRANSPORT = "os-macos";
  */
 export const NOTIFY_EVENTS_ENV = "FABERUN_NOTIFY_EVENTS";
 export const NOTIFY_LANG_ENV = "FABERUN_NOTIFY_LANG";
-export const NOTIFY_ENV_NAMES = Object.freeze([NOTIFY_BIN_ENV, NOTIFY_SESSION_ENV, NOTIFY_EVENTS_ENV, NOTIFY_LANG_ENV]);
+/**
+ * How much of the message to render, not where it goes: `full` is the shape a
+ * transcript and a terminal read well, `mobile` is the one a person reads in
+ * two seconds with the phone in one hand.
+ *
+ * It is a setting apart from the transport on purpose. The same controller
+ * delivers to a file, a desktop notification and a phone, and the phone is the
+ * one that cannot afford a paragraph -- but binding the shape to the transport
+ * would put the decision in the wrong place: an operator running the CLI over
+ * ssh wants the full shape on a terminal, and a phone reached through the same
+ * `FABERUN_NOTIFY_BIN` wants the other. See `docs/COMMANDS.md`.
+ */
+export const NOTIFY_SHAPE_ENV = "FABERUN_NOTIFY_SHAPE";
+export const NOTIFY_ENV_NAMES = Object.freeze([NOTIFY_BIN_ENV, NOTIFY_SESSION_ENV, NOTIFY_EVENTS_ENV, NOTIFY_LANG_ENV, NOTIFY_SHAPE_ENV]);
 
 /** Every event type the dispatcher can be asked to deliver. */
 export const NOTIFY_EVENT_TYPES = Object.freeze(["node.terminal", "run.terminal", "attention", "advisory"]);
@@ -109,6 +122,14 @@ export const DEFAULT_NOTIFY_EVENTS = Object.freeze(["run.terminal", "attention",
 
 /** The two languages the message renders its wording in; `FABERUN_NOTIFY_LANG` may name either. */
 export const NOTIFY_LANGUAGES = Object.freeze(["en", "pt"]);
+
+/**
+ * The two shapes the message renders in; `FABERUN_NOTIFY_SHAPE` may name
+ * either. `full` is the default, so a controller that sets nothing keeps the
+ * message it always had -- the shape was added for a phone, not to replace the
+ * transcript.
+ */
+export const NOTIFY_SHAPES = Object.freeze(["full", "mobile"]);
 
 /**
  * The event types the environment lets out, as a set. Unknown items are left
@@ -138,6 +159,8 @@ export function notifySettingProblems(env = process.env) {
   }
   const lang = (env[NOTIFY_LANG_ENV] ?? "").trim();
   if (lang && !NOTIFY_LANGUAGES.includes(lang)) problems.push(`${NOTIFY_LANG_ENV}=${lang} is not one of ${NOTIFY_LANGUAGES.join(", ")}`);
+  const shape = (env[NOTIFY_SHAPE_ENV] ?? "").trim();
+  if (shape && !NOTIFY_SHAPES.includes(shape)) problems.push(`${NOTIFY_SHAPE_ENV}=${shape} is not one of ${NOTIFY_SHAPES.join(", ")}`);
   return problems;
 }
 
@@ -260,6 +283,32 @@ async function renderDelegated(event) {
     return renderRunProgress(event.runDir, event);
   } catch {
     return degradedNotification(event);
+  }
+}
+
+/**
+ * Both shapes of a deliverable event, from one read of its run, or null when
+ * there is nothing to render shapes from: a campaign-level line arrives with
+ * its own text, and a caller with no run directory gets the degraded template.
+ *
+ * A transport has an audience, and the two audiences want opposite things. The
+ * phone wants the three lines: the campaign's phases and percent, the event,
+ * and who waits -- the operator reads it walking (his words, 2026-09-30: *"eu
+ * tô com o celular andando na rua"*). A session being woken wants the full
+ * message because it carries the `faberun resume ... --answer` command that
+ * unblocks the node. One shape cannot serve both, and the controller is the
+ * only place that reads the run once and can hand out both.
+ *
+ * @param {NotifyEvent} event
+ * @returns {Promise<{summary: string, mobile: string}|null>}
+ */
+async function renderShapes(event) {
+  if (typeof event.runDir !== "string" || !event.runDir) return null;
+  try {
+    const { renderRunProgressShapes } = await loadProgressModule();
+    return renderRunProgressShapes(event.runDir, event);
+  } catch {
+    return null;
   }
 }
 
@@ -551,27 +600,30 @@ export class NotifyQueue {
    */
   async enqueue(event) {
     const enriched = { ...event, runDir: this.runDir, costUsd: readRunCostUsd(this.runDir) };
-    // A campaign-level line arrives already rendered; a run-level event is
-    // rendered from its counters here. Either way the stored summary is the
-    // one that reaches the transport and the receipt.
-    const summary = typeof enriched.summary === "string" && enriched.summary
-      ? enriched.summary
-      : await renderNotification(enriched);
-    // Consumers deduplicate by eventId (the Ford adapter rejects an event without
-    // one), so every delivery carries a stable id derived from the dedupe key.
-    const eventId = enriched.eventId
-      ?? createHash("sha256").update(enriched.dedupeKey ?? JSON.stringify(enriched)).digest("hex");
     // An event type the environment keeps out of every transport is still a
     // receipt -- `filtered`, with the rendered summary -- so the log says what
     // happened to it, and the resume's dedupe sees it as already handled.
     const filtered = !deliverableEventTypes().has(enriched.type);
+    // A campaign-level line arrives already rendered; a run-level event is
+    // rendered from its counters here. Either way the stored summary is the
+    // one that reaches the session and the receipt.
+    const given = typeof enriched.summary === "string" && enriched.summary ? enriched.summary : null;
+    // Only a deliverable event is worth the second shape: an event no
+    // transport will see is recorded and dropped, and rendering the phone's
+    // copy of it would be work nobody reads.
+    const shapes = given || filtered ? null : await renderShapes(enriched);
+    const summary = given ?? shapes?.summary ?? (await renderNotification(enriched));
+    // Consumers deduplicate by eventId (the Ford adapter rejects an event without
+    // one), so every delivery carries a stable id derived from the dedupe key.
+    const eventId = enriched.eventId
+      ?? createHash("sha256").update(enriched.dedupeKey ?? JSON.stringify(enriched)).digest("hex");
     /** @type {DeliveryResult} */
     let result;
     if (filtered) {
       result = { ok: false, transports: [] };
     } else {
       try {
-        result = await this.deliver({ ...enriched, summary, eventId });
+        result = await this.deliver({ ...enriched, summary, eventId, ...(shapes && shapes.mobile !== summary ? { mobile: shapes.mobile } : {}) });
       } catch (error) {
         // A transport that rejects is a failed delivery, not a controller fault:
         // the receipt is still appended and the failure is dropped like any other.
