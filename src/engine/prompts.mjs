@@ -206,9 +206,12 @@ export function previousAttemptOperatorAnswer(previousAttempt) {
  * The heading the variable previous-attempt state travels under, matched
  * tolerantly to its exact markdown weight: `renderPreviousAttemptSection`
  * (engine/retry.mjs) renders it, and every parser here reads around it
- * rather than hard-coding its spelling.
+ * rather than hard-coding its spelling. The `#` run is required — a packet's
+ * own instructions may say `Previous attempt notes:` in prose, and a match on
+ * that line splits stable instructions into the variable tail and makes
+ * assembly drop the state's real retry section.
  */
-const PREVIOUS_ATTEMPT_HEADING = /^#{0,6}\s*Previous attempt\b.*$/im;
+const PREVIOUS_ATTEMPT_HEADING = /^#{1,6}\s*Previous attempt\b.*$/im;
 
 /**
  * Split a prompt that already carries the variable `Previous attempt` section

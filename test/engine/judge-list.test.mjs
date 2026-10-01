@@ -369,4 +369,22 @@ test("prompt assembly keeps stable instruction sections before the variable prev
   const split = splitPreviousAttemptSection(`stable head\n\n${section}`);
   assert.equal(split.stable, "stable head");
   assert.equal(split.section, section);
+
+  // The next judge finding: a packet's own instructions may say "Previous
+  // attempt notes:" in ordinary prose. Without a markdown heading that line
+  // is not the variable section — it must not split the prompt, and the
+  // state's own retry section still trails the stable sections.
+  const prose = "1. Previous attempt notes: run the red commands first.\n2. Report the result file.";
+  assert.deepEqual(splitPreviousAttemptSection(prose), { stable: prose, section: null });
+  const withProse = assembleDispatchPrompt(prose, { ...appliers, section: "## Previous attempt\n\nstate-section" });
+  assert.ok(withProse.startsWith(prose), "ordinary prose naming a previous attempt stays in the stable prefix");
+  assert.ok(withProse.indexOf("state-section") > withProse.indexOf("result-protocol"), "the state's section still trails the stable sections");
+
+  // A stale section embedded in a reused candidate loses to the state's own
+  // record: the current retry state is what trails, exactly once.
+  const stale = "## Previous attempt\n\nAttempt 1 failed\nstale-section";
+  const both = assembleDispatchPrompt(`Task packet instructions.\n\n${stale}`, { ...appliers, section: "## Previous attempt\n\nstate-section" });
+  assert.ok(both.indexOf("state-section") > both.indexOf("result-protocol"), "the state's section trails the stable sections");
+  assert.equal(both.split("## Previous attempt").length - 1, 1, "exactly one section survives");
+  assert.equal(both.includes("stale-section"), false, "the stale embedded section does not survive");
 });

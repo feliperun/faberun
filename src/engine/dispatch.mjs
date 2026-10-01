@@ -254,8 +254,11 @@ function ensureAttemptWorkspace(contract, node, state, runDir, lock) {
  * already carries the section (a candidate reused from an earlier attempt)
  * has it lifted out and re-appended last; a base without one gets the state's
  * own section appended, which `appendPreviousAttempt` no-ops when the state
- * carries none. The 64 KiB dispatch budget is enforced by the caller right
- * after this returns, on the assembled prompt.
+ * carries none. When both are present the state's section wins: an embedded
+ * one is the stale copy the reused candidate carries, from an earlier record
+ * than `state.previousAttempt`, and it is lifted out rather than re-appended.
+ * The 64 KiB dispatch budget is enforced by the caller right after this
+ * returns, on the assembled prompt.
  *
  * @param {string} basePrompt
  * @param {{sandbox?: (prompt: string) => string, protocol?: (prompt: string) => string, section?: string}} assembly
@@ -266,7 +269,7 @@ export function assembleDispatchPrompt(basePrompt, { sandbox, protocol, section 
   let ordered = stable;
   if (sandbox) ordered = sandbox(ordered);
   if (protocol) ordered = protocol(ordered);
-  return appendPreviousAttempt(ordered, embedded ?? section);
+  return appendPreviousAttempt(ordered, section ?? embedded ?? undefined);
 }
 
 /**
