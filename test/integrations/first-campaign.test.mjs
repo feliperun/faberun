@@ -25,12 +25,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync } from "node:child_process";
 import { runPlanningPipeline } from "../../src/plan/pipeline.mjs";
+import { planProgressPath } from "../../src/plan/progress.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { runProgress } from "../../src/engine/supervise.mjs";
 import { collectRepoFacts } from "../../src/plan/repo-facts.mjs";
 import { appendJournal } from "../../src/campaign/journal.mjs";
 import { closeCampaign, initializeCampaign } from "../../src/campaign/index.mjs";
 import { campaignTree, runsRoot } from "../../src/run/paths.mjs";
+import { writeJsonAtomic } from "../../src/run/store.mjs";
 import { envelope, writeRecording } from "../harnesses/replay-helpers.mjs";
 
 const BIN = fileURLToPath(new URL("../../bin/faberun.mjs", import.meta.url));
@@ -39,6 +41,10 @@ const FIXTURE = fileURLToPath(new URL("../fixtures/offline-stranger", import.met
 const CAMPAIGN_ID = "offline-stranger-first-campaign";
 const PHASE = "first-campaign";
 const NODE_ID = "keep-importable";
+
+// No process can hold this pid, so a record naming it is certainly a death,
+// without the test spawning anything or racing a pid the system may reuse.
+const GONE_PID = 2_147_483_646;
 
 /** The fixture entry point the campaign node writes, read back so the worker replay is byte-for-byte what a real first change would be. */
 const MAIN_PY = readFileSync(join(FIXTURE, "app", "main.py"), "utf8");
@@ -300,5 +306,82 @@ test("a first campaign by a stranger completes offline", { timeout: 120_000 }, a
   assert.ok(
     closed.ledgerFiles.some((path) => path.endsWith(`${contract.id}.events.jsonl`)),
     "the ledger preserves the campaign run's event stream",
+  );
+});
+
+/**
+ * R2's resume half: a planning process that died after its draft succeeded is
+ * resumed at review, and the next attempt pays for no second draft. Replay
+ * recordings make the duplicate draft observable: entry 1 is the plan, entry
+ * 2 a campaign-node result this test never reaches, so an attempt that
+ * wrongly re-drafted would consume entry 2 as a plan and fail validation
+ * loudly — a frozen status here is itself evidence of adoption.
+ */
+test("a planning process that died after its draft resumes at review and pays for no second draft", { timeout: 120_000 }, async () => {
+  const cwd = fixtureRepo();
+  const specPath = join(cwd, "docs", "campaigns", PHASE, "SPEC.md");
+  mkdirSync(dirname(specPath), { recursive: true });
+  writeFileSync(specPath, specText());
+  commitAll(cwd, "chore: fixture for the planning resume path");
+  initializeCampaign(runsRoot(cwd), { campaignId: CAMPAIGN_ID, goal: "Resume a dead planning attempt without duplicate paid work" });
+
+  const recordingDir = mkdtempSync(join(tmpdir(), "offline-stranger-resume-rec-"));
+  const workerRecording = writeRecording(recordingDir, [
+    discoveryEnvelope({ output: { plan: draftedPlan() } }),
+    { envelope: envelope({ result: JSON.stringify({ status: "done", summary: "unreached", verification: [], artifacts: [], missingContext: [] }) }), files: [{ path: "app/main.py", content: MAIN_PY }] },
+  ], "worker.jsonl");
+  const judgeRecording = writeRecording(recordingDir, [
+    discoveryEnvelope({ output: { findings: [] } }),
+  ], "judge.jsonl");
+  const runtimes = {
+    "replay-worker": { harness: "replay", model: "replay-worker-model", vendor: "replay-worker-vendor", config: { "replay.recording": workerRecording } },
+    "replay-judge": { harness: "replay", model: "replay-judge-model", vendor: "replay-judge-vendor", config: { "replay.recording": judgeRecording } },
+  };
+  const runtimeDefaults = { worker: "replay-worker", judge: "replay-judge" };
+  const pipelineOptions = { specPath, campaignId: CAMPAIGN_ID, phase: PHASE, cwd, runtimes, runtimeDefaults, reviewers: ["replay-judge"], targetedFix: true };
+  const launched = [];
+
+  // Attempt 1: the draft stage runs, then the planner "dies" — the throw here
+  // stands exactly where a killed process would simply have stopped.
+  await assert.rejects(
+    runPlanningPipeline({
+      ...pipelineOptions,
+      launch: async (/** @type {string} */ contractPath) => {
+        launched.push(contractPath);
+        if (launched.length > 1) throw new Error("planner killed before the review");
+        await runContract(contractPath);
+      },
+      wait: (/** @type {string} */ runDir) => runProgress(runDir),
+    }),
+    /planner killed before the review/,
+  );
+  const firstAttemptLaunches = launched.length;
+
+  // The record a killed process leaves: a pid that is certainly gone, holding
+  // the stage the attempt had reached.
+  writeJsonAtomic(planProgressPath(cwd, CAMPAIGN_ID, PHASE), {
+    pid: GONE_PID, processStartToken: null, at: new Date().toISOString(), campaignId: CAMPAIGN_ID, phase: PHASE, stage: "review",
+  });
+
+  // Attempt 2: adopts the dead attempt's draft, dispatches only the review,
+  // and freezes.
+  const planned = await runPlanningPipeline({
+    ...pipelineOptions,
+    launch: async (/** @type {string} */ contractPath) => {
+      launched.push(contractPath);
+      await runContract(contractPath);
+    },
+    wait: (/** @type {string} */ runDir) => runProgress(runDir),
+  });
+
+  const secondLaunches = launched.slice(firstAttemptLaunches);
+  assert.equal(secondLaunches.length, 1, `the resumed attempt dispatches exactly one stage, saw ${secondLaunches.length}`);
+  assert.equal(secondLaunches[0].includes("draft-"), false, "the draft is adopted from disk, never dispatched again");
+  assert.equal(planned.status, "frozen");
+  const plansDir = join(campaignTree(cwd, CAMPAIGN_ID), "plans", PHASE);
+  assert.ok(existsSync(join(plansDir, "plan.json")));
+  assert.ok(
+    readFileSync(join(plansDir, "pipeline.jsonl"), "utf8").includes('"draft-resumed"'),
+    "the adoption is a recorded stage, not a silent skip",
   );
 });
