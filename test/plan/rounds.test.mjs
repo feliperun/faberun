@@ -319,8 +319,8 @@ test("a verification timeout under its measured bound is raised before review, n
     },
   });
   options.repoFacts = { verificationCandidates: [
-    { argv: ["node", "--test", "test/harnesses"], measuredMs: 84_400 },
-    { argv: ["node", "--test", "test/huge"], measuredMs: 3_000_000 },
+    { argv: ["node", "--test", "test/harnesses"], measuredMs: 84_400, eligible: true },
+    { argv: ["node", "--test", "test/huge"], measuredMs: 3_000_000, eligible: true },
   ] };
 
   const result = await runReviewRounds(/** @type {any} */ (options));

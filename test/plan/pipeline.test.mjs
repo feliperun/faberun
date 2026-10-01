@@ -129,7 +129,7 @@ function plannedNode() {
 
 /** What makes that timeout too short: 84.4s measured, so `MEASURED_TIMEOUT_MARGIN` puts the bound at 127s. */
 const MEASURED_FACTS = /** @type {any} */ ({
-  verificationCandidates: [{ argv: ["node", "--test", "test/heavy"], measuredMs: 84_400 }],
+  verificationCandidates: [{ argv: ["node", "--test", "test/heavy"], measuredMs: 84_400, eligible: true }],
   testFiles: [],
 });
 
