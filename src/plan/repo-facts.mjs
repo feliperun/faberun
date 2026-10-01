@@ -14,6 +14,15 @@
  * exists — and its output rides along as `requirementMeasurements`: the draft
  * reasons from a fact the planner measured, not one it inferred from prose.
  *
+ * A collection may be handed the facts a previous attempt recorded
+ * (`previousFacts`): each candidate timing is then reused, not re-paid,
+ * exactly while every input it was taken under still matches — the tree, the
+ * command line, the manifest and lockfile bytes, the machine — and is re-timed
+ * the moment any of them changes. A run that reached its timeout never enters
+ * that economy: it is recorded ineligible, and an ineligible measurement is
+ * never lent on — a later collection times the command fresh rather than
+ * promote the kill to a duration.
+ *
  * Sorting and the absence of any clock in the output itself (only inside an
  * injected measurer's own numbers) is what makes two calls at the same HEAD
  * byte-identical.
@@ -32,6 +41,7 @@ import { join } from "node:path";
 import { timeVerificationCommands } from "../host/preflight.mjs";
 import { directReferenceGraph } from "../repo/scope-closure.mjs";
 import { boundedGitSync, gitHead } from "../repo/worktree.mjs";
+import { contentDigest } from "./freeze.mjs";
 import { runShellCapture } from "./proof-run.mjs";
 
 /** @typedef {import("./spec.mjs").SpecRequirement} SpecRequirement */
@@ -42,9 +52,31 @@ import { runShellCapture } from "./proof-run.mjs";
  * manifest file it was read from, and its eligibility. It keeps the shape
  * `freeze.mjs`'s `MeasuredFacts` reads (`argv` plus a numeric `measuredMs`),
  * so a repository's facts stay assignable there while carrying the manifest
- * the planner needs.
+ * the planner needs. `measuredMs` is numeric even when the run hit its
+ * timeout — the span a candidate was killed at is the evidence it never
+ * completed, and it is never below the ceiling — but an ineligible candidate
+ * is not a measured duration: nothing may plan from it, and no record may
+ * lend it.
  *
  * @typedef {{argv: string[], manifest: string, measuredMs: number, eligible: boolean}} VerificationCandidate
+ */
+/**
+ * The machine a timing was taken on. Two collections that differ in any of
+ * these measured different machines, whatever else matched.
+ *
+ * @typedef {{platform: string, arch: string, node: string}} MeasurementEnvironment
+ */
+/**
+ * The dependency and environment inputs the candidate timings of one
+ * collection were taken under: the bytes of the manifest the commands and
+ * their dependencies are declared in, the bytes of the lockfile that resolved
+ * those dependencies, and the machine they ran on. Recorded beside the
+ * timings they qualify, so a later collection can lend from the record only
+ * while every one of them still matches. Absent on a record collected before
+ * the field existed — which is one of the reasons `reusableTimings` refuses a
+ * record it cannot verify.
+ *
+ * @typedef {{manifestDigest: string|null, lockfileDigest: string|null, environment: MeasurementEnvironment}} MeasuredUnder
  */
 /**
  * A verification command repo facts detected in a non-Node manifest it never
@@ -66,7 +98,7 @@ import { runShellCapture } from "./proof-run.mjs";
  */
 /** @typedef {{paths: number, bytes: number}} PathKindOmission */
 /** @typedef {{paths: number, bytes: number, byKind: Record<PathKind, PathKindOmission>}} PathOmission */
-/** @typedef {{formatVersion: number, gitHead: string|null, paths: string[], pathOmission: PathOmission, scripts: Record<string, string>, verificationCandidates: VerificationCandidate[], detectedVerificationCandidates?: DetectedVerificationCandidate[], testFiles: TestFileEntry[], requirementMeasurements: RequirementMeasurement[]}} RepoFacts */
+/** @typedef {{formatVersion: number, gitHead: string|null, measuredUnder?: MeasuredUnder, paths: string[], pathOmission: PathOmission, scripts: Record<string, string>, verificationCandidates: VerificationCandidate[], detectedVerificationCandidates?: DetectedVerificationCandidate[], testFiles: TestFileEntry[], requirementMeasurements: RequirementMeasurement[]}} RepoFacts */
 
 const FORMAT_VERSION = 1;
 /**
@@ -244,12 +276,30 @@ export function cutPaths(allPaths, required, maxPathBytes) {
   };
 }
 
-/** @param {string} cwd @returns {Record<string, string>} */
-function readScripts(cwd) {
-  const packagePath = join(cwd, "package.json");
-  if (!existsSync(packagePath)) return {};
-  const parsed = JSON.parse(readFileSync(packagePath, "utf8"));
-  return parsed.scripts && typeof parsed.scripts === "object" ? parsed.scripts : {};
+/** The lockfile the Node candidates' dependencies resolve through. */
+const LOCKFILE = "package-lock.json";
+
+/**
+ * The Node inputs one collection measures under: the declared scripts, and
+ * the digests of the two files that qualify them — the manifest the commands
+ * and their dependencies are declared in, and the lockfile that resolved
+ * those dependencies. Either digest is null when its file is absent; the
+ * manifest's absence is also what makes the candidate list empty.
+ *
+ * @param {string} cwd
+ * @returns {{scripts: Record<string, string>, manifestDigest: string|null, lockfileDigest: string|null}}
+ */
+function readNodeInputs(cwd) {
+  const manifestPath = join(cwd, PACKAGE_MANIFEST);
+  if (!existsSync(manifestPath)) return { scripts: {}, manifestDigest: null, lockfileDigest: null };
+  const parsed = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const scripts = parsed.scripts && typeof parsed.scripts === "object" ? parsed.scripts : {};
+  const lockPath = join(cwd, LOCKFILE);
+  return {
+    scripts,
+    manifestDigest: contentDigest(readFileSync(manifestPath, "utf8")),
+    lockfileDigest: existsSync(lockPath) ? contentDigest(readFileSync(lockPath, "utf8")) : null,
+  };
 }
 
 /**
@@ -375,39 +425,53 @@ function manifestCandidateCommands(cwd) {
 /**
  * How a caller watches this stage work. `commands` arrives once, naming every
  * command about to be timed; `measured` arrives once per command as it
- * finishes. Neither reaches the returned facts: two calls at the same HEAD
- * stay byte-identical because no event is written into them.
+ * finishes; `reused` arrives once per command answered from a previous
+ * record, when that record is consulted — before any timing begins — so every
+ * command the `commands` list announced is accounted for exactly once,
+ * whether or not its duration is paid for again. No event reaches the
+ * returned facts: two calls at the same HEAD stay byte-identical because no
+ * event is written into them.
  *
  * Measured 2026-09-25/26 (AP3): this stage took five to eight minutes and said
  * nothing while it did, so `faberun plan` was indistinguishable from a hang
  * and the operator checked the process by hand on six relaunches.
  *
- * @typedef {(event: {kind: "commands", commands: string[][]} | {kind: "measured", argv: string[], measuredMs: number, index: number, total: number}) => void} RepoFactsProgress
+ * @typedef {(event: {kind: "commands", commands: string[][]} | {kind: "measured", argv: string[], measuredMs: number|null, index: number, total: number} | {kind: "reused", argv: string[], measuredMs: number, index: number, total: number}) => void} RepoFactsProgress
  */
 
 /**
- * Time every candidate through `timeVerificationCommands`'s own probe —
- * real `spawnSync` and `Date.now` by default, or the caller's fake — instead
- * of re-implementing the spawn, ceiling and ENOENT handling it already owns.
- * That function calls `now()` exactly twice per command, in order (start,
- * then stop); wrapping it to record every mark it produces is how the real
- * elapsed ms is recovered without parsing its human-readable report.
+ * Time the candidates no recorded measurement may answer through
+ * `timeVerificationCommands`'s own probe — real `spawnSync` and `Date.now` by
+ * default, or the caller's fake — instead of re-implementing the spawn,
+ * ceiling and ENOENT handling it already owns. That function calls `now()`
+ * exactly twice per command, in order (start, then stop); wrapping it to
+ * record every mark it produces is how the real elapsed ms is recovered
+ * without parsing its human-readable report.
+ *
+ * `timed` carries each command with its position in the full candidate list,
+ * so the progress events keep numbering against every command the stage
+ * accounts for, the reused ones included. Eligibility is strict below the
+ * ceiling: a command still running when the timeout fires is killed at it,
+ * so a span at or past the ceiling is the kill, not a duration — recorded
+ * ineligible, it may not be planned from and may not be lent to a later
+ * collection, which times it fresh instead of promoting the kill to data.
  *
  * @param {string} cwd
- * @param {{argv: string[]}[]} commands
+ * @param {{argv: string[], index: number}[]} timed
+ * @param {number} total
  * @param {MeasureProbes} probes
  * @param {RepoFactsProgress} [onProgress]
- * @returns {{argv: string[], measuredMs: number, eligible: boolean}[]}
+ * @returns {{argv: string[], index: number, measuredMs: number, eligible: boolean}[]}
  */
-function measureCandidates(cwd, commands, probes, onProgress) {
-  if (commands.length === 0) return [];
+function measureCandidates(cwd, timed, total, probes, onProgress) {
+  if (timed.length === 0) return [];
   const now = probes.now ?? (() => Date.now());
   /** @type {number[]} */
   const marks = [];
   const contract = /** @type {import("../contract/index.mjs").ValidatedContract} */ (/** @type {any} */ ({
     cwd,
-    nodes: commands.map((command, index) => ({
-      id: `repo-facts-${index}`,
+    nodes: timed.map((command, position) => ({
+      id: `repo-facts-${position}`,
       taskPacket: { verification: [{ argv: command.argv, timeoutSec: CANDIDATE_TIMEOUT_SEC }] },
     })),
   }));
@@ -422,14 +486,16 @@ function measureCandidates(cwd, commands, probes, onProgress) {
       // holds the terminal for minutes.
       const stopped = marks.length;
       if (stopped % 2 === 0 && onProgress) {
-        onProgress({ kind: "measured", argv: commands[stopped / 2 - 1].argv, measuredMs: mark - marks[stopped - 2], index: stopped / 2, total: commands.length });
+        const elapsedMs = mark - marks[stopped - 2];
+        const finished = timed[stopped / 2 - 1];
+        onProgress({ kind: "measured", argv: finished.argv, measuredMs: elapsedMs >= ELIGIBLE_MS_CEILING ? null : elapsedMs, index: finished.index + 1, total });
       }
       return mark;
     },
   });
-  return commands.map((command, index) => {
-    const measuredMs = marks[index * 2 + 1] - marks[index * 2];
-    return { argv: command.argv, measuredMs, eligible: measuredMs <= ELIGIBLE_MS_CEILING };
+  return timed.map((command, position) => {
+    const elapsedMs = marks[position * 2 + 1] - marks[position * 2];
+    return { argv: command.argv, index: command.index, measuredMs: elapsedMs, eligible: elapsedMs < ELIGIBLE_MS_CEILING };
   });
 }
 
@@ -471,8 +537,47 @@ export function measureRequirements(cwd, requirements, probes = {}) {
 
 
 /**
+ * The timings a previous collection may lend this one, keyed by the exact
+ * command line, or null when it may lend nothing. Every input the recorded
+ * durations were taken under has to still hold — the same format version,
+ * the same tree (`gitHead`), the same manifest and lockfile bytes and the
+ * same machine (`measuredUnder`) — and per candidate the same command line,
+ * recorded eligible with a numeric duration. A record failing any of these
+ * is invalidated wholesale: nothing from it is reused, and every command it
+ * cannot answer is timed fresh. A timed-out entry never qualifies even on an
+ * otherwise valid record, because it carries no duration to lend.
+ *
+ * @param {RepoFacts|undefined} previous
+ * @param {string|null} head
+ * @param {MeasuredUnder} under
+ * @returns {Map<string, number>|null}
+ */
+function reusableTimings(previous, head, under) {
+  if (!previous || previous.formatVersion !== FORMAT_VERSION) return null;
+  if (previous.gitHead !== head) return null;
+  const prior = previous.measuredUnder;
+  if (!prior
+    || prior.manifestDigest !== under.manifestDigest
+    || prior.lockfileDigest !== under.lockfileDigest
+    || prior.environment?.platform !== under.environment.platform
+    || prior.environment?.arch !== under.environment.arch
+    || prior.environment?.node !== under.environment.node) return null;
+  /** @type {Map<string, number>} */
+  const timings = new Map();
+  for (const candidate of previous.verificationCandidates) {
+    if (candidate.eligible !== true || typeof candidate.measuredMs !== "number") continue;
+    timings.set(JSON.stringify(candidate.argv), candidate.measuredMs);
+  }
+  return timings;
+}
+
+/**
  * @param {string} cwd
- * @param {{measure?: MeasureProbes, maxPathBytes?: number, requirements?: SpecRequirement[], onProgress?: RepoFactsProgress}} [options]
+ * @param {{measure?: MeasureProbes, maxPathBytes?: number, requirements?: SpecRequirement[], previousFacts?: RepoFacts, onProgress?: RepoFactsProgress}} [options]
+ *   `previousFacts` is what a previous attempt's collection recorded — its
+ *   persisted `repo-facts.json` read back — and it is an offer, never an
+ *   instruction: any input a recorded timing cannot prove unchanged sends
+ *   that command back through the measurer.
  * @returns {RepoFacts}
  */
 export function collectRepoFacts(cwd, options = {}) {
@@ -482,26 +587,52 @@ export function collectRepoFacts(cwd, options = {}) {
   // One graph for both readers: the cut needs it to know what the tree
   // references, `testFileEntries` to know what each test file covers.
   const references = directReferenceGraph(cwd);
-  const scripts = readScripts(cwd);
+  const head = gitHead(cwd);
+  const { scripts, manifestDigest, lockfileDigest } = readNodeInputs(cwd);
+  // The inputs every timing below is taken under, recorded beside them so a
+  // later collection can check them before lending from the record.
+  const measuredUnder = {
+    manifestDigest,
+    lockfileDigest,
+    environment: { platform: process.platform, arch: process.arch, node: process.version },
+  };
   const candidates = nodeCandidateCommands(scripts, allPaths);
   options.onProgress?.({ kind: "commands", commands: candidates.map((command) => command.argv) });
-  const measured = measureCandidates(cwd, candidates, options.measure ?? {}, options.onProgress);
+  const reusable = reusableTimings(options.previousFacts, head, measuredUnder);
+  /** @type {VerificationCandidate[]} */
+  const measured = new Array(candidates.length);
+  /** @type {{argv: string[], index: number}[]} */
+  const timed = [];
+  candidates.forEach((candidate, index) => {
+    const recorded = reusable?.get(JSON.stringify(candidate.argv));
+    if (typeof recorded === "number") {
+      measured[index] = { argv: candidate.argv, manifest: PACKAGE_MANIFEST, measuredMs: recorded, eligible: true };
+      options.onProgress?.({ kind: "reused", argv: candidate.argv, measuredMs: recorded, index: index + 1, total: candidates.length });
+      return;
+    }
+    timed.push({ argv: candidate.argv, index });
+  });
+  for (const result of measureCandidates(cwd, timed, candidates.length, options.measure ?? {}, options.onProgress)) {
+    measured[result.index] = { argv: result.argv, manifest: PACKAGE_MANIFEST, measuredMs: result.measuredMs, eligible: result.eligible };
+  }
   const detected = manifestCandidateCommands(cwd);
   const requirements = options.requirements ?? [];
   const cut = cutPaths(allPaths, requiredPaths(allPaths, requirements, references), maxPathBytes);
   return {
     formatVersion: FORMAT_VERSION,
-    gitHead: gitHead(cwd),
+    gitHead: head,
+    measuredUnder,
     paths: cut.paths,
     pathOmission: cut.omitted,
     scripts,
-    // The measured Node candidates first, in their timed order, each naming
-    // package.json as the manifest it came from; then the manifest-only
-    // candidates in a fixed ecosystem order, each naming the manifest it was
-    // read from. Only the measured candidates carry a numeric `measuredMs`:
-    // a detected command is never run, so it lands in its own array with the
-    // null "no measurement" sentinel freeze.mjs reads and eligibility true.
-    verificationCandidates: measured.map((candidate) => ({ ...candidate, manifest: PACKAGE_MANIFEST })),
+    // The measured Node candidates first, each naming package.json as the
+    // manifest it came from; then the manifest-only candidates in a fixed
+    // ecosystem order, each naming the manifest it was read from. A measured
+    // candidate carries a duration only while it is eligible: one killed at
+    // the timeout keeps the span it was killed at as the evidence it never
+    // completed, with eligible false, and no reader — reuse included — may
+    // treat that span as how long the command takes.
+    verificationCandidates: measured,
     detectedVerificationCandidates: detected.map((candidate) => ({ ...candidate, measuredMs: null, eligible: true })),
     testFiles: testFileEntries(allPaths, pathSet, references),
     requirementMeasurements: measureRequirements(cwd, requirements, options.measure ?? {}),
