@@ -9,6 +9,8 @@ import { runtimeAssignments } from "../../src/engine/assignment.mjs";
 import { planRoute } from "../../src/engine/backoff.mjs";
 import { handleProviderExhaustion } from "../../src/engine/lifecycle.mjs";
 import { runtimeSnapshot } from "../../src/engine/failover.mjs";
+import { assembleDispatchPrompt } from "../../src/engine/dispatch.mjs";
+import { splitPreviousAttemptSection } from "../../src/engine/prompts.mjs";
 import {
   JUDGE_USAGE_WINDOW_LIMIT_PERCENT,
   initialJudgeListState,
@@ -332,4 +334,39 @@ test("a judge refused on an earlier hop stays excluded after an earlier list ent
   state = nextListJudge(contract, state, "worker", now + 2_000);
   assert.equal(state.chosen, null);
   assert.deepEqual(state.skipped.map((entry) => entry.id), ["early", "late"]);
+});
+
+test("prompt assembly keeps stable instruction sections before the variable previous-attempt state", () => {
+  // The appliers dispatch really runs (the sandbox notice, the result-file
+  // protocol), stubbed to marker text so the ordering reads without harness
+  // facts: which runtime earns the notice is the sandbox-notice suite's call.
+  const sandbox = (/** @type {string} */ prompt) => `${prompt}\n\n## Sandbox\nsandbox-notice`;
+  const protocol = (/** @type {string} */ prompt) => `${prompt}\n\n## Worker result\nresult-protocol`;
+  const appliers = { sandbox, protocol };
+
+  // A base without an embedded section: the state's own section is the tail,
+  // after every stable section.
+  const fresh = assembleDispatchPrompt("Task packet instructions.", { ...appliers, section: "## Previous attempt\n\nstate-section" });
+  assert.ok(fresh.startsWith("Task packet instructions."), "the stable packet text stays the prefix");
+  assert.ok(fresh.indexOf("sandbox-notice") < fresh.indexOf("result-protocol"), "the sandbox notice precedes the result protocol");
+  assert.ok(fresh.indexOf("result-protocol") < fresh.indexOf("state-section"), "the variable section trails every stable section");
+  assert.equal(fresh.split("state-section").length - 1, 1, "the section appears exactly once");
+
+  // The prior judge finding: a base that ALREADY carries the section -- a
+  // candidate reused from the earlier attempt -- must not keep it ahead of
+  // the stable sandbox notice and result-file protocol. It is lifted out and
+  // re-appended last, exactly once; passing it again as the state's section
+  // must not duplicate it.
+  const section = "## Previous attempt\n\nAttempt 1 failed\nJudge findings\n- [major] missing exclusion";
+  const reused = assembleDispatchPrompt(`Task packet instructions.\n\n${section}`, { ...appliers, section });
+  assert.ok(reused.startsWith("Task packet instructions."), "the stable base stays the prefix");
+  assert.ok(reused.indexOf("## Previous attempt") > reused.indexOf("result-protocol"), "the embedded section now trails the sandbox notice and the result protocol");
+  assert.equal(reused.split("## Previous attempt").length - 1, 1, "the section is not duplicated");
+
+  // The extraction itself: a base without the section splits unchanged; a
+  // base with one comes apart into the stable head and the section.
+  assert.deepEqual(splitPreviousAttemptSection("no variable state"), { stable: "no variable state", section: null });
+  const split = splitPreviousAttemptSection(`stable head\n\n${section}`);
+  assert.equal(split.stable, "stable head");
+  assert.equal(split.section, section);
 });

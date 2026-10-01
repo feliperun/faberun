@@ -203,6 +203,34 @@ export function previousAttemptOperatorAnswer(previousAttempt) {
 }
 
 /**
+ * The heading the variable previous-attempt state travels under, matched
+ * tolerantly to its exact markdown weight: `renderPreviousAttemptSection`
+ * (engine/retry.mjs) renders it, and every parser here reads around it
+ * rather than hard-coding its spelling.
+ */
+const PREVIOUS_ATTEMPT_HEADING = /^#{0,6}\s*Previous attempt\b.*$/im;
+
+/**
+ * Split a prompt that already carries the variable `Previous attempt` section
+ * into the stable instructions and that section, so assembly can re-append it
+ * after the stable sandbox notice and result-file protocol — cacheable prefix
+ * first, variable state last. The section is the block from its heading to
+ * the end of the prompt: every writer lays it down as the trailing block of
+ * whatever it was built on. `section` is null when the base carries none.
+ *
+ * @param {string} basePrompt
+ * @returns {{stable: string, section: string|null}}
+ */
+export function splitPreviousAttemptSection(basePrompt) {
+  const match = PREVIOUS_ATTEMPT_HEADING.exec(basePrompt);
+  if (!match) return { stable: basePrompt, section: null };
+  return {
+    stable: basePrompt.slice(0, match.index).replace(/\n+$/u, ""),
+    section: basePrompt.slice(match.index).replace(/\n+$/u, ""),
+  };
+}
+
+/**
  * @param {JudgeNode} node
  * @param {unknown} workerResult
  * @param {{diff?: unknown[], verification?: unknown, deterministic?: unknown, scopeFindings?: {unexpectedPaths: string[]}|null, previousAttempt?: string, operatorAnswer?: string}} context
@@ -256,7 +284,6 @@ export function judgePrompt(node, workerResult, context = {}) {
     `Controller diff paths:\n${diff.length ? diff.map((path) => `- ${path}`).join("\n") : "- (none)"}\n\n` +
     `Controller verification:\n${JSON.stringify(verificationResult)}\n\n` +
     (scopeSection ? `${scopeSection}\n\n` : "") +
-    (context.previousAttempt ? `${context.previousAttempt}\n\n` : "") +
     "Return only the JSON object required by the output schema, with every field present: a verdict with nothing to report still carries `findings: []`, never an omitted key. The verdict is a record, not a report: keep `summary` within " + JUDGE_LIMITS.summaryBytes + " bytes, use at most " + JUDGE_LIMITS.findings + " findings, and keep each finding's `description` within " + JUDGE_LIMITS.descriptionBytes + " bytes and its `evidence` within " + JUDGE_LIMITS.evidenceBytes + " bytes. A verdict that overshoots this envelope is rejected unread, however sound the arbitration. Evidence must be concrete. " +
     "Use verdict pass only when findings is empty and maxSeverity is none. " +
     "Use verdict fail whenever findings is non-empty, including advisory findings below failOn. " +
@@ -264,7 +291,11 @@ export function judgePrompt(node, workerResult, context = {}) {
       ? "Arbitrate only the judgment items; deterministic items are already proven by the controller and must not be re-arbitrated. " +
         "Use pass only when every judgment item is satisfied. Every finding must cite the id of the judgment item it addresses; a fail verdict whose findings cite no id is a protocol failure."
       : "Use pass only when every Definition of Done item is satisfied. " +
-        "Assess every Definition of Done item by its id and cite the id you are addressing in each finding.");
+        "Assess every Definition of Done item by its id and cite the id you are addressing in each finding.") +
+    // The variable state trails every stable instruction, including the
+    // output-schema rules, so the cacheable prefix ends at the section's
+    // heading and dispatch's assembly keeps it last when it re-appends.
+    (context.previousAttempt ? `\n\n${context.previousAttempt}` : "");
 }
 
 /**
