@@ -30,7 +30,7 @@ import { validateJudgeIndependence } from "../contract/judge-independence.mjs";
 import { firstEligibleReviewer, reviewerProvenanceOf } from "./reviewer.mjs";
 import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts, persistRepoFacts } from "./repo-facts.mjs";
-import { clearPlanProgress, writePlanProgress } from "./progress.mjs";
+import { abandonedPlanProgress, clearPlanProgress, startDraftPlan, writePlanDraftRecord, writePlanProgress } from "./progress.mjs";
 import { collectHumanSteps } from "./human-step.mjs";
 import { RISK_TIERS, TASK_KIND_CATALOGUE_FILE, buildPlanningContract, renderTaskKindCatalogue, validatePlanOutput } from "./template.mjs";
 import { MIN_WRITE_FILES, applySizingRules, provenParallelism } from "./sizing.mjs";
@@ -207,6 +207,8 @@ async function runPlanningStages(options) {
   // the draft stage reads what the planner measured instead of inferring it
   // from the spec's prose.
   const parsedSpec = parseSpec(specText);
+  // Sampled before this pipeline's own first liveness write (repo facts) overwrites it.
+  const abandoned = abandonedPlanProgress(cwd, campaignId, phase);
   // This stage holds the terminal for minutes, which is why it says what it is
   // about to do before it does it and one line per command as each finishes.
   // Measured 2026-09-25/26 (AP3): five to eight minutes with nothing written
@@ -287,7 +289,13 @@ async function runPlanningStages(options) {
     return { contract: validated, output };
   };
 
-  const draft = await runStage("draft", { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, packageMode });
+  // R2 resume: the sampled record survives only a process that died, and a
+  // dead attempt that validated its draft left writePlanDraftRecord's file
+  // behind. A finished phase — frozen or contested — has a plan.json, and that drafts fresh.
+  const draft = await startDraftPlan({
+    abandoned, plansDir, specDigest, runStage, logStage,
+    draftStageInput: { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, packageMode },
+  });
   /** @type {PlanOutput|null} */
   let plan = null;
   // Everything still open against the plan in hand, accumulated across rounds
@@ -297,13 +305,17 @@ async function runPlanningStages(options) {
   /** @type {PlanFindingOutput[]} */
   let findings = [];
   try {
-    plan = validatePlanOutput(draft.output.plan);
+    plan = validatePlanOutput(draft.planOutput);
   } catch (error) {
     findings = [invalidPlanFinding("draft", error)];
   }
-  logStage("draft", plan === null
-    ? { runId: draft.contract.id, invalid: findings[0].text }
-    : { runId: draft.contract.id, nodeCount: plan.nodes.length });
+  if (!draft.resumed) {
+    // Durable before its stage line: a death in between leaves an adoptable draft.
+    if (plan !== null) writePlanDraftRecord(plansDir, { runId: draft.runId, at: new Date().toISOString(), specDigest, plan });
+    logStage("draft", plan === null
+      ? { runId: draft.runId, invalid: findings[0].text }
+      : { runId: draft.runId, nodeCount: plan.nodes.length });
+  }
 
   const workingPlanPath = join(scratchDir, "plan.working.json");
   const relativeWorkingPlanPath = relative(cwd, workingPlanPath);
@@ -384,7 +396,7 @@ async function runPlanningStages(options) {
   }
 
   const roundsResult = await runReviewRounds({
-    reviewRounds, plan, rejectedDraft: plan === null ? draft.output.plan : undefined, findings, cwd, plansDir, scratchDir, workingPlanPath, relativeWorkingPlanPath,
+    reviewRounds, plan, rejectedDraft: plan === null ? draft.planOutput : undefined, findings, cwd, plansDir, scratchDir, workingPlanPath, relativeWorkingPlanPath,
     relativeSpecPath, relativeRepoFactsPath, relativeCataloguePath, packageMode, repoFacts,
     runStage, assembleFrozenNodes, frozenContractRaw, contest,
     invalidPlanFinding, logStage,

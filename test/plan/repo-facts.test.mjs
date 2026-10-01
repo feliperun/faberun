@@ -124,8 +124,38 @@ const DURATIONS = {
   "npm run typecheck": 3_000,
 };
 
+/**
+ * One fixture shared by every test that only reads the tree. Measured
+ * 2026-09-30: a fresh fixture costs ~270ms of git spawns and one
+ * `collectRepoFacts` ~103ms — two git spawns at ~50ms each — so a per-test
+ * fixture put this file within reach of a verification timeout for cost that
+ * buys no assertion. Nothing below writes into the shared tree, and two calls
+ * at the same HEAD are byte-identical (a property asserted below), so sharing
+ * it cannot change what any test sees.
+ *
+ * @type {string|undefined}
+ */
+let sharedRepo;
+/** @returns {string} */
+function readOnlyRepo() {
+  return (sharedRepo ??= fixtureRepo());
+}
+
+/**
+ * The baseline record over that shared tree. Several reuse tests would
+ * otherwise each pay the same first collection; `previousFacts` is a plain
+ * record and every consumer below clones before tampering.
+ *
+ * @type {import("../../src/plan/repo-facts.mjs").RepoFacts|undefined}
+ */
+let sharedFirst;
+/** @returns {import("../../src/plan/repo-facts.mjs").RepoFacts} */
+function firstFacts() {
+  return (sharedFirst ??= collectRepoFacts(readOnlyRepo(), { measure: fakeMeasure(DURATIONS) }));
+}
+
 test("collectRepoFacts emits a deterministic JSON inventory built with no model", () => {
-  const directory = fixtureRepo();
+  const directory = readOnlyRepo();
   const head = execFileSync("git", ["-C", directory, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 
   const facts = collectRepoFacts(directory, { measure: fakeMeasure(DURATIONS) });
@@ -167,7 +197,7 @@ test("collectRepoFacts emits a deterministic JSON inventory built with no model"
 });
 
 test("repo facts say what they are about to measure and each command as it finishes", () => {
-  const directory = fixtureRepo();
+  const directory = readOnlyRepo();
   /** @type {Parameters<import("../../src/plan/repo-facts.mjs").RepoFactsProgress>[0][]} */
   const events = [];
   collectRepoFacts(directory, { measure: fakeMeasure(DURATIONS), onProgress: (event) => events.push(event) });
@@ -186,8 +216,8 @@ test("repo facts say what they are about to measure and each command as it finis
   ]);
 });
 
-test("a candidate above the 600000ms ceiling is eligible false", () => {
-  const directory = fixtureRepo();
+test("a candidate at or above the 600000ms ceiling is eligible false", () => {
+  const directory = readOnlyRepo();
   const facts = collectRepoFacts(directory, {
     measure: fakeMeasure({ ...DURATIONS, "node --test test/plan": 644_000 }),
   });
@@ -196,13 +226,136 @@ test("a candidate above the 600000ms ceiling is eligible false", () => {
   assert.equal(slow?.eligible, false);
   const fast = facts.verificationCandidates.find((candidate) => candidate.argv.join(" ") === "node --test test/other");
   assert.equal(fast?.eligible, true);
+
+  // The boundary is strict: the kill fires at the ceiling, so a span of
+  // exactly 600000ms is a command that never completed, recorded ineligible.
+  // The comparison this replaces was inclusive and would have recorded that
+  // kill as an eligible measurement.
+  const atCeiling = collectRepoFacts(directory, {
+    measure: fakeMeasure({ ...DURATIONS, "npm run check": 600_000 }),
+  });
+  const boundary = atCeiling.verificationCandidates.find((candidate) => candidate.argv.join(" ") === "npm run check");
+  assert.equal(boundary?.measuredMs, 600_000);
+  assert.equal(boundary?.eligible, false);
 });
 
 test("two calls at the same HEAD are deep-equal", () => {
-  const directory = fixtureRepo();
+  const directory = readOnlyRepo();
   const first = collectRepoFacts(directory, { measure: fakeMeasure(DURATIONS) });
   const second = collectRepoFacts(directory, { measure: fakeMeasure(DURATIONS) });
   assert.deepEqual(first, second);
+});
+
+test("a matching record lends every timing and runs nothing", () => {
+  const first = firstFacts();
+  // neverMeasure throws the test if anything is ever run through it: reuse
+  // costs no command, which is the whole point of the record.
+  const second = collectRepoFacts(readOnlyRepo(), { measure: neverMeasure(), previousFacts: first });
+  assert.deepEqual(second, first, "a fully reused collection is byte-identical to the record it reused");
+});
+
+test("a new commit invalidates the record and every command is timed fresh", () => {
+  // This test is the one writer: it commits into the tree, so it carries a
+  // fixture of its own and never touches the shared one.
+  const directory = fixtureRepo();
+  const first = collectRepoFacts(directory, { measure: fakeMeasure(DURATIONS) });
+  writeFileSync(join(directory, "src", "new.mjs"), "export const neu = true;\n");
+  execFileSync("git", ["-C", directory, "add", "."]);
+  execFileSync("git", ["-C", directory, "-c", "user.email=runner@example.test", "-c", "user.name=runner", "-c", "commit.gpgSign=false", "commit", "-qm", "second"]);
+  /** @type {Parameters<import("../../src/plan/repo-facts.mjs").RepoFactsProgress>[0][]} */
+  const events = [];
+  const second = collectRepoFacts(directory, { measure: fakeMeasure(DURATIONS), previousFacts: first, onProgress: (event) => events.push(event) });
+  assert.equal(events.some((event) => event.kind === "reused"), false, "no timing survives a tree change");
+  assert.deepEqual(
+    second.verificationCandidates.map((candidate) => candidate.measuredMs),
+    [1_000, 2_000, 5_000, 3_000],
+    "every duration came from the fresh measurer",
+  );
+});
+
+test("a changed manifest, lockfile or machine input invalidates the record", () => {
+  const first = firstFacts();
+  /**
+   * Whether a record with `mutate` applied to its recorded inputs still lends
+   * anything: the probe counts a run, so lending nothing means every command
+   * was timed fresh.
+   *
+   * @param {(under: import("../../src/plan/repo-facts.mjs").MeasuredUnder) => void} mutate
+   * @returns {boolean}
+   */
+  const lends = (mutate) => {
+    const tampered = structuredClone(first);
+    mutate(/** @type {import("../../src/plan/repo-facts.mjs").MeasuredUnder} */ (tampered.measuredUnder));
+    let ran = false;
+    collectRepoFacts(readOnlyRepo(), {
+      measure: { now: () => 0, run: /** @type {any} */ (() => { ran = true; return { status: 0, signal: null }; }) },
+      previousFacts: tampered,
+    });
+    return !ran;
+  };
+  assert.equal(lends(() => {}), true, "an untouched record lends everything");
+  assert.equal(lends((under) => { under.manifestDigest = "0".repeat(64); }), false, "a different manifest re-times everything");
+  assert.equal(lends((under) => { under.lockfileDigest = "1".repeat(64); }), false, "a different lockfile re-times everything");
+  assert.equal(lends((under) => { under.environment.node = "v0.0.0"; }), false, "a different runtime re-times everything");
+  assert.equal(lends((under) => { under.environment.platform = "win32"; }), false, "a different platform re-times everything");
+});
+
+test("a timed-out recorded candidate is never lent: it is timed fresh", () => {
+  const directory = readOnlyRepo();
+  // Not the shared baseline: this record's whole point is a 600000ms entry,
+  // which the baseline does not carry.
+  const first = collectRepoFacts(directory, { measure: fakeMeasure({ ...DURATIONS, "node --test test/plan": 600_000 }) });
+  const killed = first.verificationCandidates.find((candidate) => candidate.argv.join(" ") === "node --test test/plan");
+  assert.equal(killed?.eligible, false, "the kill at the ceiling was recorded ineligible");
+
+  /** @type {Parameters<import("../../src/plan/repo-facts.mjs").RepoFactsProgress>[0][]} */
+  const events = [];
+  const second = collectRepoFacts(directory, {
+    measure: fakeMeasure({ ...DURATIONS, "node --test test/plan": 2_500 }),
+    previousFacts: first,
+    onProgress: (event) => events.push(event),
+  });
+  const replanned = second.verificationCandidates.find((candidate) => candidate.argv.join(" ") === "node --test test/plan");
+  assert.equal(replanned?.measuredMs, 2_500, "the timed-out command was timed fresh, never promoted from the record");
+  assert.equal(replanned?.eligible, true);
+  assert.deepEqual(
+    events.flatMap((event) => (event.kind === "reused" ? [event.argv.join(" ")] : [])),
+    ["node --test test/other", "npm run check", "npm run typecheck"],
+    "the rest of the record still lends",
+  );
+});
+
+test("a record without its measured inputs is refused wholesale", () => {
+  const first = firstFacts();
+  const stale = /** @type {Record<string, unknown>} */ (structuredClone(first));
+  delete stale.measuredUnder;
+  let ran = false;
+  collectRepoFacts(readOnlyRepo(), {
+    measure: { now: () => 0, run: /** @type {any} */ (() => { ran = true; return { status: 0, signal: null }; }) },
+    previousFacts: /** @type {import("../../src/plan/repo-facts.mjs").RepoFacts} */ (/** @type {unknown} */ (stale)),
+  });
+  assert.equal(ran, true, "a record that cannot prove its inputs lends nothing");
+});
+
+test("reused and timed commands share one accounting", () => {
+  const first = firstFacts();
+  // One candidate in the record names a command this tree no longer declares,
+  // so exactly that slot is timed fresh and the rest are lent.
+  const stale = structuredClone(first);
+  stale.verificationCandidates[1].argv = ["node", "--test", "test/absent"];
+  /** @type {Parameters<import("../../src/plan/repo-facts.mjs").RepoFactsProgress>[0][]} */
+  const events = [];
+  collectRepoFacts(readOnlyRepo(), { measure: fakeMeasure(DURATIONS), previousFacts: stale, onProgress: (event) => events.push(event) });
+  // The reused commands are announced when the record is consulted, before
+  // any timing begins, so every slot the `commands` list announced is
+  // accounted for exactly once, against the same total.
+  assert.deepEqual(events, [
+    { kind: "commands", commands: [["node", "--test", "test/other"], ["node", "--test", "test/plan"], ["npm", "run", "check"], ["npm", "run", "typecheck"]] },
+    { kind: "reused", argv: ["node", "--test", "test/other"], measuredMs: 1_000, index: 1, total: 4 },
+    { kind: "reused", argv: ["npm", "run", "check"], measuredMs: 5_000, index: 3, total: 4 },
+    { kind: "reused", argv: ["npm", "run", "typecheck"], measuredMs: 3_000, index: 4, total: 4 },
+    { kind: "measured", argv: ["node", "--test", "test/plan"], measuredMs: 2_000, index: 2, total: 4 },
+  ]);
 });
 
 test("a path's source kind names the known categories and leaves only unnamed paths as other", () => {
@@ -276,7 +429,7 @@ test("the complete path index is written outside the cut, one path per line", ()
 });
 
 test("collectRepoFacts records a command measure and skips requirements without one", () => {
-  const directory = fixtureRepo();
+  const directory = readOnlyRepo();
   const facts = collectRepoFacts(directory, {
     measure: fakeMeasure(DURATIONS, { "grep -c TODO src/plan/repo-facts.mjs": { status: 0, stdout: "2\n" } }),
     requirements: [
@@ -381,12 +534,16 @@ test("repo facts find verification commands outside node: pyproject.toml wins wh
 });
 
 test("repo facts find verification commands outside node: a Makefile without a test target adds no candidate", () => {
+  // One repository carries all three cases: detection reads the working-tree
+  // Makefile, so rewriting the tracked file is the next case's fixture and no
+  // second repository is paid for it.
+  const directory = manifestRepo({ Makefile: "all:\n\tnode --test\n" });
   for (const makefile of [
     "all:\n\tnode --test\n",
     "test := 1\nbuild:\n\tgo build\n",
     ".PHONY: test\nall:\n\tgo build\n",
   ]) {
-    const directory = manifestRepo({ Makefile: makefile });
+    writeFileSync(join(directory, "Makefile"), makefile);
     const facts = collectRepoFacts(directory, { measure: neverMeasure() });
     assert.deepEqual(facts.detectedVerificationCandidates, [], `no make candidate is found for:\n${makefile}`);
   }

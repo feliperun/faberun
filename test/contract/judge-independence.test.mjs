@@ -1,7 +1,9 @@
 import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { validateContract } from "../../src/contract/index.mjs";
 import { declaredModelTier } from "../../src/harnesses/model-tiers.mjs";
 import { SAME_PROVIDER_REVIEW_LABEL } from "../../src/contract/judge-independence.mjs";
@@ -9,6 +11,10 @@ import { buildGraph } from "../../src/campaign/campaign-brief-graph.mjs";
 import { renderCampaignBriefMarkdown } from "../../src/report/campaign-brief.mjs";
 import { renderReport, renderReportJson, renderStatus, renderStatusJson } from "../../src/report/render.mjs";
 import { renderMetricsJson, renderMetricsReport } from "../../src/report/metrics-report.mjs";
+import { initializeCampaign } from "../../src/campaign/index.mjs";
+import { configureCampaignReserve, readCampaignReserve, reconcileCampaignReservation, reserveCampaignCost } from "../../src/campaign/reserve.mjs";
+import { runsRoot } from "../../src/run/paths.mjs";
+import { CONTRACT_VERSION, harnessCapabilities } from "../../src/harnesses/index.mjs";
 import { packet, writeFixture } from "./helpers.mjs";
 import { doneResult, makeRun } from "../report/run-fixture.mjs";
 import { startJudge } from "../../src/engine/dispatch.mjs";
@@ -221,6 +227,105 @@ test("startJudge marks a genuine same-vendor pairing on first dispatch, and neve
     false,
     "the worker (openai) and the judge (anthropic) never shared a vendor -- comparing state.runtime to itself on the re-ask would wrongly mark this node",
   );
+});
+
+// The dispatch side of the optional campaign reserve (ADR 0011): a new judge
+// call is admitted through the campaign's balance before it starts, and its
+// cost estimate is the only measured number available -- what the worker's
+// call just charged. A balance that cannot hold that estimate refuses only
+// this new dispatch, parks the node blocked, and takes no hold of its own.
+test("startJudge refuses a judge dispatch the armed reserve cannot cover and parks the node without one", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "judge-reserve-refusal-"));
+  const { path: campaignPath } = initializeCampaign(runsRoot(directory), { campaignId: "reserve-judge-refusal", goal: "Gate the judge" });
+  configureCampaignReserve(campaignPath, 100);
+  const hold = reserveCampaignCost(campaignPath, { costUsd: 60 });
+  assert.ok(hold.reservation, "the seeded hold was admitted with a reservation");
+  reconcileCampaignReservation(campaignPath, hold.reservation.id, 60);
+
+  /** @type {any} */
+  const contract = {
+    judgeIndependence: "same-vendor",
+    cwd: process.cwd(),
+    runtimeDefaults: { worker: "worker", judge: "judge" },
+    runtimes: {
+      worker: { harness: "claude", model: "claude-sonnet-5", vendor: "anthropic" },
+      judge: { harness: "claude", model: "claude-opus-5-5", vendor: "anthropic" },
+    },
+  };
+  /** @type {any} */
+  const node = {
+    id: "build",
+    gate: { failOn: ["critical"] },
+    taskPacket: packet(),
+    definitionOfDone: [{ id: "works", text: "It works", judgment: true }],
+  };
+  // The refusal parks the node with a persisted snapshot, so the state it
+  // starts from is the full shape the engine writes, not the trimmed shape
+  // the settle-path tests above can get away with.
+  const at = "2026-09-30T00:00:00.000Z";
+  /** @type {any} */
+  const state = {
+    schemaVersion: 3,
+    contractVersion: CONTRACT_VERSION,
+    id: "build",
+    type: "backend",
+    sourceIdentity: { kind: "node", contractId: "reserve-judge-refusal-run", nodeId: "build" },
+    packetHash: "a".repeat(64),
+    status: "pending",
+    phase: "worker",
+    attempt: 1,
+    revisions: 0,
+    judgeFailures: 0,
+    runtime: { id: "worker", harness: "claude", model: "claude-sonnet-5", vendor: "anthropic", capabilities: harnessCapabilities({ harness: "claude" }) },
+    blockedBy: [],
+    startedAt: at,
+    updatedAt: at,
+    result: null,
+    gate: null,
+    error: null,
+    invocations: [{
+      id: "inv-worker",
+      pid: 4242,
+      processGroupId: null,
+      processStartToken: null,
+      harness: "claude",
+      phase: "worker",
+      role: "worker",
+      runId: "reserve-judge-refusal-run",
+      campaignId: "reserve-judge-refusal",
+      planPhase: "phase-1",
+      runtimeFingerprint: "worker",
+      model: "claude-sonnet-5",
+      reasoning: null,
+      sandbox: null,
+      continuationId: null,
+      continuationMode: "fresh",
+      promptPath: null,
+      stdoutPath: null,
+      stderrPath: null,
+      executable: null,
+      startedAt: at,
+      updatedAt: at,
+      deadlineAt: at,
+      closedAt: at,
+      exitCode: 0,
+      signal: null,
+      status: "closed",
+      costUsd: 50,
+    }],
+  };
+  /** @type {any} */
+  const lock = { assert() {} };
+  const round = await startJudge(contract, node, state, mkdtempSync(join(tmpdir(), "judge-reserve-rundir-")), new Map(), {}, lock, new Map(), campaignPath);
+
+  assert.equal(round.kind, "refused", "40 USD available cannot hold the worker's measured 50 USD again");
+  assert.equal(state.status, "blocked");
+  assert.equal(state.error?.code, "reserve_insufficient", state.error?.message);
+  assert.equal(state.phase, "judge");
+  const status = readCampaignReserve(campaignPath);
+  assert.equal(status.availableUsd, 40, "the refusal charged nothing and released nothing");
+  assert.equal(status.reservations.length, 1, "a refused admission takes no hold of its own");
+  assert.equal(status.heldUsd, 0);
 });
 
 /**

@@ -5,7 +5,7 @@
 import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-import { readMetricNodeSnapshots } from "./metrics-command.mjs";
+import { isPlanningRun, readMetricNodeSnapshots, stringEntriesOf } from "./metrics-command.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
 import { CAMPAIGN_FILE, JOURNAL_FILE, LEDGER_SOURCE_MANIFEST_FILE, campaignsDir } from "./layout.mjs";
 import { readCampaign } from "./record.mjs";
@@ -79,6 +79,13 @@ export function unpreservedLedgerCampaigns(runsDir) {
  * sources are reported so a pruned run cannot make the close fail or look
  * complete by accident. Repeated calls overwrite the same paths.
  *
+ * The manifest also records which linked runs were planning runs (R5): the
+ * ledger preserves no contracts, so a run that was launched to plan has no
+ * other evidence left of what it was, and the projection reads that list back
+ * to separate planning spend from worker and judge spend. A run recorded as
+ * planning stays recorded, because reledgering a pruned run must not silently
+ * reclassify the usage it already preserved.
+ *
  * `ledgerDir` is the exact destination. It defaults to the versioned ledger
  * under `repoRoot/docs/campaigns/<id>/ledger`; `closeCampaign` passes the
  * campaign directory in the operator home instead when `--ledger-in-repo` was
@@ -104,6 +111,7 @@ export function preserveCampaignLedger(campaignPath, repoRoot, ledgerDir = undef
   const priorManifest = readSourceManifest(ledgerDir);
   const absent = new Set(priorManifest.absent);
   const preserved = new Set(priorManifest.preserved);
+  const planning = new Set(priorManifest.planning);
   for (const name of [JOURNAL_FILE, CAMPAIGN_FILE]) {
     const source = join(campaignPath, name);
     if (!existsSync(source)) continue;
@@ -113,6 +121,7 @@ export function preserveCampaignLedger(campaignPath, repoRoot, ledgerDir = undef
   }
   for (const runId of campaign.linkedRunIds) {
     const runDir = join(runsDir, runId);
+    if (isPlanningRun(runDir)) planning.add(runId);
     for (const [sourceName, destinationSuffix] of RUN_SOURCES) {
       const source = join(runDir, sourceName);
       const destinationName = `${runId}.${destinationSuffix}`;
@@ -150,7 +159,7 @@ export function preserveCampaignLedger(campaignPath, repoRoot, ledgerDir = undef
     written.push(...filesUnder(proposalsSource).map((path) => join(proposalsDestination, path)));
   }
   const manifest = join(ledgerDir, LEDGER_SOURCE_MANIFEST_FILE);
-  writeFileSync(manifest, `${JSON.stringify({ schemaVersion: 1, absent: [...absent].sort(), preserved: [...preserved].sort() })}\n`);
+  writeFileSync(manifest, `${JSON.stringify({ schemaVersion: 1, absent: [...absent].sort(), preserved: [...preserved].sort(), planning: [...planning].sort() })}\n`);
   written.push(manifest);
   // The ledger exists, so a versioned preservation now marks the record. The
   // already-copied campaign.json is refreshed afterwards so the durable copy
@@ -186,8 +195,10 @@ export function reledgerCampaignLedger(campaignPath, repoRoot) {
   const sourceManifest = readSourceManifest(ledgerDir);
   const preserved = new Set(sourceManifest.preserved);
   const absent = new Set(sourceManifest.absent);
+  const planning = new Set(sourceManifest.planning);
   for (const runId of campaign.linkedRunIds) {
     const runDir = join(runsDir, runId);
+    if (isPlanningRun(runDir)) planning.add(runId);
     for (const [sourceName, destinationSuffix] of RUN_SOURCES) {
       const source = join(runDir, sourceName);
       const change = { runId, source: sourceName };
@@ -241,7 +252,7 @@ export function reledgerCampaignLedger(campaignPath, repoRoot) {
   } else if (existsSync(join(campaignPath, CAMPAIGN_FILE))) {
     copyFileSync(join(campaignPath, CAMPAIGN_FILE), ledgerCampaign);
   }
-  writeFileSync(join(ledgerDir, LEDGER_SOURCE_MANIFEST_FILE), `${JSON.stringify({ schemaVersion: 1, absent: [...absent].sort(), preserved: [...preserved].sort() })}\n`);
+  writeFileSync(join(ledgerDir, LEDGER_SOURCE_MANIFEST_FILE), `${JSON.stringify({ schemaVersion: 1, absent: [...absent].sort(), preserved: [...preserved].sort(), planning: [...planning].sort() })}\n`);
   return { ledgerDir, copied, gone };
 }
 
@@ -299,17 +310,18 @@ function projectedField(value, field) {
   return Object.hasOwn(object, "kind") ? { kind: object.kind } : {};
 }
 
-/** @param {string} root @returns {{absent: string[], preserved: string[]}} */
+/** @param {string} root @returns {{absent: string[], preserved: string[], planning: string[]}} */
 function readSourceManifest(root) {
   try {
     const value = JSON.parse(readFileSync(join(root, LEDGER_SOURCE_MANIFEST_FILE), "utf8"));
     return {
-      absent: Array.isArray(value?.absent) ? /** @type {unknown[]} */ (value.absent).filter((entry) => typeof entry === "string") : [],
-      preserved: Array.isArray(value?.preserved) ? /** @type {unknown[]} */ (value.preserved).filter((entry) => typeof entry === "string") : [],
+      absent: stringEntriesOf(value?.absent),
+      preserved: stringEntriesOf(value?.preserved),
+      planning: stringEntriesOf(value?.planning),
     };
   } catch {
     // An old ledger has no origin manifest; its files remain subject to the legacy missing-source rules.
-    return { absent: [], preserved: [] };
+    return { absent: [], preserved: [], planning: [] };
   }
 }
 

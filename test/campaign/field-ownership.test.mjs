@@ -465,6 +465,14 @@ test("single writer per field", () => {
     (DERIVED.campaign.get("ledgerPreserved") ?? new Set()).size > 0,
     "no mutator's written campaign record sets ledgerPreserved",
   );
+  // The optional balance (ADR 0011) is how a campaign arms its reserve gate;
+  // it must stay declared and keep its one mutator findable, so the balance
+  // can never gain an undeclared second writer.
+  assert.ok(declaredCampaign.reserveUsd, "the campaign record does not declare the reserve field");
+  assert.ok(
+    (DERIVED.campaign.get("reserveUsd") ?? new Set()).size > 0,
+    "no mutator's written campaign record sets reserveUsd",
+  );
   for (const [field, declared] of Object.entries(declaredCampaign)) {
     assert.deepEqual(
       [...declared.writers].sort(),
