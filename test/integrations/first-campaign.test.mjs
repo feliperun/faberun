@@ -25,7 +25,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync, spawnSync } from "node:child_process";
 import { runPlanningPipeline } from "../../src/plan/pipeline.mjs";
-import { planProgressPath } from "../../src/plan/progress.mjs";
+import { planProgressPath, writePlanDraftRecord } from "../../src/plan/progress.mjs";
+import { contentDigest } from "../../src/plan/freeze.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { runProgress } from "../../src/engine/supervise.mjs";
 import { collectRepoFacts } from "../../src/plan/repo-facts.mjs";
@@ -311,11 +312,17 @@ test("a first campaign by a stranger completes offline", { timeout: 120_000 }, a
 
 /**
  * R2's resume half: a planning process that died after its draft succeeded is
- * resumed at review, and the next attempt pays for no second draft. Replay
- * recordings make the duplicate draft observable: entry 1 is the plan, entry
- * 2 a campaign-node result this test never reaches, so an attempt that
+ * resumed at review, and the next attempt pays for no second draft. What a
+ * killed attempt leaves behind is exactly two records and nothing else — the
+ * liveness record naming its dead pid, and the draft record its pipeline
+ * wrote when the draft validated — so the test writes both directly, with
+ * `writePlanDraftRecord`, the pipeline's own writer. That makes the resumed
+ * attempt below the only pipeline run the test pays for, and it leaves the
+ * duplicate draft observable: entry 1 of the worker recording is the plan and
+ * entry 2 a campaign-node result this test never reaches, so an attempt that
  * wrongly re-drafted would consume entry 2 as a plan and fail validation
- * loudly — a frozen status here is itself evidence of adoption.
+ * loudly — and the launch count would say so first. A frozen status here is
+ * itself evidence of adoption.
  */
 test("a planning process that died after its draft resumes at review and pays for no second draft", { timeout: 120_000 }, async () => {
   const cwd = fixtureRepo();
@@ -324,6 +331,20 @@ test("a planning process that died after its draft resumes at review and pays fo
   writeFileSync(specPath, specText());
   commitAll(cwd, "chore: fixture for the planning resume path");
   initializeCampaign(runsRoot(cwd), { campaignId: CAMPAIGN_ID, goal: "Resume a dead planning attempt without duplicate paid work" });
+
+  // The dead attempt's two surviving records: a pid that is certainly gone,
+  // holding the stage the attempt had reached, and the validated draft beside
+  // the phase's plan artifacts, digested against the spec it was planned from.
+  const plansDir = join(campaignTree(cwd, CAMPAIGN_ID), "plans", PHASE);
+  writeJsonAtomic(planProgressPath(cwd, CAMPAIGN_ID, PHASE), {
+    pid: GONE_PID, processStartToken: null, at: new Date().toISOString(), campaignId: CAMPAIGN_ID, phase: PHASE, stage: "review",
+  });
+  writePlanDraftRecord(plansDir, {
+    runId: `${CAMPAIGN_ID}-plan-${PHASE}-draft-1`,
+    at: new Date().toISOString(),
+    specDigest: contentDigest(specText()),
+    plan: /** @type {import("../../src/plan/template.mjs").PlanOutput} */ (draftedPlan()),
+  });
 
   const recordingDir = mkdtempSync(join(tmpdir(), "offline-stranger-resume-rec-"));
   const workerRecording = writeRecording(recordingDir, [
@@ -338,35 +359,20 @@ test("a planning process that died after its draft resumes at review and pays fo
     "replay-judge": { harness: "replay", model: "replay-judge-model", vendor: "replay-judge-vendor", config: { "replay.recording": judgeRecording } },
   };
   const runtimeDefaults = { worker: "replay-worker", judge: "replay-judge" };
-  const pipelineOptions = { specPath, campaignId: CAMPAIGN_ID, phase: PHASE, cwd, runtimes, runtimeDefaults, reviewers: ["replay-judge"], targetedFix: true };
+
+  // The resumed attempt: adopts the dead attempt's draft, dispatches only the
+  // review, and freezes.
+  /** @type {string[]} */
   const launched = [];
-
-  // Attempt 1: the draft stage runs, then the planner "dies" — the throw here
-  // stands exactly where a killed process would simply have stopped.
-  await assert.rejects(
-    runPlanningPipeline({
-      ...pipelineOptions,
-      launch: async (/** @type {string} */ contractPath) => {
-        launched.push(contractPath);
-        if (launched.length > 1) throw new Error("planner killed before the review");
-        await runContract(contractPath);
-      },
-      wait: (/** @type {string} */ runDir) => runProgress(runDir),
-    }),
-    /planner killed before the review/,
-  );
-  const firstAttemptLaunches = launched.length;
-
-  // The record a killed process leaves: a pid that is certainly gone, holding
-  // the stage the attempt had reached.
-  writeJsonAtomic(planProgressPath(cwd, CAMPAIGN_ID, PHASE), {
-    pid: GONE_PID, processStartToken: null, at: new Date().toISOString(), campaignId: CAMPAIGN_ID, phase: PHASE, stage: "review",
-  });
-
-  // Attempt 2: adopts the dead attempt's draft, dispatches only the review,
-  // and freezes.
   const planned = await runPlanningPipeline({
-    ...pipelineOptions,
+    specPath,
+    campaignId: CAMPAIGN_ID,
+    phase: PHASE,
+    cwd,
+    runtimes,
+    runtimeDefaults,
+    reviewers: ["replay-judge"],
+    targetedFix: true,
     launch: async (/** @type {string} */ contractPath) => {
       launched.push(contractPath);
       await runContract(contractPath);
@@ -374,11 +380,9 @@ test("a planning process that died after its draft resumes at review and pays fo
     wait: (/** @type {string} */ runDir) => runProgress(runDir),
   });
 
-  const secondLaunches = launched.slice(firstAttemptLaunches);
-  assert.equal(secondLaunches.length, 1, `the resumed attempt dispatches exactly one stage, saw ${secondLaunches.length}`);
-  assert.equal(secondLaunches[0].includes("draft-"), false, "the draft is adopted from disk, never dispatched again");
+  assert.equal(launched.length, 1, `the resumed attempt dispatches exactly one stage, saw ${launched.length}`);
+  assert.equal(launched[0].includes("draft-"), false, "the draft is adopted from disk, never dispatched again");
   assert.equal(planned.status, "frozen");
-  const plansDir = join(campaignTree(cwd, CAMPAIGN_ID), "plans", PHASE);
   assert.ok(existsSync(join(plansDir, "plan.json")));
   assert.ok(
     readFileSync(join(plansDir, "pipeline.jsonl"), "utf8").includes('"draft-resumed"'),

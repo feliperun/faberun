@@ -30,7 +30,7 @@ import { validateJudgeIndependence } from "../contract/judge-independence.mjs";
 import { firstEligibleReviewer, reviewerProvenanceOf } from "./reviewer.mjs";
 import { parseSpec, validateSpec } from "./spec.mjs";
 import { collectRepoFacts, persistRepoFacts } from "./repo-facts.mjs";
-import { abandonedPlanProgress, clearPlanProgress, resumablePlanDraft, writePlanDraftRecord, writePlanProgress } from "./progress.mjs";
+import { abandonedPlanProgress, clearPlanProgress, startDraftPlan, writePlanDraftRecord, writePlanProgress } from "./progress.mjs";
 import { collectHumanSteps } from "./human-step.mjs";
 import { RISK_TIERS, TASK_KIND_CATALOGUE_FILE, buildPlanningContract, renderTaskKindCatalogue, validatePlanOutput } from "./template.mjs";
 import { MIN_WRITE_FILES, applySizingRules, provenParallelism } from "./sizing.mjs";
@@ -292,16 +292,10 @@ async function runPlanningStages(options) {
   // R2 resume: the sampled record survives only a process that died, and a
   // dead attempt that validated its draft left writePlanDraftRecord's file
   // behind. A finished phase — frozen or contested — has a plan.json, and that drafts fresh.
-  const resumed = resumablePlanDraft({ abandoned, plansDir, specDigest });
-  if (resumed !== null) logStage("draft-resumed", { runId: resumed.runId, nodeCount: resumed.plan.nodes.length });
-  /** @type {{runId: string, planOutput: unknown}} */
-  let draft;
-  if (resumed !== null) {
-    draft = { runId: resumed.runId, planOutput: resumed.plan };
-  } else {
-    const stage = await runStage("draft", { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, packageMode });
-    draft = { runId: stage.contract.id, planOutput: stage.output.plan };
-  }
+  const draft = await startDraftPlan({
+    abandoned, plansDir, specDigest, runStage, logStage,
+    draftStageInput: { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, packageMode },
+  });
   /** @type {PlanOutput|null} */
   let plan = null;
   // Everything still open against the plan in hand, accumulated across rounds
@@ -315,7 +309,7 @@ async function runPlanningStages(options) {
   } catch (error) {
     findings = [invalidPlanFinding("draft", error)];
   }
-  if (resumed === null) {
+  if (!draft.resumed) {
     // Durable before its stage line: a death in between leaves an adoptable draft.
     if (plan !== null) writePlanDraftRecord(plansDir, { runId: draft.runId, at: new Date().toISOString(), specDigest, plan });
     logStage("draft", plan === null

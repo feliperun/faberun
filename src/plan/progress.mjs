@@ -24,8 +24,11 @@
  * `writePlanDraftRecord` persists the validated draft plan beside the phase's
  * plan artifacts, and `resumablePlanDraft` reads it back for a resumed
  * attempt, because the liveness record says that the attempt died but not
- * what its death had already paid for. Same boundary, same reader — both
- * halves answer a later launch's one question, what did the last attempt
+ * what its death had already paid for. `startDraftPlan` decides, for one
+ * attempt, between adopting that draft and dispatching the draft stage —
+ * dispatching stays the pipeline's verb (it is passed in), but whether to
+ * dispatch at all is this module's question. Same boundary, same reader —
+ * all of it answers a later launch's one question, what did the last attempt
  * leave behind.
  */
 import { existsSync, rmSync } from "node:fs";
@@ -173,4 +176,26 @@ export function resumablePlanDraft({ abandoned, plansDir, specDigest }) {
     // round budget repairing an unknown shape, so the caller drafts fresh.
     return null;
   }
+}
+
+/**
+ * The draft one attempt starts from: the dead attempt's validated plan when
+ * adopting it costs no paid call, or a fresh dispatch of the draft stage.
+ * The adoption is announced as its own stage line — a resumed attempt that
+ * dispatched nothing must still leave the same record a drafting one does.
+ *
+ * @param {{abandoned: PlanProgressRecord|null, plansDir: string, specDigest: string,
+ *   draftStageInput: Record<string, unknown>,
+ *   runStage: (kind: import("./template.mjs").PlanningKind, input: Record<string, unknown>) => Promise<{contract: {id: string}, output: Record<string, unknown>}>,
+ *   logStage: (stage: string, detail: Record<string, unknown>) => void}} options
+ * @returns {Promise<{runId: string, planOutput: unknown, resumed: boolean}>}
+ */
+export async function startDraftPlan({ abandoned, plansDir, specDigest, draftStageInput, runStage, logStage }) {
+  const resumed = resumablePlanDraft({ abandoned, plansDir, specDigest });
+  if (resumed !== null) {
+    logStage("draft-resumed", { runId: resumed.runId, nodeCount: resumed.plan.nodes.length });
+    return { runId: resumed.runId, planOutput: resumed.plan, resumed: true };
+  }
+  const stage = await runStage("draft", draftStageInput);
+  return { runId: stage.contract.id, planOutput: stage.output.plan, resumed: false };
 }
