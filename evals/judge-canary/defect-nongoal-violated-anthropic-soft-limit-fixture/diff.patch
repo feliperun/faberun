@@ -1,5 +1,5 @@
 diff --git a/skills/mine/intent-factory/test/drivers.test.mjs b/skills/mine/intent-factory/test/drivers.test.mjs
-index 3ce633c..bc8be8c 100644
+index 3ce633ca598f1f481abd5bd6ef8745f2c5fa44ca..bc8be8cd660ea759bf0329d61a1d09a5b30aa1ac 100644
 --- a/skills/mine/intent-factory/test/drivers.test.mjs
 +++ b/skills/mine/intent-factory/test/drivers.test.mjs
 @@ -194,7 +194,7 @@ test("Codex rollout-budget exhaustion is a provider exhaustion event", () => {

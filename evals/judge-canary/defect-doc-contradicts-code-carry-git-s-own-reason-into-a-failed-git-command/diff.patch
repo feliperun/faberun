@@ -1,5 +1,5 @@
 diff --git a/skills/mine/intent-factory/scripts/worktree.mjs b/skills/mine/intent-factory/scripts/worktree.mjs
-index 6226f09..8c1721e 100644
+index 6226f09904a8353a0b17540f042d00765142ddb1..8c1721eb827dbf407718eba3cac7676036cb1e71 100644
 --- a/skills/mine/intent-factory/scripts/worktree.mjs
 +++ b/skills/mine/intent-factory/scripts/worktree.mjs
 @@ -35,9 +35,40 @@ export function candidateWorktreePath(runDir, runId) {
@@ -131,7 +131,7 @@ index 6226f09..8c1721e 100644
      if (existsSync(path)) rmSync(path, { recursive: true, force: true });
      else if (/** @type {{status?: number}} */ (error)?.status !== 128) throw error;
 diff --git a/skills/mine/intent-factory/test/integration.test.mjs b/skills/mine/intent-factory/test/integration.test.mjs
-index 0325605..2cb1478 100644
+index 0325605119f1dfbcc82a63f3f1a8d80a726a4a4c..2cb1478566d73f5d4a02d5752fb59bc2121cde88 100644
 --- a/skills/mine/intent-factory/test/integration.test.mjs
 +++ b/skills/mine/intent-factory/test/integration.test.mjs
 @@ -9,6 +9,7 @@ import { captureSourceIdentity } from "../scripts/contract.mjs";

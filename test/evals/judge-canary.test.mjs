@@ -56,7 +56,7 @@ test("the judge canary corpus has every defect kind and clean controls", () => {
 
 test("every clean control is its golden task's real sealed diff", () => {
   for (const entry of CASES.filter((candidate) => candidate.label === "clean")) {
-    const golden = execFileSync("git", ["diff", "--binary", "--no-renames", entry.source.parentSha, entry.source.commitSha], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    const golden = execFileSync("git", ["diff", "--full-index", "--binary", "--no-renames", entry.source.parentSha, entry.source.commitSha], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
     assert.equal(entry.diff, golden, `${entry.id} is the golden diff of ${entry.sourceTask}, byte for byte`);
   }
 });

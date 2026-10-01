@@ -245,13 +245,16 @@ function applyEdits(dir, edits, writeFiles, caseId) {
 /**
  * The sealed diff of one case: the golden diff, or the golden diff with the
  * defect's edits applied, rebuilt in a throwaway repository that holds only
- * the task's changed files.
+ * the task's changed files. Both diffs carry `--full-index`, so a committed
+ * case's blob identities are canonical object IDs and reproduce byte for byte
+ * however many objects this repository has gained since — git's default index
+ * abbreviation is the minimum unique length, which grows with the database.
  *
  * @param {GoldenTask} task @param {string[]} writeFiles @param {CanaryEdit[]|null} edits @param {string} caseId
  * @returns {string}
  */
 function sealedDiff(task, writeFiles, edits, caseId) {
-  const golden = runGitPreservingOutput(["diff", "--binary", "--no-renames", task.meta.parentSha, task.meta.commitSha]);
+  const golden = runGitPreservingOutput(["diff", "--full-index", "--binary", "--no-renames", task.meta.parentSha, task.meta.commitSha]);
   if (!edits) return golden;
   const temp = mkdtempSync(join(tmpdir(), "faberun-canary-build-"));
   try {
@@ -265,7 +268,7 @@ function sealedDiff(task, writeFiles, edits, caseId) {
     applySealedDiff(temp, golden);
     applyEdits(temp, edits, writeFiles, caseId);
     runGit(["add", "-A"], temp);
-    const diff = runGitPreservingOutput(["diff", "--cached", "--binary", "--no-renames"], temp);
+    const diff = runGitPreservingOutput(["diff", "--cached", "--full-index", "--binary", "--no-renames"], temp);
     if (diff === golden) throw new Error(`canary case ${caseId}: its edits leave the golden diff unchanged`);
     return diff;
   } finally {

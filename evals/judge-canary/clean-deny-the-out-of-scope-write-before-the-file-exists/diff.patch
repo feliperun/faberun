@@ -1,5 +1,5 @@
 diff --git a/skills/mine/intent-factory/src/host/tool-policy-decisions.mjs b/skills/mine/intent-factory/src/host/tool-policy-decisions.mjs
-index cf41cf4..94c5ec1 100644
+index cf41cf407fcf26983af59e27fcfe31be50c27a50..94c5ec16d52e8ccfb8540c2a5d2dd874a6370d36 100644
 --- a/skills/mine/intent-factory/src/host/tool-policy-decisions.mjs
 +++ b/skills/mine/intent-factory/src/host/tool-policy-decisions.mjs
 @@ -6,11 +6,14 @@
@@ -82,7 +82,7 @@ index cf41cf4..94c5ec1 100644
   * Count lines in a file without loading it fully into memory: newline bytes
   * plus one more line when the file does not end on a newline. `null` means
 diff --git a/skills/mine/intent-factory/test/host/tool-policy.test.mjs b/skills/mine/intent-factory/test/host/tool-policy.test.mjs
-index 33cd31b..5a79def 100644
+index 33cd31b3f215558f2f3405cc532af901bb0648a6..5a79deff142611aa656e94d0263e8a2c8b7a75b7 100644
 --- a/skills/mine/intent-factory/test/host/tool-policy.test.mjs
 +++ b/skills/mine/intent-factory/test/host/tool-policy.test.mjs
 @@ -151,9 +151,10 @@ test("tool policy missing path", () => {

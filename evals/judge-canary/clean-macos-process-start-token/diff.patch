@@ -1,5 +1,5 @@
 diff --git a/skills/mine/intent-factory/scripts/lock.mjs b/skills/mine/intent-factory/scripts/lock.mjs
-index 56e56ee..0bdccb9 100644
+index 56e56ee883d12c56dd837fd92ee2a627abffe2be..0bdccb96bc8ffe815de0b50a3026ed91fade4839 100644
 --- a/skills/mine/intent-factory/scripts/lock.mjs
 +++ b/skills/mine/intent-factory/scripts/lock.mjs
 @@ -11,6 +11,7 @@
@@ -55,7 +55,7 @@ index 56e56ee..0bdccb9 100644
  
  /** @param {number|null|undefined} pid @returns {boolean} */
 diff --git a/skills/mine/intent-factory/test/lock.test.mjs b/skills/mine/intent-factory/test/lock.test.mjs
-index 462a553..21e7525 100644
+index 462a553c3049410b0edcf9cda447f0b3101e4bad..21e7525d3fbc0c64041267e958698a9024b757d7 100644
 --- a/skills/mine/intent-factory/test/lock.test.mjs
 +++ b/skills/mine/intent-factory/test/lock.test.mjs
 @@ -9,6 +9,7 @@ import { appendJsonl, readJson, writeJsonAtomic } from "../scripts/store.mjs";
