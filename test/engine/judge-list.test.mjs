@@ -357,7 +357,7 @@ test("prompt assembly keeps stable instruction sections before the variable prev
   // the stable sandbox notice and result-file protocol. It is lifted out and
   // re-appended last, exactly once; passing it again as the state's section
   // must not duplicate it.
-  const section = "## Previous attempt\n\nAttempt 1 failed\nJudge findings\n- [major] missing exclusion";
+  const section = "## Previous attempt\n\nAttempt 1 failed; this is attempt 2.\nJudge findings\n- [major] missing exclusion";
   const reused = assembleDispatchPrompt(`Task packet instructions.\n\n${section}`, { ...appliers, section });
   assert.ok(reused.startsWith("Task packet instructions."), "the stable base stays the prefix");
   assert.ok(reused.indexOf("## Previous attempt") > reused.indexOf("result-protocol"), "the embedded section now trails the sandbox notice and the result protocol");
@@ -400,6 +400,30 @@ test("prompt assembly keeps stable instruction sections before the variable prev
   const bareProse = "Packet instructions.\n\n## Previous attempt\nRead the retry notes before starting.";
   assert.deepEqual(splitPreviousAttemptSection(bareProse), { stable: bareProse, section: null });
 
+  // The attempt-3 revision_cap finding, in full: a task instruction headed
+  // `# Previous attempt` and opening `Attempt 2 failed in staging` is the
+  // task's own text. The retry writer writes `##`, so a one-hash heading is
+  // never the variable block — and with a state section supplied, the
+  // instruction and everything after it must survive on the worker and judge
+  // assembly paths alike.
+  const h1 = "Packet instructions.\n\n# Previous attempt\nAttempt 2 failed in staging.\n\n## Reporting\nReport the result file.";
+  assert.deepEqual(splitPreviousAttemptSection(h1), { stable: h1, section: null });
+  const h1WithState = assembleDispatchPrompt(h1, { ...appliers, section: "## Previous attempt\n\nstate-section" });
+  assert.ok(h1WithState.startsWith(h1), "an instruction block headed `# Previous attempt` stays whole in the stable prefix");
+  assert.ok(h1WithState.indexOf("Attempt 2 failed in staging.") < h1WithState.indexOf("sandbox-notice"), "the borrowed-heading instructions are not moved after the stable appends");
+  assert.ok(h1WithState.indexOf("state-section") > h1WithState.indexOf("result-protocol"), "the state's section still trails the stable sections");
+
+  // Even the writer's exact heading does not lift a block on its own: the
+  // body must open with the writer's record sentence, and `Attempt 2 failed
+  // in staging` is prose about a staging failure, not a retry record.
+  const proseRecord = "Packet instructions.\n\n## Previous attempt\nAttempt 2 failed in staging.\n\n## Reporting\nReport the result file.";
+  assert.deepEqual(splitPreviousAttemptSection(proseRecord), { stable: proseRecord, section: null });
+
+  // The hash count is pinned to the writer's two: a deeper heading with a
+  // record-shaped body is still the task's own document structure.
+  const deep = "Packet instructions.\n\n### Previous attempt\n\nAttempt 2 failed; this is attempt 3.";
+  assert.deepEqual(splitPreviousAttemptSection(deep), { stable: deep, section: null });
+
   // Positive control in the exact shape the retry writer lays down (bare
   // heading, body opening `Attempt N failed`): that block and only that
   // block is the variable section.
@@ -410,9 +434,23 @@ test("prompt assembly keeps stable instruction sections before the variable prev
 
   // A stale section embedded in a reused candidate loses to the state's own
   // record: the current retry state is what trails, exactly once.
-  const stale = "## Previous attempt\n\nAttempt 1 failed\nstale-section";
+  const stale = "## Previous attempt\n\nAttempt 1 failed; this is attempt 2.\nstale-section";
   const both = assembleDispatchPrompt(`Task packet instructions.\n\n${stale}`, { ...appliers, section: "## Previous attempt\n\nstate-section" });
   assert.ok(both.indexOf("state-section") > both.indexOf("result-protocol"), "the state's section trails the stable sections");
   assert.equal(both.split("## Previous attempt").length - 1, 1, "exactly one section survives");
   assert.equal(both.includes("stale-section"), false, "the stale embedded section does not survive");
+
+  // The judge's re-ask instruction is a stable section like the sandbox
+  // notice: assembly runs it on the stable remainder, ahead of the variable
+  // section. Appended to the raw base instead, it landed after the trailing
+  // section and was dropped with the lifted block whenever the state carried
+  // a retry record — a re-asked judge dispatched without its instruction.
+  const reasked = assembleDispatchPrompt(`Review node brief.\n\n${record}`, {
+    ...appliers,
+    stable: (/** @type {string} */ prompt) => `${prompt}\n\nRe-ask instruction.`,
+    section: "## Previous attempt\n\nstate-section",
+  });
+  assert.ok(reasked.includes("Re-ask instruction."), "the stable re-ask append survives the section lift");
+  assert.ok(reasked.indexOf("Re-ask instruction.") < reasked.indexOf("state-section"), "the re-ask instruction is stable text, ahead of the variable section");
+  assert.equal(reasked.split("## Previous attempt").length - 1, 1, "the re-ask append does not duplicate the section");
 });

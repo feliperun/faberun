@@ -247,8 +247,9 @@ function ensureAttemptWorkspace(contract, node, state, runDir, lock) {
 }
 /**
  * The final assembly every dispatched prompt goes through: the stable
- * instruction sections — the caller's sandbox-notice and result-file-protocol
- * appends, run on the stable remainder — precede the variable previous-attempt
+ * instruction sections — the caller's stable appends, run on the stable
+ * remainder (the worker's sandbox notice and result-file protocol, the
+ * judge's re-ask instruction) — precede the variable previous-attempt
  * state, so the cacheable prefix survives across attempts. A base that
  * already carries the section (a candidate reused from an earlier attempt)
  * has it lifted out and re-appended last; a base without one gets the state's
@@ -266,14 +267,15 @@ function ensureAttemptWorkspace(contract, node, state, runDir, lock) {
  * caller right after this returns, on the assembled prompt.
  *
  * @param {string} basePrompt
- * @param {{sandbox?: (prompt: string) => string, protocol?: (prompt: string) => string, section?: string}} assembly
+ * @param {{sandbox?: (prompt: string) => string, protocol?: (prompt: string) => string, stable?: (prompt: string) => string, section?: string}} assembly
  * @returns {string}
  */
-export function assembleDispatchPrompt(basePrompt, { sandbox, protocol, section } = {}) {
-  const { stable, section: embedded } = splitPreviousAttemptSection(basePrompt);
-  let ordered = stable;
+export function assembleDispatchPrompt(basePrompt, { sandbox, protocol, stable, section } = {}) {
+  const { stable: head, section: embedded } = splitPreviousAttemptSection(basePrompt);
+  let ordered = head;
   if (sandbox) ordered = sandbox(ordered);
   if (protocol) ordered = protocol(ordered);
+  if (stable) ordered = stable(ordered);
   const variable = section ?? embedded;
   return variable ? `${ordered}\n\n${variable}` : ordered;
 }
@@ -588,18 +590,25 @@ export async function startJudge(contract, node, state, runDir, running, workerR
     return { kind: "refused" };
   }
   try {
-    const prompt = `${judgePrompt(node, workerResult, {
+    const prompt = judgePrompt(node, workerResult, {
       diff: state.scope?.changedPaths,
       verification: state.verification,
       deterministic: results,
       scopeFindings: state.scopeFindings,
       previousAttempt: state.previousAttempt,
-    })}${reask ? judgeReaskInstruction(reaskReason) : ""}`;
+    });
     const phasePlan = phaseInvocationPlan(contract, node, state, runDir, "judge", prompt);
     // The same ordering invariant as the worker prompt: the variable section
     // stays the trailing block, lifted out of a reused candidate and
-    // re-appended last — byte-stable when judgePrompt already trailed it.
-    phasePlan.prompt = assembleDispatchPrompt(phasePlan.prompt, { section: state.previousAttempt });
+    // re-appended last — byte-stable when judgePrompt already trailed it. The
+    // re-ask instruction rides the stable remainder like any other stable
+    // append: appended to the raw base instead, it landed after the trailing
+    // section and the assembly's state-section replacement dropped it with
+    // the lifted block — a re-asked judge dispatched without its instruction.
+    phasePlan.prompt = assembleDispatchPrompt(phasePlan.prompt, {
+      stable: reask ? (ordered) => `${ordered}${judgeReaskInstruction(reaskReason)}` : undefined,
+      section: state.previousAttempt,
+    });
     if (Buffer.byteLength(phasePlan.prompt, "utf8") > 64 * 1024) {
       const error = /** @type {Error & {code: string}} */ (new Error("judge prompt exceeds 65536 bytes"));
       error.code = "judge_prompt_too_large";

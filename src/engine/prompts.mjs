@@ -203,26 +203,31 @@ export function previousAttemptOperatorAnswer(previousAttempt) {
 }
 
 /**
- * The heading the variable previous-attempt state travels under, spelled
- * exactly as `renderPreviousAttemptSection` (engine/retry.mjs) writes it: the
- * `#` run, one space, `Previous attempt`, and nothing after it on the line.
- * The earlier tolerant match (`Previous attempt` plus anything) mistook the
- * task's own instructions for retry state — measured on this node's attempt
- * 2, where a legitimate `## Previous attempt notes:` heading was split out of
- * the stable prefix and, with a state section supplied, dropped entirely — so
- * only the bare spelling may open the variable block.
+ * The heading the variable previous-attempt state travels under, byte-equal
+ * to the line `renderPreviousAttemptSection` (engine/retry.mjs) writes: two
+ * hashes, one space, `Previous attempt`, end of line. Every tolerance this
+ * match ever carried cost a node: a tolerant suffix read the task's own
+ * `## Previous attempt notes:` heading as retry state (this node's attempt
+ * 2), and a tolerant `#{1,6}` hash run read a task instruction headed
+ * `# Previous attempt` the same way (attempt 3's revision_cap) — with a
+ * state section supplied, the lifted block was replaced and the stable
+ * instructions after that heading were dropped from the worker and judge
+ * prompts. Only the writer's exact spelling may open the variable block.
  */
-const PREVIOUS_ATTEMPT_HEADING = /^#{1,6}[ \t]+Previous attempt[ \t]*$/gim;
+const PREVIOUS_ATTEMPT_HEADING = /^## Previous attempt$/gm;
 
 /**
- * The line every rendered record opens with — `Attempt N failed`, the same
- * shape `previousAttemptOperatorAnswer`'s stop regex reads as a section
- * start, and the first body line under the heading in every record the
- * retry writer lays down. Requiring it behind the heading keeps the split on
- * real trailing record blocks: an instruction block that borrows even the
- * bare heading carries prose under it, not a failure record.
+ * The line every rendered record opens with — `Attempt N failed; this is
+ * attempt M.`, the `Attempt N failed` opening `previousAttemptOperatorAnswer`'s
+ * stop regex reads as a section start, and the first body line under the
+ * heading in every record the retry writer lays down (this node's own retry
+ * records included). Requiring it behind the heading keeps the split on real
+ * trailing record blocks: an instruction block that borrows even the exact
+ * heading opens its body with other words — measured on attempt 3's
+ * revision_cap, where `Attempt 2 failed in staging` under a borrowed heading
+ * was classified as a record and split out of the stable prefix.
  */
-const PREVIOUS_ATTEMPT_RECORD_LINE = /^Attempt \d+ failed/u;
+const PREVIOUS_ATTEMPT_RECORD_LINE = /^Attempt \d+ failed; this is attempt \d+\./u;
 
 /**
  * Split a prompt that already carries the variable `Previous attempt` section
