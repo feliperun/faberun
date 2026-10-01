@@ -1,13 +1,14 @@
 import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { declaredReadBytes } from "../../src/engine/dispatch.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
-import { configureCampaignReserve, readCampaignReserve, RESERVE_DIR } from "../../src/campaign/reserve.mjs";
+import { configureCampaignReserve, readCampaignReserve, RESERVE_DIR, RESERVE_STATE_FILE } from "../../src/campaign/reserve.mjs";
+import { CAMPAIGN_FILE } from "../../src/campaign/layout.mjs";
 import { campaignTree, runsRoot } from "../../src/run/paths.mjs";
 import { SPAWN_WAIT_FACTOR, fixture, packet, waitForValue, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState } from "../runner-helpers.mjs";
@@ -225,4 +226,76 @@ test("a judge dispatch holds what the worker just cost and a late charge can exc
   assert.equal(judge.lateChargeUsd, 81, "the part of the charge that passed the reservation is recorded");
   assert.equal(status.heldUsd, 0);
   assert.equal(status.availableUsd, 7);
+});
+
+test("a campaign record that turns unreadable fails the next new dispatch closed before the provider starts", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-reserve-corrupt-"));
+  const path = writeContract(directory, fixture({
+    id: "reserve-record-corrupt",
+    campaignId: "reserve-dispatch-corrupt",
+    pollIntervalMs: 10,
+    runtimes: {
+      luna: { harness: "codex", model: "gpt-5.6-luna", pricing: DOLLAR_PER_MTOK },
+      sol: { harness: "codex", model: "gpt-5.6-sol", config: { model_provider: "deepseek" }, pricing: DOLLAR_PER_MTOK },
+    },
+    // Attempt 1 completes and is rejected, so the run re-dispatches it; that
+    // re-dispatch's admission is where the record is read again.
+    nodes: [{ id: "build", type: "backend", taskPacket: packet({ verification: [{ argv: [process.execPath, "-e", "process.exit(1)"] }] }), gate: false }],
+  }));
+  const campaignPath = campaignTree(directory, "reserve-dispatch-corrupt");
+  // Balance enough that cost alone can never refuse the revision: the record
+  // must be the only thing that can.
+  configureCampaignReserve(campaignPath, 250);
+
+  const outcome = await withFakeCodex(directory, "wait-for-release", async () => {
+    const run = runContract(path);
+    try {
+      // Attempt 1 is admitted and its provider parks on the release file; the
+      // record turns unreadable while that admitted call is the one in flight
+      // -- valid at launch, broken before the next admission reads it.
+      await waitForValue(() => {
+        const status = readCampaignReserve(campaignPath);
+        return status.reservations.length === 1 && status.reservations[0].status === "held" ? status : null;
+      }, 30_000 * SPAWN_WAIT_FACTOR);
+      // Parses, but fails validation: status must be active or closed.
+      writeFileSync(join(campaignPath, CAMPAIGN_FILE), JSON.stringify({ id: "reserve-dispatch-corrupt", goal: "corrupt the record mid-run", status: "paused", linkedRunIds: [] }));
+    } finally {
+      // The fake provider parks on this file; whatever the assertions above
+      // found, the run must never be left waiting on it.
+      writeFileSync(join(runsRoot(directory), "provider-release"), "go");
+    }
+    // The one await in this file with no internal bound, capped for the same
+    // reason as the reserve_insufficient test above: a host that stalls the
+    // controller mid-settlement would otherwise hold the whole file open
+    // until the runner is killed from outside. The cap is far beyond the
+    // seconds this run takes on an idle machine, so only a genuine stall
+    // trips it.
+    let stallTimer = null;
+    try {
+      return await Promise.race([
+        run,
+        new Promise((resolve, reject) => {
+          stallTimer = setTimeout(() => reject(new Error("the run never settled: the host stalled or a dispatch is wedged")), 300_000 * SPAWN_WAIT_FACTOR);
+        }),
+      ]);
+    } finally {
+      if (stallTimer !== null) clearTimeout(stallTimer);
+      // A stalled run outlives this test; mark it handled so its eventual
+      // settlement cannot surface as an unhandled rejection in a later test.
+      run.catch(() => {});
+    }
+  });
+
+  const build = nodeState(outcome, "build");
+  assert.equal(build.status, "blocked");
+  assert.equal(build.error?.code, "campaign_record_unreadable", build.error?.message);
+  assert.equal(build.attempt, 2, "the refusal is the revision attempt, never dispatched");
+  assert.equal(build.invocations?.length, 1, "the refused attempt never became a provider call");
+
+  // `readCampaignReserve` reads the record, which is corrupt by design, so
+  // the hold is asserted off the reserve state file the admission writes to.
+  const reserveState = JSON.parse(readFileSync(join(campaignPath, RESERVE_DIR, RESERVE_STATE_FILE), "utf8"));
+  assert.equal(reserveState.reservations.length, 1, "the refused admission took no hold of its own");
+  assert.equal(reserveState.reservations[0].costUsd, null, "the admitted call went in as unknown exposure");
+  assert.equal(reserveState.reservations[0].status, "charged", "the admitted call reconciled; nothing is left held");
 });

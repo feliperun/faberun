@@ -10,9 +10,10 @@
  * that is the shape that kept `engine/` a web instead of a stack.
  *
  * Every new paid dispatch is also admitted through the campaign's optional
- * reserve (ADR 0011) before the provider starts: the hold is taken, and later
- * released or reconciled against the real charge, in this module because the
- * reservation lives exactly as long as the call. One-turn result
+ * reserve (ADR 0011) before the provider starts; the admission decision lives
+ * in `reserve-admission.mjs`, while the release and the reconciliation
+ * against the real charge stay here because the reservation lives exactly as
+ * long as the call. One-turn result
  * materialization continues an already-running session and stays on its
  * existing path.
  */
@@ -40,16 +41,15 @@ import { hasOperationIntent, hasOperationSettlement, operationNeedsRecovery, ope
 import { invocationCost, invocationUsage, priceUsage } from "../run/usage.mjs";
 import { logPaths, startProcess } from "./process.mjs";
 import { readBoundedTail } from "./transcript.mjs";
-import { mkdirSync, statSync, existsSync } from "node:fs";
-import { CAMPAIGN_FILE } from "../campaign/layout.mjs";
-import { readCampaign } from "../campaign/record.mjs";
-import { reconcileCampaignReservation, releaseCampaignReservation, reserveCampaignCost } from "../campaign/reserve.mjs";
+import { mkdirSync, statSync } from "node:fs";
+import { reconcileCampaignReservation, releaseCampaignReservation } from "../campaign/reserve.mjs";
 import { READ_BYTE_LIMIT, READ_LINE_LIMIT, harnessCapabilities, normalizeProviderResult, writesWorkspace } from "../harnesses/index.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
 import { judgeReaskInstruction, reviewMode } from "../contract/review-modes.mjs";
 import { isSameProviderReviewPair } from "../contract/judge-independence.mjs";
 import { previousAttemptRuntimeId, routeRuntimeForState, runtimeSnapshot } from "./failover.mjs";
 import { fingerprintRuntime, forceFreshSession, phaseInvocationPlan } from "./phase-session.mjs";
+import { releaseReservation, reserveAdmission } from "./reserve-admission.mjs";
 
 /** @typedef {import("./phase-session.mjs").SessionPolicy} SessionPolicy */
 import { transition, writeNode } from "./state.mjs";
@@ -60,7 +60,9 @@ import { transition, writeNode } from "./state.mjs";
  * `settle`: the gate passed and no judgment item needs arbitrating.
  * `dispatched`: a judge is running (or failed to start and the node is already
  * marked failed).
- * `refused`: the campaign reserve declined the new judge dispatch; the node is
+ * `refused`: the dispatch admission declined the new judge dispatch -- the
+ * campaign reserve cannot hold it, or the campaign record cannot be read or
+ * validated; the node is
  * already parked blocked and no judge will run this round.
  *
  * @typedef {{kind: "rejected", verdict: JudgeVerdict}|{kind: "settle", gate: JudgeVerdict|null}|{kind: "dispatched"}|{kind: "refused"}} JudgeRound
@@ -126,85 +128,6 @@ export function declaredReadBytes(readFiles, workspace) {
     }
   }
   return total;
-}
-/**
- * The error code a node is parked blocked with when the campaign reserve
- * refuses its new dispatch. Deliberately outside every auto-retry set: the
- * balance does not recover by re-dispatching, only by an operator topping it
- * up (or the in-flight holds settling) and resuming.
- */
-const RESERVE_INSUFFICIENT_CODE = "reserve_insufficient";
-
-/**
- * Whether the campaign at `campaignPath` has armed its optional balance at
- * all. Checked before the reserve is consulted so an unconfigured campaign
- * never gains a reserve directory, lock, or state file: without a balance
- * the reserve does not apply, and the pre-check keeps that run exactly on
- * the path it had before the reserve existed.
- *
- * @param {string} campaignPath
- * @returns {boolean}
- */
-function reserveArmed(campaignPath) {
-  if (!campaignPath || !existsSync(join(campaignPath, CAMPAIGN_FILE))) return false;
-  try {
-    const campaign = /** @type {{reserveUsd?: number}} */ (/** @type {unknown} */ (readCampaign(campaignPath)));
-    return campaign.reserveUsd !== undefined;
-  } catch {
-    // A record unreadable here was already validated at launch
-    // (`resolveCampaign`); dispatch follows the existing path rather than
-    // turning a mid-run read failure into a stopped run.
-    return false;
-  }
-}
-
-/**
- * Admit one new paid dispatch through the campaign's optional reserve
- * (ADR 0011), before the provider starts. The only measured predictor of
- * what the call will cost is what this node's most recent invocation actually
- * charged; a first dispatch has no measurement, so it is reserved as unknown
- * exposure and holds nothing -- the reserve never invents a number to gate
- * with. A refusal takes no hold and carries the error the caller parks the
- * node blocked with. Calls already running are never touched: the reserve
- * gates only the admission of a new one.
- *
- * @param {string} campaignPath
- * @param {NodeSnapshot} state
- * @param {string} runId
- * @param {string} nodeId
- * @param {"worker"|"judge"} role
- * @returns {{refused: false, reservation: import("../campaign/reserve.mjs").Reservation|null}|{refused: true, error: {code: string, message: string}}}
- */
-function reserveAdmission(campaignPath, state, runId, nodeId, role) {
-  if (!reserveArmed(campaignPath)) return { refused: false, reservation: null };
-  const last = state.invocations?.at(-1);
-  const estimateUsd = typeof last?.costUsd === "number" && Number.isFinite(last.costUsd) ? last.costUsd : null;
-  const decision = reserveCampaignCost(campaignPath, { runId, node: nodeId, costUsd: estimateUsd });
-  if (!decision.admitted) return { refused: true, error: {
-    code: RESERVE_INSUFFICIENT_CODE,
-    message: `reserve refused the new ${role} dispatch: estimated ${estimateUsd} USD cannot be held against ${decision.availableUsd ?? 0} USD available`,
-  } };
-  return { refused: false, reservation: decision.reservation };
-}
-
-/**
- * Give a reservation back when the gated call never started (the provider
- * could not be spawned). Never throws: a hold that cannot be released stays
- * visible as held in `readCampaignReserve`, and the dispatch failure it rode
- * on still settles the node.
- *
- * @param {string} campaignPath
- * @param {import("../campaign/reserve.mjs").Reservation|null} reservation
- * @returns {void}
- */
-function releaseReservation(campaignPath, reservation) {
-  if (!campaignPath || !reservation) return;
-  try {
-    releaseCampaignReservation(campaignPath, reservation.id);
-  } catch {
-    // The hold remains recorded; it is visible in the reserve status and no
-    // other reservation can consume it.
-  }
 }
 /**
  * The mechanical worker tool policy for the provider boundary: hook settings
