@@ -136,6 +136,7 @@ function defaultPhases() {
 function sufficientEstimate() {
   return {
     cost: { status: "range", min: 1.2, max: 3.4, samples: 6, sourceRuns: ["run-a", "run-b"], method: "median of comparable completed nodes" },
+    costPerAccepted: { status: "range", min: 0.2, max: 0.6, samples: 6, sourceRuns: ["run-a", "run-b"], method: "cost divided by accepted results per comparable completed node" },
     duration: { status: "range", min: 12, max: 30, samples: 6, sourceRuns: ["run-a", "run-b"], method: "recorded node and verification elapsed times" },
     runtimes: ["codex"],
     models: ["gpt-5"],
@@ -219,6 +220,8 @@ test("builds a verified deterministic model and decides ready", () => {
   assert.equal(model.graph.edges.length, 1);
   assert.deepEqual(model.graph.independent, ["n1"]);
   assert.equal(model.graph.maxParallel, 1);
+  assert.equal(model.estimate.costPerAccepted?.status, "range");
+  assert.equal(model.estimate.costPerAccepted?.min, 0.2);
   assert.equal(decideBriefState(model), "ready for human review");
   assert.equal(model.decisionState, "ready for human review");
 
@@ -231,6 +234,7 @@ test("builds a verified deterministic model and decides ready", () => {
   assert.match(first, /outside this plan/u);
   assert.match(first, /Journal cursor: `7`/u);
   assert.match(first, /2026-09-01T00:00:00\.000Z/u);
+  assert.match(first, /Cost per accepted result: \$0\.2–\$0\.6 from 6 comparable samples/u);
 });
 
 test("refuses plan bytes that changed after the sidecar", () => {
@@ -319,8 +323,10 @@ test("reports insufficient estimate and work-graph gaps", () => {
 
   assert.ok(model.graph.gaps.some((gap) => gap.includes("ghost")));
   assert.equal(model.estimate.cost.status, "insufficient data");
+  assert.equal(model.estimate.costPerAccepted?.status, "insufficient data");
   assert.equal(model.estimate.duration.status, "insufficient data");
   assert.equal(decideBriefState(model), "gaps to resolve");
+  assert.ok(model.estimate.gaps.some((gap) => gap.includes("cost per accepted result estimate reports insufficient data")));
 
   const insufficientSamples = build(makeFixture(), {
     estimate: { cost: { status: "range", min: 1, max: 2, samples: 4 }, duration: { status: "range", min: 1, max: 2, samples: 4 } },
@@ -330,4 +336,22 @@ test("reports insufficient estimate and work-graph gaps", () => {
 
   const markdown = renderCampaignBriefMarkdown(model);
   assert.match(markdown, /insufficient data/u);
+});
+
+test("a brief without accepted-result evidence is not ready even when priced", () => {
+  const fixture = makeFixture();
+  const model = build(fixture, {
+    estimate: {
+      ...sufficientEstimate(),
+      costPerAccepted: { status: "range", min: 0.2, max: 0.6, samples: 3, sourceRuns: ["run-a"], method: "cost divided by accepted results per comparable completed node" },
+    },
+  });
+
+  assert.equal(model.estimate.cost.status, "range");
+  assert.equal(model.estimate.costPerAccepted?.status, "insufficient data");
+  assert.match(model.estimate.costPerAccepted?.reason ?? "", /cost per accepted result range has fewer than 5/u);
+  assert.equal(decideBriefState(model), "gaps to resolve");
+  const markdown = renderCampaignBriefMarkdown(model);
+  assert.match(markdown, /gaps to resolve/u);
+  assert.match(markdown, /Cost per accepted result: insufficient data — cost per accepted result range has fewer than 5 comparable completed nodes \(3 comparable samples\)/u);
 });

@@ -81,6 +81,7 @@ function baseModel() {
     },
     estimate: {
       cost: { status: "range", min: 1, max: 2, samples: 6, reason: null, sourceRuns: ["run-a"], method: null, provenance: "priced usage.jsonl invocations" },
+      costPerAccepted: { status: "range", min: 0.2, max: 0.4, samples: 6, reason: null, sourceRuns: ["run-a"], method: null, provenance: "cost divided by accepted results in priced usage.jsonl invocations" },
       duration: { status: "range", min: 10, max: 20, samples: 6, reason: null, sourceRuns: ["run-a"], method: null, provenance: "recorded actual node and verification elapsed times" },
       runtimes: ["codex"],
       models: ["gpt-5"],
@@ -143,12 +144,17 @@ test("renders gaps and insufficient data with the gap decision state", () => {
   model.decisionState = "gaps to resolve";
   model.coverage.gaps = ["R2: uncovered (declared but no frozen node is assigned)"];
   model.estimate.cost = { status: "insufficient data", min: null, max: null, samples: 4, reason: "fewer than 5 comparable completed nodes", sourceRuns: [], method: null, provenance: "priced usage.jsonl invocations" };
-  model.estimate.gaps = ["cost estimate reports insufficient data: fewer than 5 comparable completed nodes"];
+  model.estimate.costPerAccepted = { status: "insufficient data", min: null, max: null, samples: 2, reason: "cost per accepted result range has fewer than 5 comparable completed nodes", sourceRuns: [], method: null, provenance: "cost divided by accepted results in priced usage.jsonl invocations" };
+  model.estimate.gaps = ["cost estimate reports insufficient data: fewer than 5 comparable completed nodes", "cost per accepted result estimate reports insufficient data: cost per accepted result range has fewer than 5 comparable completed nodes"];
   const markdown = renderCampaignBriefMarkdown(model);
   assert.match(markdown, /gaps to resolve/u);
   assert.match(markdown, /## Gaps/u);
   assert.match(markdown, /R2: uncovered/u);
   assert.match(markdown, /insufficient data — fewer than 5 comparable completed nodes/u);
+  // The isolated price and the cost per accepted result are rendered next to
+  // each other, so the reader compares outcomes rather than price tags.
+  assert.match(markdown, /- Cost: insufficient data — fewer than 5 comparable completed nodes \(4 comparable samples\)/u);
+  assert.match(markdown, /- Cost per accepted result: insufficient data — cost per accepted result range has fewer than 5 comparable completed nodes \(2 comparable samples\)/u);
 });
 
 test("is deterministic and bounds the opening at 250 words", () => {
@@ -167,12 +173,23 @@ test("renders the R5 counts, concurrency, provenance, method and assumptions", (
   assert.match(markdown, /- Nodes: 1/u);
   assert.match(markdown, /- Workers: 1/u);
   assert.match(markdown, /Effective worker concurrency: 1/u);
-  assert.match(markdown, /Cost provenance: priced usage\.jsonl invocations/u);
+  assert.match(markdown, /- Cost: \$1–\$2 from 6 comparable samples \(source runs: run-a\)/u);
+  assert.match(markdown, /- Cost per accepted result: \$0\.2–\$0\.4 from 6 comparable samples \(source runs: run-a\)/u);
+  assert.match(markdown, /- Cost provenance: priced usage\.jsonl invocations/u);
+  assert.match(markdown, /- Cost per accepted result provenance: cost divided by accepted results in priced usage\.jsonl invocations/u);
   assert.match(markdown, /Duration provenance: recorded actual node and verification elapsed times/u);
   assert.match(markdown, /Advisory only: ranges are not spend or time ceilings\./u);
   assert.match(markdown, /Runtimes: `codex`/u);
   assert.match(markdown, /Models: `gpt-5`/u);
   assert.match(markdown, /Sample cutoff: 2026-09-01T00:00:00\.000Z/u);
+});
+
+test("a model built without the measure renders cost per accepted result as unrecorded", () => {
+  const model = baseModel();
+  delete model.estimate.costPerAccepted;
+  const markdown = renderCampaignBriefMarkdown(model);
+  assert.match(markdown, /- Cost per accepted result: insufficient data — cost per accepted result was not recorded/u);
+  assert.match(markdown, /- Cost per accepted result provenance: not recorded/u);
 });
 
 // R4: the work graph and the judgment, from the graph and the two allowed
@@ -368,6 +385,7 @@ function r4Model(options = {}) {
     usageSampleCutoff: "2026-09-01T00:00:00.000Z",
     estimate: {
       cost: { status: "range", min: 1, max: 2, samples: 6 },
+      costPerAccepted: { status: "range", min: 0.2, max: 0.4, samples: 6 },
       duration: { status: "range", min: 1, max: 2, samples: 6 },
     },
     projection: options.projection,

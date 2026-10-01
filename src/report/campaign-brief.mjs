@@ -316,11 +316,33 @@ function renderGaps(model) {
 }
 
 /**
+ * The estimate section renders whatever the model carries. `buildEstimate`
+ * always records `costPerAccepted`; a model built before the measure existed
+ * omits it, and the brief says so instead of crashing.
+ *
+ * @param {BriefModel["estimate"]} estimate
+ * @returns {BriefMeasure}
+ */
+function costPerAcceptedMeasure(estimate) {
+  return estimate.costPerAccepted ?? {
+    status: "insufficient data",
+    min: null,
+    max: null,
+    samples: null,
+    reason: "cost per accepted result was not recorded",
+    sourceRuns: [],
+    method: null,
+    provenance: null,
+  };
+}
+
+/**
  * @param {BriefModel} model
  * @returns {string}
  */
 function renderEstimate(model) {
   const { estimate } = model;
+  const costPerAccepted = costPerAcceptedMeasure(estimate);
   const method = estimate.method.length > 0 ? estimate.method.join("; ") : "not recorded";
   const assumptions = estimate.assumptions.length > 0 ? estimate.assumptions.join("; ") : "not recorded";
   return [
@@ -328,7 +350,12 @@ function renderEstimate(model) {
     `- Nodes: ${estimate.nodeCount}`,
     `- Workers: ${estimate.workerCount}`,
     `- Cost: ${renderMeasure(estimate.cost, "usd")}`,
+    // Phase-4 R5: the comparison that matters is cost per accepted result,
+    // reported next to the isolated price so a cheaper model with fewer
+    // accepted results cannot win on price alone.
+    `- Cost per accepted result: ${renderMeasure(costPerAccepted, "usd")}`,
     `- Cost provenance: ${estimate.cost.provenance ?? "not recorded"}`,
+    `- Cost per accepted result provenance: ${costPerAccepted.provenance ?? "not recorded"}`,
     `- Duration: ${renderMeasure(estimate.duration, "minutes")}`,
     `- Duration provenance: ${estimate.duration.provenance ?? "not recorded"}`,
     `- Runtimes: ${estimate.runtimes.length > 0 ? estimate.runtimes.map((id) => `\`${id}\``).join(", ") : "none"}`,
