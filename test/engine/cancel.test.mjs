@@ -14,7 +14,7 @@ import { writeJsonAtomic } from "../../src/run/store.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { gitHead, preservedRefName, runRefName } from "../../src/repo/worktree.mjs";
 
-import { fixture, orphan, waitForValue, withFakeCodex, writeContract } from "../helpers.mjs";
+import { SPAWN_WAIT_FACTOR, fixture, orphan, waitForValue, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState } from "../runner-helpers.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
@@ -24,7 +24,14 @@ test("scheduler cancellation records killed invocation reason before settling", 
   const runDir = runDirectory(directory, "cancel-usage-reason-run");
   const running = withFakeCodex(directory, "wait-for-release", () => runContract(path));
   try {
-    await waitForValue(() => existsSync(join(runsRoot(directory), "provider-started")) ? true : null);
+    // Measured 2026-10-01: `node --test --test-concurrency=4 test/engine` took
+    // 18m27s and failed only because this poll's default 5,000 ms readiness
+    // budget expired before the wait-for-release fixture wrote its
+    // provider-started marker; the standalone cancellation file passed 8/8 in
+    // 35.7s the same day. Sixty seconds is a finite readiness budget with room
+    // for that measured suite load, scaled by SPAWN_WAIT_FACTOR so the same
+    // budget holds on every platform.
+    await waitForValue(() => existsSync(join(runsRoot(directory), "provider-started")) ? true : null, 60_000 * SPAWN_WAIT_FACTOR);
     writeFileSync(join(runDir, "cancel.request.json"), JSON.stringify({ requestedAt: new Date().toISOString(), pid: process.pid }));
     const result = await running;
     assert.equal(result.ok, false);
