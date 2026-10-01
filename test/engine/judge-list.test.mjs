@@ -9,6 +9,8 @@ import { runtimeAssignments } from "../../src/engine/assignment.mjs";
 import { planRoute } from "../../src/engine/backoff.mjs";
 import { handleProviderExhaustion } from "../../src/engine/lifecycle.mjs";
 import { runtimeSnapshot } from "../../src/engine/failover.mjs";
+import { assembleDispatchPrompt } from "../../src/engine/dispatch.mjs";
+import { splitPreviousAttemptSection } from "../../src/engine/prompts.mjs";
 import {
   JUDGE_USAGE_WINDOW_LIMIT_PERCENT,
   initialJudgeListState,
@@ -332,4 +334,123 @@ test("a judge refused on an earlier hop stays excluded after an earlier list ent
   state = nextListJudge(contract, state, "worker", now + 2_000);
   assert.equal(state.chosen, null);
   assert.deepEqual(state.skipped.map((entry) => entry.id), ["early", "late"]);
+});
+
+test("prompt assembly keeps stable instruction sections before the variable previous-attempt state", () => {
+  // The appliers dispatch really runs (the sandbox notice, the result-file
+  // protocol), stubbed to marker text so the ordering reads without harness
+  // facts: which runtime earns the notice is the sandbox-notice suite's call.
+  const sandbox = (/** @type {string} */ prompt) => `${prompt}\n\n## Sandbox\nsandbox-notice`;
+  const protocol = (/** @type {string} */ prompt) => `${prompt}\n\n## Worker result\nresult-protocol`;
+  const appliers = { sandbox, protocol };
+
+  // A base without an embedded section: the state's own section is the tail,
+  // after every stable section.
+  const fresh = assembleDispatchPrompt("Task packet instructions.", { ...appliers, section: "## Previous attempt\n\nstate-section" });
+  assert.ok(fresh.startsWith("Task packet instructions."), "the stable packet text stays the prefix");
+  assert.ok(fresh.indexOf("sandbox-notice") < fresh.indexOf("result-protocol"), "the sandbox notice precedes the result protocol");
+  assert.ok(fresh.indexOf("result-protocol") < fresh.indexOf("state-section"), "the variable section trails every stable section");
+  assert.equal(fresh.split("state-section").length - 1, 1, "the section appears exactly once");
+
+  // The prior judge finding: a base that ALREADY carries the section -- a
+  // candidate reused from the earlier attempt -- must not keep it ahead of
+  // the stable sandbox notice and result-file protocol. It is lifted out and
+  // re-appended last, exactly once; passing it again as the state's section
+  // must not duplicate it.
+  const section = "## Previous attempt\n\nAttempt 1 failed; this is attempt 2.\nJudge findings\n- [major] missing exclusion";
+  const reused = assembleDispatchPrompt(`Task packet instructions.\n\n${section}`, { ...appliers, section });
+  assert.ok(reused.startsWith("Task packet instructions."), "the stable base stays the prefix");
+  assert.ok(reused.indexOf("## Previous attempt") > reused.indexOf("result-protocol"), "the embedded section now trails the sandbox notice and the result protocol");
+  assert.equal(reused.split("## Previous attempt").length - 1, 1, "the section is not duplicated");
+
+  // The extraction itself: a base without the section splits unchanged; a
+  // base with one comes apart into the stable head and the section.
+  assert.deepEqual(splitPreviousAttemptSection("no variable state"), { stable: "no variable state", section: null });
+  const split = splitPreviousAttemptSection(`stable head\n\n${section}`);
+  assert.equal(split.stable, "stable head");
+  assert.equal(split.section, section);
+
+  // The next judge finding: a packet's own instructions may say "Previous
+  // attempt notes:" in ordinary prose. Without a markdown heading that line
+  // is not the variable section — it must not split the prompt, and the
+  // state's own retry section still trails the stable sections.
+  const prose = "1. Previous attempt notes: run the red commands first.\n2. Report the result file.";
+  assert.deepEqual(splitPreviousAttemptSection(prose), { stable: prose, section: null });
+  const withProse = assembleDispatchPrompt(prose, { ...appliers, section: "## Previous attempt\n\nstate-section" });
+  assert.ok(withProse.startsWith(prose), "ordinary prose naming a previous attempt stays in the stable prefix");
+  assert.ok(withProse.indexOf("state-section") > withProse.indexOf("result-protocol"), "the state's section still trails the stable sections");
+
+  // The revision_cap judge finding: a genuine Markdown heading in the task
+  // instructions (`## Previous attempt notes:`) is still the task's own text.
+  // Under the earlier tolerant heading match it was read as the variable
+  // retry state — lifted out of the stable prefix without a state section,
+  // and dropped entirely with one. The split only fires on the trailing
+  // record block: the bare heading, opening with `Attempt N failed`.
+  const headed = "Packet instructions.\n\n## Previous attempt notes:\nRun the red commands first.\n\n## Reporting\nReport the result file.";
+  assert.deepEqual(splitPreviousAttemptSection(headed), { stable: headed, section: null });
+  const headedAssembled = assembleDispatchPrompt(headed, appliers);
+  assert.ok(headedAssembled.startsWith(headed), "a headed instruction block stays whole in the stable prefix");
+  assert.ok(headedAssembled.indexOf("Run the red commands first.") < headedAssembled.indexOf("sandbox-notice"), "the headed instructions are not moved after the stable appends");
+  const headedWithState = assembleDispatchPrompt(headed, { ...appliers, section: "## Previous attempt\n\nstate-section" });
+  assert.ok(headedWithState.includes("Run the red commands first."), "the headed instructions survive when a state section is supplied");
+  assert.ok(headedWithState.indexOf("state-section") > headedWithState.indexOf("result-protocol"), "the state's section still trails the stable sections");
+
+  // The bare spelling borrows the heading but carries prose, not a failure
+  // record — still the task's own text, still unsplit.
+  const bareProse = "Packet instructions.\n\n## Previous attempt\nRead the retry notes before starting.";
+  assert.deepEqual(splitPreviousAttemptSection(bareProse), { stable: bareProse, section: null });
+
+  // The attempt-3 revision_cap finding, in full: a task instruction headed
+  // `# Previous attempt` and opening `Attempt 2 failed in staging` is the
+  // task's own text. The retry writer writes `##`, so a one-hash heading is
+  // never the variable block — and with a state section supplied, the
+  // instruction and everything after it must survive on the worker and judge
+  // assembly paths alike.
+  const h1 = "Packet instructions.\n\n# Previous attempt\nAttempt 2 failed in staging.\n\n## Reporting\nReport the result file.";
+  assert.deepEqual(splitPreviousAttemptSection(h1), { stable: h1, section: null });
+  const h1WithState = assembleDispatchPrompt(h1, { ...appliers, section: "## Previous attempt\n\nstate-section" });
+  assert.ok(h1WithState.startsWith(h1), "an instruction block headed `# Previous attempt` stays whole in the stable prefix");
+  assert.ok(h1WithState.indexOf("Attempt 2 failed in staging.") < h1WithState.indexOf("sandbox-notice"), "the borrowed-heading instructions are not moved after the stable appends");
+  assert.ok(h1WithState.indexOf("state-section") > h1WithState.indexOf("result-protocol"), "the state's section still trails the stable sections");
+
+  // Even the writer's exact heading does not lift a block on its own: the
+  // body must open with the writer's record sentence, and `Attempt 2 failed
+  // in staging` is prose about a staging failure, not a retry record.
+  const proseRecord = "Packet instructions.\n\n## Previous attempt\nAttempt 2 failed in staging.\n\n## Reporting\nReport the result file.";
+  assert.deepEqual(splitPreviousAttemptSection(proseRecord), { stable: proseRecord, section: null });
+
+  // The hash count is pinned to the writer's two: a deeper heading with a
+  // record-shaped body is still the task's own document structure.
+  const deep = "Packet instructions.\n\n### Previous attempt\n\nAttempt 2 failed; this is attempt 3.";
+  assert.deepEqual(splitPreviousAttemptSection(deep), { stable: deep, section: null });
+
+  // Positive control in the exact shape the retry writer lays down (bare
+  // heading, body opening `Attempt N failed`): that block and only that
+  // block is the variable section.
+  const record = "## Previous attempt\n\nAttempt 2 failed; this is attempt 3.\nError: revision_cap";
+  const realSplit = splitPreviousAttemptSection(`Packet instructions.\n\n${record}`);
+  assert.equal(realSplit.stable, "Packet instructions.");
+  assert.equal(realSplit.section, record);
+
+  // A stale section embedded in a reused candidate loses to the state's own
+  // record: the current retry state is what trails, exactly once.
+  const stale = "## Previous attempt\n\nAttempt 1 failed; this is attempt 2.\nstale-section";
+  const both = assembleDispatchPrompt(`Task packet instructions.\n\n${stale}`, { ...appliers, section: "## Previous attempt\n\nstate-section" });
+  assert.ok(both.indexOf("state-section") > both.indexOf("result-protocol"), "the state's section trails the stable sections");
+  assert.equal(both.split("## Previous attempt").length - 1, 1, "exactly one section survives");
+  assert.equal(both.includes("stale-section"), false, "the stale embedded section does not survive");
+
+  // The judge's re-ask instruction is a stable section like the sandbox
+  // notice: assembly runs it on the stable remainder, ahead of the variable
+  // section. Appended to the raw base instead, it landed after the trailing
+  // section and was dropped with the lifted block whenever the state carried
+  // a retry record — a re-asked judge dispatched without its instruction.
+  const reasked = assembleDispatchPrompt(`Review node brief.\n\n${record}`, {
+    ...appliers,
+    stable: (/** @type {string} */ prompt) => `${prompt}\n\nRe-ask instruction.`,
+    section: "## Previous attempt\n\nstate-section",
+  });
+  assert.ok(reasked.includes("Re-ask instruction."), "the stable re-ask append survives the section lift");
+  assert.ok(reasked.indexOf("Re-ask instruction.") < reasked.indexOf("state-section"), "the re-ask instruction is stable text, ahead of the variable section");
+  assert.equal(reasked.split("## Previous attempt").length - 1, 1, "the re-ask append does not duplicate the section");
 });
