@@ -3,13 +3,14 @@ import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { declaredReadBytes, startWorker } from "../../src/engine/dispatch.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { configureCampaignReserve, readCampaignReserve, RESERVE_DIR } from "../../src/campaign/reserve.mjs";
 import { CAMPAIGN_FILE } from "../../src/campaign/layout.mjs";
 import { campaignTree, runsRoot } from "../../src/run/paths.mjs";
+import { createRunRef, gitHead } from "../../src/repo/worktree.mjs";
 import { CONTRACT_VERSION, harnessCapabilities } from "../../src/harnesses/index.mjs";
 import { SPAWN_WAIT_FACTOR, fixture, packet, waitForValue, writeContract } from "../helpers.mjs";
 import { writeExecutable } from "../write-executable.mjs";
@@ -32,15 +33,16 @@ import { nodeState } from "../runner-helpers.mjs";
 // assertion is exact.
 //
 // The full-run tests share one fake provider and run concurrently inside one
-// `describe({ concurrency: true })`. Measured 2026-10-01: this file's
-// verification budget is 60s, each full run costs 11-26s on this host, and a
-// serial file of five runs was killed mid-file at 60.04s with two runs still
-// queued. The fake multiplexes its behaviors on prompt text alone -- the
-// preflight marker, the judge prefix, and each fixture's own runs path, which
-// every worker prompt carries in its worktree and canonical-result paths --
-// so concurrently running fixtures cannot read each other's prompts, and
-// `FABERUN_CODEX_BIN` is read at spawn time, so one shared binary serves all
-// of them.
+// `describe({ concurrency: true })`. Measured 2026-10-01 at the gate: the
+// concurrent file completes in 48.2s under its 120s packet budget, each full
+// run costs 11-26s on this host, and a serial file of five runs was killed
+// mid-file at 60.04s with two runs still queued -- the shared-provider
+// concurrency is what keeps the file inside its budget. The fake multiplexes
+// its behaviors on prompt text alone -- the preflight marker, the judge
+// prefix, and each fixture's own runs path, which every worker prompt carries
+// in its worktree and canonical-result paths -- so concurrently running
+// fixtures cannot read each other's prompts, and `FABERUN_CODEX_BIN` is read
+// at spawn time, so one shared binary serves all of them.
 
 /** Token pricing that makes every counter cost 1 USD per million tokens. */
 const DOLLAR_PER_MTOK = { inputPerMTok: 1_000_000, outputPerMTok: 1_000_000, cachedInputPerMTok: 1_000_000 };
@@ -59,8 +61,19 @@ test("declaredReadBytes counts a missing declared file as zero rather than throw
 
 test("startWorker fails closed when the campaign record cannot be read, parking the node without a paid call or a hold", () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-reserve-corrupt-unit-"));
-  writeContract(directory, fixture({ id: "reserve-record-corrupt-unit", campaignId: "reserve-record-corrupt-campaign" }));
-  const campaignPath = campaignTree(directory, "reserve-record-corrupt-campaign");
+  // The run id is the fresh directory's basename: attempt worktrees are keyed
+  // by run id under the temp root this test hands to `startWorker`, so a fixed
+  // id collides with the worktree and branch a previous invocation left at
+  // `<tmp>/worktrees/<id>/build.1`. The basename is unique per invocation and
+  // passes `requireId`, and the campaign id follows it so no fixture state is
+  // shared across invocations.
+  const runId = basename(directory);
+  const campaignId = `${runId}-campaign`;
+  writeContract(directory, fixture({ id: runId, campaignId }));
+  // Every attempt branch is cut from `refs/faberun/<runId>/run`, so the
+  // dispatch under test cannot create its worktree without the run ref.
+  createRunRef(directory, runId, gitHead(directory));
+  const campaignPath = campaignTree(directory, campaignId);
   // The balance is high enough that cost alone can never refuse this dispatch:
   // the unreadable record must be the only thing that can.
   configureCampaignReserve(campaignPath, 100);
@@ -71,7 +84,7 @@ test("startWorker fails closed when the campaign record cannot be read, parking 
 
   /** @type {any} */
   const contract = {
-    id: "reserve-record-corrupt-unit",
+    id: runId,
     cwd: directory,
     runtimeDefaults: { worker: "worker", judge: "judge" },
     runtimes: {
@@ -80,7 +93,7 @@ test("startWorker fails closed when the campaign record cannot be read, parking 
     },
     nodes: [corruptUnitNode()],
   };
-  const state = corruptRecordState();
+  const state = corruptRecordState(runId, campaignId);
   const running = new Map();
   /** @type {any} */
   const lock = { assert() {} };
@@ -347,16 +360,18 @@ function corruptUnitNode() {
  * closed, already-priced worker call, and stays at exactly that one when the
  * refusal is done.
  *
+ * @param {string} runId the fixture's unique per-invocation run id
+ * @param {string} campaignId the fixture's matching campaign id
  * @returns {any}
  */
-function corruptRecordState() {
+function corruptRecordState(runId, campaignId) {
   const at = "2026-10-01T00:00:00.000Z";
   return {
     schemaVersion: 3,
     contractVersion: CONTRACT_VERSION,
     id: "build",
     type: "backend",
-    sourceIdentity: { kind: "node", contractId: "reserve-record-corrupt-unit", nodeId: "build" },
+    sourceIdentity: { kind: "node", contractId: runId, nodeId: "build" },
     packetHash: "a".repeat(64),
     status: "pending",
     phase: "worker",
@@ -378,8 +393,8 @@ function corruptRecordState() {
       harness: "claude",
       phase: "worker",
       role: "worker",
-      runId: "reserve-record-corrupt-unit",
-      campaignId: "reserve-record-corrupt-campaign",
+      runId,
+      campaignId,
       planPhase: "phase-0",
       runtimeFingerprint: "worker",
       model: "claude-sonnet-5",
