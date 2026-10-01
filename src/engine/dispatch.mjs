@@ -20,7 +20,6 @@
 import { JUDGE_SCHEMA, appendSandboxNotice, judgePrompt, splitPreviousAttemptSection } from "./prompts.mjs";
 import { LockLostError } from "../run/lock.mjs";
 import { TOOL_OUTPUT_LIMIT_BYTES } from "../harnesses/exec-jsonl/index.mjs";
-import { appendPreviousAttempt } from "./retry.mjs";
 import {
   RESULT_MATERIALIZATION_PROMPT_HEADER,
   attemptWorkerResultPath,
@@ -253,12 +252,18 @@ function ensureAttemptWorkspace(contract, node, state, runDir, lock) {
  * state, so the cacheable prefix survives across attempts. A base that
  * already carries the section (a candidate reused from an earlier attempt)
  * has it lifted out and re-appended last; a base without one gets the state's
- * own section appended, which `appendPreviousAttempt` no-ops when the state
- * carries none. When both are present the state's section wins: an embedded
- * one is the stale copy the reused candidate carries, from an earlier record
- * than `state.previousAttempt`, and it is lifted out rather than re-appended.
- * The 64 KiB dispatch budget is enforced by the caller right after this
- * returns, on the assembled prompt.
+ * own section appended, and a state that carries none appends nothing. When
+ * both are present the state's section wins: an embedded one is the stale
+ * copy the reused candidate carries, from an earlier record than
+ * `state.previousAttempt`, and it is lifted out rather than re-appended. The
+ * append is a plain join, not `appendPreviousAttempt`: that helper refuses
+ * any base carrying a `Previous attempt` markdown heading — the same false
+ * positive the splitter just learned to see through, since a packet may
+ * legitimately head its own instructions `## Previous attempt notes:` — and
+ * silently dropped the state's retry record on exactly those prompts. The
+ * splitter guarantees the stable remainder carries no lifted record, so the
+ * join cannot double-append. The 64 KiB dispatch budget is enforced by the
+ * caller right after this returns, on the assembled prompt.
  *
  * @param {string} basePrompt
  * @param {{sandbox?: (prompt: string) => string, protocol?: (prompt: string) => string, section?: string}} assembly
@@ -269,7 +274,8 @@ export function assembleDispatchPrompt(basePrompt, { sandbox, protocol, section 
   let ordered = stable;
   if (sandbox) ordered = sandbox(ordered);
   if (protocol) ordered = protocol(ordered);
-  return appendPreviousAttempt(ordered, section ?? embedded ?? undefined);
+  const variable = section ?? embedded;
+  return variable ? `${ordered}\n\n${variable}` : ordered;
 }
 
 /**

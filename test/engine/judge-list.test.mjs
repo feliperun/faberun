@@ -380,6 +380,34 @@ test("prompt assembly keeps stable instruction sections before the variable prev
   assert.ok(withProse.startsWith(prose), "ordinary prose naming a previous attempt stays in the stable prefix");
   assert.ok(withProse.indexOf("state-section") > withProse.indexOf("result-protocol"), "the state's section still trails the stable sections");
 
+  // The revision_cap judge finding: a genuine Markdown heading in the task
+  // instructions (`## Previous attempt notes:`) is still the task's own text.
+  // Under the earlier tolerant heading match it was read as the variable
+  // retry state — lifted out of the stable prefix without a state section,
+  // and dropped entirely with one. The split only fires on the trailing
+  // record block: the bare heading, opening with `Attempt N failed`.
+  const headed = "Packet instructions.\n\n## Previous attempt notes:\nRun the red commands first.\n\n## Reporting\nReport the result file.";
+  assert.deepEqual(splitPreviousAttemptSection(headed), { stable: headed, section: null });
+  const headedAssembled = assembleDispatchPrompt(headed, appliers);
+  assert.ok(headedAssembled.startsWith(headed), "a headed instruction block stays whole in the stable prefix");
+  assert.ok(headedAssembled.indexOf("Run the red commands first.") < headedAssembled.indexOf("sandbox-notice"), "the headed instructions are not moved after the stable appends");
+  const headedWithState = assembleDispatchPrompt(headed, { ...appliers, section: "## Previous attempt\n\nstate-section" });
+  assert.ok(headedWithState.includes("Run the red commands first."), "the headed instructions survive when a state section is supplied");
+  assert.ok(headedWithState.indexOf("state-section") > headedWithState.indexOf("result-protocol"), "the state's section still trails the stable sections");
+
+  // The bare spelling borrows the heading but carries prose, not a failure
+  // record — still the task's own text, still unsplit.
+  const bareProse = "Packet instructions.\n\n## Previous attempt\nRead the retry notes before starting.";
+  assert.deepEqual(splitPreviousAttemptSection(bareProse), { stable: bareProse, section: null });
+
+  // Positive control in the exact shape the retry writer lays down (bare
+  // heading, body opening `Attempt N failed`): that block and only that
+  // block is the variable section.
+  const record = "## Previous attempt\n\nAttempt 2 failed; this is attempt 3.\nError: revision_cap";
+  const realSplit = splitPreviousAttemptSection(`Packet instructions.\n\n${record}`);
+  assert.equal(realSplit.stable, "Packet instructions.");
+  assert.equal(realSplit.section, record);
+
   // A stale section embedded in a reused candidate loses to the state's own
   // record: the current retry state is what trails, exactly once.
   const stale = "## Previous attempt\n\nAttempt 1 failed\nstale-section";

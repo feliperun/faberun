@@ -203,15 +203,26 @@ export function previousAttemptOperatorAnswer(previousAttempt) {
 }
 
 /**
- * The heading the variable previous-attempt state travels under, matched
- * tolerantly to its exact markdown weight: `renderPreviousAttemptSection`
- * (engine/retry.mjs) renders it, and every parser here reads around it
- * rather than hard-coding its spelling. The `#` run is required — a packet's
- * own instructions may say `Previous attempt notes:` in prose, and a match on
- * that line splits stable instructions into the variable tail and makes
- * assembly drop the state's real retry section.
+ * The heading the variable previous-attempt state travels under, spelled
+ * exactly as `renderPreviousAttemptSection` (engine/retry.mjs) writes it: the
+ * `#` run, one space, `Previous attempt`, and nothing after it on the line.
+ * The earlier tolerant match (`Previous attempt` plus anything) mistook the
+ * task's own instructions for retry state — measured on this node's attempt
+ * 2, where a legitimate `## Previous attempt notes:` heading was split out of
+ * the stable prefix and, with a state section supplied, dropped entirely — so
+ * only the bare spelling may open the variable block.
  */
-const PREVIOUS_ATTEMPT_HEADING = /^#{1,6}\s*Previous attempt\b.*$/im;
+const PREVIOUS_ATTEMPT_HEADING = /^#{1,6}[ \t]+Previous attempt[ \t]*$/gim;
+
+/**
+ * The line every rendered record opens with — `Attempt N failed`, the same
+ * shape `previousAttemptOperatorAnswer`'s stop regex reads as a section
+ * start, and the first body line under the heading in every record the
+ * retry writer lays down. Requiring it behind the heading keeps the split on
+ * real trailing record blocks: an instruction block that borrows even the
+ * bare heading carries prose under it, not a failure record.
+ */
+const PREVIOUS_ATTEMPT_RECORD_LINE = /^Attempt \d+ failed/u;
 
 /**
  * Split a prompt that already carries the variable `Previous attempt` section
@@ -225,12 +236,17 @@ const PREVIOUS_ATTEMPT_HEADING = /^#{1,6}\s*Previous attempt\b.*$/im;
  * @returns {{stable: string, section: string|null}}
  */
 export function splitPreviousAttemptSection(basePrompt) {
-  const match = PREVIOUS_ATTEMPT_HEADING.exec(basePrompt);
-  if (!match) return { stable: basePrompt, section: null };
-  return {
-    stable: basePrompt.slice(0, match.index).replace(/\n+$/u, ""),
-    section: basePrompt.slice(match.index).replace(/\n+$/u, ""),
-  };
+  for (const match of basePrompt.matchAll(PREVIOUS_ATTEMPT_HEADING)) {
+    const rest = basePrompt.slice(match.index + match[0].length);
+    const bodyStart = rest.split("\n").find((line) => line.trim() !== "");
+    if (bodyStart !== undefined && PREVIOUS_ATTEMPT_RECORD_LINE.test(bodyStart)) {
+      return {
+        stable: basePrompt.slice(0, match.index).replace(/\n+$/u, ""),
+        section: basePrompt.slice(match.index).replace(/\n+$/u, ""),
+      };
+    }
+  }
+  return { stable: basePrompt, section: null };
 }
 
 /**
