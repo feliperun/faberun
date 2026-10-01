@@ -262,3 +262,41 @@ test("a priced model with partial usage cannot be mislabeled provider-reported-n
   assert.equal(record.unknownReason, "model-not-priced");
   assert.notEqual(record.unknownReason, "provider-reported-nothing");
 });
+
+test("the ledger records prompt bytes and cache-write tokens beside the priced cost, per role and attempt", () => {
+  const runDir = mkdtempSync(join(tmpdir(), "pricing-counters-"));
+  const promptPath = join(runDir, "prompt.md");
+  const stdoutPath = join(runDir, "stdout.jsonl");
+  writeFileSync(promptPath, "prompt bytes".repeat(10));
+  writeFileSync(stdoutPath, [
+    { type: "assistant", message: { usage: { input_tokens: 10, cache_creation_input_tokens: 5, cache_read_input_tokens: 40, output_tokens: 3 }, content: [] } },
+    { type: "assistant", message: { usage: { input_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 20, output_tokens: 2 }, content: [] } },
+  ].map((event) => JSON.stringify(event)).join("\n") + "\n");
+  appendUsageRecord(runDir, /** @type {any} */ (invocation({
+    id: "counters-invocation",
+    harness: "claude",
+    role: "judge",
+    attempt: 3,
+    promptPath,
+    stdoutPath,
+    usage: { inputTokens: 15, outputTokens: 5, cacheReadInputTokens: 60 },
+  })));
+  const [record] = readFileSync(join(runDir, "usage.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal(record.bytes, 120, "the dispatched prompt's byte size");
+  assert.equal(record.cacheWriteInputTokens, 5, "cache writes summed from the transcript's session metrics");
+  assert.equal(record.role, "judge");
+  assert.equal(record.attempt, 3);
+});
+
+test("a record with nothing measured carries no counter fields at all", () => {
+  const runDir = mkdtempSync(join(tmpdir(), "pricing-legacy-counters-"));
+  appendUsageRecord(runDir, /** @type {any} */ (invocation({
+    id: "bare-invocation",
+    promptPath: null,
+    stdoutPath: null,
+    usage: { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0 },
+  })));
+  const [record] = readFileSync(join(runDir, "usage.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));
+  assert.equal("bytes" in record, false);
+  assert.equal("cacheWriteInputTokens" in record, false);
+});
