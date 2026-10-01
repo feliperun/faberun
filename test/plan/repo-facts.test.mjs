@@ -216,16 +216,26 @@ test("repo facts say what they are about to measure and each command as it finis
   ]);
 });
 
-test("a candidate at or above the 600000ms ceiling is eligible false", () => {
+test("a candidate at or above the 600000ms ceiling persists no duration and is eligible false", () => {
   const directory = readOnlyRepo();
+  /** @type {Parameters<import("../../src/plan/repo-facts.mjs").RepoFactsProgress>[0][]} */
+  const events = [];
   const facts = collectRepoFacts(directory, {
     measure: fakeMeasure({ ...DURATIONS, "node --test test/plan": 644_000 }),
+    onProgress: (event) => events.push(event),
   });
   const slow = facts.verificationCandidates.find((candidate) => candidate.argv.join(" ") === "node --test test/plan");
-  assert.equal(slow?.measuredMs, 644_000);
+  assert.equal(slow?.measuredMs, null, "the kill at the ceiling is not persisted as a duration");
   assert.equal(slow?.eligible, false);
   const fast = facts.verificationCandidates.find((candidate) => candidate.argv.join(" ") === "node --test test/other");
+  assert.equal(fast?.measuredMs, DURATIONS["node --test test/other"]);
   assert.equal(fast?.eligible, true);
+
+  // The progress event carries the same shape the record does: the kill is
+  // announced as no measurement, not as the span it was killed at.
+  const slowEvent = events.find((event) => event.kind === "measured" && event.argv.join(" ") === "node --test test/plan");
+  assert.ok(slowEvent && slowEvent.kind === "measured");
+  assert.equal(slowEvent.measuredMs, null);
 
   // The boundary is strict: the kill fires at the ceiling, so a span of
   // exactly 600000ms is a command that never completed, recorded ineligible.
@@ -235,7 +245,7 @@ test("a candidate at or above the 600000ms ceiling is eligible false", () => {
     measure: fakeMeasure({ ...DURATIONS, "npm run check": 600_000 }),
   });
   const boundary = atCeiling.verificationCandidates.find((candidate) => candidate.argv.join(" ") === "npm run check");
-  assert.equal(boundary?.measuredMs, 600_000);
+  assert.equal(boundary?.measuredMs, null);
   assert.equal(boundary?.eligible, false);
 });
 
@@ -307,6 +317,7 @@ test("a timed-out recorded candidate is never lent: it is timed fresh", () => {
   const first = collectRepoFacts(directory, { measure: fakeMeasure({ ...DURATIONS, "node --test test/plan": 600_000 }) });
   const killed = first.verificationCandidates.find((candidate) => candidate.argv.join(" ") === "node --test test/plan");
   assert.equal(killed?.eligible, false, "the kill at the ceiling was recorded ineligible");
+  assert.equal(killed?.measuredMs, null, "the kill persisted no duration to lend");
 
   /** @type {Parameters<import("../../src/plan/repo-facts.mjs").RepoFactsProgress>[0][]} */
   const events = [];

@@ -50,15 +50,14 @@ import { runShellCapture } from "./proof-run.mjs";
 /**
  * A verification command repo facts measured: a timed Node candidate, the
  * manifest file it was read from, and its eligibility. It keeps the shape
- * `freeze.mjs`'s `MeasuredFacts` reads (`argv` plus a numeric `measuredMs`),
- * so a repository's facts stay assignable there while carrying the manifest
- * the planner needs. `measuredMs` is numeric even when the run hit its
- * timeout — the span a candidate was killed at is the evidence it never
- * completed, and it is never below the ceiling — but an ineligible candidate
- * is not a measured duration: nothing may plan from it, and no record may
- * lend it.
+ * `freeze.mjs`'s `MeasuredFacts` reads (`argv` plus `measuredMs`), so a
+ * repository's facts stay assignable there while carrying the manifest the
+ * planner needs. A run completed under the ceiling persists its duration; a
+ * run killed at the timeout is not a measured duration, so it persists
+ * `measuredMs` null with `eligible` false — nothing may plan from it, and no
+ * record may lend it.
  *
- * @typedef {{argv: string[], manifest: string, measuredMs: number, eligible: boolean}} VerificationCandidate
+ * @typedef {{argv: string[], manifest: string, measuredMs: number|null, eligible: boolean}} VerificationCandidate
  */
 /**
  * The machine a timing was taken on. Two collections that differ in any of
@@ -452,16 +451,17 @@ function manifestCandidateCommands(cwd) {
  * so the progress events keep numbering against every command the stage
  * accounts for, the reused ones included. Eligibility is strict below the
  * ceiling: a command still running when the timeout fires is killed at it,
- * so a span at or past the ceiling is the kill, not a duration — recorded
- * ineligible, it may not be planned from and may not be lent to a later
- * collection, which times it fresh instead of promoting the kill to data.
+ * so a span at or past the ceiling is the kill, not a duration — recorded as
+ * `measuredMs` null with `eligible` false, it may not be planned from and may
+ * not be lent to a later collection, which times it fresh instead of
+ * promoting the kill to data.
  *
  * @param {string} cwd
  * @param {{argv: string[], index: number}[]} timed
  * @param {number} total
  * @param {MeasureProbes} probes
  * @param {RepoFactsProgress} [onProgress]
- * @returns {{argv: string[], index: number, measuredMs: number, eligible: boolean}[]}
+ * @returns {{argv: string[], index: number, measuredMs: number|null, eligible: boolean}[]}
  */
 function measureCandidates(cwd, timed, total, probes, onProgress) {
   if (timed.length === 0) return [];
@@ -495,7 +495,8 @@ function measureCandidates(cwd, timed, total, probes, onProgress) {
   });
   return timed.map((command, position) => {
     const elapsedMs = marks[position * 2 + 1] - marks[position * 2];
-    return { argv: command.argv, index: command.index, measuredMs: elapsedMs, eligible: elapsedMs < ELIGIBLE_MS_CEILING };
+    const eligible = elapsedMs < ELIGIBLE_MS_CEILING;
+    return { argv: command.argv, index: command.index, measuredMs: eligible ? elapsedMs : null, eligible };
   });
 }
 
@@ -629,9 +630,9 @@ export function collectRepoFacts(cwd, options = {}) {
     // manifest it came from; then the manifest-only candidates in a fixed
     // ecosystem order, each naming the manifest it was read from. A measured
     // candidate carries a duration only while it is eligible: one killed at
-    // the timeout keeps the span it was killed at as the evidence it never
-    // completed, with eligible false, and no reader — reuse included — may
-    // treat that span as how long the command takes.
+    // the timeout persists measuredMs null with eligible false — the kill is
+    // the evidence it never completed — and no reader, reuse included, may
+    // treat anything about it as how long the command takes.
     verificationCandidates: measured,
     detectedVerificationCandidates: detected.map((candidate) => ({ ...candidate, measuredMs: null, eligible: true })),
     testFiles: testFileEntries(allPaths, pathSet, references),
