@@ -231,6 +231,14 @@ export const REVIEW_PATH_CUT_RULE = "repo-facts.json's paths is a byte-limited c
 // one requirement's decision instead of the artefact at large.
 const REPO_FACTS_QUERY_BOUND_RULE = "Bound every repository-facts query by the current requirement and below the measured 8,192-output-token FX response ceiling: query repo-facts.json one requirement at a time, and read only the exact source and test entries that requirement's decision names, so each individual tool result stays strictly below the ceiling. Never dump all of paths, testFiles, or the testFiles[].covers coverage mapping in one result; split a broad selection into requirement-scoped queries, or answer it with a focused summary or count. A tool result that truncated is not evidence: narrow the query and read again before continuing, because a partial result cannot show what it dropped.";
 
+// R4 of campaign-efficiency phase 4: a worker packet's context is exactly its
+// declared readFiles, so what the drafter names there is the selection of
+// phase facts that worker will see. Nothing said so, which let a node name a
+// path the planner never measured and freeze a packet whose context nothing
+// vouches for; sizing refuses that selection (`sizing_read_outside_fact_set`)
+// and this is the same rule told to the author.
+export const FACT_SELECTION_RULE = "Each node's readFiles is the closed context its worker receives: the node's declared selection from the phase fact set. Select it from repo-facts.json's paths and testFiles, name exactly the files that node must read for its own work, and never name a path the fact set does not hold — sizing refuses a read outside the fact set (sizing_read_outside_fact_set), because a packet's context must be facts the planner measured. Absence from paths is still not proof a file is absent (see the path-cut rule above); it only means the file is not this phase's measured context.";
+
 // R5 of the phase-2 reissue, reissued: this module used to export
 // PLAN_RULE_READ_FILES, the Faberun source and test paths a review packet
 // declared in `readFiles` so its reviewer could read the rules it judged by.
@@ -304,6 +312,7 @@ const INSTRUCTIONS = Object.freeze({
     NAMED_TEST_FILE_RULE,
     COVERING_TEST_RULE,
     PATH_CUT_RULE,
+    FACT_SELECTION_RULE,
     REPO_FACTS_QUERY_BOUND_RULE,
     ...CONTRACT_VERIFICATION_RULE,
     `Return exactly one worker-result JSON object. Put the plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
@@ -318,6 +327,7 @@ const INSTRUCTIONS = Object.freeze({
     NAMED_TEST_FILE_RULE,
     COVERING_TEST_RULE,
     PATH_CUT_RULE,
+    FACT_SELECTION_RULE,
     ...CONTRACT_VERIFICATION_RULE,
     REVISE_PLAN_INSTRUCTION,
     "Never name a runtime, harness, model, or vendor anywhere in output.plan.",
