@@ -215,6 +215,9 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
   mudaram; o retry automático deveria valer por janela esgotada com selo, não uma vez por nó; o
   planner deveria dimensionar `timeoutSec` pelo tamanho do pacote.
 - **Por que é achado de produto:** trabalho pago e preservado aparece como perdido.
+- **Contraprova na F6:** o `n6-3-alerts` bateu nos 2400 s na tentativa 1 com trabalho selado e o retry
+  automático assumiu: a tentativa 2 fechou em cerca de 9 min. O retry funciona quando há selo; o defeito é o
+  nó ficar sem ele depois de a primeira tentativa já ter gasto o único retry.
 
 ## 13. `HUSKY` em `envPassthrough` não chega ao shell do worker zcode, e o `snapshot_ignore_changed` derruba o nó
 
@@ -286,16 +289,28 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
 - **Por que é achado de produto:** o fechamento normal de uma fase com nós dependentes de arquivos
   novos não consegue terminar sem intervenção.
 
+## 18. `plan.json` continua com `approved: false` depois que a aprovação de risco é resolvida
+
+- **Sintoma:** F5 e F6: depois de `plan-phase-N-approval` resolvida no journal, `plan.json` segue com
+  `status: frozen` e `approved: false`. Quem lê o plano para saber se a fase foi aprovada conclui que não.
+- **Causa medida:** a aprovação vive só na open question e no journal da campanha; o campo do plano
+  congelado não é reescrito (e não pode ser, o plano é congelado com digest).
+- **Custo:** nenhum dólar. Cada operador novo reabre a pergunta ou pede confirmação de uma aprovação já dada
+  (a F6 só andou porque a autorização do dono estava num arquivo à parte).
+- **Correção sugerida:** registrar a aprovação num arquivo irmão (`approval.json` com decisionId e data) que
+  o `status` e o `supervise` leiam, em vez de depender do campo do plano.
+- **Por que é achado de produto:** o estado de aprovação precisa ser legível num lugar só.
+
 ---
 
 ## Desfecho deste livro
 
-Nenhum dos dezessete itens foi triado contra o código da branch padrão no momento da escrita. Este arquivo
+Nenhum dos dezoito itens foi triado contra o código da branch padrão no momento da escrita. Este arquivo
 registra o que foi pago, com número e evidência. A triagem (aberto/corrigido/não-objetivo) e
 a decisão de quais viram requisito de qual campanha são passo seguinte, do operador com o dono.
 
 Os itens 1 a 5 têm correção **já aplicada nesta campanha** por outro caminho (nós `r4-*`, `r5-*` e o
-contrato de F3) e por isso aparecem aqui com o commit quando existe; os itens 6 a 17 estão abertos (o 7 foi reproduzido na F5; os itens 11 a 17 são da F4 e da F5).
+contrato de F3) e por isso aparecem aqui com o commit quando existe; os itens 6 a 18 estão abertos (o 7 foi reproduzido na F5; os itens 11 a 18 são da F4, da F5 e da F6).
 
 Referências: `journal.jsonl` da campanha, `results/` das runs citadas e
 `docs/reviews/2026-09-29-campaign-efficiency/REVIEW-AND-PLAN.md` (achados R1 a R7 do review, que são
