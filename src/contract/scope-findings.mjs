@@ -142,10 +142,11 @@ export function reauthorWriteConflicts(nodes, nodeId, addedWriteFiles) {
  *   packet: import("./task-packet.mjs").TaskPacket|null|undefined,
  *   findings: string[]|null|undefined,
  *   history: {round: number, accepted: boolean, additions?: ReauthorAdditions, findings?: string[]}[],
+ *   failureCause?: import("../engine/failure-cause.mjs").FailureCause|null,
  * }} entry
  * @returns {Record<string, unknown>}
  */
-export function reauthorProposalRecord({ nodeId, outcome, riskTier, budget, roundsUsed, additions, packet, findings, history }) {
+export function reauthorProposalRecord({ nodeId, outcome, riskTier, budget, roundsUsed, additions, packet, findings, history, failureCause }) {
   /** @param {string[]|undefined} paths @returns {string[]} */
   const bounded = (paths) => [...new Set(paths ?? [])].slice(0, MAX_REAUTHOR_PATHS);
   return {
@@ -153,6 +154,7 @@ export function reauthorProposalRecord({ nodeId, outcome, riskTier, budget, roun
     node: nodeId,
     outcome,
     riskTier,
+    failureCause: failureCause ?? null,
     reauthorProposal: {
       packet: packet ?? null,
       addedReadFiles: bounded(additions?.readFiles),

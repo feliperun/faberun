@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { cancelRun } from "../../src/engine/cancel.mjs";
 import { validateContract } from "../../src/contract/index.mjs";
 import { reauthorApproved, reauthorRiskTier } from "../../src/contract/scope-findings.mjs";
+import { classifyFailureCause, FAILURE_CAUSE_CLASSES } from "../../src/engine/failure-cause.mjs";
 import { reauthorRefusedNode, resumeRun } from "../../src/engine/resume.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { invocationAlive } from "../../src/engine/process.mjs";
@@ -23,6 +24,10 @@ import { childPid, nodeState, withAdvisoryGateCodex, withCitedGateCodex } from "
  * the widened packet is validated against the whole contract before it is
  * applied, and only an accepted widening under the approval threshold (or one
  * the operator explicitly approved) re-dispatches the node.
+ *
+ * R5's classification half: every failure that would fire a reauthor is
+ * classified by cause, and the cause, node id and artifact version travel
+ * with the repair trigger into the durable `reauthor.jsonl` record.
  */
 
 /**
@@ -71,7 +76,7 @@ test("a refused packet is widened, validated, and recorded", async () => {
     contractPath,
     runDir,
     node,
-    state: blockedState(node.id),
+    state: { ...blockedState(node.id), packetHash: contract.nodes[0].packetHash },
     discover: async () => ({ readFiles: ["src/extra.mjs"], writeFiles: ["src/extra.mjs"] }),
   });
 
@@ -90,6 +95,7 @@ test("a refused packet is widened, validated, and recorded", async () => {
   assert.equal(record.reauthorRounds.budget, 1);
   assert.equal(record.reauthorRounds.used, 1);
   assert.equal(record.reauthorRounds.exhausted, false);
+  assert.deepEqual(record.failureCause, { cause: "missing_read_scope", node: "build", artifactVersion: contract.nodes[0].packetHash });
 });
 
 test("the discovery rounds budget is hard and an unclosing widening is never applied", async () => {
@@ -123,6 +129,7 @@ test("the discovery rounds budget is hard and an unclosing widening is never app
   assert.equal(record.reauthorRounds.exhausted, true);
   assert.equal(record.reauthorRounds.history.length, 3);
   assert.ok(record.reauthorProposal.findings.length > 0, "the last refusal is the proposal's finding");
+  assert.equal(record.failureCause.cause, "missing_read_scope", "the classification is recorded for every outcome, exhausted included");
 });
 
 test("a widening that takes over another node's write is refused, never applied", async () => {
@@ -176,6 +183,33 @@ test("a high-risk node needs an approval the default threshold withholds", () =>
   assert.equal(reauthorApproved(high, { approve: true }), true);
   assert.equal(reauthorApproved(standard, { approveBelow: "none" }), false);
   assert.throws(() => reauthorApproved(low, { approveBelow: "nope" }), /approveBelow/u);
+});
+
+test("a refused failure is classified by cause from the packet's own grants", () => {
+  assert.deepEqual(FAILURE_CAUSE_CLASSES, ["missing_read_scope", "missing_write_scope", "ambiguous_requirement", "unclassified"]);
+  const node = /** @type {any} */ ({ id: "build", taskPacket: { readFiles: ["contract.json", "README.md"], writeFiles: ["README.md"] } });
+  // A missing entry granted nowhere is a read gap: what a widening readFiles repairs.
+  assert.deepEqual(
+    classifyFailureCause(node, { ...blockedState("build", ["src/extra.mjs"]), packetHash: "pkt-1" }),
+    { cause: "missing_read_scope", node: "build", artifactVersion: "pkt-1" },
+  );
+  // Readable but not writable: the complaint is about the write grant.
+  assert.equal(classifyFailureCause(node, blockedState("build", ["contract.json"])).cause, "missing_write_scope");
+  // Prose is requirement ambiguity, which no widening repairs.
+  assert.equal(
+    classifyFailureCause(node, blockedState("build", ["clearer acceptance criteria for the retry budget"])).cause,
+    "ambiguous_requirement",
+  );
+  assert.equal(
+    classifyFailureCause(node, blockedState("build", ["src/extra.mjs", "clearer acceptance criteria"])).cause,
+    "ambiguous_requirement",
+    "ambiguity dominates a mixed refusal",
+  );
+  // A refusal naming nothing classifiable is recorded as unclassified, never dropped.
+  assert.deepEqual(
+    classifyFailureCause(node, blockedState("build", [])),
+    { cause: "unclassified", node: "build", artifactVersion: null },
+  );
 });
 
 test("a refused packet is widened and the node resumes", async () => {
