@@ -61,7 +61,7 @@ async function pollProgress(campaignPath, runsDir, atMs, sendProgress) {
   /** @type {Array<{summary: string, editOfMessageId: string|null}>} */
   const sent = [];
   const events = await poll(campaignPath, runsDir, atMs, {
-    sendProgress: async (campaignId, summary, editOfMessageId) => {
+    sendProgress: async (/** @type {string} */ campaignId, /** @type {string} */ summary, /** @type {string|null} */ editOfMessageId) => {
       sent.push({ summary, editOfMessageId });
       return sendProgress(campaignId, summary, editOfMessageId);
     },
@@ -276,7 +276,7 @@ test("the four campaign alerts come from the shared projection, deduped by campa
     ],
     "each occurrence alerts once, keyed by campaign and episode",
   );
-  const summaryOf = (key) => events.find((event) => event.dedupeKey === key)?.summary ?? "";
+  const summaryOf = (/** @type {string} */ key) => events.find((event) => event.dedupeKey === key)?.summary ?? "";
   assert.match(summaryOf("alert:phase-completed:proj:phase-one"), /campaign-watch: phase completed: phase-one · 2\/2 done/u);
   assert.match(summaryOf("alert:recovery-exhausted:proj:phase-two:verify"), /campaign-watch: recovery exhausted: phase-two · verify/u);
   assert.match(summaryOf("alert:decision-needed:proj:phase-two:decide"), /campaign-watch: decision needed: phase-two · decide/u);

@@ -81,13 +81,29 @@ function alertKey(alertId, campaignId, episode) {
 }
 
 /**
+ * The fields of the shared projection (`buildCampaignProgress`) the watcher
+ * reads. The projection's own module types its return as
+ * `Record<string, unknown>`, so every consumer narrows the fields it needs
+ * its own way; this is the watcher's narrowing, and it names exactly the
+ * fields the alerts and the progress update are rendered from -- never the
+ * whole shape, which is the projection's to own.
+ *
+ * @typedef {object} CampaignProjection
+ * @property {{done: number, total: number}} counts
+ * @property {{nodeId: string}|null} activity
+ * @property {number|null} costTotalUsd
+ * @property {{contractId: string|null, counts: {done: number, total: number}, nodes: {id: string, status: string}[]}[]} phases
+ * @property {{contractId: string}|null} currentPhase
+ */
+
+/**
  * The one line an automatic progress update says, rendered entirely from the
  * projection's own numbers and the campaign's wording home: nodes done over
  * declared, the node in flight, the recorded spend. The same persisted state
  * yields the same bytes on every poll and every restart -- that is the whole
  * guarantee, and the reason no model is asked to phrase it.
  *
- * @param {ReturnType<typeof buildCampaignProgress>} progress
+ * @param {CampaignProjection} progress
  * @param {(key: string) => string} labels
  * @returns {string}
  */
@@ -103,7 +119,7 @@ function progressSummaryText(progress, labels) {
  * The closure alert's detail: the campaign's final counts and its recorded
  * spend.
  *
- * @param {ReturnType<typeof buildCampaignProgress>} progress
+ * @param {CampaignProjection} progress
  * @param {(key: string) => string} labels
  * @param {string} campaignId
  * @returns {string}
@@ -197,13 +213,13 @@ export async function watchCampaignWake(campaignPath, runsDir, options = {}) {
         emit(summary);
         await notify({ type: "attention", campaignId: campaign.id, dedupeKey, summary, ...extra });
       };
-      const language = chooseLanguage(process.env, campaign.goal);
+      const language = chooseLanguage(process.env, [campaign.goal]);
       const labels = labelsFor(language);
       const nowMs = now();
-      /** @type {ReturnType<typeof buildCampaignProgress>|null} */
+      /** @type {CampaignProjection|null} */
       let progress = null;
       try {
-        progress = buildCampaignProgress(runsDir, campaign.id, nowMs);
+        progress = /** @type {CampaignProjection} */ (buildCampaignProgress(runsDir, campaign.id, nowMs));
       } catch {
         // A projection that cannot be built (a torn record, an unreadable
         // journal) yields no alerts and no progress update this poll; the
