@@ -46,7 +46,10 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
 - **Correção sugerida:** um único portão de admissão deve aplicar o `maxParallel` congelado em todas
   as etapas, inclusive quando `maxConcurrent` do runtime é maior ou outro nó está no gate de
   verificação. Registre o número efetivo de nós concorrentes no `status.json` para a prova ficar
-  barata.
+  barata. **Fechado na F5:** admissão comum antes de cada spawn
+  ([decisão de admissão](decisions/phase-5-admission.md)) e teto de concorrência medido no host com
+  processos reais ([medição do fechamento](decisions/phase-5-host-measurement.md)), com a prova R7 do
+  comando da spec executada pelo controlador no fechamento do nó `n6-measure-close`.
 - **Por que é achado de produto:** o contrato é a promessa que o operador lê para decidir custo e
   contenção; um limite de plano que o motor ignora em silêncio invalida todo o diagnóstico de
   paralelismo que a ferramenta se propõe a fazer.
