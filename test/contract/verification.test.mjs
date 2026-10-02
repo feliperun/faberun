@@ -10,7 +10,7 @@ import { JUDGE_SCHEMA, parseJudge, retryPrompt } from "../../src/engine/prompts.
 import { JUDGE_ENVELOPE_REASON, JUDGE_FINDING_ENVELOPE_REASON, JUDGE_LIMITS } from "../../src/contract/judge-envelope.mjs";
 import { judgeReaskInstruction } from "../../src/contract/review-modes.mjs";
 import { mechanicalVerdict } from "../../src/engine/judge-gate.mjs";
-import { validateVerificationCommands } from "../../src/contract/verification.mjs";
+import { commandCheckpointIdentity, parseCommandCheckpoint, validateVerificationCommands } from "../../src/contract/verification.mjs";
 import { parseDiscoveryResult, parseWorkerResult } from "../../src/contract/worker-result.mjs";
 import { runVerification } from "../../src/engine/run-command.mjs";
 import { captureWorkspaceScope, captureWorkspaceSnapshot, compareWorkspaceSnapshot, validateWorkspaceScopeBoundary } from "../../src/repo/workspace.mjs";
@@ -97,6 +97,49 @@ test("a mutation entry declares a risk tier and nothing else", () => {
     assert.throws(() => validateVerificationCommands([{ argv: [process.execPath], mutation: bad }]), /verification\[0\]\.mutation/u);
   }
   assert.throws(() => validateVerificationCommands([{ argv: [process.execPath], mutation: true }]), /verification\[0\]\.mutation must be an object/u);
+});
+
+test("command checkpoint identity is stable and sensitive to every input", () => {
+  const base = {
+    treeFingerprint: "tree",
+    command: { argv: [process.execPath, "-e", "0"], timeoutSec: 120, repeat: 1, env: [] },
+    env: { PATH: "/bin" },
+    dependencyHash: "deps",
+  };
+  assert.equal(commandCheckpointIdentity(base), commandCheckpointIdentity({ ...base }));
+  for (const [dimension, perturbed] of [
+    ["tree", { ...base, treeFingerprint: "tree2" }],
+    ["command", { ...base, command: { ...base.command, argv: [process.execPath, "-e", "1"] } }],
+    ["environment", { ...base, env: { PATH: "/usr/bin" } }],
+    ["dependency inputs", { ...base, dependencyHash: "deps2" }],
+  ]) {
+    assert.notEqual(commandCheckpointIdentity(base), commandCheckpointIdentity(perturbed), `a ${dimension} difference must change the identity`);
+  }
+});
+
+test("a command checkpoint parses strictly and re-bounds its record", () => {
+  const result = {
+    passed: true,
+    commands: [{ argv: [process.execPath], cwd: ".", timeoutSec: 120, repeat: 1, env: [], passed: true, attempts: [{ passed: true, stdout: "x", stderr: "", error: null, exitCode: 0, signal: null, timedOut: false, durationMs: 1 }] }],
+  };
+  const parsed = parseCommandCheckpoint({ identity: "a".repeat(64), result });
+  assert.equal(parsed.identity, "a".repeat(64));
+  assert.equal(parsed.result.passed, true);
+  assert.equal(parsed.result.attempts[0].stdout, "x");
+  for (const bad of [
+    null,
+    "checkpoint",
+    {},
+    { identity: "a".repeat(64) },
+    { identity: "a".repeat(64), result: {} },
+    { identity: "a".repeat(64), result: { passed: true, commands: [] } },
+    { identity: "a".repeat(64), result: { passed: "yes", commands: result.commands } },
+    { identity: "", result },
+    { identity: "a".repeat(129), result },
+    { identity: "a".repeat(64), result, extra: 1 },
+  ]) {
+    assert.throws(() => parseCommandCheckpoint(bad), /checkpoint/u);
+  }
 });
 
 test("writeFiles close to the line ceiling warns, one with room does not, and both still validate", () => {

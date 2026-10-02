@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import { realpathSync, statSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { fail, isContained, tailText } from "../util.mjs";
@@ -88,7 +89,10 @@ export const MUTATION_TIERS = Object.freeze({
  */
 
 /**
- * Callbacks and options for {@link runVerification}.
+ * Callbacks and options for {@link runVerification}. `logDir` is both the
+ * per-command evidence log and the checkpoint store a resumed pass serves
+ * from; the serving is `engine/run-command.mjs`'s, the record's shape is
+ * validated here.
  *
  * @typedef {{signal?: AbortSignal, logDir?: string, writeFiles?: string[], onAttemptStart?: (attempt: VerificationAttempt) => void, onAttemptSpawn?: (attempt: VerificationAttempt) => void, onAttemptComplete?: (attempt: VerificationAttempt) => void}} VerificationOptions
  */
@@ -223,6 +227,65 @@ export function compactVerification(result) {
     });
   }
   return { passed: Boolean(result?.passed), commands };
+}
+
+/**
+ * A per-command checkpoint: the identity hash of everything the recorded proof
+ * depends on, plus the recorded result bounded exactly like persisted state.
+ * It lives beside the pass's evidence log (`checkpoint-<ordinal>.json`) and is
+ * what a resumed verification pass serves instead of re-running a command.
+ *
+ * @typedef {{identity: string, result: VerificationCommandResult}} CommandCheckpoint
+ */
+
+/**
+ * The identity of one command's proof: a hash over the workspace tree
+ * fingerprint, the validated command, the exact child environment and the
+ * dependency-inputs hash. The tree, the command, the environment and the
+ * dependencies all participate — never the argv alone, which is the proof
+ * cache phase 5 refuses. Key order is fixed by construction (`env` arrives in
+ * `VERIFICATION_ENV_BASE_NAMES`-then-declared order and the canonical object
+ * is one literal), so the hash is stable across the process restart a resume
+ * is.
+ *
+ * @param {{treeFingerprint: string|null, command: VerificationCommand, env: Record<string, string>, dependencyHash: string}} parts
+ * @returns {string}
+ */
+export function commandCheckpointIdentity({ treeFingerprint, command, env, dependencyHash }) {
+  const canonical = { dependencyHash, command, env, treeFingerprint };
+  return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
+}
+
+/**
+ * Read back a written checkpoint, failing closed: anything malformed throws
+ * and the caller re-runs the command rather than serving or crashing. The
+ * recorded result is re-compacted on read, so a hand-edited or oversized
+ * record is either bounded to exactly what persisted state may carry or
+ * rejected.
+ *
+ * @param {unknown} value
+ * @param {string} [label]
+ * @returns {CommandCheckpoint}
+ */
+export function parseCommandCheckpoint(value, label = "command checkpoint") {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new TypeError(`${label} must be an object`);
+  const record = /** @type {Record<string, unknown>} */ (value);
+  for (const key of Object.keys(record)) {
+    if (key !== "identity" && key !== "result") throw new TypeError(`${label} has unexpected field ${key}`);
+  }
+  if (typeof record.identity !== "string" || !record.identity || Buffer.byteLength(record.identity, "utf8") > 128) {
+    throw new TypeError(`${label}.identity must be a hash of at most 128 bytes`);
+  }
+  const result = /** @type {Record<string, unknown>} */ (record.result);
+  if (!result || typeof result !== "object" || Array.isArray(result) || typeof result.passed !== "boolean") {
+    throw new TypeError(`${label}.result must be a single-command verification result`);
+  }
+  if (!Array.isArray(result.commands) || result.commands.length !== 1) {
+    throw new TypeError(`${label}.result must carry exactly one command`);
+  }
+  const compacted = compactVerification({ passed: result.passed, commands: /** @type {VerificationCommandResult[]} */ (result.commands) });
+  if (compacted.commands.length !== 1) throw new TypeError(`${label}.result exceeds the persisted command bounds`);
+  return { identity: record.identity, result: compacted.commands[0] };
 }
 
 

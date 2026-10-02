@@ -9,18 +9,32 @@
  *
  * The schema for what may be run lives in `contract/verification.mjs`; this is
  * only the doing.
+ *
+ * A pass interrupted mid-list restarts every command on resume (review
+ * 2026-09-29: an interrupted verification re-runs the whole list, and the
+ * engine's own suite costs 1035-1058s per full pass — `VERIFICATION_LIMITS.maxTimeoutSec`).
+ * Each completed command therefore also writes a checkpoint beside its log,
+ * `checkpoint-<ordinal>.json`: the identity hash of everything the proof
+ * depends on — workspace tree fingerprint, validated command, exact child
+ * environment, dependency-inputs hash — plus the bounded result. A resumed
+ * pass serves a checkpoint only when that identity is unchanged and the tree
+ * actually carried a fingerprint; any difference forces re-execution. A
+ * mutation entry is the explicit invalidation policy: it is never checkpointed
+ * and never served, because its proof is a function of the tree it breaks and
+ * restores, so a reused record could certify a tree that no longer exists.
  */
 import { Buffer } from "node:buffer";
-import { VERIFICATION_LIMITS, compactVerification, resolveVerificationCwd, validateVerificationCommands } from "../contract/verification.mjs";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { VERIFICATION_LIMITS, commandCheckpointIdentity, compactVerification, parseCommandCheckpoint, resolveVerificationCwd, validateVerificationCommands } from "../contract/verification.mjs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { processStartToken } from "../run/lock.mjs";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { runMutation } from "./mutation.mjs";
 import { SANDBOX_BLOCKED_WRITE } from "../contract/worker-result.mjs";
-import { isAbsolute, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { isContained } from "../util.mjs";
 import { spawn } from "node:child_process";
 import { killTarget, spawnInvocation } from "../host/platform.mjs";
+import { gitIdentity } from "../repo/source-identity.mjs";
 /** @typedef {import("../contract/verification.mjs").VerificationOptions} VerificationOptions */
 
 /**
@@ -127,6 +141,92 @@ export function classifySandboxBlockedWrite({ text, workspace, mode }) {
   return null;
 }
 /**
+ * Everything one pass needs to decide checkpoint reuse, cached per pass: the
+ * tree fingerprint per command cwd (one bounded `gitIdentity` each, paid only
+ * when a checkpoint directory is in play) and the dependency-inputs hash (the
+ * packet's writeFiles do not change during a pass; a mutation entry restores
+ * them in `finally`).
+ *
+ * @typedef {{trees: Map<string, string|null>, dependencyHash: string|undefined}} CheckpointCaches
+ */
+
+/**
+ * A hash over the dependency inputs a proof is about: the packet's writeFiles,
+ * the mutation sample's input. ReadFiles and every other tracked or untracked
+ * source ride inside the tree fingerprint instead; installed dependencies that
+ * git ignores (a mid-attempt `npm ci`) are covered only when the packet
+ * declares them here — a known bound, not a solved one.
+ *
+ * @param {string} baseCwd
+ * @param {string[]} writeFiles
+ * @returns {string}
+ */
+function dependencyInputsHash(baseCwd, writeFiles) {
+  const hash = createHash("sha256");
+  for (const path of [...new Set(writeFiles)].sort()) {
+    hash.update(`${path}\0`);
+    try {
+      hash.update(readFileSync(resolve(baseCwd, path)));
+    } catch {
+      // ENOENT or a non-file: the mutation sampler skips the same paths, so a
+      // missing dependency input hashes as missing rather than failing the pass.
+      hash.update("missing");
+    }
+    hash.update("\0");
+  }
+  return hash.digest("hex");
+}
+
+/**
+ * The pre-run identity of one command's proof, plus whether the tree gave a
+ * fingerprint to compare at all: a workspace that is not a git repository has
+ * no tree identity, so its checkpoints never serve.
+ *
+ * @param {VerificationCommand} command
+ * @param {string} baseCwd
+ * @param {RunVerificationOptions} options
+ * @param {CheckpointCaches} caches
+ * @returns {{identity: string, reusable: boolean}}
+ */
+function checkpointIdentity(command, baseCwd, options, caches) {
+  const workspace = resolveVerificationCwd(baseCwd, command.cwd ?? ".");
+  let treeFingerprint = caches.trees.get(workspace);
+  if (treeFingerprint === undefined) {
+    treeFingerprint = gitIdentity(workspace).dirtyTreeFingerprint;
+    caches.trees.set(workspace, treeFingerprint);
+  }
+  if (caches.dependencyHash === undefined) {
+    caches.dependencyHash = dependencyInputsHash(baseCwd, options.writeFiles ?? []);
+  }
+  return {
+    identity: commandCheckpointIdentity({ treeFingerprint, command, env: verificationEnv(command), dependencyHash: caches.dependencyHash }),
+    reusable: treeFingerprint !== null,
+  };
+}
+
+/**
+ * The recorded result for this ordinal, served only when the checkpoint
+ * validates, the tree carried a fingerprint, and the identity is unchanged.
+ * Every read or parse failure lands on re-execution: a corrupted checkpoint is
+ * never a verdict on the command and never fatal to the pass.
+ *
+ * @param {string} logDir
+ * @param {number} ordinal
+ * @param {{identity: string, reusable: boolean}} identity
+ * @returns {VerificationCommandResult|null}
+ */
+function servedCheckpoint(logDir, ordinal, identity) {
+  try {
+    const parsed = parseCommandCheckpoint(JSON.parse(readFileSync(join(logDir, `checkpoint-${ordinal}.json`), "utf8")));
+    if (!identity.reusable || parsed.identity !== identity.identity) return null;
+    return parsed.result;
+  } catch {
+    // ENOENT is the no-checkpoint case; every other failure (corrupt JSON, a
+    // record past its bounds) fails closed to a re-run for the same reason.
+    return null;
+  }
+}
+/**
  * Run every declared command `repeat` times inside the workspace.
  *
  * @param {unknown} commands
@@ -138,14 +238,31 @@ export async function runVerification(commands, baseCwd, options = {}) {
   const validated = validateVerificationCommands(commands);
   /** @type {VerificationCommandResult[]} */
   const results = [];
+  /** @type {CheckpointCaches|null} */
+  const checkpoints = options.logDir ? { trees: new Map(), dependencyHash: undefined } : null;
   for (const [commandIndex, command] of validated.entries()) {
-    const result = command.mutation
-      ? await runMutationCommand(command, baseCwd, commandIndex, options)
-      : await runRepeatedCommand(command, baseCwd, commandIndex, options);
+    // Identity before the run: a checkpoint records the tree, environment and
+    // dependency inputs the proof was made against, which are the pre-run ones.
+    const identity = checkpoints && !command.mutation
+      ? checkpointIdentity(command, baseCwd, options, checkpoints)
+      : null;
+    const reused = identity
+      ? servedCheckpoint(/** @type {string} */ (options.logDir), results.length + 1, identity)
+      : null;
+    const result = reused ?? await (command.mutation
+      ? runMutationCommand(command, baseCwd, commandIndex, options)
+      : runRepeatedCommand(command, baseCwd, commandIndex, options));
     results.push(result);
     if (options.logDir) {
       mkdirSync(options.logDir, { recursive: true });
-      writeFileSync(`${options.logDir}/verification-${results.length}.json`, `${JSON.stringify(compactVerification({ passed: result.passed, commands: [result] }))}\n`, { mode: 0o600 });
+      const compacted = compactVerification({ passed: result.passed, commands: [result] });
+      writeFileSync(`${options.logDir}/verification-${results.length}.json`, `${JSON.stringify(compacted)}\n`, { mode: 0o600 });
+      // A mutation entry records no checkpoint (the invalidation policy in the
+      // header); an argv past the persisted bounds compacts to no command, and
+      // its unreadable record simply fails closed to a re-run on resume.
+      if (identity) {
+        writeFileSync(`${options.logDir}/checkpoint-${results.length}.json`, `${JSON.stringify({ identity: identity.identity, result: compacted })}\n`, { mode: 0o600 });
+      }
     }
   }
   return { passed: results.every((result) => result.passed), commands: results };
