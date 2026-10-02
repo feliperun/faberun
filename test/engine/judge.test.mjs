@@ -10,7 +10,7 @@ import { renderPreviousAttemptSection } from "../../src/engine/retry.mjs";
 import { fakeCodex, fixture, packet, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState, notifications, withBrokenGateCodex } from "../runner-helpers.mjs";
 import { renderFindings } from "../../src/report/render.mjs";
-import { runsRoot } from "../../src/run/paths.mjs";
+import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
 test("fails deterministic verification before the judge", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-verification-fail-"));
@@ -702,5 +702,120 @@ test("a reserved owner decision taken by the worker fails the review", () => {
   const uncovered = covered.slice(covered.indexOf("Reserved owner decisions with no coverage"), covered.indexOf("A diff that takes an owner decision"));
   assert.doesNotMatch(uncovered, /license/u, "a covered decision is not failed by the judge");
   assert.match(uncovered, /pricing/u, "an uncovered decision is still failed by the judge");
+});
+
+// F5 aux admission: the judge a settlement starts itself is a dispatch like
+// any other -- it takes the runtime's own slot ceiling, and a refusal defers
+// it to the scheduler instead of overlapping two judges on one runtime.
+test("the settlement's own judge waits for the judge runtime's slot", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-judge-slot-"));
+  const runDir = runDirectory(directory, "judge-slot-run");
+  const concurrencyLog = join(runsRoot(directory), "judge-slot-concurrency.jsonl");
+  const alphaJudgeStarted = join(runsRoot(directory), "judge-slot-alpha-judge-started");
+  const provider = join(directory, "judge-slot-provider.mjs");
+  writeFileSync(provider, `#!${process.execPath}
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+if (process.argv.includes("--version")) { console.log("judge-slot 1.0.0"); process.exit(0); }
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => { input += chunk; });
+process.stdin.on("end", () => {
+  const prompt = input || process.argv.at(-1) || "";
+  if (prompt.includes("FABERUN_PREFLIGHT_OK")) {
+    console.log(JSON.stringify({ type: "thread.started", thread_id: "slot-hello" }));
+    console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "ok" } }));
+    console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1, cached_input_tokens: 0 } }));
+    return;
+  }
+  console.log(JSON.stringify({ type: "thread.started", thread_id: "slot-thread" }));
+  if (!prompt.startsWith("Review node")) {
+    if (prompt.includes("Beta work")) {
+      // Beta's worker holds until alpha's judge is provably live, so beta's
+      // settlement decides its judge against the full runtime.
+      const deadline = Date.now() + 120_000;
+      while (!existsSync(${JSON.stringify(alphaJudgeStarted)}) && Date.now() < deadline) {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+      }
+    }
+    const result = JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
+    console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: result } }));
+    console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, output_tokens: 2, cached_input_tokens: 0 } }));
+    return;
+  }
+  const node = prompt.startsWith("Review node alpha") ? "alpha" : "beta";
+  appendFileSync(${JSON.stringify(concurrencyLog)}, JSON.stringify({ event: "start", node }) + "\\n");
+  if (node === "alpha") {
+    writeFileSync(${JSON.stringify(alphaJudgeStarted)}, "started\\n");
+    // Hold the judge live until beta's settlement has judged against this
+    // full runtime: either its judge was deferred to pending, or (the gate
+    // regressed) the sibling's own judge already started beside this one.
+    const deadline = Date.now() + 120_000;
+    for (;;) {
+      let settled = false;
+      try {
+        const snapshot = JSON.parse(readFileSync(${JSON.stringify(join(runDir, "nodes", "beta.json"))}, "utf8"));
+        settled = snapshot.status === "pending" && snapshot.phase === "judge";
+      } catch {}
+      if (settled) break;
+      let starts = 0;
+      try {
+        starts = readFileSync(${JSON.stringify(concurrencyLog)}, "utf8").trim().split("\\n").filter(Boolean).map((line) => JSON.parse(line)).filter((line) => line.event === "start").length;
+      } catch {}
+      if (starts >= 2) break;
+      if (Date.now() > deadline) break;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+    }
+  }
+  appendFileSync(${JSON.stringify(concurrencyLog)}, JSON.stringify({ event: "end", node }) + "\\n");
+  const verdict = JSON.stringify({ verdict: "pass", maxSeverity: "none", summary: "clean", findings: [] });
+  console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: verdict } }));
+  console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 4, output_tokens: 1, cached_input_tokens: 0 } }));
+});
+`);
+  chmodSync(provider, 0o755);
+  const judged = (id, objective) => ({
+    id,
+    type: "backend",
+    taskPacket: packet({ objective }),
+    definitionOfDone: [{ id: "works", text: "It works", judgment: true }],
+    gate: { review: "blocking", failOn: ["major", "critical"] },
+  });
+  const path = writeContract(directory, fixture({
+    id: "judge-slot-run",
+    pollIntervalMs: 10,
+    maxParallel: 2,
+    runtimeDefaults: { worker: "wide", judge: "single" },
+    runtimes: {
+      wide: { harness: "codex", model: "wide", executable: provider, maxConcurrent: 2 },
+      single: { harness: "codex", model: "single", config: { model_provider: "deepseek" }, executable: provider, maxConcurrent: 1 },
+    },
+    nodes: [judged("alpha", "Alpha work"), judged("beta", "Beta work")],
+  }));
+  const result = await runContract(path);
+  const alpha = nodeState(result, "alpha");
+  const beta = nodeState(result, "beta");
+  assert.equal(alpha.status, "done", alpha.error?.message);
+  assert.equal(beta.status, "done", beta.error?.message);
+  assert.equal((beta.invocations ?? []).filter((invocation) => invocation.phase === "worker").length, 1, "the worker is never re-run");
+  assert.equal((beta.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 1, "the deferred judge ran exactly once");
+  const events = readFileSync(join(result.runDir, "events.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  const verdicts = events.filter((event) => event.type === "aux.admission");
+  assert.equal(verdicts.length, 1, "the refusal the deferral is gated on is recorded once");
+  assert.equal(verdicts[0].role, "judge");
+  assert.equal(verdicts[0].runtime, "single");
+  assert.equal(verdicts[0].admitted, false);
+  const lines = readFileSync(concurrencyLog, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  let live = 0;
+  let depth = 0;
+  for (const line of lines) {
+    live += line.event === "start" ? 1 : -1;
+    depth = Math.max(depth, live);
+  }
+  assert.equal(depth, 1, `two judge invocations overlapped on the maxConcurrent 1 runtime: ${JSON.stringify(lines)}`);
+  assert.equal(lines.filter((line) => line.event === "start").length, 2, "both judges ran, one after the other");
+  assert.ok(
+    lines.findIndex((line) => line.event === "start" && line.node === "beta") > lines.findIndex((line) => line.event === "end" && line.node === "alpha"),
+    "beta's judge started only after alpha's judge released the runtime",
+  );
 });
 

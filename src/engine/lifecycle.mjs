@@ -56,6 +56,7 @@ import {
 } from "./result-file.mjs";
 import { canReuseResultEvidence, checkResultMaterializationScope, checkWorkerScope, recordScopeFinding, sourceWorkerRuntime } from "./scope.mjs";
 import { startJudge, startMechanicalGate, startResultMaterialization } from "./dispatch.mjs";
+import { auxJudgeRound } from "./aux-admission.mjs";
 import { raiseNodeAttention, settleDone } from "./settle.mjs";
 import { applyRejection, applyVerificationFailure } from "./settle.mjs";
 import { emitNodeAdvisories } from "./notify-queue.mjs";
@@ -591,7 +592,7 @@ export async function finalizeClosedJobs(contract, runDir, states, closed, lock,
       }
       if (job.scopeViolation) recordScopeFinding(runDir, state, lock);
       const round = job.node.gate.enabled
-        ? await startJudge(contract, job.node, state, runDir, running, workerResult, lock, states, campaignPath)
+        ? await auxJudgeRound(contract, job.node, state, runDir, running, states, lock, campaignPath)
         : await startMechanicalGate(contract, job.node, state);
       await applyJudgeRound(round, contract, job.node, state, runDir, running, lock, states, campaignPath, workerResult);
       continue;

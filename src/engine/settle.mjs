@@ -16,6 +16,7 @@ import { candidateOnlyFailures, resetPhaseRouting, verificationFailureVerdict } 
 import { retryPrompt } from "./prompts.mjs";
 import { renderPreviousAttemptSection } from "./retry.mjs";
 import { startWorker } from "./dispatch.mjs";
+import { auxSpawnAdmission, recordAuxRefusal } from "./aux-admission.mjs";
 import { ensureTerminalEvent, transition, writeNode } from "./state.mjs";
 import { verificationFailureWithScope } from "../contract/scope-findings.mjs";
 import { alreadyNotified, notifyQueueFor } from "./notify-queue.mjs";
@@ -70,14 +71,18 @@ export function applyRejection(contract, node, state, runDir, running, lock, sta
     // path) carry it.
     state.previousAttempt = renderPreviousAttemptSection(state) ?? state.previousAttempt;
     // A revision is a new attempt, and a new attempt is a dispatch: it starts
-    // here only against a slot the run actually has free. `running` is the
-    // scheduler's own map, with this node's own closed job already out of it,
-    // so `running.size` is exactly what the dispatch loop's own
-    // `maxParallel - running.size` will read. A settlement that dispatched
-    // regardless is how run state-location-and-routing-economics-13 ran two
-    // workers under `maxParallel: 1` on 2026-09-21, and two of that day's
-    // three OOM kills happened with more running than the contract declared.
-    if (running && running.size < contract.maxParallel) {
+    // here only against a slot the run actually has free -- the global
+    // `maxParallel` and the routed runtime's own ceiling, the same judgment a
+    // dispatch pass applies (`auxSpawnAdmission`). `running` is the
+    // scheduler's own map, with this node's own closed job already out of it.
+    // A settlement that dispatched regardless is how run
+    // state-location-and-routing-economics-13 ran two workers under
+    // `maxParallel: 1` on 2026-09-21, and two of that day's three OOM kills
+    // happened with more running than the contract declared.
+    const admission = running
+      ? auxSpawnAdmission(contract, node, state, running, states, "worker")
+      : null;
+    if (admission?.admitted) {
       // Dispatching here owns the increment, because `startWorker` expects the
       // attempt number it is about to run under.
       state.attempt += 1;
@@ -92,7 +97,9 @@ export function applyRejection(contract, node, state, runDir, running, lock, sta
     // killed controller — a node that ran twice reported attempt 3, with no
     // `…2.*` logs and a `worktree.previousAttempt` naming an attempt that
     // never existed.
+    const from = state.status;
     transition(runDir, state, "pending", { phase: "worker", error: null }, lock);
+    if (admission) recordAuxRefusal(runDir, state, from, lock, "worker", admission);
     return;
   }
   transition(runDir, state, node.gate.enabled ? "exhausted" : "failed", {
