@@ -37,6 +37,8 @@ import { runDirectory } from "../../src/run/paths.mjs";
 
 /** @typedef {import("../../src/contract/index.mjs").NodeSnapshot} NodeSnapshot */
 /** @typedef {import("../../src/contract/index.mjs").ValidatedNode} ValidatedNode */
+/** @typedef {import("../../src/contract/index.mjs").VerificationState} VerificationState */
+/** @typedef {import("../../src/contract/index.mjs").WorktreeState} WorktreeState */
 /** @typedef {import("../../src/contract/index.mjs").WorkspaceScopeBoundary} WorkspaceScopeBoundary */
 
 const LOG_SCRIPT = "const fs=require('node:fs');"
@@ -89,6 +91,7 @@ function proofHarness(id, nodeIds, maxParallel, worktrees) {
   createRunRef(repo, id, /** @type {string} */ (gitHead(repo)));
   /** @param {string} nodeId @returns {NodeSnapshot} */
   const stateFor = (nodeId) => {
+    /** @type {WorktreeState} */
     let worktree;
     if (worktrees === "base") {
       worktree = { status: "unassigned", path: null, branch: null, commit: null, baseSha: null };
@@ -97,14 +100,16 @@ function proofHarness(id, nodeIds, maxParallel, worktrees) {
       const created = createAttemptWorktree({ repo, runDir, runId: id, nodeId: owner, attempt: 1 });
       worktree = { status: "ready", path: created.path, branch: created.branch, commit: created.commit, baseSha: created.baseSha };
     }
-    const node = contract.nodes.find((candidate) => candidate.id === nodeId);
+    // Every id this harness is constructed with is a contract node id, so the
+    // find always lands; the cast keeps the snapshot's non-null fields honest.
+    const node = /** @type {ValidatedNode} */ (contract.nodes.find((candidate) => candidate.id === nodeId));
     return {
       schemaVersion: PROTOCOL_SCHEMA_VERSION,
       contractVersion: CONTRACT_VERSION,
       id: nodeId,
       type: "backend",
-      sourceIdentity: node?.sourceIdentity ?? null,
-      packetHash: node?.packetHash ?? null,
+      sourceIdentity: node.sourceIdentity,
+      packetHash: node.packetHash,
       status: "running",
       phase: "worker",
       attempt: 1,
@@ -144,7 +149,7 @@ function proofHarness(id, nodeIds, maxParallel, worktrees) {
  *
  * @param {ReturnType<typeof proofHarness>} run
  * @param {[string, ValidatedNode][]} passes
- * @returns {Promise<NodeSnapshot["verification"]>[]} the pass promises
+ * @returns {Promise<VerificationState>[]} the pass promises
  */
 function proofPasses(run, passes) {
   return passes.map(([nodeId, node]) => executeControllerVerification(run.contract, run.runDir, node, run.stateFor(nodeId), run.lock));

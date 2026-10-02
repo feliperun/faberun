@@ -577,13 +577,15 @@ test("concurrent integrateAttempt calls for one run serialize on the candidate r
     verifyCandidate: gatedVerifier("beta"),
   });
   writeFileSync(gatePath("alpha"), "release\n");
-  const firstResult = await first;
+  // integrateAttempt's declared `| null` is the recovery path's "nothing to
+  // do"; a transaction just driven to a verdict always answers.
+  const firstResult = /** @type {import("../../src/repo/integrate.mjs").IntegrationResult} */ (await first);
   assert.equal(firstResult.status, "accepted", JSON.stringify(firstResult));
   await pollUntil(() => logLines().includes("verify-beta-start"));
   const lines = logLines();
   assert.ok(lines.indexOf("verify-alpha-end") < lines.indexOf("verify-beta-start"), "beta's candidate verification started only after alpha's left the candidate worktree");
   writeFileSync(gatePath("beta"), "release\n");
-  const secondResult = await second;
+  const secondResult = /** @type {import("../../src/repo/integrate.mjs").IntegrationResult} */ (await second);
   assert.equal(secondResult.status, "concurrent_move", JSON.stringify(secondResult));
   assert.equal(gitHead(repo, runRefName(id)), firstResult.candidateSha, "the run ref stayed at alpha's candidate");
   assert.ok(!existsSync(candidateWorktreePath(runDir, id)), "the candidate worktree is cleaned up after the concurrent move");

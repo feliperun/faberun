@@ -41,7 +41,7 @@ const candidateLocks = new Map();
 /**
  * @template T
  * @param {string} runDir
- * @param {() => Promise<T>} work
+ * @param {() => T | Promise<T>} work
  * @returns {Promise<T>}
  */
 function withCandidateLock(runDir, work) {
