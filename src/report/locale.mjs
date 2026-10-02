@@ -182,3 +182,23 @@ export function labelsFor(language) {
   const table = LABELS[language];
   return (key) => table[key] ?? LABELS.en[key] ?? key;
 }
+
+/**
+ * The alert catalogue: the four campaign events that deserve a notification
+ * of their own, registered in the same wording home every notification
+ * phrase is written in. Each alert carries its text per language and the
+ * dedup keys that make one occurrence send once: `campaign` (the campaign
+ * id) plus `episode` (the one id that names the occurrence -- the phase for
+ * a completed phase, the node for exhausted recovery or a needed decision,
+ * the campaign itself for closure). The same occurrence is re-derived on
+ * every render; without the keys it would re-send with it.
+ *
+ * @typedef {{id: string, dedupKeys: ["campaign", "episode"], text: Record<Language, string>}} AlertSpec
+ * @type {AlertSpec[]}
+ */
+export const ALERTS = [
+  { id: "phase-completed", dedupKeys: ["campaign", "episode"], text: { en: "phase completed", pt: "fase concluída" } },
+  { id: "recovery-exhausted", dedupKeys: ["campaign", "episode"], text: { en: "recovery exhausted", pt: "recuperação esgotada" } },
+  { id: "decision-needed", dedupKeys: ["campaign", "episode"], text: { en: "decision needed", pt: "decisão necessária" } },
+  { id: "closure", dedupKeys: ["campaign", "episode"], text: { en: "campaign closed", pt: "campanha encerrada" } },
+];
