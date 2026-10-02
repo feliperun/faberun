@@ -136,6 +136,10 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
   com teste de CLI cobrindo as duas formas (hoje só a biblioteca é testada).
 - **Por que é achado de produto:** a CLI é a interface do operador; divergência entre o que ela diz
   aceitar e o que ela aceita é o defeito que faz o dono desconfiar da ferramenta inteira.
+- **Reproduzido na F5 (02/10):** `src/cli.mjs:390` (`if (!target) { usage(); return; }`) vem antes do
+  despacho do `plan` (`src/cli.mjs:556`) e `--resolve` não aceita posicional, então no 0.30.0 o comando
+  nunca chega a `resolvePlanCli`. Contornado chamando `resolvePlanningPipeline` de `src/plan/resolve.mjs`
+  direto, com as respostas `f1=accept` e `f2=accept`.
 
 ## 8. Erros de forma no `definitionOfDone` consomem rodadas de `revise` inteiras
 
@@ -184,16 +188,114 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
 - **Por que é achado de produto:** é o registro que faz a próxima campanha custar menos; enquanto ele
   for opcional, cada campanha redescobre e paga os mesmos defeitos.
 
+## 11. `streamsOutput: false` faz uma tentativa saudável parecer "sem saída"
+
+- **Sintoma:** F5, `n3-aux-spawn-admission`: `worker.jsonl` vazio, uso 0/0 e `exhausted`. A leitura natural,
+  "o provider travou", estava errada.
+- **Causa medida:** o runtime `zcode-glm-worker` declara `streamsOutput: false`, então o faberun nunca
+  recebe stream. O log do provider mostrou 52 requests e 34 tool calls na tentativa 1 e 61 requests e 66
+  tool calls na tentativa 2, as duas encerradas no meio do serviço.
+- **Custo:** um diagnóstico errado e uma ordem de conserto errada (a primeira direção mandou tratar como
+  provider travado), corrigida só depois de ler o log do provider.
+- **Correção sugerida:** o status deve mostrar atividade do provider (requests e tool calls do log do
+  harness) para runtimes sem stream, e marcar "sem stream" em vez de "sem saída".
+- **Por que é achado de produto:** o operador só enxerga o que o faberun registra, e aqui o registro
+  descreve o contrário do que aconteceu.
+
+## 12. O teto de parede de 2400 s mata invocação saudável e selada, e o único retry automático já foi gasto
+
+- **Sintoma:** F5, n3: `exhausted` por `wall_clock_timeout` na tentativa 2, com `sealedSha` preenchido e
+  `sealError` nulo. O `exhausted` lê-se como "nada feito" quando há trabalho preservado.
+- **Causa medida:** `contract.timeoutSec` default de 2400 s (`src/contract/index.mjs:400`) mata a
+  invocação sem aviso de que o selo existe. A tentativa 1 consumiu o único retry automático do nó
+  (`autoRetries` em `run.json`), então a tentativa 2 parkeou mesmo selada.
+- **Custo:** o fechamento da fase ficou parado até um operador rodar `resume`; o nó cobria 10 arquivos
+  e ~376 KB de leitura declarada e precisava de mais de uma janela.
+- **Correção sugerida:** o status de `exhausted` com selo deve dizer que há selo e quantos arquivos
+  mudaram; o retry automático deveria valer por janela esgotada com selo, não uma vez por nó; o
+  planner deveria dimensionar `timeoutSec` pelo tamanho do pacote.
+- **Por que é achado de produto:** trabalho pago e preservado aparece como perdido.
+
+## 13. `HUSKY` em `envPassthrough` não chega ao shell do worker zcode, e o `snapshot_ignore_changed` derruba o nó
+
+- **Sintoma:** três nós mortos por `workspace ignore sources changed during worker execution:
+  .husky/_/.gitignore`: F4 `n4` tentativa 8, F5 `n3` tentativa 4 e F5 `n6` tentativa 1. Os dependentes
+  ficaram `blocked` em cascata.
+- **Causa medida:** o worker rodou `npm ci` para reproduzir o typecheck; `node_modules` e `.husky/_`
+  nasceram no mesmo instante (11:47:13 no n3, 12:47:08 no n6). `HUSKY=0` estava no ambiente do controlador
+  e em `envPassthrough`, mas o shell do zcode não o herdou. Sonda em worktree limpo: `HUSKY=0 npm ci` não
+  cria `.husky/_`; sem o prefixo cria.
+- **Custo:** uma tentativa inteira por ocorrência, mais o diagnóstico (o log do provider não grava os
+  comandos que o worker executou).
+- **Correção sugerida:** ignorar artefatos do próprio tooling no fingerprint de ignore sources, ou
+  repassar `envPassthrough` ao shell do worker, ou preparar `node_modules` antes da janela do worker. A
+  mensagem do erro deveria nomear o processo que escreveu o arquivo.
+- **Por que é achado de produto:** um artefato do tooling derruba o nó inteiro e a mensagem não diz a causa.
+
+## 14. Prova que exige devDependency ausente passa o `contract validate` e só morre no portão
+
+- **Sintoma:** F5, `n1-verdict`: `npm run typecheck` com `exit=127` e `tsc: command not found`, porque o
+  worktree do run não tem `node_modules`.
+- **Causa medida:** o `sharedVerification` da F5 veio de `control/verification.json` sem `npm ci`, ao
+  contrário da F4. `validate` e `preflight --static` não executam a prova.
+- **Custo:** a tentativa 1 do n1 e, pelo conserto natural do worker (instalar dependências), o achado 13.
+- **Correção sugerida:** `preflight` deveria rodar a prova num worktree limpo do ref base, ou o contrato
+  deveria declarar o preparo de ambiente como parte do `sharedVerification`.
+- **Por que é achado de produto:** o defeito passa por todos os checks baratos e custa uma tentativa.
+
+## 15. Escopo faltante em nó já bloqueado ou falho só se corrige por contrato derivado
+
+- **Sintoma:** F5 precisou de 6 contratos derivados e 7 runs para fechar 6 nós.
+- **Causa medida:** `resume --reauthor` só lê `missingContext` e usa as frases como caminhos; quando o
+  bloqueio vem em prosa ("write access to src/engine/scheduler.mjs (with the settlement chain...)") o
+  pedido é recusado. `--answer` não alarga escopo e nó `failed` não aceita nenhum dos dois. Sobra editar o
+  contrato congelado, o que é proibido, ou derivar contrato novo com base selada.
+- **Custo:** cada continuidade custou selar o trabalho, montar base (às vezes unindo dois ramos), validar,
+  preflight, trocar o contrato na campanha e relançar.
+- **Correção sugerida:** o worker devolver os caminhos pedidos como lista estruturada em
+  `missingContext`, e `reauthor` aceitar nó `failed` por `unexpected_write` e por `context_missing`.
+- **Por que é achado de produto:** o conserto mais comum de uma fase é escopo, e o caminho oficial para
+  ele só cobre o caso mais estreito.
+
+## 16. O nó que muda a semântica de re-execução não roda os testes de resume que a spec lista como prova
+
+- **Sintoma:** F5, `n6`: o teste `resume terminates an interrupted verification attempt and re-runs the
+  phase` (`test/engine/resume-reauthor.test.mjs:540`) esperava 2 tentativas de verificação e veio 1.
+- **Causa medida:** bisseção por commit: passa em `75ae961c`, `10cb43d7`, `4b3e1425` (n2) e `129b09ce`
+  (n4) e falha em `551859af` (n5). O checkpoint por comando serve o resultado quando árvore, comando,
+  ambiente e dependências são idênticos; o teste fabrica um crash em cima de uma run que já deixou o
+  checkpoint. O comportamento novo é o pedido; o teste é que precisava apagar os `checkpoint-<n>.json`.
+- **Custo:** descoberto só no último nó da fase, que é o único que roda o comando de prova do R7, e
+  levou a mais uma continuidade.
+- **Correção sugerida:** o nó que altera a re-execução de verificação deve carregar na sua `verification`
+  os testes de resume que a spec do requisito nomeia, para a regressão aparecer no nó que a causa.
+- **Por que é achado de produto:** a prova de fechamento chega tarde demais para apontar o culpado.
+
+## 17. O chain valida o contrato registrado contra a land branch, então um contrato que lê arquivo criado na própria fase não promove
+
+- **Sintoma:** com a F5 fechada, `supervise campaign` parkeou com `nodes[0].taskPacket.readFiles[1] does not
+  exist: docs/campaigns/campaign-efficiency/decisions/phase-5-admission.md`, mesmo com o arquivo presente no
+  head do run e no checkout de planejamento.
+- **Causa medida:** `validate(entry, { repo, baseRef })` em `src/campaign/chain.mjs` usa
+  `landBranchRef` (`10cb43d7`), onde o documento do n1 ainda não existe. A promoção só acontece depois da
+  validação, então fica um ciclo.
+- **Custo:** o operador avançou a land branch à mão para `4b3e1425` (n1 e n2 integrados, ancestral do commit
+  final) e só então o chain promoveu até `4d2d88db`.
+- **Correção sugerida:** validar o contrato de um run já terminado contra o ref do próprio run, ou
+  promover antes de revalidar o que já foi executado.
+- **Por que é achado de produto:** o fechamento normal de uma fase com nós dependentes de arquivos
+  novos não consegue terminar sem intervenção.
+
 ---
 
 ## Desfecho deste livro
 
-Nenhum dos dez itens foi triado contra o código da branch padrão no momento da escrita. Este arquivo
+Nenhum dos dezessete itens foi triado contra o código da branch padrão no momento da escrita. Este arquivo
 registra o que foi pago, com número e evidência. A triagem (aberto/corrigido/não-objetivo) e
 a decisão de quais viram requisito de qual campanha são passo seguinte, do operador com o dono.
 
 Os itens 1 a 5 têm correção **já aplicada nesta campanha** por outro caminho (nós `r4-*`, `r5-*` e o
-contrato de F3) e por isso aparecem aqui com o commit quando existe; os itens 6 a 10 estão abertos.
+contrato de F3) e por isso aparecem aqui com o commit quando existe; os itens 6 a 17 estão abertos (o 7 foi reproduzido na F5; os itens 11 a 17 são da F4 e da F5).
 
 Referências: `journal.jsonl` da campanha, `results/` das runs citadas e
 `docs/reviews/2026-09-29-campaign-efficiency/REVIEW-AND-PLAN.md` (achados R1 a R7 do review, que são
