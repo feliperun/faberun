@@ -75,7 +75,8 @@ test("a sibling is dispatched while a resumed judge re-ask is still blocked on i
   // attempts so `build` reaches `judge_unavailable` without ever blocking.
   const armMarker = join(directory, "gate-proof-armed");
   const gateFile = join(directory, "gate-proof-release");
-  const pollScript = `const fs=require("fs");const armed=${JSON.stringify(armMarker)};const gate=${JSON.stringify(gateFile)};if(fs.existsSync(armed)){while(!fs.existsSync(gate)){Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,25);}}`;
+  const proofStarted = join(directory, "gate-proof-started");
+  const pollScript = `const fs=require("fs");const armed=${JSON.stringify(armMarker)};const gate=${JSON.stringify(gateFile)};if(fs.existsSync(armed)){fs.writeFileSync(${JSON.stringify(proofStarted)},"polling\\n");while(!fs.existsSync(gate)){Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,25);}}`;
   // `second`'s own verification, armed only for the initial run: it must fail
   // there so resume has a fresh dispatch to reopen, and pass once resumed so
   // the run can actually finish.
@@ -128,17 +129,17 @@ test("a sibling is dispatched while a resumed judge re-ask is still blocked on i
   unlinkSync(secondShouldFail);
   writeFileSync(armMarker, "armed\n");
   const secondSnapshotPath = join(runDir, "nodes", "second.json");
-  const buildSnapshotPath = join(runDir, "nodes", "build.json");
   const resumed = withFakeCodex(directory, "pass", () => resumeRun(runDir));
   try {
-    // The re-ask is dispatched (the pass reserves its slot the moment the
-    // dispatch is decided) and blocks on its mechanical gate inside the settle
-    // window, so the wait below is a state `build` provably sits in.
-    await waitForValue(() => {
-      if (!existsSync(buildSnapshotPath)) return null;
-      const state = JSON.parse(readFileSync(buildSnapshotPath, "utf8"));
-      return state.status === "running" && state.phase === "judge" ? state : null;
-    }, 20_000, 10);
+    // The armed proof is the one durable signal that the re-ask's settle
+    // window is open: `startJudge` runs the mechanical gate before it
+    // transitions the node, so while the proof is blocked the snapshot still
+    // reads `pending` and the reservation the dispatch pass took lives only
+    // in memory (`settling`). The marker is written by the proof child itself
+    // the moment it starts polling -- strictly after the dispatch decision
+    // that reserved the slot -- so the wait below is a state `build`
+    // provably sits in, not a guess about how far the queue has run.
+    await waitForValue(() => (existsSync(proofStarted) ? {} : null), 20_000, 10);
     const second = existsSync(secondSnapshotPath) ? JSON.parse(readFileSync(secondSnapshotPath, "utf8")) : null;
     assert.ok(!second || second.status === "pending", `second left the queue while build's re-ask was still blocked on its own mechanical gate: ${second && second.status}`);
   } finally {
