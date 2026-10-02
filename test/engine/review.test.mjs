@@ -647,7 +647,7 @@ test("the bounded re-ask is refused when the judge runtime holds its ceiling", a
   const node = contract.nodes[0];
   const runDir = runDirectory(contract.cwd, contract.id);
   mkdirSync(join(runDir, "nodes"), { recursive: true });
-  writeFileSync(join(runDir, "contract.json"), readFileSync(join(directory, "contract.json")));
+  writeFileSync(join(runDir, "contract.json"), readFileSync(join(contract.cwd, "contract.json")));
   const lock = acquireLock(runDir);
   const workerResult = { status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] };
   const state = {
