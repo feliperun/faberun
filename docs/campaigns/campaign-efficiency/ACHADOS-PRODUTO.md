@@ -301,16 +301,32 @@ Base: branch `campaign/campaign-efficiency`, HEAD `f979117d` (ADR 0011).
   o `status` e o `supervise` leiam, em vez de depender do campo do plano.
 - **Por que é achado de produto:** o estado de aprovação precisa ser legível num lugar só.
 
+## 19. A verificação final de uma fase pode ser só `npm run check`, que não roda testes
+
+- **Sintoma:** F5 e F6 fecharam "verdes" e o PR da campanha abriu com 2 testes vermelhos no CI:
+  `single writer per field` (o `recordAuxRefusal` do n3 escreve `type`, `role` e `error` em
+  `events.jsonl` e `docs/FIELD-OWNERSHIP.md` não o lista) e `launch-failed` (fixture da F2 que faz
+  `git commit` sem identidade, só passa onde há identidade global).
+- **Causa medida:** `finalVerification` da F5 e da F6 veio de `control/verification.json` com um único
+  comando, `npm run check`, que é `node --check` de sintaxe. A F4 tinha 16 suítes por diretório; o catálogo
+  novo perdeu todas. O relatório de fechamento disse "verificação final passou" sem dizer o que ela cobria,
+  e o corpo do primeiro PR repetiu isso como "suíte completa".
+- **Custo:** um PR aberto com CI vermelho, duas correções e a reabertura do PR; nenhum dólar de worker.
+- **Correção sugerida:** o freeze deve recusar (ou avisar) um `finalVerification` que não execute
+  nenhum `node --test`; o relatório de fechamento deve listar os comandos da verificação final e o que
+  cada um cobre.
+- **Por que é achado de produto:** "passou" sem o que foi rodado é a afirmação que o operador mais repete.
+
 ---
 
 ## Desfecho deste livro
 
-Nenhum dos dezoito itens foi triado contra o código da branch padrão no momento da escrita. Este arquivo
+Nenhum dos dezenove itens foi triado contra o código da branch padrão no momento da escrita. Este arquivo
 registra o que foi pago, com número e evidência. A triagem (aberto/corrigido/não-objetivo) e
 a decisão de quais viram requisito de qual campanha são passo seguinte, do operador com o dono.
 
 Os itens 1 a 5 têm correção **já aplicada nesta campanha** por outro caminho (nós `r4-*`, `r5-*` e o
-contrato de F3) e por isso aparecem aqui com o commit quando existe; os itens 6 a 18 estão abertos (o 7 foi reproduzido na F5; os itens 11 a 18 são da F4, da F5 e da F6).
+contrato de F3) e por isso aparecem aqui com o commit quando existe; os itens 6 a 19 estão abertos (o 7 foi reproduzido na F5; os itens 11 a 19 são da F4, da F5 e da F6).
 
 Referências: `journal.jsonl` da campanha, `results/` das runs citadas e
 `docs/reviews/2026-09-29-campaign-efficiency/REVIEW-AND-PLAN.md` (achados R1 a R7 do review, que são
