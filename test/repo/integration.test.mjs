@@ -2,7 +2,7 @@ import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { lstatSync, realpathSync } from "node:fs";
@@ -23,7 +23,7 @@ import { integrateAttempt, promoteRun } from "../../src/repo/integrate.mjs";
 import { initializeCampaign, recordPromotion } from "../../src/campaign/index.mjs";
 import { readCampaign } from "../../src/campaign/record.mjs";
 import { captureSourceIdentity } from "../../src/repo/source-identity.mjs";
-import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
+import { candidateWorktreePath, runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
 // runsRoot registers every resolved path under $FABERUN_HOME; these fixtures
 // resolve through it without the shared helpers, so the home is always a
@@ -495,4 +495,96 @@ test("a crash after the branch moved but before the record leaves one promotion 
   const promotions = readCampaign(campaignPath).promotions;
   assert.equal(promotions.length, 1, "one promotion, one record");
   assert.equal(promotions[0].sha, runHead);
+});
+
+// ---------------------------------------------------------------------------
+// The candidate resource under overlapping callers. The settlement chain
+// serializes integrations today; the candidate lock in integrate.mjs is what
+// keeps "integration remains serialized" true at the resource itself, so this
+// test calls `integrateAttempt` for two nodes of one run side by side.
+// ---------------------------------------------------------------------------
+
+/** @param {() => boolean} read @param {number} [timeoutMs] @returns {Promise<void>} */
+async function pollUntil(read, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (read()) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("condition was not reached");
+}
+
+test("concurrent integrateAttempt calls for one run serialize on the candidate resource", async () => {
+  const id = "concurrent-integration-run";
+  const repo = mkdtempSync(join(tmpdir(), "runner-concurrent-integration-"));
+  const run = /** @param {...string} args */ (...args) => execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
+  run("init", "-q");
+  run("config", "user.email", "test@example.test");
+  run("config", "user.name", "test");
+  writeFileSync(join(repo, "README.md"), "base\n");
+  run("add", "-A");
+  run("-c", "commit.gpgSign=false", "commit", "-qm", "base");
+  const runDir = runDirectory(repo, id);
+  mkdirSync(runDir, { recursive: true });
+  createRunRef(repo, id, /** @type {string} */ (gitHead(repo, "HEAD")));
+
+  /** @param {string} nodeId @returns {{sha: string, branch: string|null}} */
+  const sealedAttempt = (nodeId) => {
+    const worktree = createAttemptWorktree({ repo, runDir, runId: id, nodeId, attempt: 1 });
+    writeFileSync(join(worktree.path, `${nodeId}.txt`), "worker\n");
+    const sealed = sealAttempt({ repo, path: worktree.path, baseSha: worktree.baseSha, runId: id, nodeId, attempt: 1 });
+    return { sha: sealed.sha, branch: worktree.branch };
+  };
+  const alpha = sealedAttempt("alpha");
+  const beta = sealedAttempt("beta");
+
+  const captureDir = mkdtempSync(join(tmpdir(), "runner-concurrent-integration-cap-"));
+  const logPath = join(captureDir, "log");
+  writeFileSync(logPath, "");
+  const gatePath = (/** @type {string} */ nodeId) => join(captureDir, `gate-${nodeId}`);
+  const logLines = () => readFileSync(logPath, "utf8").split("\n").filter(Boolean);
+  // Each verifier appends its start marker, then blocks on its gate file: the
+  // markers' order is the whole proof, and no assertion bounds a duration.
+  const gatedVerifier = (/** @type {string} */ nodeId) => async (/** @type {string} */ _workspace) => {
+    appendFileSync(logPath, `verify-${nodeId}-start\n`);
+    await pollUntil(() => existsSync(gatePath(nodeId)));
+    appendFileSync(logPath, `verify-${nodeId}-end\n`);
+    return { passed: true };
+  };
+
+  const first = integrateAttempt({
+    repo,
+    runDir,
+    runId: id,
+    nodeId: "alpha",
+    attempt: 1,
+    attemptSha: alpha.sha,
+    branch: alpha.branch,
+    verifyCandidate: gatedVerifier("alpha"),
+  });
+  await pollUntil(() => logLines().includes("verify-alpha-start"));
+  // Fired while alpha holds the candidate: beta's transaction is prepared
+  // against the same previous run-ref tip, then queues for the candidate
+  // behind alpha's whole verify-and-accept section.
+  const second = integrateAttempt({
+    repo,
+    runDir,
+    runId: id,
+    nodeId: "beta",
+    attempt: 1,
+    attemptSha: beta.sha,
+    branch: beta.branch,
+    verifyCandidate: gatedVerifier("beta"),
+  });
+  writeFileSync(gatePath("alpha"), "release\n");
+  const firstResult = await first;
+  assert.equal(firstResult.status, "accepted", JSON.stringify(firstResult));
+  await pollUntil(() => logLines().includes("verify-beta-start"));
+  const lines = logLines();
+  assert.ok(lines.indexOf("verify-alpha-end") < lines.indexOf("verify-beta-start"), "beta's candidate verification started only after alpha's left the candidate worktree");
+  writeFileSync(gatePath("beta"), "release\n");
+  const secondResult = await second;
+  assert.equal(secondResult.status, "concurrent_move", JSON.stringify(secondResult));
+  assert.equal(gitHead(repo, runRefName(id)), firstResult.candidateSha, "the run ref stayed at alpha's candidate");
+  assert.ok(!existsSync(candidateWorktreePath(runDir, id)), "the candidate worktree is cleaned up after the concurrent move");
 });
