@@ -34,8 +34,8 @@ const SKILL_DIR = fileURLToPath(new URL("../..", import.meta.url));
 const SRC_DIR = join(SKILL_DIR, "src");
 const DOC_PATH = join(SKILL_DIR, "docs", "FIELD-OWNERSHIP.md");
 
-/** Measured 2026-09-16: 14 `events.jsonl` fields plus one `journal.jsonl` event type. */
-const DOUBLE_WRITER_CEILING = 15;
+/** Measured 2026-09-16: 14 `events.jsonl` fields plus two `journal.jsonl` event types. */
+const DOUBLE_WRITER_CEILING = 16;
 
 /** @typedef {{writers: string[], fields?: string[]}} DeclaredEntry */
 /** @typedef {{journal?: Record<string, DeclaredEntry>, events?: Record<string, DeclaredEntry>, campaign?: Record<string, DeclaredEntry>}} OwnershipDoc */
@@ -465,6 +465,14 @@ test("single writer per field", () => {
     (DERIVED.campaign.get("ledgerPreserved") ?? new Set()).size > 0,
     "no mutator's written campaign record sets ledgerPreserved",
   );
+  // The optional balance (ADR 0011) is how a campaign arms its reserve gate;
+  // it must stay declared and keep its one mutator findable, so the balance
+  // can never gain an undeclared second writer.
+  assert.ok(declaredCampaign.reserveUsd, "the campaign record does not declare the reserve field");
+  assert.ok(
+    (DERIVED.campaign.get("reserveUsd") ?? new Set()).size > 0,
+    "no mutator's written campaign record sets reserveUsd",
+  );
   for (const [field, declared] of Object.entries(declaredCampaign)) {
     assert.deepEqual(
       [...declared.writers].sort(),
@@ -509,6 +517,7 @@ test("single writer per field", () => {
       "events.jsonl.unexpectedPathCount",
       "events.jsonl.unexpectedPaths",
       "events.jsonl.verdict",
+      "journal.jsonl.operator.command",
       "journal.jsonl.session.attached",
     ],
     "the measured multi-writer set changed; update docs/FIELD-OWNERSHIP.md and DOUBLE_WRITER_CEILING together",

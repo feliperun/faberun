@@ -16,6 +16,7 @@ import {
   renderDrilldownHtml,
   renderPhaseGraphSvg,
   renderSummaryBandHtml,
+  statusRole,
 } from "../../src/web/app.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
@@ -645,6 +646,53 @@ test("the summary band says the estimate is unknown when nothing has settled, an
   assert.match(band, /running 0h05m/u);
   assert.match(band, /estimate unknown/u);
   assert.doesNotMatch(band, /remaining \(from/u);
+});
+
+test("the action line renders the projection's own state -- applied, pending or none -- and names the decision owner", () => {
+  const pending = renderSummaryBandHtml({ ...ROLLUP, nextAction: { state: "pending", reason: "run beta is paused", command: "resume beta --detach", runnable: true, decisionOwner: null } });
+  assert.match(pending, /next action — pending/u);
+  assert.match(pending, /<span class="mono">resume beta --detach<\/span>/u);
+  assert.match(pending, /\(run beta is paused\)/u);
+  const applied = renderSummaryBandHtml({ ...ROLLUP, nextAction: { state: "applied", reason: null, command: "campaign note dash-campaign --kind constraint --text go", runnable: false, decisionOwner: "operator" } });
+  assert.match(applied, /next action — applied/u);
+  assert.match(applied, /decision owner: operator/u);
+  const none = renderSummaryBandHtml({ ...ROLLUP, nextAction: { state: "none", reason: null, command: null, runnable: false, decisionOwner: null } });
+  assert.match(none, /next action — none/u);
+  assert.doesNotMatch(none, /decision owner/u);
+  assert.doesNotMatch(none, /resume/u);
+});
+
+test("a roll-up with no next action renders no action line at all", () => {
+  assert.doesNotMatch(renderSummaryBandHtml(ROLLUP), /next action/u);
+});
+
+test("a cancelled phase is drawn as unfinished, never as concluded", () => {
+  assert.equal(statusRole("cancelled"), "fail");
+  assert.equal(statusRole("canceled"), "fail");
+  const progress = {
+    phases: [{ contractId: "halted", phase: "halted", runId: "halted", name: "Halted", goal: null, counts: { done: 0, settled: 2, total: 2 } }],
+  };
+  const stages = chainStages(progress, "active");
+  assert.equal(stages.find((stage) => stage.id === "halted")?.state, "active", "settled without done is unfinished, not done");
+  const svg = renderChainSvg(stages);
+  const chunk = svg.split(/(?=<g class="stage )/u).find((candidate) => candidate.includes('data-phase="halted"'));
+  assert.doesNotMatch(/** @type {string} */ (chunk), />done<\/text>/u, "the box never prints done for nodes that settled without finishing");
+});
+
+test("the snapshot's roll-up carries the next action and the panel renders it with the decision owner", () => {
+  const world = makeWorld();
+  try {
+    const snapshot = /** @type {any} */ (buildSnapshot(world.runsDir, { campaignId: CAMPAIGN_ID }));
+    // beta holds an exhausted node: the projection names the operator as the
+    // owner of that decision, and the panel prints the name, not a guess.
+    assert.equal(snapshot.progress.nextAction.decisionOwner, "operator");
+    assert.ok(["applied", "pending", "none"].includes(snapshot.progress.nextAction.state), "the state is one of the projection's own three");
+    const band = renderSummaryBandHtml(snapshot.progress);
+    assert.match(band, /next action — /u);
+    assert.match(band, /decision owner: operator/u);
+  } finally {
+    rmSync(world.directory, { recursive: true, force: true });
+  }
 });
 
 // --- narrow-viewport layout: a test cannot measure a rendered pixel, so this

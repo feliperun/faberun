@@ -203,6 +203,58 @@ export function previousAttemptOperatorAnswer(previousAttempt) {
 }
 
 /**
+ * The heading the variable previous-attempt state travels under, byte-equal
+ * to the line `renderPreviousAttemptSection` (engine/retry.mjs) writes: two
+ * hashes, one space, `Previous attempt`, end of line. Every tolerance this
+ * match ever carried cost a node: a tolerant suffix read the task's own
+ * `## Previous attempt notes:` heading as retry state (this node's attempt
+ * 2), and a tolerant `#{1,6}` hash run read a task instruction headed
+ * `# Previous attempt` the same way (attempt 3's revision_cap) — with a
+ * state section supplied, the lifted block was replaced and the stable
+ * instructions after that heading were dropped from the worker and judge
+ * prompts. Only the writer's exact spelling may open the variable block.
+ */
+const PREVIOUS_ATTEMPT_HEADING = /^## Previous attempt$/gm;
+
+/**
+ * The line every rendered record opens with — `Attempt N failed; this is
+ * attempt M.`, the `Attempt N failed` opening `previousAttemptOperatorAnswer`'s
+ * stop regex reads as a section start, and the first body line under the
+ * heading in every record the retry writer lays down (this node's own retry
+ * records included). Requiring it behind the heading keeps the split on real
+ * trailing record blocks: an instruction block that borrows even the exact
+ * heading opens its body with other words — measured on attempt 3's
+ * revision_cap, where `Attempt 2 failed in staging` under a borrowed heading
+ * was classified as a record and split out of the stable prefix.
+ */
+const PREVIOUS_ATTEMPT_RECORD_LINE = /^Attempt \d+ failed; this is attempt \d+\./u;
+
+/**
+ * Split a prompt that already carries the variable `Previous attempt` section
+ * into the stable instructions and that section, so assembly can re-append it
+ * after the stable sandbox notice and result-file protocol — cacheable prefix
+ * first, variable state last. The section is the block from its heading to
+ * the end of the prompt: every writer lays it down as the trailing block of
+ * whatever it was built on. `section` is null when the base carries none.
+ *
+ * @param {string} basePrompt
+ * @returns {{stable: string, section: string|null}}
+ */
+export function splitPreviousAttemptSection(basePrompt) {
+  for (const match of basePrompt.matchAll(PREVIOUS_ATTEMPT_HEADING)) {
+    const rest = basePrompt.slice(match.index + match[0].length);
+    const bodyStart = rest.split("\n").find((line) => line.trim() !== "");
+    if (bodyStart !== undefined && PREVIOUS_ATTEMPT_RECORD_LINE.test(bodyStart)) {
+      return {
+        stable: basePrompt.slice(0, match.index).replace(/\n+$/u, ""),
+        section: basePrompt.slice(match.index).replace(/\n+$/u, ""),
+      };
+    }
+  }
+  return { stable: basePrompt, section: null };
+}
+
+/**
  * @param {JudgeNode} node
  * @param {unknown} workerResult
  * @param {{diff?: unknown[], verification?: unknown, deterministic?: unknown, scopeFindings?: {unexpectedPaths: string[]}|null, previousAttempt?: string, operatorAnswer?: string}} context
@@ -256,7 +308,6 @@ export function judgePrompt(node, workerResult, context = {}) {
     `Controller diff paths:\n${diff.length ? diff.map((path) => `- ${path}`).join("\n") : "- (none)"}\n\n` +
     `Controller verification:\n${JSON.stringify(verificationResult)}\n\n` +
     (scopeSection ? `${scopeSection}\n\n` : "") +
-    (context.previousAttempt ? `${context.previousAttempt}\n\n` : "") +
     "Return only the JSON object required by the output schema, with every field present: a verdict with nothing to report still carries `findings: []`, never an omitted key. The verdict is a record, not a report: keep `summary` within " + JUDGE_LIMITS.summaryBytes + " bytes, use at most " + JUDGE_LIMITS.findings + " findings, and keep each finding's `description` within " + JUDGE_LIMITS.descriptionBytes + " bytes and its `evidence` within " + JUDGE_LIMITS.evidenceBytes + " bytes. A verdict that overshoots this envelope is rejected unread, however sound the arbitration. Evidence must be concrete. " +
     "Use verdict pass only when findings is empty and maxSeverity is none. " +
     "Use verdict fail whenever findings is non-empty, including advisory findings below failOn. " +
@@ -264,7 +315,11 @@ export function judgePrompt(node, workerResult, context = {}) {
       ? "Arbitrate only the judgment items; deterministic items are already proven by the controller and must not be re-arbitrated. " +
         "Use pass only when every judgment item is satisfied. Every finding must cite the id of the judgment item it addresses; a fail verdict whose findings cite no id is a protocol failure."
       : "Use pass only when every Definition of Done item is satisfied. " +
-        "Assess every Definition of Done item by its id and cite the id you are addressing in each finding.");
+        "Assess every Definition of Done item by its id and cite the id you are addressing in each finding.") +
+    // The variable state trails every stable instruction, including the
+    // output-schema rules, so the cacheable prefix ends at the section's
+    // heading and dispatch's assembly keeps it last when it re-appends.
+    (context.previousAttempt ? `\n\n${context.previousAttempt}` : "");
 }
 
 /**

@@ -35,7 +35,8 @@ import { NODE_VALUE_OPTIONS, assertFilteredProofsNameTheirTest } from "./proof-s
 /** @typedef {{path: string, digest: string}} PlanSpecIdentity */
 /** @typedef {{formatVersion: number, contractDigest: string, spec?: PlanSpecIdentity, phases?: PlanPhase[], humanSteps?: PlanHumanStep[], provenance: PlanProvenance}} FrozenPlan */
 /** @typedef {{ok: boolean, digest: string, expectedDigest: string}} FrozenPlanVerdict */
-/** @typedef {{scripts?: Record<string, string>, verificationCandidates: {argv: string[], measuredMs: number}[]}} MeasuredFacts */
+/** @typedef {{argv: string[], measuredMs: number|null, eligible: boolean}} MeasuredCandidate */
+/** @typedef {{scripts?: Record<string, string>, verificationCandidates: MeasuredCandidate[]}} MeasuredFacts */
 
 const PLAN_FORMAT_VERSION = 1;
 
@@ -74,13 +75,17 @@ function includedDirectories(arg, directories) {
  * the sum of the `node --test <dir>` candidates it includes, `npm test`
  * resolved through the `test` script. A lower bound when the command also
  * runs files no candidate measured; null when it includes nothing measured.
+ * Only an eligible candidate with a numeric duration counts, exact or
+ * aggregated: a candidate killed at its timeout persists measuredMs null
+ * with eligible false, so neither an exact read nor a directory sum may
+ * plan from it.
  *
  * @param {string[]} argv
  * @param {MeasuredFacts} facts
  * @returns {number|null}
  */
 function measuredMsFor(argv, facts) {
-  const candidates = facts.verificationCandidates;
+  const candidates = facts.verificationCandidates.filter((candidate) => candidate.eligible === true && typeof candidate.measuredMs === "number");
   const exact = candidates.find((candidate) => candidate.argv.join(" ") === argv.join(" "));
   if (exact) return exact.measuredMs;
   const npmTest = argv[0] === "npm" && ["test", "run test"].includes(argv.slice(1).join(" "));

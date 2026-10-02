@@ -10,9 +10,14 @@
  * many lanes or runtimes prints in the same space as one with few. The
  * dependency runs one way: the projector imports the renderers, and nothing
  * here reads a filesystem path or a projection's inputs.
+ *
+ * The reserve the projection carries (ADR 0011) is policy state, not an
+ * indicator, so it prints on its own line after the indicator set, in the JSON
+ * form beside `indicators` instead of inside it.
  */
 
 /** @typedef {import("../campaign/metrics.mjs").CampaignMetrics} CampaignMetrics */
+/** @typedef {import("../campaign/spend.mjs").ReserveProjection} ReserveProjection */
 /** @typedef {import("../campaign/metrics-command.mjs").MetricsSources} MetricsSources */
 
 /** Schema of the `--json` form; bumped when a consumer would have to change. */
@@ -52,7 +57,39 @@ export function renderMetricsReport(sources, metrics) {
     const missing = Array.isArray(indicator.missingSources) ? ` · missing ${indicator.missingSources.join(", ")}` : "";
     lines.push(`${name.padEnd(NAME_WIDTH)} ${indicator.direction.padEnd(11)} ${formatValue(name, indicator.value).padEnd(24)} · ${records}${unknown}${missing}`);
   }
+  const reserve = projectedReserve(metrics);
+  if (reserve !== undefined) lines.push(renderReserveLine(reserve));
   return `${lines.join("\n")}\n`;
+}
+
+/** @param {CampaignMetrics} metrics @returns {ReserveProjection|undefined} */
+function projectedReserve(metrics) {
+  return /** @type {{reserve?: ReserveProjection}} */ (/** @type {unknown} */ (metrics)).reserve;
+}
+
+/**
+ * The reserve line: the optional balance the campaign configured, what is
+ * still held against future charges, what was released once the real charge
+ * arrived, and the part of a late charge that went past its reservation. It
+ * says outright that the reserve is not an absolute cap, so a blocked dispatch
+ * is never read as provider-side enforcement of a ceiling (ADR 0011).
+ *
+ * @param {ReserveProjection} reserve
+ * @returns {string}
+ */
+function renderReserveLine(reserve) {
+  const incomplete = reserve.missingSources !== undefined;
+  const rounded = (/** @type {number} */ value) => String(Math.round(value * 100) / 100);
+  // A campaign that configured no balance never had one, which is a different
+  // fact from a balance the preserved sources cannot show.
+  const configured = reserve.configuredUsd === null ? "none" : rounded(reserve.configuredUsd);
+  const money = (/** @type {number|null} */ value) => value === null
+    ? (incomplete ? "unknown" : "none")
+    : rounded(value);
+  const reservations = reserve.heldCount + reserve.reconciledCount;
+  const counts = `${reservations} reservation${reservations === 1 ? "" : "s"}${incomplete ? ` · missing ${reserve.missingSources?.join(", ")}` : ""}`;
+  const value = `configured=${configured} held=${money(reserve.heldUsd)} released=${money(reserve.releasedUsd)} charged=${money(reserve.chargedUsd)} late=${money(reserve.lateChargeUsd)}`;
+  return `${"reserve".padEnd(NAME_WIDTH)} ${"informative".padEnd(11)} ${value.padEnd(24)} · ${counts} · not an absolute cap`;
 }
 
 /** @param {{unknownCount: number, unknownFractionByReason?: Record<string, number>}} indicator @returns {string} */
@@ -80,6 +117,7 @@ export function renderMetricsJson(sources, metrics) {
     missingSources,
     sameProviderReviewNodeCount: sameProviderReviewNodeIds(sources).length,
     sameProviderReviewNodeIds: sameProviderReviewNodeIds(sources),
+    reserve: projectedReserve(metrics) ?? null,
     indicators: metrics,
   })}\n`;
 }

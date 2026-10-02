@@ -21,12 +21,15 @@
 import { collectCompletedExecutionNodes } from "../run/usage.mjs";
 import { asArray, unique } from "../campaign/brief-text.mjs";
 import { scheduleUnderCapacity } from "../campaign/campaign-brief-graph.mjs";
+import { sumCounters } from "../run/usage-windows.mjs";
 
 /** @typedef {import("../run/usage.mjs").CompletedExecutionNode} CompletedExecutionNode */
 /** @typedef {import("../run/usage.mjs").CompletedExecutionPool} CompletedExecutionPool */
 /** @typedef {import("../campaign/campaign-brief.mjs").BriefEstimateInput} BriefEstimateInput */
 /** @typedef {import("../campaign/campaign-brief.mjs").BriefMeasureInput} BriefMeasureInput */
-/** @typedef {BriefEstimateInput & {cost: BriefMeasureInput, duration: BriefMeasureInput, method: string[], assumptions: string[]}} BriefExpenseInput */
+/** @typedef {import("../run/usage.mjs").UsageCounters} UsageCounters */
+/** @typedef {{worker: UsageCounters|null, judge: UsageCounters|null}} BriefUsageRollup */
+/** @typedef {BriefEstimateInput & {cost: BriefMeasureInput, duration: BriefMeasureInput, method: string[], assumptions: string[], usage: BriefUsageRollup}} BriefExpenseInput */
 /** @typedef {Record<string, any>} AnyRecord */
 /** @typedef {"worker"|"judge"} ExecutionRole */
 /** @typedef {{nodeId: string, role: ExecutionRole, taskKind: string, runtimeId: string|null, model: string|null}} AssignedRole */
@@ -90,6 +93,7 @@ export function estimateBriefExpense(options) {
   const bothInsufficient = (reason) => ({
     cost: measure("insufficient data", reason, { provenance: "priced usage.jsonl invocations" }),
     duration: measure("insufficient data", reason, { provenance: "recorded actual node and verification elapsed times" }),
+    usage: { worker: null, judge: null },
     runtimes,
     models,
     effectiveConcurrency,
@@ -118,6 +122,7 @@ export function estimateBriefExpense(options) {
   return {
     cost: costMeasure(assignments, samples),
     duration: durationMeasure(assignments, samples, scheduledNodes, maxParallel, maxConcurrent),
+    usage: usageRollup(assignments, samples),
     runtimes,
     models,
     effectiveConcurrency,
@@ -273,6 +278,47 @@ function comparable(key, samples, measureName) {
     result.push(sample);
   }
   return result;
+}
+
+/**
+ * The usage counters carried through with the cost measure: for each role, the
+ * strict rollup over the same comparable, priced population the cost range
+ * sums, so the usage evidence stands with the cost range or is absent with it.
+ *
+ * @param {AssignedRole[]} assignments
+ * @param {CompletedExecutionNode[]} samples
+ * @returns {BriefUsageRollup}
+ */
+function usageRollup(assignments, samples) {
+  return {
+    worker: roleUsageRollup("worker", assignments, samples),
+    judge: roleUsageRollup("judge", assignments, samples),
+  };
+}
+
+/**
+ * @param {ExecutionRole} role
+ * @param {AssignedRole[]} assignments
+ * @param {CompletedExecutionNode[]} samples
+ * @returns {UsageCounters|null} null when any assigned key of the role lacks the comparable floor
+ */
+function roleUsageRollup(role, assignments, samples) {
+  const keys = assignments.filter((assignment) => assignment.role === role);
+  if (keys.length === 0) return null;
+  const seen = new Set();
+  /** @type {CompletedExecutionNode[]} */
+  const eligible = [];
+  for (const key of keys) {
+    const comparableNodes = comparable(key, samples, "cost");
+    if (comparableNodes.length < SAMPLE_FLOOR) return null;
+    for (const sample of comparableNodes) {
+      const identity = `${sample.runId}\u0000${sample.nodeId}`;
+      if (seen.has(identity)) continue;
+      seen.add(identity);
+      eligible.push(sample);
+    }
+  }
+  return sumCounters(eligible.map((sample) => (role === "worker" ? sample.worker.usage ?? null : sample.judge?.usage ?? null)));
 }
 
 /**

@@ -46,6 +46,17 @@ test("plan's pre-flight admits a same-vendor judge only in same-vendor mode, and
   );
 });
 
+test("the vendor rule is the contract's own, so exploratory planning is refused exactly as implementation planning is", () => {
+  // `packageMode` decides only whether the worker's permission mode is checked
+  // (an exploratory packet carries no verification of its own); the judge's
+  // vendor is a property of every frozen node regardless of the node's kind,
+  // so the refusal cannot be conditional on the mode.
+  assert.throws(
+    () => refuseUnplannableRuntimes(RUNTIMES, { worker: "claude-sonnet", judge: "claude-opus" }, "exploratory"),
+    /shares vendor anthropic/u,
+  );
+});
+
 test("routing honours same-vendor mode the way contract validation does", () => {
   const nodes = [{ id: "n1", taskKind: "build" }];
   const runtimeDefaults = { worker: "claude-sonnet", judge: "claude-opus" };

@@ -17,6 +17,18 @@
  * fallback. The macOS notifier is reachable only by setting
  * `FABERUN_NOTIFY_BIN=os-macos`, an explicit opt-in, never a default.
  *
+ * A transport may also answer with a receipt: the last line it prints, as
+ * JSON carrying the `messageId` it created or edited. The campaign watcher's
+ * automatic progress update is the consumer -- its text is rendered from the
+ * shared projection (`buildCampaignProgress`), never a model, and when a
+ * previous progress message of the same campaign is still inside the
+ * fifteen-minute window (`progressEditTarget`) the update travels as an edit
+ * of that message. The anchor naming the editable message is written only
+ * after the transport's receipt returns, so a delivery is claimed only on
+ * evidence; a transport that prints no receipt simply always gets a new
+ * message. An attention event never consults the anchor: it is always a new
+ * message.
+ *
  * Measured 2026-09-16: `test/cli/cli.test.mjs`'s two notifier fixtures were
  * instrumented with `{at, phase}` timelines (spawned, stdin-end, exit) and run
  * over 80 times (targeted loops, four-way parallel full-file bursts, and a
@@ -92,7 +104,7 @@ export const NOTIFY_LANG_ENV = "FABERUN_NOTIFY_LANG";
 export const NOTIFY_ENV_NAMES = Object.freeze([NOTIFY_BIN_ENV, NOTIFY_SESSION_ENV, NOTIFY_EVENTS_ENV, NOTIFY_LANG_ENV]);
 
 /** Every event type the dispatcher can be asked to deliver. */
-export const NOTIFY_EVENT_TYPES = Object.freeze(["node.terminal", "run.terminal", "attention", "advisory"]);
+export const NOTIFY_EVENT_TYPES = Object.freeze(["node.terminal", "run.terminal", "attention", "advisory", "progress"]);
 
 /**
  * What leaves the controller when `FABERUN_NOTIFY_EVENTS` is unset: a phase
@@ -106,6 +118,30 @@ export const NOTIFY_EVENT_TYPES = Object.freeze(["node.terminal", "run.terminal"
  * event, about 7 with these.
  */
 export const DEFAULT_NOTIFY_EVENTS = Object.freeze(["run.terminal", "attention", "advisory"]);
+
+/**
+ * How long a delivered progress message stays editable, from the phase spec's
+ * constraint: a progress message of the same campaign inside this window is
+ * edited in place, an event that demands attention is always a new message.
+ */
+export const PROGRESS_EDIT_WINDOW_MS = 15 * 60_000;
+
+/**
+ * The message id an automatic progress update may edit, from the receipt-
+ * backed anchor of the last one: an anchor inside the window names its
+ * message; an expired, foreign, malformed or absent one edits nothing and the
+ * next update is a new message. An attention event never consults this --
+ * attention is always a new message.
+ *
+ * @param {{messageId: string, at: number}|null} anchor the anchor the last receipt wrote
+ * @param {number} nowMs epoch milliseconds
+ * @returns {string|null}
+ */
+export function progressEditTarget(anchor, nowMs) {
+  if (!anchor || typeof anchor.messageId !== "string" || !anchor.messageId) return null;
+  if (typeof anchor.at !== "number" || !Number.isFinite(anchor.at)) return null;
+  return nowMs - anchor.at < PROGRESS_EDIT_WINDOW_MS ? anchor.messageId : null;
+}
 
 /** The two languages the message renders its wording in; `FABERUN_NOTIFY_LANG` may name either. */
 export const NOTIFY_LANGUAGES = Object.freeze(["en", "pt"]);
@@ -209,9 +245,9 @@ export const NOTIFY_NO_TRANSPORT_WARNING = "no human notification transport is c
 /** @typedef {Record<string, unknown>} JsonObject */
 /** @typedef {{schemaVersion: number, eventId: string, at: string, type: string, campaignId: string|null, runId: string|null, nodeId: string|null, status: string|null, errorCode: string|null, dedupeKey: string, summary: string}} InboxEntry */
 /** @typedef {{type: string, dedupeKey: string, summary: string, at?: string, campaignId?: string|null, runId?: string|null, nodeId?: string|null, status?: string|null, errorCode?: string|null}} InboxEvent */
-/** @typedef {{type: "node.terminal"|"run.terminal"|"attention"|"advisory", runId: string|null, campaignId?: string|null, nodeId?: string|null, status?: string|null, attempt?: number|null, errorCode?: string|null, done?: number|null, total?: number|null, dedupeKey?: string|null, runDir?: string|null, costUsd?: number|null, summary?: string|null, eventId?: string}} NotifyEvent */
-/** @typedef {{id: string, ok: boolean, error?: string}} TransportOutcome one transport's own outcome, named so the receipt says which took the message */
-/** @typedef {{ok: boolean, error?: string, noTransport?: boolean, transports?: TransportOutcome[]}} DeliveryResult */
+/** @typedef {{type: "node.terminal"|"run.terminal"|"attention"|"advisory"|"progress", runId: string|null, campaignId?: string|null, nodeId?: string|null, status?: string|null, attempt?: number|null, errorCode?: string|null, done?: number|null, total?: number|null, dedupeKey?: string|null, runDir?: string|null, costUsd?: number|null, summary?: string|null, eventId?: string, editOfMessageId?: string|null}} NotifyEvent */
+/** @typedef {{id: string, ok: boolean, error?: string, messageId?: string}} TransportOutcome one transport's own outcome, named so the receipt says which took the message; `messageId` is the id a transport receipt named for the message it created or edited */
+/** @typedef {{ok: boolean, error?: string, noTransport?: boolean, messageId?: string, transports?: TransportOutcome[]}} DeliveryResult */
 
 /**
  * Render the message for an event. For `node.terminal`, `run.terminal` and
@@ -219,7 +255,10 @@ export const NOTIFY_NO_TRANSPORT_WARNING = "no human notification transport is c
  * own persisted state (its contract, its node snapshots, its usage) from
  * `event.runDir` -- so whatever calls this function once gets exactly the
  * string every audience of that event sees: the inbox entry's `summary` and
- * the transport's stdin are never rendered separately and never drift.
+ * the transport's stdin are never rendered separately and never drift. A
+ * `progress` event is never rendered here: the campaign watcher renders it
+ * from the shared projection and passes it pre-rendered, so a progress event
+ * without a summary is a caller bug and throws.
  *
  * `runDir` is absent, or names a directory with no readable run scaffold
  * (no `contract.json`, no `run.json`, a node snapshot that fails validation),
@@ -438,13 +477,16 @@ export function appendInbox(runsDir, event) {
  * text. The result is `ok` when any one of them took the message, carries
  * every transport's own outcome for the receipt, and is
  * `{ok: false, noTransport: true}` when nothing at all is bound -- without
- * spawning or connecting anything.
+ * spawning or connecting anything. When a transport answered with a receipt
+ * naming the message it created or edited, that id is surfaced as `messageId`
+ * so the caller can claim exactly what the transport acknowledged -- never
+ * more.
  *
  * @param {{type: string, summary: string, campaignId?: string|null, [key: string]: unknown}} event
  * @param {{bin?: string, env?: NodeJS.ProcessEnv, spawn?: typeof defaultSpawn, timeoutMs?: number}} [options]
  * @returns {Promise<DeliveryResult>}
  */
-async function deliverNotification(event, options = {}) {
+export async function deliverNotification(event, options = {}) {
   const env = options.env ?? process.env;
   const bin = options.bin ?? env[NOTIFY_BIN_ENV];
   const targets = resolveSessionTargets(env);
@@ -461,11 +503,39 @@ async function deliverNotification(event, options = {}) {
   if (!attempts.length && !targets.length) return { ok: false, noTransport: true, transports: [] };
   const transports = [...(await Promise.all(attempts)), ...(await sessions)];
   const failures = transports.filter((outcome) => !outcome.ok).map((outcome) => `${outcome.id}: ${outcome.error ?? "failed"}`);
+  const messageId = transports.map((outcome) => outcome.messageId).find((id) => typeof id === "string" && id !== "");
   return {
     ok: transports.some((outcome) => outcome.ok),
+    ...(messageId ? { messageId } : {}),
     ...(failures.length ? { error: failures.join("; ") } : {}),
     transports,
   };
+}
+
+/**
+ * The transport's delivery receipt, read from the last non-empty line it
+ * printed: a JSON object whose `messageId` names the message it created or
+ * edited. A transport that prints nothing else, prints non-JSON, or exits
+ * non-zero yields no receipt, and the caller claims no editable message from
+ * it.
+ *
+ * @param {string} stdout
+ * @returns {{messageId?: string}}
+ */
+function transportReceipt(stdout) {
+  const lines = stdout.split("\n");
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const trimmed = lines[index].trim();
+    if (!trimmed) continue;
+    try {
+      const parsed = JSON.parse(trimmed);
+      const messageId = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed.messageId : undefined;
+      return typeof messageId === "string" && messageId ? { messageId } : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
 }
 
 /**
@@ -474,7 +544,9 @@ async function deliverNotification(event, options = {}) {
  * by a lingering grandchild or be slow to flush under load well after the
  * notifier process itself has terminated. Gating delivery on that stream
  * closing (as the previous implementation did) could stall a healthy,
- * already-exited delivery until the timeout fired.
+ * already-exited delivery until the timeout fired. A zero exit is the
+ * delivery; whatever the transport printed on stdout is its receipt, read
+ * by `transportReceipt`.
  *
  * @param {string} bin
  * @param {JsonObject} event
@@ -490,7 +562,7 @@ function spawnDeliver(bin, event, { spawn = defaultSpawn, timeoutMs = notificati
       // names its interpreter. Either spawns as EFTYPE unhandled, which is a
       // notification that silently never arrives.
       const invocation = spawnInvocation(bin, []);
-      child = spawn(invocation.command, invocation.args, { stdio: ["pipe", "ignore", "pipe"], env: process.env, ...invocation.options });
+      child = spawn(invocation.command, invocation.args, { stdio: ["pipe", "pipe", "pipe"], env: process.env, ...invocation.options });
     } catch (error) {
       resolveDelivery({ ok: false, error: errorMessage(error) });
       return;
@@ -504,11 +576,15 @@ function spawnDeliver(bin, event, { spawn = defaultSpawn, timeoutMs = notificati
       resolveDelivery(result);
     };
     let stderr = "";
+    let stdout = "";
     child.stderr?.on("data", (chunk) => {
       stderr = `${stderr}${chunk}`.slice(-1024);
     });
+    child.stdout?.on("data", (chunk) => {
+      stdout = `${stdout}${chunk}`.slice(-2048);
+    });
     child.once("error", (error) => finish({ ok: false, error: errorMessage(error) }));
-    child.once("exit", (code) => finish(code === 0 ? { ok: true } : { ok: false, error: stderr || `notification exited ${code}` }));
+    child.once("exit", (code) => finish(code === 0 ? { ok: true, ...transportReceipt(stdout) } : { ok: false, error: stderr || `notification exited ${code}` }));
     const timer = setTimeout(() => {
       try {
         child.kill("SIGTERM");

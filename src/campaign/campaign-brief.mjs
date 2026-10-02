@@ -45,8 +45,14 @@ import { projectCampaignDecisions } from "./projection.mjs";
 /** @typedef {import("./campaign-brief-graph.mjs").BriefGraph} BriefGraph */
 /** @typedef {{status: "range"|"insufficient data", min: number|null, max: number|null, samples: number|null, reason: string|null, sourceRuns: string[], method: string|null, provenance: string|null}} BriefMeasure */
 /** @typedef {{status?: "range"|"insufficient data", min?: number|null, max?: number|null, samples?: number|null, reason?: string|null, sourceRuns?: string[], method?: string|null, provenance?: string|null}} BriefMeasureInput */
-/** @typedef {{cost?: BriefMeasureInput, duration?: BriefMeasureInput, runtimes?: string[], models?: string[], effectiveConcurrency?: number, nodeCount?: number, workerCount?: number, sampleCutoff?: string|null, method?: string[], assumptions?: string[]}} BriefEstimateInput */
-/** @typedef {{cost: BriefMeasure, duration: BriefMeasure, runtimes: string[], models: string[], effectiveConcurrency: number, nodeCount: number, workerCount: number, sampleCutoff: string|null, method: string[], assumptions: string[], gaps: string[]}} BriefEstimate */
+/** @typedef {{cost?: BriefMeasureInput, costPerAccepted?: BriefMeasureInput, duration?: BriefMeasureInput, runtimes?: string[], models?: string[], effectiveConcurrency?: number, nodeCount?: number, workerCount?: number, sampleCutoff?: string|null, method?: string[], assumptions?: string[]}} BriefEstimateInput */
+/**
+ * `costPerAccepted` is optional because models built before the measure
+ * existed (test fixtures, older snapshots) may omit it: the renderer and the
+ * decision gate treat an absent measure as unrecorded evidence, never as a
+ * crash. `buildEstimate` itself always records it.
+ * @typedef {{cost: BriefMeasure, costPerAccepted?: BriefMeasure, duration: BriefMeasure, runtimes: string[], models: string[], effectiveConcurrency: number, nodeCount: number, workerCount: number, sampleCutoff: string|null, method: string[], assumptions: string[], gaps: string[]}} BriefEstimate
+ */
 /** @typedef {{measure: string, target: string, evidence: string}} BriefSuccessCriterion */
 /** @typedef {{risk: string, impact: string, mitigation: string}} BriefRisk */
 /** @typedef {{intent: string|null, expectedOutcome: string|null, successCriteria: BriefSuccessCriterion[], humanFacts: string[], calculatedFacts: string[], gaps: string[]}} BriefOpening */
@@ -193,9 +199,11 @@ export function buildBriefModel(options) {
 
 /**
  * `gaps to resolve` when the coverage matrix, the work graph or the opening's
- * source facts report a gap, or when either estimate measure lacks its required
+ * source facts report a gap, or when any estimate measure lacks its required
  * evidence; otherwise `ready for human review`. Neither state approves
- * execution.
+ * execution. Cost per accepted result is an estimate measure like cost and
+ * duration: without it the brief cannot support an outcome-vs-price-tag
+ * comparison (phase-4 R5), so it gates readiness the same way.
  *
  * @param {{opening: BriefOpening, coverage: BriefCoverage, graph: BriefGraph, decisions: BriefDecisions, estimate: BriefEstimate}} model
  * @returns {BriefDecisionState}
@@ -205,7 +213,7 @@ export function decideBriefState(model) {
   if (model.graph.gaps.length > 0) return "gaps to resolve";
   if (model.decisions.gaps.length > 0) return "gaps to resolve";
   if (model.opening.gaps.length > 0) return "gaps to resolve";
-  if (model.estimate.cost.status !== "range" || model.estimate.duration.status !== "range") return "gaps to resolve";
+  if (model.estimate.cost.status !== "range" || model.estimate.costPerAccepted?.status !== "range" || model.estimate.duration.status !== "range") return "gaps to resolve";
   return "ready for human review";
 }
 
@@ -492,16 +500,19 @@ function normalizeDecisionText(text) {
  */
 function buildEstimate(input, graph, sampleCutoff) {
   const cost = normalizeMeasure(input?.cost, "cost");
+  const costPerAccepted = normalizeMeasure(input?.costPerAccepted, "cost per accepted result");
   const duration = normalizeMeasure(input?.duration, "duration");
   /** @type {string[]} */
   const gaps = [];
   if (cost.status !== "range") gaps.push(`cost estimate reports insufficient data: ${cost.reason ?? "no reason recorded"}`);
+  if (costPerAccepted.status !== "range") gaps.push(`cost per accepted result estimate reports insufficient data: ${costPerAccepted.reason ?? "no reason recorded"}`);
   if (duration.status !== "range") gaps.push(`duration estimate reports insufficient data: ${duration.reason ?? "no reason recorded"}`);
   if (typeof sampleCutoff !== "string" || !sampleCutoff.trim()) {
     gaps.push("usage sample cutoff is not recorded");
   }
   return {
     cost,
+    costPerAccepted,
     duration,
     runtimes: unique(input?.runtimes ?? graph.nodes.map((node) => node.runtimeId).filter((id) => id !== null).map(String)),
     models: unique(input?.models ?? graph.nodes.map((node) => node.model).filter((model) => model !== null).map(String)),
@@ -584,7 +595,7 @@ function buildOpening(parsedSpec, coverage, graph, estimate, decisions) {
   const calculatedFacts = [
     `Coverage: ${coverage.covered} covered, ${coverage.uncovered} uncovered, ${coverage.outside} outside this plan, ${coverage.traceabilityMissing} traceability missing of ${coverage.total} spec requirements.`,
     `Work graph: ${graph.nodes.length} nodes, ${graph.edges.length} dependency edges, ${graph.independent.length} dependency-independent, effective concurrency ${graph.effectiveConcurrency} under maxParallel ${graph.maxParallel}.`,
-    `Estimate: cost ${estimate.cost.status}, duration ${estimate.duration.status}; sample cutoff ${estimate.sampleCutoff ?? "not recorded"}.`,
+    `Estimate: cost ${estimate.cost.status}, cost per accepted result ${estimate.costPerAccepted?.status ?? "insufficient data"}, duration ${estimate.duration.status}; sample cutoff ${estimate.sampleCutoff ?? "not recorded"}.`,
   ];
   return { intent, expectedOutcome, successCriteria, humanFacts, calculatedFacts, gaps };
 }

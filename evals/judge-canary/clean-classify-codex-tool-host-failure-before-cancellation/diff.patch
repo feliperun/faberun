@@ -1,5 +1,5 @@
 diff --git a/skills/mine/intent-factory/scripts/drivers/codex.mjs b/skills/mine/intent-factory/scripts/drivers/codex.mjs
-index b9c2562..0f8b225 100644
+index b9c2562521552fca1bc59be0840e58bfc0f03a53..0f8b225dcc160b232330e6579244a77064a0133f 100644
 --- a/skills/mine/intent-factory/scripts/drivers/codex.mjs
 +++ b/skills/mine/intent-factory/scripts/drivers/codex.mjs
 @@ -6,10 +6,12 @@ import { normalizeCodexResult, parseVersion, toml } from "./exec-jsonl.mjs";
@@ -20,7 +20,7 @@ index b9c2562..0f8b225 100644
  export const CODEX_PREAMBLE_OVERRIDES = Object.freeze([
    "features.browser_use=false",
 diff --git a/skills/mine/intent-factory/scripts/drivers/exec-jsonl.mjs b/skills/mine/intent-factory/scripts/drivers/exec-jsonl.mjs
-index 3a44b13..8ab4205 100644
+index 3a44b13f5344d770bd852c9b2ad8c3d6802dbec0..8ab4205dc2262fe543200c5b5e4fec334a73a4eb 100644
 --- a/skills/mine/intent-factory/scripts/drivers/exec-jsonl.mjs
 +++ b/skills/mine/intent-factory/scripts/drivers/exec-jsonl.mjs
 @@ -300,12 +300,12 @@ export function normalizeCodexResult(stdout, exitCode, signal, options = {}) {
@@ -71,7 +71,7 @@ index 3a44b13..8ab4205 100644
  }
  
 diff --git a/skills/mine/intent-factory/test/drivers.test.mjs b/skills/mine/intent-factory/test/drivers.test.mjs
-index 03d768a..b315685 100644
+index 03d768aca9c5a0f1614c77c648622994a8501bc5..b315685b6428cfb66eb13ccc60a87e0cb6043644 100644
 --- a/skills/mine/intent-factory/test/drivers.test.mjs
 +++ b/skills/mine/intent-factory/test/drivers.test.mjs
 @@ -617,6 +617,48 @@ test("codex tool host failure is a provider failure, never a result", () => {

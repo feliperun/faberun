@@ -13,12 +13,14 @@ import { boundedUtf8, errorMessage } from "../util.mjs";
 import { compactVerification } from "../contract/verification.mjs";
 import { MAX_SCOPE_FINDING_PATHS } from "../contract/scope-findings.mjs";
 import { finalVerificationCommands, phaseTerminalNode, sharedVerificationCommands } from "../contract/final-verification.mjs";
-import { join } from "node:path";
+import { realpathSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { listNodeSnapshots, readNodeSnapshot } from "../run/node-store.mjs";
 import { SETTLED } from "./prompts.mjs";
 import { terminateInvocation } from "./process.mjs";
 import { writeNode } from "./state.mjs";
 import { runVerification } from "./run-command.mjs";
+import { parkDuringProof } from "./settlement-overlap.mjs";
 
 /** @typedef {import("../repo/integrate.mjs").CandidateEvidence} CandidateEvidence */
 /** @typedef {import("../cli.mjs").LockHandle} LockHandle */
@@ -30,6 +32,119 @@ import { runVerification } from "./run-command.mjs";
 /** @typedef {import("../contract/verification.mjs").VerificationCommand} VerificationCommand */
 /** @typedef {import("../contract/index.mjs").VerificationState} VerificationState */
 /** @typedef {{index: number, total: number, argv: string}} VerificationProgress */
+
+/**
+ * The proof gate: the verification layer's own admission for concurrent
+ * passes. R7 (phase 5) allows proofs in independent worktrees to advance
+ * together, bounded by the contract's `maxParallel` — the ceiling the planner
+ * already sized from this machine, and nothing higher (phase-5 restriction:
+ * the host is measured before concurrency is raised). Passes that share a
+ * tree can interfere, so they never overlap no matter what the budget allows:
+ * the base checkout (`contract.cwd`, where a node without an attempt worktree
+ * runs) and the run's one candidate worktree are each serialized under their
+ * own key. The settlement overlap (`engine/settlement-overlap.mjs`) is the
+ * caller that puts the budget to work: it parks a settlement for the length
+ * of each pass, so two nodes' independent worktree proofs overlap through a
+ * real run while this gate holds the bound, shared-tree passes, and the
+ * candidate worktree's pass serialized.
+ *
+ * @typedef {{limit: number, active: number, held: Set<string>, waiters: {key: string, satisfy: () => void}[]}} ProofGate
+ */
+
+/** @type {WeakMap<ValidatedContract, ProofGate>} */
+const proofGates = new WeakMap();
+
+/**
+ * @param {ValidatedContract} contract
+ * @returns {ProofGate}
+ */
+function proofGateFor(contract) {
+  let gate = proofGates.get(contract);
+  if (!gate) {
+    gate = { limit: Math.max(1, contract.maxParallel ?? 1), active: 0, held: new Set(), waiters: [] };
+    proofGates.set(contract, gate);
+  }
+  return gate;
+}
+
+/**
+ * The tree a pass runs in. `realpath` because a worktree path reached through
+ * a symlinked parent (/var vs /private/var on darwin) must read as the same
+ * key on every call.
+ *
+ * @param {string} workspace
+ * @returns {string}
+ */
+function proofWorkspaceKey(workspace) {
+  try {
+    return realpathSync(workspace);
+  } catch {
+    // An absent workspace has no realpath; nothing can run in it anyway, so
+    // the lexical resolution is as good a key as any.
+    return resolve(workspace);
+  }
+}
+
+/** @param {ProofGate} gate @returns {void} */
+function drainProofWaiters(gate) {
+  for (let index = 0; index < gate.waiters.length && gate.active < gate.limit;) {
+    const waiter = /** @type {{key: string, satisfy: () => void}} */ (gate.waiters[index]);
+    if (gate.held.has(waiter.key)) {
+      index += 1;
+      continue;
+    }
+    gate.waiters.splice(index, 1);
+    waiter.satisfy();
+  }
+}
+
+/**
+ * @param {ProofGate} gate
+ * @param {string} key
+ * @returns {Promise<() => void>}
+ */
+function acquireProofSlot(gate, key) {
+  return new Promise((resolveSlot) => {
+    /** @returns {void} */
+    const satisfy = () => {
+      gate.active += 1;
+      gate.held.add(key);
+      let released = false;
+      resolveSlot(() => {
+        if (released) return;
+        released = true;
+        gate.active -= 1;
+        gate.held.delete(key);
+        drainProofWaiters(gate);
+      });
+    };
+    if (gate.active < gate.limit && !gate.held.has(key)) {
+      satisfy();
+      return;
+    }
+    gate.waiters.push({ key, satisfy });
+  });
+}
+
+/**
+ * Run one verification pass holding its proof slot: the pass overlaps other
+ * passes only in worktrees independent of its own, and only while the run's
+ * budget has room.
+ *
+ * @template T
+ * @param {ValidatedContract} contract
+ * @param {string} workspace
+ * @param {() => Promise<T>} run
+ * @returns {Promise<T>}
+ */
+async function withProofSlot(contract, workspace, run) {
+  const release = await acquireProofSlot(proofGateFor(contract), proofWorkspaceKey(workspace));
+  try {
+    return await run();
+  } finally {
+    release();
+  }
+}
 
 /**
  * The sibling phase-terminal node ids already settled, read straight off
@@ -147,7 +262,16 @@ export async function executeControllerVerification(contract, runDir, node, stat
   /** @param {VerificationAttempt} attempt @returns {VerificationProgress} */
   const progressFor = (attempt) => verificationProgress(attempt.commandIndex + 1, commands.length, /** @type {VerificationCommand|undefined} */ (commands[attempt.commandIndex])?.argv);
   try {
-    const result = await runVerification(commands, workspace, {
+    // Parked for the length of the pass: the settlement's section slot goes
+    // back to the overlap while these child processes run, so a sibling's
+    // settlement -- and its own proof -- advances. Everything after this
+    // await (judge dispatch, gate verdicts, integration) runs in the
+    // re-acquired section; the proof gate below is what bounds the overlap.
+    // The candidate pass in `verifyCandidateWorkspace` is deliberately not
+    // parked: it runs inside the integration transaction's candidate lock,
+    // and parking it would wait to re-acquire a section a sibling holds
+    // while that sibling waits on this same candidate lock.
+    const result = await parkDuringProof(() => withProofSlot(contract, workspace, () => runVerification(commands, workspace, {
       logDir: join(runDir, "logs", `${node.id}.${state.attempt}.verification`),
       writeFiles: node.taskPacket.writeFiles ?? [],
       onAttemptStart: (attempt) => persistVerificationAttempt(runDir, state, lock, attempt, progressFor(attempt)),
@@ -156,7 +280,7 @@ export async function executeControllerVerification(contract, runDir, node, stat
         ...attempt,
         result: boundedVerificationAttemptResult(attempt.result),
       }),
-    });
+    })));
     state.verification = {
       ...compactVerification(result),
       completed: true,
@@ -318,19 +442,19 @@ export async function verifyCandidateWorkspace(contract, node, state, runDir, wo
   const commands = [...node.taskPacket.verification, ...sharedVerificationCommands(contract), ...finalVerificationCommands(contract, node, settledSiblingIds(runDir, contract, node))];
   markCandidateVerification(runDir, state, lock, true);
   try {
-    const result = await runVerification(commands, workspace, {
+    const result = await withProofSlot(contract, workspace, () => runVerification(commands, workspace, {
       logDir: join(runDir, "logs", `${node.id}.${state.attempt}.candidate-verification`),
       writeFiles: node.taskPacket.writeFiles ?? [],
-    });
+    }));
     /** @type {import("../contract/verification.mjs").VerificationResult & {retried?: number[]}} */
     let settled = result;
     if (!result.passed) {
       settled = await retryDivergentCandidateCommands(result, state.verification, async (indexes) => {
         const subset = indexes.map((index) => commands[index]);
-        const rerun = await runVerification(subset, workspace, {
+        const rerun = await withProofSlot(contract, workspace, () => runVerification(subset, workspace, {
           logDir: join(runDir, "logs", `${node.id}.${state.attempt}.candidate-retry`),
           writeFiles: node.taskPacket.writeFiles ?? [],
-        });
+        }));
         return rerun.commands;
       });
     }

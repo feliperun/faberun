@@ -9,14 +9,14 @@
 import { appendJsonl, writeJsonAtomic } from "./store.mjs";
 import { basename, join } from "node:path";
 import { errorMessage, finite, stableJson } from "../util.mjs";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { liveUsage } from "../harnesses/session-metrics.mjs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { liveUsage, liveUsageCounters } from "../harnesses/session-metrics.mjs";
 
 import { priceUsage } from "../engine/process.mjs";
 import { readBoundedTail, sessionLedger } from "../engine/transcript.mjs";
 import { writeNode } from "../engine/state.mjs";
 import { harnessCapabilities, normalizeProviderResult } from "../harnesses/index.mjs";
-import { recordInvocationWindows } from "./usage-windows.mjs";
+import { addAccountUsage, recordInvocationWindows, sumCounters } from "./usage-windows.mjs";
 
 // `priceUsage` is defined beside `invocationResult`, the second source point,
 // and re-exported here so the ledger's public surface is unchanged. This module
@@ -32,6 +32,7 @@ export { priceUsage };
 /** @typedef {ProviderEnvelope & {costProvenance?: "priced"}} PricedEnvelope */
 /** @typedef {{kind: "adopted"|"rejudge"|"restart"|"reconciled"|"exhausted"|"stalled", phase?: "worker"|"judge", result?: unknown, usage?: Usage, costUsd?: number|null, costProvenance?: "priced", exhaustedUntil?: string|null, error?: {code: string, message: string}|null, invocationId?: string, reason?: string}} RecoveryOutcome */
 /** @typedef {import("../contract/index.mjs").Usage} Usage */
+/** @typedef {import("../harnesses/session-metrics.mjs").UsageCounters} UsageCounters */
 /** @typedef {"no-usage-stream"|"model-not-priced"|"provider-reported-nothing"|"invocation-killed"} UnknownCostReason */
 
 /** The only reasons a newly-written unknown cost may carry. `legacy` is read-only compatibility for older ledgers. */
@@ -91,9 +92,11 @@ export function recordInvocationUsage(job, options = {}) {
   // the single priced object every later copy spreads from.
   try {
     recordInvocationWindows(job.runtime, envelope.continuationId);
+    addAccountUsage(job.runtime, invocationCounters(job.invocation, boundedStdout));
   } catch {
-    // The window record is telemetry about the account, never a reason to fail
-    // the invocation it rode on: a missing or unreadable session file means no reading.
+    // The window record and the account rollup are telemetry about the
+    // account, never a reason to fail the invocation it rode on: a missing or
+    // unreadable session file means no reading.
   }
   const priced = priceUsage(job.runtime, envelope.usage, envelope.costUsd);
   envelope = { ...envelope, costUsd: priced.costUsd, costProvenance: priced.costProvenance };
@@ -108,6 +111,36 @@ export function recordInvocationUsage(job, options = {}) {
   return envelope;
 }
 const USAGE_LOG_NAME = "usage.jsonl";
+/**
+ * The five measured counters one invocation proves: the recorded usage, with
+ * cache writes and any unrecorded counter mapped from the harness-reported
+ * session metrics on the transcript tail, plus the prompt's byte size. A
+ * counter nothing reports stays null, never a plausible zero.
+ * @param {Invocation|undefined|null} invocation
+ * @param {string} stdout bounded transcript tail, empty when none survives
+ * @returns {UsageCounters}
+ */
+function invocationCounters(invocation, stdout) {
+  const usage = /** @type {Record<string, unknown>} */ (invocation?.usage ?? {});
+  const observed = stdout ? liveUsageCounters(String(invocation?.harness ?? ""), stdout) : null;
+  return {
+    bytes: promptBytes(invocation?.promptPath),
+    inputTokens: finite(usage.inputTokens) ?? observed?.inputTokens ?? null,
+    cacheReadInputTokens: finite(usage.cacheReadInputTokens) ?? observed?.cacheReadInputTokens ?? null,
+    cacheWriteInputTokens: observed?.cacheWriteInputTokens ?? null,
+    outputTokens: finite(usage.outputTokens) ?? observed?.outputTokens ?? null,
+  };
+}
+/** @param {unknown} promptPath @returns {number|null} the dispatched prompt's byte size, when its file survives */
+function promptBytes(promptPath) {
+  if (typeof promptPath !== "string" || !promptPath) return null;
+  try {
+    return statSync(promptPath).size;
+  } catch {
+    // A prompt file the run archived or cleaned away has no measured size.
+    return null;
+  }
+}
 /** @param {Usage|undefined} usage @returns {boolean} */
 function hasMeasuredUsage(usage) {
   return Boolean(usage && [usage.inputTokens, usage.outputTokens, usage.cacheReadInputTokens]
@@ -230,6 +263,15 @@ export function usageRecordIds(runDir) {
 export function appendUsageRecord(runDir, invocation, options = {}) {
   if (!invocation?.id || usageRecordIds(runDir).has(invocation.id)) return;
   const usage = /** @type {Usage} */ (invocation.usage ?? { inputTokens: null, outputTokens: null, cacheReadInputTokens: null });
+  /** @type {string} */
+  let transcript = "";
+  try {
+    transcript = invocation.stdoutPath ? readBoundedTail(invocation.stdoutPath) : "";
+  } catch {
+    // A transcript the run already capped or cleaned away carries no session
+    // metrics; the counters it would map stay unrecorded.
+  }
+  const counters = invocationCounters(invocation, transcript);
   const costProvenance = invocation.costProvenance ?? (typeof invocation.costUsd === "number" ? "provider" : "unknown");
   const unknownReason = costProvenance === "unknown"
     ? unknownCostReason(invocation, usage, options)
@@ -245,6 +287,12 @@ export function appendUsageRecord(runDir, invocation, options = {}) {
     inputTokens: typeof usage.inputTokens === "number" ? usage.inputTokens : null,
     cacheReadInputTokens: typeof usage.cacheReadInputTokens === "number" ? usage.cacheReadInputTokens : null,
     outputTokens: typeof usage.outputTokens === "number" ? usage.outputTokens : null,
+    // The R1 counters ride the same record as the priced cost, per role and
+    // attempt: bytes from the dispatched prompt file, cache writes from the
+    // transcript's session metrics. An unmeasured counter is omitted, so a
+    // pre-counter record keeps its exact old shape.
+    ...(counters.bytes === null ? {} : { bytes: counters.bytes }),
+    ...(counters.cacheWriteInputTokens === null ? {} : { cacheWriteInputTokens: counters.cacheWriteInputTokens }),
     costUsd: typeof invocation.costUsd === "number" ? invocation.costUsd : null,
     // A persisted `priced` marker wins; otherwise the pre-Phase-4 rule applies
     // unchanged: a reported number is `provider`, absence is `unknown`.
@@ -482,7 +530,7 @@ function listNodeSnapshotFiles(runDir) {
 // without recorded evidence stays null so the estimate can say
 // `insufficient data` instead of inventing a zero.
 
-/** @typedef {{runtimeId: string|null, model: string|null, costUsd: number|null, costProvenance: string|null}} CompletedExecutionRole */
+/** @typedef {{runtimeId: string|null, model: string|null, costUsd: number|null, costProvenance: string|null, usage: UsageCounters|null}} CompletedExecutionRole */
 /**
  * One completed execution node, with the worker (and optional judge) role
  * evidence the estimate compares against a planned assignment. `costUsd` is
@@ -692,7 +740,21 @@ function roleEvidence(role, usageRecords, invocations, contract, contractNode) {
   const model = typeof last.model === "string" && last.model ? last.model : declaredModel;
   const priced = source.every((record) => typeof record.costUsd === "number" && Number.isFinite(record.costUsd) && record.costProvenance === "priced");
   const costUsd = priced ? source.reduce((total, record) => total + /** @type {number} */ (record.costUsd), 0) : null;
-  return { runtimeId, model, costUsd, costProvenance: costUsd === null ? null : "priced" };
+  return {
+    runtimeId,
+    model,
+    costUsd,
+    costProvenance: costUsd === null ? null : "priced",
+    // The role's R1 counters, strict like the cost: summed only when every
+    // invocation in the role measured each counter, else null.
+    usage: sumCounters(source.map((record) => ({
+      bytes: finite(record.bytes),
+      inputTokens: finite(record.inputTokens),
+      cacheReadInputTokens: finite(record.cacheReadInputTokens),
+      cacheWriteInputTokens: finite(record.cacheWriteInputTokens),
+      outputTokens: finite(record.outputTokens),
+    }))),
+  };
 }
 
 /**

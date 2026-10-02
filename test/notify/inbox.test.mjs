@@ -17,6 +17,11 @@ import { SPAWN_WAIT_FACTOR, fixture, packet, writeContract, withEmptyPath, withF
 import { RUNNER_CLI } from "../runner-helpers.mjs";
 import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
+// The wording these tests pin is the test's, not this machine's: an
+// operator's FABERUN_NOTIFY_LANG must never choose which language the
+// assertions read.
+process.env.FABERUN_NOTIFY_LANG = "en";
+
 /** @param {string} prefix @returns {string} */
 function tempDir(prefix) {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -37,6 +42,36 @@ function makeRunDir(runsDir, runId, nodes) {
   writeFileSync(join(runDir, "run.json"), JSON.stringify({ startedAt: new Date(0).toISOString() }));
   for (const [id, node] of Object.entries(nodes)) {
     writeFileSync(join(runDir, "nodes", `${id}.json`), JSON.stringify({ id, status: node.status, error: node.error ?? null }));
+  }
+  return runDir;
+}
+
+/**
+ * One linked run the campaign projection can read: the contract the run
+ * launched with and one snapshot per node, filled with the fields the
+ * snapshot reader expects so only the statuses under test vary.
+ *
+ * @param {string} runsDir
+ * @param {string} runId
+ * @param {{id: string, goal?: string, nodes: Array<{id: string, dependsOn: string[]}>}} contract
+ * @param {Array<Record<string, unknown>>} snapshots
+ * @returns {string}
+ */
+function writeContractRun(runsDir, runId, contract, snapshots) {
+  const runDir = join(runsDir, runId);
+  mkdirSync(join(runDir, "nodes"), { recursive: true });
+  writeFileSync(join(runDir, "contract.json"), JSON.stringify(contract));
+  for (const snapshot of snapshots) {
+    writeFileSync(join(runDir, "nodes", `${snapshot.id}.json`), JSON.stringify({
+      attempt: 1,
+      startedAt: "2026-09-29T10:00:00.000Z",
+      updatedAt: "2026-09-29T10:05:00.000Z",
+      invocations: [],
+      error: null,
+      worktree: null,
+      result: { summary: "" },
+      ...snapshot,
+    }));
   }
   return runDir;
 }
@@ -164,19 +199,21 @@ test("done-when 4: campaign-level notifications are queued and delivered with no
   assert.equal(readFileSync(join(path, "notify.jsonl"), "utf8").trim().split("\n").length, 1);
 });
 
-test("done-when 5: a restarted watcher does not re-deliver and a live watcher refuses to double-run", async () => {
+test("done-when 5: a completed phase alerts once, a restarted watcher does not re-deliver, and a live watcher refuses to double-run", async () => {
   const directory = tempDir("inbox-watch-");
   const runsDir = runsRoot(directory);
   const { path } = initializeCampaign(runsDir, { campaignId: "c5", goal: "one watcher per campaign" });
   registerRun(path, "r5");
-  const runDir = makeRunDir(runsDir, "r5", { build: { status: "done" } });
-  writeFileSync(join(runDir, "status.json"), JSON.stringify({ nodes: [{ id: "build", status: "done" }], summary: "1/1 nodes" }));
+  writeContractRun(runsDir, "r5",
+    { id: "r5", goal: "one node", nodes: [{ id: "build", dependsOn: [] }] },
+    [{ id: "build", status: "done" }]);
 
-  /** @type {{summary: string}[]} */
+  /** @type {{dedupeKey: string, summary: string}[]} */
   const first = [];
   await watchCampaignWake(path, runsDir, { once: true, emit: () => {}, notify: (event) => { first.push(event); } });
-  assert.equal(first.length, 1, "the terminal line is announced once");
-  assert.match(first[0].summary, /campaign-watch: r5 terminal/u);
+  assert.equal(first.length, 1, "the phase-completed alert is announced once");
+  assert.equal(first[0].dedupeKey, "alert:phase-completed:c5:r5");
+  assert.match(first[0].summary, /campaign-watch: phase completed: r5 · 1\/1 done/u);
   assert.equal(existsSync(join(path, "watch.lock")), false, "the lock is released on exit");
 
   // A restart finds a stale lock (dead pid) and the durable inbox already

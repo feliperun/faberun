@@ -1,5 +1,5 @@
 diff --git a/skills/mine/intent-factory/scripts/worktree.mjs b/skills/mine/intent-factory/scripts/worktree.mjs
-index de98200..7c49308 100644
+index de98200185d76be5f683f2c590dbdc7be2cbc42b..7c49308acdc6913648003a9cb5c61427e431de01 100644
 --- a/skills/mine/intent-factory/scripts/worktree.mjs
 +++ b/skills/mine/intent-factory/scripts/worktree.mjs
 @@ -123,12 +123,17 @@ export function sealAttempt({ repo, path, baseSha, runId, nodeId, attempt }) {
@@ -23,7 +23,7 @@ index de98200..7c49308 100644
        "-C", path,
        "-c", "user.email=runner@example.test",
 diff --git a/skills/mine/intent-factory/test/integration.test.mjs b/skills/mine/intent-factory/test/integration.test.mjs
-index efe6982..1eb8da4 100644
+index efe6982da84e2f53efb875f44721a183666fcee8..1eb8da4765ab89f8b49d70a514058f05b7d7c716 100644
 --- a/skills/mine/intent-factory/test/integration.test.mjs
 +++ b/skills/mine/intent-factory/test/integration.test.mjs
 @@ -1,9 +1,11 @@

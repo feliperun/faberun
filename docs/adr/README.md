@@ -59,6 +59,7 @@ proposed → active → superseded
 | [0007](0007-windows-install-and-directory-links.md) | Windows install: one layout, junctions for directory links | active |
 | [0009](0009-a-campaign-runs-on-windows.md) | A campaign runs on Windows: spawning, killing and seeing the tree | active |
 | [0010](0010-the-suite-runs-on-windows.md) | The suite runs on Windows: ownership, detachment, and what a platform can prove | active |
+| [0011](0011-reserva-opcional-de-saldo.md) | Reserva opcional de saldo bloqueia novos dispatches | active |
 
 This repository does not adopt Sentrux; its structural quality gate is
 [`test/repo/source-shape.test.mjs`](../../test/repo/source-shape.test.mjs),

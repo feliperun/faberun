@@ -24,6 +24,8 @@ const DIRECTIONS = {
   usageTokensByKind: "informative",
   usageTokensByKindByRuntime: "informative",
   usageCostUsd: "down",
+  usageCostUsdByClass: "down",
+  retryCostUsd: "down",
   judgeFindingRate: "up",
   judgeCostShare: "down",
   blockingJudgeFirstPassRate: "up",
@@ -35,6 +37,9 @@ const DIRECTIONS = {
 
 /** @param {number} minute @param {number} [second] @returns {string} */
 const at = (minute, second = 0) => new Date(Date.parse("2026-09-04T10:00:00.000Z") + (minute * 60 + second) * 1000).toISOString();
+
+/** The reserve rides beside the indicator set as non-enumerable policy state, so a reader names it explicitly. @param {import("../../src/campaign/metrics.mjs").CampaignMetrics} metrics @returns {import("../../src/campaign/metrics.mjs").ReserveProjection} */
+const reserveOf = (metrics) => /** @type {any} */ (metrics).reserve;
 
 /**
  * @param {string} runId @param {string} node @param {string} to
@@ -482,6 +487,101 @@ test("metrics silentStallRate is stalled logical nodes per active run-hour", () 
   assert.deepEqual(noActiveTime.silentStallRate, { value: null, direction: "down", count: 0, numerator: 1, denominator: 0, excludedRunIds: [] });
 });
 
+test("metrics splits priced spend into the planning, worker and judge classes", () => {
+  const usageRecords = [
+    { runId: "camp-plan", role: "worker", costUsd: 2, costProvenance: "provider" },
+    { runId: "camp-plan", role: "worker", costUsd: null, costProvenance: "unknown" },
+    { runId: "run-a", role: "worker", costUsd: 3, costProvenance: "provider" },
+    { runId: "run-a", role: "judge", costUsd: 1, costProvenance: "provider" },
+  ];
+  const metrics = projectMetrics({ usageRecords, planningRunIds: ["camp-plan"] });
+  assert.deepEqual(metrics.usageCostUsdByClass, {
+    value: { planning: 2, worker: 3, judge: 1 },
+    direction: "down",
+    count: 3,
+    unknownCount: 1,
+    unknownCountByClass: { planning: 1 },
+  });
+  assert.equal(metrics.usageCostUsd.value, 6, "the class split adds up to the campaign total");
+
+  // The same records without the classification read as execution spend: the
+  // record of which runs were planning runs is what separates the classes.
+  const unclassified = projectMetrics({ usageRecords });
+  assert.deepEqual(unclassified.usageCostUsdByClass.value, { worker: 5, judge: 1 });
+  assert.deepEqual(unclassified.usageCostUsdByClass.unknownCountByClass, { worker: 1 });
+});
+
+test("metrics reports retry spend from the attempt counter", () => {
+  const usageRecords = [
+    { runId: "run-a", nodeId: "build", role: "worker", attempt: 1, costUsd: 3, costProvenance: "provider" },
+    { runId: "run-a", nodeId: "build", role: "worker", attempt: 2, costUsd: 4, costProvenance: "provider" },
+    { runId: "run-a", nodeId: "build", role: "judge", attempt: 2, costUsd: null, costProvenance: "unknown", unknownReason: "model-not-priced" },
+  ];
+  const metrics = projectMetrics({ usageRecords });
+  assert.deepEqual(metrics.retryCostUsd, {
+    value: 4,
+    direction: "down",
+    count: 1,
+    unknownCount: 1,
+    unknownCountByReason: { "model-not-priced": 1 },
+    unknownFractionByReason: { "model-not-priced": 0.5 },
+  });
+  // A retry is still the class that paid for it: the two readings answer
+  // different questions and are meant to overlap.
+  assert.deepEqual(metrics.usageCostUsdByClass.value, { worker: 7 }, "a judge retry that was never priced stays out of the priced split");
+  assert.deepEqual(metrics.usageCostUsdByClass.unknownCountByClass, { judge: 1 });
+});
+
+test("metrics projects the optional reserve, its release and a late charge", () => {
+  const usageRecords = [
+    { runId: "run-a", nodeId: "build", role: "worker", reservedUsd: 5, costUsd: null, costProvenance: "unknown" },
+    { runId: "run-a", nodeId: "build", role: "worker", reservedUsd: 3, costUsd: 4, costProvenance: "provider" },
+    { runId: "run-a", nodeId: "ship", role: "worker", reservedUsd: 2, costUsd: 1.5, costProvenance: "provider" },
+    { runId: "run-a", nodeId: "ship", role: "worker", costUsd: null, costProvenance: "unknown" },
+  ];
+  const metrics = projectMetrics({ usageRecords, campaign: { reserveUsd: 25 } });
+  assert.deepEqual(reserveOf(metrics), {
+    configuredUsd: 25,
+    heldUsd: 5,
+    heldCount: 1,
+    releasedUsd: 5,
+    reconciledCount: 2,
+    chargedUsd: 5.5,
+    lateChargeUsd: 1,
+    lateChargeCount: 1,
+    unknownExposureCount: 1,
+    cap: false,
+  });
+  assert.equal(Object.keys(metrics).includes("reserve"), false, "the reserve is policy state, not a section-6 indicator");
+});
+
+test("a missing usage source leaves the reserve unknown instead of zero", () => {
+  const usageRecords = [{ runId: "run-a", nodeId: "build", role: "worker", reservedUsd: 4, costUsd: 4, costProvenance: "provider" }];
+  const sources = {
+    campaignId: "reserve-gap",
+    runIds: ["run-a"],
+    events: [],
+    usageRecords: [],
+    notifications: [],
+    nodes: [],
+    journal: [],
+    campaign: {},
+    excludedRunIds: [],
+    planningRunIds: [],
+    missingSources: ["run-a.usage.jsonl"],
+  };
+  const metrics = projectMetrics({ ...sources, usageRecords });
+  assert.equal(reserveOf(metrics).releasedUsd, null, "dollars read from an incomplete source are unknown, never zero");
+  assert.deepEqual(reserveOf(metrics).missingSources, ["run-a.usage.jsonl"]);
+  assert.equal(metrics.usageCostUsdByClass.value, null);
+  assert.equal(metrics.retryCostUsd.value, null);
+  const report = renderMetricsReport(sources, metrics);
+  assert.match(
+    report,
+    /reserve\s+informative\s+configured=none held=unknown released=unknown charged=unknown late=unknown · 1 reservation · missing run-a\.usage\.jsonl · not an absolute cap/u,
+  );
+});
+
 test("metrics projects every indicator of section 6, null and never zero without records", () => {
   const metrics = projectMetrics();
   assert.deepEqual(Object.keys(metrics).sort(), Object.keys(DIRECTIONS).sort());
@@ -494,6 +594,11 @@ test("metrics projects every indicator of section 6, null and never zero without
     assert.equal(indicator.direction, direction, `${name} direction`);
   }
   assert.deepEqual(metrics.usageCostUsd.unknownCount, 0, "usageCostUsd reports zero unknown invocations without records");
+  assert.deepEqual(metrics.usageCostUsdByClass.value, null, "no priced record means no class split");
+  assert.deepEqual(metrics.usageCostUsdByClass.unknownCountByClass, {}, "and no class was seen unpriced either");
+  assert.deepEqual(metrics.retryCostUsd.unknownCountByReason, {}, "no retry was recorded");
+  assert.equal(reserveOf(metrics).heldUsd, null, "the reserve is a projection beside the indicators, not one of them");
+  assert.equal(reserveOf(metrics).cap, false);
 });
 
 test("metrics projection is pure: identical records yield identical indicators", () => {
@@ -588,6 +693,33 @@ test("metrics baseline reproduces this campaign's own recorded runs", () => {
     unknownCountByReason: { legacy: 3 },
     unknownFractionByReason: { legacy: 0.3333 },
   });
+  assert.deepEqual(metrics.usageCostUsdByClass, {
+    value: { worker: 89.8846472 },
+    direction: "down",
+    count: 6,
+    unknownCount: 3,
+    unknownCountByClass: { worker: 3 },
+  });
+  assert.deepEqual(metrics.retryCostUsd, {
+    value: null,
+    direction: "down",
+    count: 0,
+    unknownCount: 0,
+    unknownCountByReason: {},
+    unknownFractionByReason: {},
+  });
+  assert.deepEqual(reserveOf(metrics), {
+    configuredUsd: null,
+    heldUsd: null,
+    heldCount: 0,
+    releasedUsd: null,
+    reconciledCount: 0,
+    chargedUsd: null,
+    lateChargeUsd: null,
+    lateChargeCount: 0,
+    unknownExposureCount: 3,
+    cap: false,
+  });
   assert.deepEqual(metrics.blockingJudgeFirstPassRate, { value: { luna: 0, sol: 1 }, direction: "up", count: 2, numerator: { luna: 0, sol: 1 }, denominator: { luna: 1, sol: 1 }, excludedRunIds: [] });
   assert.deepEqual(metrics.notifyReceiptRate, { value: 1, direction: "up", count: 11, numerator: 11, denominator: 11, excludedRunIds: [] });
   assert.deepEqual(metrics.silentStallRate, { value: 0.0906, direction: "down", count: 100, numerator: 3, denominator: 33.12929083333333, excludedRunIds: [] });
@@ -598,8 +730,8 @@ test("metrics baseline report prints every indicator with its value and directio
   const metrics = projectMetrics(sources);
   const report = renderMetricsReport(sources, metrics);
   const lines = report.trimEnd().split("\n");
-  assert.equal(lines.length, Object.keys(metrics).length + 2, "a header, missing-source line and one line per indicator");
-  assert.match(lines[0], new RegExp(`${BASELINE_CAMPAIGN} · 29 runs · 181 events · 14 indicators`, "u"));
+  assert.equal(lines.length, Object.keys(metrics).length + 3, "a header, missing-source line, one line per indicator and the reserve line");
+  assert.match(lines[0], new RegExp(`${BASELINE_CAMPAIGN} · 29 runs · 181 events · 16 indicators`, "u"));
   for (const [name, indicator] of Object.entries(metrics)) {
     const line = lines.find((candidate) => candidate.startsWith(name));
     assert.ok(line, `${name} is missing from the report`);
@@ -608,6 +740,8 @@ test("metrics baseline report prints every indicator with its value and directio
     assert.ok(line.length <= 140, `${name} line is unbounded at ${line.length} chars`);
   }
   assert.match(report, /usageCostUsd\s+down\s+89\.8846\s+· 6 records · 3 unknown/u);
+  assert.match(report, /usageCostUsdByClass\s+down\s+worker=89\.8846472\s+· 6 records · 3 unknown/u);
+  assert.match(report, /reserve\s+informative\s+configured=none held=none released=none charged=none late=none · 0 reservations · not an absolute cap/u);
 });
 
 test("metrics command projects a campaign from its recorded artefacts", () => {

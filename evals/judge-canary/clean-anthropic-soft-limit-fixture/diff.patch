@@ -1,5 +1,5 @@
 diff --git a/skills/mine/intent-factory/test/drivers.test.mjs b/skills/mine/intent-factory/test/drivers.test.mjs
-index 3ce633c..f06dbb0 100644
+index 3ce633ca598f1f481abd5bd6ef8745f2c5fa44ca..f06dbb0ee47dadc6b3bcbec38ff25d9bea932ffc 100644
 --- a/skills/mine/intent-factory/test/drivers.test.mjs
 +++ b/skills/mine/intent-factory/test/drivers.test.mjs
 @@ -248,6 +248,47 @@ test("DeepSeek's 402 insufficient-balance stop is its own availability reason, d

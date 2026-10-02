@@ -68,7 +68,9 @@ export function roleCostCell(role) {
  * no price reads as unpriced, never a zero), and elapsed with the estimate
  * of what is left -- a `~` number from settled spans alone, `complete` when
  * nothing is left, and `estimate unknown` when nothing has settled to base
- * one on. Everything comes from the roll-up; nothing is recomputed here.
+ * one on -- and, last, the action line (`renderNextActionHtml`): the
+ * projection's own applied/pending/none with the named decision owner.
+ * Everything comes from the roll-up; nothing is recomputed here.
  *
  * @param {Record<string, any>|null|undefined} progress @returns {string}
  */
@@ -85,7 +87,30 @@ export function renderSummaryBandHtml(progress) {
       <span class="sumcounts">${counts.done}/${counts.total} nodes done · ${100 - pct}% left</span>
     </div>
     <div class="sumrow dim">cost — worker ${roleCostCell(progress.costByRole?.worker)} · judge ${roleCostCell(progress.costByRole?.judge)} · campaign total ${fmtUsd(progress.costTotalUsd)}</div>
-    <div class="sumrow dim">running ${esc(time.elapsed ?? "–")} · ${esc(remaining)}</div>`;
+    <div class="sumrow dim">running ${esc(time.elapsed ?? "–")} · ${esc(remaining)}</div>
+    ${renderNextActionHtml(progress)}`;
+}
+
+/**
+ * The action line, in the projection's own three states and no fourth:
+ * `pending` (the command still stands, with its reason), `applied` (the
+ * journal already records the operator's command for it) and `none` (nothing
+ * needs doing — printed as plainly as the rest, so a resume with no paused
+ * run behind it never reads as work). `decisionOwner` names who owns the
+ * campaign's human decision when one is held. Everything renders verbatim
+ * from `progress.nextAction`; the panel computes no state of its own.
+ *
+ * @param {Record<string, any>|null|undefined} progress @returns {string}
+ */
+export function renderNextActionHtml(progress) {
+  const action = progress?.nextAction;
+  if (!action || typeof action.state !== "string") return "";
+  const owner = action.decisionOwner ? ` · decision owner: ${esc(String(action.decisionOwner))}` : "";
+  if (action.state === "none" || !action.command) {
+    return `<div class="sumrow action">next action — ${esc(String(action.state))}${owner}</div>`;
+  }
+  const reason = action.state === "pending" && action.reason ? ` <span class="dim">(${esc(String(action.reason))})</span>` : "";
+  return `<div class="sumrow action">next action — ${esc(String(action.state))} <span class="mono">${esc(String(action.command))}</span>${reason}${owner}</div>`;
 }
 
 /** @param {string|null|undefined} iso @returns {string} */

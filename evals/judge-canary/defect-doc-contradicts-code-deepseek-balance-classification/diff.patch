@@ -1,5 +1,5 @@
 diff --git a/skills/mine/intent-factory/scripts/drivers/index.mjs b/skills/mine/intent-factory/scripts/drivers/index.mjs
-index 56d68fa..ba06d0f 100644
+index 56d68fae1bf6913391671273e69db9d9d41d19fc..ba06d0f42d82bd09183b71993cb9f045e26b485a 100644
 --- a/skills/mine/intent-factory/scripts/drivers/index.mjs
 +++ b/skills/mine/intent-factory/scripts/drivers/index.mjs
 @@ -199,6 +199,12 @@ export function normalizeProviderAvailability(runtimeOrDriver, response, exitCod
@@ -16,7 +16,7 @@ index 56d68fa..ba06d0f 100644
      return { available: false, exhaustedUntil: resetTimestamp(envelope.exhaustedUntil ?? error?.resetAt ?? message), reason: code || "quota_exhausted" };
    }
 diff --git a/skills/mine/intent-factory/test/drivers.test.mjs b/skills/mine/intent-factory/test/drivers.test.mjs
-index 30758f9..3ce633c 100644
+index 30758f936a1a1fac04855612238ec6e50db6f83a..3ce633ca598f1f481abd5bd6ef8745f2c5fa44ca 100644
 --- a/skills/mine/intent-factory/test/drivers.test.mjs
 +++ b/skills/mine/intent-factory/test/drivers.test.mjs
 @@ -7,6 +7,7 @@ import { join } from "node:path";

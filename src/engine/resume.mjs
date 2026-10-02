@@ -15,6 +15,7 @@
 import { JUDGE_SCHEMA, SETTLED, TERMINAL } from "./prompts.mjs";
 import { Buffer } from "node:buffer";
 import { acquire as acquireLock } from "../run/lock.mjs";
+import { classifyFailureCause } from "./failure-cause.mjs";
 import { applyInvalidWorkerResult, assertRunMutable, handleProviderExhaustion } from "./lifecycle.mjs";
 import { applyJudgeResult } from "./review.mjs";
 import { assertSourceUnchanged, captureRunIdentity, recordedBaseRef, statesFingerprint } from "./run-identity.mjs";
@@ -618,6 +619,7 @@ export async function reauthorRefusedNode(options) {
   const raw = JSON.parse(readFileSync(contractPath, "utf8"));
   const refused = /** @type {{missingContext?: string[]}|null|undefined} */ (state.result);
   const missingContext = Array.isArray(refused?.missingContext) ? refused.missingContext : [];
+  const failureCause = classifyFailureCause(node, state);
   const budget = await runBoundedRounds(rounds, async (round, history) => {
     const additions = (await discover({ round, node, state, missingContext, findings: history.flatMap((item) => item.findings) })) ?? {};
     const packet = widenTaskPacket(node.taskPacket, additions);
@@ -641,7 +643,7 @@ export async function reauthorRefusedNode(options) {
   const outcome = budget.accepted ? (reauthorApproved(node, { approve, approveBelow }) ? "applied" : "approval_required") : "rounds_exhausted";
   const record = reauthorProposalRecord({
     nodeId: node.id, outcome, riskTier: reauthorRiskTier(node), budget: rounds, roundsUsed: budget.roundsUsed,
-    additions: last?.additions, packet: last?.packet, findings: last?.findings, history: budget.history,
+    additions: last?.additions, packet: last?.packet, findings: last?.findings, history: budget.history, failureCause,
   });
   appendJsonl(join(runDir, "reauthor.jsonl"), record);
   return {

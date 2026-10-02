@@ -21,6 +21,11 @@
  * authored file is gone is left out rather than allowed to abort the render:
  * one missing file must not cost the page all four answers.
  *
+ * The same roll-up is the one projection for where the campaign stands now:
+ * current phase, node in flight, time since useful progress, wait reason,
+ * unpriced invocations, and the next action's state -- applied, pending or
+ * none -- with the owner of a human decision, all from persisted state.
+ *
  * Every number here comes from a reader that already owns it -- the status
  * payload (`renderStatusJson`, which already carries per-node phase, spans,
  * cost and per-role usage with provenance), the raw node snapshot (for the
@@ -37,6 +42,7 @@ import { finite } from "../util.mjs";
 import { SETTLED, SUCCESS } from "../engine/prompts.mjs";
 import { campaignDir } from "../campaign/layout.mjs";
 import { readCampaign } from "../campaign/record.mjs";
+import { readJournal } from "../campaign/journal.mjs";
 import { computeNextItems } from "./next.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -154,7 +160,12 @@ function campaignCumulativeCostUsd(runsDir, campaignId) {
  */
 /** @typedef {{contractId: string|null, runId: string|null, phase: string|null, name: string|null, goal: string|null, declaredRequirementIds: string[], nodes: RollupNode[], counts: {done: number, settled: number, total: number}, newestSettledNode: RollupNewestNode|null, recordGone?: boolean}} RollupPhase */
 /** @typedef {{contractId: string, nodeId: string, summary: string}} RollupNewestNode */
-/** @typedef {{reason: string, command: string, runnable: boolean}} RollupNextAction */
+/**
+ * @typedef {{state: "applied"|"pending"|"none", reason: string|null, command: string|null, runnable: boolean, decisionOwner: "operator"|null}} RollupNextAction
+ * `applied` means the journal records an operator command for the action
+ * written after the state that demanded it; `decisionOwner` names the
+ * owner of the campaign's human decision, always the operator, else null.
+ */
 
 /**
  * The campaign roll-up: `renderRunProgress`'s campaign-wide sibling. Every
@@ -204,6 +215,15 @@ export function buildCampaignProgress(runsDir, campaignId, now) {
   const done = phases.reduce((total, phase) => total + phase.counts.done, 0);
   const settled = phases.reduce((total, phase) => total + phase.counts.settled, 0);
   const total = phases.reduce((total2, phase) => total2 + phase.counts.total, 0);
+  // The waiting clocks read against the record's own `closedAt` once
+  // closed -- `campaignTime`'s elapsed rule -- else the render's now.
+  const closedAt = typeof campaign.closedAt === "string" && Number.isFinite(Date.parse(campaign.closedAt)) ? campaign.closedAt : null;
+  const end = closedAt === null ? now : Date.parse(closedAt);
+  const progressAt = lastProgressAtOf(settledNodes);
+  const activity = currentActivityOf(phases, settledNodes);
+  const current = currentPhaseOf(phases);
+  const decisionNeeded = phases.some((phase) => phase.nodes.some((node) => node.status === "blocked" || node.status === "exhausted"));
+  const costByRole = campaignRoleUsage(runsDir, campaign.linkedRunIds);
   return {
     schemaVersion: 1,
     campaignId: campaign.id,
@@ -220,18 +240,29 @@ export function buildCampaignProgress(runsDir, campaignId, now) {
     // not done either, but only `settled` also folds in blocked, failed and
     // exhausted, which would read as progress.
     percentDone: total ? Math.round((done / total) * 100) : 0,
-    costByRole: campaignRoleUsage(runsDir, campaign.linkedRunIds),
+    // Where the campaign stands: the first phase, in the record's own order,
+    // with a node that has not settled, and the node in flight, if any.
+    currentPhase: current === null ? null : { contractId: current.contractId, runId: current.runId, phase: current.phase, name: current.name },
+    activity,
+    requirements: campaignRequirements(phases),
+    costByRole,
     // The same sum the single-run message prints as "campaign total", from
     // the same ledgers -- the roll-up and the message cannot disagree about
     // what the campaign spent.
     costTotalUsd: campaignCumulativeCostUsd(runsDir, campaignId),
+    unpricedInvocations: costByRole.worker.unpricedInvocations + costByRole.judge.unpricedInvocations,
     newestSettledNode: newestSettledNode(settledNodes),
-    time: campaignTime(campaign, phases, settledNodes, now),
+    time: {
+      ...campaignTime(campaign, phases, settledNodes, now),
+      lastProgressAt: progressAt,
+      sinceProgress: progressAt === null ? null : formatDuration(Math.max(0, end - Date.parse(progressAt))),
+    },
+    waitReason: campaignWaitReason(phases, activity, closedAt, total),
     // The chain calls this contract's own run directory the campaign's
     // repo root three levels above `campaignPath` (`record.mjs`'s
     // `preserveCampaignLedger` derives it the same way); reused here so the
     // next action's command matches what `next` itself would print.
-    nextAction: campaignNextAction(runsDir, campaignId, resolve(campaignPath, "..", "..", "..")),
+    nextAction: campaignNextAction(runsDir, campaignId, resolve(campaignPath, "..", "..", ".."), campaignPath, progressAt, closedAt, decisionNeeded),
   };
 }
 
@@ -597,19 +628,172 @@ function campaignTime(campaign, phases, settledCandidates, now) {
 }
 
 /**
+ * When the campaign last usefully moved: the newest `updatedAt` among its
+ * settled nodes, read from the same snapshots `newestSettledNode` reads. A
+ * running node's own timestamp climbs while it works, so it is never
+ * progress -- only a node that has stopped moving (done, blocked, failed,
+ * exhausted) is. `null` when nothing has settled: no progress is on record,
+ * and none is invented.
+ *
+ * @param {{contractId: string, nodeId: string, snapshot: Record<string, unknown>}[]} candidates
+ * @returns {string|null}
+ */
+function lastProgressAtOf(candidates) {
+  let latest = null;
+  for (const candidate of candidates) {
+    if (!SETTLED.has(/** @type {import("../contract/index.mjs").NodeStatus} */ (String(candidate.snapshot.status)))) continue;
+    const at = candidate.snapshot.updatedAt;
+    if (typeof at === "string" && (latest === null || at > latest)) latest = at;
+  }
+  return latest;
+}
+
+/**
+ * What the campaign is doing right now: the not-yet-settled node that
+ * started most recently, from persisted snapshots -- never a live probe.
+ * `null` when nothing is in flight.
+ *
+ * @param {RollupPhase[]} phases
+ * @param {{contractId: string, nodeId: string, snapshot: Record<string, unknown>}[]} candidates
+ * @returns {{runId: string|null, phase: string|null, nodeId: string, startedAt: string}|null}
+ */
+function currentActivityOf(phases, candidates) {
+  /** @type {{runId: string|null, phase: string|null, nodeId: string, startedAt: string}|null} */
+  let latest = null;
+  for (const candidate of candidates) {
+    if (SETTLED.has(/** @type {import("../contract/index.mjs").NodeStatus} */ (String(candidate.snapshot.status)))) continue;
+    const startedAt = typeof candidate.snapshot.startedAt === "string" ? candidate.snapshot.startedAt : null;
+    if (startedAt === null || (latest !== null && startedAt <= latest.startedAt)) continue;
+    const phase = phases.find((entry) => entry.contractId === candidate.contractId && entry.nodes.some((node) => node.id === candidate.nodeId));
+    latest = { runId: phase?.runId ?? null, phase: phase?.phase ?? null, nodeId: candidate.nodeId, startedAt };
+  }
+  return latest;
+}
+
+/**
+ * Where the campaign stands: the first phase, in the record's own order,
+ * with a node that has not settled -- the one a running node belongs to, or
+ * the blocked one, or the next queued one. `null` when every declared node
+ * has settled.
+ *
+ * @param {RollupPhase[]} phases
+ * @returns {RollupPhase|null}
+ */
+function currentPhaseOf(phases) {
+  return phases.find((phase) => phase.counts.settled < phase.counts.total) ?? null;
+}
+
+/**
+ * Why nothing is moving, from the same nodes the counts come from: a
+ * blocked or exhausted node waits on a human decision, a never-launched
+ * phase waits on its launch, a run stopped mid-phase waits on supervision,
+ * everything settled with nothing queued waits on closure. A campaign with
+ * a node in flight is not waiting; a closed one waits for nothing.
+ *
+ * @param {RollupPhase[]} phases
+ * @param {{runId: string|null, phase: string|null, nodeId: string, startedAt: string}|null} activity
+ * @param {string|null} closedAt
+ * @param {number} total
+ * @returns {{code: "decision"|"launch"|"supervise"|"complete", detail: string|null}|null}
+ */
+function campaignWaitReason(phases, activity, closedAt, total) {
+  if (closedAt !== null || activity !== null) return null;
+  for (const phase of phases) {
+    const node = phase.nodes.find((entry) => entry.status === "blocked" || entry.status === "exhausted");
+    if (node) return { code: "decision", detail: node.id };
+  }
+  const current = currentPhaseOf(phases);
+  if (current === null) return total > 0 ? { code: "complete", detail: null } : { code: "launch", detail: null };
+  if (current.runId === null) return { code: "launch", detail: current.name };
+  return { code: "supervise", detail: current.name };
+}
+
+/**
+ * Requirements proven over total, from the requirement ids the phases
+ * declare: a phase's ids are proven when every node it declared finished.
+ * No phase carries declared ids yet (the journal scrape was removed --
+ * journal prose is not a traceability source), so both are `null`: absent,
+ * never zero, the page's standing refusal on requirement coverage.
+ *
+ * @param {RollupPhase[]} phases
+ * @returns {{proven: number|null, total: number|null}}
+ */
+function campaignRequirements(phases) {
+  const total = new Set();
+  const proven = new Set();
+  for (const phase of phases) {
+    for (const id of phase.declaredRequirementIds) {
+      total.add(id);
+      if (phase.counts.total > 0 && phase.counts.done === phase.counts.total) proven.add(id);
+    }
+  }
+  return total.size > 0 ? { proven: proven.size, total: total.size } : { proven: null, total: null };
+}
+
+/**
  * The operator's next action for this one campaign, reusing `next`'s own
  * ranked predicates rather than re-deriving them: a second implementation of
  * "what needs the operator" is exactly how a page and `faberun next` could
- * disagree. `null` when `next` has nothing runnable or worth naming for this
- * campaign (an empty command, e.g. "run live; nothing to do").
+ * disagree. The action carries its state -- `pending` while it stands,
+ * `applied` once the journal records an operator command for it, `none`
+ * when nothing needs doing: a campaign the record shows closed, or one
+ * `next` ranks with nothing to run. `decisionOwner` names who owns the
+ * human decision when the campaign holds a blocked or exhausted node --
+ * that answer is the operator's, never the projection's.
  *
  * @param {string} runsDir
  * @param {string} campaignId
  * @param {string} cwd
- * @returns {RollupNextAction|null}
+ * @param {string} campaignPath
+ * @param {string|null} progressAt the timestamp of the state the action answers
+ * @param {string|null} closedAt
+ * @param {boolean} decisionNeeded
+ * @returns {RollupNextAction}
  */
-function campaignNextAction(runsDir, campaignId, cwd) {
+function campaignNextAction(runsDir, campaignId, cwd, campaignPath, progressAt, closedAt, decisionNeeded) {
+  /** @type {RollupNextAction} */
+  const none = { state: "none", reason: null, command: null, runnable: false, decisionOwner: null };
+  if (closedAt !== null) return none;
   const item = computeNextItems(runsDir, cwd).find((candidate) => candidate.campaign === campaignId);
-  if (!item || !item.command) return null;
-  return { reason: item.reason, command: item.command, runnable: item.runnable };
+  if (!item || !item.command) {
+    return decisionNeeded ? { ...none, decisionOwner: "operator" } : none;
+  }
+  return {
+    state: actionAppliedInJournal(campaignPath, item, progressAt) ? "applied" : "pending",
+    reason: item.reason,
+    command: item.command,
+    runnable: item.runnable,
+    decisionOwner: decisionNeeded ? "operator" : null,
+  };
+}
+
+/**
+ * Whether the journal records the operator applying this action: an
+ * `operator.command` entry with the action's verb naming its target (the
+ * first argument), written no earlier than the state that demanded it --
+ * never the whole line, since the operator's real answer file is not the
+ * placeholder the projection prints. An unreadable journal leaves it pending.
+ *
+ * @param {string} campaignPath
+ * @param {{command: string}} item
+ * @param {string|null} progressAt
+ * @returns {boolean}
+ */
+function actionAppliedInJournal(campaignPath, item, progressAt) {
+  const tokens = item.command.trim().split(/\s+/u);
+  /** @type {import("../campaign/index.mjs").JournalEntry[]} */
+  let entries;
+  try {
+    entries = readJournal(campaignPath);
+  } catch {
+    return false;
+  }
+  return entries.some((entry) => {
+    const command = entry.type === "operator.command" ? /** @type {Record<string, unknown>} */ (entry).command : null;
+    if (typeof command !== "string") return false;
+    const applied = command.trim().split(/\s+/u);
+    return applied[0] === tokens[0]
+      && (tokens[1] === undefined || command.includes(tokens[1]))
+      && (progressAt === null || entry.at >= progressAt);
+  });
 }

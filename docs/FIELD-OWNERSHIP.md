@@ -30,8 +30,8 @@ derivation disagrees with this document. The document is the declaration; the
 test is what keeps it from becoming fiction on the third change.
 
 **Measured 2026-09-20 against this tree:** 32 `events.jsonl` fields and 16
-`journal.jsonl` event types. Fifteen entries have more than one writer today.
-Those fifteen are the ratchet at the end of this file; they are declared, not
+`journal.jsonl` event types. Sixteen entries have more than one writer today.
+Those sixteen are the ratchet at the end of this file; they are declared, not
 fixed, because changing who writes a field is a behavior change and belongs to
 another node. The stale-group signal guard added the one new ratchet field,
 `invocationId`, on 2026-09-16. The seat-allowance-delta node added the one new
@@ -39,8 +39,14 @@ event type, `seat.allowance`, on 2026-09-17, behind a single writer function
 so it does not grow the ratchet. The requirement-ids node added the one new
 single-writer field, `requirementIds`, on 2026-09-20 — the engine stamps the
 node's inherited phase requirement ids onto the snapshot when its result is
-accepted, and `appendTransitionEvent` copies them — so the ratchet stays at
-fifteen.
+accepted, and `appendTransitionEvent` copies them — so the ratchet stayed at
+fifteen. Measured 2026-09-29: `pauseCampaign` (`src/campaign/unpark.mjs`) has
+been appending an `operator.command` line since the dashboard pause landed, so
+that event type has two emitters and the ratchet is sixteen. Measured
+2026-09-30: the reserve-gate node added the one new single-writer campaign
+field, `reserveUsd`, armed by `configureCampaignReserve`
+(`src/campaign/reserve.mjs`) — a `campaign.json` declaration, so the
+events-and-journal ratchet below stayed at sixteen.
 
 A type or field nothing writes is not declared here. This document is a
 declaration of owners, and a field with no writer has no owner to declare.
@@ -66,7 +72,7 @@ marked **(ratchet)**.
 | `phase` | `appendTransitionEvent` | at append, from `state.phase` |
 | `attempt` | `appendTransitionEvent` | at append, only when `state.attempt` is set |
 | `runtime` | `appendTransitionEvent` | at append, only when `state.runtime.id` is set |
-| `error` | `appendTransitionEvent`, `renderCampaignHandoffSafely` **(ratchet)** | at append, `state.error.code` when set; the handoff diagnostic stores its message there |
+| `error` | `appendTransitionEvent`, `recordAuxRefusal`, `renderCampaignHandoffSafely` **(ratchet)** | at append, `state.error.code` when set; the handoff diagnostic stores its message there; an auxiliary spawn refused by admission stores `aux_spawn_refused` and its reason |
 | `verdict` | `appendTransitionEvent`, `settleAdvisoryReview` **(ratchet)** | at append, `state.gate.verdict` when set; `settleAdvisoryReview` also passes it in `details`, and the spread wins |
 | `summary` | `appendTransitionEvent`, `settleAdvisoryReview` **(ratchet)** | at append, `state.gate.summary` when set; the advisory detail is spread over it |
 | `revisions` | `appendTransitionEvent` | at append, `state.revisions` when set |
@@ -76,13 +82,13 @@ marked **(ratchet)**.
 | `processGroupId` | `recordIdentityUnverifiable` | when a signal is withheld because the invocation's process identity cannot be proven |
 | `override` | `recordExecutionOverride`, `applyRoute` **(ratchet)** | when an execution override is recorded; when a route is applied |
 | `recovery` | `ensureTerminalEvent`, `recordExecutionOverride` **(ratchet)** | when a terminal side effect is replayed; when an override carries a recovery note |
-| `role` | `applyRoute`, `autoRetryNode` **(ratchet)** | when a route is applied; when a node earns its one automatic retry |
+| `role` | `applyRoute`, `autoRetryNode`, `recordAuxRefusal` **(ratchet)** | when a route is applied; when a node earns its one automatic retry; when admission refuses an auxiliary spawn |
 | `status` | `applyRoute` | when a route is applied |
 | `currentRuntime` | `applyRoute` | when a route is applied |
 | `errorCode` | `applyRoute`, `autoRetryNode` **(ratchet)** | when a route is applied; when a node earns its one automatic retry |
 | `unexpectedPaths` | `checkWorkerScope`, `checkPersistedWorkerScope`, `recordScopeFinding` **(ratchet)** | when a scope check fails or an advisory finding is recorded |
 | `unexpectedPathCount` | `checkWorkerScope`, `checkPersistedWorkerScope`, `recordScopeFinding` **(ratchet)** | when a scope check fails or an advisory finding is recorded |
-| `type` | `recordScopeFinding`, `settleAdvisoryReview`, `assertEnvironmentReady`, `renderCampaignHandoffSafely`, `autoRetryNode`, `recordIdentityUnverifiable` **(ratchet)** | each diagnostic sets its own discriminator; there is no single owner today |
+| `type` | `recordScopeFinding`, `settleAdvisoryReview`, `assertEnvironmentReady`, `renderCampaignHandoffSafely`, `autoRetryNode`, `recordIdentityUnverifiable`, `recordAuxRefusal` **(ratchet)** | each diagnostic sets its own discriminator; there is no single owner today |
 | `contractId` | `assertEnvironmentReady` | when the environment preflight fails |
 | `ok` | `assertEnvironmentReady` | when the environment preflight fails |
 | `checks` | `assertEnvironmentReady` | when the environment preflight fails |
@@ -115,7 +121,7 @@ document and the schema cannot drift apart.
 | `next` | `note` | `at`, `type`, `eventId`, `sessionId`, `text` | when a note of that kind is recorded |
 | `open-question` | `note` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when a note of that kind is recorded |
 | `question.resolved` | `resolveQuestion` | `at`, `type`, `eventId`, `sessionId`, `questionId`, `text` | when `campaign note --resolve` runs |
-| `operator.command` | `recordOperatorCommand` | `at`, `type`, `eventId`, `command`, `sessionId`, `runId` | when a campaign-changing operator command is recorded |
+| `operator.command` | `pauseCampaign`, `recordOperatorCommand` **(ratchet)** | `at`, `type`, `eventId`, `command`, `sessionId`, `runId` | when a campaign-changing operator command is recorded: `pauseCampaign` records the dashboard's pause, `recordOperatorCommand` records the command an operator ran |
 | `retrospective` | `note` | `at`, `type`, `eventId`, `sessionId`, `text` | when a note of that kind is recorded |
 | `seat.allowance` | `appendSeatAllowanceEvent` | `at`, `type`, `eventId`, `sample`, `harness`, `remaining`, `limit`, `resetsAt`, `delta`, `window` | when `campaign init` samples the operator's own seat allowance at campaign start (`sample: "start"`, `harness` from env-marker detection, `delta: null`), and when `plan freeze` re-samples that exact same harness (not the plan's worker runtime) at plan freeze (`sample: "freeze"`, `delta` against the start sample, or `null` with no start entry to compare against); `window` names the rate-limit window the sample measured (claude's `rateLimitType`, e.g. `"seven_day"`), so a delta across two differently-governed windows can be told apart from a real one |
 
@@ -133,6 +139,7 @@ the mutator writes. The section grows by declaration.
 | --- | --- | --- |
 | `requirements` | `closeCampaign` | at close: one entry per requirement id the linked runs' contracts declared, correlated only by the identifiers the runs carried (a done node snapshot's stamped `requirementIds`, never requirement text), each covering node named with its run and its verification evidence; a requirement no done node carries is recorded with status `open` instead of being omitted |
 | `ledgerPreserved` | `markCampaignLedgerPreserved` | when the ledger is written to its durable, versioned location under the registered repository (`preserveCampaignLedger` with the default destination, or `reledgerCampaignLedger`): set `true` once, never back. A record that never carried the marker — a campaign written before the field existed, or one whose close kept the ledger only in the operator home — reads as `false`, so removal refuses on the default rather than deleting evidence it cannot prove is safe |
+| `reserveUsd` | `configureCampaignReserve` | when the operator arms the optional balance (ADR 0011) the reserve gate gates new known-cost dispatches against. Absent means no reserve policy and is never defaulted on read — distinct from `0`, which gates every known-cost dispatch — and the schema (`validateCampaign`) refuses anything that is not a finite non-negative number. The reservations the balance holds are not record fields: they live in the reserve store under the campaign directory (`src/campaign/reserve.mjs`), outside this declaration |
 
 ## The runtime catalogue record
 
@@ -229,8 +236,10 @@ contract's static one.
 
 ## The ratchet, measured
 
-Measured 2026-09-16: **15 entries have more than one writer.** They are a
-ratchet, not a target. The test asserts the number is exactly 15 and that every
+Measured 2026-09-16: **15 entries have more than one writer**; measured
+2026-09-29, after `pauseCampaign` turned out to append the same
+`operator.command` line `recordOperatorCommand` appends: **16**. They are a
+ratchet, not a target. The test asserts the number is exactly 16 and that every
 declared writer set matches the one derived from `src/`, so a *new* second
 writer fails immediately, and fixing one of these fails until the count and this
 list are lowered together.
@@ -239,9 +248,12 @@ list are lowered together.
 `invocationId`, `override`, `recovery`, `role`, `schemaVersion`, `summary`,
 `type`, `unexpectedPathCount`, `unexpectedPaths`, `verdict`.
 
-**`journal.jsonl` (1):** `session.attached` — written both by the explicit
-`attach` command and by the once-a-day implicit attach on sync. The two emitters
-must keep producing the same nine fields.
+**`journal.jsonl` (2):** `operator.command` — appended both by
+`recordOperatorCommand` and by the dashboard's pause (`pauseCampaign`), which
+writes the same six fields with `command: "campaign pause…"`; and
+`session.attached` — written both by the explicit `attach` command and by the
+once-a-day implicit attach on sync. The two emitters of each type must keep
+producing the same field set.
 
 `invocationId` joined the list when the phase-2 stale-group signal guard landed:
 `recordIdentityUnverifiable` (`src/engine/process.mjs`) appends an
@@ -273,7 +285,7 @@ behavior, and a node that declares must not also move the thing it declares.
     "next": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "text"] },
     "open-question": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "questionId", "text"] },
     "question.resolved": { "writers": ["resolveQuestion"], "fields": ["at", "type", "eventId", "sessionId", "questionId", "text"] },
-    "operator.command": { "writers": ["recordOperatorCommand"], "fields": ["at", "type", "eventId", "command", "sessionId", "runId"] },
+    "operator.command": { "writers": ["pauseCampaign", "recordOperatorCommand"], "fields": ["at", "type", "eventId", "command", "sessionId", "runId"] },
     "retrospective": { "writers": ["note"], "fields": ["at", "type", "eventId", "sessionId", "text"] },
     "seat.allowance": { "writers": ["appendSeatAllowanceEvent"], "fields": ["at", "type", "eventId", "sample", "harness", "remaining", "limit", "resetsAt", "delta", "window"] }
   },
@@ -289,7 +301,7 @@ behavior, and a node that declares must not also move the thing it declares.
     "phase": { "writers": ["appendTransitionEvent"] },
     "attempt": { "writers": ["appendTransitionEvent"] },
     "runtime": { "writers": ["appendTransitionEvent"] },
-    "error": { "writers": ["appendTransitionEvent", "renderCampaignHandoffSafely"] },
+    "error": { "writers": ["appendTransitionEvent", "recordAuxRefusal", "renderCampaignHandoffSafely"] },
     "verdict": { "writers": ["appendTransitionEvent", "settleAdvisoryReview"] },
     "summary": { "writers": ["appendTransitionEvent", "settleAdvisoryReview"] },
     "revisions": { "writers": ["appendTransitionEvent"] },
@@ -299,13 +311,13 @@ behavior, and a node that declares must not also move the thing it declares.
     "processGroupId": { "writers": ["recordIdentityUnverifiable"] },
     "override": { "writers": ["recordExecutionOverride", "applyRoute"] },
     "recovery": { "writers": ["ensureTerminalEvent", "recordExecutionOverride"] },
-    "role": { "writers": ["applyRoute", "autoRetryNode"] },
+    "role": { "writers": ["applyRoute", "autoRetryNode", "recordAuxRefusal"] },
     "status": { "writers": ["applyRoute"] },
     "currentRuntime": { "writers": ["applyRoute"] },
     "errorCode": { "writers": ["applyRoute", "autoRetryNode"] },
     "unexpectedPaths": { "writers": ["checkWorkerScope", "checkPersistedWorkerScope", "recordScopeFinding"] },
     "unexpectedPathCount": { "writers": ["checkWorkerScope", "checkPersistedWorkerScope", "recordScopeFinding"] },
-    "type": { "writers": ["recordScopeFinding", "settleAdvisoryReview", "assertEnvironmentReady", "renderCampaignHandoffSafely", "autoRetryNode", "recordIdentityUnverifiable"] },
+    "type": { "writers": ["assertEnvironmentReady", "autoRetryNode", "recordAuxRefusal", "recordIdentityUnverifiable", "recordScopeFinding", "renderCampaignHandoffSafely", "settleAdvisoryReview"] },
     "contractId": { "writers": ["assertEnvironmentReady"] },
     "ok": { "writers": ["assertEnvironmentReady"] },
     "checks": { "writers": ["assertEnvironmentReady"] },
@@ -313,7 +325,8 @@ behavior, and a node that declares must not also move the thing it declares.
   },
   "campaign": {
     "requirements": { "writers": ["closeCampaign"] },
-    "ledgerPreserved": { "writers": ["markCampaignLedgerPreserved"] }
+    "ledgerPreserved": { "writers": ["markCampaignLedgerPreserved"] },
+    "reserveUsd": { "writers": ["configureCampaignReserve"] }
   }
 }
 ```

@@ -1,0 +1,428 @@
+{
+  "reviewedCommit": "af880acc600d6d89c543b6f73db8f5bce64ebf32",
+  "version": "0.30.0",
+  "campaigns": {
+    "safe-to-hand-to-a-friend": {
+      "schemaVersion": 2,
+      "campaignId": "safe-to-hand-to-a-friend",
+      "runs": 102,
+      "events": 316,
+      "missingSources": [],
+      "sameProviderReviewNodeCount": 0,
+      "sameProviderReviewNodeIds": [],
+      "indicators": {
+        "nodesDoneRate": {
+          "value": 0.9231,
+          "direction": "up",
+          "count": 130,
+          "numerator": 120,
+          "denominator": 130,
+          "excludedRunIds": [
+            "safe-to-hand-to-a-friend-phase-1b"
+          ]
+        },
+        "linkedRunsPerClosedCheckpoint": {
+          "value": 2.6842,
+          "direction": "down",
+          "count": 38
+        },
+        "runsPerCampaign": {
+          "value": 102,
+          "direction": "down",
+          "count": 102
+        },
+        "wallClockSec": {
+          "value": 180942.478,
+          "direction": "down",
+          "count": 316
+        },
+        "usageTokensByKind": {
+          "value": {
+            "inputTokens": 10745208,
+            "cacheReadInputTokens": 351264947,
+            "outputTokens": 5580698
+          },
+          "direction": "informative",
+          "count": 161
+        },
+        "usageTokensByKindByRuntime": {
+          "value": {
+            "claude-sonnet.inputTokens": 1699167,
+            "claude-sonnet.cacheReadInputTokens": 29576002,
+            "claude-sonnet.outputTokens": 979921,
+            "claude-fable.inputTokens": 0,
+            "claude-fable.cacheReadInputTokens": 0,
+            "claude-opus.inputTokens": 598456,
+            "claude-opus.cacheReadInputTokens": 4815473,
+            "claude-opus.outputTokens": 188535,
+            "dsh-deepseek.inputTokens": 6003272,
+            "dsh-deepseek.cacheReadInputTokens": 305180544,
+            "dsh-deepseek.outputTokens": 3744689,
+            "zcode-glm.inputTokens": 2444313,
+            "zcode-glm.cacheReadInputTokens": 11692928,
+            "zcode-glm.outputTokens": 667553
+          },
+          "direction": "informative",
+          "count": 161
+        },
+        "usageCostUsd": {
+          "value": 36.9041,
+          "direction": "down",
+          "count": 159,
+          "unknownCount": 3,
+          "unknownCountByReason": {
+            "model-not-priced": 2,
+            "provider-reported-nothing": 1
+          },
+          "unknownFractionByReason": {
+            "model-not-priced": 0.0123,
+            "provider-reported-nothing": 0.0062
+          }
+        },
+        "judgeFindingRate": {
+          "value": 0.6364,
+          "direction": "up",
+          "count": 11,
+          "numerator": 7,
+          "denominator": 11,
+          "excludedRunIds": [
+            "safe-to-hand-to-a-friend-phase-1b"
+          ]
+        },
+        "judgeCostShare": {
+          "value": 0.0068,
+          "direction": "down",
+          "count": 159,
+          "unknownCount": 0
+        },
+        "blockingJudgeFirstPassRate": {
+          "value": {
+            "dsh-deepseek": 0.4286,
+            "zcode-glm": 1
+          },
+          "direction": "up",
+          "count": 8,
+          "numerator": {
+            "dsh-deepseek": 3,
+            "zcode-glm": 1
+          },
+          "denominator": {
+            "dsh-deepseek": 7,
+            "zcode-glm": 1
+          },
+          "excludedRunIds": [
+            "safe-to-hand-to-a-friend-phase-1b"
+          ]
+        },
+        "notifyReceiptRate": {
+          "value": 1,
+          "direction": "up",
+          "count": 228,
+          "numerator": 228,
+          "denominator": 228,
+          "excludedRunIds": [
+            "safe-to-hand-to-a-friend-phase-1b"
+          ]
+        },
+        "silentStallRate": {
+          "value": 0,
+          "direction": "down",
+          "count": 161,
+          "numerator": 0,
+          "denominator": 15.54502972222222,
+          "excludedRunIds": [
+            "safe-to-hand-to-a-friend-phase-1b"
+          ]
+        },
+        "intentToVerifiedSeconds": {
+          "value": 180810.199,
+          "direction": "down",
+          "count": 1
+        },
+        "humanTouches": {
+          "value": 7,
+          "direction": "informative",
+          "count": 7
+        }
+      }
+    },
+    "planner-and-routing": {
+      "schemaVersion": 2,
+      "campaignId": "planner-and-routing",
+      "runs": 7,
+      "events": 74,
+      "missingSources": [],
+      "sameProviderReviewNodeCount": 1,
+      "sameProviderReviewNodeIds": [
+        "planner-and-routing-reviewer-list/reviewer-list"
+      ],
+      "indicators": {
+        "nodesDoneRate": {
+          "value": 0.3333,
+          "direction": "up",
+          "count": 27,
+          "numerator": 9,
+          "denominator": 27,
+          "excludedRunIds": []
+        },
+        "linkedRunsPerClosedCheckpoint": {
+          "value": 0.7778,
+          "direction": "down",
+          "count": 9
+        },
+        "runsPerCampaign": {
+          "value": 7,
+          "direction": "down",
+          "count": 7
+        },
+        "wallClockSec": {
+          "value": 67980.594,
+          "direction": "down",
+          "count": 74
+        },
+        "usageTokensByKind": {
+          "value": {
+            "inputTokens": 4325804,
+            "cacheReadInputTokens": 288697831,
+            "outputTokens": 1456705
+          },
+          "direction": "informative",
+          "count": 45
+        },
+        "usageTokensByKindByRuntime": {
+          "value": {
+            "dsh-deepseek.inputTokens": 224578,
+            "dsh-deepseek.cacheReadInputTokens": 4275968,
+            "claude-sonnet.inputTokens": 3709704,
+            "claude-sonnet.cacheReadInputTokens": 280716305,
+            "claude-sonnet.outputTokens": 1390377,
+            "claude-opus.inputTokens": 391522,
+            "claude-opus.cacheReadInputTokens": 3705558,
+            "claude-opus.outputTokens": 66328
+          },
+          "direction": "informative",
+          "count": 45
+        },
+        "usageCostUsd": {
+          "value": 90.9208,
+          "direction": "down",
+          "count": 38,
+          "unknownCount": 7,
+          "unknownCountByReason": {
+            "invocation-killed": 7
+          },
+          "unknownFractionByReason": {
+            "invocation-killed": 0.1556
+          }
+        },
+        "judgeFindingRate": {
+          "value": 0.5714,
+          "direction": "up",
+          "count": 7,
+          "numerator": 4,
+          "denominator": 7,
+          "excludedRunIds": []
+        },
+        "judgeCostShare": {
+          "value": 0.0776,
+          "direction": "down",
+          "count": 38,
+          "unknownCount": 0
+        },
+        "blockingJudgeFirstPassRate": {
+          "value": {
+            "claude-opus": 0.5,
+            "claude-sonnet": 0.2857
+          },
+          "direction": "up",
+          "count": 11,
+          "numerator": {
+            "claude-opus": 2,
+            "claude-sonnet": 2
+          },
+          "denominator": {
+            "claude-opus": 4,
+            "claude-sonnet": 7
+          },
+          "excludedRunIds": []
+        },
+        "notifyReceiptRate": {
+          "value": 1,
+          "direction": "up",
+          "count": 23,
+          "numerator": 23,
+          "denominator": 23,
+          "excludedRunIds": []
+        },
+        "silentStallRate": {
+          "value": 0,
+          "direction": "down",
+          "count": 45,
+          "numerator": 0,
+          "denominator": 10.625754722222224,
+          "excludedRunIds": []
+        },
+        "intentToVerifiedSeconds": {
+          "value": null,
+          "direction": "down",
+          "count": 0
+        },
+        "humanTouches": {
+          "value": 2,
+          "direction": "informative",
+          "count": 2
+        }
+      }
+    },
+    "evidence-you-can-recompute": {
+      "schemaVersion": 2,
+      "campaignId": "evidence-you-can-recompute",
+      "runs": 16,
+      "events": 57,
+      "missingSources": [],
+      "sameProviderReviewNodeCount": 0,
+      "sameProviderReviewNodeIds": [],
+      "indicators": {
+        "nodesDoneRate": {
+          "value": 1,
+          "direction": "up",
+          "count": 24,
+          "numerator": 24,
+          "denominator": 24,
+          "excludedRunIds": []
+        },
+        "linkedRunsPerClosedCheckpoint": {
+          "value": 1,
+          "direction": "down",
+          "count": 16
+        },
+        "runsPerCampaign": {
+          "value": 16,
+          "direction": "down",
+          "count": 16
+        },
+        "wallClockSec": {
+          "value": 18490.364,
+          "direction": "down",
+          "count": 57
+        },
+        "usageTokensByKind": {
+          "value": {
+            "inputTokens": 3036899,
+            "cacheReadInputTokens": 64008674,
+            "outputTokens": 699378
+          },
+          "direction": "informative",
+          "count": 31
+        },
+        "usageTokensByKindByRuntime": {
+          "value": {
+            "codex-luna.inputTokens": 2650286,
+            "codex-luna.cacheReadInputTokens": 57623552,
+            "codex-luna.outputTokens": 550389,
+            "claude-opus.inputTokens": 205979,
+            "claude-opus.cacheReadInputTokens": 1606530,
+            "claude-opus.outputTokens": 53620,
+            "dsh-deepseek.inputTokens": 67864,
+            "dsh-deepseek.cacheReadInputTokens": 2060544,
+            "dsh-deepseek.outputTokens": 71901,
+            "claude-opus-review.inputTokens": 112770,
+            "claude-opus-review.cacheReadInputTokens": 2718048,
+            "claude-opus-review.outputTokens": 23468
+          },
+          "direction": "informative",
+          "count": 31
+        },
+        "usageCostUsd": {
+          "value": 7.3584,
+          "direction": "down",
+          "count": 31,
+          "unknownCount": 0,
+          "unknownCountByReason": {},
+          "unknownFractionByReason": {}
+        },
+        "judgeFindingRate": {
+          "value": 1,
+          "direction": "up",
+          "count": 6,
+          "numerator": 6,
+          "denominator": 6,
+          "excludedRunIds": []
+        },
+        "judgeCostShare": {
+          "value": 0,
+          "direction": "down",
+          "count": 31,
+          "unknownCount": 0
+        },
+        "blockingJudgeFirstPassRate": {
+          "value": null,
+          "direction": "up",
+          "count": 0,
+          "numerator": {},
+          "denominator": {},
+          "excludedRunIds": []
+        },
+        "notifyReceiptRate": {
+          "value": 1,
+          "direction": "up",
+          "count": 40,
+          "numerator": 40,
+          "denominator": 40,
+          "excludedRunIds": []
+        },
+        "silentStallRate": {
+          "value": 0,
+          "direction": "down",
+          "count": 31,
+          "numerator": 0,
+          "denominator": 4.31755,
+          "excludedRunIds": []
+        },
+        "intentToVerifiedSeconds": {
+          "value": 16826.502,
+          "direction": "down",
+          "count": 1
+        },
+        "humanTouches": {
+          "value": 2,
+          "direction": "informative",
+          "count": 2
+        }
+      }
+    }
+  },
+  "note": "Historical ledgers, not a benchmark of the current version. Unknown costs are not zero.",
+  "safeToHandBreakdown": {
+    "classification": "Usage filenames containing -plan- are planning; all others execution. All 102 linked runs included, including the superseded run.",
+    "groups": {
+      "execution": {
+        "runs": 10,
+        "records": 69,
+        "inputTokens": 5140148,
+        "cacheReadInputTokens": 290454016,
+        "outputTokens": 2757349,
+        "knownCostUsd": 3.3708045239999995,
+        "unknownCostRecords": 0
+      },
+      "planning": {
+        "runs": 92,
+        "records": 93,
+        "inputTokens": 5605060,
+        "cacheReadInputTokens": 60810931,
+        "outputTokens": 2823349,
+        "knownCostUsd": 33.53324959800002,
+        "unknownCostRecords": 3
+      }
+    },
+    "planningKnownCostFraction": 0.9086603191926677
+  },
+  "trackedPathSample": {
+    "tracked": 2509,
+    "limit": 2000,
+    "allSourcePaths": 199,
+    "includedSourcePaths": 0,
+    "includedTestPaths": 0,
+    "lastIncludedPath": "evals/results/planner-roles/roles-c/nodes/revise-2.contract.json"
+  }
+}

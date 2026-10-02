@@ -10,6 +10,8 @@ import { planResumeRetry } from "../../src/engine/retry.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { invocationResult } from "../../src/engine/process.mjs";
 import { recordInvocationUsage } from "../../src/run/usage.mjs";
+import { configureCampaignReserve, readCampaignReserve } from "../../src/campaign/reserve.mjs";
+import { campaignTree } from "../../src/run/paths.mjs";
 import { ensureAttemptWorktree, fakeCodex, fixture, initializeGit, orphan, packet, withFakeCodex, writeContract } from "../helpers.mjs";
 import { nodeState, persistFailure, promptLoggingCodex, withCodexBinary, runMetadata, recoveryDecisions, retryJudgeCodex, withBrokenGateCodex } from "../runner-helpers.mjs";
 
@@ -17,6 +19,9 @@ const PRICING = { inputPerMTok: 1.0, cachedInputPerMTok: 0.1, outputPerMTok: 3.0
 // (10 uncached + 0 cached * 0.1 + 2 output * 3) / 1e6, the fake codex "pass"
 // turn's canonical counters under PRICING.
 const PASS_WORKER_COST = 0.000016;
+
+/** Token pricing that makes every counter cost 1 USD per million tokens. */
+const DOLLAR_PER_MTOK = { inputPerMTok: 1_000_000, outputPerMTok: 1_000_000, cachedInputPerMTok: 1_000_000 };
 
 /**
  * The shared fixture with luna declaring a price, so a transcript the harness
@@ -538,4 +543,104 @@ test("done-when 4d: dependency_failed still reopens only with a retried dependen
   }), {});
   assert.equal(heldPlan.actions.get("first"), "hold");
   assert.equal(heldPlan.actions.get("second"), "hold", "a held dependency keeps its dependant closed");
+});
+
+test("resume admits a retried attempt through the campaign reserve: an empty balance blocks only that new attempt, a top-up admits it", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "retry-reserve-"));
+  const path = writeContract(directory, fixture({
+    id: "retry-reserve-run",
+    campaignId: "reserve-resume-retry",
+    pollIntervalMs: 10,
+    runtimes: {
+      luna: { harness: "codex", model: "gpt-5.6-luna", pricing: DOLLAR_PER_MTOK },
+      sol: { harness: "codex", model: "gpt-5.6-sol", config: { model_provider: "deepseek" }, pricing: DOLLAR_PER_MTOK },
+    },
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), gate: false }],
+  }));
+  const campaignPath = campaignTree(directory, "reserve-resume-retry");
+  // The fake pass turn prices to exactly 12 USD under this pricing, so the
+  // balance covers the first attempt to the cent and nothing beyond it.
+  configureCampaignReserve(campaignPath, 12);
+
+  const outcome = await withFakeCodex(directory, "pass", () => runContract(path));
+  const runDir = outcome.runDir;
+  const first = nodeState(outcome);
+  assert.equal(first.status, "done", first.error?.message);
+  const firstInvocation = /** @type {any} */ (first.invocations?.at(-1));
+  assert.equal(firstInvocation.costUsd, 12, "the first dispatch charged exactly the balance");
+  let status = readCampaignReserve(campaignPath);
+  assert.equal(status.availableUsd, 0, "the balance is spent to exactly zero");
+
+  // Reopen the node the way the crashes this file studies leave it: failed and
+  // retryable, with the priced invocation still the last one on the snapshot —
+  // the only measured predictor the retry's admission can hold against.
+  const nodePath = join(runDir, "nodes", "build.json");
+  const settled = JSON.parse(readFileSync(nodePath, "utf8"));
+  writeFileSync(nodePath, JSON.stringify({ ...settled, status: "failed", phase: "worker", error: { code: "provider_error", message: "attempt one failed" } }, null, 2));
+
+  const refused = nodeState(await withFakeCodex(directory, "pass", () => resumeRun(runDir)));
+  assert.equal(refused.status, "blocked", refused.error?.message);
+  assert.equal(refused.error?.code, "reserve_insufficient", "the empty balance blocks the new attempt");
+  assert.equal(refused.attempt, 2, "the refusal is the new attempt the balance would not admit");
+  assert.equal(refused.invocations?.length, 1, "the refused retry never became a provider call");
+  status = readCampaignReserve(campaignPath);
+  assert.equal(status.heldUsd, 0, "a refused admission holds nothing");
+  assert.equal(status.chargedUsd, 12);
+  assert.equal(status.availableUsd, 0);
+
+  // The operator's way back in is exactly one more attempt's cost: the same
+  // retry is then admitted and settles its charge against the hold it took.
+  configureCampaignReserve(campaignPath, 24);
+  const resumed = nodeState(await withFakeCodex(directory, "pass", () => resumeRun(runDir)));
+  assert.equal(resumed.status, "done", resumed.error?.message);
+  assert.equal(resumed.attempt, 3, "attempt plus one: the refused admission already spent attempt 2's number");
+  assert.equal(resumed.invocations?.length, 2);
+  const retryInvocation = /** @type {any} */ (resumed.invocations?.at(-1));
+  assert.equal(retryInvocation.costUsd, 12);
+  status = readCampaignReserve(campaignPath);
+  assert.equal(status.reservations.length, 2);
+  const [firstCall, retry] = status.reservations;
+  assert.equal(firstCall.costUsd, null, "the first dispatch was admitted as unknown exposure");
+  assert.equal(firstCall.chargedUsd, 12);
+  assert.equal(retry.node, "build");
+  assert.equal(retry.costUsd, 12, "the retry admission held what the node's last call had cost");
+  assert.equal(retry.chargedUsd, 12);
+  assert.equal(retry.lateChargeUsd, 0, "the retry charged exactly what it held");
+  assert.equal(status.unknownExposureCount, 0, "the unknown exposure was reconciled, not forgotten");
+  assert.equal(status.availableUsd, 0);
+});
+
+// F5 aux admission: a resume's retry is a dispatch too. Both failed nodes
+// become dispatchable in the same tick, and the pass admits them onto the one
+// runtime one at a time -- the sibling's retry waits for the maxConcurrent
+// ceiling instead of starting beside it.
+test("a retried attempt waits for the runtime's slot", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "retry-runtime-slot-"));
+  const path = writeContract(directory, fixture({
+    id: "retry-slot-run", pollIntervalMs: 10, maxParallel: 2,
+    runtimeDefaults: { worker: "single", judge: "single" },
+    runtimes: { single: { harness: "codex", model: "single", executable: fakeCodex(directory, "slow"), maxConcurrent: 1 } },
+    nodes: [
+      { id: "beta", type: "backend", taskPacket: packet(), gate: false },
+      { id: "alpha", type: "backend", taskPacket: packet(), gate: false },
+    ],
+  }));
+  const runDir = (await runContract(path)).runDir;
+  persistFailure(runDir, "beta", { status: "failed", code: "provider_error" });
+  persistFailure(runDir, "alpha", { status: "failed", code: "provider_error" });
+  const resumed = await resumeRun(runDir);
+  const alpha = nodeState(resumed, "alpha");
+  const beta = nodeState(resumed, "beta");
+  assert.equal(alpha.status, "done", alpha.error?.message);
+  assert.equal(beta.status, "done", beta.error?.message);
+  assert.equal(alpha.attempt, 2, "the retry is attempt plus one");
+  const betaRetry = beta.invocations?.[1];
+  const alphaRetry = alpha.invocations?.[1];
+  assert.ok(betaRetry && alphaRetry, "both retries left invocation records");
+  const betaClosedAt = /** @type {string} */ (betaRetry.closedAt);
+  // Beta's slow retry holds the single runtime while alpha's retry is already
+  // dispatchable, so the pass admits alpha only after beta's invocation
+  // closed: the runtime's maxConcurrent serializes the retries.
+  assert.ok(Date.parse(alphaRetry.startedAt) > Date.parse(betaRetry.startedAt), "both retries ran on the one runtime");
+  assert.ok(Date.parse(alphaRetry.startedAt) > Date.parse(betaClosedAt), "the sibling retry started only after the runtime freed");
 });

@@ -4,15 +4,22 @@
  * record the invocation intent before a token is spent.
  *
  * It decides nothing about outcomes. `startJudge` runs the mechanical gate and
- * returns what it found -- `rejected`, `settle` or `dispatched` -- for the
- * caller to act on. It used to call `applyRejection` and `settleDone` itself,
- * which made dispatch depend on review policy and on settlement, and that is
- * the shape that kept `engine/` a web instead of a stack.
+ * returns what it found -- `rejected`, `refused`, `settle` or `dispatched` --
+ * for the caller to act on. It used to call `applyRejection` and `settleDone`
+ * itself, which made dispatch depend on review policy and on settlement, and
+ * that is the shape that kept `engine/` a web instead of a stack.
+ *
+ * Every new paid dispatch is also admitted through the campaign's optional
+ * reserve (ADR 0011) before the provider starts; the admission decision lives
+ * in `reserve-admission.mjs`, while the release and the reconciliation
+ * against the real charge stay here because the reservation lives exactly as
+ * long as the call. One-turn result
+ * materialization continues an already-running session and stays on its
+ * existing path.
  */
-import { JUDGE_SCHEMA, appendSandboxNotice, judgePrompt } from "./prompts.mjs";
+import { JUDGE_SCHEMA, appendSandboxNotice, judgePrompt, splitPreviousAttemptSection } from "./prompts.mjs";
 import { LockLostError } from "../run/lock.mjs";
 import { TOOL_OUTPUT_LIMIT_BYTES } from "../harnesses/exec-jsonl/index.mjs";
-import { appendPreviousAttempt } from "./retry.mjs";
 import {
   RESULT_MATERIALIZATION_PROMPT_HEADER,
   attemptWorkerResultPath,
@@ -30,16 +37,18 @@ import { captureWorkspaceScope, captureWorkspaceSnapshot } from "../repo/workspa
 import { deterministicGate, judgeReaskReason, judgeRequired, judgeSkippedByScope } from "./judge-gate.mjs";
 import { emptyScope, persistedScopeBoundary, workerScope } from "./scope.mjs";
 import { hasOperationIntent, hasOperationSettlement, operationNeedsRecovery, operationNextState, persistInvocationIntent, providerReceipts, settleInvocation } from "../run/operations.mjs";
-import { invocationCost, invocationUsage } from "../run/usage.mjs";
+import { invocationCost, invocationUsage, priceUsage } from "../run/usage.mjs";
 import { logPaths, startProcess } from "./process.mjs";
 import { readBoundedTail } from "./transcript.mjs";
 import { mkdirSync, statSync } from "node:fs";
+import { reconcileCampaignReservation, releaseCampaignReservation } from "../campaign/reserve.mjs";
 import { READ_BYTE_LIMIT, READ_LINE_LIMIT, harnessCapabilities, normalizeProviderResult, writesWorkspace } from "../harnesses/index.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
 import { judgeReaskInstruction, reviewMode } from "../contract/review-modes.mjs";
 import { isSameProviderReviewPair } from "../contract/judge-independence.mjs";
 import { previousAttemptRuntimeId, routeRuntimeForState, runtimeSnapshot } from "./failover.mjs";
 import { fingerprintRuntime, forceFreshSession, phaseInvocationPlan } from "./phase-session.mjs";
+import { releaseReservation, reserveAdmission } from "./reserve-admission.mjs";
 
 /** @typedef {import("./phase-session.mjs").SessionPolicy} SessionPolicy */
 import { transition, writeNode } from "./state.mjs";
@@ -50,8 +59,12 @@ import { transition, writeNode } from "./state.mjs";
  * `settle`: the gate passed and no judgment item needs arbitrating.
  * `dispatched`: a judge is running (or failed to start and the node is already
  * marked failed).
+ * `refused`: the dispatch admission declined the new judge dispatch -- the
+ * campaign reserve cannot hold it, or the campaign record cannot be read or
+ * validated; the node is
+ * already parked blocked and no judge will run this round.
  *
- * @typedef {{kind: "rejected", verdict: JudgeVerdict}|{kind: "settle", gate: JudgeVerdict|null}|{kind: "dispatched"}} JudgeRound
+ * @typedef {{kind: "rejected", verdict: JudgeVerdict}|{kind: "settle", gate: JudgeVerdict|null}|{kind: "dispatched"}|{kind: "refused"}} JudgeRound
  */
 /** @typedef {import("./prompts.mjs").JudgeVerdict} JudgeVerdict */
 
@@ -233,6 +246,41 @@ function ensureAttemptWorkspace(contract, node, state, runDir, lock) {
   return worktree.path;
 }
 /**
+ * The final assembly every dispatched prompt goes through: the stable
+ * instruction sections — the caller's stable appends, run on the stable
+ * remainder (the worker's sandbox notice and result-file protocol, the
+ * judge's re-ask instruction) — precede the variable previous-attempt
+ * state, so the cacheable prefix survives across attempts. A base that
+ * already carries the section (a candidate reused from an earlier attempt)
+ * has it lifted out and re-appended last; a base without one gets the state's
+ * own section appended, and a state that carries none appends nothing. When
+ * both are present the state's section wins: an embedded one is the stale
+ * copy the reused candidate carries, from an earlier record than
+ * `state.previousAttempt`, and it is lifted out rather than re-appended. The
+ * append is a plain join, not `appendPreviousAttempt`: that helper refuses
+ * any base carrying a `Previous attempt` markdown heading — the same false
+ * positive the splitter just learned to see through, since a packet may
+ * legitimately head its own instructions `## Previous attempt notes:` — and
+ * silently dropped the state's retry record on exactly those prompts. The
+ * splitter guarantees the stable remainder carries no lifted record, so the
+ * join cannot double-append. The 64 KiB dispatch budget is enforced by the
+ * caller right after this returns, on the assembled prompt.
+ *
+ * @param {string} basePrompt
+ * @param {{sandbox?: (prompt: string) => string, protocol?: (prompt: string) => string, stable?: (prompt: string) => string, section?: string}} assembly
+ * @returns {string}
+ */
+export function assembleDispatchPrompt(basePrompt, { sandbox, protocol, stable, section } = {}) {
+  const { stable: head, section: embedded } = splitPreviousAttemptSection(basePrompt);
+  let ordered = head;
+  if (sandbox) ordered = sandbox(ordered);
+  if (protocol) ordered = protocol(ordered);
+  if (stable) ordered = stable(ordered);
+  const variable = section ?? embedded;
+  return variable ? `${ordered}\n\n${variable}` : ordered;
+}
+
+/**
  * @param {ValidatedContract} contract
  * @param {ValidatedNode} node
  * @param {NodeSnapshot} state
@@ -261,17 +309,20 @@ export function startWorker(contract, node, state, runDir, running, prompt, lock
   }
   const runtime = routeRuntimeForState(contract, node, state, "worker");
   const phasePlan = phaseInvocationPlan(contract, node, state, runDir, "worker", prompt, sessionPolicy);
-  // The previous-attempt section still has to survive on a retried attempt,
-  // so it is appended to the resolved prompt rather than the candidate handed
-  // to phaseInvocationPlan.
-  phasePlan.prompt = appendPreviousAttempt(phasePlan.prompt, state.previousAttempt);
-  // The resolved worker's sandbox is a dispatch-time fact, not a packet one.
-  phasePlan.prompt = appendSandboxNotice(phasePlan.prompt, runtime);
   // The worker prompt directs the provider to write the canonical result file;
   // make sure the directory exists before the provider is asked to.
   const resultPath = attemptWorkerResultPath(runDir, node.id, workspace);
   mkdirSync(dirname(resultPath), { recursive: true });
-  const effectivePrompt = workerProtocolPrompt(phasePlan.prompt, resultPath, writesWorkspace(runtime));
+  // The resolved worker's sandbox is a dispatch-time fact, not a packet one,
+  // and the previous-attempt section has to survive on a retried attempt.
+  // Both go through the shared assembly: stable instructions (packet prompt,
+  // sandbox notice, result-file protocol) precede the variable section, which
+  // is lifted out of a base that already carries one and re-appended last.
+  const effectivePrompt = assembleDispatchPrompt(phasePlan.prompt, {
+    sandbox: (ordered) => appendSandboxNotice(ordered, runtime),
+    protocol: (ordered) => workerProtocolPrompt(ordered, resultPath, writesWorkspace(runtime)),
+    section: state.previousAttempt,
+  });
   const paths = logPaths(runDir, node.id, "worker", state.attempt);
   if (Buffer.byteLength(effectivePrompt, "utf8") > 64 * 1024) {
     transition(runDir, state, "failed", { phase: "worker", error: { code: "worker_prompt_too_large", message: "worker prompt exceeds 65536 bytes" } }, lock);
@@ -323,6 +374,11 @@ export function startWorker(contract, node, state, runDir, running, prompt, lock
   state.error = null;
   state.scope = emptyScope(boundary);
   writeNode(runDir, state, lock);
+  const admission = reserveAdmission(campaignPath, state, basename(runDir), node.id, "worker");
+  if (admission.refused) {
+    transition(runDir, state, "blocked", { phase: "worker", error: admission.error }, lock);
+    return;
+  }
   try {
     const job = startProcess({
       contract, node, state, runtime, workspace, prompt: effectivePrompt, paths, phase: "worker",
@@ -336,7 +392,7 @@ export function startWorker(contract, node, state, runDir, running, prompt, lock
         stampInvocation(invocation, contract, node, runtime, state, runDir, "worker", phasePlan.mode, phasePlan.continuationId);
         invocation.snapshotPath = snapshotPath;
         currentJob.scopeBaseline = baseline;
-        persistInvocation(runDir, state, invocation, currentJob, lock);
+        persistInvocation(runDir, state, invocation, currentJob, lock, campaignPath, admission.reservation);
         persistInvocationIntent(runDir, invocation, {
           nodeId: node.id,
           role: "worker",
@@ -351,6 +407,7 @@ export function startWorker(contract, node, state, runDir, running, prompt, lock
     transition(runDir, state, "running", { phase: "worker", runtime, error: null }, lock);
     running.set(node.id, job);
   } catch (error) {
+    releaseReservation(campaignPath, admission.reservation);
     const invocation = state.invocations?.at(-1);
     if (invocation && hasOperationIntent(runDir, invocation.id) && operationNeedsRecovery(runDir, invocation.id)) {
       settleInvocation(runDir, invocation, {
@@ -527,18 +584,31 @@ export async function startJudge(contract, node, state, runDir, running, workerR
   if (previousInvocation && hasOperationSettlement(runDir, previousInvocation.id)) {
     settleInvocation(runDir, previousInvocation, { nextState: operationNextState(state) });
   }
+  const admission = reserveAdmission(campaignPath, state, basename(runDir), node.id, "judge");
+  if (admission.refused) {
+    transition(runDir, state, "blocked", { phase: "judge", error: admission.error }, lock);
+    return { kind: "refused" };
+  }
   try {
-    const prompt = `${judgePrompt(node, workerResult, {
+    const prompt = judgePrompt(node, workerResult, {
       diff: state.scope?.changedPaths,
       verification: state.verification,
       deterministic: results,
       scopeFindings: state.scopeFindings,
       previousAttempt: state.previousAttempt,
-    })}${reask ? judgeReaskInstruction(reaskReason) : ""}`;
+    });
     const phasePlan = phaseInvocationPlan(contract, node, state, runDir, "judge", prompt);
-    // judgePrompt already carries the section when phaseInvocationPlan reuses
-    // that candidate; appendPreviousAttempt is a no-op then.
-    phasePlan.prompt = appendPreviousAttempt(phasePlan.prompt, state.previousAttempt);
+    // The same ordering invariant as the worker prompt: the variable section
+    // stays the trailing block, lifted out of a reused candidate and
+    // re-appended last — byte-stable when judgePrompt already trailed it. The
+    // re-ask instruction rides the stable remainder like any other stable
+    // append: appended to the raw base instead, it landed after the trailing
+    // section and the assembly's state-section replacement dropped it with
+    // the lifted block — a re-asked judge dispatched without its instruction.
+    phasePlan.prompt = assembleDispatchPrompt(phasePlan.prompt, {
+      stable: reask ? (ordered) => `${ordered}${judgeReaskInstruction(reaskReason)}` : undefined,
+      section: state.previousAttempt,
+    });
     if (Buffer.byteLength(phasePlan.prompt, "utf8") > 64 * 1024) {
       const error = /** @type {Error & {code: string}} */ (new Error("judge prompt exceeds 65536 bytes"));
       error.code = "judge_prompt_too_large";
@@ -571,7 +641,7 @@ export async function startJudge(contract, node, state, runDir, running, workerR
         // worker and a judge, and this field carries no persisted shape of
         // its own that a judge borrowing it would have to match.
         currentJob.scopeBaseline = judgeBaseline;
-        persistInvocation(runDir, state, invocation, currentJob, lock);
+        persistInvocation(runDir, state, invocation, currentJob, lock, campaignPath, admission.reservation);
         persistInvocationIntent(runDir, invocation, {
           nodeId: node.id,
           role: "judge",
@@ -585,6 +655,7 @@ export async function startJudge(contract, node, state, runDir, running, workerR
     transition(runDir, state, "running", { phase: "judge", runtime }, lock);
     running.set(node.id, job);
   } catch (error) {
+    releaseReservation(campaignPath, admission.reservation);
     const invocation = state.invocations?.at(-1);
     if (invocation && hasOperationIntent(runDir, invocation.id) && operationNeedsRecovery(runDir, invocation.id)) {
       settleInvocation(runDir, invocation, {
@@ -604,8 +675,12 @@ export async function startJudge(contract, node, state, runDir, running, workerR
  * @param {Invocation} invocation
  * @param {Job} job
  * @param {LockHandle} lock
+ * @param {string} [campaignPath] absent when the call took no admission
+ * @param {import("../campaign/reserve.mjs").Reservation|null} [reservation] the
+ *   hold this dispatch was admitted under (ADR 0011); reconciled with the
+ *   charge that actually arrived, or released when the call ended with none
  */
-function persistInvocation(runDir, state, invocation, job, lock) {
+function persistInvocation(runDir, state, invocation, job, lock, campaignPath, reservation) {
   state.invocations = [...(state.invocations ?? []), invocation];
   state.updatedAt = invocation.updatedAt;
   writeNode(runDir, state, lock);
@@ -636,6 +711,24 @@ function persistInvocation(runDir, state, invocation, job, lock) {
       state.costUsd = invocationCost(state);
       state.updatedAt = closed.updatedAt;
       writeNode(runDir, state, lock);
+      if (campaignPath && reservation) {
+        // The close envelope carries raw counters -- the priced charge only
+        // exists once settlement prices it. `priceUsage` is the same pure
+        // function the settlement ledger runs over the same transcript, so
+        // the reservation reconciles against the amount the invocation will
+        // carry rather than a second derivation of it. A charge the envelope
+        // cannot price releases the hold: the reserve gates new dispatches,
+        // and the measured truth stays in the usage ledger.
+        const charge = priceUsage(job.runtime, usage, typeof costUsd === "number" ? costUsd : null).costUsd;
+        try {
+          if (typeof charge === "number") reconcileCampaignReservation(campaignPath, reservation.id, charge);
+          else releaseCampaignReservation(campaignPath, reservation.id);
+        } catch {
+          // A hold that cannot settle stays visible in `readCampaignReserve`
+          // until an operator releases it; the node's own settlement must
+          // never fail for the campaign-level ledger.
+        }
+      }
       settleInvocation(runDir, completed, {
         status: envelopeStatus,
         usage,
