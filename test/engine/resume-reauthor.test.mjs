@@ -568,6 +568,14 @@ test("resume terminates an interrupted verification attempt and re-runs the phas
     }],
   };
   writeFileSync(nodePath, JSON.stringify(state, null, 2));
+  // The crash left no completed checkpoint, so the phase must run again: the
+  // completed pass that produced this run wrote checkpoint-<n>.json beside its
+  // verification logs, and resume would otherwise serve the unchanged command
+  // from that record instead of re-executing it.
+  const verificationLogDir = join(runDir, "logs", `build.${state.attempt}.verification`);
+  for (const entry of readdirSync(verificationLogDir)) {
+    if (/^checkpoint-\d+\.json$/.test(entry)) rmSync(join(verificationLogDir, entry));
+  }
   try {
     const resumed = await withFakeCodex(directory, "worker-fail", () => resumeRun(runDir));
     const final = nodeState(resumed);

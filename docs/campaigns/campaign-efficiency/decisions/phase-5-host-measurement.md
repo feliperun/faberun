@@ -102,6 +102,20 @@ o resultado gravado na run é a prova do requisito; este worker não o executou 
 iniciam e terminam processos filhos, o que o pacote proíbe à parte de execução. Com sinais de
 prontidão e sem limite superior de duração como asserção (restrição da spec).
 
+Fechar a fase com o próprio comando de prova do R7 pegou uma interação entre o nó de identidade de
+checkpoint e o teste de retomada. `resume terminates an interrupted verification attempt and re-runs
+the phase` (test/engine/resume-reauthor.test.mjs:540) falhou com 1 tentativa de verificação onde
+esperava 2. Bisecado: passa até a integração das provas paralelas e falha a partir da integração do
+nó de identidade de checkpoint — `src/engine/run-command.mjs` passou a gravar `checkpoint-<ordinal>.json`
+junto ao log de verificação e a servir o resultado de um comando quando árvore, comando, ambiente e
+entradas de dependência são idênticos. O teste fabrica uma tentativa interrompida sobre uma run que
+já completou e deixou seu checkpoint; na retomada, o comando inalterado é servido do checkpoint e a
+fase não roda de novo — exatamente o comportamento que o requisito de checkpoint pede, não um defeito
+a remover. Assentou-se no teste, não no motor: antes de retomar, o teste apaga os `checkpoint-<n>.json`
+do diretório de log de verificação do nó (`logs/build.<tentativa>.verification`), porque o crash
+simulado não deixou checkpoint completo; todas as asserções do teste foram mantidas. Medido neste
+fechamento, 2026-10-02.
+
 ## Conformidade
 
 Este registro reconhece `test/plan/existing-specs.test.mjs` e não o modifica: ele enumera os `.md`
