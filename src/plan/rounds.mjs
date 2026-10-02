@@ -22,12 +22,22 @@
  * campaign) this module has no reason to hold; injecting them keeps this
  * module free of a runtime dependency on `pipeline.mjs`, so a test can drive
  * it with fakes.
+ *
+ * The file's other half is the round bounds that are not the review/revise
+ * loop: `runBoundedRounds`, the hard budget the reauthor flow spends widening
+ * a refused packet, and `reauthorTriggerDecision`, the durable gate that
+ * decides whether a trigger may spend that budget at all (R5,
+ * campaign-efficiency phase 4). The gate is keyed to the failure journal
+ * rather than to this process because its whole point is to hold across
+ * resumes; it lives beside the budget it guards because a round bound is
+ * what this module owns.
  */
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import { writeJsonAtomic } from "../run/store.mjs";
 import { stableJson } from "../util.mjs";
 import { freezePreflight } from "./preflight.mjs";
+import { durableQuestion } from "./human-step.mjs";
 import { reviseContextFor } from "./revise-context.mjs";
 import { applyPlanPatch, validateFindings, validatePlanOutput } from "./template.mjs";
 
@@ -546,4 +556,77 @@ export async function runBoundedRounds(rounds, step) {
     }
   }
   return { accepted: false, roundsUsed: rounds, last: history.at(-1) ?? null, history };
+}
+
+/**
+ * A reauthor trigger as the failure journal records it: the classified cause,
+ * the refused node, and the refused packet's hash. Whatever else the journal
+ * line carries (outcome, timestamp) rides in the index signature — the gate
+ * counts every record on the key, whatever its outcome.
+ *
+ * @typedef {{cause: string, node: string, artifactVersion: string, [key: string]: unknown}} ReauthorRecord
+ */
+
+/**
+ * @typedef {{action: "widen"} | {action: "refuse", reason: string} | {action: "ask", question: import("./human-step.mjs").DurableQuestion}} ReauthorTriggerDecision
+ */
+
+/**
+ * The hard cap, per node and packet version, on reauthor triggers: once this
+ * many triggers are journaled against the same `(node, artifactVersion)` with
+ * the packet unchanged, a further trigger is refused whatever its cause. No
+ * measurement stands behind the number itself — it mirrors the one retry
+ * `reviseOnce` grants a revise (two chances to answer what was objected), and
+ * the journal makes the bound durable across resumes, which is the property
+ * R5 asks for: without it, a fresh process would start a fresh budget and the
+ * same refusal would spend a widening call on every resume.
+ */
+export const REAUTHOR_ROUND_CAP = 2;
+
+/**
+ * The one decision a packet-refusal trigger passes before the reauthor flow
+ * makes a single widening call (R5, campaign-efficiency phase 4). `records`
+ * is what reauthor.jsonl already journals for every outcome (n5,
+ * failure-cause classes); the widened packet itself is validated where it is
+ * applied, as it already is — this gate decides only whether a trigger may
+ * spend a widening round, never whether a proposal is sound.
+ *
+ * In order:
+ *
+ * - a trigger carrying no classified cause cannot be keyed into the journal,
+ *   so it is refused before any call;
+ * - `ambiguous_requirement` becomes the durable question and never a widening
+ *   round — widening cannot disambiguate prose (`durableQuestion`). An ask
+ *   makes no provider call, so it is not capped and not deduplicated: asking
+ *   again is the same durable question, not another attempt;
+ * - the exact same cause on the same node and packet version is refused —
+ *   the journal already carrying it is the evidence that widening did not
+ *   progress, and a repeat is how the call count goes indefinite;
+ * - the round cap counts every recorded trigger on that node and version,
+ *   whatever its outcome: an applied widening is gone from this key by
+ *   construction (the widened packet changes the hash and starts a fresh
+ *   budget — progress resets the bound), while approval_required and
+ *   rounds_exhausted spent their calls without one;
+ * - everything else widens.
+ *
+ * @param {ReauthorRecord[]} records
+ * @param {{cause: string, node: string, artifactVersion: string}} trigger
+ * @returns {ReauthorTriggerDecision}
+ */
+export function reauthorTriggerDecision(records, trigger) {
+  if (!trigger.cause) {
+    return { action: "refuse", reason: `reauthor trigger on node ${trigger.node} carries no classified cause; widening is refused` };
+  }
+  if (trigger.cause === "ambiguous_requirement") {
+    const question = durableQuestion(trigger);
+    return { action: "ask", question: /** @type {import("./human-step.mjs").DurableQuestion} */ (question) };
+  }
+  const onVersion = records.filter((record) => record.node === trigger.node && record.artifactVersion === trigger.artifactVersion);
+  if (onVersion.some((record) => record.cause === trigger.cause)) {
+    return { action: "refuse", reason: `cause ${trigger.cause} already triggered a reauthor on node ${trigger.node} at ${trigger.artifactVersion} and the packet has not changed; the same refusal does not widen again` };
+  }
+  if (onVersion.length >= REAUTHOR_ROUND_CAP) {
+    return { action: "refuse", reason: `reauthor round cap ${REAUTHOR_ROUND_CAP} reached on node ${trigger.node} at ${trigger.artifactVersion}: ${onVersion.length} trigger(s) journaled without the packet changing` };
+  }
+  return { action: "widen" };
 }

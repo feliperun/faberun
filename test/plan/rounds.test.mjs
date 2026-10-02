@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
-import { runBoundedRounds, runReviewRounds } from "../../src/plan/rounds.mjs";
+import { runBoundedRounds, runReviewRounds, reauthorTriggerDecision, REAUTHOR_ROUND_CAP } from "../../src/plan/rounds.mjs";
+import { durableQuestion } from "../../src/plan/human-step.mjs";
 import { fixture, packet } from "../helpers.mjs";
 
 /**
@@ -522,5 +523,79 @@ test("the bounded round budget stops at the first accepted round and never excee
   assert.deepEqual(attempts, [1, 2], "the hard budget is exactly two calls");
 
   await assert.rejects(() => runBoundedRounds(0, async () => ({ accepted: true })), /positive integer/u);
+});
+
+// R5, campaign-efficiency phase 4: the durable gate a reauthor trigger passes
+// before the flow makes a single widening call. `durableQuestion` is
+// human-step.mjs's export, but its behaviour is exercised here because this
+// file is the behaviour test the packet proves the gate with — the directory
+// is the rule, not the file name.
+
+test("an ambiguous requirement refusal becomes a durable question, never a widening round", async () => {
+  const trigger = { cause: "ambiguous_requirement", node: "build", artifactVersion: "packet-hash-1" };
+  const decision = /** @type {any} */ (reauthorTriggerDecision([], trigger));
+  assert.equal(decision.action, "ask");
+  assert.deepEqual(decision.question, {
+    node: "build",
+    artifactVersion: "packet-hash-1",
+    question: `Node build refused its packet at packet-hash-1 with cause ambiguous_requirement: the requirement can be read more than one way, and no widening of the packet can answer it. Decide what the requirement means, then resume with --answer build; no reauthor round and no further attempt runs on this packet version until then.`,
+  });
+
+  // The ask survives a journal that already carries the same ambiguity: it
+  // makes no provider call, so asking again is the same durable question,
+  // not an indefinite widening loop.
+  const again = /** @type {any} */ (reauthorTriggerDecision([{ ...trigger, outcome: "asked" }], trigger));
+  assert.equal(again.action, "ask");
+
+  // Every other cause is the packet's own defect and stays widen-eligible:
+  // durableQuestion answers null for it.
+  assert.equal(durableQuestion({ cause: "missing_read_scope", node: "build", artifactVersion: "packet-hash-1" }), null);
+});
+
+test("the same cause on the same node and packet version never triggers a second reauthor", async () => {
+  const trigger = { cause: "missing_read_scope", node: "build", artifactVersion: "packet-hash-1" };
+  const journaled = [{ ...trigger, outcome: "rounds_exhausted" }];
+  const decision = /** @type {any} */ (reauthorTriggerDecision(journaled, trigger));
+  assert.equal(decision.action, "refuse");
+  assert.match(decision.reason, /already triggered a reauthor/u);
+  assert.match(decision.reason, /does not widen again/u);
+
+  // The refusal is keyed to the whole triple, so a different cause on the
+  // same version, the same cause on a widened packet, or the same refusal on
+  // another node all still widen.
+  assert.deepEqual(reauthorTriggerDecision(journaled, { cause: "missing_write_scope", node: "build", artifactVersion: "packet-hash-1" }), { action: "widen" });
+  assert.deepEqual(reauthorTriggerDecision(journaled, { cause: "missing_read_scope", node: "build", artifactVersion: "packet-hash-2" }), { action: "widen" });
+  assert.deepEqual(reauthorTriggerDecision(journaled, { cause: "missing_read_scope", node: "elsewhere", artifactVersion: "packet-hash-1" }), { action: "widen" });
+});
+
+test("the round cap refuses a further trigger on a packet version, and progress resets the budget", async () => {
+  const version = "packet-hash-1";
+  const journal = [
+    { cause: "missing_read_scope", node: "build", artifactVersion: version, outcome: "rounds_exhausted" },
+    { cause: "missing_write_scope", node: "build", artifactVersion: version, outcome: "approval_required" },
+  ];
+  const decision = /** @type {any} */ (reauthorTriggerDecision(journal, { cause: "unclassified", node: "build", artifactVersion: version }));
+  assert.equal(decision.action, "refuse", "the cap counts every outcome: both spent their calls without the packet changing");
+  assert.match(decision.reason, new RegExp(`round cap ${REAUTHOR_ROUND_CAP}`, "u"));
+  assert.equal(REAUTHOR_ROUND_CAP, journal.length, "the journal above is exactly one trigger past the cap");
+
+  // An applied widening is progress: the widened packet changes the hash, so
+  // the records under the old version stop counting and the budget is fresh.
+  const progressed = reauthorTriggerDecision([
+    { cause: "missing_read_scope", node: "build", artifactVersion: "packet-hash-0", outcome: "applied" },
+    { cause: "missing_write_scope", node: "build", artifactVersion: "packet-hash-0", outcome: "applied" },
+  ], { cause: "unclassified", node: "build", artifactVersion: "packet-hash-1" });
+  assert.deepEqual(progressed, { action: "widen" });
+
+  // The ask is not capped: ambiguity never reaches the count rules, because
+  // it never makes a call the cap could bound.
+  const capped = /** @type {any} */ (reauthorTriggerDecision(journal, { cause: "ambiguous_requirement", node: "build", artifactVersion: version }));
+  assert.equal(capped.action, "ask");
+});
+
+test("a trigger with no classified cause is refused before any widening call", async () => {
+  const decision = /** @type {any} */ (reauthorTriggerDecision([], { cause: "", node: "build", artifactVersion: "packet-hash-1" }));
+  assert.equal(decision.action, "refuse");
+  assert.match(decision.reason, /no classified cause/u);
 });
 
