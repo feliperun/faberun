@@ -70,7 +70,13 @@ export function auxSpawnAdmission(contract, node, state, running, states, role, 
 /**
  * Record a refused auxiliary spawn on the node's event journal: the verdict
  * the deferral is gated on, read back by the phase proof and by an operator
- * asking why a node went back to pending without a new attempt.
+ * asking why a node went back to pending without a new attempt. The event is
+ * written only for a refusal, so its existence is the verdict. Measured
+ * 2026-10-02: `appendTransitionEvent` builds the event from the node snapshot
+ * and its own fields win every colliding name -- the event's `runtime` and
+ * `summary` are the state's, not ours -- so the refusal rides the one field
+ * the transition leaves unset: `error`, with the node's own error null
+ * (the deferral parks nothing on the node).
  *
  * @param {string} runDir
  * @param {NodeSnapshot} state
@@ -83,9 +89,7 @@ export function recordAuxRefusal(runDir, state, from, lock, role, admission) {
   appendTransitionEvent(runDir, state, from, "pending", {
     type: "aux.admission",
     role,
-    runtime: admission.runtimeId,
-    admitted: false,
-    reason: admission.reason,
+    error: { code: "aux_spawn_refused", message: admission.reason ?? "aux spawn refused" },
   }, lock);
 }
 
