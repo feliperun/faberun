@@ -1,5 +1,5 @@
 diff --git a/skills/mine/intent-factory/scripts/supervisor.mjs b/skills/mine/intent-factory/scripts/supervisor.mjs
-index 5e4a0fb..c2a2525 100644
+index 5e4a0fb561ecb3f3e1bb7361043df3f32eaf0de7..c2a2525295d3b56f6afaa74e44873f5ec1104af5 100644
 --- a/skills/mine/intent-factory/scripts/supervisor.mjs
 +++ b/skills/mine/intent-factory/scripts/supervisor.mjs
 @@ -89,6 +89,9 @@ function childEnv() {
@@ -31,7 +31,7 @@ index 5e4a0fb..c2a2525 100644
  /**
   * @param {{contract: ValidatedContract, node: ValidatedNode, state: NodeSnapshot, runtime: DriverRuntime & {id: string|null}, prompt: string, paths: PathSet, phase: string, commandOptions?: import("./drivers/index.mjs").CommandOptions, onInvocation: (invocation: Invocation, job: Job) => void, onInvocationUpdate?: (invocation: Invocation) => void, onProgress?: (state: NodeSnapshot) => void}} args
 diff --git a/skills/mine/intent-factory/test/supervisor.test.mjs b/skills/mine/intent-factory/test/supervisor.test.mjs
-index 70c5170..9ec6eca 100644
+index 70c5170ec90fd8be15d31013c03221c1e7d078b5..9ec6eca7861fdf539eb50ce0e86d2d21b3d41daf 100644
 --- a/skills/mine/intent-factory/test/supervisor.test.mjs
 +++ b/skills/mine/intent-factory/test/supervisor.test.mjs
 @@ -295,6 +295,74 @@ process.stdin.resume();

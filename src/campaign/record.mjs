@@ -11,7 +11,7 @@ import { errorCode } from "../util.mjs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { assertObject, requireId, requirePacketHash, requireString, requireText, requireTimestamp } from "../contract/assert.mjs";
+import { assertObject, nonNegativeNumber, requireId, requirePacketHash, requireString, requireText, requireTimestamp } from "../contract/assert.mjs";
 
 /** @typedef {import("./index.mjs").Campaign} Campaign */
 /** @typedef {import("../notify/index.mjs").JsonObject} JsonObject */
@@ -122,6 +122,13 @@ export function validateCampaign(campaign) {
     }
   }
   if (record.landBranch !== undefined) requireText(record.landBranch, "campaign.landBranch");
+  // The optional balance the reserve gate gates new known-cost dispatches
+  // against (ADR 0011). Absent means no reserve policy at all, which must stay
+  // distinct from a balance of zero — zero gates every known-cost dispatch —
+  // so the field is never defaulted on read, and present it must be a finite
+  // non-negative number, because anything else either gates everything or
+  // reserves money the campaign does not have.
+  if (record.reserveUsd !== undefined) nonNegativeNumber(record.reserveUsd, "campaign.reserveUsd");
   // The ledger preservation marker is optional on read (a record written
   // before it existed reads as not preserved), but once written it must be a
   // boolean so removal can rely on the state it carries.

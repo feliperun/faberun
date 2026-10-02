@@ -1,7 +1,7 @@
 import "../scoped-home.mjs";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { detectLanguage, labelsFor } from "../../src/report/locale.mjs";
+import { ALERTS, detectLanguage, labelsFor } from "../../src/report/locale.mjs";
 
 test("detectLanguage reads the operator's own words: Portuguese goals render Portuguese, English renders English, nothing renders English", () => {
   assert.equal(detectLanguage(["Garantir que o cancelamento não perca trabalho já integrado e que as notas do journal sejam recusadas em vez de cortadas"]), "pt");
@@ -36,4 +36,13 @@ test("labelsFor answers every key in both languages and falls back to English, t
   assert.equal(pt("doneIn"), "concluído em");
   assert.equal(en("no-such-key"), "no-such-key");
   assert.equal(pt("no-such-key"), "no-such-key");
+});
+
+test("the alert catalogue registers the four campaign alerts, each deduplicating on campaign and episode, worded in both languages", () => {
+  assert.deepEqual(ALERTS.map((alert) => alert.id), ["phase-completed", "recovery-exhausted", "decision-needed", "closure"]);
+  for (const alert of ALERTS) {
+    assert.deepEqual(alert.dedupKeys, ["campaign", "episode"], `${alert.id} dedupes on campaign and episode, so a re-derived occurrence never sends twice`);
+    assert.equal(typeof alert.text.en, "string");
+    assert.notEqual(alert.text.pt, alert.text.en, `${alert.id} is translated, not copied`);
+  }
 });

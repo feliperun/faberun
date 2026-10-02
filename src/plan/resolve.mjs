@@ -28,6 +28,7 @@ import { highestOf, modelOf } from "./pipeline-shape.mjs";
 import { reviewerProvenanceOf } from "./reviewer.mjs";
 import { PLANNER_SESSION_ID, assembleFrozenPlan, carriesSuites, effectiveVerificationSuites, frozenContractRawOf, invalidPlanFinding, writeFrozenPlan } from "./pipeline.mjs";
 import { contestPlan } from "./contest.mjs";
+import { persistRepoFacts } from "./repo-facts.mjs";
 import { parseSpec } from "./spec.mjs";
 import { RISK_TIERS } from "./template.mjs";
 
@@ -131,6 +132,12 @@ export async function resolvePlanningPipeline({ plansDir, cwd, answers }) {
     ]);
   }
   logStage("resolve", { round, answered: criticalFindings.length });
+  // R4: the facts a --resolve freeze carries are the same shaped artefact a
+  // fresh `plan` stages — the byte cut plus its per-kind omission report — and
+  // they are written here, with the complete path index beside them, so a plan
+  // that reached freeze without redrafting still leaves on disk the inventory
+  // and the whole tree a later discovery packet reads.
+  persistRepoFacts(plansDir, repoFacts, cwd);
 
   // The plan resumed here may carry suites of its own (RM-107), so the
   // warning is read off the same effective set the freeze below will carry.

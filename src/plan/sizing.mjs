@@ -20,7 +20,7 @@ import { VERIFICATION_LIMITS } from "../contract/verification.mjs";
 /** @typedef {{id: string, dependsOn?: string[], taskKind?: string, riskTier?: string, taskPacket: SizingTaskPacket, definitionOfDone?: DefinitionOfDoneItem[], parallel?: boolean, [key: string]: unknown}} PlanNode */
 /** @typedef {{nodes: PlanNode[], justification?: string, [key: string]: unknown}} Plan */
 /** @typedef {{path: string, covers: string[]}} SizingTestFileEntry */
-/** @typedef {{testFiles?: SizingTestFileEntry[]}} SizingFacts */
+/** @typedef {{paths?: string[], testFiles?: SizingTestFileEntry[]}} SizingFacts */
 /** @typedef {"implementation"|"exploratory"} PackageMode */
 /** @typedef {{nodeBudgetMs: number, targetedFix?: boolean, facts?: SizingFacts, minWriteFiles?: number, maxMergedWriteFiles?: number, turnCeiling?: number, packageMode?: PackageMode, readVolume?: (path: string) => number|null}} SizingOptions */
 /** @typedef {{rule: string, nodes: string[], detail: string}} SizingTransformation */
@@ -74,6 +74,7 @@ export function applySizingRules(plan, options) {
   nodes = markParallelisable(nodes, transformations);
   nodes = flagOverTurnCeiling(nodes, options.turnCeiling ?? null, transformations);
   if (exploratory) nodes = flagReadVolumeImbalance(nodes, options.readVolume ?? null, transformations);
+  refuseReadSelectionOutsideFactSet(nodes, facts);
 
   if (nodes.length === 1 && !targetedFix) {
     throw new Error(`sizing_single_node_plan: node ${nodes[0].id} is the plan's only node; pass options.targetedFix to allow a single-node plan`);
@@ -91,6 +92,37 @@ export function applySizingRules(plan, options) {
     // plan reader needs to weigh one more split against.
     estimate: { nodes: nodes.length, overheadMinutes: nodes.length * NODE_OVERHEAD_MINUTES },
   };
+}
+
+/**
+ * A worker packet's readFiles is its declared selection from the phase fact
+ * set (R4, campaign-efficiency phase 4): the facts repo-facts.json measured
+ * for this phase. A read the fact set does not hold is context nothing in the
+ * phase vouches for, so the plan is refused in-round — named, so the revise
+ * that repairs it can act — rather than frozen into a packet whose context
+ * outgrew what was measured. This is PATH_CUT_RULE's absence rule, not its
+ * opposite: absence from `paths` is not proof a file does not exist, only
+ * proof it is not this phase's measured context.
+ *
+ * Skipped when the caller hands no fact set at all (`paths` absent —
+ * hand-built test fixtures; `collectRepoFacts` always produces it), because
+ * there is then nothing to have selected from.
+ *
+ * @param {PlanNode[]} nodes
+ * @param {SizingFacts} facts
+ * @returns {void}
+ */
+function refuseReadSelectionOutsideFactSet(nodes, facts) {
+  const factSet = Array.isArray(facts.paths) ? new Set(facts.paths) : null;
+  if (!factSet) return;
+  for (const node of nodes) {
+    const readFiles = Array.isArray(node.taskPacket.readFiles) ? /** @type {string[]} */ (node.taskPacket.readFiles) : [];
+    for (const path of readFiles) {
+      if (!factSet.has(path)) {
+        throw new Error(`sizing_read_outside_fact_set: node ${node.id} declares readFiles entry ${path}, which the phase fact set does not hold; select each node's read files from repo-facts.json's paths and testFiles — a read outside the fact set is context nothing in this phase measured`);
+      }
+    }
+  }
 }
 
 /**

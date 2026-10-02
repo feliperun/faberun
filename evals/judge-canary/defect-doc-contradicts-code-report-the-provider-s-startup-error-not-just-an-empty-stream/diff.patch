@@ -1,5 +1,5 @@
 diff --git a/skills/mine/intent-factory/scripts/drivers/index.mjs b/skills/mine/intent-factory/scripts/drivers/index.mjs
-index 3130f17..7defaa8 100644
+index 3130f17b9e7590211079fb85adbc1d27855c2b9f..7defaa888956ffff589eea2e476a40f18f7663f2 100644
 --- a/skills/mine/intent-factory/scripts/drivers/index.mjs
 +++ b/skills/mine/intent-factory/scripts/drivers/index.mjs
 @@ -66,7 +66,7 @@ const CAPABILITY_NAMES = new Set([
@@ -12,7 +12,7 @@ index 3130f17..7defaa8 100644
  /**
   * One provider adapter: capabilities plus executable, version, command, and
 diff --git a/skills/mine/intent-factory/scripts/drivers/protocol.mjs b/skills/mine/intent-factory/scripts/drivers/protocol.mjs
-index 347b064..b1ac70f 100644
+index 347b06436586fbebd3af82725fd2413bd67634e3..b1ac70feaec813c8d69ef71899adf846ecc4437b 100644
 --- a/skills/mine/intent-factory/scripts/drivers/protocol.mjs
 +++ b/skills/mine/intent-factory/scripts/drivers/protocol.mjs
 @@ -56,17 +56,37 @@ export function toml(value) {
@@ -74,7 +74,7 @@ index 347b064..b1ac70f 100644
    const textResult = typeof text === "string" ? text : null;
    // A finished turn with a final message is accepted work regardless of the
 diff --git a/skills/mine/intent-factory/scripts/node.mjs b/skills/mine/intent-factory/scripts/node.mjs
-index 6ca836f..41eae2f 100644
+index 6ca836fbce6a4d190c2f6286fd87307dc7b57133..41eae2f4a857ca56554e84c0a09da53462cb2eae 100644
 --- a/skills/mine/intent-factory/scripts/node.mjs
 +++ b/skills/mine/intent-factory/scripts/node.mjs
 @@ -2631,7 +2631,10 @@ export function recordInvocationUsage(job, options = {}) {
@@ -90,7 +90,7 @@ index 6ca836f..41eae2f 100644
      envelope = {
        status: "failed",
 diff --git a/skills/mine/intent-factory/test/drivers.test.mjs b/skills/mine/intent-factory/test/drivers.test.mjs
-index f06dbb0..70ad685 100644
+index f06dbb0ee47dadc6b3bcbec38ff25d9bea932ffc..70ad6851f97af15eb4d7bbbb64094ca3347ddf2d 100644
 --- a/skills/mine/intent-factory/test/drivers.test.mjs
 +++ b/skills/mine/intent-factory/test/drivers.test.mjs
 @@ -21,7 +21,7 @@ import {

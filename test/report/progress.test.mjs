@@ -324,6 +324,12 @@ test("the campaign next action carries its command", () => {
     const runDir = join(runsDir, "phase-a");
     assert.equal(progress.nextAction.command, `resume ${runDir} --answer build=<answer-file>`);
     assert.equal(progress.nextAction.runnable, false);
+    // The action stands, unanswered: nothing in the journal records the
+    // operator applying it, and the blocked node's answer is a human
+    // decision -- the projection names its owner instead of taking it.
+    assert.equal(progress.nextAction.state, "pending");
+    assert.equal(progress.nextAction.decisionOwner, "operator");
+    assert.deepEqual(progress.waitReason, { code: "decision", detail: "build" });
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -560,4 +566,104 @@ test("a closed campaign's elapsed stops at the record's closedAt, not at the wal
   assert.equal(progress.time.startedAt, "2026-01-01T00:00:00.000Z");
   assert.equal(progress.time.elapsed, "5h00m");
   assert.equal(progress.time.remaining, "complete");
+  // The projection's other clocks stopped with the record too, and a closed
+  // campaign waits for nothing and needs nothing: no action, no owner.
+  assert.equal(progress.time.lastProgressAt, "2026-01-01T00:30:00.000Z");
+  assert.equal(progress.time.sinceProgress, "4h30m");
+  assert.equal(progress.currentPhase, null);
+  assert.equal(progress.activity, null);
+  assert.equal(progress.waitReason, null);
+  assert.equal(progress.nextAction.state, "none");
+  assert.equal(progress.nextAction.command, null);
+  assert.equal(progress.nextAction.decisionOwner, null);
+});
+
+test("the projection answers where the campaign stands: current phase, running activity and time since a node last settled", () => {
+  const { directory, runsDir } = makeCampaign("rollup-campaign-standing", [
+    { id: "phase-a", phaseId: "phase-a", hasRun: true, nodes: [{ id: "a1", snapshot: { status: "done", startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", result: doneResult("a1 done") } }] },
+    { id: "phase-b", phaseId: "phase-b", hasRun: true, nodes: [{ id: "b1", snapshot: { status: "running", startedAt: "2026-01-01T00:02:00.000Z", updatedAt: "2026-01-01T00:03:00.000Z" } }] },
+  ]);
+  try {
+    const progress = JSON.parse(renderCampaignProgress(runsDir, "rollup-campaign-standing", Date.parse("2026-01-01T00:10:00.000Z")));
+    assert.deepEqual(progress.currentPhase, { contractId: "phase-b", runId: "phase-b", phase: "phase-b", name: "Phase b" });
+    assert.deepEqual(progress.activity, { runId: "phase-b", phase: "phase-b", nodeId: "b1", startedAt: "2026-01-01T00:02:00.000Z" });
+    assert.equal(progress.waitReason, null, "a campaign with a node in flight is not waiting");
+    // The running node's own timestamps climb while it works, so progress
+    // stopped when the last node settled, nine minutes ago.
+    assert.equal(progress.time.lastProgressAt, "2026-01-01T00:01:00.000Z");
+    assert.equal(progress.time.sinceProgress, "9m00s");
+    // No phase carries declared requirement ids yet, so both numbers are
+    // absent -- never zero, the same refusal the page applies everywhere.
+    assert.deepEqual(progress.requirements, { proven: null, total: null });
+    assert.equal(progress.unpricedInvocations, 0);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("an operator command recorded after the block marks the next action applied; one recorded before does not", () => {
+  const { directory, runsDir, campaignPath } = makeCampaign("rollup-campaign-applied", [
+    { id: "phase-a", phaseId: "phase-a", hasRun: true, nodes: [{ id: "build", snapshot: { status: "blocked", startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", result: { status: "blocked_context", summary: "missing config", verification: [], artifacts: [], missingContext: ["missing.txt"] } } }] },
+  ]);
+  try {
+    const runDir = join(runsDir, "phase-a");
+    // An operator command from before the block answered an earlier state,
+    // not this one -- the action stays pending.
+    appendJournal(campaignPath, { type: "operator.command", at: "2026-01-01T00:00:30.000Z", eventId: randomUUID(), command: `resume ${runDir} --answer build=/tmp/early-answer.md`, sessionId: "operator-1", runId: "phase-a" });
+    let progress = JSON.parse(renderCampaignProgress(runsDir, "rollup-campaign-applied"));
+    assert.equal(progress.nextAction.state, "pending", "the command predates the state that demanded the action");
+    appendJournal(campaignPath, { type: "operator.command", at: "2026-01-01T00:05:00.000Z", eventId: randomUUID(), command: `resume ${runDir} --answer build=/tmp/answer.md`, sessionId: "operator-1", runId: "phase-a" });
+    progress = JSON.parse(renderCampaignProgress(runsDir, "rollup-campaign-applied"));
+    assert.equal(progress.nextAction.state, "applied");
+    assert.equal(progress.nextAction.command, `resume ${runDir} --answer build=<answer-file>`, "the projection still prints its own placeholder, not the operator's answer file");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a settled phase with a queued one waits on the launch and names the queued phase", () => {
+  const { directory, runsDir } = makeCampaign("rollup-campaign-launch", [
+    { id: "phase-a", phaseId: "phase-a", hasRun: true, nodes: [{ id: "a1", snapshot: { status: "done", startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", result: doneResult("a1 done") } }] },
+    { id: "phase-b", phaseId: "phase-b", hasRun: false, nodes: [{ id: "b1", dependsOn: ["a1"] }] },
+  ]);
+  try {
+    const progress = JSON.parse(renderCampaignProgress(runsDir, "rollup-campaign-launch", Date.parse("2026-01-01T01:01:00.000Z")));
+    assert.equal(progress.activity, null);
+    assert.deepEqual(progress.waitReason, { code: "launch", detail: "Phase b" });
+    assert.deepEqual(progress.currentPhase, { contractId: "phase-b", runId: null, phase: "phase-b", name: "Phase b" });
+    assert.equal(progress.time.sinceProgress, "1h00m");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a run stopped between nodes waits on supervision, naming the phase it stopped in", () => {
+  const { directory, runsDir } = makeCampaign("rollup-campaign-supervise", [
+    // A declared node whose run exists but that never started: no snapshot
+    // activity, nothing blocked -- the run simply stopped being driven.
+    { id: "phase-a", phaseId: "phase-a", hasRun: true, nodes: [{ id: "a1" }] },
+  ]);
+  try {
+    const progress = JSON.parse(renderCampaignProgress(runsDir, "rollup-campaign-supervise", Date.parse("2026-01-01T01:00:00.000Z")));
+    assert.equal(progress.activity, null);
+    assert.deepEqual(progress.waitReason, { code: "supervise", detail: "Phase a" });
+    assert.equal(progress.time.sinceProgress, null, "nothing has settled, so there is no progress to measure from");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("everything settled with nothing queued waits on closure, with no current phase and nothing in flight", () => {
+  const { directory, runsDir } = makeCampaign("rollup-campaign-complete", [
+    { id: "phase-a", phaseId: "phase-a", hasRun: true, nodes: [{ id: "a1", snapshot: { status: "done", startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", result: doneResult("a1 done") } }] },
+  ]);
+  try {
+    const progress = JSON.parse(renderCampaignProgress(runsDir, "rollup-campaign-complete", Date.parse("2026-01-01T02:00:00.000Z")));
+    assert.equal(progress.currentPhase, null);
+    assert.equal(progress.activity, null);
+    assert.deepEqual(progress.waitReason, { code: "complete", detail: null });
+    assert.equal(progress.time.sinceProgress, "1h59m", "the wait is on closure, and the clock since the last node finished keeps running");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

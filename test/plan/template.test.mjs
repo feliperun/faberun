@@ -9,6 +9,8 @@ import { validateContract } from "../../src/contract/index.mjs";
 import { renderWorkerPrompt } from "../../src/contract/task-packet.mjs";
 import { droppedWriteFindings, unresolvedFindings } from "../../src/plan/pipeline.mjs";
 import {
+  PATH_CUT_RULE,
+  REVIEW_PATH_CUT_RULE,
   RISK_TIERS,
   TASK_KINDS,
   TASK_KIND_CATALOGUE_FILE,
@@ -92,21 +94,22 @@ test("every built contract passes validateContract against a temp checkout that 
   }
 });
 
-test("review packet is isolated", () => {
+test("review packet is isolated to the target's inputs and the rules", () => {
   const cwd = checkout();
   const contractPath = join(cwd, "contract.json");
-  const draftContract = validateContract(buildPlanningContract("draft", baseInputs()), contractPath);
-  const reviewContract = validateContract(buildPlanningContract("review", baseInputs()), contractPath);
-
-  const draftPacket = draftContract.nodes[0].taskPacket;
-  const reviewPacket = reviewContract.nodes[0].taskPacket;
+  const reviewPacket = validateContract(buildPlanningContract("review", baseInputs()), contractPath).nodes[0].taskPacket;
   const serializedReview = JSON.stringify(reviewPacket);
 
-  for (const sentence of draftPacket.instructions) {
-    assert.equal(serializedReview.includes(sentence), false, `review packet must not carry the draft sentence: ${sentence}`);
-  }
+  // The rules the reviewer judges by are now shared with the drafter on
+  // purpose, because a reviewer grading against other wording grades against a
+  // different rule; what must never reach the review is the author's own
+  // packet, transcript or log paths.
+  assert.equal(serializedReview.includes("Put the plan in output.plan"), false, "the reviewer is not handed the drafter's output instruction");
   assert.equal(/\.runs\/[^"]*\/logs/u.test(serializedReview), false, "review packet must not carry a path under .runs/*/logs");
-  assert.equal(reviewPacket.readFiles.length, 3);
+  // R5, reissued: the rules travel in `instructions`, so readFiles carry the
+  // target's three inputs and nothing else. The portable-context proof lives
+  // in test/plan/review-portable-rules.test.mjs.
+  assert.deepEqual(reviewPacket.readFiles, ["docs/spec.md", ".runs/repo-facts.json", ".runs/plan.json"]);
 });
 
 // AP11 of safe-to-hand-to-friend, measured 2026-09-27: R6's node exhausted both
@@ -123,6 +126,31 @@ test("the review stage is told to compare each proof with the requirement it pro
 
   const draftPacket = validateContract(buildPlanningContract("draft", baseInputs()), join(cwd, "contract.json")).nodes[0].taskPacket;
   assert.ok(!draftPacket.instructions.some((instruction) => instruction.startsWith("For every node, compare")), "the rule belongs to the reviewer, not the draft");
+});
+
+// R4 of the phase-2 reissue: the artefact's `paths` is a byte-limited cut whose
+// per-kind omission report is the only thing that says what was discarded, so
+// the stage that authors from the cut and the stage that grades the plan
+// against it are both told to read that report.
+test("draft and review are told the path list is a byte-limited cut that reports its own omissions", () => {
+  const cwd = checkout();
+  const contractPath = join(cwd, "contract.json");
+  const draftInstructions = validateContract(buildPlanningContract("draft", baseInputs()), contractPath).nodes[0].taskPacket.instructions;
+  const draftRule = draftInstructions.find((instruction) => instruction === PATH_CUT_RULE);
+  assert.ok(draftRule, JSON.stringify(draftInstructions));
+  assert.match(draftRule, /byte-limited cut of the tracked tree/u);
+  assert.match(draftRule, /pathOmission/u);
+  assert.match(draftRule, /document, archived-log, manifest, code, other/u);
+  assert.match(draftRule, /repo-paths\.txt/u);
+  const reviseInstructions = validateContract(buildPlanningContract("revise", baseInputs()), contractPath).nodes[0].taskPacket.instructions;
+  assert.ok(!reviseInstructions.includes(PATH_CUT_RULE), "the narrowed reviser reads no repository facts (R4), so the cut rule stays with the stages that read them");
+
+  const reviewInstructions = validateContract(buildPlanningContract("review", baseInputs()), contractPath).nodes[0].taskPacket.instructions;
+  const reviewRule = reviewInstructions.find((instruction) => instruction === REVIEW_PATH_CUT_RULE);
+  assert.ok(reviewRule, JSON.stringify(reviewInstructions));
+  assert.match(reviewRule, /absent from it is not evidence that the file is absent/u);
+  assert.match(reviewRule, /sum to its own paths and bytes totals/u);
+  assert.ok(!reviewInstructions.includes(PATH_CUT_RULE), "the reviewer's rule is its own wording, not the draft's");
 });
 
 test("planner vendors distinct", () => {
@@ -641,11 +669,19 @@ test("a planning contract names no path inside faberun's own source", () => {
   const cwd = checkout();
   assert.equal(existsSync(join(cwd, "src", "plan", "template.mjs")), false, "the checkout is not a faberun checkout");
   const contractPath = join(cwd, "contract.json");
+  const readFilesOf = (/** @type {"draft"|"revise"|"review"} */ kind) => validateContract(buildPlanningContract(kind, baseInputs()), contractPath).nodes[0].taskPacket.readFiles;
+  // Draft and revise author the plan from the plan inputs plus the staged
+  // catalogue; the review judges it from the three inputs alone. R4: the
+  // revise reads no repository facts — the plan's readFiles are the
+  // selection its drafter drew from the fact set, and the reviser keeps
+  // them.
   for (const kind of /** @type {const} */ (["draft", "revise"])) {
-    const contract = validateContract(buildPlanningContract(kind, baseInputs()), contractPath);
-    const readFiles = contract.nodes[0].taskPacket.readFiles;
-    assert.ok(readFiles.includes(`.runs/${TASK_KIND_CATALOGUE_FILE}`), `${kind} reads the staged catalogue`);
-    for (const path of readFiles) {
+    assert.ok(readFilesOf(kind).includes(`.runs/${TASK_KIND_CATALOGUE_FILE}`), `${kind} reads the staged catalogue`);
+  }
+  assert.ok(readFilesOf("draft").includes(".runs/repo-facts.json"));
+  assert.ok(!readFilesOf("revise").includes(".runs/repo-facts.json"), "the narrowed reviser reads no repository facts");
+  for (const kind of /** @type {const} */ (["draft", "revise", "review"])) {
+    for (const path of readFilesOf(kind)) {
       assert.doesNotMatch(path, /^src\//u, `${kind} must not read ${path}: it is faberun's source, not the target repository's`);
     }
   }
@@ -695,6 +731,8 @@ test("a revise contract asks for a patch when there is a plan to patch, and for 
   // for both, so a worker cannot be told two shapes for one node.
   assert.match(patch, /nodes\?: \[\{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: \[\{id, text, proof\?: \{kind: "command"\|"path"\|"verification", ref\}, judgment\?: true, reason\?: string\}\]/);
   assert.match(patch, /a node whose id that plan already has replaces it, a new id adds a node, removedNodeIds names each node the plan must no longer have/);
+  assert.match(patch, /The patch applies to the plan the pipeline holds, not to the context in readFiles/);
+  assert.doesNotMatch(patch, /applies to the plan JSON in readFiles/, "the reviser reads the narrowed context, not the plan it patches (R4)");
   assert.doesNotMatch(patch, /Put the revised plan in output\.plan/);
 
   // Measured 2026-09-27 on the 3a gate: a first round whose draft never

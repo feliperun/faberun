@@ -11,7 +11,14 @@
 import { canonicalUsage, eventItem, extractJson } from "./protocol.mjs";
 import { finite } from "../util.mjs";
 
-/** @typedef {{turns: number, cacheReadInputTokens: number, toolCalls: number, completed: boolean, requests: number, contextFirst: number|null, contextMax: number|null, contextLast: number|null, contextSum: number}} SessionTotals */
+/** @typedef {{turns: number, cacheReadInputTokens: number, cacheWriteInputTokens: number|null, outputTokens: number|null, toolCalls: number, completed: boolean, requests: number, contextFirst: number|null, contextMax: number|null, contextLast: number|null, contextSum: number}} SessionTotals */
+/**
+ * The five measured counters one invocation proves, mapped from the
+ * harness-reported session usage. `bytes` is never stream-derived -- the
+ * ledger measures the dispatched prompt file -- so it is always null here;
+ * a counter the harness never reported stays null, never a plausible zero.
+ * @typedef {{bytes: number|null, inputTokens: number|null, cacheReadInputTokens: number|null, cacheWriteInputTokens: number|null, outputTokens: number|null}} UsageCounters
+ */
 /**
  * The per-request ledger one transcript proves: provider requests that
  * reported usage, and the context each re-sent -- uncached input (cache
@@ -155,6 +162,34 @@ function sumRequestUsage(usages) {
   return inputTokens === null ? { inputTokens: null, cacheReadInputTokens: null } : { inputTokens, cacheReadInputTokens };
 }
 
+/** Sum two counters of which either may be unmeasured; null only when neither measured. @param {number|null} left @param {number|null} right @returns {number|null} */
+export function addMeasured(left, right) {
+  return left === null && right === null ? null : (left ?? 0) + (right ?? 0);
+}
+
+/**
+ * The five usage counters one bounded transcript proves: uncached input and
+ * cache reads from the observation the live meter reads, cache writes and
+ * output from the session totals the parser folds.
+ *
+ * @param {string} harness
+ * @param {string} stdout bounded transcript tail
+ * @returns {UsageCounters}
+ */
+export function liveUsageCounters(harness, stdout) {
+  const parser = new SessionMetricsParser(harness);
+  parser.push(String(stdout));
+  parser.flush();
+  const usage = liveUsage(harness, stdout);
+  return {
+    bytes: null,
+    inputTokens: usage.inputTokens,
+    cacheReadInputTokens: usage.cacheReadInputTokens,
+    cacheWriteInputTokens: parser.totals.cacheWriteInputTokens,
+    outputTokens: parser.totals.outputTokens,
+  };
+}
+
 /**
  * Budgeted live meter: one number, with cache reads weighted by the campaign
  * policy so it is comparable with the persisted ledger. A provider that only
@@ -221,6 +256,9 @@ const TOOL_USE_NEEDLE = Buffer.from('"type":"tool_use"', "utf8");
 /** Cache-read evidence spellings across harness streams. */
 const CACHE_READ_PATTERN = /"(?:cache_read_input_tokens|cached_input_tokens|cacheReadInputTokens)":(\d+)/gu;
 
+/** Cache-write evidence spellings across harness streams. */
+const CACHE_WRITE_PATTERN = /"(?:cache_creation_input_tokens|cacheWriteInputTokens|cache_write_input_tokens|cache_creation_tokens|cache_write_tokens)":(\d+)/gu;
+
 /**
  * Bounded incremental session-metrics parser: fold fixed-size chunks into
  * running rotation totals without ever holding a buffer that scales with the
@@ -240,6 +278,8 @@ export class SessionMetricsParser {
     this.totals = {
       turns: previous.turns ?? 0,
       cacheReadInputTokens: previous.cacheReadInputTokens ?? 0,
+      cacheWriteInputTokens: null,
+      outputTokens: null,
       toolCalls: previous.toolCalls ?? 0,
       completed: previous.completed === true,
       requests: 0,
@@ -455,7 +495,11 @@ function foldRecord(harness, totals, record) {
   if (harness === "codex") {
     if (record.type === "turn.completed") {
       totals.turns += 1;
-      totals.cacheReadInputTokens = Math.max(totals.cacheReadInputTokens, canonicalUsage(record.usage).cacheReadInputTokens ?? 0);
+      const usage = canonicalUsage(record.usage);
+      totals.cacheReadInputTokens = Math.max(totals.cacheReadInputTokens, usage.cacheReadInputTokens ?? 0);
+      // Codex counts input and output cumulatively per turn; it reports no
+      // cache-write counter at all, so the write total stays unmeasured.
+      if (usage.outputTokens !== null) totals.outputTokens = Math.max(totals.outputTokens ?? 0, usage.outputTokens);
     } else if (record.type === "item.completed" && CODEX_TOOL_ITEM_TYPES.has(String(eventItem(record)?.type))) {
       totals.toolCalls += 1;
     }
@@ -465,14 +509,16 @@ function foldRecord(harness, totals, record) {
     if (record.type === "assistant") {
       const message = /** @type {Record<string, unknown>} */ (record.message ?? {});
       totals.turns += 1;
-      totals.cacheReadInputTokens += canonicalUsage(message.usage).cacheReadInputTokens ?? 0;
-      foldRequestUsage(totals, canonicalUsage(message.usage));
+      const usage = canonicalUsage(message.usage);
+      totals.cacheReadInputTokens += usage.cacheReadInputTokens ?? 0;
+      totals.cacheWriteInputTokens = addMeasured(totals.cacheWriteInputTokens, cacheWriteTokensOf(message.usage));
+      totals.outputTokens = addMeasured(totals.outputTokens, usage.outputTokens);
+      foldRequestUsage(totals, usage);
       totals.toolCalls += Array.isArray(message.content)
         ? message.content.filter((/** @type {{type?: unknown}} */ block) => block?.type === "tool_use").length
         : 0;
     } else if (record.type === "result") {
-      const sessionTotal = canonicalUsage(record.usage).cacheReadInputTokens;
-      if (sessionTotal !== null) totals.cacheReadInputTokens = sessionTotal;
+      foldSessionTotal(totals, record.usage);
     }
     return;
   }
@@ -487,13 +533,15 @@ function foldRecord(harness, totals, record) {
     // activity -- three kills on 2026-09-16 at 903s against a 900s limit.
     if (record.type === transcript.usage) {
       totals.turns += 1;
-      totals.cacheReadInputTokens += canonicalUsage(record.usage).cacheReadInputTokens ?? 0;
-      foldRequestUsage(totals, canonicalUsage(record.usage));
+      const usage = canonicalUsage(record.usage);
+      totals.cacheReadInputTokens += usage.cacheReadInputTokens ?? 0;
+      totals.cacheWriteInputTokens = addMeasured(totals.cacheWriteInputTokens, cacheWriteTokensOf(record.usage));
+      totals.outputTokens = addMeasured(totals.outputTokens, usage.outputTokens);
+      foldRequestUsage(totals, usage);
     } else if (record.type === transcript.tool) {
       totals.toolCalls += 1;
     } else if (record.type === transcript.completed || record.type === transcript.failed) {
-      const sessionTotal = canonicalUsage(record.usage).cacheReadInputTokens;
-      if (sessionTotal !== null) totals.cacheReadInputTokens = sessionTotal;
+      foldSessionTotal(totals, record.usage);
     }
     return;
   }
@@ -507,30 +555,55 @@ function foldRecord(harness, totals, record) {
     if (step) {
       if (step.step_type === "agent_response" && step.state === "DONE") {
         totals.turns += 1;
-        totals.cacheReadInputTokens += canonicalUsage(step.usage).cacheReadInputTokens ?? 0;
-        foldRequestUsage(totals, canonicalUsage(step.usage));
+        const usage = canonicalUsage(step.usage);
+        totals.cacheReadInputTokens += usage.cacheReadInputTokens ?? 0;
+        totals.cacheWriteInputTokens = addMeasured(totals.cacheWriteInputTokens, cacheWriteTokensOf(step.usage));
+        totals.outputTokens = addMeasured(totals.outputTokens, usage.outputTokens);
+        foldRequestUsage(totals, usage);
       } else if (step.step_type === "tool" && (step.state === "DONE" || step.state === "ERROR")) {
         totals.toolCalls += 1;
       }
     } else if (record.event === "result") {
-      const sessionTotal = canonicalUsage(agyResult(record)?.usage).cacheReadInputTokens;
-      if (sessionTotal !== null) totals.cacheReadInputTokens = sessionTotal;
+      foldSessionTotal(totals, agyResult(record)?.usage);
     }
     return;
   }
   if (harness === "exec-jsonl" && record.type === "run.completed") {
     // The protocol carries no tool events; only a completed run proves a turn.
     totals.turns += 1;
-    totals.cacheReadInputTokens += canonicalUsage(record.usage).cacheReadInputTokens ?? 0;
-    foldRequestUsage(totals, canonicalUsage(record.usage));
+    const usage = canonicalUsage(record.usage);
+    totals.cacheReadInputTokens += usage.cacheReadInputTokens ?? 0;
+    totals.cacheWriteInputTokens = addMeasured(totals.cacheWriteInputTokens, cacheWriteTokensOf(record.usage));
+    totals.outputTokens = addMeasured(totals.outputTokens, usage.outputTokens);
+    foldRequestUsage(totals, usage);
   }
   if (harness === "replay" && typeof record.status === "string") {
     // A replayed envelope is the whole invocation: one completed turn, no
     // tool events, usage only in the terminal record.
     totals.turns += 1;
-    totals.cacheReadInputTokens += canonicalUsage(record.usage).cacheReadInputTokens ?? 0;
-    foldRequestUsage(totals, canonicalUsage(record.usage));
+    const usage = canonicalUsage(record.usage);
+    totals.cacheReadInputTokens += usage.cacheReadInputTokens ?? 0;
+    totals.cacheWriteInputTokens = addMeasured(totals.cacheWriteInputTokens, cacheWriteTokensOf(record.usage));
+    totals.outputTokens = addMeasured(totals.outputTokens, usage.outputTokens);
+    foldRequestUsage(totals, usage);
   }
+}
+
+/** Fold a terminal record's session totals over the mid-run sums; an unreported total leaves the running sum alone. @param {SessionTotals} totals @param {unknown} raw */
+function foldSessionTotal(totals, raw) {
+  const usage = canonicalUsage(raw);
+  if (usage.cacheReadInputTokens !== null) totals.cacheReadInputTokens = usage.cacheReadInputTokens;
+  const writeTotal = cacheWriteTokensOf(raw);
+  if (writeTotal !== null) totals.cacheWriteInputTokens = writeTotal;
+  if (usage.outputTokens !== null) totals.outputTokens = usage.outputTokens;
+}
+
+/** The cache-write tokens one raw usage object reports, across the harness spellings; null when none. @param {unknown} raw @returns {number|null} */
+function cacheWriteTokensOf(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const usage = /** @type {Record<string, unknown>} */ (raw);
+  return finite(usage.cache_creation_input_tokens ?? usage.cacheWriteInputTokens
+    ?? usage.cache_write_input_tokens ?? usage.cache_creation_tokens ?? usage.cache_write_tokens);
 }
 
 /**
@@ -575,15 +648,21 @@ function agyResult(record) {
  */
 function foldFragmentRecord(harness, totals, fragments) {
   const text = `${fragments.head}\n${fragments.tail}`;
+  // Output tokens have no fragment scanner: a record that outgrew the
+  // retention bound leaves the output total unmeasured rather than guessed.
   if (harness === "claude") {
     if (text.includes('"type":"assistant"')) {
       totals.turns += 1;
       totals.toolCalls += fragments.toolUse;
       const cacheRead = lastCacheRead(text);
       if (cacheRead !== null) totals.cacheReadInputTokens += cacheRead;
+      const cacheWrite = lastCacheWrite(text);
+      if (cacheWrite !== null) totals.cacheWriteInputTokens = addMeasured(totals.cacheWriteInputTokens, cacheWrite);
     } else if (text.includes('"type":"result"')) {
-      const sessionTotal = lastCacheRead(text);
-      if (sessionTotal !== null) totals.cacheReadInputTokens = sessionTotal;
+      const cacheRead = lastCacheRead(text);
+      if (cacheRead !== null) totals.cacheReadInputTokens = cacheRead;
+      const cacheWrite = lastCacheWrite(text);
+      if (cacheWrite !== null) totals.cacheWriteInputTokens = cacheWrite;
       totals.completed = true;
     }
     return;
@@ -607,6 +686,8 @@ function foldFragmentRecord(harness, totals, fragments) {
     totals.turns += 1;
     const cacheRead = lastCacheRead(text);
     if (cacheRead !== null) totals.cacheReadInputTokens += cacheRead;
+    const cacheWrite = lastCacheWrite(text);
+    if (cacheWrite !== null) totals.cacheWriteInputTokens = addMeasured(totals.cacheWriteInputTokens, cacheWrite);
     totals.completed = true;
   }
 }
@@ -695,5 +776,16 @@ function decodeFragment(fragment) {
  */
 function lastCacheRead(text) {
   const matches = [...text.matchAll(CACHE_READ_PATTERN)];
+  return matches.length > 0 ? Number(matches.at(-1)?.[1]) : null;
+}
+
+/**
+ * The last cache-write number in a fragment text, or null.
+ *
+ * @param {string} text
+ * @returns {number|null}
+ */
+function lastCacheWrite(text) {
+  const matches = [...text.matchAll(CACHE_WRITE_PATTERN)];
   return matches.length > 0 ? Number(matches.at(-1)?.[1]) : null;
 }

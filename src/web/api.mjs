@@ -1,14 +1,24 @@
 /**
  * The operator's remote API: the phone-shaped surface behind the dashboard
  * server. Reads go straight to the campaign/seat aggregators that already
- * exist; every write shells out to the runner CLI and touches no state file of
- * its own (ADR-0034: a daemon that wrote state would be a second state machine
- * with its own rules, and the CLI is the only writer). That is also why there
+ * exist — the campaign response embeds `src/report/progress.mjs`'s shared
+ * projection verbatim, so every label a client derives (wait reason, next
+ * action, decision owner) comes from the same roll-up the dashboard draws
+ * and none is recomputed here — and every write shells out to the runner CLI
+ * and touches no state file of its own (ADR-0034: a daemon that wrote state
+ * would be a second state machine with its own rules, and the CLI is the
+ * only writer). That is also why there
  * is no replan, contract, routing or gate route: the contract is frozen with a
  * digest, and the sanctioned middle ground from a phone is `campaign note`.
- * Pause/resume ride the run-level `cancel`/`resume` verbs — the reversible
- * pair this repo already owns (a canceled run is a resumable state) — fired
- * once per linked run that still has work in flight.
+ *
+ * Pause and resume are the one pair that spans both layers. The durable pause
+ * belongs to the campaign — `campaign/unpark.mjs` writes and clears the
+ * attention the chain already consults before it dispatches, recovers or
+ * advances — and every run it stops carries the engine's own pause request:
+ * `cancel` writes `cancel.request.json` and `resume` consumes it, the same
+ * reversible pair fired once per linked run. Resume clears the campaign pause
+ * only once no resumed run still carries its request, and arms each resumed
+ * run's watchdog, so the answer never claims an action nothing took.
  */
 import { spawn } from "node:child_process";
 import { closeSync, existsSync, openSync, readFileSync, readSync, statSync } from "node:fs";
@@ -17,6 +27,8 @@ import { fileURLToPath } from "node:url";
 import process from "node:process";
 import { discoverCampaigns } from "../campaign/index.mjs";
 import { BRIEF_FILE, JOURNAL_FILE } from "../campaign/layout.mjs";
+import { PAUSE_ATTENTION_CODE, pauseCampaign, unparkCampaign } from "../campaign/unpark.mjs";
+import { buildCampaignProgress } from "../report/progress.mjs";
 import { seatStatus } from "../seat/index.mjs";
 import { errorMessage, errorCode, fail, readJsonTolerant, truncateChars } from "../util.mjs";
 
@@ -28,6 +40,8 @@ const REQUEST_BODY_MAX_BYTES = 16 * 1024;
 const OUTPUT_TAIL_CHARS = 4 * 1024;
 const LIST_GOAL_CHARS = 200;
 const SAFE_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/u;
+/** The engine's durable pause request: written by `cancel`, consumed by `resume`, honoured by the chain before it recovers a run. */
+const CANCEL_REQUEST_FILE = "cancel.request.json";
 const RUN_DONE_STATUSES = new Set(["done", "no-op"]);
 const RUN_TERMINAL_STATUSES = new Set(["done", "no-op", "failed", "blocked", "exhausted", "stalled", "canceled", "cancelled"]);
 const RUN_ATTENTION_STATUSES = new Set(["blocked", "failed", "exhausted", "stalled", "canceled", "cancelled"]);
@@ -39,6 +53,7 @@ const WEB_SESSION_ID = "web";
 /** @typedef {{runsDir: string, repoRoot: string, cliEntry: string, url: URL, request: IncomingMessage}} ApiContext */
 /** @typedef {{type: string, eventId: string, at: string, [key: string]: unknown}} JournalRecord */
 /** @typedef {(context: ApiContext, response: ServerResponse, params: string[]) => Promise<void>} ApiHandler */
+/** @typedef {{command: string, ok: boolean, exitCode: number|null, output: string}} OperationStep */
 
 /** @type {[RegExp, ApiHandler][]} */
 const GET_ROUTES = [
@@ -123,10 +138,15 @@ function findCampaign(context, id) {
   return found;
 }
 
+/** The node rows a run's `status.json` value carries; a missing or torn file has none. @param {unknown} status @returns {any[]} */
+function nodesOf(status) {
+  return status && typeof status === "object" && Array.isArray(/** @type {any} */ (status).nodes) ? /** @type {any[]} */ (/** @type {any} */ (status).nodes) : [];
+}
+
 /** The phone-sized run row: three states and two counters, nothing the dashboard snapshot does not already compute better. @param {string} runsDir @param {string} runId @returns {Record<string, unknown>} */
 function runRow(runsDir, runId) {
   const status = readJsonTolerant(join(runsDir, runId, "status.json"));
-  const nodes = status && typeof status === "object" && Array.isArray(/** @type {any} */ (status).nodes) ? /** @type {any[]} */ (/** @type {any} */ (status).nodes) : [];
+  const nodes = nodesOf(status);
   return {
     id: runId,
     state: nodes.some((node) => RUN_ATTENTION_STATUSES.has(String(node.status)))
@@ -138,13 +158,20 @@ function runRow(runsDir, runId) {
   };
 }
 
-/** Linked runs that still have a node in flight — the only ones pause or resume can change. @param {ApiContext} context @param {import("../campaign/index.mjs").Campaign} campaign @returns {string[]} */
+/** Whether the run carries the engine's durable pause request. @param {string} runsDir @param {string} runId @returns {boolean} */
+function pauseRequested(runsDir, runId) {
+  return existsSync(join(runsDir, runId, CANCEL_REQUEST_FILE));
+}
+
+/** Linked runs a pause can stop: a node still outside the terminal set and no pause requested yet. @param {ApiContext} context @param {import("../campaign/index.mjs").Campaign} campaign @returns {string[]} */
 function runsInFlight(context, campaign) {
-  return campaign.linkedRunIds.filter((runId) => {
-    const status = readJsonTolerant(join(context.runsDir, runId, "status.json"));
-    const nodes = status && typeof status === "object" && Array.isArray(/** @type {any} */ (status).nodes) ? /** @type {any[]} */ (/** @type {any} */ (status).nodes) : [];
-    return nodes.some((node) => !RUN_TERMINAL_STATUSES.has(String(node.status)));
-  });
+  return campaign.linkedRunIds.filter((runId) => !pauseRequested(context.runsDir, runId)
+    && nodesOf(readJsonTolerant(join(context.runsDir, runId, "status.json"))).some((node) => !RUN_TERMINAL_STATUSES.has(String(node.status))));
+}
+
+/** Linked runs a resume can reach: exactly those carrying the durable pause request. @param {ApiContext} context @param {import("../campaign/index.mjs").Campaign} campaign @returns {string[]} */
+function runsPaused(context, campaign) {
+  return campaign.linkedRunIds.filter((runId) => pauseRequested(context.runsDir, runId));
 }
 
 /** @param {ApiContext} context @param {ServerResponse} response */
@@ -166,7 +193,26 @@ async function listCampaigns(context, response) {
 /** @param {ApiContext} context @param {ServerResponse} response @param {string[]} params */
 async function showCampaign(context, response, params) {
   const { campaign } = findCampaign(context, params[0]);
-  sendJson(response, 200, { campaign, runs: campaign.linkedRunIds.map((runId) => runRow(context.runsDir, runId)) });
+  sendJson(response, 200, {
+    campaign,
+    runs: campaign.linkedRunIds.map((runId) => runRow(context.runsDir, runId)),
+    // The shared projection (src/report/progress.mjs), verbatim: the same
+    // roll-up the dashboard draws, so every label a phone client shows —
+    // current phase, wait reason, next action and its decision owner — is
+    // derived once at the source, never recomputed per surface.
+    progress: projectionOf(context.runsDir, campaign.id),
+  });
+}
+
+/** The campaign's shared projection, or null when the state on disk cannot produce one. @param {string} runsDir @param {string} campaignId @returns {Record<string, unknown>|null} */
+function projectionOf(runsDir, campaignId) {
+  try {
+    return buildCampaignProgress(runsDir, campaignId, Date.now());
+  } catch {
+    // the projection is additive: an unbuildable one degrades this one field
+    // to null, and the campaign and runs above still answer
+    return null;
+  }
 }
 
 /** @param {ApiContext} context @param {ServerResponse} response @param {string[]} params */
@@ -222,20 +268,129 @@ async function postDecision(context, response, params) {
   sendResult(response, await runCli(context, argv));
 }
 
-/** @param {ApiContext} context @param {ServerResponse} response @param {string[]} params */
-async function postPause(context, response, params) {
-  const targets = runsInFlight(context, findCampaign(context, params[0]).campaign);
-  const results = [];
-  for (const runId of targets) results.push({ runId, ...await runCli(context, ["cancel", join(context.runsDir, runId)]) });
-  sendResult(response, { ok: results.every((result) => result.exitCode === 0), results });
+/** A closed campaign is not pausable or resumable, and the refusal comes before the CLI so nothing is spawned for it. @param {import("../campaign/index.mjs").Campaign} campaign */
+function requireActive(campaign) {
+  if (campaign.status !== "active") throw badRequest(`campaign is closed: ${campaign.id}`);
 }
 
-/** @param {ApiContext} context @param {ServerResponse} response @param {string[]} params */
+/** One CLI verdict as a recorded step. @param {string} command @param {{ok: boolean, exitCode: number, stdout: string, stderr: string}} verdict @returns {OperationStep} */
+function cliStep(command, verdict) {
+  return { command, ok: verdict.ok, exitCode: verdict.exitCode, output: verdict.stdout || verdict.stderr };
+}
+
+/**
+ * The one answer shape a pause or a resume gives. `action` is the recorded
+ * outcome: `applied` when the panel changed state, `pending` when a step could
+ * not be taken (and the reason names what blocks it), and `none` when nothing
+ * was needed (and the reason names why). A paused campaign with no run in
+ * flight still records its pause, so `none` never hides a lost intent; a
+ * pending operation answers 409 because the request will not complete until
+ * the blocker does.
+ *
+ * @param {ServerResponse} response
+ * @param {{action: "applied"|"pending"|"none", reason?: string|null, steps?: OperationStep[]}} result
+ */
+function operation(response, { action, reason = null, steps = [] }) {
+  sendJson(response, action === "pending" ? 409 : 200, { schemaVersion: 1, ok: action !== "pending", action, reason, steps });
+}
+
+/**
+ * Pause the campaign: record the durable campaign pause first, so the chain
+ * stops dispatching, and then stop the work a pause has to stop by firing the
+ * engine's `cancel` once per linked run still in flight. A campaign parked on
+ * the chain's own reason is refused instead of overwritten — the operator has
+ * to act on that failure, and hiding it under a pause would be the panel lying
+ * about the campaign's state.
+ *
+ * @param {ApiContext} context @param {ServerResponse} response @param {string[]} params
+ */
+async function postPause(context, response, params) {
+  const { campaign, path } = findCampaign(context, params[0]);
+  requireActive(campaign);
+  const park = campaign.attention;
+  if (park && park.code !== PAUSE_ATTENTION_CODE) {
+    return operation(response, { action: "pending", reason: `campaign is parked on ${park.code}: ${park.message}` });
+  }
+  const targets = runsInFlight(context, campaign);
+  /** @type {OperationStep[]} */
+  const steps = [];
+  let paused;
+  try {
+    paused = pauseCampaign(path, { runIds: targets, sessionId: WEB_SESSION_ID });
+  } catch (error) {
+    // The chain can park the campaign between the check above and this write;
+    // its reason wins, and the answer says so instead of overwriting it.
+    return operation(response, { action: "pending", reason: errorMessage(error), steps });
+  }
+  if (paused.recorded) steps.push({ command: "campaign pause", ok: true, exitCode: null, output: `${paused.attention.code} · ${targets.length} run(s) in flight` });
+  /** @type {string[]} */
+  const failed = [];
+  for (const runId of targets) {
+    const verdict = await runCli(context, ["cancel", join(context.runsDir, runId)]);
+    steps.push(cliStep(`cancel ${runId}`, verdict));
+    if (!verdict.ok) failed.push(runId);
+  }
+  if (failed.length > 0) return operation(response, { action: "pending", reason: `the campaign is paused but cancel failed for ${failed.join(", ")}`, steps });
+  const applied = paused.recorded || targets.length > 0;
+  return operation(response, { action: applied ? "applied" : "none", reason: applied ? null : "campaign is already paused", steps });
+}
+
+/**
+ * Resume the campaign: continue every linked run whose durable pause request
+ * `cancel` wrote, clear the campaign pause, and arm each resumed run's
+ * watchdog. The pause is cleared only after no resumed run still carries its
+ * request, because the engine's `resume` consumes that request inside the
+ * controller it starts and clearing first would let the chain park the
+ * campaign again on the same run. A campaign parked on the chain's own
+ * reason, with no run paused, is refused: that park is not the pause a
+ * resume lifts, and clearing it would announce a resume with no operation
+ * behind it while steamrolling the decision the park is waiting on.
+ *
+ * @param {ApiContext} context @param {ServerResponse} response @param {string[]} params
+ */
 async function postResume(context, response, params) {
-  const targets = runsInFlight(context, findCampaign(context, params[0]).campaign);
-  const results = [];
-  for (const runId of targets) results.push({ runId, ...await runCli(context, ["resume", join(context.runsDir, runId), "--detach"]) });
-  sendResult(response, { ok: results.every((result) => result.exitCode === 0), results });
+  const { campaign, path } = findCampaign(context, params[0]);
+  requireActive(campaign);
+  const targets = runsPaused(context, campaign);
+  const park = campaign.attention;
+  if (park && park.code !== PAUSE_ATTENTION_CODE && targets.length === 0) {
+    return operation(response, { action: "pending", reason: `campaign is parked on ${park.code}: ${park.message}` });
+  }
+  if (!park && targets.length === 0) {
+    return operation(response, { action: "none", reason: "no requested pause: no linked run is paused and the campaign is not parked" });
+  }
+  /** @type {OperationStep[]} */
+  const steps = [];
+  /** @type {string[]} */
+  const failed = [];
+  for (const runId of targets) {
+    const verdict = await runCli(context, ["resume", join(context.runsDir, runId), "--detach"]);
+    steps.push(cliStep(`resume ${runId} --detach`, verdict));
+    if (!verdict.ok) failed.push(runId);
+  }
+  if (failed.length > 0) return operation(response, { action: "pending", reason: `resume failed for ${failed.join(", ")}`, steps });
+  const unconsumed = targets.filter((runId) => pauseRequested(context.runsDir, runId));
+  if (unconsumed.length > 0) {
+    return operation(response, { action: "pending", reason: `run ${unconsumed.join(", ")} has not consumed its requested pause yet`, steps });
+  }
+  if (park && park.code === PAUSE_ATTENTION_CODE) {
+    let cleared;
+    try {
+      cleared = unparkCampaign(path, { runsDir: context.runsDir });
+    } catch (error) {
+      return operation(response, { action: "pending", reason: errorMessage(error), steps });
+    }
+    steps.push({ command: "campaign unpark", ok: true, exitCode: null, output: `${cleared.cleared.code} cleared` });
+  }
+  /** @type {string[]} */
+  const unarmed = [];
+  for (const runId of targets) {
+    const verdict = await runCli(context, ["supervise", join(context.runsDir, runId), "--detach"]);
+    steps.push(cliStep(`supervise ${runId} --detach`, verdict));
+    if (!verdict.ok) unarmed.push(runId);
+  }
+  if (unarmed.length > 0) return operation(response, { action: "pending", reason: `supervise failed for ${unarmed.join(", ")}`, steps });
+  return operation(response, { action: "applied", steps });
 }
 
 /** @param {ApiContext} context @param {ServerResponse} response @param {string[]} params */

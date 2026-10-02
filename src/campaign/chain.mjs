@@ -15,7 +15,17 @@
  * Advancement is `runOutcome`, never node counts: `succeeded` advances,
  * `waiting` is a self-resuming tier exhaustion and is neither advanced nor
  * parked, and `parked`/`canceled` park the campaign with attention. An
- * in-flight run (`state: unfinished`/`unknown`) is awaited, not relaunched.
+ * in-flight run (`state: unfinished`/`unknown`) whose controller is alive is
+ * awaited, not relaunched.
+ *
+ * A run whose controller is gone is the other half of that rule, and the reason
+ * R2 exists: the coordinator used to wait on it forever, so a `run` that died
+ * after its bootstrap held the whole campaign. The chain resumes that same run
+ * through the engine's own `resume` -- it does not re-launch, so no node is
+ * dispatched twice -- bounded by `MAX_RUN_RECOVERY_ATTEMPTS` consecutive resumes
+ * without progress, after which the campaign records attention instead of
+ * retrying. A run carrying a requested pause is never resumed: taking the pause
+ * back is the operator's `resume`, not the chain's.
  *
  * Validation of contract N+1 happens here, at launch, against the `landBranch`
  * N's promotion just advanced. Validating the manifest up front would reject
@@ -24,9 +34,11 @@
  * checked first so tampering between authoring and launch is caught before the
  * branch-aware validation runs.
  *
- * The chain takes no run lock and writes no node state. Its own artifacts are
- * `coordinator.lock`, the campaign `heartbeat.json`, and the campaign attention
- * record. Every run lock and node snapshot belongs to a child controller.
+ * The chain writes no node state and no run metadata of its own. Its own
+ * artifacts are `coordinator.lock`, the campaign `heartbeat.json`, and the
+ * campaign attention record. Every run lock belongs to a controller: the
+ * detached child the chain launched, or the controller `resumeRun` becomes
+ * while the chain waits on it. The one writer of a run's nodes stays the engine.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -37,7 +49,7 @@ import { readCampaign } from "./record.mjs";
 import { validateContract } from "../contract/index.mjs";
 import { defaultControllerIdentity, storedContractDigest, verifyControllerIdentity } from "../engine/run-identity.mjs";
 import { refuseSelfSignal } from "../engine/process-identity.mjs";
-import { HEARTBEAT_INTERVAL_MS, createHeartbeat, groupAlive, heartbeatBreach, readHeartbeat, runProgress, waitForGroupGone } from "../engine/supervise.mjs";
+import { HEARTBEAT_INTERVAL_MS, MAX_CONSECUTIVE_LAUNCH_FAILURES, controllerAlive, createHeartbeat, groupAlive, heartbeatBreach, readHeartbeat, runProgress, waitForGroupGone } from "../engine/supervise.mjs";
 import { pidAlive, processStartToken } from "../run/lock.mjs";
 import { delay, errorCode, errorMessage } from "../util.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
@@ -63,6 +75,21 @@ export const DEFAULT_COORDINATOR_TERMINATE_GRACE_MS = 5_000;
 
 /** How long the group gets after `SIGKILL` before the takeover stops waiting. */
 export const DEFAULT_COORDINATOR_KILL_GRACE_MS = 5_000;
+
+/**
+ * How many consecutive resumes of one run the chain starts before it records
+ * attention instead of trying again. The number is `supervise.mjs`'s
+ * `MAX_CONSECUTIVE_LAUNCH_FAILURES`, where the reason is recorded: a run that
+ * refuses to resume refuses forever, and a loop that keeps trying hides that
+ * from the operator.
+ *
+ * The budget is the coordinator invocation's own memory, and it resets the
+ * moment the run's own heartbeat shows progress, so a run that dies repeatedly
+ * over hours is still recovered each time. What has to survive a crash is the
+ * attention written when the budget is spent, and the campaign record carries
+ * that: the next invocation reads it and resumes nothing.
+ */
+export const MAX_RUN_RECOVERY_ATTEMPTS = MAX_CONSECUTIVE_LAUNCH_FAILURES;
 
 /**
  * @param {string} campaignPath
@@ -329,6 +356,68 @@ export function classifyRunProgress(progress) {
 }
 
 /**
+ * The chain's own count of how many resumes it has started for one run since
+ * that run last showed progress, and the reason the last one failed.
+ *
+ * @typedef {{attempts: number, progressAt: string|null, reason: string|null}} RecoveryAttempts
+ */
+
+/**
+ * The decision for one in-flight run whose controller is not alive. This is the
+ * one place the chain may cause work on a run it did not launch, and it is
+ * deliberately narrow: a requested pause is never overridden, the resume is the
+ * engine's own (which takes the run lock, so two controllers cannot both run
+ * the run), the run's own progress resets the budget, and a spent budget ends in
+ * attention rather than in a loop that hides a refusal.
+ *
+ * Returns the attention the campaign parks with, or null when the caller should
+ * keep polling.
+ *
+ * @param {{
+ *   runId: string,
+ *   runDir: string,
+ *   contractPath: string,
+ *   progress: RunProgress,
+ *   attempts: Map<string, RecoveryAttempts>,
+ *   resume: (runDir: string, context: {runId: string, attempt: number}) => Promise<void>|void,
+ *   emit: (line: string) => void,
+ * }} context
+ * @returns {Promise<Omit<CampaignAttention, "at">|null>}
+ */
+async function resumeDeadRun(context) {
+  const { runId, runDir, contractPath, progress, attempts, resume, emit } = context;
+  const first = progress.outcomeNodes?.[0];
+  const naming = { contractPath, contractId: runId, runId, node: first?.id ?? null, status: first?.status ?? "unfinished" };
+  if (existsSync(join(runDir, "cancel.request.json"))) {
+    // Re-checked here and not only in the classification above: an operator can
+    // request the pause between those two reads, and a resume consumes a cancel
+    // request as an instruction to continue, which is exactly what must not
+    // happen to a pause the chain decided to honour.
+    return { ...naming, code: "run_canceled", message: `contract ${runId} run carries a requested pause (cancel.request.json) and no controller; \`faberun resume ${runDir}\` continues it when the operator says so`, resume: `resume ${runDir}` };
+  }
+  const progressAt = readHeartbeat(runDir)?.lastProgressAt ?? null;
+  const previous = attempts.get(runId);
+  // Same rule `supervise.mjs`'s `nextRelaunch` applies to the run-level
+  // supervisor: progress since the last resume is the evidence the recovery
+  // worked, so the budget starts again.
+  const spent = previous && previous.progressAt === progressAt ? previous.attempts : 0;
+  if (spent >= MAX_RUN_RECOVERY_ATTEMPTS) {
+    const reason = previous?.reason ? `; last failure: ${previous.reason}` : "";
+    return { ...naming, code: "run_recovery_exhausted", message: `contract ${runId} run is unfinished with no live controller and ${spent} resume attempts made no progress${reason}; \`faberun resume ${runDir}\` retries it from the operator side`, resume: `resume ${runDir}` };
+  }
+  attempts.set(runId, { attempts: spent + 1, progressAt, reason: null });
+  try {
+    await resume(runDir, { runId, attempt: spent + 1 });
+    emit(`[campaign] resumed run ${runId} · attempt ${spent + 1}/${MAX_RUN_RECOVERY_ATTEMPTS} · ${runDir}`);
+  } catch (error) {
+    const reason = errorMessage(error);
+    attempts.set(runId, { attempts: spent + 1, progressAt, reason });
+    emit(`[campaign] run ${runId} resume failed · attempt ${spent + 1}/${MAX_RUN_RECOVERY_ATTEMPTS} · ${reason}`);
+  }
+  return null;
+}
+
+/**
  * @param {string} contractPath
  * @returns {{id: string, cwd: string, runDir: string}}
  */
@@ -388,6 +477,7 @@ function storedContractId(stored) {
  *   controllerIdentity?: ControllerIdentity,
  *   refreshController?: boolean,
  *   launch?: (contractPath: string, context: {baseRef: string|undefined, controllerIdentity: ControllerIdentity, runDir: string, contract: ValidatedContract}) => Promise<void>|void,
+ *   resume?: (runDir: string, context: {runId: string, attempt: number}) => Promise<void>|void,
  *   validate?: (entry: CampaignContract, context: {repo: string|undefined, baseRef: string|undefined, contractPath: string}) => ValidatedContract,
  *   progress?: (runDir: string) => RunProgress,
  *   heartbeat?: {progress: (nodeId?: string, budgetBasis?: number) => void, setActive: (nodes: {nodeId: string, budgetBasis: number}[]) => void, stop: () => void},
@@ -412,6 +502,16 @@ export async function driveCampaignChain(campaignPath, options = {}) {
   const progressOf = options.progress ?? ((runDir) => runProgress(runDir, now()));
   const validate = options.validate ?? ((entry, context) => validateManifestEntryAtLaunch(entry, context));
   const launch = options.launch ?? (() => { throw new Error("driveCampaignChain requires a launch seam"); });
+  // The resume seam is the engine's own resume by default: it takes the run's
+  // controller lock and verifies the run's recorded identity before dispatching
+  // anything, which is what keeps the chain from becoming a second controller.
+  // The engine is reached lazily because `engine/scheduler.mjs` imports this
+  // module's `validateContractForLaunch`: a static edge from here to
+  // `engine/resume.mjs` would close a runtime import cycle through the chain.
+  const resume = options.resume ?? (async (runDir) => {
+    const { resumeRun } = await import("../engine/resume.mjs");
+    await resumeRun(runDir, {});
+  });
 
   /** @type {{role: "observed"|"took-over"|"became", lock: Record<string, unknown>}|null} */
   let acquired = null;
@@ -437,6 +537,8 @@ export async function driveCampaignChain(campaignPath, options = {}) {
     let validatedIndex = -1;
     /** @type {ValidatedContract|null} */
     let validatedContract = null;
+    /** @type {Map<string, RecoveryAttempts>} */
+    const recovery = new Map();
 
     /** @param {Omit<CampaignAttention, "at">} attention */
     const park = (attention) => {
@@ -542,9 +644,23 @@ export async function driveCampaignChain(campaignPath, options = {}) {
             resume: `resume ${runDir}`,
           });
         }
-        // waiting / unfinished / unknown: the run resumes itself, so await it.
-        // `lastProgressAt` is deliberately not refreshed: a wait is not work,
-        // and a self-resuming tier exhaustion must not look like progress.
+        // A `waiting` run resumes itself at the instant its provider recorded:
+        // it needs no controller before then, and `lastProgressAt` is
+        // deliberately not refreshed, because a wait is not work. Anything else
+        // still in flight is either owned by a live controller -- which is
+        // awaited -- or orphaned, which is resumed here, bounded.
+        if (classification !== "waiting" && !controllerAlive(runDir, { now: now(), heartbeatIntervalMs })) {
+          const attention = await resumeDeadRun({
+            runId: id,
+            runDir,
+            contractPath: entry.path,
+            progress,
+            attempts: recovery,
+            resume,
+            emit,
+          });
+          if (attention) return park(attention);
+        }
         await sleep(pollMs);
         continue;
       }

@@ -23,6 +23,7 @@ import {
 import { errorMessage, excerpt } from "../util.mjs";
 import { appendTransitionEvent, transition, writeNode } from "./state.mjs";
 import { startJudge } from "./dispatch.mjs";
+import { auxSpawnAdmission, recordAuxRefusal } from "./aux-admission.mjs";
 import { applyRejection, raiseNodeAttention, settleDone } from "./settle.mjs";
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -84,6 +85,16 @@ export async function applyJudgeProtocolFailure(contract, node, state, runDir, r
     // A verdict recovered after controller loss keeps its durable bound:
     // the drive loop dispatches the one remaining bounded re-ask.
     transition(runDir, state, "pending", { phase: "judge", gate: null, result: state.result, error: null, blockedBy: [] }, lock);
+    return;
+  }
+  const admission = auxSpawnAdmission(contract, node, state, running, states, "judge");
+  if (!admission.admitted) {
+    // The runtime the re-ask would land on holds its ceiling: defer the
+    // bounded re-ask the same way a controller-loss recovery defers it, bound
+    // and result durable, until the scheduler can admit it.
+    const from = state.status;
+    transition(runDir, state, "pending", { phase: "judge", gate: null, result: state.result, error: null, blockedBy: [] }, lock);
+    recordAuxRefusal(runDir, state, from, lock, "judge", admission);
     return;
   }
   await applyJudgeRound(await startJudge(contract, node, state, runDir, running, state.result, lock, states, campaignPath),
@@ -177,6 +188,16 @@ export async function applyJudgeResult(contract, node, state, result, runDir, lo
       // A verdict recovered after controller loss keeps its durable bound:
       // the drive loop dispatches the one remaining bounded re-ask.
       transition(runDir, state, "pending", { phase: "judge", gate: null, result: state.result, error: null, blockedBy: [] }, lock);
+      return;
+    }
+    const admission = auxSpawnAdmission(contract, node, state, running, states, "judge");
+    if (!admission.admitted) {
+      // The runtime the re-ask would land on holds its ceiling: defer the
+      // bounded re-ask with its bound and result durable until the scheduler
+      // can admit it, exactly as a controller-loss recovery defers it.
+      const from = state.status;
+      transition(runDir, state, "pending", { phase: "judge", gate: null, result: state.result, error: null, blockedBy: [] }, lock);
+      recordAuxRefusal(runDir, state, from, lock, "judge", admission);
       return;
     }
     await applyJudgeRound(await startJudge(contract, node, state, runDir, running, state.result, lock, states, campaignPath),

@@ -1,7 +1,7 @@
 import "../scoped-home.mjs";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runVerification } from "../../src/engine/run-command.mjs";
@@ -69,6 +69,17 @@ test("mutation duration budget", async () => {
   const attempts = result.commands[0].attempts.length;
   assert.ok(attempts <= 1 + 8, `the runner ran ${attempts - 1} mutants; the budget is 8`);
   assert.equal(readFileSync(join(cwd, "runs.log"), "utf8").length, attempts, "each mutant ran the argv exactly once");
+});
+
+test("a mutation entry records no command checkpoint", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "runner-mutation-checkpoint-"));
+  writeFileSync(join(cwd, "module.mjs"), "export function same(a, b) {\n  return a === b;\n}\n");
+  writeFileSync(join(cwd, "check.mjs"), "import assert from 'node:assert/strict';\nimport { same } from './module.mjs';\nassert.equal(same(1, 1), true);\nassert.equal(same(1, 2), false);\n");
+  const logDir = join(cwd, "logs");
+  const result = await runVerification([{ argv: [process.execPath, "check.mjs"], mutation: { tier: "high" } }], cwd, { logDir, writeFiles: ["module.mjs"] });
+  assert.equal(result.passed, true);
+  assert.ok(existsSync(join(logDir, "verification-1.json")), "the pass log is still recorded");
+  assert.ok(!existsSync(join(logDir, "checkpoint-1.json")), "a mutation entry records no checkpoint to serve");
 });
 
 test("mutation holds the time budget", async () => {

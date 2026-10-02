@@ -20,6 +20,41 @@ import { candidateWorktreePath } from "../run/paths.mjs";
 const JOURNAL = "integration.jsonl";
 const TERMINAL = new Set(["accepted", "failed", "conflict"]);
 
+/**
+ * The candidate resource — the per-run candidate ref, its single worktree and
+ * the verify→accept transition around them — admits one integration at a
+ * time. The settlement chain serializes callers today; this lock is what
+ * keeps that guarantee true at the resource itself rather than by caller
+ * discipline, so a caller that overlaps two `integrateAttempt` calls for one
+ * run interleaves nothing here: the second transaction verifies only after
+ * the first has accepted (and cleaned up), then reads the moved run ref and
+ * settles as a concurrent move — the verdict it would have earned arriving
+ * second in any order.
+ *
+ * Recovery's bookkeeping cleanups (`cleanupCandidate` on dead records) stay
+ * outside the lock: they run in the recovery loop's own sequence, which no
+ * concurrent integration has ever shared.
+ */
+/** @type {Map<string, Promise<unknown>>} */
+const candidateLocks = new Map();
+
+/**
+ * @template T
+ * @param {string} runDir
+ * @param {() => T | Promise<T>} work
+ * @returns {Promise<T>}
+ */
+function withCandidateLock(runDir, work) {
+  const previous = candidateLocks.get(runDir) ?? Promise.resolve();
+  const settled = previous.then(work, work);
+  const tail = settled.catch(() => {});
+  candidateLocks.set(runDir, tail);
+  void tail.then(() => {
+    if (candidateLocks.get(runDir) === tail) candidateLocks.delete(runDir);
+  });
+  return settled;
+}
+
 /** @typedef {"prepared"|"verified"|"accepted"|"failed"|"conflict"} IntegrationStatus */
 /** @typedef {{schemaVersion: number, transactionId: string, runId: string, node: string, attempt: number, attemptSha: string, branch: string|null, empty: boolean, previousRunRefTip: string, candidateSha: string|null, conflictingPaths: string[], at: string, status?: IntegrationStatus, verificationEvidence?: unknown, acceptedAt?: string}} IntegrationRecord */
 /** @typedef {{passed?: boolean, error?: string, [key: string]: unknown}} CandidateEvidence */
@@ -126,7 +161,7 @@ export async function integrateAttempt({
   if (transaction.conflictingPaths.length) {
     appendRecord(runDir, { ...transaction, status: "conflict", conflictingPaths: transaction.conflictingPaths, verificationEvidence: verificationEvidence ?? null });
     await onConflict?.(transaction);
-    cleanupCandidate(repo, runDir, runId);
+    await withCandidateLock(runDir, () => cleanupCandidate(repo, runDir, runId));
     return { status: "conflict", conflictingPaths: transaction.conflictingPaths };
   }
   return verifyAndAdvance({
@@ -287,7 +322,7 @@ function prepareTransaction({ repo, runId, nodeId, attempt, attemptSha, branch, 
   return transaction;
 }
 
-/** @param {{repo: string, runDir: string, runId: string, transaction: IntegrationRecord, verificationEvidence?: unknown, verifyCandidate: CandidateVerifier, onAccepted?: AcceptedCallback, onVerificationFailure?: VerificationFailureCallback, onConcurrentMove?: ConcurrentMoveCallback, interrupt?: (stage: string) => void}} args @returns {Promise<IntegrationResult>} */
+/** @param {{repo: string, runDir: string, runId: string, transaction: IntegrationRecord, verificationEvidence?: unknown, verifyCandidate: CandidateVerifier, onAccepted?: AcceptedCallback, onVerificationFailure?: VerificationFailureCallback, onConcurrentMove?: ConcurrentMoveCallback, interrupt?: (stage: string) => void, exclusive?: boolean}} args @returns {Promise<IntegrationResult>} */
 async function verifyAndAdvance({
   repo,
   runDir,
@@ -299,7 +334,11 @@ async function verifyAndAdvance({
   onVerificationFailure,
   onConcurrentMove,
   interrupt,
+  exclusive = false,
 }) {
+  if (!exclusive) {
+    return withCandidateLock(runDir, () => verifyAndAdvance({ repo, runDir, runId, transaction, verificationEvidence, verifyCandidate, onAccepted, onVerificationFailure, onConcurrentMove, interrupt, exclusive: true }));
+  }
   deleteRef(repo, candidateRefName(runId));
   deleteCandidateWorktree(repo, runDir, runId);
   gitSetRef(repo, candidateRefName(runId), transaction.candidateSha);
@@ -321,11 +360,14 @@ async function verifyAndAdvance({
   const verified = { ...transaction, status: "verified", verificationEvidence: { attempt: verificationEvidence ?? null, candidate: candidateEvidence } };
   appendRecord(runDir, verified);
   interruptStage(interrupt, "before-ref");
-  return advanceVerified({ repo, runDir, runId, transaction: verified, onAccepted, onConcurrentMove, interrupt });
+  return advanceVerified({ repo, runDir, runId, transaction: verified, onAccepted, onConcurrentMove, interrupt, exclusive: true });
 }
 
-/** @param {{repo: string, runDir: string, runId: string, transaction: IntegrationRecord, onAccepted?: AcceptedCallback, onConcurrentMove?: ConcurrentMoveCallback, interrupt?: (stage: string) => void}} args @returns {Promise<IntegrationResult>} */
-async function advanceVerified({ repo, runDir, runId, transaction, onAccepted, onConcurrentMove, interrupt }) {
+/** @param {{repo: string, runDir: string, runId: string, transaction: IntegrationRecord, onAccepted?: AcceptedCallback, onConcurrentMove?: ConcurrentMoveCallback, interrupt?: (stage: string) => void, exclusive?: boolean}} args @returns {Promise<IntegrationResult>} */
+async function advanceVerified({ repo, runDir, runId, transaction, onAccepted, onConcurrentMove, interrupt, exclusive = false }) {
+  if (!exclusive) {
+    return withCandidateLock(runDir, () => advanceVerified({ repo, runDir, runId, transaction, onAccepted, onConcurrentMove, interrupt, exclusive: true }));
+  }
   const current = gitHead(repo, runRefName(runId));
   if (!current) throw new Error(`integration ref is unavailable for ${runId}`);
   if (current === transaction.candidateSha && current !== transaction.previousRunRefTip) {

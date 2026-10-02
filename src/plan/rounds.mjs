@@ -9,7 +9,10 @@
  * pipeline.mjs was 742 of 800 lines) because this is the one place a round's
  * finding bookkeeping — merge what is still open, drop what a revise
  * silently shrank, resolve what a revise touched — happens together with the
- * in-round freeze pre-flight. `droppedWriteFindings` and `unresolvedFindings`
+ * in-round freeze pre-flight — whose own rules are `preflight.mjs`'s
+ * (`freezePreflight`), imported rather than restated, so the rules a round
+ * grades against are the rules the freeze applies. `droppedWriteFindings` and
+ * `unresolvedFindings`
  * live here rather than in `pipeline.mjs` because nothing outside this loop
  * ever calls them. `runStage`, `assembleFrozenNodes`, `frozenContractRaw`,
  * `contest`, `invalidPlanFinding` and `logStage` are supplied by the caller
@@ -19,14 +22,23 @@
  * campaign) this module has no reason to hold; injecting them keeps this
  * module free of a runtime dependency on `pipeline.mjs`, so a test can drive
  * it with fakes.
+ *
+ * The file's other half is the round bounds that are not the review/revise
+ * loop: `runBoundedRounds`, the hard budget the reauthor flow spends widening
+ * a refused packet, and `reauthorTriggerDecision`, the durable gate that
+ * decides whether a trigger may spend that budget at all (R5,
+ * campaign-efficiency phase 4). The gate is keyed to the failure journal
+ * rather than to this process because its whole point is to hold across
+ * resumes; it lives beside the budget it guards because a round bound is
+ * what this module owns.
  */
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
-import { validateContract } from "../contract/index.mjs";
 import { writeJsonAtomic } from "../run/store.mjs";
 import { stableJson } from "../util.mjs";
-import { assertTimeoutsCoverMeasured, raiseTimeoutsToMeasured } from "./freeze.mjs";
-import { assertFilteredProofsNameTheirTest, declareDirectoryGuards } from "./proof-scope.mjs";
+import { freezePreflight } from "./preflight.mjs";
+import { durableQuestion } from "./human-step.mjs";
+import { reviseContextFor } from "./revise-context.mjs";
 import { applyPlanPatch, validateFindings, validatePlanOutput } from "./template.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
@@ -248,22 +260,15 @@ export async function runReviewRounds(options) {
   let carriedCritical = 0;
 
   /**
-   * The freeze pre-flight: the contract this plan would freeze into, checked
-   * the way `freeze.mjs` checks it. Null when it would freeze.
+   * The deterministic checks and the two mechanical repairs, both read from
+   * `preflight.mjs` rather than restated here: the same set the pipeline ran on
+   * the draft runs again on every plan this loop grades, so a revise is held to
+   * the rules the freeze applies and this loop can never disagree with the
+   * freeze it stands in front of about what those rules are.
    *
-   * @param {PlanOutput} candidate
-   * @returns {unknown}
+   * @type {import("./preflight.mjs").PlanCheckContext}
    */
-  const freezePreflightError = (candidate) => {
-    try {
-      const contract = validateContract(frozenContractRaw(assembleFrozenNodes(declareDirectoryGuards(raiseTimeoutsToMeasured(candidate, repoFacts).plan, repoFacts, cwd).plan)), join(plansDir, "contract.json"));
-      assertFilteredProofsNameTheirTest(contract);
-      assertTimeoutsCoverMeasured(contract, repoFacts);
-      return null;
-    } catch (error) {
-      return error;
-    }
-  };
+  const preflightContext = { repoFacts, cwd, plansDir, assembleFrozenNodes, frozenContractRaw };
 
   /**
    * Run the revise stage once, validate its output and run the freeze
@@ -294,13 +299,39 @@ export async function runReviewRounds(options) {
     // the whole plan, so answering one finding costs the size of that
     // finding's nodes instead of the phase's. Two calls died on the full-plan
     // shape at 65,932 and 66,821 output tokens against the 65,536 ceiling.
-    // The patch is only asked for when there is a validated plan to apply it
-    // to: a first round whose draft never validated has no node list to patch,
-    // and that round's revise returns a whole plan.
+    //
+    // R4, campaign-efficiency phase 4: once there is a validated plan to
+    // patch, the reviser also stops reading that plan, and reads no
+    // repository facts. Its context is the findings' nodes, the dependencies
+    // those nodes need, and the plan's own declarations (`reviseContextFor`),
+    // and a context over the packet ceiling is refused by name — the explicit
+    // overflow error R4 asks for on the reviser side — never truncated and
+    // never silently widened back to the whole plan; the refusal is the
+    // finding the round contests on. The patch still applies to the full
+    // plan this loop holds; only the reading narrowed. A first round whose
+    // draft never validated has no node list to narrow, so that round's
+    // revise reads the rejected draft and returns a whole plan.
     const base = plan;
     const patchMode = base !== null;
-    const stageInputs = { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, packageMode, ...(patchMode ? { revisePatch: true } : {}) };
-    const revise = await runStage("revise", { ...stageInputs, findingsPath: relative(cwd, path), planPath: relativeWorkingPlanPath });
+    /** @type {PlanFindingOutput|null} */
+    let contextFailure = null;
+    /** @type {string|null} */
+    let contextPath = null;
+    if (patchMode) {
+      const contextFile = join(scratchDir, `revise-context-round-${round}.json`);
+      try {
+        writeJsonAtomic(contextFile, reviseContextFor(/** @type {import("./template.mjs").PlanOutput} */ (base), findingsForRevise));
+        contextPath = relative(cwd, contextFile);
+      } catch (error) {
+        contextFailure = invalidPlanFinding(`revise-r${round}-context`, error);
+      }
+    }
+    if (contextFailure !== null) {
+      logStage("revise", { round, contextOverBudget: contextFailure.text });
+      return { plan: null, finding: contextFailure, firstInvalid: contextFailure };
+    }
+    const stageInputs = { specPath: relativeSpecPath, cataloguePath: relativeCataloguePath, packageMode, ...(patchMode ? { revisePatch: true } : {}) };
+    const revise = await runStage("revise", { ...stageInputs, findingsPath: relative(cwd, path), planPath: /** @type {string} */ (patchMode ? contextPath : relativeWorkingPlanPath) });
     /**
      * The plan a revise's output produced, before any validation: the merged
      * patch when the reviser patched a plan, its own `output.plan` when there
@@ -327,20 +358,51 @@ export async function runReviewRounds(options) {
     try {
       revision = /** @type {{nodes: PlanOutputNode[]} & Record<string, unknown>} */ (revisionFrom(base, revise.output));
       structurallyValid = validatePlanOutput(revision);
-      const preflightError = freezePreflightError(structurallyValid);
-      if (preflightError === null) return { plan: structurallyValid, runId: revise.contract.id, firstInvalid: null };
-      firstInvalid = invalidPlanFinding(`revise-r${round}-attempt1`, preflightError);
+      const failure = freezePreflight(structurallyValid, preflightContext).failure;
+      if (failure === null) return { plan: structurallyValid, runId: revise.contract.id, firstInvalid: null };
+      firstInvalid = invalidPlanFinding(`revise-r${round}-attempt1`, failure);
     } catch (error) {
       firstInvalid = invalidPlanFinding(`revise-r${round}-attempt1`, error);
     }
     const retryPath = join(scratchDir, `findings-round-${round}-retry.json`);
-    writeJsonAtomic(retryPath, [...findingsForRevise, firstInvalid]);
+    const retryFindings = [...findingsForRevise, firstInvalid];
+    writeJsonAtomic(retryPath, retryFindings);
     // The retry repairs the revision the check refused, not the plan before
-    // it: that revision already carries this round's resolutions, and only the
-    // check's message is left to answer.
-    const retryPlanPath = join(scratchDir, `plan-round-${round}-rejected.json`);
-    writeJsonAtomic(retryPlanPath, revision ?? base);
-    const retry = await runStage("revise", { ...stageInputs, findingsPath: relative(cwd, retryPath), planPath: relative(cwd, retryPlanPath) });
+    // it: that revision already carries this round's resolutions, and only
+    // the check's message is left to answer.
+    const retryFrom = revision ?? base;
+    /** @type {string} */
+    let retryPlanPath;
+    if (patchMode) {
+      // A validator message names the refused attempt's nodes by their index
+      // in its patch, and no finding names them by id: the nodes the first
+      // attempt changed ride into the retry's context beside the findings'
+      // own.
+      /** @type {string[]} */
+      let firstAttemptNodes = [];
+      if (revision !== null) {
+        const before = new Map(base.nodes.map((node) => [node.id, stableJson(node)]));
+        firstAttemptNodes = revision.nodes.filter((node) => before.get(node.id) !== stableJson(node)).map((node) => node.id);
+      }
+      const retryContextFile = join(scratchDir, `revise-context-round-${round}-retry.json`);
+      try {
+        writeJsonAtomic(retryContextFile, reviseContextFor(/** @type {{nodes: PlanOutputNode[]} & Record<string, unknown>} */ (retryFrom), retryFindings, firstAttemptNodes));
+        retryPlanPath = relative(cwd, retryContextFile);
+      } catch (error) {
+        // The retry's context does not fit either: the first attempt's own
+        // output, when it validated, still goes to review rather than
+        // contesting a round over a retry it cannot hand a context to.
+        if (structurallyValid !== null) return { plan: structurallyValid, runId: revise.contract.id, firstInvalid };
+        const finding = invalidPlanFinding(`revise-r${round}-context-retry`, error);
+        logStage("revise", { round, contextOverBudget: finding.text });
+        return { plan: null, finding, firstInvalid };
+      }
+    } else {
+      const rejectedFile = join(scratchDir, `plan-round-${round}-rejected.json`);
+      writeJsonAtomic(rejectedFile, retryFrom);
+      retryPlanPath = relative(cwd, rejectedFile);
+    }
+    const retry = await runStage("revise", { ...stageInputs, findingsPath: relative(cwd, retryPath), planPath: retryPlanPath });
     try {
       // A retry that validates goes to review even if the freeze pre-flight
       // still refuses it: that round's own pre-flight raises it again. Its
@@ -364,13 +426,14 @@ export async function runReviewRounds(options) {
     // scope-closure pre-flight), and R14 stopped the plan after 2 of 4 rounds.
     const reviewed = plan !== null;
     if (plan) {
-      // R14's mechanical repair with a single answer, applied before review so
-      // the reviewer grades, and freeze checks, the plan that would ship.
-      const timeouts = raiseTimeoutsToMeasured(plan, repoFacts);
-      if (timeouts.raised.length) logStage("timeouts-raised", { round, raised: timeouts.raised });
-      const guards = declareDirectoryGuards(timeouts.plan, repoFacts, cwd);
-      if (guards.declared.length) logStage("guards-declared", { round, declared: guards.declared });
-      plan = guards.plan;
+      // R14's mechanical repairs with a single answer, and the freeze rules
+      // they answer to, all measured before the review is dispatched: the
+      // reviewer grades — and freeze checks — the plan that would ship, and
+      // the failure below is measured against the bytes the reviewer read.
+      const checks = freezePreflight(plan, preflightContext);
+      if (checks.raised.length) logStage("timeouts-raised", { round, raised: checks.raised });
+      if (checks.declared.length) logStage("guards-declared", { round, declared: checks.declared });
+      plan = checks.plan;
       // The reviewer grades a structurally valid plan; an invalid one skips
       // review and reaches revise through the validator's finding instead.
       writeJsonAtomic(workingPlanPath, plan);
@@ -391,9 +454,9 @@ export async function runReviewRounds(options) {
         invalidFindings = invalidPlanFinding(`review-r${round}`, error);
         findings = [...findings, invalidFindings];
       }
-      // The contract this plan would freeze into is checked here, inside the
-      // round and after the review's findings merged into the open ones,
-      // because freeze runs after the last one: caught here, a plan that
+      // The contract this plan would freeze into was checked above, before the
+      // review ran, and its failure rides on this round's line and findings
+      // because freeze runs after the last round: caught here, a plan that
       // cannot freeze still has a revise left to fix it. The failure is a
       // critical finding, never an auto-filled acknowledgement — scope
       // closure exists to force the per-file decision (declare a write, or
@@ -401,9 +464,8 @@ export async function runReviewRounds(options) {
       // read the repository, makes it from the validator's own message.
       /** @type {PlanFindingOutput|null} */
       let freezeFailure = null;
-      const preflightError = freezePreflightError(plan);
-      if (preflightError !== null) {
-        freezeFailure = invalidPlanFinding(`freeze-r${round}`, preflightError);
+      if (checks.failure !== null) {
+        freezeFailure = invalidPlanFinding(`freeze-r${round}`, checks.failure);
         findings = [...findings, freezeFailure];
       }
       logStage("review", {
@@ -494,4 +556,77 @@ export async function runBoundedRounds(rounds, step) {
     }
   }
   return { accepted: false, roundsUsed: rounds, last: history.at(-1) ?? null, history };
+}
+
+/**
+ * A reauthor trigger as the failure journal records it: the classified cause,
+ * the refused node, and the refused packet's hash. Whatever else the journal
+ * line carries (outcome, timestamp) rides in the index signature — the gate
+ * counts every record on the key, whatever its outcome.
+ *
+ * @typedef {{cause: string, node: string, artifactVersion: string, [key: string]: unknown}} ReauthorRecord
+ */
+
+/**
+ * @typedef {{action: "widen"} | {action: "refuse", reason: string} | {action: "ask", question: import("./human-step.mjs").DurableQuestion}} ReauthorTriggerDecision
+ */
+
+/**
+ * The hard cap, per node and packet version, on reauthor triggers: once this
+ * many triggers are journaled against the same `(node, artifactVersion)` with
+ * the packet unchanged, a further trigger is refused whatever its cause. No
+ * measurement stands behind the number itself — it mirrors the one retry
+ * `reviseOnce` grants a revise (two chances to answer what was objected), and
+ * the journal makes the bound durable across resumes, which is the property
+ * R5 asks for: without it, a fresh process would start a fresh budget and the
+ * same refusal would spend a widening call on every resume.
+ */
+export const REAUTHOR_ROUND_CAP = 2;
+
+/**
+ * The one decision a packet-refusal trigger passes before the reauthor flow
+ * makes a single widening call (R5, campaign-efficiency phase 4). `records`
+ * is what reauthor.jsonl already journals for every outcome (n5,
+ * failure-cause classes); the widened packet itself is validated where it is
+ * applied, as it already is — this gate decides only whether a trigger may
+ * spend a widening round, never whether a proposal is sound.
+ *
+ * In order:
+ *
+ * - a trigger carrying no classified cause cannot be keyed into the journal,
+ *   so it is refused before any call;
+ * - `ambiguous_requirement` becomes the durable question and never a widening
+ *   round — widening cannot disambiguate prose (`durableQuestion`). An ask
+ *   makes no provider call, so it is not capped and not deduplicated: asking
+ *   again is the same durable question, not another attempt;
+ * - the exact same cause on the same node and packet version is refused —
+ *   the journal already carrying it is the evidence that widening did not
+ *   progress, and a repeat is how the call count goes indefinite;
+ * - the round cap counts every recorded trigger on that node and version,
+ *   whatever its outcome: an applied widening is gone from this key by
+ *   construction (the widened packet changes the hash and starts a fresh
+ *   budget — progress resets the bound), while approval_required and
+ *   rounds_exhausted spent their calls without one;
+ * - everything else widens.
+ *
+ * @param {ReauthorRecord[]} records
+ * @param {{cause: string, node: string, artifactVersion: string}} trigger
+ * @returns {ReauthorTriggerDecision}
+ */
+export function reauthorTriggerDecision(records, trigger) {
+  if (!trigger.cause) {
+    return { action: "refuse", reason: `reauthor trigger on node ${trigger.node} carries no classified cause; widening is refused` };
+  }
+  if (trigger.cause === "ambiguous_requirement") {
+    const question = durableQuestion(trigger);
+    return { action: "ask", question: /** @type {import("./human-step.mjs").DurableQuestion} */ (question) };
+  }
+  const onVersion = records.filter((record) => record.node === trigger.node && record.artifactVersion === trigger.artifactVersion);
+  if (onVersion.some((record) => record.cause === trigger.cause)) {
+    return { action: "refuse", reason: `cause ${trigger.cause} already triggered a reauthor on node ${trigger.node} at ${trigger.artifactVersion} and the packet has not changed; the same refusal does not widen again` };
+  }
+  if (onVersion.length >= REAUTHOR_ROUND_CAP) {
+    return { action: "refuse", reason: `reauthor round cap ${REAUTHOR_ROUND_CAP} reached on node ${trigger.node} at ${trigger.artifactVersion}: ${onVersion.length} trigger(s) journaled without the packet changing` };
+  }
+  return { action: "widen" };
 }

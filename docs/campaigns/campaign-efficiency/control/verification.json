@@ -1,0 +1,18 @@
+{
+  "sharedVerification": [
+    {
+      "argv": ["npm", "run", "typecheck"],
+      "timeoutSec": 120
+    },
+    {
+      "argv": ["node", "--test", "--test-concurrency=1", "test/repo/source-shape.test.mjs"],
+      "timeoutSec": 60
+    }
+  ],
+  "finalVerification": [
+    {
+      "argv": ["npm", "run", "check"],
+      "timeoutSec": 120
+    }
+  ]
+}

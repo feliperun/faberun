@@ -4,10 +4,11 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { initializeCampaign } from "../../src/campaign/index.mjs";
 import { readJournal } from "../../src/campaign/journal.mjs";
 import { JOURNAL_TEXT_BYTES } from "../../src/campaign/layout.mjs";
-import { collectRepoFacts } from "../../src/plan/repo-facts.mjs";
+import { PATH_INDEX_FILE, REPO_FACTS_FILE, collectRepoFacts } from "../../src/plan/repo-facts.mjs";
 import { contentDigest } from "../../src/plan/freeze.mjs";
 import { contestPlan } from "../../src/plan/contest.mjs";
 import { parseAnswerFlags, resolvePlanningPipeline } from "../../src/plan/resolve.mjs";
@@ -130,6 +131,17 @@ test("a contested plan resumes from the operator's answers", async () => {
   // contested plan already carried.
   const contract = JSON.parse(readFileSync(result.contractPath, "utf8"));
   assert.deepEqual(contract.nodes.map((/** @type {any} */ node) => node.id).sort(), ["build", "docs"]);
+
+  // R4: the resume persists the facts the freeze carries — the byte cut and
+  // its per-kind omission report — with the complete path index beside them,
+  // so a plan resolved without redrafting leaves the same inventory on disk a
+  // fresh `faberun plan` staged.
+  const persistedFacts = JSON.parse(readFileSync(join(fixture.plansDir, REPO_FACTS_FILE), "utf8"));
+  assert.equal(persistedFacts.formatVersion, 1);
+  assert.ok(persistedFacts.pathOmission, "the persisted facts carry the path cut's omission report");
+  const pathIndex = readFileSync(join(fixture.plansDir, PATH_INDEX_FILE), "utf8").split("\n").filter(Boolean).sort();
+  const tracked = execFileSync("git", ["-C", fixture.cwd, "ls-files"], { encoding: "utf8" }).split("\n").filter(Boolean).sort();
+  assert.deepEqual(pathIndex, tracked, "the index is the complete tracked tree, not the cut");
 
   const journal = readJournal(campaignTree(fixture.cwd, fixture.campaignId));
   const decisions = journal.filter((entry) => entry.type === "decision");

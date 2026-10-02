@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { codexUsageWindows } from "../../src/harnesses/codex/usage-window.mjs";
-import { readUsageWindows, recordInvocationWindows, usageAccountOf } from "../../src/run/usage-windows.mjs";
+import { addAccountUsage, readAccountUsage, readUsageWindows, recordInvocationWindows, sumCounters, usageAccountOf } from "../../src/run/usage-windows.mjs";
 import { checkUsageWindows } from "../../src/host/preflight.mjs";
 
 const NOW = Date.parse("2026-09-24T19:00:00.000Z");
@@ -47,4 +47,23 @@ test("the Codex account's usage windows are read after an invocation and warned 
   assert.match(block.detail, /every call would be refused/u);
   assert.deepEqual(checkUsageWindows(runtimes, full, NOW + 2 * 86400 * 1000), [], "after the reset nothing is known, so nothing is said");
   assert.equal(usageAccountOf({ harness: "zcode" }, env), null, "a harness that reports no windows adds no check");
+});
+
+test("measured invocation counters roll up per account, and an unmeasured one leaves the total alone", () => {
+  const env = codexHomeWith(3);
+  const account = /** @type {string} */ (usageAccountOf({ harness: "codex" }, env));
+  assert.equal(readAccountUsage(account), null);
+  addAccountUsage({ harness: "codex" }, { bytes: 1200, inputTokens: 100, cacheReadInputTokens: 50, cacheWriteInputTokens: null, outputTokens: 20 }, { env, now: NOW });
+  addAccountUsage({ harness: "codex" }, { bytes: 400, inputTokens: 30, cacheReadInputTokens: null, cacheWriteInputTokens: 5, outputTokens: null }, { env, now: NOW });
+  assert.deepEqual(readAccountUsage(account), { bytes: 1600, inputTokens: 130, cacheReadInputTokens: 50, cacheWriteInputTokens: 5, outputTokens: 20 });
+  addAccountUsage({ harness: "zcode" }, { bytes: 1, inputTokens: 1, cacheReadInputTokens: 1, cacheWriteInputTokens: 1, outputTokens: 1 }, { env, now: NOW });
+  assert.equal(readAccountUsage("zcode:nowhere"), null, "a harness that reports no account rolls nothing up");
+});
+
+test("a strict counter rollup is null for a counter any entry failed to measure", () => {
+  const measured = { bytes: 100, inputTokens: 10, cacheReadInputTokens: 5, cacheWriteInputTokens: 1, outputTokens: 2 };
+  assert.deepEqual(sumCounters([measured, measured]), { bytes: 200, inputTokens: 20, cacheReadInputTokens: 10, cacheWriteInputTokens: 2, outputTokens: 4 });
+  assert.deepEqual(sumCounters([{ ...measured, bytes: null }, measured]).bytes, null, "a partly-measured counter is not a partial sum");
+  assert.deepEqual(sumCounters([]), { bytes: null, inputTokens: null, cacheReadInputTokens: null, cacheWriteInputTokens: null, outputTokens: null });
+  assert.deepEqual(sumCounters([null, measured]), { bytes: null, inputTokens: null, cacheReadInputTokens: null, cacheWriteInputTokens: null, outputTokens: null });
 });

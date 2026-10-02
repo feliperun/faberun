@@ -358,12 +358,59 @@ test("a frozen verification timeout covers its measured duration", () => {
     "this repository's own test script, with an --import value and two globs, includes both parts once",
   );
 
-  const huge = { ...facts, verificationCandidates: [...facts.verificationCandidates, { argv: ["node", "--test", "test/huge"], measuredMs: 1_900_000, eligible: false }] };
+  // The split advice is reachable only over eligible measurements: four parts
+  // measured under the ceiling sum past every legal timeout.
+  const parts = ["test/a", "test/b", "test/c", "test/d"].map((directory) => ({ argv: ["node", "--test", directory], measuredMs: 590_000, eligible: true }));
+  const huge = { ...facts, verificationCandidates: [...facts.verificationCandidates, ...parts] };
   assert.throws(
-    () => freezePlan(planWith("plan-huge", [{ argv: ["node", "--test", "test/huge"], timeoutSec: 1800 }]), { outDir: outDir(), provenance: provenance(), facts: huge }),
-    /node --test test\/huge measured 1900\.0s.*1800s.*split it/u,
+    () => freezePlan(planWith("plan-huge", [{ argv: ["node", "--test", "test/a", "test/b", "test/c", "test/d"], timeoutSec: 1800 }]), { outDir: outDir(), provenance: provenance(), facts: huge }),
+    /node --test test\/a test\/b test\/c test\/d measured 2360\.0s.*1800s.*split it/u,
     "a command no legal timeout can cover is named with the advice to split it",
   );
+});
+
+// A candidate killed at its timeout persists measuredMs null with eligible
+// false, so no freeze consumer may read a duration from it — not the exact
+// match, not a directory aggregate, or a kill would set the plan's timeout
+// or contest a command with advice to split it.
+test("a candidate killed at its timeout drives no timeout: exact and aggregated reads ignore it", () => {
+  const facts = {
+    scripts: { test: "node --test" },
+    verificationCandidates: [
+      { argv: ["node", "--test", "test/engine"], measuredMs: 178_904, eligible: true },
+      { argv: ["node", "--test", "test/killed"], measuredMs: null, eligible: false },
+    ],
+  };
+  /** @param {string} id @param {Record<string, unknown>[]} verification */
+  const planWith = (id, verification) => fixture({ id, campaignId: `${id}-campaign`, nodes: [{ id: "build", type: "backend", taskPacket: packet({ verification }), gate: false }] });
+
+  // Exact: the timed-out command freezes untouched at any timeout, even one
+  // no measurement could cover.
+  assert.doesNotThrow(() =>
+    freezePlan(planWith("plan-killed-exact", [{ argv: ["node", "--test", "test/killed"], timeoutSec: 5 }]), { outDir: outDir(), provenance: provenance(), facts }),
+  );
+
+  // Aggregated: npm test includes both parts, and only the eligible one
+  // counts — the required bound is 1.5 times 178904ms, not a sum with the kill.
+  assert.throws(
+    () => freezePlan(planWith("plan-killed-aggregate", [{ argv: ["npm", "test"], timeoutSec: 120 }]), { outDir: outDir(), provenance: provenance(), facts }),
+    /npm test.*timeoutSec 120s.*178\.9s.*at least 269s/u,
+  );
+  assert.doesNotThrow(() =>
+    freezePlan(planWith("plan-killed-covered", [{ argv: ["npm", "test"], timeoutSec: 269 }]), { outDir: outDir(), provenance: provenance(), facts }),
+  );
+
+  // The deterministic repair reads the same rule: the kill is left alone,
+  // the aggregate is raised over its eligible part only.
+  const plan = /** @type {any} */ ({
+    nodes: [{ id: "build", verification: [{ argv: ["node", "--test", "test/killed"], timeoutSec: 60 }, { argv: ["npm", "test"], timeoutSec: 120 }] }],
+  });
+  const repaired = raiseTimeoutsToMeasured(plan, facts);
+  assert.deepEqual(repaired.raised, ["build: npm test 120s -> 269s"]);
+  assert.deepEqual(repaired.plan.nodes[0].verification, [
+    { argv: ["node", "--test", "test/killed"], timeoutSec: 60 },
+    { argv: ["npm", "test"], timeoutSec: 269 },
+  ]);
 });
 
 // RM-107: the deterministic repair and the check that names it must read the

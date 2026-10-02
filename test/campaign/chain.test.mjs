@@ -18,7 +18,7 @@ import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION, contractDigest, validateCont
 import { controllerSnapshotIdentity, serializableContract, storedContractDigest } from "../../src/engine/run-identity.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { writeHeartbeat } from "../../src/engine/supervise.mjs";
-import { processStartToken } from "../../src/run/lock.mjs";
+import { processStartToken, acquire as acquireRunLock } from "../../src/run/lock.mjs";
 import { runDirectory, runsRoot } from "../../src/run/paths.mjs";
 import { packet, closeResult, waitForValue, withFakeCodex } from "../helpers.mjs";
 /** @typedef {import("../../src/contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -37,14 +37,11 @@ function lockPid(campaignPath) {
 }
 
 /**
- * Drive the operator surface an operator actually types: `supervise campaign
- * <id>`, routed by src/cli.mjs through the `supervise` operation in
- * src/cli/campaign.mjs. Spawned async so a test can observe the coordinator
- * lock while the invocation is still alive.
+ * Drive the operator surface an operator actually types -- `supervise campaign
+ * <id>` -- spawned async so a test can observe the coordinator lock while the
+ * invocation is still alive.
  *
- * @param {string} campaignId
- * @param {string} repo
- * @returns {import("node:child_process").ChildProcess}
+ * @param {string} campaignId @param {string} repo @returns {import("node:child_process").ChildProcess}
  */
 function coordinatorCliCase(campaignId, repo) {
   return spawn(process.execPath, [CLI, "supervise", "campaign", campaignId, "--cwd", repo], {
@@ -53,24 +50,20 @@ function coordinatorCliCase(campaignId, repo) {
 }
 
 /**
- * Wait until the invocation's own pid is the coordinator lock's holder. The
- * lock is released again when the invocation exits, so this is only
- * answerable while the `supervise` process is alive.
+ * Wait until the invocation's own pid is the coordinator lock's holder; the
+ * lock is released when the invocation exits.
  *
- * @param {string} campaignPath
- * @param {number} pid
- * @returns {Promise<number>}
+ * @param {string} campaignPath @param {number} pid @returns {Promise<number>}
  */
 async function waitForCoordinatorLock(campaignPath, pid) {
   return /** @type {number} */ (await waitForValue(() => (lockPid(campaignPath) === pid ? pid : null)));
 }
 
 /**
- * Every file under `dir`, keyed by its path relative to `dir`, as bytes. Two
+ * Every file under `dir`, keyed by its path relative to `dir`, as bytes; two
  * snapshots compare equal only when nothing was added, removed or rewritten.
  *
- * @param {string} dir
- * @returns {Record<string, string>}
+ * @param {string} dir @returns {Record<string, string>}
  */
 function snapshotTree(dir) {
   /** @type {Record<string, string>} */
@@ -119,11 +112,7 @@ function commitFile(repo, path, content, message) {
 }
 
 /**
- * @param {string} repo
- * @param {string} campaignId
- * @param {string} id
- * @param {Record<string, unknown>} [overrides]
- * @returns {Record<string, unknown>}
+ * @param {string} repo @param {string} campaignId @param {string} id @param {Record<string, unknown>} [overrides] @returns {Record<string, unknown>}
  */
 function chainContract(repo, campaignId, id, overrides = {}) {
   return {
@@ -171,8 +160,7 @@ function makeCampaign(repo, campaignId, contractPaths, landBranch = `campaign/${
  * A run directory shaped the way the controller leaves one: the serialized
  * contract the controller stores, the node snapshots, and a run.json whose
  * `contractDigest` is computed the controller's way -- over the stored
- * contract.json bytes, not over the in-memory validated contract. The
- * `digest` override exists for the tamper case alone.
+ * contract.json bytes, not over the in-memory validated contract.
  *
  * @param {RunDirArgs} args
  */
@@ -312,9 +300,11 @@ test("done-when 10a: with no coordinator, supervise campaign through the CLI bec
   const contractPath = writeChainContract(repo, "cli-become", "b1");
   const { path: campaignPath } = makeCampaign(repo, "cli-become", [contractPath]);
   // An in-flight run keeps the newly-become coordinator alive long enough to
-  // observe the lock it wrote, without launching anything.
+  // observe the lock it wrote. The real run lock below is its controller: with
+  // no live controller the chain would resume that run instead of waiting.
   const validated = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
   writeRunDir({ repo, runDir: runDirectory(repo, "b1"), contract: validated, node: { id: "build", status: "running", phase: "worker" } });
+  const runLock = acquireRunLock(runDirectory(repo, "b1"));
   assert.equal(readCoordinatorLock(campaignPath), null, "no coordinator exists before the invocation");
 
   const child = coordinatorCliCase("cli-become", repo);
@@ -326,6 +316,7 @@ test("done-when 10a: with no coordinator, supervise campaign through the CLI bec
   } finally {
     child.kill("SIGTERM");
     await done;
+    runLock.release();
   }
 });
 
@@ -357,9 +348,10 @@ test("done-when 10c: a stale heartbeat is taken over through the CLI, terminatin
   const contractPath = writeChainContract(repo, "cli-takeover", "t1");
   const { path: campaignPath } = makeCampaign(repo, "cli-takeover", [contractPath]);
   // An in-flight run keeps the new coordinator alive long enough to observe
-  // that it acquired the lock, without launching anything.
+  // that it acquired the lock. The run lock below is that run's controller.
   const validated = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
   writeRunDir({ repo, runDir: runDirectory(repo, "t1"), contract: validated, node: { id: "build", status: "running", phase: "worker" } });
+  const runLock = acquireRunLock(runDirectory(repo, "t1"));
 
   // The previous coordinator is a real live process group that records the
   // SIGTERM that takes it down.
@@ -386,6 +378,7 @@ test("done-when 10c: a stale heartbeat is taken over through the CLI, terminatin
     } finally {
       child.kill("SIGTERM");
       await done;
+      runLock.release();
     }
   } finally {
     if (holder.exitCode === null) holder.kill("SIGTERM");
@@ -655,8 +648,11 @@ test("done-when 13: re-issue launches only the remainder and awaits a non-termin
   const path3 = writeChainContract(repo2, "chain8", "n1");
   const { path: campaignPath2 } = makeCampaign(repo2, "chain8", [path3]);
   const validated = validateContract(JSON.parse(readFileSync(path3, "utf8")), path3);
-  writeRunDir({ repo: repo2, runDir: runDirectory(repo2, "n1"), contract: validated, node: { id: "build", status: "running", phase: "worker" } });
+  const inFlightDir = runDirectory(repo2, "n1");
+  writeRunDir({ repo: repo2, runDir: inFlightDir, contract: validated, node: { id: "build", status: "running", phase: "worker" } });
+  const runLock = acquireRunLock(inFlightDir);
   let relaunched = 0;
+  let resumed = 0;
   const awaited = await driveCampaignChain(campaignPath2, {
     repo: repo2,
     coordination: false,
@@ -664,9 +660,12 @@ test("done-when 13: re-issue launches only the remainder and awaits a non-termin
     sleep: async () => {},
     maxTicks: 3,
     launch: () => { relaunched += 1; },
+    resume: () => { resumed += 1; },
   });
+  runLock.release();
   assert.equal(awaited.state, "stopped");
   assert.equal(relaunched, 0, "a non-terminal run is awaited rather than relaunched");
+  assert.equal(resumed, 0, "a run whose controller is alive is awaited rather than resumed");
 });
 
 test("done-when 14: the chain takes no run lock and writes no node state", async () => {

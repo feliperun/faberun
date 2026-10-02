@@ -437,9 +437,11 @@ test("every synchronous git spawn in src/ is bounded or a named exemption", () =
 /**
  * Modules with no leading block comment, ratcheted down. `AGENTS.md` asks a
  * header to say what the module owns and *why it is separate* -- the reader can
- * see what the functions do. 30 of 84 predate the rule; the number only falls.
+ * see what the functions do. 29 of 84 predate the rule (`contract/task-packet.mjs`
+ * was the last to gain one, with the phase-4 prompt-budget error); the number
+ * only falls.
  */
-const HEADERLESS_CEILING = 30;
+const HEADERLESS_CEILING = 29;
 
 test(`src/ modules without a header never exceed ${HEADERLESS_CEILING}`, () => {
   const headerless = SRC_FILES.filter((file) => !file.text.startsWith("/**")).map((file) => file.label);

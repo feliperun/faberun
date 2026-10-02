@@ -1,3 +1,17 @@
+/**
+ * The closed task packet: the schema, validation and prompt rendering for the
+ * durable scope one node runs under. Separate from the contract that carries
+ * it (`index.mjs`) because a packet is authored and validated on its own too —
+ * a discovery node's `artifacts[0]` is one — and from the planning templates
+ * (`plan/template.mjs`) because those only assemble the JSON this module
+ * refuses or renders. Three modes, one boundary: an execution packet is closed
+ * to named read and write files, a discovery packet is read-only, and an
+ * autonomous packet bounds writes to roots while leaving inspection free.
+ * Every prompt states the whole worker-result shape and the reserved owner
+ * decisions, and none may exceed the byte budget below: a packet's mandatory
+ * content — its declared read files among it — is never truncated to fit, so
+ * a packet without room for it is refused by name instead.
+ */
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { Buffer } from "node:buffer";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
@@ -20,6 +34,29 @@ const FIELDS = new Set([
   "verification",
 ]);
 const PROMPT_MAX_BYTES = 64 * 1024;
+
+/**
+ * The one refusal for a packet whose mandatory content does not fit the
+ * prompt budget (R4, campaign-efficiency phase 4). Naming the node, the mode
+ * and the overage is the point: a packet is never truncated to fit — a
+ * dropped read file is a fact the worker was promised — so whoever authored
+ * the packet must be told which node to shrink and by how much, not left
+ * with an anonymous throw that kills the node at dispatch.
+ *
+ * The prompt-budget sentence is kept verbatim inside the message: it is the
+ * wording earlier packets and tests were written against.
+ *
+ * @param {string} prompt
+ * @param {string} nodeId
+ * @param {TaskPacket["mode"]} mode
+ * @returns {never}
+ */
+function refusePromptOverBudget(prompt, nodeId, mode) {
+  const total = Buffer.byteLength(prompt, "utf8");
+  throw new TypeError(
+    `worker_prompt_over_budget: node ${nodeId} (${mode}) prompt is ${total - PROMPT_MAX_BYTES} bytes over the ${PROMPT_MAX_BYTES}-byte budget at ${total} total — the worker prompt exceeds ${PROMPT_MAX_BYTES} bytes, and a packet is never truncated to fit: shrink the readFiles selection or the instructions, or split the node`,
+  );
+}
 /**
  * The `## Verification` preamble every worker prompt carries. The controller's
  * recorded run is the proof; a self-run is optional and must be a quick,
@@ -166,9 +203,7 @@ export function renderWorkerPrompt(packet, nodeId) {
     REQUIRED_OUTPUT_SCHEMA,
   ];
   const prompt = `${lines.join("\n")}\n`;
-  if (Buffer.byteLength(prompt, "utf8") > PROMPT_MAX_BYTES) {
-    throw new TypeError(`worker prompt exceeds ${PROMPT_MAX_BYTES} bytes`);
-  }
+  if (Buffer.byteLength(prompt, "utf8") > PROMPT_MAX_BYTES) refusePromptOverBudget(prompt, nodeId, "execution");
   return prompt;
 }
 
@@ -513,7 +548,7 @@ function renderDiscoveryPrompt(packet, nodeId) {
     ...packet.verification.map((command) => `- ${command.argv.join(" ")}`),
   ];
   const prompt = `${lines.join("\n")}\n`;
-  if (Buffer.byteLength(prompt, "utf8") > PROMPT_MAX_BYTES) throw new TypeError(`worker prompt exceeds ${PROMPT_MAX_BYTES} bytes`);
+  if (Buffer.byteLength(prompt, "utf8") > PROMPT_MAX_BYTES) refusePromptOverBudget(prompt, nodeId, "discovery");
   return prompt;
 }
 
@@ -560,7 +595,7 @@ function renderAutonomousPrompt(packet, nodeId) {
     REQUIRED_OUTPUT_SCHEMA,
   ];
   const prompt = `${lines.join("\n")}\n`;
-  if (Buffer.byteLength(prompt, "utf8") > PROMPT_MAX_BYTES) throw new TypeError(`worker prompt exceeds ${PROMPT_MAX_BYTES} bytes`);
+  if (Buffer.byteLength(prompt, "utf8") > PROMPT_MAX_BYTES) refusePromptOverBudget(prompt, nodeId, "autonomous");
   return prompt;
 }
 

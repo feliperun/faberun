@@ -5,9 +5,13 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFile
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runContract } from "../../src/engine/scheduler.mjs";
+import { applyJudgeProtocolFailure } from "../../src/engine/review.mjs";
+import { judgeReaskOutstanding } from "../../src/engine/judge-gate.mjs";
+import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../../src/contract/index.mjs";
+import { acquire as acquireLock } from "../../src/run/lock.mjs";
 import { SPAWN_WAIT_FACTOR, fakeCodex, fixture, packet, withFakeCodex, writeContract } from "../helpers.mjs";
-import { nodeState, notifications, withAdvisoryGateCodex, withBrokenGateCodex, withJudgeDefectCodex, withStallingJudgeCodex } from "../runner-helpers.mjs";
-import { runDirectory } from "../../src/run/paths.mjs";
+import { failoverContract, nodeState, notifications, withAdvisoryGateCodex, withBrokenGateCodex, withJudgeDefectCodex, withStallingJudgeCodex } from "../runner-helpers.mjs";
+import { campaignTree, runDirectory, runsRoot } from "../../src/run/paths.mjs";
 
 
 
@@ -509,4 +513,189 @@ test("attempt affinity holds the judge's failover runtime across the revision it
     (state.invocations ?? []).filter((invocation) => invocation.phase === "worker").map((invocation) => invocation.runtimeId),
     ["primary", "primary"],
   );
+});
+
+// F5 aux admission, revision half: the gate revision `applyRejection` starts
+// inline is a dispatch like any other -- when the revision's own runtime is at
+// its ceiling, the node hands back to the scheduler with the refusal recorded,
+// and the revision dispatches once the runtime frees.
+test("the gate revision waits for the worker runtime's slot", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-revision-slot-"));
+  const runDir = runDirectory(directory, "revision-slot-run");
+  const workers = join(runsRoot(directory), "revision-slot-workers.jsonl");
+  const reviews = join(runsRoot(directory), "revision-slot-reviews");
+  const betaStarted = join(runsRoot(directory), "revision-slot-beta-started");
+  const alphaJson = join(runDir, "nodes", "alpha.json");
+  const provider = join(directory, "revision-slot-provider.mjs");
+  writeFileSync(provider, `#!${process.execPath}
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+const wait = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const log = (event, node) => appendFileSync(${JSON.stringify(workers)}, JSON.stringify({ event, node }) + "\\n");
+if (process.argv.includes("--version")) { console.log("revision-slot 1.0.0"); process.exit(0); }
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => { input += chunk; });
+process.stdin.on("end", () => {
+  const prompt = input || process.argv.at(-1) || "";
+  if (prompt.includes("FABERUN_PREFLIGHT_OK")) {
+    console.log(JSON.stringify({ type: "thread.started", thread_id: "revision-slot-hello" }));
+    console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "ok" } }));
+    console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1, cached_input_tokens: 0 } }));
+    return;
+  }
+  console.log(JSON.stringify({ type: "thread.started", thread_id: "revision-slot-thread" }));
+  if (!prompt.startsWith("Review node")) {
+    const revision = prompt.includes("quality gate rejected");
+    const node = prompt.includes("Beta work") ? "beta" : revision ? "alpha-revision" : "alpha";
+    log("start", node);
+    if (node === "beta") {
+      // Beta holds the worker runtime live while alpha's judge rejects, so
+      // alpha's revision is decided against the full runtime; if the gate
+      // regressed, alpha's revision starts beside it and releases the hold.
+      writeFileSync(${JSON.stringify(betaStarted)}, "started\\n");
+      const deadline = Date.now() + 120_000;
+      for (;;) {
+        let alpha = {};
+        try { alpha = JSON.parse(readFileSync(${JSON.stringify(alphaJson)}, "utf8")); } catch {}
+        let spent = false;
+        try { spent = readFileSync(${JSON.stringify(workers)}, "utf8").includes("\\"node\\":\\"alpha-revision\\""); } catch {}
+        if ((alpha.status === "pending" && alpha.phase === "worker") || spent || Date.now() > deadline) break;
+        wait(25);
+      }
+    }
+    log("end", node);
+    const result = JSON.stringify({ status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] });
+    console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: result } }));
+    console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 10, output_tokens: 2, cached_input_tokens: 0 } }));
+    return;
+  }
+  appendFileSync(${JSON.stringify(reviews)}, "x\\n");
+  if (readFileSync(${JSON.stringify(reviews)}, "utf8").trim().split("\\n").length === 1) {
+    // Hold the rejecting judge live until beta's worker is provably on the
+    // worker runtime, so the revision is decided against the full runtime.
+    const deadline = Date.now() + 120_000;
+    while (!existsSync(${JSON.stringify(betaStarted)}) && Date.now() < deadline) wait(25);
+    const verdict = JSON.stringify({ verdict: "fail", maxSeverity: "critical", summary: "defect", findings: [{ severity: "critical", description: "broken [works]", evidence: "test failed" }] });
+    console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: verdict } }));
+    console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 4, output_tokens: 1, cached_input_tokens: 0 } }));
+    return;
+  }
+  const verdict = JSON.stringify({ verdict: "pass", maxSeverity: "none", summary: "clean re-review", findings: [] });
+  console.log(JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: verdict } }));
+  console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 4, output_tokens: 1, cached_input_tokens: 0 } }));
+});
+`);
+  chmodSync(provider, 0o755);
+  const path = writeContract(directory, fixture({
+    id: "revision-slot-run",
+    pollIntervalMs: 10,
+    maxParallel: 2,
+    runtimeDefaults: { worker: "single", judge: "review" },
+    runtimes: {
+      single: { harness: "codex", model: "single", executable: provider, maxConcurrent: 1 },
+      review: { harness: "codex", model: "review", config: { model_provider: "deepseek" }, executable: provider, maxConcurrent: 1 },
+    },
+    nodes: [
+      { id: "alpha", type: "backend", taskPacket: packet({ objective: "Alpha work" }), definitionOfDone: [{ id: "works", text: "It works", judgment: true }], gate: { review: "blocking", failOn: ["major", "critical"] } },
+      { id: "beta", type: "backend", taskPacket: packet({ objective: "Beta work" }), gate: false },
+    ],
+  }));
+  const result = await runContract(path);
+  const alpha = nodeState(result, "alpha");
+  const beta = nodeState(result, "beta");
+  assert.equal(alpha.status, "done", alpha.error?.message);
+  assert.equal(beta.status, "done", beta.error?.message);
+  assert.equal(alpha.attempt, 2, "the deferred revision is attempt plus one");
+  assert.equal(alpha.revisions, 1, "the rejection consumed its revision while deferred");
+  assert.equal((alpha.invocations ?? []).filter((invocation) => invocation.phase === "worker").length, 2, "the revision ran exactly once");
+  assert.equal((alpha.invocations ?? []).filter((invocation) => invocation.phase === "judge").length, 2, "the re-review ran after the revision");
+  assert.equal((beta.invocations ?? []).filter((invocation) => invocation.phase === "worker").length, 1, "beta is never re-run");
+  const events = readFileSync(join(result.runDir, "events.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  const verdicts = events.filter((event) => event.type === "aux.admission");
+  assert.equal(verdicts.length, 1, "the refusal the deferral is gated on is recorded once");
+  assert.equal(verdicts[0].role, "worker");
+  assert.equal(verdicts[0].error?.code, "aux_spawn_refused");
+  assert.match(verdicts[0].error?.message ?? "", /runtime single holds its maxConcurrent/u, "the refusal names the ceiling that deferred the revision");
+  const lines = readFileSync(workers, "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  let live = 0;
+  const depth = Math.max(...lines.map((line) => (live += line.event === "start" ? 1 : -1)));
+  assert.equal(depth, 1, `two worker invocations overlapped on the maxConcurrent 1 runtime: ${JSON.stringify(lines)}`);
+  assert.ok(
+    lines.findIndex((line) => line.event === "start" && line.node === "alpha-revision") > lines.findIndex((line) => line.event === "end" && line.node === "beta"),
+    "the revision started only after beta released the runtime",
+  );
+});
+
+// F5 aux admission, re-ask half: the bounded re-ask a judge defect triggers is
+// a dispatch too. During a settlement the run's own settle window keeps a slot
+// free for it -- a sibling cannot newly take the judge runtime while this node
+// settles -- so a live refusal is not reachable end to end; this judges the
+// gate the call site runs, seen the way a sibling judge holding the runtime
+// would be seen by it.
+test("the bounded re-ask is refused when the judge runtime holds its ceiling", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-reask-slot-"));
+  const contract = failoverContract("reask-admission-", {
+    id: "reask-admission-run",
+    maxParallel: 2,
+    runtimeDefaults: { worker: "mid", judge: "sol" },
+    runtimes: {
+      mid: { harness: "codex", model: "mid" },
+      sol: { harness: "codex", model: "sol", config: { model_provider: "deepseek" }, maxConcurrent: 1 },
+    },
+    nodes: [{ id: "build", type: "backend", taskPacket: packet(), definitionOfDone: [{ id: "works", text: "It works", judgment: true }], gate: { review: "blocking", failOn: ["major", "critical"] } }],
+  });
+  const node = contract.nodes[0];
+  const runDir = runDirectory(contract.cwd, contract.id);
+  mkdirSync(join(runDir, "nodes"), { recursive: true });
+  writeFileSync(join(runDir, "contract.json"), readFileSync(join(contract.cwd, "contract.json")));
+  const lock = acquireLock(runDir);
+  const workerResult = { status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] };
+  /** @type {import("../../src/contract/index.mjs").NodeSnapshot} */
+  const state = {
+    schemaVersion: PROTOCOL_SCHEMA_VERSION,
+    contractVersion: CONTRACT_VERSION,
+    id: node.id,
+    type: node.type,
+    sourceIdentity: node.sourceIdentity,
+    packetHash: node.packetHash,
+    status: "running",
+    phase: "judge",
+    attempt: 1,
+    revisions: 0,
+    runtime: null,
+    blockedBy: [],
+    startedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    result: workerResult,
+    verification: null,
+    scope: null,
+    gate: null,
+    error: null,
+    judgeFailures: 1,
+    routing: { history: [], currentOverride: null, assignments: { worker: "mid", judge: "sol" }, availability: {} },
+    progress: null,
+    invocations: [],
+    executionOverrides: [],
+    worktree: { status: "unassigned", path: null, branch: null, commit: null, baseSha: null },
+    integratedHead: null,
+  };
+  const states = new Map([[node.id, state]]);
+  const running = /** @type {Map<string, import("../../src/engine/process.mjs").Job>} */ (new Map([["sibling", { runtime: { id: "sol" } }]]));
+  // The fake keeps a regression honest: if the admission check were gone, the
+  // re-ask would spawn this provider instead of calling a real one.
+  await withFakeCodex(directory, "pass", () =>
+    applyJudgeProtocolFailure(contract, node, state, runDir, running, lock, states, campaignTree(directory, contract.campaignId), "two separate verdicts"));
+  lock.release();
+  assert.equal(state.status, "pending", "the re-ask defers to the scheduler instead of dispatching");
+  assert.equal(state.phase, "judge");
+  assert.equal(state.gate, null);
+  assert.deepEqual(state.result, workerResult, "the accepted worker result stays durable through the deferral");
+  assert.equal(state.invocations?.length, 0, "no re-ask was dispatched against the full runtime");
+  assert.equal(judgeReaskOutstanding(state), true, "the one re-ask bound stays on the node");
+  const events = readFileSync(join(runDir, "events.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  const verdicts = events.filter((event) => event.type === "aux.admission");
+  assert.equal(verdicts.length, 1, "the refusal the deferral is gated on is recorded once");
+  assert.equal(verdicts[0].role, "judge");
+  assert.equal(verdicts[0].error?.code, "aux_spawn_refused");
+  assert.match(verdicts[0].error?.message ?? "", /runtime sol holds its maxConcurrent/u, "the refusal names the ceiling that deferred the re-ask");
 });

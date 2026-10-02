@@ -1,5 +1,5 @@
 diff --git a/skills/mine/intent-factory/references/contract.md b/skills/mine/intent-factory/references/contract.md
-index 885f400..9d1dbf3 100644
+index 885f40077bd10bef76d3dd2b0c6a08d722289a79..9d1dbf3dac4265043426cfa85d4979143f4a0ee7 100644
 --- a/skills/mine/intent-factory/references/contract.md
 +++ b/skills/mine/intent-factory/references/contract.md
 @@ -650,6 +650,34 @@ a fail-closed repository check. Do not run descendants after the artifact is
@@ -38,7 +38,7 @@ index 885f400..9d1dbf3 100644
  
  The CLI writes under `<cwd>/.runs/<id>/`:
 diff --git a/skills/mine/intent-factory/scripts/judge-gate.mjs b/skills/mine/intent-factory/scripts/judge-gate.mjs
-index 92cb8cb..544271d 100644
+index 92cb8cb6d99ff830eb7d87682d998990fb89b0de..544271d1f83a84334855f70d1797cf3a9a0b627c 100644
 --- a/skills/mine/intent-factory/scripts/judge-gate.mjs
 +++ b/skills/mine/intent-factory/scripts/judge-gate.mjs
 @@ -27,7 +27,22 @@ const MAX_PROOF_OUTPUT_BYTES = 4 * 1024;
@@ -66,7 +66,7 @@ index 92cb8cb..544271d 100644
  
  /** @param {{definitionOfDone?: DefinitionOfDoneItem[]}} node @returns {DefinitionOfDoneItem[]} */
 diff --git a/skills/mine/intent-factory/scripts/verification.mjs b/skills/mine/intent-factory/scripts/verification.mjs
-index 639f2a6..1d640aa 100644
+index 639f2a67a6156318152af7b93d9d372fc80deb15..1d640aa7b6db77b62a57797a93ee7d5e32280d61 100644
 --- a/skills/mine/intent-factory/scripts/verification.mjs
 +++ b/skills/mine/intent-factory/scripts/verification.mjs
 @@ -352,9 +352,12 @@ function captureIgnoreSources(root) {
@@ -91,7 +91,7 @@ index 639f2a6..1d640aa 100644
 +/** A virtual environment under any name, identified by its marker file. @param {string} directory @returns {boolean} */
 +function isVirtualEnv(directory) { try { return statSync(resolve(directory, "pyvenv.cfg")).isFile(); } catch { return false; } }
 diff --git a/skills/mine/intent-factory/test/verification.test.mjs b/skills/mine/intent-factory/test/verification.test.mjs
-index c234a63..547d7be 100644
+index c234a6302d4c5cc22da164b830f9eb2c62acfd1b..547d7bec86d09cb9b9a30e44ba2d69c897ced170 100644
 --- a/skills/mine/intent-factory/test/verification.test.mjs
 +++ b/skills/mine/intent-factory/test/verification.test.mjs
 @@ -4,8 +4,9 @@ import { execFileSync } from "node:child_process";

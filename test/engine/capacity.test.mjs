@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { quotaHeldRuntimes, runningPerRuntime, runtimeHasCapacity } from "../../src/engine/capacity.mjs";
+import { admissionHold, admissionPass, quotaHeldRuntimes, runningPerRuntime, runtimeHasCapacity } from "../../src/engine/capacity.mjs";
 import { validateRuntime } from "../../src/contract/runtime.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
@@ -35,6 +35,38 @@ test("capacity: live attempts are counted per runtime and a full runtime refuses
   assert.equal(runtimeHasCapacity("b", contract, counts, new Set()), true, "under its limit");
   assert.equal(runtimeHasCapacity("c", contract, counts, new Set()), true, "no limit declared");
   assert.equal(runtimeHasCapacity("c", contract, counts, new Set(["c"])), false, "a quota hold refuses regardless of the limit");
+});
+
+test("admissionHold: a closed job still settling holds its global slot and its runtime for the dispatch pass", () => {
+  const running = new Map([["live", { runtime: { id: "a" } }]]);
+  const settling = new Map([["closed", { runtime: { id: "b" } }]]);
+  const hold = admissionHold(running, settling);
+  assert.equal(hold.count, 2, "the settling job still holds a global slot");
+  assert.deepEqual([...hold.perRuntime.entries()], [["a", 1], ["b", 1]], "the settling job still holds its runtime");
+  // The pass grows the hold as it reserves, exactly as it grew the counts
+  // map: a second dispatch onto `a` must see its own reservation.
+  hold.perRuntime.set("a", (hold.perRuntime.get("a") ?? 0) + 1);
+  hold.count += 1;
+  assert.equal(runtimeHasCapacity("a", /** @type {any} */ ({ runtimes: { a: { maxConcurrent: 2 } } }), hold.perRuntime, new Set()), false, "the reservation the pass took counts against the next one");
+});
+
+test("admissionPass: one judgment per node -- the settle window, quota holds, the ceiling and its own reservations", () => {
+  const running = new Map([["live", { runtime: { id: "a" } }]]);
+  const settling = new Map([["closed", { runtime: { id: "b" } }]]);
+  const states = new Map([["n", stateWith({
+    history: [{ at: EARLIER, role: "worker", runtime: "sonnet", status: "exhausted", errorCode: "quota_exhausted" }],
+    // `admissionPass` reads the real clock for the backoff, so the reset wait
+    // must be future against `Date.now()`, not against the file's fixed NOW.
+    currentOverride: { at: EARLIER, role: "worker", runtime: "sonnet", nextRuntime: "sonnet", reason: "reset", backoffUntil: new Date(Date.now() + 60_000).toISOString() },
+  })]]);
+  const contract = /** @type {any} */ ({ maxParallel: 3, runtimes: { a: { maxConcurrent: 2 } } });
+  const admission = admissionPass(contract, running, settling, states);
+  assert.equal(admission.slots, 1, "the settling job still holds one of maxParallel 3's slots");
+  assert.equal(admission.take("sonnet"), false, "a runtime a sibling waits out a quota reset on refuses");
+  assert.equal(admission.take("a"), true, "under its maxConcurrent the pass takes it");
+  assert.equal(admission.take("a"), false, "the pass's own reservation counts against its next judgment");
+  assert.equal(admission.take("b"), true, "the settling job's runtime takes one more: its hold is a slot, not a quota hold");
+  assert.equal(admission.take("c"), true, "an unlisted runtime is bounded by maxParallel alone");
 });
 
 test("quota hold: a node waiting out an exhaustion on the same runtime holds it for its siblings; nothing else does", () => {
