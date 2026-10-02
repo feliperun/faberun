@@ -15,10 +15,15 @@
  * engine's own suite costs 1035-1058s per full pass — `VERIFICATION_LIMITS.maxTimeoutSec`).
  * Each completed command therefore also writes a checkpoint beside its log,
  * `checkpoint-<ordinal>.json`: the identity hash of everything the proof
- * depends on — workspace tree fingerprint, validated command, exact child
- * environment, dependency-inputs hash — plus the bounded result. A resumed
- * pass serves a checkpoint only when that identity is unchanged and the tree
- * actually carried a fingerprint; any difference forces re-execution. A
+ * depends on — the committed tree (the HEAD tree id) and the dirty tree
+ * fingerprint, the validated command, the exact child environment, the
+ * dependency-inputs hash — plus the bounded result. Both tree hashes are
+ * needed: the fingerprint hashes only the difference from HEAD, so clean
+ * trees at different commits share one, and a stale passing result survived a
+ * commit until the HEAD tree joined the identity (review 2026-10-02, d5.1). A
+ * resumed pass serves a checkpoint only when that identity is unchanged and
+ * the tree actually carried a fingerprint; any difference forces
+ * re-execution. A
  * mutation entry is the explicit invalidation policy: it is never checkpointed
  * and never served, because its proof is a function of the tree it breaks and
  * restores, so a reused record could certify a tree that no longer exists.
@@ -35,6 +40,7 @@ import { isContained } from "../util.mjs";
 import { spawn } from "node:child_process";
 import { killTarget, spawnInvocation } from "../host/platform.mjs";
 import { gitIdentity } from "../repo/source-identity.mjs";
+import { boundedGitSync } from "../repo/worktree.mjs";
 /** @typedef {import("../contract/verification.mjs").VerificationOptions} VerificationOptions */
 
 /**
@@ -143,13 +149,44 @@ export function classifySandboxBlockedWrite({ text, workspace, mode }) {
 }
 /**
  * Everything one pass needs to decide checkpoint reuse, cached per pass: the
- * tree fingerprint per command cwd (one bounded `gitIdentity` each, paid only
- * when a checkpoint directory is in play) and the dependency-inputs hash (the
- * packet's writeFiles do not change during a pass; a mutation entry restores
- * them in `finally`).
+ * tree identity per command cwd (one `gitIdentity` and one `rev-parse` each,
+ * paid only when a checkpoint directory is in play) and the dependency-inputs
+ * hash (the packet's writeFiles do not change during a pass; a mutation entry
+ * restores them in `finally`).
  *
- * @typedef {{trees: Map<string, string|null>, dependencyHash: string|undefined}} CheckpointCaches
+ * @typedef {{trees: Map<string, WorkspaceTreeIdentity>, dependencyHash: string|undefined}} CheckpointCaches
  */
+
+/**
+ * The two tree hashes a checkpoint identity sits on: the dirty fingerprint
+ * (what the working tree adds to HEAD) and the HEAD tree id (what HEAD
+ * commits). Either changing forces re-execution.
+ *
+ * @typedef {{dirtyTreeFingerprint: string|null, headTree: string|null}} WorkspaceTreeIdentity
+ */
+
+/**
+ * The committed tree the workspace sits on: the HEAD tree id, which the dirty
+ * fingerprint cannot see — it hashes only the difference from HEAD, so two
+ * clean trees at different commits used to share one checkpoint identity and
+ * a stale pass survived a commit (review 2026-10-02, d5.1). Null when there
+ * is no commit to name (no repository, unborn HEAD): the identity still
+ * compares, and null to null is the same unborn state across passes.
+ *
+ * @param {string} workspace
+ * @returns {string|null}
+ */
+function headTreeId(workspace) {
+  try {
+    const result = boundedGitSync(["-C", workspace, "rev-parse", "HEAD^{tree}"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    if (result.error || result.status !== 0) return null;
+    return String(result.stdout).trim() || null;
+  } catch {
+    // Git absent or unreadable: no committed tree to name, matching the
+    // dirty fingerprint's own null for a workspace without a repository.
+    return null;
+  }
+}
 
 /**
  * A hash over the dependency inputs a proof is about: the packet's writeFiles,
@@ -191,17 +228,17 @@ function dependencyInputsHash(baseCwd, writeFiles) {
  */
 function checkpointIdentity(command, baseCwd, options, caches) {
   const workspace = resolveVerificationCwd(baseCwd, command.cwd ?? ".");
-  let treeFingerprint = caches.trees.get(workspace);
-  if (treeFingerprint === undefined) {
-    treeFingerprint = gitIdentity(workspace).dirtyTreeFingerprint;
-    caches.trees.set(workspace, treeFingerprint);
+  let tree = caches.trees.get(workspace);
+  if (tree === undefined) {
+    tree = { dirtyTreeFingerprint: gitIdentity(workspace).dirtyTreeFingerprint, headTree: headTreeId(workspace) };
+    caches.trees.set(workspace, tree);
   }
   if (caches.dependencyHash === undefined) {
     caches.dependencyHash = dependencyInputsHash(baseCwd, options.writeFiles ?? []);
   }
   return {
-    identity: commandCheckpointIdentity({ treeFingerprint, command, env: verificationEnv(command), dependencyHash: caches.dependencyHash }),
-    reusable: treeFingerprint !== null,
+    identity: commandCheckpointIdentity({ treeFingerprint: tree.dirtyTreeFingerprint, headTree: tree.headTree, command, env: verificationEnv(command), dependencyHash: caches.dependencyHash }),
+    reusable: tree.dirtyTreeFingerprint !== null,
   };
 }
 

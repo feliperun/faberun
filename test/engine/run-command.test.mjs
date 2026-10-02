@@ -171,6 +171,26 @@ test("any difference in tree, command, environment or dependency inputs forces r
   assert.equal(executionCount(dependencies), 2, "a dependency-input difference forces re-execution");
 });
 
+test("a committed tree change forces re-execution even when both trees are clean", async () => {
+  // d5.1: the dirty fingerprint hashes the difference from HEAD, so two clean
+  // trees at different commits shared one identity and the second pass was
+  // served the first pass's passing record without running.
+  const cwd = mkdtempSync(join(tmpdir(), "runner-checkpoint-committed-"));
+  writeFileSync(join(cwd, ".gitignore"), "runs.log\nlogs/\n");
+  writeFileSync(join(cwd, "value.txt"), "good");
+  writeFileSync(join(cwd, "check.mjs"), "import { appendFileSync, readFileSync } from 'node:fs';\nappendFileSync('runs.log', '1');\nprocess.exit(readFileSync('value.txt', 'utf8') === 'good' ? 0 : 1);\n");
+  initializeGit(cwd);
+  const logDir = join(cwd, "logs");
+  const first = await runVerification([{ argv: [process.execPath, "check.mjs"] }], cwd, { logDir });
+  assert.equal(first.passed, true);
+  assert.equal(executionCount(cwd), 1);
+  writeFileSync(join(cwd, "value.txt"), "BROKEN");
+  execFileSync("git", gitArguments(["-C", cwd, "-c", "commit.gpgSign=false", "-c", "user.email=runner@example.test", "-c", "user.name=runner", "commit", "-qam", "b"]));
+  const second = await runVerification([{ argv: [process.execPath, "check.mjs"] }], cwd, { logDir });
+  assert.equal(second.passed, false, "the stale pass is not served for the committed tree that breaks it");
+  assert.equal(executionCount(cwd), 2, "the committed change forced a real re-run");
+});
+
 test("a mutant proof never serves its checkpoint and a corrupted one fails closed", async () => {
   // A planted checkpoint that would otherwise match changes nothing: the
   // mutation entry runs baseline-plus-mutant, and the planted file is left

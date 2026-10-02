@@ -102,13 +102,15 @@ test("a mutation entry declares a risk tier and nothing else", () => {
 test("command checkpoint identity is stable and sensitive to every input", () => {
   const base = {
     treeFingerprint: "tree",
+    headTree: "head",
     command: { argv: [process.execPath, "-e", "0"], timeoutSec: 120, repeat: 1, env: [] },
     env: { PATH: "/bin" },
     dependencyHash: "deps",
   };
   assert.equal(commandCheckpointIdentity(base), commandCheckpointIdentity({ ...base }));
   for (const [dimension, perturbed] of /** @type {Array<[string, typeof base]>} */ ([
-    ["tree", { ...base, treeFingerprint: "tree2" }],
+    ["dirty tree", { ...base, treeFingerprint: "tree2" }],
+    ["committed tree", { ...base, headTree: "head2" }],
     ["command", { ...base, command: { ...base.command, argv: [process.execPath, "-e", "1"] } }],
     ["environment", { ...base, env: { PATH: "/usr/bin" } }],
     ["dependency inputs", { ...base, dependencyHash: "deps2" }],

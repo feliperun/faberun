@@ -239,8 +239,11 @@ export function compactVerification(result) {
  */
 
 /**
- * The identity of one command's proof: a hash over the workspace tree
- * fingerprint, the validated command, the exact child environment and the
+ * The identity of one command's proof: a hash over the workspace tree — the
+ * dirty fingerprint *and* the HEAD tree id, because the fingerprint hashes
+ * only the difference from HEAD and two clean trees at different commits share
+ * one (review 2026-10-02: a stale passing result was served across a commit) —
+ * plus the validated command, the exact child environment and the
  * dependency-inputs hash. The tree, the command, the environment and the
  * dependencies all participate — never the argv alone, which is the proof
  * cache phase 5 refuses. Key order is fixed by construction (`env` arrives in
@@ -248,11 +251,11 @@ export function compactVerification(result) {
  * is one literal), so the hash is stable across the process restart a resume
  * is.
  *
- * @param {{treeFingerprint: string|null, command: VerificationCommand, env: Record<string, string>, dependencyHash: string}} parts
+ * @param {{treeFingerprint: string|null, headTree: string|null, command: VerificationCommand, env: Record<string, string>, dependencyHash: string}} parts
  * @returns {string}
  */
-export function commandCheckpointIdentity({ treeFingerprint, command, env, dependencyHash }) {
-  const canonical = { dependencyHash, command, env, treeFingerprint };
+export function commandCheckpointIdentity({ treeFingerprint, headTree, command, env, dependencyHash }) {
+  const canonical = { dependencyHash, command, env, headTree, treeFingerprint };
   return createHash("sha256").update(JSON.stringify(canonical)).digest("hex");
 }
 
