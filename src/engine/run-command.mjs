@@ -90,14 +90,15 @@ const VERIFICATION_ENV_BASE_NAMES = Object.freeze([
 
 /**
  * @param {VerificationCommand} command
- * @returns {Record<string, string|undefined>}
+ * @returns {Record<string, string>}
  */
 function verificationEnv(command) {
   const names = new Set([...(command.env ?? []), ...VERIFICATION_ENV_BASE_NAMES]);
-  /** @type {Record<string, string|undefined>} */
+  /** @type {Record<string, string>} */
   const env = {};
   for (const name of names) {
-    if (process.env[name] !== undefined) env[name] = process.env[name];
+    const value = process.env[name];
+    if (value !== undefined) env[name] = value;
   }
   return env;
 }

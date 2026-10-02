@@ -107,12 +107,12 @@ test("command checkpoint identity is stable and sensitive to every input", () =>
     dependencyHash: "deps",
   };
   assert.equal(commandCheckpointIdentity(base), commandCheckpointIdentity({ ...base }));
-  for (const [dimension, perturbed] of [
+  for (const [dimension, perturbed] of /** @type {Array<[string, typeof base]>} */ ([
     ["tree", { ...base, treeFingerprint: "tree2" }],
     ["command", { ...base, command: { ...base.command, argv: [process.execPath, "-e", "1"] } }],
     ["environment", { ...base, env: { PATH: "/usr/bin" } }],
     ["dependency inputs", { ...base, dependencyHash: "deps2" }],
-  ]) {
+  ])) {
     assert.notEqual(commandCheckpointIdentity(base), commandCheckpointIdentity(perturbed), `a ${dimension} difference must change the identity`);
   }
 });
