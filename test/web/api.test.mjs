@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { startServer } from "../../src/web/server.mjs";
+import { buildCampaignProgress } from "../../src/report/progress.mjs";
 import { runsRoot } from "../../src/run/paths.mjs";
 
 // runsRoot registers every resolved path under $FABERUN_HOME; these fixtures
@@ -238,6 +239,68 @@ test("an unknown campaign is refused before the CLI, and the refusal names no pa
   }
 });
 
+test("the campaign response carries the shared projection, field for field, and computes none of its own", async () => {
+  const world = makeWorld();
+  const server = await openServer(world);
+  try {
+    const view = await server.get(`/api/campaigns/${CAMPAIGN_ID}`);
+    assert.equal(view.status, 200);
+    // The pre-existing answer is untouched: additive means additive.
+    assert.equal(view.body.campaign.id, CAMPAIGN_ID);
+    assert.deepEqual(view.body.runs.map((/** @type {{id: string}} */ run) => run.id), [RUN_ID]);
+    // Every projection field arrives verbatim from src/report/progress.mjs —
+    // the response and a direct call to the projection agree on all of them.
+    const direct = buildCampaignProgress(world.runsDir, CAMPAIGN_ID, Date.now());
+    for (const key of ["schemaVersion", "campaignId", "goal", "counts", "percentDone", "currentPhase", "activity", "requirements", "waitReason", "nextAction", "unpricedInvocations", "costTotalUsd"]) {
+      assert.deepEqual(view.body.progress[key], direct[key], `${key} is the projection's own value`);
+    }
+  } finally {
+    server.close();
+    rmSync(world.directory, { recursive: true, force: true });
+  }
+});
+
+test("a cancelled run is drawn as attention, never as concluded", async () => {
+  const world = makeWorld({ nodeStatus: "canceled" });
+  const server = await openServer(world);
+  try {
+    const view = await server.get(`/api/campaigns/${CAMPAIGN_ID}`);
+    assert.equal(view.body.runs[0].state, "attention", "a run whose nodes are cancelled needs the operator, it is not done");
+    assert.notEqual(view.body.runs[0].state, "done");
+  } finally {
+    server.close();
+    rmSync(world.directory, { recursive: true, force: true });
+  }
+});
+
+test("a resume never lifts a park the chain owns: the refusal names it and nothing spawns", async () => {
+  // No run in flight: the pause records its attention alone, so the world
+  // holds a park with no paused run behind it — the case a resume must not
+  // dress up as an operation.
+  const world = makeWorld({ nodeStatus: "done" });
+  const server = await openServer(world);
+  try {
+    // The park is written once by the real writer (the pause route) and only
+    // then re-coded as the chain's own, so the record keeps the exact shape
+    // the reader validates.
+    assert.equal((await server.post(`/api/campaigns/${CAMPAIGN_ID}/pause`)).body.action, "applied");
+    const parked = JSON.parse(readFileSync(world.campaignJson, "utf8"));
+    parked.attention = { ...parked.attention, code: "decision_needed", message: "node alpha is blocked" };
+    writeJson(world.campaignJson, parked);
+    const refused = await server.post(`/api/campaigns/${CAMPAIGN_ID}/resume`);
+    assert.equal(refused.status, 409, `expected the refusal, got ${refused.status}: ${JSON.stringify(refused.body)}`);
+    assert.equal(refused.body.action, "pending");
+    assert.match(refused.body.reason, /decision_needed/u);
+    // The fake CLI creates its log on first invocation, so an empty argv list
+    // is the proof that the refusal spawned nothing — no resume was announced.
+    assert.deepEqual(readArgvs(world), []);
+    assert.equal(JSON.parse(readFileSync(world.campaignJson, "utf8")).attention.code, "decision_needed", "the park the chain owns stands");
+  } finally {
+    server.close();
+    rmSync(world.directory, { recursive: true, force: true });
+  }
+});
+
 test("web server invokes no model", () => {
   const webDir = join(HERE, "..", "..", "src", "web");
   const sources = readdirSync(webDir).filter((name) => name.endsWith(".mjs")).map((name) => ({ name, text: readFileSync(join(webDir, name), "utf8") }));
@@ -325,7 +388,7 @@ function readArgvs(world) {
 
 /**
  * @param {ReturnType<typeof makeWorld>} world
- * @returns {Promise<{base: string, post: (path: string, body?: Record<string, unknown>) => Promise<{status: number, body: any}>, close: () => void}>}
+ * @returns {Promise<{base: string, post: (path: string, body?: Record<string, unknown>) => Promise<{status: number, body: any}>, get: (path: string) => Promise<{status: number, body: any}>, close: () => void}>}
  */
 async function openServer(world) {
   const server = await startServer({ runsDir: world.runsDir, tokenFile: world.tokenFile, port: 0, cliEntry: world.fakeCli });
@@ -334,6 +397,10 @@ async function openServer(world) {
     base,
     post: async (path, body = {}) => {
       const response = await fetch(`${base}${path}`, { method: "POST", headers: { ...AUTH, "content-type": "application/json" }, body: JSON.stringify(body) });
+      return { status: response.status, body: await response.json() };
+    },
+    get: async (path) => {
+      const response = await fetch(`${base}${path}`, { headers: AUTH });
       return { status: response.status, body: await response.json() };
     },
     close: () => server.close(),
@@ -356,7 +423,7 @@ function makeWorld({ nodeStatus = "running", campaignStatus = "active" } = {}) {
   const campaignPath = join(runsDir, "campaigns", CAMPAIGN_ID);
   mkdirSync(campaignPath, { recursive: true });
   const campaignJson = join(campaignPath, "campaign.json");
-  writeJson(campaignJson, { id: CAMPAIGN_ID, goal: "Ship the remote surface", status: campaignStatus, linkedRunIds: [RUN_ID], createdAt: NOW, updatedAt: NOW });
+  writeJson(campaignJson, { id: CAMPAIGN_ID, goal: "Ship the remote surface", status: campaignStatus, linkedRunIds: [RUN_ID], contracts: [], createdAt: NOW, updatedAt: NOW });
   const journalPath = join(campaignPath, "journal.jsonl");
   writeFileSync(journalPath, [
     JSON.stringify({ type: "campaign.initialized", eventId: "e-init", at: NOW }),

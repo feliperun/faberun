@@ -1,9 +1,13 @@
 /**
  * The operator's remote API: the phone-shaped surface behind the dashboard
  * server. Reads go straight to the campaign/seat aggregators that already
- * exist; every write shells out to the runner CLI and touches no state file of
- * its own (ADR-0034: a daemon that wrote state would be a second state machine
- * with its own rules, and the CLI is the only writer). That is also why there
+ * exist — the campaign response embeds `src/report/progress.mjs`'s shared
+ * projection verbatim, so every label a client derives (wait reason, next
+ * action, decision owner) comes from the same roll-up the dashboard draws
+ * and none is recomputed here — and every write shells out to the runner CLI
+ * and touches no state file of its own (ADR-0034: a daemon that wrote state
+ * would be a second state machine with its own rules, and the CLI is the
+ * only writer). That is also why there
  * is no replan, contract, routing or gate route: the contract is frozen with a
  * digest, and the sanctioned middle ground from a phone is `campaign note`.
  *
@@ -24,6 +28,7 @@ import process from "node:process";
 import { discoverCampaigns } from "../campaign/index.mjs";
 import { BRIEF_FILE, JOURNAL_FILE } from "../campaign/layout.mjs";
 import { PAUSE_ATTENTION_CODE, pauseCampaign, unparkCampaign } from "../campaign/unpark.mjs";
+import { buildCampaignProgress } from "../report/progress.mjs";
 import { seatStatus } from "../seat/index.mjs";
 import { errorMessage, errorCode, fail, readJsonTolerant, truncateChars } from "../util.mjs";
 
@@ -188,7 +193,26 @@ async function listCampaigns(context, response) {
 /** @param {ApiContext} context @param {ServerResponse} response @param {string[]} params */
 async function showCampaign(context, response, params) {
   const { campaign } = findCampaign(context, params[0]);
-  sendJson(response, 200, { campaign, runs: campaign.linkedRunIds.map((runId) => runRow(context.runsDir, runId)) });
+  sendJson(response, 200, {
+    campaign,
+    runs: campaign.linkedRunIds.map((runId) => runRow(context.runsDir, runId)),
+    // The shared projection (src/report/progress.mjs), verbatim: the same
+    // roll-up the dashboard draws, so every label a phone client shows —
+    // current phase, wait reason, next action and its decision owner — is
+    // derived once at the source, never recomputed per surface.
+    progress: projectionOf(context.runsDir, campaign.id),
+  });
+}
+
+/** The campaign's shared projection, or null when the state on disk cannot produce one. @param {string} runsDir @param {string} campaignId @returns {Record<string, unknown>|null} */
+function projectionOf(runsDir, campaignId) {
+  try {
+    return buildCampaignProgress(runsDir, campaignId, Date.now());
+  } catch {
+    // the projection is additive: an unbuildable one degrades this one field
+    // to null, and the campaign and runs above still answer
+    return null;
+  }
 }
 
 /** @param {ApiContext} context @param {ServerResponse} response @param {string[]} params */
@@ -317,7 +341,10 @@ async function postPause(context, response, params) {
  * watchdog. The pause is cleared only after no resumed run still carries its
  * request, because the engine's `resume` consumes that request inside the
  * controller it starts and clearing first would let the chain park the
- * campaign again on the same run.
+ * campaign again on the same run. A campaign parked on the chain's own
+ * reason, with no run paused, is refused: that park is not the pause a
+ * resume lifts, and clearing it would announce a resume with no operation
+ * behind it while steamrolling the decision the park is waiting on.
  *
  * @param {ApiContext} context @param {ServerResponse} response @param {string[]} params
  */
@@ -325,7 +352,11 @@ async function postResume(context, response, params) {
   const { campaign, path } = findCampaign(context, params[0]);
   requireActive(campaign);
   const targets = runsPaused(context, campaign);
-  if (!campaign.attention && targets.length === 0) {
+  const park = campaign.attention;
+  if (park && park.code !== PAUSE_ATTENTION_CODE && targets.length === 0) {
+    return operation(response, { action: "pending", reason: `campaign is parked on ${park.code}: ${park.message}` });
+  }
+  if (!park && targets.length === 0) {
     return operation(response, { action: "none", reason: "no requested pause: no linked run is paused and the campaign is not parked" });
   }
   /** @type {OperationStep[]} */
@@ -342,7 +373,7 @@ async function postResume(context, response, params) {
   if (unconsumed.length > 0) {
     return operation(response, { action: "pending", reason: `run ${unconsumed.join(", ")} has not consumed its requested pause yet`, steps });
   }
-  if (campaign.attention) {
+  if (park && park.code === PAUSE_ATTENTION_CODE) {
     let cleared;
     try {
       cleared = unparkCampaign(path, { runsDir: context.runsDir });
