@@ -12,14 +12,21 @@
  * the run; nothing reduced dispatch to a provider that had just refused a
  * sibling on quota, and 14 of 58 stored contracts ran with maxParallel 2.
  *
- * measured 2026-09-29: this gate is consulted by the scheduler's own
- * dispatches only (`scheduler.mjs`, one `runtimeHasCapacity` call per node per
- * tick). A node's settlement starts its judge itself, through `startJudge`,
- * with no call here, so a run declaring `maxParallel: 1` and `maxConcurrent: 1`
+ * measured 2026-09-29: this gate was consulted by the scheduler's own
+ * dispatches only, and a run declaring `maxParallel: 1` and `maxConcurrent: 1`
  * on each role's runtime was measured with a judge and a sibling's worker
  * alive at once -- peak 2, one process per role, two on the single runtime
- * (`test/engine/max-parallel.test.mjs`). The counts confirm the excess; the
- * admission ahead of every spawn is F5's, not this phase's.
+ * (`test/engine/max-parallel.test.mjs`). The slot a node's closed job had
+ * freed was spendable while the node was still mid-flight.
+ *
+ * F5 admission (2026-10-02): the scheduler now counts a node from before its
+ * spawn until its settle completes (`admissionHold`, fed by the settle window
+ * in `scheduler.mjs`), which closes the freed-slot race for every spawn the
+ * scheduler issues. The judge a settlement starts itself, the bounded re-ask
+ * (`review.mjs`) and the gate revision (`settle.mjs` `applyRejection`) still
+ * spawn with no call here: the node's own settle-window hold keeps the global
+ * `maxParallel` true while they run, but their per-runtime ceiling is not
+ * re-checked -- wiring those spawns through this gate is the follow-up node's.
  */
 
 /** @typedef {import("../contract/index.mjs").ValidatedContract} ValidatedContract */
@@ -40,6 +47,29 @@ export function runningPerRuntime(running) {
     counts.set(id, (counts.get(id) ?? 0) + 1);
   }
   return counts;
+}
+
+/**
+ * The admission a dispatch pass judges a spawn against: every attempt holding
+ * a run slot right now. A live job holds one, and so does a closed job whose
+ * settlement has not finished -- a node whose worker exited but whose
+ * controller verification, judge round or integration is still running keeps
+ * the global slot and the runtime slot its dispatch reserved, because the
+ * judge that settlement is about to start is the reason the slot existed.
+ * Releasing at close instead is the measured excess (2026-09-29, achado 2 of
+ * ACHADOS-PRODUTO.md): two workers alive on one runtime under `maxParallel:
+ * 1`, and a sibling dispatched while the first node sat blocked in its
+ * verification gate.
+ *
+ * @param {Map<string, {runtime: {id: string|null}}>} running live jobs the tick is holding
+ * @param {Map<string, {runtime: {id: string|null}}>} settling closed jobs whose settlement has not finished
+ * @returns {{count: number, perRuntime: Map<string, number>}} the global slot
+ *   count and the per-runtime counts; the dispatch pass grows both as it
+ *   reserves, exactly as it grew `runningPerRuntime`'s map before
+ */
+export function admissionHold(running, settling) {
+  const holders = [...running.values(), ...settling.values()];
+  return { count: holders.length, perRuntime: runningPerRuntime(holders) };
 }
 
 /**

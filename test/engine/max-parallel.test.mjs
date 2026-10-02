@@ -10,19 +10,16 @@
  * contract.json, `declare-routing-strategy` (pid 7717, attempt 1) and
  * `measure-repeated-packet-bytes` (pid 10471, attempt 2 after a revision)
  * were both alive at once -- the revision was started by a background
- * settlement while the sibling held the run's only slot.
+ * settlement while the sibling held the run's only slot. F5 admission closed
+ * that by holding the slot through the settlement (the settle window), and
+ * the same hold is what keeps the settlement's own judge from repeating the
+ * excess measured on 2026-09-29: a judge and a sibling's worker alive at
+ * once, peak 2, both on a runtime whose `maxConcurrent` is 1.
  *
  * The workers themselves record the run's concurrency: every invocation
  * appends its own start and end to one append-only ledger, so the assertion
  * reads what processes actually overlapped rather than what a snapshot
  * happened to say at one instant.
- *
- * The second case measures the same freed slot with the judge instead of the
- * revision: a settlement that releases a judge starts that process itself,
- * through `startJudge`, with no slot check at all -- not the run's
- * `maxParallel`, not the runtime's `maxConcurrent`. The counts it records are
- * the R7 experiment: whether a run whose only slot a sibling already holds can
- * still find itself running a second provider process.
  */
 import "../scoped-home.mjs";
 import test from "node:test";
@@ -145,13 +142,19 @@ process.exit(2);`;
   process.env.FABERUN_CODEX_BIN = ledgerProvider(scratch, ledger, release, "second");
   const outcome = runContract(path);
   try {
-    // `second` holds the run's only slot from here until the release file is
-    // written, so anything that starts meanwhile is a second live worker.
-    await waitForValue(() => (readFileSync(ledger, "utf8").includes("start second") ? "running" : null), 30_000 * SPAWN_WAIT_FACTOR, 10);
+    // `first`'s worker exits and its controller verification blocks on the
+    // gate: that is the settle window, and under F5 admission the node keeps
+    // the run's only slot for as long as it stays open.
+    await waitForValue(() => {
+      if (!existsSync(firstSnapshotPath)) return null;
+      const state = JSON.parse(readFileSync(firstSnapshotPath, "utf8"));
+      return state.verification?.progress ? state : null;
+    }, 30_000 * SPAWN_WAIT_FACTOR, 10);
+    assert.equal(readFileSync(ledger, "utf8").includes("start second"), false, "second was dispatched while first's settle window held the run's only slot");
     writeFileSync(verifyGate, "release\n");
-    // Whichever way the run answers, it answers here: the ledger shows
-    // `first`'s revision started on top of `second` (the defect), or `first`
-    // is back in the scheduler's queue waiting for the slot (the fix).
+    // Whichever way the run answers, it answers here: the red verification
+    // earns its revision, and the revision starts only once the settlement
+    // released the slot, with `second` still queued behind it.
     await waitForValue(() => {
       if (readFileSync(ledger, "utf8").split("\n").filter((line) => line === "start first").length > 1) return "dispatched";
       if (!existsSync(firstSnapshotPath)) return null;
@@ -279,7 +282,7 @@ function concurrencyByRoleAndRuntime(ledger) {
   return { peak, byRole, byRuntime };
 }
 
-test("measuring R7: a judge released while a sibling holds the run's only slot runs alongside it", async () => {
+test("the judge a settlement releases runs inside the slot its node held, never alongside a sibling", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-judge-slot-"));
   // Outside the repository the run builds worktrees from: nothing the
   // invocations write to coordinate this test belongs in a checkout the scope
@@ -290,9 +293,9 @@ test("measuring R7: a judge released while a sibling holds the run's only slot r
   const verificationGate = join(scratch, "release-first-verification");
   writeFileSync(ledger, "");
   // `first`'s own verification, in its own child process: it blocks until this
-  // test says the sibling holds the slot, which is what makes the sequence a
+  // test says the settle window may close, which is what makes the sequence a
   // signal rather than a wait -- the judge `first` earns cannot start before
-  // `second` provably did.
+  // the window provably opened, and `second` cannot start before it closed.
   const gateScript = `const fs=require("node:fs");while(!fs.existsSync(${JSON.stringify(verificationGate)})){Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,25);}`;
   const path = writeContract(directory, fixture({
     id: "judge-slot-measured-run",
@@ -314,22 +317,34 @@ test("measuring R7: a judge released while a sibling holds the run's only slot r
         definitionOfDone: [{ id: "quality", text: "the change is the one the packet asked for", judgment: true, reason: "no command decides whether the change is the requested one" }],
         gate: { review: "blocking", failOn: ["major", "critical"] },
       },
-      // Pinned to the judge's runtime, so the slot `second` takes is the very
-      // runtime the released judge lands on.
+      // Pinned to the judge's runtime, so the slot `second` wants is the very
+      // runtime the judge the settlement releases lands on.
       { id: "second", type: "backend", runtime: "j", taskPacket: packet(), gate: false },
     ],
   }));
+  const runDir = runDirectory(directory, "judge-slot-measured-run");
+  const firstSnapshotPath = join(runDir, "nodes", "first.json");
   const previous = process.env.FABERUN_CODEX_BIN;
   // Each runtime's own `executable` is what this run must launch, and the
   // binary override outranks it.
   delete process.env.FABERUN_CODEX_BIN;
   const outcome = runContract(path);
   try {
-    // `second` proves it holds the run's only slot before `first`'s
-    // verification is released; only then can the judge `first` earned start.
-    await waitForValue(() => (readFileSync(ledger, "utf8").includes("start j worker second") ? "running" : null), 30_000 * SPAWN_WAIT_FACTOR, 10);
+    // `first`'s worker exits and its controller verification blocks on the
+    // gate: the settle window is open, and the node holds the run's only slot
+    // for as long as it stays open.
+    await waitForValue(() => {
+      if (!existsSync(firstSnapshotPath)) return null;
+      const state = JSON.parse(readFileSync(firstSnapshotPath, "utf8"));
+      return state.verification?.progress ? state : null;
+    }, 30_000 * SPAWN_WAIT_FACTOR, 10);
+    assert.equal(readFileSync(ledger, "utf8").includes("start j worker second"), false, "second was dispatched while first's settle window held the run's only slot");
     writeFileSync(verificationGate, "release\n");
-    await waitForValue(() => (readFileSync(ledger, "utf8").includes("start j judge first") ? "dispatched" : null), 30_000 * SPAWN_WAIT_FACTOR, 10);
+    // The verification passes and the settlement starts the judge -- the
+    // judge is the settlement's own, running inside the slot the node never
+    // released. `second` is dispatched only after the whole settle completes.
+    await waitForValue(() => (readFileSync(ledger, "utf8").includes("start j judge first") ? "judging" : null), 30_000 * SPAWN_WAIT_FACTOR, 10);
+    await waitForValue(() => (readFileSync(ledger, "utf8").includes("start j worker second") ? "dispatched" : null), 30_000 * SPAWN_WAIT_FACTOR, 10);
   } finally {
     writeFileSync(release, "release\n");
   }
@@ -338,20 +353,15 @@ test("measuring R7: a judge released while a sibling holds the run's only slot r
   else process.env.FABERUN_CODEX_BIN = previous;
   assert.equal(result.states.get("first")?.status, "done", result.states.get("first")?.error?.message);
   assert.equal(result.states.get("second")?.status, "done", result.states.get("second")?.error?.message);
-  // The measurement, per role and per runtime: `first`'s judge ran while
-  // `second`'s worker still held the run's only slot, so two provider
-  // processes were alive at once under `maxParallel: 1`, both on the runtime
-  // whose `maxConcurrent` is also 1. No two workers ever overlapped: the
-  // loop's own dispatch keeps that promise, and the revision path checks the
-  // run's slot before it starts one (`applyRejection`). The excess is the
-  // judge. `finalizeClosedJobs` calls `startJudge` directly, and neither that
-  // function nor the scheduler's per-runtime admission stands in front of it,
-  // so the slot the freed worker gave away is spent twice.
-  //
-  // The counts confirm the race, they do not refute it. The correction --
-  // admission before every spawn, judge, re-ask, revision and failover alike
-  // -- is phase 5's R7, and it is not this test's to make: the dispatch path
-  // is outside this phase's closed context. This record is the target that
-  // correction has to flip.
-  assert.deepEqual(concurrencyByRoleAndRuntime(ledger), { peak: 2, byRole: { worker: 1, judge: 1 }, byRuntime: { w: 1, j: 2 } }, readFileSync(ledger, "utf8"));
+  // The corrected record, per role and per runtime: the judge ran inside the
+  // slot `first` held through its settle window, so no two provider processes
+  // were ever alive at once under `maxParallel: 1`, and the runtime whose
+  // `maxConcurrent` is also 1 never held two. The judge's start preceding
+  // `second`'s is the order the freed-slot race measured here on 2026-09-29
+  // (peak 2, byRuntime j 2) used to get wrong -- `finalizeClosedJobs` called
+  // `startJudge` with the slot already given away, and the judge ran on top
+  // of the sibling.
+  const lines = readFileSync(ledger, "utf8").split("\n");
+  assert.ok(lines.indexOf("start j judge first") < lines.indexOf("start j worker second"), `the judge must start before the sibling's worker:\n${lines.join("\n")}`);
+  assert.deepEqual(concurrencyByRoleAndRuntime(ledger), { peak: 1, byRole: { worker: 1, judge: 1 }, byRuntime: { w: 1, j: 1 } }, readFileSync(ledger, "utf8"));
 });

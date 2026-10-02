@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { quotaHeldRuntimes, runningPerRuntime, runtimeHasCapacity } from "../../src/engine/capacity.mjs";
+import { admissionHold, quotaHeldRuntimes, runningPerRuntime, runtimeHasCapacity } from "../../src/engine/capacity.mjs";
 import { validateRuntime } from "../../src/contract/runtime.mjs";
 import { runContract } from "../../src/engine/scheduler.mjs";
 import { fixture, packet, writeContract } from "../helpers.mjs";
@@ -35,6 +35,19 @@ test("capacity: live attempts are counted per runtime and a full runtime refuses
   assert.equal(runtimeHasCapacity("b", contract, counts, new Set()), true, "under its limit");
   assert.equal(runtimeHasCapacity("c", contract, counts, new Set()), true, "no limit declared");
   assert.equal(runtimeHasCapacity("c", contract, counts, new Set(["c"])), false, "a quota hold refuses regardless of the limit");
+});
+
+test("admissionHold: a closed job still settling holds its global slot and its runtime for the dispatch pass", () => {
+  const running = new Map([["live", { runtime: { id: "a" } }]]);
+  const settling = new Map([["closed", { runtime: { id: "b" } }]]);
+  const hold = admissionHold(running, settling);
+  assert.equal(hold.count, 2, "the settling job still holds a global slot");
+  assert.deepEqual([...hold.perRuntime.entries()], [["a", 1], ["b", 1]], "the settling job still holds its runtime");
+  // The pass grows the hold as it reserves, exactly as it grew the counts
+  // map: a second dispatch onto `a` must see its own reservation.
+  hold.perRuntime.set("a", (hold.perRuntime.get("a") ?? 0) + 1);
+  hold.count += 1;
+  assert.equal(runtimeHasCapacity("a", /** @type {any} */ ({ runtimes: { a: { maxConcurrent: 2 } } }), hold.perRuntime, new Set()), false, "the reservation the pass took counts against the next one");
 });
 
 test("quota hold: a node waiting out an exhaustion on the same runtime holds it for its siblings; nothing else does", () => {

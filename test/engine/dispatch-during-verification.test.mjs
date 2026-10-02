@@ -1,10 +1,11 @@
 /**
- * A node's controller verification (and, by the same mechanism, its judge
- * round) must not hold up dispatching a sibling into a slot its own exited
- * worker already freed. `maxParallel: 1` makes that freed slot the only one
- * available, so a sibling reaching `running` proves the loop stopped
- * serializing settlement across nodes rather than merely running two workers
- * concurrently from the start.
+ * F5 admission holds a node's slot from its spawn until its settle completes,
+ * so a node whose worker exited but whose controller verification (and, by
+ * the same mechanism, its judge round or a resumed re-ask) is still running
+ * keeps the slot its dispatch reserved. `maxParallel: 1` makes that hold the
+ * whole run: a sibling reaching `running` only after the settle closes proves
+ * the window is honoured, and both nodes finishing proves the hold is a wait,
+ * not a wedge.
  */
 import "../scoped-home.mjs";
 import test from "node:test";
@@ -19,7 +20,7 @@ import { ensureAttemptWorktree, fixture, packet, waitForValue, withFakeCodex, wr
 import { nodeState } from "../runner-helpers.mjs";
 import { runDirectory } from "../../src/run/paths.mjs";
 
-test("a sibling is dispatched into the freed slot while the first node's controller verification is still blocked", async () => {
+test("a sibling waits for the settle window while the first node's controller verification is blocked, and dispatches once it settles", async () => {
   const directory = mkdtempSync(join(tmpdir(), "runner-dispatch-during-verification-"));
   const gateFile = join(directory, "verification-gate");
   // The first node's own verification command, not a fixture stand-in: it
@@ -42,18 +43,20 @@ test("a sibling is dispatched into the freed slot while the first node's control
     ],
   }));
   const runDir = runDirectory(directory, "dispatch-during-verification-run");
+  const firstSnapshotPath = join(runDir, "nodes", "first.json");
   const secondSnapshotPath = join(runDir, "nodes", "second.json");
   const outcome = withFakeCodex(directory, "pass", () => runContract(path));
   try {
-    // Poll rather than await a fixed delay: the assertion below only holds if
-    // `second` reaches `running` before the gate file exists, in whichever
-    // order the two events actually land, however long that takes.
+    // The settle window opens the moment `first`'s controller verification
+    // starts its blocked command, and the node holds the run's only slot for
+    // as long as it stays open.
     await waitForValue(() => {
-      if (!existsSync(secondSnapshotPath)) return null;
-      const state = JSON.parse(readFileSync(secondSnapshotPath, "utf8"));
-      return state.status === "running" || state.status === "done" ? state : null;
+      if (!existsSync(firstSnapshotPath)) return null;
+      const state = JSON.parse(readFileSync(firstSnapshotPath, "utf8"));
+      return state.verification?.progress ? state : null;
     }, 20_000, 10);
-    assert.equal(existsSync(gateFile), false, "second dispatched into the freed slot while first's controller verification was still blocked on the gate file");
+    const second = existsSync(secondSnapshotPath) ? JSON.parse(readFileSync(secondSnapshotPath, "utf8")) : null;
+    assert.ok(!second || second.status === "pending", `second left the queue while first's controller verification was still blocked on the gate file: ${second && second.status}`);
   } finally {
     // Whether the assertion above passed or failed, the first node's
     // verification process is still polling and must be released so the run
@@ -118,20 +121,26 @@ test("a sibling is dispatched while a resumed judge re-ask is still blocked on i
 
   // Resume classifies `build` as a rejudge (its worker result is preserved,
   // only the arbitration is missing) and `second` as an ordinary retry: both
-  // reach `pending` at the top of the resumed loop. `maxParallel: 1` means
-  // `second` can only dispatch this tick if `build`'s own re-ask -- blocked
-  // on its mechanical proof below -- is not occupying the run's one slot.
+  // reach `pending` at the top of the resumed loop. `maxParallel: 1` and the
+  // re-ask's own dispatch mean `second` stays queued until `build`'s settle
+  // window closes -- the re-ask is blocked on its mechanical proof below, and
+  // its slot is held for exactly that long.
   unlinkSync(secondShouldFail);
   writeFileSync(armMarker, "armed\n");
   const secondSnapshotPath = join(runDir, "nodes", "second.json");
+  const buildSnapshotPath = join(runDir, "nodes", "build.json");
   const resumed = withFakeCodex(directory, "pass", () => resumeRun(runDir));
   try {
+    // The re-ask is dispatched (the pass reserves its slot the moment the
+    // dispatch is decided) and blocks on its mechanical gate inside the settle
+    // window, so the wait below is a state `build` provably sits in.
     await waitForValue(() => {
-      if (!existsSync(secondSnapshotPath)) return null;
-      const state = JSON.parse(readFileSync(secondSnapshotPath, "utf8"));
-      return state.status === "running" || state.status === "done" ? state : null;
+      if (!existsSync(buildSnapshotPath)) return null;
+      const state = JSON.parse(readFileSync(buildSnapshotPath, "utf8"));
+      return state.status === "running" && state.phase === "judge" ? state : null;
     }, 20_000, 10);
-    assert.equal(existsSync(gateFile), false, "second dispatched into the freed slot while build's re-ask was still blocked on its own mechanical gate");
+    const second = existsSync(secondSnapshotPath) ? JSON.parse(readFileSync(secondSnapshotPath, "utf8")) : null;
+    assert.ok(!second || second.status === "pending", `second left the queue while build's re-ask was still blocked on its own mechanical gate: ${second && second.status}`);
   } finally {
     writeFileSync(gateFile, "release\n");
   }

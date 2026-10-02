@@ -8,7 +8,7 @@ import {
 } from "./review.mjs";
 import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../harnesses/index.mjs";
 import { routeRuntimeForState, routingBackoffActive } from "./failover.mjs";
-import { quotaHeldRuntimes, runningPerRuntime, runtimeHasCapacity } from "./capacity.mjs";
+import { admissionHold, quotaHeldRuntimes, runtimeHasCapacity } from "./capacity.mjs";
 
 import {
   bootstrapAttemptPath,
@@ -438,6 +438,19 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
   // ahead of a node's settlement; two nodes' settlements never interleave.
   /** @type {Map<string, Promise<void>>} */
   const pendingSettlements = new Map();
+  // F5 admission's settle window: the nodes whose job has closed but whose
+  // settlement has not finished. Each still holds the global slot and the
+  // runtime slot its dispatch reserved, because the node is still mid-flight
+  // -- its controller verification, its judge round and its integration are
+  // all still ahead of it, and the judge that settlement starts is the reason
+  // the slot existed. The hold is taken from `running` when the job closes and
+  // released when the settlement's own promise settles, so a sibling can
+  // dispatch into the slot only once the node is genuinely out of the engine
+  // (measured 2026-09-29, ACHADOS-PRODUTO achado 2: released at close, a
+  // sibling took it during the verification gate and a judge then ran on top
+  // of it, peak 2 under `maxParallel: 1`).
+  /** @type {Map<string, Pick<Job, "runtime">>} */
+  const settling = new Map();
   /** @type {Promise<void>} */
   let settlementQueue = Promise.resolve();
   let canceled = false;
@@ -466,13 +479,15 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
   // own schedule, so it is left for them.
   /** @type {unknown} */
   let backgroundSettlementFailure = null;
-  // Mark every job that closed this tick as settling, and free its slot,
-  // without waiting for any of them: that alone is what lets an eligible
-  // sibling dispatch into the freed slot while this node's minutes-long
-  // controller verification or judge round is still running. The actual
-  // settlement work is chained onto `settlementQueue`, one node at a time in
-  // the order its job closed, so it still runs exactly as serialized against
-  // every *other* node's settlement as it did when this loop awaited
+  // Mark every job that closed this tick as settling, and move its admission
+  // hold from `running` into `settling`, without waiting for any of them: the
+  // hold is NOT freed at close -- F5 admission keeps the global slot and the
+  // runtime slot until the settlement completes, because the node is still
+  // mid-flight and a sibling dispatched into a slot freed at close is the
+  // excess measured twice on 2026-09-29 (ACHADOS-PRODUTO achado 2). The
+  // actual settlement work is chained onto `settlementQueue`, one node at a
+  // time in the order its job closed, so it still runs exactly as serialized
+  // against every *other* node's settlement as it did when this loop awaited
   // `finalizeClosedJobs` directly -- `finalizeClosedJobs` runs against a
   // one-entry map per node, so this is one call per node rather than the one
   // batched call it used to be, but the chain still runs them one at a time.
@@ -492,9 +507,13 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
     for (const [nodeId, job] of [...running]) {
       if (pendingSettlements.has(nodeId) || !job.closed || invocationAlive(job.invocation)) continue;
       running.delete(nodeId);
+      settling.set(nodeId, job);
       const settlement = settlementQueue
         .then(() => finalizeClosedJobs(contract, runDir, states, new Map([[nodeId, job]]), lock, campaign.path, running))
-        .finally(() => pendingSettlements.delete(nodeId));
+        .finally(() => {
+          pendingSettlements.delete(nodeId);
+          settling.delete(nodeId);
+        });
       // The queue itself must never reject -- a rejected settlement (a lost
       // lock, a programmer error) would otherwise wedge every node queued
       // behind it. The rejection still reaches whoever awaits the real
@@ -642,13 +661,18 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
         }, lock);
         await raiseNodeAttention(campaign.path, runDir, /** @type {NodeSnapshot} */ (states.get(node.id)), HUMAN_STEP_ERROR_CODE);
       }
-      const slots = contract.maxParallel - running.size;
+      // F5 admission is judged against every attempt holding a slot: the live
+      // jobs plus the closed jobs still inside their settle window. The
+      // contract's `maxParallel` bounds the total; a spawn the settlement
+      // starts itself (the node's judge) runs inside the node's own held slot.
+      const hold = admissionHold(running, settling);
+      const slots = contract.maxParallel - hold.count;
       if (slots > 0) {
         const dispatchable = ready.filter((node) => !node.humanStep);
         // Per-runtime capacity is judged per dispatch, not per tick: the
-        // counts include what this tick has already started, and a runtime a
-        // sibling is waiting out a quota reset on accepts nothing new.
-        const counts = runningPerRuntime(running.values());
+        // counts include what this tick has already started and what the
+        // settle window still holds, and a runtime a sibling is waiting out a
+        // quota reset on accepts nothing new.
         const held = quotaHeldRuntimes(states.values(), Date.now());
         let dispatched = 0;
         for (const node of dispatchable) {
@@ -656,8 +680,8 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
           const state = states.get(node.id);
           if (!state || routingBackoffActive(state, state.phase)) continue;
           const routed = routeRuntimeForState(contract, node, state, state.phase === "judge" ? "judge" : "worker");
-          if (!runtimeHasCapacity(routed.id, contract, counts, held)) continue;
-          counts.set(routed.id, (counts.get(routed.id) ?? 0) + 1);
+          if (!runtimeHasCapacity(routed.id, contract, hold.perRuntime, held)) continue;
+          hold.perRuntime.set(routed.id, (hold.perRuntime.get(routed.id) ?? 0) + 1);
           dispatched += 1;
           // A node recovered pending a re-ask judge (its own worker attempt
           // already accepted, `state.result` durable) reaches `settleDone` /
@@ -671,10 +695,20 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
           // the tick stops waiting behind it.
           if (state.phase === "judge" && state.result) {
             const workerResult = state.result;
+            // The reservation is taken here, not when `startJudge` lands the
+            // job in `running`: the dispatch is queued behind
+            // `settlementQueue`, and a tick that runs while it waits must not
+            // hand the slot to a sibling. While the judge job is live the node
+            // is counted twice -- once here, once in `running` -- which can
+            // only hold a sibling back, never oversubscribe the run.
+            settling.set(node.id, { runtime: routed });
             const settlement = settlementQueue
               .then(() => startJudge(contract, node, state, runDir, running, workerResult, lock, states, campaign.path))
               .then((round) => applyJudgeRound(round, contract, node, state, runDir, running, lock, states, campaign.path, workerResult))
-              .finally(() => pendingSettlements.delete(node.id));
+              .finally(() => {
+                pendingSettlements.delete(node.id);
+                settling.delete(node.id);
+              });
             settlementQueue = settlement.catch(() => {});
             settlement.catch((error) => {
               if (!(error instanceof LockLostError) && backgroundSettlementFailure === null) backgroundSettlementFailure = error;
