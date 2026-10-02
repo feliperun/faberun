@@ -29,6 +29,7 @@ import { appendTransitionEvent, transition } from "./state.mjs";
 /** @typedef {import("../run/lock.mjs").LockRecord} LockRecord */
 /** @typedef {ReturnType<typeof import("../run/lock.mjs").acquire>} LockHandle */
 /** @typedef {import("./dispatch.mjs").JudgeRound} JudgeRound */
+/** @typedef {import("./process.mjs").Job} Job */
 
 /**
  * One auxiliary-spawn admission: may this spawn start right now? The spawn
@@ -43,7 +44,7 @@ import { appendTransitionEvent, transition } from "./state.mjs";
  * @param {ValidatedContract} contract
  * @param {ValidatedNode} node
  * @param {NodeSnapshot} state
- * @param {Map<string, {runtime: {id: string|null}}>} running the live dispatch map the spawn would join
+ * @param {Map<string, Job>} running the live dispatch map the spawn would join
  * @param {Map<string, NodeSnapshot>} states
  * @param {"worker"|"judge"} role
  * @param {number} [now] epoch milliseconds
@@ -105,7 +106,7 @@ export function recordAuxRefusal(runDir, state, from, lock, role, admission) {
  * @param {ValidatedNode} node
  * @param {NodeSnapshot} state
  * @param {string} runDir
- * @param {Map<string, {runtime: {id: string|null}}>} running
+ * @param {Map<string, Job>} running
  * @param {Map<string, NodeSnapshot>} states
  * @param {LockHandle} lock
  * @param {string} campaignPath

@@ -637,9 +637,10 @@ test("a retried attempt waits for the runtime's slot", async () => {
   const betaRetry = beta.invocations?.[1];
   const alphaRetry = alpha.invocations?.[1];
   assert.ok(betaRetry && alphaRetry, "both retries left invocation records");
+  const betaClosedAt = /** @type {string} */ (betaRetry.closedAt);
   // Beta's slow retry holds the single runtime while alpha's retry is already
   // dispatchable, so the pass admits alpha only after beta's invocation
   // closed: the runtime's maxConcurrent serializes the retries.
   assert.ok(Date.parse(alphaRetry.startedAt) > Date.parse(betaRetry.startedAt), "both retries ran on the one runtime");
-  assert.ok(Date.parse(alphaRetry.startedAt) > Date.parse(betaRetry.closedAt), "the sibling retry started only after the runtime freed");
+  assert.ok(Date.parse(alphaRetry.startedAt) > Date.parse(betaClosedAt), "the sibling retry started only after the runtime freed");
 });

@@ -650,6 +650,7 @@ test("the bounded re-ask is refused when the judge runtime holds its ceiling", a
   writeFileSync(join(runDir, "contract.json"), readFileSync(join(contract.cwd, "contract.json")));
   const lock = acquireLock(runDir);
   const workerResult = { status: "done", summary: "worker complete", verification: [], artifacts: [], missingContext: [] };
+  /** @type {import("../../src/contract/index.mjs").NodeSnapshot} */
   const state = {
     schemaVersion: PROTOCOL_SCHEMA_VERSION,
     contractVersion: CONTRACT_VERSION,
@@ -679,7 +680,7 @@ test("the bounded re-ask is refused when the judge runtime holds its ceiling", a
     integratedHead: null,
   };
   const states = new Map([[node.id, state]]);
-  const running = new Map([["sibling", { runtime: { id: "sol" } }]]);
+  const running = /** @type {Map<string, import("../../src/engine/process.mjs").Job>} */ (new Map([["sibling", { runtime: { id: "sol" } }]]));
   // The fake keeps a regression honest: if the admission check were gone, the
   // re-ask would spawn this provider instead of calling a real one.
   await withFakeCodex(directory, "pass", () =>
@@ -689,7 +690,7 @@ test("the bounded re-ask is refused when the judge runtime holds its ceiling", a
   assert.equal(state.phase, "judge");
   assert.equal(state.gate, null);
   assert.deepEqual(state.result, workerResult, "the accepted worker result stays durable through the deferral");
-  assert.equal(state.invocations.length, 0, "no re-ask was dispatched against the full runtime");
+  assert.equal(state.invocations?.length, 0, "no re-ask was dispatched against the full runtime");
   assert.equal(judgeReaskOutstanding(state), true, "the one re-ask bound stays on the node");
   const events = readFileSync(join(runDir, "events.jsonl"), "utf8").trim().split("\n").filter(Boolean).map((line) => JSON.parse(line));
   const verdicts = events.filter((event) => event.type === "aux.admission");

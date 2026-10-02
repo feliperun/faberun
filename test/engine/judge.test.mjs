@@ -761,12 +761,12 @@ process.stdin.on("end", () => {
 });
 `);
   chmodSync(provider, 0o755);
+  /** @param {string} id @param {string} objective */
   const judged = (id, objective) => ({ id, type: "backend", taskPacket: packet({ objective }),
     definitionOfDone: [{ id: "works", text: "It works", judgment: true }], gate: { review: "blocking", failOn: ["major", "critical"] } });
   const path = writeContract(directory, fixture({
     id: "judge-slot-run",
-    pollIntervalMs: 10,
-    maxParallel: 2,
+    pollIntervalMs: 10, maxParallel: 2,
     runtimeDefaults: { worker: "wide", judge: "single" },
     runtimes: {
       wide: { harness: "codex", model: "wide", executable: provider, maxConcurrent: 2 },

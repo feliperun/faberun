@@ -55,7 +55,7 @@ import {
   workerResultPath,
 } from "./result-file.mjs";
 import { canReuseResultEvidence, checkResultMaterializationScope, checkWorkerScope, recordScopeFinding, sourceWorkerRuntime } from "./scope.mjs";
-import { startJudge, startMechanicalGate, startResultMaterialization } from "./dispatch.mjs";
+import { startMechanicalGate, startResultMaterialization } from "./dispatch.mjs";
 import { auxJudgeRound } from "./aux-admission.mjs";
 import { raiseNodeAttention, settleDone } from "./settle.mjs";
 import { applyRejection, applyVerificationFailure } from "./settle.mjs";

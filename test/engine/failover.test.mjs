@@ -791,8 +791,9 @@ test("a failover hop waits for the target runtime's slot", async () => {
   const alphaHop = alpha.invocations?.[1];
   const betaWorker = beta.invocations?.[0];
   assert.ok(alphaPrimary && alphaHop && betaWorker, "the failed attempt, the hop and the holding sibling all left invocation records");
+  const betaClosedAt = /** @type {string} */ (betaWorker.closedAt);
   // Beta's slow worker holds the spare runtime past alpha's quota failure:
   // admitting the hop early would put two invocations on a maxConcurrent 1 runtime.
-  assert.ok(Date.parse(alphaPrimary.closedAt) < Date.parse(betaWorker.closedAt), "the hop was planned while beta still held the spare runtime");
-  assert.ok(Date.parse(alphaHop.startedAt) > Date.parse(betaWorker.closedAt), "the hop started only after beta released the spare runtime");
+  assert.ok(Date.parse(/** @type {string} */ (alphaPrimary.closedAt)) < Date.parse(betaClosedAt), "the hop was planned while beta still held the spare runtime");
+  assert.ok(Date.parse(alphaHop.startedAt) > Date.parse(betaClosedAt), "the hop started only after beta released the spare runtime");
 });

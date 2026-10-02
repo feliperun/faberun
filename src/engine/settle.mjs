@@ -82,7 +82,7 @@ export function applyRejection(contract, node, state, runDir, running, lock, sta
     const admission = running
       ? auxSpawnAdmission(contract, node, state, running, states, "worker")
       : null;
-    if (admission?.admitted) {
+    if (admission?.admitted && running) {
       // Dispatching here owns the increment, because `startWorker` expects the
       // attempt number it is about to run under.
       state.attempt += 1;
