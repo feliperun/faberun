@@ -23,7 +23,7 @@ function git(repo, args) {
 function commitFile(repo, file, content, message) {
   writeFileSync(join(repo, file), content);
   git(repo, ["add", "-A"]);
-  git(repo, ["-c", "commit.gpgSign=false", "commit", "-qm", message]);
+  git(repo, ["-c", "user.email=runner@example.test", "-c", "user.name=runner", "-c", "commit.gpgSign=false", "commit", "-qm", message]);
   return git(repo, ["rev-parse", "HEAD"]);
 }
 

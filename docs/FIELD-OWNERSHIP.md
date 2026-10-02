@@ -72,7 +72,7 @@ marked **(ratchet)**.
 | `phase` | `appendTransitionEvent` | at append, from `state.phase` |
 | `attempt` | `appendTransitionEvent` | at append, only when `state.attempt` is set |
 | `runtime` | `appendTransitionEvent` | at append, only when `state.runtime.id` is set |
-| `error` | `appendTransitionEvent`, `renderCampaignHandoffSafely` **(ratchet)** | at append, `state.error.code` when set; the handoff diagnostic stores its message there |
+| `error` | `appendTransitionEvent`, `recordAuxRefusal`, `renderCampaignHandoffSafely` **(ratchet)** | at append, `state.error.code` when set; the handoff diagnostic stores its message there; an auxiliary spawn refused by admission stores `aux_spawn_refused` and its reason |
 | `verdict` | `appendTransitionEvent`, `settleAdvisoryReview` **(ratchet)** | at append, `state.gate.verdict` when set; `settleAdvisoryReview` also passes it in `details`, and the spread wins |
 | `summary` | `appendTransitionEvent`, `settleAdvisoryReview` **(ratchet)** | at append, `state.gate.summary` when set; the advisory detail is spread over it |
 | `revisions` | `appendTransitionEvent` | at append, `state.revisions` when set |
@@ -82,13 +82,13 @@ marked **(ratchet)**.
 | `processGroupId` | `recordIdentityUnverifiable` | when a signal is withheld because the invocation's process identity cannot be proven |
 | `override` | `recordExecutionOverride`, `applyRoute` **(ratchet)** | when an execution override is recorded; when a route is applied |
 | `recovery` | `ensureTerminalEvent`, `recordExecutionOverride` **(ratchet)** | when a terminal side effect is replayed; when an override carries a recovery note |
-| `role` | `applyRoute`, `autoRetryNode` **(ratchet)** | when a route is applied; when a node earns its one automatic retry |
+| `role` | `applyRoute`, `autoRetryNode`, `recordAuxRefusal` **(ratchet)** | when a route is applied; when a node earns its one automatic retry; when admission refuses an auxiliary spawn |
 | `status` | `applyRoute` | when a route is applied |
 | `currentRuntime` | `applyRoute` | when a route is applied |
 | `errorCode` | `applyRoute`, `autoRetryNode` **(ratchet)** | when a route is applied; when a node earns its one automatic retry |
 | `unexpectedPaths` | `checkWorkerScope`, `checkPersistedWorkerScope`, `recordScopeFinding` **(ratchet)** | when a scope check fails or an advisory finding is recorded |
 | `unexpectedPathCount` | `checkWorkerScope`, `checkPersistedWorkerScope`, `recordScopeFinding` **(ratchet)** | when a scope check fails or an advisory finding is recorded |
-| `type` | `recordScopeFinding`, `settleAdvisoryReview`, `assertEnvironmentReady`, `renderCampaignHandoffSafely`, `autoRetryNode`, `recordIdentityUnverifiable` **(ratchet)** | each diagnostic sets its own discriminator; there is no single owner today |
+| `type` | `recordScopeFinding`, `settleAdvisoryReview`, `assertEnvironmentReady`, `renderCampaignHandoffSafely`, `autoRetryNode`, `recordIdentityUnverifiable`, `recordAuxRefusal` **(ratchet)** | each diagnostic sets its own discriminator; there is no single owner today |
 | `contractId` | `assertEnvironmentReady` | when the environment preflight fails |
 | `ok` | `assertEnvironmentReady` | when the environment preflight fails |
 | `checks` | `assertEnvironmentReady` | when the environment preflight fails |
@@ -301,7 +301,7 @@ behavior, and a node that declares must not also move the thing it declares.
     "phase": { "writers": ["appendTransitionEvent"] },
     "attempt": { "writers": ["appendTransitionEvent"] },
     "runtime": { "writers": ["appendTransitionEvent"] },
-    "error": { "writers": ["appendTransitionEvent", "renderCampaignHandoffSafely"] },
+    "error": { "writers": ["appendTransitionEvent", "recordAuxRefusal", "renderCampaignHandoffSafely"] },
     "verdict": { "writers": ["appendTransitionEvent", "settleAdvisoryReview"] },
     "summary": { "writers": ["appendTransitionEvent", "settleAdvisoryReview"] },
     "revisions": { "writers": ["appendTransitionEvent"] },
@@ -311,13 +311,13 @@ behavior, and a node that declares must not also move the thing it declares.
     "processGroupId": { "writers": ["recordIdentityUnverifiable"] },
     "override": { "writers": ["recordExecutionOverride", "applyRoute"] },
     "recovery": { "writers": ["ensureTerminalEvent", "recordExecutionOverride"] },
-    "role": { "writers": ["applyRoute", "autoRetryNode"] },
+    "role": { "writers": ["applyRoute", "autoRetryNode", "recordAuxRefusal"] },
     "status": { "writers": ["applyRoute"] },
     "currentRuntime": { "writers": ["applyRoute"] },
     "errorCode": { "writers": ["applyRoute", "autoRetryNode"] },
     "unexpectedPaths": { "writers": ["checkWorkerScope", "checkPersistedWorkerScope", "recordScopeFinding"] },
     "unexpectedPathCount": { "writers": ["checkWorkerScope", "checkPersistedWorkerScope", "recordScopeFinding"] },
-    "type": { "writers": ["recordScopeFinding", "settleAdvisoryReview", "assertEnvironmentReady", "renderCampaignHandoffSafely", "autoRetryNode", "recordIdentityUnverifiable"] },
+    "type": { "writers": ["assertEnvironmentReady", "autoRetryNode", "recordAuxRefusal", "recordIdentityUnverifiable", "recordScopeFinding", "renderCampaignHandoffSafely", "settleAdvisoryReview"] },
     "contractId": { "writers": ["assertEnvironmentReady"] },
     "ok": { "writers": ["assertEnvironmentReady"] },
     "checks": { "writers": ["assertEnvironmentReady"] },
