@@ -609,3 +609,38 @@ test("resume admits a retried attempt through the campaign reserve: an empty bal
   assert.equal(status.unknownExposureCount, 0, "the unknown exposure was reconciled, not forgotten");
   assert.equal(status.availableUsd, 0);
 });
+
+// F5 aux admission: a resume's retry is a dispatch too. Both failed nodes
+// become dispatchable in the same tick, and the pass admits them onto the one
+// runtime one at a time -- the sibling's retry waits for the maxConcurrent
+// ceiling instead of starting beside it.
+test("a retried attempt waits for the runtime's slot", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "retry-runtime-slot-"));
+  const path = writeContract(directory, fixture({
+    id: "retry-slot-run", pollIntervalMs: 10, maxParallel: 2,
+    runtimeDefaults: { worker: "single", judge: "single" },
+    runtimes: { single: { harness: "codex", model: "single", executable: fakeCodex(directory, "slow"), maxConcurrent: 1 } },
+    nodes: [
+      { id: "beta", type: "backend", taskPacket: packet(), gate: false },
+      { id: "alpha", type: "backend", taskPacket: packet(), gate: false },
+    ],
+  }));
+  const runDir = (await runContract(path)).runDir;
+  persistFailure(runDir, "beta", { status: "failed", code: "provider_error" });
+  persistFailure(runDir, "alpha", { status: "failed", code: "provider_error" });
+  const resumed = await resumeRun(runDir);
+  const alpha = nodeState(resumed, "alpha");
+  const beta = nodeState(resumed, "beta");
+  assert.equal(alpha.status, "done", alpha.error?.message);
+  assert.equal(beta.status, "done", beta.error?.message);
+  assert.equal(alpha.attempt, 2, "the retry is attempt plus one");
+  const betaRetry = beta.invocations?.[1];
+  const alphaRetry = alpha.invocations?.[1];
+  assert.ok(betaRetry && alphaRetry, "both retries left invocation records");
+  const betaClosedAt = /** @type {string} */ (betaRetry.closedAt);
+  // Beta's slow retry holds the single runtime while alpha's retry is already
+  // dispatchable, so the pass admits alpha only after beta's invocation
+  // closed: the runtime's maxConcurrent serializes the retries.
+  assert.ok(Date.parse(alphaRetry.startedAt) > Date.parse(betaRetry.startedAt), "both retries ran on the one runtime");
+  assert.ok(Date.parse(alphaRetry.startedAt) > Date.parse(betaClosedAt), "the sibling retry started only after the runtime freed");
+});

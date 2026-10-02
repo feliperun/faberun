@@ -766,3 +766,34 @@ test("the routing override records whether attempt affinity held or yielded", ()
   assert.match(/** @type {any} */ (failoverRoute.override).reason, /attempt-affinity yielded: alpha reported quota_exhausted/u);
   assert.equal(/** @type {any} */ (failoverRoute.override).runtime, "beta", "the edge still goes to the declared fallback");
 });
+
+// F5 aux admission: a failover hop is a dispatch too -- planned while the sibling
+// it hops onto still holds the target runtime, admitted only once that slot frees.
+test("a failover hop waits for the target runtime's slot", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-failover-slot-"));
+  const path = writeContract(directory, fixture({
+    id: "failover-slot-run", pollIntervalMs: 10, maxParallel: 2, runtimeDefaults: { worker: "primary", judge: "primary" },
+    runtimes: {
+      primary: { harness: "codex", model: "primary", executable: fakeCodex(directory, "quota-429"), fallback: "spare", maxConcurrent: 1 },
+      spare: { harness: "codex", model: "spare", executable: fakeCodex(directory, "slow"), maxConcurrent: 1 },
+    },
+    nodes: [
+      { id: "alpha", type: "backend", runtime: "primary", taskPacket: packet(), gate: false },
+      { id: "beta", type: "backend", runtime: "spare", taskPacket: packet(), gate: false },
+    ],
+  }));
+  const result = await runContract(path);
+  const alpha = nodeState(result, "alpha"); const beta = nodeState(result, "beta");
+  assert.equal(alpha.status, "done", alpha.error?.message); assert.equal(beta.status, "done", beta.error?.message);
+  assert.deepEqual((alpha.invocations ?? []).map((invocation) => invocation.runtimeId), ["primary", "spare"], "the hop ran once on the declared fallback");
+  assert.equal(alpha.routing?.history?.[0]?.nextRuntime, "spare", "the declared failover edge carried the hop");
+  const alphaPrimary = alpha.invocations?.[0];
+  const alphaHop = alpha.invocations?.[1];
+  const betaWorker = beta.invocations?.[0];
+  assert.ok(alphaPrimary && alphaHop && betaWorker, "the failed attempt, the hop and the holding sibling all left invocation records");
+  const betaClosedAt = /** @type {string} */ (betaWorker.closedAt);
+  // Beta's slow worker holds the spare runtime past alpha's quota failure:
+  // admitting the hop early would put two invocations on a maxConcurrent 1 runtime.
+  assert.ok(Date.parse(/** @type {string} */ (alphaPrimary.closedAt)) < Date.parse(betaClosedAt), "the hop was planned while beta still held the spare runtime");
+  assert.ok(Date.parse(alphaHop.startedAt) > Date.parse(betaClosedAt), "the hop started only after beta released the spare runtime");
+});
