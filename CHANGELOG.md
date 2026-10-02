@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.31.0](https://github.com/feliperun/faberun/compare/v0.30.0...v0.31.0) (2026-10-02)
+
+
+### Features
+
+* **campaign:** land the campaign-efficiency campaign (R1 to R7) ([#102](https://github.com/feliperun/faberun/issues/102)) ([8b97f31](https://github.com/feliperun/faberun/commit/8b97f31d123f523f88bf03d0157412ad0302bd3d))
+
 ## [0.30.0](https://github.com/feliperun/faberun/compare/v0.29.0...v0.30.0) (2026-09-29)
 
 
