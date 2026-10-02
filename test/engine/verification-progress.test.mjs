@@ -12,8 +12,9 @@
  * be mistaken for the one under test.
  *
  * The proof-gate tests drive `executeControllerVerification` directly, two
- * passes at a time: the gate's overlap never engages through `runContract`,
- * whose settlement chain invokes passes one at a time. Every gate assertion
+ * passes at a time, so the gate's own admission is exercised in isolation
+ * from the settlement overlap (`engine/settlement-overlap.mjs`) that engages
+ * it through `runContract`. Every gate assertion
  * reads the shared log's ORDER -- a pass that should have waited leaves its
  * `start` entry after the pass it waited for left `end` -- so no assertion
  * bounds a duration from above, and a slow machine only makes the waits

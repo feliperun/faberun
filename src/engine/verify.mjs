@@ -20,6 +20,7 @@ import { SETTLED } from "./prompts.mjs";
 import { terminateInvocation } from "./process.mjs";
 import { writeNode } from "./state.mjs";
 import { runVerification } from "./run-command.mjs";
+import { parkDuringProof } from "./settlement-overlap.mjs";
 
 /** @typedef {import("../repo/integrate.mjs").CandidateEvidence} CandidateEvidence */
 /** @typedef {import("../cli.mjs").LockHandle} LockHandle */
@@ -41,11 +42,11 @@ import { runVerification } from "./run-command.mjs";
  * tree can interfere, so they never overlap no matter what the budget allows:
  * the base checkout (`contract.cwd`, where a node without an attempt worktree
  * runs) and the run's one candidate worktree are each serialized under their
- * own key. The settlement chain in scheduler.mjs invokes these passes one at
- * a time today, so the budget is not what holds the engine back; this gate is
- * what keeps the layer correct the day a caller overlaps passes — and what
- * makes "base-ref proofs and integration remain serialized" true here rather
- * than by caller discipline.
+ * own key. The settlement overlap (`engine/settlement-overlap.mjs`) is the
+ * caller that puts the budget to work: it parks a settlement for the length
+ * of each pass, so two nodes' independent worktree proofs overlap through a
+ * real run while this gate holds the bound, shared-tree passes, and the
+ * candidate worktree's pass serialized.
  *
  * @typedef {{limit: number, active: number, held: Set<string>, waiters: {key: string, satisfy: () => void}[]}} ProofGate
  */
@@ -261,7 +262,16 @@ export async function executeControllerVerification(contract, runDir, node, stat
   /** @param {VerificationAttempt} attempt @returns {VerificationProgress} */
   const progressFor = (attempt) => verificationProgress(attempt.commandIndex + 1, commands.length, /** @type {VerificationCommand|undefined} */ (commands[attempt.commandIndex])?.argv);
   try {
-    const result = await withProofSlot(contract, workspace, () => runVerification(commands, workspace, {
+    // Parked for the length of the pass: the settlement's section slot goes
+    // back to the overlap while these child processes run, so a sibling's
+    // settlement -- and its own proof -- advances. Everything after this
+    // await (judge dispatch, gate verdicts, integration) runs in the
+    // re-acquired section; the proof gate below is what bounds the overlap.
+    // The candidate pass in `verifyCandidateWorkspace` is deliberately not
+    // parked: it runs inside the integration transaction's candidate lock,
+    // and parking it would wait to re-acquire a section a sibling holds
+    // while that sibling waits on this same candidate lock.
+    const result = await parkDuringProof(() => withProofSlot(contract, workspace, () => runVerification(commands, workspace, {
       logDir: join(runDir, "logs", `${node.id}.${state.attempt}.verification`),
       writeFiles: node.taskPacket.writeFiles ?? [],
       onAttemptStart: (attempt) => persistVerificationAttempt(runDir, state, lock, attempt, progressFor(attempt)),
@@ -270,7 +280,7 @@ export async function executeControllerVerification(contract, runDir, node, stat
         ...attempt,
         result: boundedVerificationAttemptResult(attempt.result),
       }),
-    }));
+    })));
     state.verification = {
       ...compactVerification(result),
       completed: true,

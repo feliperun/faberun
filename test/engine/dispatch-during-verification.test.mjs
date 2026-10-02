@@ -6,6 +6,13 @@
  * whole run: a sibling reaching `running` only after the settle closes proves
  * the window is honoured, and both nodes finishing proves the hold is a wait,
  * not a wedge.
+ *
+ * The overlap tests drive `maxParallel: 2`: a settlement now parks for the
+ * length of its controller verification (`engine/settlement-overlap.mjs`), so
+ * two nodes' proofs in independent worktrees run at the same time -- proven
+ * by rendezvous markers each pass waits on, never by a clock -- while a third
+ * node's proof cannot start until a settled node has actually released its
+ * slot.
  */
 import "../scoped-home.mjs";
 import test from "node:test";
@@ -66,6 +73,85 @@ test("a sibling waits for the settle window while the first node's controller ve
   const result = await outcome;
   assert.equal(result.states.get("first")?.status, "done", result.states.get("first")?.error?.message);
   assert.equal(result.states.get("second")?.status, "done", result.states.get("second")?.error?.message);
+});
+
+test("two nodes' controller verifications overlap through a real run", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-overlapping-proofs-"));
+  const signals = mkdtempSync(join(tmpdir(), "runner-overlapping-proofs-signals-"));
+  /** @param {string} name @returns {string} */
+  const marker = (name) => join(signals, name);
+  // Rendezvous proof: each pass records that it started, then waits for the
+  // other pass's start marker before it may finish. The first pass therefore
+  // cannot complete until the second has begun, and the second can only have
+  // begun while the first was still in flight -- that concurrence is the
+  // overlap itself, read off durable markers instead of a clock. A settlement
+  // chain that serialized the passes again would deadlock them into their own
+  // 20s timeouts, fail both nodes, and fail every assertion below; no
+  // assertion here bounds a duration from above.
+  /** @param {string} id @param {string} other @returns {string} */
+  const rendezvous = (id, other) => `const fs=require("fs");fs.writeFileSync(${JSON.stringify(marker(`${id}-started`))},"started\\n");const theirs=${JSON.stringify(marker(`${other}-started`))};while(!fs.existsSync(theirs)){Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,20);}fs.writeFileSync(${JSON.stringify(marker(`${id}-done`))},"done\\n");`;
+  const path = writeContract(directory, fixture({
+    id: "overlapping-proofs-run",
+    pollIntervalMs: 10,
+    maxParallel: 2,
+    nodes: [
+      { id: "alpha", type: "backend", taskPacket: packet({ verification: [{ argv: [process.execPath, "-e", rendezvous("alpha", "beta")], timeoutSec: 20 }] }), gate: false },
+      { id: "beta", type: "backend", taskPacket: packet({ verification: [{ argv: [process.execPath, "-e", rendezvous("beta", "alpha")], timeoutSec: 20 }] }), gate: false },
+    ],
+  }));
+  // Both nodes settle all the way through integration, so their passes also
+  // run a second time against the candidate worktree; the markers are already
+  // there by then, so that pass exits immediately.
+  const outcome = await withFakeCodex(directory, "pass", () => runContract(path));
+  assert.equal(outcome.ok, true);
+  assert.equal(nodeState(outcome, "alpha").status, "done", nodeState(outcome, "alpha").error?.message);
+  assert.equal(nodeState(outcome, "beta").status, "done", nodeState(outcome, "beta").error?.message);
+  // The revisions are what turns the rendezvous into the proof: a chain that
+  // serialized the passes would time out the first one, spend that node's one
+  // revision, and still finish green an attempt later -- done statuses and
+  // markers alone would not catch it. Zero revisions means each node's only
+  // proof passed, and a pass could only complete once the other's had started.
+  assert.equal(nodeState(outcome, "alpha").revisions, 0, "alpha spent a revision its proof would not have needed had the passes overlapped");
+  assert.equal(nodeState(outcome, "beta").revisions, 0, "beta spent a revision its proof would not have needed had the passes overlapped");
+  assert.ok(existsSync(marker("alpha-started")), "alpha's controller verification pass ran");
+  assert.ok(existsSync(marker("beta-started")), "beta's controller verification pass ran");
+  assert.ok(existsSync(marker("alpha-done")), "alpha's pass completed, which it can only do once beta's had started");
+  assert.ok(existsSync(marker("beta-done")), "beta's pass completed, which it can only do once alpha's had started");
+});
+
+test("a third node's proof cannot start while two settlements hold the run's slots", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "runner-proof-bound-"));
+  const signals = mkdtempSync(join(tmpdir(), "runner-proof-bound-signals-"));
+  /** @param {string} name @returns {string} */
+  const marker = (name) => join(signals, name);
+  /** @param {string} id @param {string} other @returns {string} */
+  const rendezvous = (id, other) => `const fs=require("fs");fs.writeFileSync(${JSON.stringify(marker(`${id}-started`))},"started\\n");const theirs=${JSON.stringify(marker(`${other}-started`))};while(!fs.existsSync(theirs)){Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,20);}fs.writeFileSync(${JSON.stringify(marker(`${id}-done`))},"done\\n");`;
+  // gamma's proof checks, at start, that a fully settled node's own proof has
+  // already completed: its worker cannot even be dispatched until a slot
+  // frees, and the settle window holds alpha's and beta's slots through their
+  // whole settlements, so the marker is there by construction. Finding it
+  // missing means the overlap ran past `maxParallel`.
+  const gammaProof = `const fs=require("fs");const settled=fs.existsSync(${JSON.stringify(marker("alpha-done"))})||fs.existsSync(${JSON.stringify(marker("beta-done"))});if(!settled){fs.writeFileSync(${JSON.stringify(marker("violation"))},"a third proof started with both slots still held\\n");}fs.writeFileSync(${JSON.stringify(marker("gamma-started"))},"started\\n");`;
+  const path = writeContract(directory, fixture({
+    id: "proof-bound-run",
+    pollIntervalMs: 10,
+    maxParallel: 2,
+    nodes: [
+      { id: "alpha", type: "backend", taskPacket: packet({ verification: [{ argv: [process.execPath, "-e", rendezvous("alpha", "beta")], timeoutSec: 20 }] }), gate: false },
+      { id: "beta", type: "backend", taskPacket: packet({ verification: [{ argv: [process.execPath, "-e", rendezvous("beta", "alpha")], timeoutSec: 20 }] }), gate: false },
+      { id: "gamma", type: "backend", taskPacket: packet({ verification: [{ argv: [process.execPath, "-e", gammaProof] }] }), gate: false },
+    ],
+  }));
+  const outcome = await withFakeCodex(directory, "pass", () => runContract(path));
+  assert.equal(outcome.ok, true);
+  for (const id of ["alpha", "beta", "gamma"]) {
+    assert.equal(nodeState(outcome, id).status, "done", nodeState(outcome, id).error?.message);
+    // Same detector as the overlap test: a serialized pass would time out and
+    // burn its one revision while still finishing green.
+    assert.equal(nodeState(outcome, id).revisions, 0, `${id} spent a revision; its proof should never have waited out a sibling`);
+  }
+  assert.ok(existsSync(marker("gamma-started")), "gamma's proof ran");
+  assert.ok(!existsSync(marker("violation")), "gamma's proof ran while alpha's and beta's settlements still held both slots");
 });
 
 test("a sibling is dispatched while a resumed judge re-ask is still blocked on its own mechanical gate", async () => {
