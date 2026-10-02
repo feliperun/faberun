@@ -22,7 +22,10 @@
  * F5 admission (2026-10-02): the scheduler now counts a node from before its
  * spawn until its settle completes (`admissionHold`, fed by the settle window
  * in `scheduler.mjs`), which closes the freed-slot race for every spawn the
- * scheduler issues. The judge a settlement starts itself, the bounded re-ask
+ * scheduler issues. The dispatch pass opens its turn with `admissionPass`,
+ * which folds the live jobs, the settle window and the pass's own
+ * reservations into one judgment per node. The judge a settlement starts
+ * itself, the bounded re-ask
  * (`review.mjs`) and the gate revision (`settle.mjs` `applyRejection`) still
  * spawn with no call here: the node's own settle-window hold keeps the global
  * `maxParallel` true while they run, but their per-runtime ceiling is not
@@ -70,6 +73,42 @@ export function runningPerRuntime(running) {
 export function admissionHold(running, settling) {
   const holders = [...running.values(), ...settling.values()];
   return { count: holders.length, perRuntime: runningPerRuntime(holders) };
+}
+
+/**
+ * One dispatch pass's admission: the slots the contract's `maxParallel` still
+ * grants, judged against every attempt holding one -- the live jobs plus the
+ * closed jobs still inside their settle window -- and the per-runtime
+ * reservation the pass takes as it dispatches. `take` is consulted per node
+ * and refuses a runtime a sibling is waiting out a quota reset on, a runtime
+ * at its `maxConcurrent`, and one already holding its share of this pass's
+ * reservations; on success it reserves the slot in the same breath, because a
+ * check without its reservation would admit two nodes on one judgment. A
+ * spawn the settlement starts itself (the node's judge) runs inside the
+ * node's own held slot and never reaches here.
+ *
+ * @param {ValidatedContract} contract
+ * @param {Map<string, {runtime: {id: string|null}}>} running live jobs the tick is holding
+ * @param {Map<string, {runtime: {id: string|null}}>} settling closed jobs whose settlement has not finished
+ * @param {Map<string, NodeSnapshot>} states
+ * @returns {{slots: number, take: (runtimeId: string) => boolean}} the free
+ *   slot count, read once per pass, and the per-node gate
+ */
+export function admissionPass(contract, running, settling, states) {
+  const hold = admissionHold(running, settling);
+  const held = quotaHeldRuntimes(states.values(), Date.now());
+  return {
+    slots: contract.maxParallel - hold.count,
+    /**
+     * @param {string} runtimeId
+     * @returns {boolean}
+     */
+    take: (runtimeId) => {
+      if (!runtimeHasCapacity(runtimeId, contract, hold.perRuntime, held)) return false;
+      hold.perRuntime.set(runtimeId, (hold.perRuntime.get(runtimeId) ?? 0) + 1);
+      return true;
+    },
+  };
 }
 
 /**
