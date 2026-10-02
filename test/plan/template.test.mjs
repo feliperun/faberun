@@ -143,7 +143,7 @@ test("draft and review are told the path list is a byte-limited cut that reports
   assert.match(draftRule, /document, archived-log, manifest, code, other/u);
   assert.match(draftRule, /repo-paths\.txt/u);
   const reviseInstructions = validateContract(buildPlanningContract("revise", baseInputs()), contractPath).nodes[0].taskPacket.instructions;
-  assert.ok(reviseInstructions.includes(PATH_CUT_RULE), "a revise reads the same cut the draft wrote against");
+  assert.ok(!reviseInstructions.includes(PATH_CUT_RULE), "the narrowed reviser reads no repository facts (R4), so the cut rule stays with the stages that read them");
 
   const reviewInstructions = validateContract(buildPlanningContract("review", baseInputs()), contractPath).nodes[0].taskPacket.instructions;
   const reviewRule = reviewInstructions.find((instruction) => instruction === REVIEW_PATH_CUT_RULE);
@@ -671,10 +671,15 @@ test("a planning contract names no path inside faberun's own source", () => {
   const contractPath = join(cwd, "contract.json");
   const readFilesOf = (/** @type {"draft"|"revise"|"review"} */ kind) => validateContract(buildPlanningContract(kind, baseInputs()), contractPath).nodes[0].taskPacket.readFiles;
   // Draft and revise author the plan from the plan inputs plus the staged
-  // catalogue; the review judges it from the three inputs alone.
+  // catalogue; the review judges it from the three inputs alone. R4: the
+  // revise reads no repository facts — the plan's readFiles are the
+  // selection its drafter drew from the fact set, and the reviser keeps
+  // them.
   for (const kind of /** @type {const} */ (["draft", "revise"])) {
     assert.ok(readFilesOf(kind).includes(`.runs/${TASK_KIND_CATALOGUE_FILE}`), `${kind} reads the staged catalogue`);
   }
+  assert.ok(readFilesOf("draft").includes(".runs/repo-facts.json"));
+  assert.ok(!readFilesOf("revise").includes(".runs/repo-facts.json"), "the narrowed reviser reads no repository facts");
   for (const kind of /** @type {const} */ (["draft", "revise", "review"])) {
     for (const path of readFilesOf(kind)) {
       assert.doesNotMatch(path, /^src\//u, `${kind} must not read ${path}: it is faberun's source, not the target repository's`);
@@ -726,6 +731,8 @@ test("a revise contract asks for a patch when there is a plan to patch, and for 
   // for both, so a worker cannot be told two shapes for one node.
   assert.match(patch, /nodes\?: \[\{id, objective, taskKind, riskTier, dependsOn, readFiles, writeFiles, scopeAcknowledged, definitionOfDone: \[\{id, text, proof\?: \{kind: "command"\|"path"\|"verification", ref\}, judgment\?: true, reason\?: string\}\]/);
   assert.match(patch, /a node whose id that plan already has replaces it, a new id adds a node, removedNodeIds names each node the plan must no longer have/);
+  assert.match(patch, /The patch applies to the plan the pipeline holds, not to the context in readFiles/);
+  assert.doesNotMatch(patch, /applies to the plan JSON in readFiles/, "the reviser reads the narrowed context, not the plan it patches (R4)");
   assert.doesNotMatch(patch, /Put the revised plan in output\.plan/);
 
   // Measured 2026-09-27 on the 3a gate: a first round whose draft never

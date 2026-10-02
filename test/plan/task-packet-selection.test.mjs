@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderWorkerPrompt } from "../../src/contract/task-packet.mjs";
 import { applySizingRules } from "../../src/plan/sizing.mjs";
+import { REVISE_FACT_SELECTION_RULE } from "../../src/plan/revise-context.mjs";
 import { FACT_SELECTION_RULE, buildPlanningContract } from "../../src/plan/template.mjs";
 
 /**
@@ -54,13 +55,20 @@ function carryingNode(id, readFiles) {
   };
 }
 
-test("draft and revise are told to select each node's readFiles from the phase fact set", () => {
-  for (const kind of /** @type {const} */ (["draft", "revise"])) {
-    const instructions = /** @type {any} */ (buildPlanningContract(kind, /** @type {any} */ (baseInputs()))).nodes[0].taskPacket.instructions;
-    assert.ok(instructions.includes(FACT_SELECTION_RULE), `${kind} carries the fact-selection rule`);
-  }
+test("the draft is told to select each node's readFiles from the phase fact set; the narrowed revise keeps the selection", () => {
+  const draftInstructions = /** @type {any} */ (buildPlanningContract("draft", /** @type {any} */ (baseInputs()))).nodes[0].taskPacket.instructions;
+  assert.ok(draftInstructions.includes(FACT_SELECTION_RULE), "the draft carries the fact-selection rule");
   assert.match(FACT_SELECTION_RULE, /selection from the phase fact set/);
   assert.match(FACT_SELECTION_RULE, /sizing_read_outside_fact_set/u, "the author is told the refusal the rule carries");
+
+  // R4 narrowed the reviser: it reads no repository facts, so it cannot
+  // select from the fact set. Its packet carries the replacement sentence —
+  // keep the plan's selections, never invent a read — not the drafter's
+  // selection rule.
+  const reviseInstructions = /** @type {any} */ (buildPlanningContract("revise", /** @type {any} */ (baseInputs()))).nodes[0].taskPacket.instructions;
+  assert.ok(!reviseInstructions.includes(FACT_SELECTION_RULE));
+  assert.ok(reviseInstructions.includes(REVISE_FACT_SELECTION_RULE), "the revise carries its own replacement sentence");
+  assert.match(REVISE_FACT_SELECTION_RULE, /keep the plan's readFiles/u);
 
   // The reviewer grades the plan against the rules; it does not author the
   // selection, so the rule stays out of its packet.

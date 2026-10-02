@@ -28,6 +28,7 @@ import { join, relative } from "node:path";
 import { writeJsonAtomic } from "../run/store.mjs";
 import { stableJson } from "../util.mjs";
 import { freezePreflight } from "./preflight.mjs";
+import { reviseContextFor } from "./revise-context.mjs";
 import { applyPlanPatch, validateFindings, validatePlanOutput } from "./template.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
@@ -288,13 +289,39 @@ export async function runReviewRounds(options) {
     // the whole plan, so answering one finding costs the size of that
     // finding's nodes instead of the phase's. Two calls died on the full-plan
     // shape at 65,932 and 66,821 output tokens against the 65,536 ceiling.
-    // The patch is only asked for when there is a validated plan to apply it
-    // to: a first round whose draft never validated has no node list to patch,
-    // and that round's revise returns a whole plan.
+    //
+    // R4, campaign-efficiency phase 4: once there is a validated plan to
+    // patch, the reviser also stops reading that plan, and reads no
+    // repository facts. Its context is the findings' nodes, the dependencies
+    // those nodes need, and the plan's own declarations (`reviseContextFor`),
+    // and a context over the packet ceiling is refused by name — the explicit
+    // overflow error R4 asks for on the reviser side — never truncated and
+    // never silently widened back to the whole plan; the refusal is the
+    // finding the round contests on. The patch still applies to the full
+    // plan this loop holds; only the reading narrowed. A first round whose
+    // draft never validated has no node list to narrow, so that round's
+    // revise reads the rejected draft and returns a whole plan.
     const base = plan;
     const patchMode = base !== null;
-    const stageInputs = { specPath: relativeSpecPath, repoFactsPath: relativeRepoFactsPath, cataloguePath: relativeCataloguePath, packageMode, ...(patchMode ? { revisePatch: true } : {}) };
-    const revise = await runStage("revise", { ...stageInputs, findingsPath: relative(cwd, path), planPath: relativeWorkingPlanPath });
+    /** @type {PlanFindingOutput|null} */
+    let contextFailure = null;
+    /** @type {string|null} */
+    let contextPath = null;
+    if (patchMode) {
+      const contextFile = join(scratchDir, `revise-context-round-${round}.json`);
+      try {
+        writeJsonAtomic(contextFile, reviseContextFor(/** @type {import("./template.mjs").PlanOutput} */ (base), findingsForRevise));
+        contextPath = relative(cwd, contextFile);
+      } catch (error) {
+        contextFailure = invalidPlanFinding(`revise-r${round}-context`, error);
+      }
+    }
+    if (contextFailure !== null) {
+      logStage("revise", { round, contextOverBudget: contextFailure.text });
+      return { plan: null, finding: contextFailure, firstInvalid: contextFailure };
+    }
+    const stageInputs = { specPath: relativeSpecPath, cataloguePath: relativeCataloguePath, packageMode, ...(patchMode ? { revisePatch: true } : {}) };
+    const revise = await runStage("revise", { ...stageInputs, findingsPath: relative(cwd, path), planPath: /** @type {string} */ (patchMode ? contextPath : relativeWorkingPlanPath) });
     /**
      * The plan a revise's output produced, before any validation: the merged
      * patch when the reviser patched a plan, its own `output.plan` when there
@@ -328,13 +355,44 @@ export async function runReviewRounds(options) {
       firstInvalid = invalidPlanFinding(`revise-r${round}-attempt1`, error);
     }
     const retryPath = join(scratchDir, `findings-round-${round}-retry.json`);
-    writeJsonAtomic(retryPath, [...findingsForRevise, firstInvalid]);
+    const retryFindings = [...findingsForRevise, firstInvalid];
+    writeJsonAtomic(retryPath, retryFindings);
     // The retry repairs the revision the check refused, not the plan before
-    // it: that revision already carries this round's resolutions, and only the
-    // check's message is left to answer.
-    const retryPlanPath = join(scratchDir, `plan-round-${round}-rejected.json`);
-    writeJsonAtomic(retryPlanPath, revision ?? base);
-    const retry = await runStage("revise", { ...stageInputs, findingsPath: relative(cwd, retryPath), planPath: relative(cwd, retryPlanPath) });
+    // it: that revision already carries this round's resolutions, and only
+    // the check's message is left to answer.
+    const retryFrom = revision ?? base;
+    /** @type {string} */
+    let retryPlanPath;
+    if (patchMode) {
+      // A validator message names the refused attempt's nodes by their index
+      // in its patch, and no finding names them by id: the nodes the first
+      // attempt changed ride into the retry's context beside the findings'
+      // own.
+      /** @type {string[]} */
+      let firstAttemptNodes = [];
+      if (revision !== null) {
+        const before = new Map(base.nodes.map((node) => [node.id, stableJson(node)]));
+        firstAttemptNodes = revision.nodes.filter((node) => before.get(node.id) !== stableJson(node)).map((node) => node.id);
+      }
+      const retryContextFile = join(scratchDir, `revise-context-round-${round}-retry.json`);
+      try {
+        writeJsonAtomic(retryContextFile, reviseContextFor(/** @type {{nodes: PlanOutputNode[]} & Record<string, unknown>} */ (retryFrom), retryFindings, firstAttemptNodes));
+        retryPlanPath = relative(cwd, retryContextFile);
+      } catch (error) {
+        // The retry's context does not fit either: the first attempt's own
+        // output, when it validated, still goes to review rather than
+        // contesting a round over a retry it cannot hand a context to.
+        if (structurallyValid !== null) return { plan: structurallyValid, runId: revise.contract.id, firstInvalid };
+        const finding = invalidPlanFinding(`revise-r${round}-context-retry`, error);
+        logStage("revise", { round, contextOverBudget: finding.text });
+        return { plan: null, finding, firstInvalid };
+      }
+    } else {
+      const rejectedFile = join(scratchDir, `plan-round-${round}-rejected.json`);
+      writeJsonAtomic(rejectedFile, retryFrom);
+      retryPlanPath = relative(cwd, rejectedFile);
+    }
+    const retry = await runStage("revise", { ...stageInputs, findingsPath: relative(cwd, retryPath), planPath: retryPlanPath });
     try {
       // A retry that validates goes to review even if the freeze pre-flight
       // still refuses it: that round's own pre-flight raises it again. Its

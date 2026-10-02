@@ -1,7 +1,7 @@
 /**
  * Planning contract templates: the one-node `mode: "discovery"` contracts a
- * plan pipeline runs outside the control session — draft, review, revise (a
- * draft carrying the reviewer's findings), spec authoring, and spec review.
+ * plan pipeline runs outside the control session — draft, review, revise (the
+ * reviewer's findings and the nodes they name), spec authoring, and spec review.
  * Separate from freeze.mjs (which turns an already-built plan into a
  * validated contract on disk) because this module never touches the
  * filesystem or a model: it only assembles the JSON object `validateContract`
@@ -27,11 +27,17 @@ import { CONTRACT_VERSION, PROTOCOL_SCHEMA_VERSION } from "../contract/index.mjs
 import { validateDefinitionOfDone } from "../contract/definition-of-done.mjs";
 import { validateFinalVerification, validateSharedVerification } from "../contract/final-verification.mjs";
 import { validateVerificationCommands } from "../contract/verification.mjs";
+import { REVISE_FACT_SELECTION_RULE, REVISE_OPENING, REVISE_PATCH_OPENING, REVISE_PATCH_PHASES_INSTRUCTION, REVISE_PATCH_VENDOR_RULE } from "./revise-context.mjs";
 
 /** @typedef {import("../contract/index.mjs").JsonObject} JsonObject */
 /** @typedef {"draft"|"review"|"revise"|"spec-author"|"spec-review"} PlanningKind */
 /** @typedef {"low"|"standard"|"high"} RiskTier */
 /** @typedef {{campaignId: string, phase: string, n: number, goal?: string, cwd?: string, runtimes: Record<string, JsonObject>, runtimeDefaults: {worker?: string, judge?: string}, reviewerId?: string, specPath?: string, repoFactsPath?: string, cataloguePath?: string, packageMode?: import("./sizing.mjs").PackageMode, planPath?: string, findingsPath?: string, notesPath?: string, revisePatch?: boolean}} PlanningContractInputs */
+// A revise's planPath names the plan context it starts from: before the
+// first validated plan, the rejected draft, whole; after it, the narrowed
+// context `reviseContextFor` (revise-context.mjs, R4) builds. A revise never
+// reads the repository facts — the plan's readFiles are the selection its
+// drafter drew from the fact set, and the reviser keeps them.
 /** @typedef {{id: string, objective: string, taskKind: string, riskTier: RiskTier, dependsOn: string[], readFiles: string[], writeFiles: string[], scopeAcknowledged: string[], definitionOfDone: import("../contract/definition-of-done.mjs").DefinitionOfDoneItem[], verification: import("../contract/verification.mjs").VerificationCommand[], expectedTurns?: number}} PlanOutputNode */
 /** @typedef {{nodes: PlanOutputNode[], phases?: PlanPhase[], sharedVerification?: import("../contract/verification.mjs").VerificationCommand[], finalVerification?: import("../contract/verification.mjs").VerificationCommand[], findings?: PlanFindingOutput[], justification?: string}} PlanOutput */
 /** @typedef {{id: string, requirementIds: string[], nodeIds?: string[], deliverable: string}} PlanPhase */
@@ -107,7 +113,7 @@ const KIND_ROLE = Object.freeze({
 /** @type {Record<PlanningKind, string[]>} */
 const REQUIRED_INPUTS = Object.freeze({
   draft: ["specPath", "repoFactsPath", "cataloguePath"],
-  revise: ["specPath", "repoFactsPath", "cataloguePath", "findingsPath", "planPath"],
+  revise: ["specPath", "cataloguePath", "findingsPath", "planPath"],
   review: ["specPath", "repoFactsPath", "planPath"],
   "spec-author": ["notesPath"],
   "spec-review": ["specPath"],
@@ -127,10 +133,10 @@ const PLAN_SUITE_SHAPE = '[{argv: [string], cwd?, timeoutSec?, repeat?, env?, mu
 const ID_CHARSET_RULE = 'every id in it (node, phase, node assignment, and definitionOfDone item) must match [A-Za-z0-9._-]+ and never be exactly "." or ".."';
 const PLAN_OUTPUT_SHAPE = `{nodes: [${PLAN_NODE_SHAPE}], phases?: ${PLAN_PHASE_SHAPE}, sharedVerification?: ${PLAN_SUITE_SHAPE}, finalVerification?: ${PLAN_SUITE_SHAPE}, justification?}; ${ID_CHARSET_RULE}`;
 /**
- * What a revise writes instead of the plan again (RM-110). Every node this
- * names is a complete node, because the plan it patches is in the reviser's
- * readFiles and the patch says only what changes: the node shape is
- * `PLAN_NODE_SHAPE`, one home for both strings so they cannot drift.
+ * What a revise writes instead of the plan again (RM-110): complete nodes,
+ * spelled exactly as the plan spells them — `PLAN_NODE_SHAPE`, one home for
+ * both strings so they cannot drift. The patch applies to the whole plan the
+ * pipeline holds; only the reviser's reading narrowed (R4).
  */
 const REVISE_PATCH_SHAPE = `{nodes?: [${PLAN_NODE_SHAPE}], removedNodeIds?: [string], phases?: ${PLAN_PHASE_SHAPE}, sharedVerification?: ${PLAN_SUITE_SHAPE}, finalVerification?: ${PLAN_SUITE_SHAPE}, justification?}; ${ID_CHARSET_RULE}`;
 /**
@@ -161,20 +167,33 @@ const FINDINGS_SHAPE = "[{id, severity, nodeId, text}]";
  * rejected output).
  */
 const REVISE_PLAN_INSTRUCTION = `Return exactly one worker-result JSON object. Put the revised plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`;
-const REVISE_PATCH_INSTRUCTION = `Return exactly one worker-result JSON object. Put the revision in output.patch as ${REVISE_PATCH_SHAPE} and nothing else in output. The patch applies to the plan JSON in readFiles: a node whose id that plan already has replaces it, a new id adds a node, removedNodeIds names each node the plan must no longer have, and a field you omit keeps the value the plan already has. Carry only the nodes and fields a finding requires — a revise that omits what a finding names has not answered it.`;
+const REVISE_PATCH_INSTRUCTION = `Return exactly one worker-result JSON object. Put the revision in output.patch as ${REVISE_PATCH_SHAPE} and nothing else in output. The patch applies to the plan the pipeline holds, not to the context in readFiles: a node whose id that plan already has replaces it, a new id adds a node, removedNodeIds names each node the plan must no longer have, and a field you omit keeps the value the plan already has. The context names the nodes your findings concern (changedNodes) and the dependencies those nodes need (dependencyNodes); dependencyNodes are there to be read, never re-emitted. Carry only the nodes and fields a finding requires — a revise that omits what a finding names has not answered it.`;
+
+/** The phase declaration rule a draft and a whole-plan revise share. */
+const PLAN_PHASES_INSTRUCTION = "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies, the planned node ids it assigns, and the deliverable it produces in one sentence. Every planned node must appear in exactly one phase's nodeIds; a missing, duplicate, or unknown node assignment is refused.";
+
+/** The classification rule a draft and a whole-plan revise share. */
+const PLAN_VENDOR_RULE = "Never name a runtime, harness, model, or vendor anywhere in output.plan.";
 
 /**
- * The instruction list is a frozen table because it is the same for every
- * campaign; only the sizing sentence depends on what kind of package this is.
+ * The frozen instruction table; `instructionsFor` swaps the sizing sentence
+ * by package mode and, for a patch revise (RM-110), the four lines whose
+ * whole plan became the narrowed context (R4, `revise-context.mjs`).
  *
  * @param {PlanningKind} kind
  * @param {PlanningContractInputs} inputs
  * @returns {string[]}
  */
 function instructionsFor(kind, inputs) {
-  const lines = kind !== "revise" || inputs.revisePatch !== true
-    ? INSTRUCTIONS[kind]
-    : INSTRUCTIONS[kind].map((line) => (line === REVISE_PLAN_INSTRUCTION ? REVISE_PATCH_INSTRUCTION : line));
+  let lines = INSTRUCTIONS[kind];
+  if (kind === "revise" && inputs.revisePatch === true) {
+    lines = lines.map((line) => (
+      line === REVISE_OPENING ? REVISE_PATCH_OPENING
+        : line === PLAN_PHASES_INSTRUCTION ? REVISE_PATCH_PHASES_INSTRUCTION
+        : line === REVISE_PLAN_INSTRUCTION ? REVISE_PATCH_INSTRUCTION
+        : line === PLAN_VENDOR_RULE ? REVISE_PATCH_VENDOR_RULE
+        : line));
+  }
   if (inputs.packageMode !== "exploratory") return lines;
   return lines.map((line) => (line === SIZING_INSTRUCTION ? EXPLORATORY_SIZING_INSTRUCTION : line));
 }
@@ -297,7 +316,7 @@ const SCOPE_CLOSURE_RULE = Object.freeze([
 /** @type {Record<PlanningKind, string>} */
 const OBJECTIVES = Object.freeze({
   draft: "Draft an execution plan for this phase: classify every node's taskKind and riskTier from the spec and the repository facts, and propose the dependency graph.",
-  revise: "Revise the plan in readFiles to resolve every one of the reviewer's findings, changing only what a finding requires.",
+  revise: "Resolve every one of the reviewer's findings, changing only what a finding requires.",
   review: "Review this plan against the spec and the repository facts, and report only findings.",
   "spec-author": "Turn free notes into a structured spec document following the spec format.",
   "spec-review": "Review this spec for traceability and completeness, and report only findings.",
@@ -307,7 +326,7 @@ const OBJECTIVES = Object.freeze({
 const INSTRUCTIONS = Object.freeze({
   draft: [
     `Consult the ${TASK_KIND_CATALOGUE_FILE} in readFiles before classifying any node; taskKind must be one of that catalogue and riskTier must be one of ${RISK_TIERS.join(", ")}.`,
-    "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies, the planned node ids it assigns, and the deliverable it produces in one sentence. Every planned node must appear in exactly one phase's nodeIds; a missing, duplicate, or unknown node assignment is refused.",
+    PLAN_PHASES_INSTRUCTION,
     ...SCOPE_CLOSURE_RULE,
     NAMED_TEST_FILE_RULE,
     COVERING_TEST_RULE,
@@ -316,21 +335,23 @@ const INSTRUCTIONS = Object.freeze({
     REPO_FACTS_QUERY_BOUND_RULE,
     ...CONTRACT_VERIFICATION_RULE,
     `Return exactly one worker-result JSON object. Put the plan in output.plan as ${PLAN_OUTPUT_SHAPE} and nothing else in output.`,
-    "Never name a runtime, harness, model, or vendor anywhere in output.plan. taskKind and riskTier are the only classification a draft makes; a routing table assigns a runtime afterward, from those two fields alone.",
+    PLAN_VENDOR_RULE,
     SIZING_INSTRUCTION,
   ],
+  // The revise reads no repository facts (R4): it keeps the plan's own
+  // selections (REVISE_FACT_SELECTION_RULE, revise-context.mjs), and the two
+  // repo-facts rules the draft authors to stay with the stages that read the
+  // facts. The freeze pre-flight holds the revise to both mechanically.
   revise: [
-    "Start from the plan JSON in readFiles, the plan the findings were raised against, and return it with only the changes the findings require. Keep every node id, write file, definitionOfDone item and contract-level suite that no finding asks you to change: a revise that redrafts from the findings alone loses what the plan already got right.",
+    REVISE_OPENING,
     "Read the findings and resolve every one; do not leave a critical or major finding unaddressed.",
-    "Declare every phase the plan serves in output.plan.phases: the requirement ids (R<n> from the spec) the phase satisfies, the planned node ids it assigns, and the deliverable it produces in one sentence. Every planned node must appear in exactly one phase's nodeIds; a missing, duplicate, or unknown node assignment is refused.",
+    PLAN_PHASES_INSTRUCTION,
     ...SCOPE_CLOSURE_RULE,
     NAMED_TEST_FILE_RULE,
-    COVERING_TEST_RULE,
-    PATH_CUT_RULE,
-    FACT_SELECTION_RULE,
+    REVISE_FACT_SELECTION_RULE,
     ...CONTRACT_VERIFICATION_RULE,
     REVISE_PLAN_INSTRUCTION,
-    "Never name a runtime, harness, model, or vendor anywhere in output.plan.",
+    PLAN_VENDOR_RULE,
     SIZING_INSTRUCTION,
   ],
   // The rules the plan is judged against, carried as rules. They are the same
@@ -379,8 +400,11 @@ const NON_GOALS = Object.freeze({
  */
 function readFilesForKind(kind, inputs) {
   if (kind === "draft") return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.cataloguePath)];
+  // No repository facts: the reviser keeps the plan's own selections (R4).
+  // planPath is the whole rejected plan before the first validated plan, the
+  // narrowed context `reviseContextFor` builds after.
   if (kind === "revise") {
-    return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.repoFactsPath), /** @type {string} */ (inputs.cataloguePath), /** @type {string} */ (inputs.findingsPath), /** @type {string} */ (inputs.planPath)];
+    return [/** @type {string} */ (inputs.specPath), /** @type {string} */ (inputs.cataloguePath), /** @type {string} */ (inputs.findingsPath), /** @type {string} */ (inputs.planPath)];
   }
   // The review's readFiles are the target's own three inputs: the rules it
   // judges by are in INSTRUCTIONS.review, because a path in this repository

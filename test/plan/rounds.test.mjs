@@ -257,22 +257,26 @@ test("a revise that answers every critical is not stopped by a fresh review that
   assert.equal(reviseCalls, 2);
 });
 
-test("the revise is handed the plan it revises, and its retry the revision the validator refused", async () => {
+test("the revise is handed the nodes its findings name and the dependencies they need, not the whole plan", async () => {
   // Measured 2026-09-25 on the 3a gate: the revise read only the spec, repo
   // facts, catalogue and findings, so every revise redrafted the plan from
   // the findings alone, and its retry fixed one validator error while
-  // introducing another.
+  // introducing another. RM-110 gave it a patch; R4, campaign-efficiency
+  // phase 4, narrows what it reads to the findings' nodes, their
+  // dependencies and the plan's own declarations — never the whole node
+  // list, never the repository facts.
   //
-  // RM-110 moves what the retry is handed from "the plan the validator
-  // refused" to "the merged plan the validator refused": the first attempt's
-  // node change is a cross-field refusal here (its phase names a node the plan
-  // does not have), so the merge survives it and the retry patches a plan that
-  // already carries that change, which is what keeps the retry to one answer.
+  // The retry is handed the narrowed context of the revision the validator
+  // refused (RM-110's merge under R4's reading): the first attempt's own
+  // changed nodes ride beside the findings' nodes, because a validator
+  // message names them by patch index, never by id.
   const rollback = { id: "F1", severity: "critical", nodeId: "build", text: "the plan is missing a rollback path" };
   const revisedNode = { ...planOutput().nodes[0], objective: "The drafted plan, with a rollback path" };
   const ghostPhase = { id: "p1", requirementIds: ["R1"], nodeIds: ["build", "ghost"], deliverable: "The feature" };
   /** @type {unknown[]} */
   const handed = [];
+  /** @type {boolean[]} */
+  const sawNoRepoFacts = [];
   let reviewCalls = 0;
   let reviseCalls = 0;
   const { options } = harness({
@@ -285,6 +289,7 @@ test("the revise is handed the plan it revises, and its retry the revision the v
       }
       reviseCalls += 1;
       handed.push(JSON.parse(readFileSync(join(/** @type {string} */ (options.cwd), inputs.planPath), "utf8")));
+      sawNoRepoFacts.push(inputs.repoFactsPath === undefined);
       const patch = reviseCalls === 1
         ? { nodes: [revisedNode], phases: [ghostPhase] }
         : { phases: [{ ...ghostPhase, nodeIds: ["build"] }] };
@@ -295,11 +300,99 @@ test("the revise is handed the plan it revises, and its retry the revision the v
   const result = await runReviewRounds(/** @type {any} */ (options));
 
   assert.equal(result.resolved, true);
-  assert.equal(/** @type {any} */ (handed[0]).nodes[0].objective, "The drafted plan", "the first revise starts from the plan review graded");
-  assert.equal(/** @type {any} */ (handed[1]).nodes[0].objective, "The drafted plan, with a rollback path", "the retry starts from the revision the validator refused, not from the plan before it");
+  assert.ok(sawNoRepoFacts.every(Boolean), "the narrowed reviser receives no repository facts");
+  assert.deepEqual(handed[0], {
+    changedNodes: [planOutput({ objective: "The drafted plan" }).nodes[0]],
+    dependencyNodes: [],
+  }, "the first revise's context is the findings' node, which depends on nothing, and nothing else");
+  assert.equal(/** @type {any} */ (handed[1]).changedNodes[0].objective, "The drafted plan, with a rollback path", "the retry starts from the revision the validator refused, not from the plan before it");
   assert.deepEqual(/** @type {any} */ (handed[1]).phases, [ghostPhase], "including the part of it the validator refused");
+  assert.deepEqual(/** @type {any} */ (handed[1]).dependencyNodes, []);
   assert.deepEqual(/** @type {any} */ (result.plan).phases, [{ ...ghostPhase, nodeIds: ["build"] }]);
   assert.equal(/** @type {any} */ (result.plan).nodes[0].objective, "The drafted plan, with a rollback path");
+});
+
+test("the revise context closes over the dependencies the named nodes need and carries the plan's declarations", async () => {
+  // A finding on the last node of a chain pulls in the whole chain it
+  // depends on, transitively, and the plan's own declarations — so a patch
+  // that adds or removes a node can keep the phase assignments legal — but
+  // nothing the findings never named and no node needs.
+  const node = (/** @type {string} */ id, /** @type {string[]} */ dependsOn) => ({
+    id,
+    objective: `Implement ${id}`,
+    taskKind: "implement",
+    riskTier: "standard",
+    dependsOn,
+    readFiles: [],
+    writeFiles: [`src/${id}.mjs`],
+    scopeAcknowledged: [],
+    definitionOfDone: [{ id: `${id}-works`, text: "It works", proof: { kind: "path", ref: `src/${id}.mjs` } }],
+    verification: [],
+  });
+  const basePlan = {
+    nodes: [node("build", []), node("layout", ["build"]), node("verify", ["layout"])],
+    phases: [{ id: "p1", requirementIds: ["R1"], nodeIds: ["build", "layout", "verify"], deliverable: "The feature" }],
+    justification: "the draft's own reason",
+  };
+  const finding = { id: "F1", severity: "critical", nodeId: "verify", text: "verify measures the wrong window" };
+  /** @type {unknown[]} */
+  const handed = [];
+  let reviewCalls = 0;
+  const { options } = harness({
+    reviewRounds: 2,
+    plan: /** @type {any} */ (basePlan),
+    runStage: async (/** @type {string} */ kind, /** @type {any} */ inputs) => {
+      if (kind === "review") {
+        reviewCalls += 1;
+        return { contract: { id: `review-${reviewCalls}` }, output: { findings: reviewCalls === 1 ? [finding] : [] } };
+      }
+      handed.push(JSON.parse(readFileSync(join(/** @type {string} */ (options.cwd), inputs.planPath), "utf8")));
+      return { contract: { id: "revise-1" }, output: { patch: { nodes: [{ ...node("verify", ["layout"]), objective: "measures the right window" }] } } };
+    },
+  });
+
+  const result = await runReviewRounds(/** @type {any} */ (options));
+
+  assert.equal(result.resolved, true);
+  assert.deepEqual(handed[0], {
+    changedNodes: [node("verify", ["layout"])],
+    dependencyNodes: [node("build", []), node("layout", ["build"])],
+    phases: basePlan.phases,
+    justification: "the draft's own reason",
+  });
+});
+
+test("a revise context that does not fit the packet ceiling is refused by name and contests the round", async () => {
+  // R4's explicit overflow error, reviser side: the context is the revise
+  // packet's mandatory fact, so a context over the 65,536-byte budget is a
+  // named refusal — never a truncation, never a silent fall back to the
+  // whole plan — and the refusal is the finding the round contests on.
+  const finding = { id: "F1", severity: "critical", nodeId: "build", text: "the plan is missing a rollback path" };
+  const base = planOutput();
+  const huge = /** @type {any} */ ({ ...base, nodes: [{ ...base.nodes[0], objective: `Load: ${"x".repeat(70 * 1024)}` }] });
+  let reviseCalls = 0;
+  const { options, contestCalls } = harness({
+    reviewRounds: 3,
+    plan: huge,
+    runStage: async (/** @type {string} */ kind) => {
+      if (kind === "review") {
+        return { contract: { id: "review-1" }, output: { findings: [finding] } };
+      }
+      reviseCalls += 1;
+      return { contract: { id: `revise-${reviseCalls}` }, output: { patch: { nodes: [] } } };
+    },
+  });
+
+  const result = await runReviewRounds(/** @type {any} */ (options));
+
+  assert.equal(reviseCalls, 0, "the revise stage never runs on a context that cannot be built");
+  assert.equal(result.resolved, false);
+  assert.equal(contestCalls.length, 1);
+  const contest = /** @type {{findings: {id: string, text: string}[]}} */ (contestCalls[0]);
+  const overflow = contest.findings.find((item) => item.id === "plan-shape-revise-r1-context");
+  assert.ok(overflow, JSON.stringify(contest.findings.map((item) => item.id)));
+  assert.match(overflow.text, /revise_context_over_budget/u);
+  assert.match(overflow.text, /never truncated to fit/u);
 });
 
 test("a verification timeout under its measured bound is raised before review, not contested", async () => {
