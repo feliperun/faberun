@@ -307,7 +307,9 @@ test("a changed manifest, lockfile or machine input invalidates the record", () 
   assert.equal(lends((under) => { under.manifestDigest = "0".repeat(64); }), false, "a different manifest re-times everything");
   assert.equal(lends((under) => { under.lockfileDigest = "1".repeat(64); }), false, "a different lockfile re-times everything");
   assert.equal(lends((under) => { under.environment.node = "v0.0.0"; }), false, "a different runtime re-times everything");
-  assert.equal(lends((under) => { under.environment.platform = "win32"; }), false, "a different platform re-times everything");
+  // A platform other than the one this process runs on: "win32" is the same platform on Windows.
+  const otherPlatform = process.platform === "win32" ? "linux" : "win32";
+  assert.equal(lends((under) => { under.environment.platform = otherPlatform; }), false, "a different platform re-times everything");
 });
 
 test("a timed-out recorded candidate is never lent: it is timed fresh", () => {
