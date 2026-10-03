@@ -16,8 +16,11 @@ import { faberunHome } from "./host/home.mjs";
 import { reassociateProject } from "./cli/project.mjs";
 import { colorLevel, renderBanner, renderUsage, statusToken } from "./cli/brand.mjs";
 import { noTransportWarning } from "./notify/index.mjs";
+import { deliverToSessions, resolveSessionTargets } from "./notify/session.mjs";
 import { renderFindings, renderReport, renderReportJson, renderStatus, renderStatusJson } from "./report/render.mjs";
 import { renderNext, renderNextJson } from "./report/next.mjs";
+import { generateReportHtml } from "./report/report-html.mjs";
+import { generateReportVideo } from "./report/report-video.mjs";
 
 import {
   writeTextAtomic,
@@ -105,7 +108,7 @@ export const COMMAND_OPTIONS = {
   preflight: { static: { type: "boolean" }, json: { type: "boolean" }, "time-verification": { type: "boolean" } },
   validate: {},
   status: { json: { type: "boolean" } },
-  report: { json: { type: "boolean" } },
+  report: { json: { type: "boolean" }, html: { type: "boolean" }, video: { type: "boolean" } },
   findings: {},
   doctor: { cwd: { type: "string" }, json: { type: "boolean" }, discover: { type: "boolean" }, env: { type: "boolean" } },
   models: { probe: { type: "boolean" }, json: { type: "boolean" } },
@@ -276,6 +279,23 @@ function superviseIntervalOf(value) {
   const seconds = Number(value);
   if (!Number.isFinite(seconds) || seconds <= 0) throw new Error(`--interval must be a positive number of seconds: ${String(value)}`);
   return seconds;
+}
+
+/**
+ * Wake the operator's session with the report artifacts the command just
+ * wrote. Opt-in and lossy, exactly like every other notification: with no
+ * `FABERUN_NOTIFY_SESSION` target nothing is delivered and nothing blocks the
+ * command that already printed the paths.
+ *
+ * @param {{kind: "html"|"video", path: string}[]} artifacts
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {Promise<void>}
+ */
+async function notifyReportArtifacts(artifacts, env) {
+  const targets = resolveSessionTargets(env);
+  if (!targets.length || !artifacts.length) return;
+  const summary = ["🐦 faberun", ...artifacts.map((artifact) => `${artifact.kind === "video" ? "📹" : "📄"} ${artifact.path}`)].join(" · ");
+  await deliverToSessions({ type: "report", summary }, targets, { env });
 }
 
 /**
@@ -548,7 +568,37 @@ async function main(argv) {
     return;
   }
   if (command === "report") {
-    process.stdout.write(values.json === true ? renderReportJson(resolve(target)) : renderReport(resolve(target)));
+    const runDir = resolve(target);
+    if (values.json === true) {
+      process.stdout.write(renderReportJson(runDir));
+      return;
+    }
+    if (values.html === true) {
+      const result = generateReportHtml(runDir);
+      if (result.htmlPath === null) {
+        process.stderr.write(`[fail] ${result.code}\n`);
+        process.stdout.write(`[report] markdown · ${result.markdownPath}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      process.stdout.write(`[report] markdown · ${result.markdownPath}\n`);
+      process.stdout.write(`[report] html · ${result.htmlPath}\n`);
+      await notifyReportArtifacts([{ kind: "html", path: result.htmlPath }], process.env);
+      return;
+    }
+    if (values.video === true) {
+      const result = await generateReportVideo(runDir, { env: process.env });
+      process.stdout.write(`[report] narration · ${result.narrationPath}\n`);
+      if (result.videoPath === null) {
+        process.stderr.write(`[fail] ${result.code}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      process.stdout.write(`[report] video · ${result.videoPath}\n`);
+      await notifyReportArtifacts([{ kind: "video", path: result.videoPath }], process.env);
+      return;
+    }
+    process.stdout.write(renderReport(runDir));
     return;
   }
   if (command === "metrics") { process.stdout.write(renderCampaignMetrics(target, values)); return; }

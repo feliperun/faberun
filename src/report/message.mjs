@@ -124,7 +124,7 @@ export function renderRunProgress(runDir, event) {
   const view = { runDir, runId: event.runId ?? basename(runDir), payload, objectives, snapshots, campaign, label, subject };
 
   const body = event.type === "run.terminal" ? runTerminal(view) : event.type === "attention" ? attention(view) : nodeTerminal(view);
-  const lines = [...body, RULE, footer(view, event.type), ...updateLine(label)];
+  const lines = [...body, ...artifactLines(event.artifacts), RULE, footer(view, event.type), ...updateLine(label)];
   return boundToCeiling(lines);
 }
 
@@ -612,6 +612,18 @@ function retryOutspendMark(node) {
 function formatUsdCompact(value) {
   if (typeof value === "number" && Number.isFinite(value) && value >= 100) return `$${Math.round(value)}`;
   return formatUsd(value);
+}
+
+/**
+ * The run's readable artifacts, one line each with the glyph the report
+ * command prints beside it. The path is data, not wording, so the line needs
+ * no label and stays out of the operator's language.
+ *
+ * @param {{kind: "html"|"video", path: string}[]|undefined} artifacts
+ * @returns {string[]}
+ */
+function artifactLines(artifacts) {
+  return (artifacts ?? []).map((artifact) => `${artifact.kind === "video" ? "📹" : "📄"} ${artifact.path}`);
 }
 
 /**

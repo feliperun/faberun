@@ -17,7 +17,7 @@ import { runDirectory } from "../../src/run/paths.mjs";
 export function makeRun(nodeSpecs) {
   const directory = mkdtempSync(join(tmpdir(), "faberun-report-progress-"));
   const contractPath = writeContract(directory, fixture({
-    nodes: nodeSpecs.map((spec) => ({ id: spec.id, type: "backend", taskPacket: packet(), gate: false, phase: spec.phase })),
+    nodes: nodeSpecs.map((spec) => ({ id: spec.id, type: "backend", taskPacket: packet(), gate: false, phase: spec.phase, ...(Array.isArray(spec.dependsOn) ? { dependsOn: spec.dependsOn } : {}) })),
   }));
   const contract = validateContract(JSON.parse(readFileSync(contractPath, "utf8")), contractPath);
   const runDir = runDirectory(directory, "report-progress");
@@ -37,7 +37,9 @@ export function makeRun(nodeSpecs) {
     // contract node above; the raw snapshot's own `phase` is the node's
     // execution phase (`worker`/`judge`/`complete`, a disjoint enum) and is
     // derived from its status here unless a test overrides it explicitly.
-    const { id, phase: _campaignPhase, ...overrides } = spec;
+    // `dependsOn` is a contract fact, not a snapshot field, so it stays out of
+    // the node snapshot the same way.
+    const { id, phase: _campaignPhase, dependsOn: _dependsOn, ...overrides } = spec;
     const status = /** @type {string} */ (spec.status ?? "pending");
     const snapshotPhase = overrides.phase ?? (["done", "no-op", "canceled", "blocked", "failed", "exhausted", "stalled"].includes(status) ? "complete" : "worker");
     writeFileSync(join(runDir, "nodes", `${id}.json`), `${JSON.stringify({
