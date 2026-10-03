@@ -185,7 +185,7 @@ export function renderUsage() {
     "supervise <run-dir> [--detach] [--interval <sec>]",
     "supervise campaign <campaign-id> [--cwd <dir>] [--allow-main]",
     "status <run-dir> [--json]",
-    "report <run-dir> [--json] [--html]",
+    "report <run-dir> [--json] [--html] [--video]",
     "findings <run-dir>",
     "doctor [<contract.json>] [--cwd <dir>] [--discover] [--json]",
     "setup [--yes] [--no-skill] [--harnesses <a,b>] [--worker <id>] [--judge <id>] [--json]",

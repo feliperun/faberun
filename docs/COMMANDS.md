@@ -228,20 +228,25 @@ Related: `faberun report`, `faberun findings`, `faberun next`.
 
 ## faberun report
 ```text
-faberun report <run-dir> [--json] [--html]
+faberun report <run-dir> [--json] [--html] [--video]
 ```
 Report a run's attempts, tokens and cost, from the run's recorded evidence.
 `--json` emits the stable payload. `--html` writes `report.md` (the durable
 source) and renders a portable `report.md.html` beside it, with an inline SVG
 of the work graph when the phase has a dependency topology; the plain-text
-report still works when `mdhtml` is not installed.
+report still works when `mdhtml` is not installed. `--video` writes
+`report.narration.txt` (the spoken script) and assembles an animated
+`report.mp4` from the ElevenLabs narration, the work graph and the counts; it
+needs `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE`, `rsvg-convert` and `ffmpeg` on
+the machine, and a missing one is a named failure that keeps the narration.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
 | `--json` | none | Emit the report as one JSON object. | off |
 | `--html` | none | Write `report.md` and render a portable `report.md.html` beside it. | off |
+| `--video` | none | Write `report.narration.txt` and assemble an animated `report.mp4`. | off |
 Reads the run directory under the project's runs root (`run.json`, node
-snapshots, `usage.jsonl`); writes nothing unless `--html` is set.
+snapshots, `usage.jsonl`); writes nothing unless `--html` or `--video` is set.
 ```bash
 node src/cli.mjs report /home/me/.faberun/projects/<project>/runs/feature-42
 ```

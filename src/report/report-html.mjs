@@ -46,7 +46,7 @@ const REPORT_HTML_FILE = "report.md.html";
 export function renderReportGraphSvg(nodes) {
   const hasEdges = nodes.some((node) => (node.dependsOn ?? []).length > 0);
   if (!hasEdges) return null;
-  const laidOut = layoutNodes(nodes);
+  const laidOut = layoutGraphNodes(nodes);
   const byId = new Map(laidOut.map((node) => [node.id, node]));
   const maxDepth = laidOut.reduce((max, node) => Math.max(max, node.depth), 0);
   const maxRow = laidOut.reduce((max, node) => Math.max(max, node.row), 0);
@@ -69,7 +69,7 @@ export function renderReportGraphSvg(nodes) {
     const { x, y } = posOf(node);
     const clipId = `nodeclip${index}`;
     const colour = STATUS_COLOURS[node.status] ?? "#1F1F1F";
-    return `<g><rect x="${x}" y="${y}" width="${NODE_BOX_W}" height="${NODE_BOX_H}" rx="8" fill="#F4E9D8" stroke="${colour}" stroke-width="2"/><clipPath id="${clipId}"><rect x="${x}" y="${y}" width="${NODE_BOX_W}" height="${NODE_BOX_H}"/></clipPath><g clip-path="url(#${clipId})"><text x="${x + 10}" y="${y + 22}" font-family="ui-monospace, monospace" font-size="12" fill="#1F1F1F">${esc(truncateOneLine(node.id, NODE_ID_MAX_CHARS))}</text><text x="${x + 10}" y="${y + 40}" font-family="ui-sans-serif, sans-serif" font-size="12" fill="${colour}">${esc(node.status)}</text></g></g>`;
+    return `<g><rect x="${x}" y="${y}" width="${NODE_BOX_W}" height="${NODE_BOX_H}" rx="8" fill="#F4E9D8" stroke="${colour}" stroke-width="2"/><clipPath id="${clipId}"><rect x="${x}" y="${y}" width="${NODE_BOX_W}" height="${NODE_BOX_H}"/></clipPath><g clip-path="url(#${clipId})"><text x="${x + 10}" y="${y + 22}" font-family="ui-monospace, monospace" font-size="12" fill="#1F1F1F">${escapeSvgText(truncateOneLine(node.id, NODE_ID_MAX_CHARS))}</text><text x="${x + 10}" y="${y + 40}" font-family="ui-sans-serif, sans-serif" font-size="12" fill="${colour}">${escapeSvgText(node.status)}</text></g></g>`;
   }).join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="work graph">${edges}${boxes}</svg>`;
 }
@@ -158,7 +158,7 @@ export function generateReportHtml(runDir, options = {}) {
  * @param {string} runDir
  * @returns {Map<string, string[]>}
  */
-function readContractDependsOn(runDir) {
+export function readContractDependsOn(runDir) {
   try {
     const contract = /** @type {{nodes?: {id?: unknown, dependsOn?: unknown}[]}} */ (JSON.parse(readFileSync(join(runDir, "contract.json"), "utf8")));
     return new Map((contract.nodes ?? []).map((node) => [
@@ -179,7 +179,7 @@ const NODE_ID_MAX_CHARS = 28;
 
 /** One fill per terminal state, the same earthy palette the brief theme declares. */
 /** @type {Record<string, string | undefined>} */
-const STATUS_COLOURS = {
+export const STATUS_COLOURS = {
   done: "#556B3F",
   "no-op": "#556B3F",
   running: "#D97B4F",
@@ -193,12 +193,14 @@ const STATUS_COLOURS = {
 
 /**
  * A node's column is its dependency depth; its row is its position among the
- * siblings at that depth (the dashboard's own scheme).
+ * siblings at that depth (the dashboard's own scheme). Exported so the video
+ * scene (`report-video.mjs`) reuses this one layout instead of carrying a
+ * copy.
  *
  * @param {GraphNode[]} nodes
  * @returns {(GraphNode & {depth: number, row: number})[]}
  */
-function layoutNodes(nodes) {
+export function layoutGraphNodes(nodes) {
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const depthCache = new Map();
   /** @param {string} id @param {Set<string>} seen @returns {number} */
@@ -222,7 +224,7 @@ function layoutNodes(nodes) {
 }
 
 /** @param {string} value @returns {string} */
-function esc(value) {
+export function escapeSvgText(value) {
   return value.replace(/[&<>"']/gu, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch] ?? ch));
 }
 

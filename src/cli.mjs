@@ -19,6 +19,7 @@ import { noTransportWarning } from "./notify/index.mjs";
 import { renderFindings, renderReport, renderReportJson, renderStatus, renderStatusJson } from "./report/render.mjs";
 import { renderNext, renderNextJson } from "./report/next.mjs";
 import { generateReportHtml } from "./report/report-html.mjs";
+import { generateReportVideo } from "./report/report-video.mjs";
 
 import {
   writeTextAtomic,
@@ -106,7 +107,7 @@ export const COMMAND_OPTIONS = {
   preflight: { static: { type: "boolean" }, json: { type: "boolean" }, "time-verification": { type: "boolean" } },
   validate: {},
   status: { json: { type: "boolean" } },
-  report: { json: { type: "boolean" }, html: { type: "boolean" } },
+  report: { json: { type: "boolean" }, html: { type: "boolean" }, video: { type: "boolean" } },
   findings: {},
   doctor: { cwd: { type: "string" }, json: { type: "boolean" }, discover: { type: "boolean" }, env: { type: "boolean" } },
   models: { probe: { type: "boolean" }, json: { type: "boolean" } },
@@ -564,6 +565,17 @@ async function main(argv) {
       }
       process.stdout.write(`[report] markdown · ${result.markdownPath}\n`);
       process.stdout.write(`[report] html · ${result.htmlPath}\n`);
+      return;
+    }
+    if (values.video === true) {
+      const result = await generateReportVideo(runDir, { env: process.env });
+      process.stdout.write(`[report] narration · ${result.narrationPath}\n`);
+      if (result.videoPath === null) {
+        process.stderr.write(`[fail] ${result.code}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      process.stdout.write(`[report] video · ${result.videoPath}\n`);
       return;
     }
     process.stdout.write(renderReport(runDir));
