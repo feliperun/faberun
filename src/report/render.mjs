@@ -448,7 +448,7 @@ export function renderReport(runDir) {
   const totals = { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, costUsd: null };
   const costs = nodes.map(costProjection);
   const aggregateCost = aggregateCostProjection(costs);
-  const lines = [`# run ${basename(runDir)}`, "", `${nodes.length} nodes · ${summary} · in ${compactTokens(usage.inputTokens)} · out ${compactTokens(usage.outputTokens)} · cache ${compactTokens(usage.cacheReadInputTokens)} · cost ${compactCost(usage.costUsd)}`, "", "```", row(["", "NODE", "STATE", "TRY", "REV", "RUNTIME", "IN", "OUT", "CACHE", "COST", "NOTE"]), row(widths.map((width) => "-".repeat(width)))];
+  const lines = [`# run ${basename(runDir)}`, "", `${nodes.length} nodes · ${summary} · in ${compactTokens(usage.inputTokens)} · out ${compactTokens(usage.outputTokens)} · cache ${compactTokens(usage.cacheReadInputTokens)} · cost ${compactCost(usage.costUsd)}`, "", "```", row(["", "NODE", "STATE", "TRY", "REV", "RUNTIME", "IN", "OUT", "CACHE", "USD", "NOTE"]), row(widths.map((width) => "-".repeat(width)))];
   for (const [index, node] of nodes.entries()) {
     const usage = node.usage ?? { inputTokens: null, outputTokens: null, cacheReadInputTokens: null };
     for (const key of /** @type {("inputTokens"|"outputTokens"|"cacheReadInputTokens")[]} */ (Object.keys(totals).filter((key) => key !== "costUsd"))) totals[key] = (totals[key] ?? 0) + (usage[key] ?? 0);
