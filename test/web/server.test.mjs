@@ -747,3 +747,32 @@ test("the spec map is present but not first: it ships collapsed and last, never 
     rmSync(world.directory, { recursive: true, force: true });
   }
 });
+
+test("the artifact route serves a run's report copies and refuses everything else", async () => {
+  const world = makeWorld();
+  writeFileSync(join(world.runsDir, "alpha", "report.md.html"), "<!doctype html><html>report</html>");
+  writeFileSync(join(world.runsDir, "alpha", "report.mp4"), "fake-mp4-bytes");
+  writeFileSync(join(world.runsDir, "alpha", "contract.json"), "not an artifact");
+  const server = await startServer({ runsDir: world.runsDir, tokenFile: world.tokenFile, port: 0 });
+  try {
+    const { port } = /** @type {{address: () => {port: number}}} */ (server).address();
+    const base = `http://127.0.0.1:${port}`;
+    const html = await fetch(`${base}/api/artifact?run=alpha&file=report.md.html`, { headers: AUTH });
+    assert.equal(html.status, 200);
+    assert.match(html.headers.get("content-type") ?? "", /text\/html/u);
+    assert.match(await html.text(), /report/u);
+    const video = await fetch(`${base}/api/artifact?run=alpha&file=report.mp4`, { headers: AUTH });
+    assert.equal(video.status, 200);
+    assert.match(video.headers.get("content-type") ?? "", /video\/mp4/u);
+    // the file allowlist is the whole surface: a contract is not an artifact
+    assert.equal((await fetch(`${base}/api/artifact?run=alpha&file=contract.json`, { headers: AUTH })).status, 404);
+    // a run name is a bare directory segment, never a path
+    assert.equal((await fetch(`${base}/api/artifact?run=..%2Fsecret&file=report.md.html`, { headers: AUTH })).status, 404);
+    assert.equal((await fetch(`${base}/api/artifact?run=missing&file=report.md.html`, { headers: AUTH })).status, 404);
+    // the bearer token still gates it
+    assert.equal((await fetch(`${base}/api/artifact?run=alpha&file=report.md.html`)).status, 401);
+  } finally {
+    server.close();
+    rmSync(world.directory, { recursive: true, force: true });
+  }
+});

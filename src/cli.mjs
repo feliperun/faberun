@@ -16,6 +16,7 @@ import { faberunHome } from "./host/home.mjs";
 import { reassociateProject } from "./cli/project.mjs";
 import { colorLevel, renderBanner, renderUsage, statusToken } from "./cli/brand.mjs";
 import { noTransportWarning } from "./notify/index.mjs";
+import { deliverToSessions, resolveSessionTargets } from "./notify/session.mjs";
 import { renderFindings, renderReport, renderReportJson, renderStatus, renderStatusJson } from "./report/render.mjs";
 import { renderNext, renderNextJson } from "./report/next.mjs";
 import { generateReportHtml } from "./report/report-html.mjs";
@@ -278,6 +279,23 @@ function superviseIntervalOf(value) {
   const seconds = Number(value);
   if (!Number.isFinite(seconds) || seconds <= 0) throw new Error(`--interval must be a positive number of seconds: ${String(value)}`);
   return seconds;
+}
+
+/**
+ * Wake the operator's session with the report artifacts the command just
+ * wrote. Opt-in and lossy, exactly like every other notification: with no
+ * `FABERUN_NOTIFY_SESSION` target nothing is delivered and nothing blocks the
+ * command that already printed the paths.
+ *
+ * @param {{kind: "html"|"video", path: string}[]} artifacts
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {Promise<void>}
+ */
+async function notifyReportArtifacts(artifacts, env) {
+  const targets = resolveSessionTargets(env);
+  if (!targets.length || !artifacts.length) return;
+  const summary = ["🐦 faberun", ...artifacts.map((artifact) => `${artifact.kind === "video" ? "📹" : "📄"} ${artifact.path}`)].join(" · ");
+  await deliverToSessions({ type: "report", summary }, targets, { env });
 }
 
 /**
@@ -565,6 +583,7 @@ async function main(argv) {
       }
       process.stdout.write(`[report] markdown · ${result.markdownPath}\n`);
       process.stdout.write(`[report] html · ${result.htmlPath}\n`);
+      await notifyReportArtifacts([{ kind: "html", path: result.htmlPath }], process.env);
       return;
     }
     if (values.video === true) {
@@ -576,6 +595,7 @@ async function main(argv) {
         return;
       }
       process.stdout.write(`[report] video · ${result.videoPath}\n`);
+      await notifyReportArtifacts([{ kind: "video", path: result.videoPath }], process.env);
       return;
     }
     process.stdout.write(renderReport(runDir));

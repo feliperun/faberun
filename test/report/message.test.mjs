@@ -270,3 +270,21 @@ test("a run that delivered nothing says so, meters no tokens, and a node still r
     rmSync(runDir, { recursive: true, force: true });
   }
 });
+
+test("a run message lists the report artifacts the controller generated", () => {
+  const { runDir } = makeRun([
+    { id: "one", phase: "p", status: "done", startedAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:01:00.000Z", result: doneResult("done") },
+  ]);
+  try {
+    const message = renderRunProgress(runDir, {
+      type: "run.terminal",
+      runId: "report-progress",
+      artifacts: [{ kind: "html", path: "/r/report.md.html" }, { kind: "video", path: "/r/report.mp4" }],
+    });
+    assert.match(message, /📄 \/r\/report\.md\.html/u, "the HTML copy is named with its glyph");
+    assert.match(message, /📹 \/r\/report\.mp4/u, "the video is named with its glyph");
+    assert.ok(message.indexOf("📄 /r/report.md.html") < message.indexOf("──────────────────────────────"), "artifacts sit above the signature rule");
+  } finally {
+    rmSync(runDir, { recursive: true, force: true });
+  }
+});

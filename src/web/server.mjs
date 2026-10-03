@@ -440,6 +440,7 @@ export async function startServer({ runsDir, tokenFile, port = 4173, host = "127
       if (asset) return sendFile(response, join(HERE, asset.file), asset.type);
       if (url.pathname === "/api/snapshot") return sendJson(response, buildSnapshot(runsDir, selectionOf(url)));
       if (url.pathname === "/api/stream") return streamSnapshots(request, response, runsDir, selectionOf(url), pollMs);
+      if (url.pathname === "/api/artifact") return serveRunArtifact(response, url, runsDir);
       if (url.pathname.startsWith("/api/")) {
         // A phone client that hangs up mid-request must not take the daemon
         // down as an unhandled rejection; the router catches its own errors,
@@ -534,6 +535,37 @@ function streamSnapshots(request, response, runsDir, selection, pollMs) {
 function sendFile(response, path, type) {
   response.writeHead(200, { "content-type": type, "cache-control": "no-store" });
   response.end(readFileSync(path));
+}
+
+/** The exact run artifacts the dashboard serves; the name is the allowlist. */
+const ARTIFACT_TYPES = {
+  "report.md.html": "text/html; charset=utf-8",
+  "report.mp4": "video/mp4",
+};
+
+/**
+ * Serve one run's report artifact behind the same bearer check as every other
+ * route. `run` is a bare run directory name and `file` one of the two names the
+ * report commands write, so nothing else under the runs root is reachable.
+ *
+ * @param {import("node:http").ServerResponse} response
+ * @param {URL} url
+ * @param {string} runsDir
+ */
+function serveRunArtifact(response, url, runsDir) {
+  const run = url.searchParams.get("run") ?? "";
+  const file = url.searchParams.get("file") ?? "";
+  const type = /** @type {Record<string, string>} */ (ARTIFACT_TYPES)[file];
+  if (!type || !/^[A-Za-z0-9_.-]+$/.test(run) || run === "." || run === "..") return notFound(response);
+  const artifactPath = join(runsDir, run, file);
+  if (!existsSync(artifactPath)) return notFound(response);
+  sendFile(response, artifactPath, type);
+}
+
+/** @param {import("node:http").ServerResponse} response */
+function notFound(response) {
+  response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+  response.end("not found");
 }
 
 /** @param {import("node:http").ServerResponse} response @param {unknown} payload */

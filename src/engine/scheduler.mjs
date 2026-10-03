@@ -38,6 +38,7 @@ import { alreadyNotified, emitNodeAdvisories, notifyQueueFor, notifyQueuesByRun,
 import { detectStalls, invocationAlive, terminateProcess } from "./process.mjs";
 import { transition, writeNode } from "./state.mjs";
 import { render, renderFinalReport, writeFindingsArtifact } from "../report/final.mjs";
+import { generateReportHtml } from "../report/report-html.mjs";
 import { operationNextState, providerReceipts, settleInvocation } from "../run/operations.mjs";
 import { appendUsageRecord, invocationCost, invocationUsage, recordInvocationUsage } from "../run/usage.mjs";
 import { captureNodeScopeBoundaries, checkWorkerScope, emptyScope } from "./scope.mjs";
@@ -201,6 +202,24 @@ function archiveCanceledRunDir(runDir) {
     archivedPath = `${runDir}.canceled-${Date.now()}-${suffix}`;
   }
   renameSync(runDir, archivedPath);
+}
+
+/**
+ * The portable report copy, generated at run terminal so the operator always
+ * has a browser-readable report beside `STATUS.md`. Lossy on purpose: a
+ * missing mdhtml or an unreadable run yields no artifact and no error, because
+ * the run's own terminal work is already done and the report must not block it.
+ *
+ * @param {string} runDir
+ * @returns {{kind: "html", path: string}[]}
+ */
+function renderReportHtmlArtifacts(runDir) {
+  try {
+    const result = generateReportHtml(runDir);
+    return result.htmlPath ? [{ kind: "html", path: result.htmlPath }] : [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -752,6 +771,7 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
   renderStatusIfChanged(true, null);
   renderCampaignHandoffSafely(campaign, runsDir, runDir);
   writeFindingsArtifact(runDir, contract, states);
+  const artifacts = renderReportHtmlArtifacts(runDir);
   const failed = [...states.values()].filter((state) => state.status !== "done");
   const runId = basename(runDir);
   const runDedupeKey = `run.terminal:${runId}:${failed.length ? "attention" : "done"}`;
@@ -763,6 +783,7 @@ export async function driveRun(contract, runDir, states, campaign, lock, sourceI
       done: states.size - failed.length,
       total: states.size,
       dedupeKey: runDedupeKey,
+      artifacts,
     });
   }
   // Delivery is lossy: there is no retry budget to wait out, so the controller
