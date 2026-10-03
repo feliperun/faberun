@@ -23,14 +23,22 @@ Base: branch `legibilidade-relatorios`, a partir de `origin/main` @ `84f3af41` (
 - **Correção sugerida:** quando (e se) o dono decidir que um relatório em vídeo vale a dependência,
   tratar como campanha própria — escolher o provedor de voz, decidir onde a chave fica (secret
   manager, nunca no repositório) e definir o texto-fonte do vídeo a partir do mesmo `renderReportMarkdown`.
-- **Por que é achado de produto:** é uma decisão de dependência e de custo do dono, não uma
-  implementação que cabe nesta campanha. Registrado para não ser silenciosamente esquecido nem
-  silenciosamente implementado.
+- **Desfecho (02/10/2026):** implementado nativo em `report --video` (`src/report/report-video.mjs`,
+  commit `d4e95a44`). O degrau 4 usa a chave ElevenLabs do ambiente ford (`ELEVENLABS_API_KEY` +
+  `ELEVENLABS_VOICE`), lidas do ambiente, nunca gravadas; a cena é SVG programático do grafo de
+  trabalho (nó a nó, estilo 3Blue1Brown), rasterizado com `rsvg-convert` e montado com `ffmpeg` em
+  torno da narração. Sem manim: nenhuma máquina da frota o tem.
+- **Por que é achado de produto:** era uma decisão de dependência e de custo do dono. Virou
+  implementação; a dependência que resta é de máquina — `rsvg-convert` e `ffmpeg` precisam existir
+  na máquina que gera o vídeo (o Mac tem; o frb-linux tem só `ffmpeg`), e a chave precisa estar no
+  ambiente.
 
 ---
 
 ## Desfecho deste livro
 
-Nenhum item foi implementado nesta campanha; o item 1 está aberto e aguarda decisão do dono sobre a
-dependência de mídia. Os degraus 1 a 3 foram implementados no código (disciplina de termo, SVG do
-grafo de trabalho e `report --html`), não como achado.
+Os quatro degraus da escada foram implementados nativo no código: disciplina de termo (degrau 1),
+SVG do grafo de trabalho e `report --html` (degraus 2 e 3) e o vídeo animado com narração ElevenLabs
+(degrau 4). O item 1 era o único aberto e foi resolvido pela implementação; a dependência de
+máquina que resta (`rsvg-convert` + `ffmpeg` na máquina que gera o vídeo, e a chave no ambiente)
+está registrada no próprio item.
