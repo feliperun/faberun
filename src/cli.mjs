@@ -18,6 +18,7 @@ import { colorLevel, renderBanner, renderUsage, statusToken } from "./cli/brand.
 import { noTransportWarning } from "./notify/index.mjs";
 import { renderFindings, renderReport, renderReportJson, renderStatus, renderStatusJson } from "./report/render.mjs";
 import { renderNext, renderNextJson } from "./report/next.mjs";
+import { generateReportHtml } from "./report/report-html.mjs";
 
 import {
   writeTextAtomic,
@@ -105,7 +106,7 @@ export const COMMAND_OPTIONS = {
   preflight: { static: { type: "boolean" }, json: { type: "boolean" }, "time-verification": { type: "boolean" } },
   validate: {},
   status: { json: { type: "boolean" } },
-  report: { json: { type: "boolean" } },
+  report: { json: { type: "boolean" }, html: { type: "boolean" } },
   findings: {},
   doctor: { cwd: { type: "string" }, json: { type: "boolean" }, discover: { type: "boolean" }, env: { type: "boolean" } },
   models: { probe: { type: "boolean" }, json: { type: "boolean" } },
@@ -548,7 +549,24 @@ async function main(argv) {
     return;
   }
   if (command === "report") {
-    process.stdout.write(values.json === true ? renderReportJson(resolve(target)) : renderReport(resolve(target)));
+    const runDir = resolve(target);
+    if (values.json === true) {
+      process.stdout.write(renderReportJson(runDir));
+      return;
+    }
+    if (values.html === true) {
+      const result = generateReportHtml(runDir);
+      if (result.htmlPath === null) {
+        process.stderr.write(`[fail] ${result.code}\n`);
+        process.stdout.write(`[report] markdown · ${result.markdownPath}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      process.stdout.write(`[report] markdown · ${result.markdownPath}\n`);
+      process.stdout.write(`[report] html · ${result.htmlPath}\n`);
+      return;
+    }
+    process.stdout.write(renderReport(runDir));
     return;
   }
   if (command === "metrics") { process.stdout.write(renderCampaignMetrics(target, values)); return; }

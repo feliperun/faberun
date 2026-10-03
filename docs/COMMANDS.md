@@ -228,16 +228,20 @@ Related: `faberun report`, `faberun findings`, `faberun next`.
 
 ## faberun report
 ```text
-faberun report <run-dir> [--json]
+faberun report <run-dir> [--json] [--html]
 ```
 Report a run's attempts, tokens and cost, from the run's recorded evidence.
-`--json` emits the stable payload.
+`--json` emits the stable payload. `--html` writes `report.md` (the durable
+source) and renders a portable `report.md.html` beside it, with an inline SVG
+of the work graph when the phase has a dependency topology; the plain-text
+report still works when `mdhtml` is not installed.
 
 | Flag | Value | Effect | Default |
 | --- | --- | --- | --- |
 | `--json` | none | Emit the report as one JSON object. | off |
+| `--html` | none | Write `report.md` and render a portable `report.md.html` beside it. | off |
 Reads the run directory under the project's runs root (`run.json`, node
-snapshots, `usage.jsonl`); writes nothing.
+snapshots, `usage.jsonl`); writes nothing unless `--html` is set.
 ```bash
 node src/cli.mjs report /home/me/.faberun/projects/<project>/runs/feature-42
 ```

@@ -425,12 +425,14 @@ function link(path) {
 }
 
 /**
- * Escape a table cell and collapse it to one line.
+ * Escape a table cell and collapse it to one line. Exported so the report's
+ * HTML surface (`report-html.mjs`) shares this one home instead of carrying a
+ * byte-identical copy.
  *
  * @param {string} value
  * @returns {string}
  */
-function cell(value) {
+export function cell(value) {
   return value.replace(/\|/gu, "\\|").replace(/\s+/gu, " ").trim();
 }
 
