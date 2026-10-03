@@ -2,6 +2,13 @@
 
 release-please generates the entries below from Conventional Commits.
 
+## [0.32.0](https://github.com/feliperun/faberun/compare/v0.31.0...v0.32.0) (2026-10-03)
+
+
+### Features
+
+* **report:** the reading ladder: HTML, animated video and session notification ([#104](https://github.com/feliperun/faberun/issues/104)) ([0482798](https://github.com/feliperun/faberun/commit/04827988a2795933c3c24ab0113b594fd9816381))
+
 ## [0.31.0](https://github.com/feliperun/faberun/compare/v0.30.0...v0.31.0) (2026-10-02)
 
 
